@@ -1,4 +1,5 @@
 using LessonCue.Server;
+using Xunit;
 
 namespace LessonCue.Server.Tests;
 

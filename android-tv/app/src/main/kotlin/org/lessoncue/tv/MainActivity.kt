@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
@@ -108,8 +107,9 @@ fun LessonCueApp() {
                             else AppScreen.Player(playlist, 0)
                         }
                         is PlaybackPhase.PreRoll -> {
-                            val items = playlist.preRoll?.items.orEmpty().mapIndexed { index, item ->
-                                item.copy(endBehavior = if (index == playlist.preRoll.items.lastIndex) "playlistLoop" else "advance")
+                            val preRollItems = playlist.preRoll?.items.orEmpty()
+                            val items = preRollItems.mapIndexed { index, item ->
+                                item.copy(endBehavior = if (index == preRollItems.lastIndex) "playlistLoop" else "advance")
                             }
                             AppScreen.Player(playlist.copy(items = items), 0)
                         }

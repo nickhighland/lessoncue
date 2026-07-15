@@ -25,7 +25,12 @@ public static class SeedData
         var teaching = new PlaylistItem { LessonId = lesson.Id, Title = "Teaching Video", Type = "video", Role = "lesson", Position = 3000, DurationMs = 600_000, EndBehavior = "pause" };
         lesson.CountdownItemId = countdown.Id;
         db.AddRange(organization, lessonClass, lesson, preRoll, countdown, teaching);
-        db.AuditEvents.Add(new AuditEvent { Action = "system.seed", Object = "database", Summary = JsonSerializer.Serialize(new { organization.Name, lessonClass.Name }) });
+        db.AuditEvents.Add(new AuditEvent
+        {
+            Action = "system.seed",
+            Object = "database",
+            Summary = JsonSerializer.Serialize(new { OrganizationName = organization.Name, ClassName = lessonClass.Name })
+        });
         await db.SaveChangesAsync();
     }
 }
