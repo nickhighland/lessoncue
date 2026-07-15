@@ -1,1 +1,55 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Install · LessonCue</title><link rel="stylesheet" href="styles.css"></head><body><nav><a class="brand" href="./"><span>LC</span> LessonCue</a><div><a href="./">Overview</a><a href="implementation.html">Build</a><a class="repo" href="https://github.com/nickhighland/lessoncue">GitHub ↗</a></div></nav><main class="page"><p class="eyebrow">INSTALLATION</p><h1>Run LessonCue on your local network.</h1><p class="intro">Start with Docker for evaluation or use a native service package for ordinary church and school deployments.</p><div class="notice">LessonCue is designed for a trusted local device network. Do not expose port 8080 directly to the public internet.</div><section class="steps"><article><b>OPTION A</b><h2>Docker Compose</h2><pre>git clone https://github.com/nickhighland/lessoncue.git&#10;cd lessoncue&#10;cp .env.example .env&#10;docker compose up -d --build</pre><p>Open <code>http://SERVER-IP:8080</code>. Persistent data defaults to <code>./lessoncue-data</code>.</p></article><article><b>OPTION B</b><h2>Linux service</h2><p>Download the x64 or ARM64 release, unpack it, and run:</p><pre>sudo ./install.sh&#10;sudo systemctl status lessoncue</pre><p>Application files live in <code>/opt/lessoncue</code>; durable data stays in <code>/var/lib/lessoncue</code>.</p></article><article><b>OPTION C</b><h2>Windows service</h2><p>Unpack the Windows release, open PowerShell as Administrator, and run:</p><pre>Set-ExecutionPolicy -Scope Process Bypass&#10;.\Install-LessonCue.ps1</pre><p>Durable data stays in <code>C:\ProgramData\LessonCue</code>.</p></article><article><b>PAIR A SCREEN</b><h2>Install the native TV app</h2><ol><li>Install the Android/Fire TV APK or sign the tvOS project in Xcode.</li><li>Enter <code>http://lessoncue.local:8080</code> or the numeric address.</li><li>Enter the temporary pairing PIN.</li><li>Wait for the lesson to report offline ready.</li><li>Disable Wi-Fi and test every item before live use.</li></ol></article></section><p><a class="primary" href="https://github.com/nickhighland/lessoncue/blob/main/docs/installation.md">Full operator guide ↗</a></p></main></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Install · LessonCue</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <nav><a class="brand" href="./"><span>LC</span> LessonCue</a><div><a href="./">Overview</a><a href="implementation.html">Build</a><a class="repo" href="https://github.com/nickhighland/lessoncue">GitHub ↗</a></div></nav>
+  <main class="page">
+    <p class="eyebrow">HEADLESS LINUX INSTALLATION</p>
+    <h1>Install entirely over SSH.</h1>
+    <p class="intro">These commands install LessonCue on a 64-bit Ubuntu or Debian server with no desktop or GUI. Use a non-root SSH account with <code>sudo</code>.</p>
+    <div class="notice">Keep the server on your trusted local network. Do not forward TCP port 8080 from the public internet.</div>
+    <section class="steps">
+      <article>
+        <b>STEP 1</b>
+        <h2>Connect to the server</h2>
+        <pre>ssh YOUR_USERNAME@SERVER_IP</pre>
+      </article>
+      <article>
+        <b>STEP 2 · COPY THIS ENTIRE BLOCK</b>
+        <h2>Download and install the latest release</h2>
+        <pre>set -euo pipefail&#10;&#10;sudo apt-get update&#10;sudo apt-get install -y curl ca-certificates ffmpeg avahi-daemon libicu-dev zlib1g openssl&#10;&#10;case "$(uname -m)" in&#10;  x86_64|amd64) LESSONCUE_RUNTIME="linux-x64" ;;&#10;  aarch64|arm64) LESSONCUE_RUNTIME="linux-arm64" ;;&#10;  *) echo "Unsupported CPU architecture: $(uname -m)"; exit 1 ;;&#10;esac&#10;&#10;LESSONCUE_VERSION="$(curl -fsSL -o /dev/null -w '%{url_effective}' &#10;  https://github.com/nickhighland/lessoncue/releases/latest | awk -F/ '{print $NF}')"&#10;LESSONCUE_WORKDIR="$(mktemp -d)"&#10;&#10;curl -fL &#10;  "https://github.com/nickhighland/lessoncue/releases/download/${LESSONCUE_VERSION}/LessonCue-Server-${LESSONCUE_RUNTIME}.tar.gz" &#10;  -o "${LESSONCUE_WORKDIR}/lessoncue.tar.gz"&#10;&#10;tar -xzf "${LESSONCUE_WORKDIR}/lessoncue.tar.gz" -C "${LESSONCUE_WORKDIR}"&#10;sudo "${LESSONCUE_WORKDIR}/install.sh"&#10;cd /&#10;rm -rf "${LESSONCUE_WORKDIR}"&#10;&#10;if command -v ufw &gt;/dev/null 2&gt;&amp;1; then&#10;  sudo ufw allow 8080/tcp&#10;fi&#10;&#10;SERVER_IP="$(hostname -I | awk '{print $1}')"&#10;echo "LessonCue is installed at http://${SERVER_IP}:8080"&#10;curl -fsS http://127.0.0.1:8080/health&#10;echo</pre>
+        <p>The final response should contain <code>"status":"healthy"</code>. LessonCue now runs as a systemd service and starts automatically after reboot.</p>
+      </article>
+      <article>
+        <b>STEP 3 · COPY THIS ENTIRE BLOCK</b>
+        <h2>Replace the development pairing PIN</h2>
+        <pre>set -euo pipefail&#10;PAIRING_PIN="$(od -An -N4 -tu4 /dev/urandom | awk '{printf "%06d", $1 % 1000000}')"&#10;sudo sed -i -E &#10;  "s/(\"PairingPin\"[[:space:]]*:[[:space:]]*\")[0-9]{6}(\")/\1${PAIRING_PIN}\2/" &#10;  /opt/lessoncue/appsettings.json&#10;sudo systemctl restart lessoncue&#10;echo "LessonCue pairing PIN: ${PAIRING_PIN}"</pre>
+        <p>Save the printed PIN in your password manager.</p>
+      </article>
+      <article>
+        <b>STEP 4</b>
+        <h2>Verify and find the local address</h2>
+        <pre>sudo systemctl status lessoncue --no-pager&#10;curl -fsS http://127.0.0.1:8080/health &amp;&amp; echo&#10;hostname -I | awk '{print "http://" $1 ":8080"}'</pre>
+        <p>Open the printed address from another computer on the same network. The v0.1.0 local server currently exposes its API status; the interactive administration experience remains separately hosted.</p>
+      </article>
+      <article>
+        <b>LOGS AND RECOVERY</b>
+        <h2>Useful SSH commands</h2>
+        <pre>sudo journalctl -u lessoncue -f&#10;sudo systemctl restart lessoncue&#10;sudo systemctl status lessoncue --no-pager</pre>
+        <p>Press <code>Ctrl+C</code> to stop following logs. Disconnecting SSH does not stop LessonCue.</p>
+      </article>
+      <article>
+        <b>ALTERNATIVES</b>
+        <h2>Docker, Windows, and native TV apps</h2>
+        <p>The full operator guide also covers Docker Compose, Windows services, Android TV, Fire TV, Apple TV, backups, updates, and clean uninstallation.</p>
+      </article>
+    </section>
+    <p><a class="primary" href="https://github.com/nickhighland/lessoncue/blob/main/docs/installation.md">Open the full installation guide ↗</a></p>
+  </main>
+</body>
+</html>

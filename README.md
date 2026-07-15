@@ -16,7 +16,9 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 
 ## Quick start
 
-The fastest server installation is Docker:
+For a headless Ubuntu or Debian server accessed over SSH, use the complete copy-and-paste block in the [installation guide](docs/installation.md#recommended-headless-ubuntu-or-debian-server-over-ssh).
+
+For a quick Docker evaluation:
 
 ```bash
 cp .env.example .env
