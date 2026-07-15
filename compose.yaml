@@ -1,0 +1,22 @@
+services:
+  lessoncue:
+    build:
+      context: .
+      dockerfile: server/LessonCue.Server/Dockerfile
+    image: lessoncue/server:local
+    container_name: lessoncue
+    restart: unless-stopped
+    ports:
+      - "${LESSONCUE_HTTP_PORT:-8080}:8080"
+    volumes:
+      - "${LESSONCUE_DATA_PATH:-./lessoncue-data}:/data"
+    environment:
+      LESSONCUE_DATA_PATH: /data
+      LESSONCUE_HTTP_PORT: 8080
+      LESSONCUE_SERVER_NAME: "${LESSONCUE_SERVER_NAME:-LessonCue}"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s

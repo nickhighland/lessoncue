@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.LessonCue" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:colorAccent">#FFB664</item>
+        <item name="android:windowBackground">#08111F</item>
+    </style>
+</resources>

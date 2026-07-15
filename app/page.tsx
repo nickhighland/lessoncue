@@ -93,6 +93,7 @@ export default function LessonCue() {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idSequence = useRef(0);
 
   const selected = items.find((item) => item.id === selectedId) ?? items[0];
   const totalDuration = useMemo(() => items.reduce((total, item) => {
@@ -150,10 +151,16 @@ export default function LessonCue() {
     announceSave();
   }
 
+  function nextId(prefix: string) {
+    idSequence.current += 1;
+    return `${prefix}-${idSequence.current}`;
+  }
+
   function duplicateItem(id: string) {
+    const cloneId = nextId(id);
     setItems((current) => {
       const index = current.findIndex((item) => item.id === id);
-      const clone = { ...current[index], id: `${id}-${Date.now()}`, title: `${current[index].title} copy` };
+      const clone = { ...current[index], id: cloneId, title: `${current[index].title} copy` };
       const next = [...current];
       next.splice(index + 1, 0, clone);
       return next;
@@ -169,7 +176,7 @@ export default function LessonCue() {
 
   function addLibraryItem(item: typeof library[number]) {
     const newItem: PlaylistItem = {
-      id: `${item.kind}-${Date.now()}`,
+      id: nextId(item.kind),
       title: item.title,
       kind: item.kind,
       duration: item.kind === "image" ? "00:10" : item.meta.split(" · ")[1],
@@ -189,10 +196,10 @@ export default function LessonCue() {
 
   function onUpload(files: FileList | null) {
     if (!files?.length) return;
-    const additions = Array.from(files).map((file, index): PlaylistItem => {
+    const additions = Array.from(files).map((file): PlaylistItem => {
       const kind: MediaKind = file.type.startsWith("image") ? "image" : file.type.startsWith("audio") ? "audio" : "video";
       return {
-        id: `upload-${Date.now()}-${index}`,
+        id: nextId("upload"),
         title: file.name.replace(/\.[^.]+$/, ""),
         kind,
         duration: kind === "image" ? "00:10" : "00:00",

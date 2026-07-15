@@ -1,0 +1,78 @@
+name: Package release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  server-linux:
+    strategy:
+      matrix:
+        runtime: [linux-x64, linux-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet publish server/LessonCue.Server/LessonCue.Server.csproj -c Release -r ${{ matrix.runtime }} --self-contained -o package/payload
+      - run: cp installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue.service package/
+      - run: mkdir -p package/docker
+      - run: cp docker/avahi-service.xml package/docker/
+      - run: tar -C package -czf LessonCue-Server-${{ matrix.runtime }}.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LessonCue-Server-${{ matrix.runtime }}
+          path: LessonCue-Server-${{ matrix.runtime }}.tar.gz
+
+  server-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet publish server/LessonCue.Server/LessonCue.Server.csproj -c Release -r win-x64 --self-contained -o package/payload
+      - shell: pwsh
+        run: |
+          Copy-Item installers/windows/Install-LessonCue.ps1 package/
+          Copy-Item installers/windows/Uninstall-LessonCue.ps1 package/
+          Compress-Archive -Path package/* -DestinationPath LessonCue-Server-Windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LessonCue-Server-Windows-x64
+          path: LessonCue-Server-Windows-x64.zip
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.4.1
+      - run: gradle -p android-tv :app:assembleDebug
+      - run: cp android-tv/app/build/outputs/apk/debug/app-debug.apk LessonCue-AndroidTV-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LessonCue-AndroidTV-debug
+          path: LessonCue-AndroidTV-debug.apk
+
+  publish:
+    needs: [server-linux, server-windows, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release/*

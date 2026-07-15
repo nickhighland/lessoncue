@@ -1,0 +1,221 @@
+openapi: 3.1.0
+info:
+  title: LessonCue Local API
+  version: 1.0.0
+  description: Versioned contract used by the LessonCue administration UI and native TV clients.
+servers:
+  - url: http://lessoncue.local:8080
+paths:
+  /.well-known/lessoncue:
+    get:
+      operationId: discoverServer
+      responses:
+        '200':
+          description: Public local-network discovery document
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Discovery' }
+  /api/v1/pairing/request:
+    post:
+      operationId: requestPairing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PairingRequest' }
+      responses:
+        '202':
+          description: Pairing request is waiting for PIN confirmation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requestId: { type: string, format: uuid }
+                  expiresAt: { type: string, format: date-time }
+  /api/v1/pairing/confirm:
+    post:
+      operationId: confirmPairing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requestId, pin]
+              properties:
+                requestId: { type: string, format: uuid }
+                pin: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: Device credential and initial identity
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PairingResult' }
+        '400': { description: Expired or invalid PIN }
+        '429': { description: Too many attempts }
+  /api/v1/classes:
+    get:
+      operationId: listClasses
+      responses:
+        '200':
+          description: Classes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Class' }
+    post:
+      operationId: createClass
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClassInput' }
+      responses:
+        '201': { description: Created }
+  /api/v1/lessons:
+    get:
+      operationId: listLessons
+      responses:
+        '200':
+          description: Lessons ordered by date
+    post:
+      operationId: createLesson
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LessonInput' }
+      responses:
+        '201': { description: Created }
+  /api/v1/lessons/{lessonId}/items:
+    post:
+      operationId: addPlaylistItem
+      parameters:
+        - name: lessonId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlaylistItemInput' }
+      responses:
+        '201': { description: Created and manifest invalidated }
+        '404': { description: Lesson not found }
+  /api/v1/screens/{screenId}/manifest:
+    get:
+      operationId: getScreenManifest
+      security: [{ deviceBearer: [] }]
+      parameters:
+        - name: screenId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Complete offline synchronization manifest
+          content:
+            application/json:
+              schema: { $ref: './manifest.schema.json' }
+  /api/v1/tv/status:
+    post:
+      operationId: reportTvStatus
+      security: [{ deviceBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TvStatus' }
+      responses:
+        '202': { description: Accepted }
+  /api/v1/media/{mediaId}/file:
+    get:
+      operationId: downloadMedia
+      security: [{ deviceBearer: [] }]
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Media file }
+        '206': { description: Partial media response }
+        '404': { description: Not found }
+components:
+  securitySchemes:
+    deviceBearer:
+      type: http
+      scheme: bearer
+  schemas:
+    Discovery:
+      type: object
+      required: [product, serverId, serverName, apiVersion, pairingEnabled]
+      properties:
+        product: { const: LessonCue }
+        serverId: { type: string, format: uuid }
+        serverName: { type: string }
+        apiVersion: { const: 1 }
+        pairingEnabled: { type: boolean }
+    PairingRequest:
+      type: object
+      required: [deviceName, platform, appVersion]
+      properties:
+        deviceName: { type: string, maxLength: 100 }
+        platform: { enum: [android-tv, fire-tv, tvos] }
+        appVersion: { type: string }
+        devicePublicKey: { type: [string, 'null'] }
+    PairingResult:
+      type: object
+      required: [screenId, deviceToken, apiVersion]
+      properties:
+        screenId: { type: string, format: uuid }
+        deviceToken: { type: string }
+        apiVersion: { const: 1 }
+        serverPublicKey: { type: [string, 'null'] }
+    Class:
+      allOf:
+        - $ref: '#/components/schemas/ClassInput'
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string, format: uuid }
+    ClassInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 1000 }
+    LessonInput:
+      type: object
+      required: [classId, date, title]
+      properties:
+        classId: { type: string, format: uuid }
+        date: { type: string, format: date }
+        title: { type: string }
+        designatedStartAt: { type: [string, 'null'], format: date-time }
+        countdownItemId: { type: [string, 'null'], format: uuid }
+        preRollEnabled: { type: boolean, default: false }
+    PlaylistItemInput:
+      type: object
+      required: [title, type]
+      properties:
+        title: { type: string }
+        type: { enum: [video, audio, image, liveStream, external] }
+        mediaId: { type: [string, 'null'], format: uuid }
+        role: { enum: [lesson, preRoll, countdown] }
+        position: { type: number }
+        durationMs: { type: [integer, 'null'] }
+        endBehavior: { enum: [advance, pause, loop, menu, stop] }
+    TvStatus:
+      type: object
+      required: [screenId, appVersion, online, freeBytes]
+      properties:
+        screenId: { type: string, format: uuid }
+        appVersion: { type: string }
+        online: { type: boolean }
+        freeBytes: { type: integer }
+        manifestVersion: { type: integer }
+        failedDownloads: { type: integer }

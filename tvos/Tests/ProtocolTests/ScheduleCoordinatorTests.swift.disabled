@@ -1,0 +1,6 @@
+// This test is run as part of the generated Xcode project when the tvOS SDK is available.
+// The repository's bundled command-line Swift runtime does not ship XCTest or Testing.
+//
+// let start = ISO8601DateFormatter().date(from: "2026-07-19T13:00:00Z")!
+// assert(ScheduleCoordinator.phase(for: lesson, now: start.addingTimeInterval(-180)) ==
+//        .countdown(seekMilliseconds: 120_000))

@@ -1,0 +1,22 @@
+[Unit]
+Description=LessonCue classroom media server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lessoncue
+Group=lessoncue
+WorkingDirectory=/opt/lessoncue
+ExecStart=/opt/lessoncue/LessonCue.Server
+Environment=LESSONCUE_DATA_PATH=/var/lib/lessoncue
+Environment=LESSONCUE_HTTP_PORT=8080
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/lessoncue
+
+[Install]
+WantedBy=multi-user.target

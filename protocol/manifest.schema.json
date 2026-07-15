@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lessoncue.org/protocol/v1/manifest.schema.json",
+  "title": "LessonCue screen manifest",
+  "type": "object",
+  "required": ["apiVersion", "manifestVersion", "generatedAt", "screen", "playlists"],
+  "properties": {
+    "apiVersion": { "const": 1 },
+    "manifestVersion": { "type": "integer", "minimum": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "screen": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "volunteerMode": { "type": "boolean", "default": true }
+      }
+    },
+    "playlists": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/playlist" }
+    }
+  },
+  "$defs": {
+    "playlist": {
+      "type": "object",
+      "required": ["playlistId", "title", "version", "items"],
+      "properties": {
+        "playlistId": { "type": "string" },
+        "title": { "type": "string" },
+        "version": { "type": "integer", "minimum": 1 },
+        "availableFrom": { "type": ["string", "null"], "format": "date-time" },
+        "expiresAt": { "type": ["string", "null"], "format": "date-time" },
+        "designatedStartAt": { "type": ["string", "null"], "format": "date-time" },
+        "countdown": { "$ref": "#/$defs/countdown" },
+        "preRoll": { "$ref": "#/$defs/preRoll" },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/item" } }
+      }
+    },
+    "countdown": {
+      "type": ["object", "null"],
+      "required": ["enabled", "itemId", "durationMs", "item"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "itemId": { "type": "string" },
+        "durationMs": { "type": "integer", "minimum": 1 },
+        "startAt": { "type": ["string", "null"], "format": "date-time" },
+        "item": { "$ref": "#/$defs/item" }
+      }
+    },
+    "preRoll": {
+      "type": ["object", "null"],
+      "required": ["enabled", "loop", "items"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "loop": { "type": "boolean", "const": true },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/item" } }
+      }
+    },
+    "item": {
+      "type": "object",
+      "required": ["itemId", "type", "title", "endBehavior", "offlineEligible"],
+      "properties": {
+        "itemId": { "type": "string" },
+        "mediaId": { "type": ["string", "null"] },
+        "type": { "enum": ["video", "audio", "image", "liveStream", "external"] },
+        "title": { "type": "string" },
+        "downloadUrl": { "type": ["string", "null"] },
+        "sha256": { "type": ["string", "null"] },
+        "sizeBytes": { "type": ["integer", "null"], "minimum": 0 },
+        "durationMs": { "type": ["integer", "null"], "minimum": 0 },
+        "startMs": { "type": "integer", "minimum": 0, "default": 0 },
+        "endMs": { "type": ["integer", "null"], "minimum": 0 },
+        "volumePercent": { "type": "integer", "minimum": 0, "maximum": 150, "default": 100 },
+        "imageDurationSeconds": { "type": ["integer", "null"], "minimum": 1 },
+        "endBehavior": { "enum": ["advance", "pause", "loop", "menu", "stop"] },
+        "allowSkip": { "type": "boolean", "default": true },
+        "offlineEligible": { "type": "boolean" }
+      }
+    }
+  }
+}

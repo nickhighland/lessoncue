@@ -1,0 +1,27 @@
+name: LessonCueTV
+options:
+  bundleIdPrefix: org.lessoncue
+  deploymentTarget:
+    tvOS: "17.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+targets:
+  LessonCueTV:
+    type: application
+    platform: tvOS
+    sources:
+      - Sources/App
+      - Sources/Protocol
+    info:
+      path: Sources/App/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.lessoncue.tv
+        PRODUCT_NAME: LessonCue
+        GENERATE_INFOPLIST_FILE: false
+        ASSETCATALOG_COMPILER_APPICON_NAME: App Icon & Top Shelf Image
+        CODE_SIGN_STYLE: Automatic
+    scheme:
+      gatherCoverageData: false
