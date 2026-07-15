@@ -44,3 +44,13 @@ test("ships the product-specific social card and removes the starter preview", a
   assert.match(layout, /summary_large_image/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });
+
+test("includes phase-two deployment reliability workflows", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /Pair a television/);
+  assert.match(page, /Stored local schedule/);
+  assert.match(page, /Backups/);
+  assert.match(page, /Users & permissions/);
+  assert.match(page, /Audit log/);
+  assert.match(page, /Network readiness/);
+});
