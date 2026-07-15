@@ -7,12 +7,23 @@ public sealed class Organization
     public Guid Id { get; set; } = Guid.NewGuid();
     [MaxLength(160)] public required string Name { get; set; }
     [MaxLength(100)] public string TimeZone { get; set; } = "America/New_York";
+    [MaxLength(160)] public string SiteName { get; set; } = "Main Site";
+    [MaxLength(16)] public string WeekStartsOn { get; set; } = "Sunday";
+    public int DefaultLessonDurationMinutes { get; set; } = 60;
+    public int DefaultRetentionDays { get; set; } = 30;
+    [MaxLength(16)] public string PrimaryColor { get; set; } = "#25302d";
+    [MaxLength(16)] public string AccentColor { get; set; } = "#d89127";
+    [MaxLength(240)] public string WelcomeMessage { get; set; } = "Welcome";
 }
 
 public sealed class AdminAccount
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     [MaxLength(80)] public required string Username { get; set; }
+    [MaxLength(120)] public string DisplayName { get; set; } = "Administrator";
+    [MaxLength(200)] public string? Email { get; set; }
+    [MaxLength(32)] public string Role { get; set; } = "Owner";
+    public bool Disabled { get; set; }
     public required string PasswordHash { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? LastLoginAt { get; set; }
@@ -35,9 +46,13 @@ public sealed class Lesson
     public DateTimeOffset? AvailableFrom { get; set; }
     public DateTimeOffset? ExpiresAt { get; set; }
     public DateTimeOffset? DesignatedStartAt { get; set; }
+    public DateTimeOffset? PreRollStartsAt { get; set; }
     public bool PreRollEnabled { get; set; }
     public Guid? CountdownItemId { get; set; }
     public int Version { get; set; } = 1;
+    public bool Archived { get; set; }
+    public bool KeepOffline { get; set; }
+    public int DownloadDaysBefore { get; set; } = 7;
     public List<PlaylistItem> Items { get; set; } = [];
 }
 
@@ -59,6 +74,10 @@ public sealed class PlaylistItem
     public int? ImageDurationSeconds { get; set; }
     [MaxLength(24)] public string EndBehavior { get; set; } = "advance";
     public bool AllowSkip { get; set; } = true;
+    [MaxLength(2000)] public string Notes { get; set; } = "";
+    public int FadeInMs { get; set; }
+    public int FadeOutMs { get; set; }
+    public bool NormalizeAudio { get; set; }
 }
 
 public sealed class MediaAsset
@@ -71,6 +90,18 @@ public sealed class MediaAsset
     public long SizeBytes { get; set; }
     public long? DurationMs { get; set; }
     public bool OfflineEligible { get; set; } = true;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    [MaxLength(32)] public string ProcessingStatus { get; set; } = "pending";
+    [MaxLength(1000)] public string? ProcessingError { get; set; }
+    [MaxLength(40)] public string? VideoCodec { get; set; }
+    [MaxLength(40)] public string? AudioCodec { get; set; }
+    public int? Width { get; set; }
+    public int? Height { get; set; }
+    public double? LoudnessLufs { get; set; }
+    [MaxLength(512)] public string? ThumbnailPath { get; set; }
+    [MaxLength(32)] public string SourceKind { get; set; } = "upload";
+    [MaxLength(2048)] public string? SourceUrl { get; set; }
+    [MaxLength(32)] public string? LinkKind { get; set; }
 }
 
 public sealed class Screen
@@ -84,6 +115,39 @@ public sealed class Screen
     public long FreeBytes { get; set; }
     public int FailedDownloads { get; set; }
     public bool Revoked { get; set; }
+    [MaxLength(32)] public string AppVersion { get; set; } = "unknown";
+    public int ManifestVersion { get; set; }
+    [MaxLength(500)] public string TagsCsv { get; set; } = "";
+    [MaxLength(100)] public string Site { get; set; } = "Main Site";
+    [MaxLength(64)] public string? LastIpAddress { get; set; }
+}
+
+public sealed class SignagePlaylist
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    [MaxLength(160)] public required string Name { get; set; }
+    [MaxLength(32)] public string Mode { get; set; } = "scheduled";
+    public bool Enabled { get; set; } = true;
+    public int Priority { get; set; }
+    public DateTimeOffset? StartsAt { get; set; }
+    public DateTimeOffset? EndsAt { get; set; }
+    [MaxLength(2000)] public string Message { get; set; } = "";
+    [MaxLength(16)] public string BackgroundColor { get; set; } = "#25302d";
+    [MaxLength(16)] public string TextColor { get; set; } = "#ffffff";
+    public Guid? MediaAssetId { get; set; }
+    public MediaAsset? MediaAsset { get; set; }
+    [MaxLength(2000)] public string TargetTagsCsv { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class BackupRecord
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    [MaxLength(255)] public required string FileName { get; set; }
+    [MaxLength(32)] public string Kind { get; set; } = "configuration";
+    public long SizeBytes { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    [MaxLength(80)] public string CreatedBy { get; set; } = "system";
 }
 
 public sealed class PairingAttempt
@@ -120,7 +184,8 @@ public sealed class AuditEvent
 
 public sealed record ClassInput(string Name, string? Description);
 public sealed record LessonInput(Guid ClassId, DateOnly Date, string Title, DateTimeOffset? AvailableFrom,
-    DateTimeOffset? ExpiresAt, DateTimeOffset? DesignatedStartAt, bool PreRollEnabled, Guid? CountdownItemId);
+    DateTimeOffset? ExpiresAt, DateTimeOffset? DesignatedStartAt, bool PreRollEnabled, Guid? CountdownItemId,
+    DateTimeOffset? PreRollStartsAt = null);
 public sealed record PlaylistItemInput(string Title, string Type, string? Role, decimal Position,
     Guid? MediaId, long? DurationMs, long StartMs, long? EndMs, int VolumePercent,
     int? ImageDurationSeconds, string? EndBehavior, bool AllowSkip);
@@ -128,15 +193,25 @@ public sealed record PairingRequestInput(string DeviceName, string Platform, str
 public sealed record PairingConfirmInput(Guid RequestId, string Pin);
 public sealed record TvStatusInput(Guid ScreenId, string AppVersion, bool Online, long FreeBytes,
     int ManifestVersion, int FailedDownloads);
-public sealed record AdminSetupInput(string OrganizationName, string Username, string Password);
+public sealed record AdminSetupInput(string OrganizationName, string Username, string Password,
+    string? DisplayName = null, string? TimeZone = null, string? Email = null,
+    string? SiteName = null, string? WeekStartsOn = null);
 public sealed record AdminLoginInput(string Username, string Password);
 public sealed record LessonUpdateInput(string? Title, DateOnly? Date, DateTimeOffset? AvailableFrom,
     DateTimeOffset? ExpiresAt, DateTimeOffset? DesignatedStartAt, bool? PreRollEnabled, Guid? CountdownItemId,
     bool ClearCountdown = false, bool ClearAvailableFrom = false, bool ClearExpiresAt = false,
-    bool ClearDesignatedStartAt = false);
+    bool ClearDesignatedStartAt = false, DateTimeOffset? PreRollStartsAt = null, bool ClearPreRollStartsAt = false);
 public sealed record PlaylistItemUpdateInput(string? Title, string? Type, string? Role, Guid? MediaId,
     long? DurationMs, long? StartMs, long? EndMs, int? VolumePercent, int? ImageDurationSeconds,
-    string? EndBehavior, bool? AllowSkip, bool ClearEndMs = false);
+    string? EndBehavior, bool? AllowSkip, bool ClearEndMs = false, string? Notes = null,
+    int? FadeInMs = null, int? FadeOutMs = null, bool? NormalizeAudio = null);
 public sealed record PlaylistReorderInput(List<Guid> ItemIds);
 public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool? VolunteerMode,
-    bool ClearAssignment = false);
+    bool ClearAssignment = false, string? TagsCsv = null, string? Site = null);
+public sealed record UserInput(string Username, string DisplayName, string? Email, string Role, string? Password, bool Disabled = false);
+public sealed record OrganizationInput(string Name, string SiteName, string TimeZone, string WeekStartsOn,
+    int DefaultLessonDurationMinutes, int DefaultRetentionDays, string PrimaryColor, string AccentColor, string WelcomeMessage);
+public sealed record SignageInput(string Name, string Mode, bool Enabled, int Priority, DateTimeOffset? StartsAt,
+    DateTimeOffset? EndsAt, string? Message, string? BackgroundColor, string? TextColor, Guid? MediaAssetId, string? TargetTagsCsv);
+public sealed record LinkInput(string Url, string? Title);
+public sealed record UploadCompleteInput(string FileName, string ContentType, int TotalChunks, long? DurationMs);

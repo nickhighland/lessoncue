@@ -20,10 +20,10 @@ actor OfflineCache {
         return file
     }
 
-    func cache(_ item: CueItem, from remoteURL: URL, token: String) async throws {
+    func cache(_ item: CueItem, from remoteURL: URL, token: String?) async throws {
         guard item.offlineEligible else { return }
         var request = URLRequest(url: remoteURL)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let (temporary, response) = try await URLSession.shared.download(for: request)
         guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else { throw CacheError.downloadFailed }
         let destination = directory.appendingPathComponent(item.itemId)

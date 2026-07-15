@@ -26,7 +26,7 @@ struct LessonCueAPI: Sendable {
 
     func beginPairing(deviceName: String) async throws -> String {
         let body = try JSONSerialization.data(withJSONObject: [
-            "deviceName": deviceName, "platform": "tvos", "appVersion": "0.1.0"
+            "deviceName": deviceName, "platform": "tvos", "appVersion": "0.3.0"
         ])
         let response: PairingRequestResponse = try await request(path: "/api/v1/pairing/request", method: "POST", body: body)
         return response.requestId
@@ -40,6 +40,28 @@ struct LessonCueAPI: Sendable {
 
     func manifest(identity: DeviceIdentity) async throws -> ScreenManifest {
         try await request(path: "/api/v1/screens/\(identity.screenId)/manifest", token: identity.deviceToken)
+    }
+
+    func reportStatus(identity: DeviceIdentity, manifestVersion: Int, freeBytes: Int64, failedDownloads: Int = 0) async throws {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "screenId": identity.screenId,
+            "appVersion": "0.3.0",
+            "online": true,
+            "freeBytes": freeBytes,
+            "manifestVersion": manifestVersion,
+            "failedDownloads": failedDownloads
+        ])
+        guard let url = URL(string: "/api/v1/tv/status", relativeTo: serverURL)?.absoluteURL else { throw APIError.invalidAddress }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = body
+        request.timeoutInterval = 20
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(identity.deviceToken)", forHTTPHeaderField: "Authorization")
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
+            throw APIError.server("The server did not accept this Apple TV's status update.")
+        }
     }
 
     func absoluteMediaURL(_ path: String) -> URL? {

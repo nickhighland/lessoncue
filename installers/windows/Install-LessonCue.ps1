@@ -18,8 +18,7 @@ if (-not (Test-Path $ConfigFile)) {
     if (Test-Path $OldConfig) {
         Copy-Item $OldConfig $ConfigFile
     } else {
-        $PairingPin = Get-Random -Minimum 0 -Maximum 1000000
-        @{ LessonCue = @{ PairingPin = $PairingPin.ToString('D6') } } |
+        @{ LessonCue = @{} } |
             ConvertTo-Json -Depth 3 | Set-Content -Encoding UTF8 $ConfigFile
     }
 }

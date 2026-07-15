@@ -1,19 +1,123 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace LessonCue.Server;
 
+/// <summary>
+/// LessonCue ships as a single-file appliance, so upgrades must work without an
+/// operator installing a migration tool. New installs are created by EF and this
+/// small, idempotent upgrader brings existing v0.1/v0.2 databases forward.
+/// </summary>
 public static class DatabaseUpgrade
 {
-    public static Task ApplyAsync(LessonCueDb db, CancellationToken cancellationToken = default) =>
-        db.Database.ExecuteSqlRawAsync(
+    public static async Task ApplyAsync(LessonCueDb db, CancellationToken cancellationToken = default)
+    {
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != ConnectionState.Open) await connection.OpenAsync(cancellationToken);
+
+        await ExecuteAsync(connection,
             """
             CREATE TABLE IF NOT EXISTS "AdminAccounts" (
                 "Id" TEXT NOT NULL CONSTRAINT "PK_AdminAccounts" PRIMARY KEY,
                 "Username" TEXT NOT NULL,
                 "PasswordHash" TEXT NOT NULL,
                 "CreatedAt" TEXT NOT NULL,
-                "LastLoginAt" TEXT NULL
+                "LastLoginAt" TEXT NULL,
+                "DisplayName" TEXT NOT NULL DEFAULT 'Administrator',
+                "Email" TEXT NULL,
+                "Role" TEXT NOT NULL DEFAULT 'Owner',
+                "Disabled" INTEGER NOT NULL DEFAULT 0
             );
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_AdminAccounts_Username" ON "AdminAccounts" ("Username");
+            CREATE INDEX IF NOT EXISTS "IX_MediaAssets_Sha256" ON "MediaAssets" ("Sha256");
+            CREATE TABLE IF NOT EXISTS "SignagePlaylists" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_SignagePlaylists" PRIMARY KEY,
+                "Name" TEXT NOT NULL,
+                "Mode" TEXT NOT NULL DEFAULT 'scheduled',
+                "Enabled" INTEGER NOT NULL DEFAULT 1,
+                "Priority" INTEGER NOT NULL DEFAULT 0,
+                "StartsAt" TEXT NULL,
+                "EndsAt" TEXT NULL,
+                "Message" TEXT NOT NULL DEFAULT '',
+                "BackgroundColor" TEXT NOT NULL DEFAULT '#25302d',
+                "TextColor" TEXT NOT NULL DEFAULT '#ffffff',
+                "MediaAssetId" TEXT NULL,
+                "TargetTagsCsv" TEXT NOT NULL DEFAULT '',
+                "CreatedAt" TEXT NOT NULL,
+                CONSTRAINT "FK_SignagePlaylists_MediaAssets_MediaAssetId" FOREIGN KEY ("MediaAssetId") REFERENCES "MediaAssets" ("Id")
+            );
+            CREATE TABLE IF NOT EXISTS "BackupRecords" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_BackupRecords" PRIMARY KEY,
+                "FileName" TEXT NOT NULL,
+                "Kind" TEXT NOT NULL DEFAULT 'configuration',
+                "SizeBytes" INTEGER NOT NULL DEFAULT 0,
+                "CreatedAt" TEXT NOT NULL,
+                "CreatedBy" TEXT NOT NULL DEFAULT 'system'
+            );
             """, cancellationToken);
+
+        var additions = new Dictionary<string, (string Table, string Sql)>
+        {
+            ["Organizations.SiteName"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"SiteName\" TEXT NOT NULL DEFAULT 'Main Site'"),
+            ["Organizations.WeekStartsOn"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"WeekStartsOn\" TEXT NOT NULL DEFAULT 'Sunday'"),
+            ["Organizations.DefaultLessonDurationMinutes"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"DefaultLessonDurationMinutes\" INTEGER NOT NULL DEFAULT 60"),
+            ["Organizations.DefaultRetentionDays"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"DefaultRetentionDays\" INTEGER NOT NULL DEFAULT 30"),
+            ["Organizations.PrimaryColor"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"PrimaryColor\" TEXT NOT NULL DEFAULT '#25302d'"),
+            ["Organizations.AccentColor"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"AccentColor\" TEXT NOT NULL DEFAULT '#d89127'"),
+            ["Organizations.WelcomeMessage"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"WelcomeMessage\" TEXT NOT NULL DEFAULT 'Welcome'"),
+            ["AdminAccounts.DisplayName"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"DisplayName\" TEXT NOT NULL DEFAULT 'Administrator'"),
+            ["AdminAccounts.Email"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"Email\" TEXT NULL"),
+            ["AdminAccounts.Role"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"Role\" TEXT NOT NULL DEFAULT 'Owner'"),
+            ["AdminAccounts.Disabled"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"Disabled\" INTEGER NOT NULL DEFAULT 0"),
+            ["Lessons.Archived"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"Archived\" INTEGER NOT NULL DEFAULT 0"),
+            ["Lessons.KeepOffline"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"KeepOffline\" INTEGER NOT NULL DEFAULT 0"),
+            ["Lessons.DownloadDaysBefore"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"DownloadDaysBefore\" INTEGER NOT NULL DEFAULT 7"),
+            ["Lessons.PreRollStartsAt"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"PreRollStartsAt\" TEXT NULL"),
+            ["PlaylistItems.Notes"] = ("PlaylistItems", "ALTER TABLE \"PlaylistItems\" ADD COLUMN \"Notes\" TEXT NOT NULL DEFAULT ''"),
+            ["PlaylistItems.FadeInMs"] = ("PlaylistItems", "ALTER TABLE \"PlaylistItems\" ADD COLUMN \"FadeInMs\" INTEGER NOT NULL DEFAULT 0"),
+            ["PlaylistItems.FadeOutMs"] = ("PlaylistItems", "ALTER TABLE \"PlaylistItems\" ADD COLUMN \"FadeOutMs\" INTEGER NOT NULL DEFAULT 0"),
+            ["PlaylistItems.NormalizeAudio"] = ("PlaylistItems", "ALTER TABLE \"PlaylistItems\" ADD COLUMN \"NormalizeAudio\" INTEGER NOT NULL DEFAULT 0"),
+            ["MediaAssets.CreatedAt"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"CreatedAt\" TEXT NOT NULL DEFAULT '1970-01-01T00:00:00+00:00'"),
+            ["MediaAssets.ProcessingStatus"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"ProcessingStatus\" TEXT NOT NULL DEFAULT 'ready'"),
+            ["MediaAssets.ProcessingError"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"ProcessingError\" TEXT NULL"),
+            ["MediaAssets.VideoCodec"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"VideoCodec\" TEXT NULL"),
+            ["MediaAssets.AudioCodec"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"AudioCodec\" TEXT NULL"),
+            ["MediaAssets.Width"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"Width\" INTEGER NULL"),
+            ["MediaAssets.Height"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"Height\" INTEGER NULL"),
+            ["MediaAssets.LoudnessLufs"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"LoudnessLufs\" REAL NULL"),
+            ["MediaAssets.ThumbnailPath"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"ThumbnailPath\" TEXT NULL"),
+            ["MediaAssets.SourceKind"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"SourceKind\" TEXT NOT NULL DEFAULT 'upload'"),
+            ["MediaAssets.SourceUrl"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"SourceUrl\" TEXT NULL"),
+            ["MediaAssets.LinkKind"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"LinkKind\" TEXT NULL"),
+            ["Screens.AppVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"AppVersion\" TEXT NOT NULL DEFAULT 'unknown'"),
+            ["Screens.ManifestVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ManifestVersion\" INTEGER NOT NULL DEFAULT 0"),
+            ["Screens.TagsCsv"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"TagsCsv\" TEXT NOT NULL DEFAULT ''"),
+            ["Screens.Site"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"Site\" TEXT NOT NULL DEFAULT 'Main Site'"),
+            ["Screens.LastIpAddress"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"LastIpAddress\" TEXT NULL")
+        };
+
+        foreach (var (key, addition) in additions)
+        {
+            var column = key[(key.IndexOf('.') + 1)..];
+            if (!await ColumnExistsAsync(connection, addition.Table, column, cancellationToken))
+                await ExecuteAsync(connection, addition.Sql, cancellationToken);
+        }
+    }
+
+    private static async Task<bool> ColumnExistsAsync(System.Data.Common.DbConnection connection, string table, string column, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA table_info(\"{table.Replace("\"", "\"\"")}\")";
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    private static async Task ExecuteAsync(System.Data.Common.DbConnection connection, string sql, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync(ct);
+    }
 }

@@ -9,20 +9,28 @@ public sealed class ManifestService(LessonCueDb db)
         var screen = await db.Screens.AsNoTracking().SingleOrDefaultAsync(x => x.Id == screenId, cancellationToken);
         if (screen is null || screen.Revoked) return null;
 
+        var now = DateTimeOffset.UtcNow;
         var lessonsQuery = db.Lessons.AsNoTracking().Include(x => x.Class).Include(x => x.Items)
             .ThenInclude(x => x.MediaAsset).AsQueryable();
         if (screen.AssignedClassId is { } classId)
             lessonsQuery = lessonsQuery.Where(x => x.ClassId == classId);
 
-        var lessons = await lessonsQuery.OrderBy(x => x.Date).ToListAsync(cancellationToken);
-        var version = Math.Max(1, lessons.Sum(x => x.Version));
+        var lessons = (await lessonsQuery.Where(x => !x.Archived).OrderBy(x => x.Date).ToListAsync(cancellationToken))
+            .Where(x => (x.AvailableFrom is null || x.AvailableFrom <= now) && (x.ExpiresAt is null || x.ExpiresAt >= now)).ToList();
+        var signage = (await db.SignagePlaylists.AsNoTracking().Where(x => x.Enabled)
+            .OrderByDescending(x => x.Priority).ToListAsync(cancellationToken))
+            .Where(x => (x.StartsAt is null || x.StartsAt <= now) && (x.EndsAt is null || x.EndsAt >= now)).ToList();
+        var matchingSignage = signage.Where(x => TagsMatch(screen.TagsCsv, x.TargetTagsCsv)).ToArray();
+        var version = Math.Max(1, lessons.Sum(x => x.Version) + matchingSignage.Sum(x => x.Priority + 1));
         return new
         {
             apiVersion = 1,
             manifestVersion = version,
             generatedAt = DateTimeOffset.UtcNow,
-            screen = new { id = screen.Id, screen.Name, screen.VolunteerMode },
-            playlists = lessons.Select(lesson => BuildPlaylist(lesson)).ToArray()
+            screen = new { id = screen.Id, screen.Name, screen.VolunteerMode, screen.Site, tags = SplitTags(screen.TagsCsv) },
+            signage = matchingSignage.Select(x => new { x.Id, x.Name, x.Mode, x.Priority, x.Message, x.BackgroundColor, x.TextColor,
+                x.MediaAssetId, mediaUrl = x.MediaAssetId is { } mediaId ? $"/api/v1/media/{mediaId}/file" : null, x.StartsAt, x.EndsAt }).ToArray(),
+            playlists = lessons.Select(BuildPlaylist).ToArray()
         };
     }
 
@@ -43,6 +51,7 @@ public sealed class ManifestService(LessonCueDb db)
             version = lesson.Version,
             lessonDate = lesson.Date,
             lesson.DesignatedStartAt,
+            lesson.PreRollStartsAt,
             lesson.AvailableFrom,
             lesson.ExpiresAt,
             countdown = countdownItem is null || countdownDuration is null ? null : new
@@ -76,7 +85,8 @@ public sealed class ManifestService(LessonCueDb db)
         mediaId = item.MediaAssetId,
         item.Type,
         item.Title,
-        downloadUrl = item.MediaAssetId is { } mediaId ? $"/api/v1/media/{mediaId}/file" : null,
+        downloadUrl = item.MediaAsset is { SourceKind: "link", LinkKind: "direct" } linked ? linked.SourceUrl :
+            item.MediaAssetId is { } mediaId && item.MediaAsset?.SourceKind != "link" ? $"/api/v1/media/{mediaId}/file" : null,
         sha256 = item.MediaAsset?.Sha256,
         sizeBytes = item.MediaAsset?.SizeBytes,
         durationMs = item.DurationMs ?? item.MediaAsset?.DurationMs,
@@ -87,5 +97,19 @@ public sealed class ManifestService(LessonCueDb db)
         item.EndBehavior,
         item.AllowSkip,
         offlineEligible = item.MediaAsset?.OfflineEligible ?? false
+        ,sourceKind = item.MediaAsset?.SourceKind,
+        sourceUrl = item.MediaAsset?.SourceUrl,
+        linkKind = item.MediaAsset?.LinkKind,
+        item.Notes,
+        item.FadeInMs,
+        item.FadeOutMs,
+        item.NormalizeAudio
     };
+
+    private static string[] SplitTags(string tags) => tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    private static bool TagsMatch(string screenTags, string targetTags)
+    {
+        var targets = SplitTags(targetTags); if (targets.Length == 0) return true;
+        var screen = SplitTags(screenTags).ToHashSet(StringComparer.OrdinalIgnoreCase); return targets.Any(screen.Contains);
+    }
 }

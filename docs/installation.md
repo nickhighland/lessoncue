@@ -26,7 +26,7 @@ The final message says `LessonCue is ready` and prints an address such as `http:
 
 On a computer connected to the same local network, open the address printed by the installer. LessonCue will ask you to create the organization name, administrator username, and password. This account, the complete web interface, database, schedules, and media all remain on your local server.
 
-The installer creates a random six-digit screen-pairing PIN. After signing in, find it on the Dashboard and Screens pages.
+LessonCue creates a private local pairing secret and displays a six-digit PIN that rotates every ten minutes. After signing in, find the current PIN on the Dashboard and Screens pages.
 
 ### Verify from SSH
 
@@ -87,7 +87,7 @@ Download `LessonCue-Server-linux-x64.tar.gz` or `LessonCue-Server-linux-arm64.ta
 sudo ./install.sh
 ```
 
-The installer creates a restricted `lessoncue` account, installs the application at `/opt/lessoncue`, keeps data at `/var/lib/lessoncue`, registers the systemd service, opens port 8080 when UFW is installed, and publishes the Avahi service when available.
+The installer creates a restricted `lessoncue` account, installs the application at `/opt/lessoncue`, keeps data at `/var/lib/lessoncue`, registers the systemd service, opens port 8080 when UFW is installed, and publishes the Avahi service when available. Running it again upgrades the application while preserving accounts, configuration, media, screen credentials, and backups.
 
 Useful commands:
 
@@ -159,7 +159,15 @@ Select your development team, choose the Apple TV, and Run. Bonjour and local-ne
 
 ## Backups and updates
 
-Stop the server or use SQLite's online backup support before copying live database files. Back up the entire data directory, especially `database`, `media`, `branding`, and `config`. Test restoration on a separate machine.
+Owners can create and download a consistent configuration backup or a full backup from **Settings → Privacy & storage** while the server is running. For a manual disaster-recovery copy, stop the service first and archive the entire data directory:
+
+```bash
+sudo systemctl stop lessoncue
+sudo tar -C /var/lib -czf "lessoncue-manual-$(date +%Y%m%d).tar.gz" lessoncue
+sudo systemctl start lessoncue
+```
+
+To restore, install the same or newer LessonCue version, stop the service, replace `/var/lib/lessoncue` with the saved directory contents, restore ownership with `sudo chown -R lessoncue:lessoncue /var/lib/lessoncue`, and start the service. Test restoration on a separate machine before relying on a backup policy.
 
 For Docker, pull/build the new image and run `docker compose up -d`. For native installations, back up data and repeat the two headless installation commands; the installer replaces the application but preserves `/var/lib/lessoncue`, including the pairing PIN and administrator account. Installers never delete media automatically.
 

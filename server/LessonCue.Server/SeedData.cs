@@ -18,6 +18,7 @@ public static class SeedData
             AvailableFrom = new DateTimeOffset(2026, 7, 12, 0, 0, 0, TimeSpan.FromHours(-4)),
             ExpiresAt = new DateTimeOffset(2026, 7, 20, 23, 59, 59, TimeSpan.FromHours(-4)),
             DesignatedStartAt = new DateTimeOffset(2026, 7, 19, 9, 0, 0, TimeSpan.FromHours(-4)),
+            PreRollStartsAt = new DateTimeOffset(2026, 7, 19, 8, 30, 0, TimeSpan.FromHours(-4)),
             PreRollEnabled = true
         };
         var preRoll = new PlaylistItem { LessonId = lesson.Id, Title = "Welcome Loop", Type = "video", Role = "preRoll", Position = 1000, DurationMs = 30_000, EndBehavior = "loop" };

@@ -14,11 +14,14 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
     public DbSet<PairingAttempt> PairingAttempts => Set<PairingAttempt>();
     public DbSet<DeviceCredential> DeviceCredentials => Set<DeviceCredential>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+    public DbSet<SignagePlaylist> SignagePlaylists => Set<SignagePlaylist>();
+    public DbSet<BackupRecord> BackupRecords => Set<BackupRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<LessonClass>().HasIndex(x => x.Name).IsUnique();
         modelBuilder.Entity<AdminAccount>().HasIndex(x => x.Username).IsUnique();
+        modelBuilder.Entity<MediaAsset>().HasIndex(x => x.Sha256);
         modelBuilder.Entity<Lesson>().HasMany(x => x.Items).WithOne(x => x.Lesson)
             .HasForeignKey(x => x.LessonId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<PlaylistItem>().Property(x => x.Position).HasPrecision(18, 6);

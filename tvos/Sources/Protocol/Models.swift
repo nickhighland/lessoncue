@@ -15,6 +15,9 @@ public struct CueItem: Codable, Identifiable, Equatable, Sendable {
     public let imageDurationSeconds: Int?
     public let endBehavior: String
     public let allowSkip: Bool
+    public let notes: String?
+    public let fadeInMs: Int64?
+    public let fadeOutMs: Int64?
     public let offlineEligible: Bool
     public var id: String { itemId }
 
@@ -22,12 +25,14 @@ public struct CueItem: Codable, Identifiable, Equatable, Sendable {
                 downloadUrl: String? = nil, sha256: String? = nil, sizeBytes: Int64? = nil,
                 durationMs: Int64? = nil, startMs: Int64 = 0, endMs: Int64? = nil,
                 volumePercent: Int = 100, imageDurationSeconds: Int? = nil,
-                endBehavior: String = "advance", allowSkip: Bool = true, offlineEligible: Bool = false) {
+                endBehavior: String = "advance", allowSkip: Bool = true, notes: String? = nil,
+                fadeInMs: Int64? = nil, fadeOutMs: Int64? = nil, offlineEligible: Bool = false) {
         self.itemId = itemId; self.mediaId = mediaId; self.type = type; self.title = title
         self.downloadUrl = downloadUrl; self.sha256 = sha256; self.sizeBytes = sizeBytes
         self.durationMs = durationMs; self.startMs = startMs; self.endMs = endMs
         self.volumePercent = volumePercent; self.imageDurationSeconds = imageDurationSeconds
-        self.endBehavior = endBehavior; self.allowSkip = allowSkip; self.offlineEligible = offlineEligible
+        self.endBehavior = endBehavior; self.allowSkip = allowSkip; self.notes = notes
+        self.fadeInMs = fadeInMs; self.fadeOutMs = fadeOutMs; self.offlineEligible = offlineEligible
     }
 }
 
@@ -50,6 +55,7 @@ public struct LessonPlaylist: Codable, Identifiable, Equatable, Sendable {
     public let title: String
     public let version: Int
     public let designatedStartAt: Date?
+    public let preRollStartsAt: Date?
     public let availableFrom: Date?
     public let expiresAt: Date?
     public let countdown: CountdownCue?
@@ -57,11 +63,11 @@ public struct LessonPlaylist: Codable, Identifiable, Equatable, Sendable {
     public let items: [CueItem]
     public var id: String { playlistId }
 
-    public init(playlistId: String, title: String, version: Int = 1, designatedStartAt: Date? = nil,
+    public init(playlistId: String, title: String, version: Int = 1, designatedStartAt: Date? = nil, preRollStartsAt: Date? = nil,
                 availableFrom: Date? = nil, expiresAt: Date? = nil, countdown: CountdownCue? = nil,
                 preRoll: PreRollCue? = nil, items: [CueItem] = []) {
         self.playlistId = playlistId; self.title = title; self.version = version
-        self.designatedStartAt = designatedStartAt; self.availableFrom = availableFrom
+        self.designatedStartAt = designatedStartAt; self.preRollStartsAt = preRollStartsAt; self.availableFrom = availableFrom
         self.expiresAt = expiresAt; self.countdown = countdown; self.preRoll = preRoll; self.items = items
     }
 }
@@ -72,11 +78,23 @@ public struct ScreenInfo: Codable, Equatable, Sendable {
     public let volunteerMode: Bool
 }
 
+public struct SignageCue: Codable, Identifiable, Equatable, Sendable {
+    public let id: String
+    public let name: String
+    public let mode: String
+    public let priority: Int
+    public let message: String
+    public let backgroundColor: String
+    public let textColor: String
+    public let mediaUrl: String?
+}
+
 public struct ScreenManifest: Codable, Equatable, Sendable {
     public let apiVersion: Int
     public let manifestVersion: Int
     public let generatedAt: Date
     public let screen: ScreenInfo
+    public let signage: [SignageCue]
     public let playlists: [LessonPlaylist]
 }
 
@@ -97,7 +115,8 @@ public enum ScheduleCoordinator {
                 return .countdown(seekMilliseconds: max(0, Int64(now.timeIntervalSince(begins) * 1000)))
             }
         }
-        return playlist.preRoll?.items.isEmpty == false ? .preRoll : .idle
+        let preRollStarted = now >= (playlist.preRollStartsAt ?? designated.addingTimeInterval(-30 * 60))
+        return preRollStarted && playlist.preRoll?.items.isEmpty == false ? .preRoll : .idle
     }
 }
 

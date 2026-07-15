@@ -7,8 +7,9 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Instant
+import java.io.File
 
-class LessonCueApi(serverUrl: String) {
+class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
     val baseUrl = serverUrl.trim().trimEnd('/').let { if (it.startsWith("http")) it else "http://$it" }
 
     suspend fun discover(): String = withContext(Dispatchers.IO) {
@@ -20,7 +21,7 @@ class LessonCueApi(serverUrl: String) {
         val body = JSONObject()
             .put("deviceName", deviceName)
             .put("platform", "android-tv")
-            .put("appVersion", "0.1.0")
+            .put("appVersion", "0.3.0")
         JSONObject(request("/api/v1/pairing/request", "POST", body.toString())).getString("requestId")
     }
 
@@ -31,11 +32,36 @@ class LessonCueApi(serverUrl: String) {
     }
 
     suspend fun manifest(identity: DeviceIdentity): ScreenManifest = withContext(Dispatchers.IO) {
-        val payload = JSONObject(request("/api/v1/screens/${identity.screenId}/manifest", token = identity.token))
+        val raw = request("/api/v1/screens/${identity.screenId}/manifest", token = identity.token)
+        manifestCache?.writeText(raw)
+        parseManifest(JSONObject(raw))
+    }
+
+    suspend fun reportStatus(identity: DeviceIdentity, manifestVersion: Int, freeBytes: Long, failedDownloads: Int = 0) = withContext(Dispatchers.IO) {
+        val body = JSONObject()
+            .put("screenId", identity.screenId)
+            .put("appVersion", "0.3.0")
+            .put("online", true)
+            .put("freeBytes", freeBytes)
+            .put("manifestVersion", manifestVersion)
+            .put("failedDownloads", failedDownloads)
+        request("/api/v1/tv/status", "POST", body.toString(), identity.token)
+        Unit
+    }
+
+    fun cachedManifest(): ScreenManifest? = runCatching { manifestCache?.takeIf(File::exists)?.readText()?.let { parseManifest(JSONObject(it)) } }.getOrNull()
+
+    private fun parseManifest(payload: JSONObject): ScreenManifest {
         val screen = payload.getJSONObject("screen")
-        ScreenManifest(
+        return ScreenManifest(
             version = payload.getInt("manifestVersion"),
             screenName = screen.getString("name"),
+            signage = payload.optJSONArray("signage")?.mapObjects { item -> SignageCue(
+                id = item.getString("id"), name = item.getString("name"), mode = item.getString("mode"),
+                priority = item.optInt("priority"), message = item.optString("message"),
+                backgroundColor = item.optString("backgroundColor", "#25302d"), textColor = item.optString("textColor", "#ffffff"),
+                mediaUrl = item.optString("mediaUrl").takeIf { it.isNotBlank() && it != "null" }?.let { if (it.startsWith("http")) it else "$baseUrl$it" }
+            ) } ?: emptyList(),
             playlists = payload.getJSONArray("playlists").mapObjects { lesson -> parsePlaylist(lesson) }
         )
     }
@@ -56,6 +82,7 @@ class LessonCueApi(serverUrl: String) {
             id = json.getString("playlistId"),
             title = json.getString("title"),
             designatedStartAt = start,
+            preRollStartsAt = json.optString("preRollStartsAt").takeIf { it.isNotBlank() && it != "null" }?.let(Instant::parse),
             countdown = countdown,
             preRoll = preRoll,
             items = json.getJSONArray("items").mapObjects(::parseItem)
@@ -67,10 +94,17 @@ class LessonCueApi(serverUrl: String) {
         title = json.getString("title"),
         type = json.getString("type"),
         url = json.optString("downloadUrl").takeIf { it.isNotBlank() && it != "null" }?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
+        sha256 = json.optString("sha256").takeIf { it.isNotBlank() && it != "null" },
+        sizeBytes = json.optLong("sizeBytes").takeIf { json.has("sizeBytes") && !json.isNull("sizeBytes") },
         durationMs = json.optLong("durationMs").takeIf { json.has("durationMs") && !json.isNull("durationMs") },
         startMs = json.optLong("startMs", 0),
         endMs = json.optLong("endMs").takeIf { json.has("endMs") && !json.isNull("endMs") },
         endBehavior = json.optString("endBehavior", "advance"),
+        volumePercent = json.optInt("volumePercent", 100),
+        notes = json.optString("notes", ""),
+        imageDurationSeconds = json.optInt("imageDurationSeconds").takeIf { json.has("imageDurationSeconds") && !json.isNull("imageDurationSeconds") },
+        fadeInMs = json.optInt("fadeInMs", 0),
+        fadeOutMs = json.optInt("fadeOutMs", 0),
         offlineEligible = json.optBoolean("offlineEligible", false)
     )
 

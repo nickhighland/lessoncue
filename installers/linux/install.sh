@@ -21,8 +21,7 @@ if [[ ! -f "${CONFIG_FILE}" ]]; then
   if [[ -f /opt/lessoncue/appsettings.json ]]; then
     cp /opt/lessoncue/appsettings.json "${CONFIG_FILE}"
   else
-    PAIRING_PIN="$(od -An -N4 -tu4 /dev/urandom | awk '{printf "%06d", $1 % 1000000}')"
-    printf '{\n  "LessonCue": {\n    "PairingPin": "%s"\n  }\n}\n' "${PAIRING_PIN}" > "${CONFIG_FILE}"
+    printf '{\n  "LessonCue": {}\n}\n' > "${CONFIG_FILE}"
   fi
   chown lessoncue:lessoncue "${CONFIG_FILE}"
   chmod 0600 "${CONFIG_FILE}"

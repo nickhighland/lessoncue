@@ -3,7 +3,7 @@
   "$id": "https://lessoncue.org/protocol/v1/manifest.schema.json",
   "title": "LessonCue screen manifest",
   "type": "object",
-  "required": ["apiVersion", "manifestVersion", "generatedAt", "screen", "playlists"],
+  "required": ["apiVersion", "manifestVersion", "generatedAt", "screen", "signage", "playlists"],
   "properties": {
     "apiVersion": { "const": 1 },
     "manifestVersion": { "type": "integer", "minimum": 1 },
@@ -20,9 +20,27 @@
     "playlists": {
       "type": "array",
       "items": { "$ref": "#/$defs/playlist" }
-    }
+    },
+    "signage": { "type": "array", "items": { "$ref": "#/$defs/signage" } }
   },
   "$defs": {
+    "signage": {
+      "type": "object",
+      "required": ["id", "name", "mode", "priority", "message", "backgroundColor", "textColor"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "mode": { "enum": ["scheduled", "idle", "emergency"] },
+        "priority": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "message": { "type": "string" },
+        "backgroundColor": { "type": "string" },
+        "textColor": { "type": "string" },
+        "mediaId": { "type": ["string", "null"] },
+        "mediaUrl": { "type": ["string", "null"] },
+        "startsAt": { "type": ["string", "null"], "format": "date-time" },
+        "endsAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
     "playlist": {
       "type": "object",
       "required": ["playlistId", "title", "version", "items"],
@@ -33,6 +51,7 @@
         "availableFrom": { "type": ["string", "null"], "format": "date-time" },
         "expiresAt": { "type": ["string", "null"], "format": "date-time" },
         "designatedStartAt": { "type": ["string", "null"], "format": "date-time" },
+        "preRollStartsAt": { "type": ["string", "null"], "format": "date-time" },
         "countdown": { "$ref": "#/$defs/countdown" },
         "preRoll": { "$ref": "#/$defs/preRoll" },
         "items": { "type": "array", "items": { "$ref": "#/$defs/item" } }
@@ -77,6 +96,13 @@
         "endBehavior": { "enum": ["advance", "pause", "loop", "menu", "stop"] },
         "allowSkip": { "type": "boolean", "default": true },
         "offlineEligible": { "type": "boolean" }
+        ,"sourceKind": { "type": ["string", "null"] },
+        "sourceUrl": { "type": ["string", "null"] },
+        "linkKind": { "type": ["string", "null"] },
+        "notes": { "type": "string" },
+        "fadeInMs": { "type": "integer", "minimum": 0 },
+        "fadeOutMs": { "type": "integer", "minimum": 0 },
+        "normalizeAudio": { "type": "boolean" }
       }
     }
   }

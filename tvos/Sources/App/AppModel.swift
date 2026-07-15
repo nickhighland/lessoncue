@@ -16,6 +16,8 @@ final class AppModel: ObservableObject {
     @Published var errorMessage: String?
     let discovery = BonjourDiscovery()
     private(set) var identity: DeviceIdentity?
+    private var scheduleTask: Task<Void, Never>?
+    private var statusTask: Task<Void, Never>?
 
     func start() async {
         discovery.start()
@@ -23,11 +25,22 @@ final class AppModel: ObservableObject {
         do {
             identity = stored
             manifest = try await LessonCueAPI(address: stored.serverURL.absoluteString).manifest(identity: stored)
+            if let manifest { try? ManifestStore.save(manifest) }
             route = .library
+            beginScheduleMonitor()
+            beginStatusMonitor()
             await cacheAssignedMedia()
         } catch {
-            errorMessage = "The saved server could not be reached. You can reconnect without losing downloaded media."
-            route = .connect
+            if let cached = ManifestStore.load() {
+                manifest = cached
+                errorMessage = "Using the last downloaded schedule while the server is offline."
+                route = .library
+                beginScheduleMonitor()
+                beginStatusMonitor()
+            } else {
+                errorMessage = "The saved server could not be reached. You can reconnect without losing downloaded media."
+                route = .connect
+            }
         }
     }
 
@@ -47,7 +60,10 @@ final class AppModel: ObservableObject {
             try CredentialStore.save(paired)
             identity = paired
             manifest = try await api.manifest(identity: paired)
+            if let manifest { try? ManifestStore.save(manifest) }
             route = .library
+            beginScheduleMonitor()
+            beginStatusMonitor()
             await cacheAssignedMedia()
         } catch { errorMessage = error.localizedDescription }
     }
@@ -73,6 +89,54 @@ final class AppModel: ObservableObject {
 
     func leavePlayback() { route = .library }
 
+    private func beginScheduleMonitor() {
+        scheduleTask?.cancel()
+        scheduleTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                switch self.route {
+                case .library:
+                    guard let playlists = self.manifest?.playlists else { break }
+                    if let playlist = playlists.first(where: {
+                        switch ScheduleCoordinator.phase(for: $0) { case .countdown(_), .preRoll: true; default: false }
+                    }) { self.start(playlist) }
+                case .playback(let playlist, let items, _, _):
+                    let playingIds = items.map(\.id)
+                    let preRollIds = playlist.preRoll?.items.map(\.id) ?? []
+                    let isPreRoll = !preRollIds.isEmpty && playingIds == preRollIds
+                    let isCountdown = playingIds.count == 1 && playingIds.first == playlist.countdown?.item.id
+                    switch ScheduleCoordinator.phase(for: playlist) {
+                    case .countdown(let seek) where isPreRoll:
+                        if let item = playlist.countdown?.item {
+                            self.route = .playback(playlist: playlist, items: [item], index: 0, seekMs: seek)
+                        }
+                    case .lesson where isPreRoll || isCountdown:
+                        self.route = .playback(playlist: playlist, items: playlist.items, index: 0, seekMs: 0)
+                    default:
+                        break
+                    }
+                default:
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+        }
+    }
+
+    private func beginStatusMonitor() {
+        statusTask?.cancel()
+        statusTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, let identity = self.identity, let manifest = self.manifest,
+                      let api = try? LessonCueAPI(address: identity.serverURL.absoluteString) else { return }
+                let attributes = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory())
+                let freeBytes = (attributes?[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
+                try? await api.reportStatus(identity: identity, manifestVersion: manifest.manifestVersion, freeBytes: freeBytes)
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+            }
+        }
+    }
+
     func mediaURL(for item: CueItem) async -> URL? {
         if let local = await OfflineCache.shared.localURL(for: item) { return local }
         guard let identity, let path = item.downloadUrl,
@@ -89,7 +153,8 @@ final class AppModel: ObservableObject {
         for item in allItems where item.offlineEligible {
             if await OfflineCache.shared.localURL(for: item) != nil { continue }
             guard let path = item.downloadUrl, let url = api.absoluteMediaURL(path) else { continue }
-            try? await OfflineCache.shared.cache(item, from: url, token: identity.deviceToken)
+            try? await OfflineCache.shared.cache(item, from: url,
+                token: url.host == identity.serverURL.host ? identity.deviceToken : nil)
         }
     }
 }

@@ -6,12 +6,14 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 
 ## What is included
 
-- A complete React/TypeScript administration interface served directly by the local server.
+- A complete, responsive React/TypeScript administration interface served directly by the local server, visually matched to the LessonCue prototype.
 - An ASP.NET Core 10 API with SQLite, pairing, manifests, health reporting, SignalR invalidation, and range-enabled media hosting.
 - A native Android TV/Fire TV application using Kotlin, Compose for TV, Media3, DataStore, and WorkManager.
 - A native tvOS application using SwiftUI, AVKit, Bonjour discovery declarations, and persistent offline manifests.
 - A versioned OpenAPI contract and JSON Schema shared by every client.
 - Docker, Windows, and Linux installation assets.
+- Calendar, local role-based users, scheduled/emergency signage, rotating pairing codes, screen tags, audit history, and downloadable full/configuration backups.
+- Resumable large uploads, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, link classification, codec readiness, and range-enabled delivery.
 - GitHub Actions that build the web app, server, Android APK, tvOS app, release packages, and GitHub Pages documentation.
 
 ## Quick start
@@ -64,7 +66,7 @@ github-pages/        Public project documentation site
 
 ## Project status
 
-The end-to-end administrator workflow runs on the self-hosted server: first-run setup, login, classes, lessons, local uploads, pre-roll, duration-aware countdown, pairing, screen assignment, and server status. Hardware-specific signing and store submission still require the target deployment accounts and devices.
+The complete self-hosted workflow runs on the local server: setup, accounts and roles, classes, calendar, lesson playlists, resumable media ingestion, signage, pre-roll, duration-aware countdown, rotating PIN pairing, screen assignment/health, branding, audit history, and backups. Android/Fire TV and tvOS clients build from this repository and retain offline manifests and media. Hardware signing, managed-store submission, and final device certification require the deploying organization's accounts and target devices.
 
 ## License
 

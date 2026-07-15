@@ -40,13 +40,13 @@ Configuration uses environment variables in production:
 - `LESSONCUE_SERVER_NAME` — discovery display name.
 - `ASPNETCORE_URLS` — optional standard ASP.NET listener override.
 
-SQLite is created with `EnsureCreated`; an idempotent upgrade adds local administrator accounts to earlier databases. Future schema changes should use EF Core migrations and be tested against copied production databases.
+SQLite is created with `EnsureCreated`; an idempotent appliance upgrader brings v0.1/v0.2 databases forward without requiring an SDK or migration CLI on the server. Every schema change must remain safe against a copied production database.
 
 ### Implemented API path
 
-The server includes local administrator setup and cookie login, dashboard data, classes and lessons, playlist editing and reordering, duplicate-aware media upload, screen assignment and revocation, range-enabled media delivery, rate-limited PIN pairing, hashed device credentials, authenticated screen manifests, status reporting, audit events, and SignalR invalidation.
+The server includes local setup and role-based cookie login, same-origin mutation protection, CSP/security headers, classes and lessons, playlist editing/reordering/duplication/archiving, resumable and duplicate-aware uploads, FFprobe/FFmpeg background inspection, safe URL classification, screen tags/assignment/revocation, scheduled and emergency signage, configuration/full backup archives, range-enabled media delivery, rotating rate-limited PIN pairing, hashed device credentials, authenticated screen manifests, status telemetry, audit events, and SignalR invalidation.
 
-The next production-hardening work is explicit antiforgery tokens, resumable chunk uploads, FFmpeg workers, restore UI, administrator password recovery, and signed short-lived download URLs.
+Media links are never fetched by the server. Direct file, supported embed, and external destinations are classified from their URL. Uploaded media and clearly identified direct media files can be cached by TVs; embedded and external-service pages remain online-only.
 
 ## Android TV
 
@@ -56,7 +56,7 @@ gradle -p android-tv :app:testDebugUnitTest :app:assembleDebug
 
 The app uses a LEANBACK launcher, Compose focusable surfaces, Media3/ExoPlayer, DataStore credentials, and WorkManager caching. The API client implements discovery, pairing, manifest parsing, and authenticated downloads.
 
-Production work should replace the simple cache worker with Media3 `DownloadService` and a durable download database, validate SHA-256 before finalizing every file, add Network Service Discovery browsing, encrypt the device token with Android Keystore, and expose download health to the UI.
+Before managed-store distribution, provision an organization-owned signing key, exercise Fire OS background behavior on each supported model, and complete accessibility/device certification. The included worker persists manifests and media, validates hashes, and reports download health; Media3 `DownloadService` remains an optional scale upgrade for very large fleets.
 
 ## Apple TV
 
@@ -83,10 +83,11 @@ The tvOS client uses Bonjour, Keychain device credentials, AVPlayer, an actor-is
 The server publishes `designatedStartAt`, a complete countdown item with `durationMs`, computed `startAt`, and a pre-roll item list. Both clients use the same state transition:
 
 ```text
-idle/signage → repeating pre-roll → countdown at start minus duration → lesson at start
+idle/signage → repeating pre-roll at its scheduled time → countdown at start minus duration → lesson at start
 ```
 
 If a client resumes during the countdown window, it seeks by elapsed countdown time. The final frame therefore remains aligned to the designated start. The synchronized manifest is stored locally so calculation and playback can continue without the server.
+When an older lesson has no explicit pre-roll start, clients use 30 minutes before the designated class start.
 
 ## Protocol evolution
 
@@ -104,4 +105,4 @@ Test fixtures should cover:
 
 ## Release flow
 
-Every pull request runs web, server, Android, and tvOS builds. Tags matching `v*` create native server packages and an Android APK. Store-signed Android and Apple releases intentionally require organization-owned signing credentials and should use protected GitHub environments.
+Every pull request runs web, server, Android, and tvOS builds. Tags matching `v*` create self-contained x64/ARM64 Linux packages, a Windows package, and an Android APK. Store-signed Android and Apple releases intentionally require organization-owned signing credentials and should use protected GitHub environments.

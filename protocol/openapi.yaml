@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 1.0.0
+  version: 1.2.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local:8080
@@ -134,7 +134,7 @@ paths:
   /api/v1/media/{mediaId}/file:
     get:
       operationId: downloadMedia
-      security: [{ deviceBearer: [] }]
+      description: Range-enabled media on the trusted local television network. Device manifests remain bearer-authenticated.
       parameters:
         - name: mediaId
           in: path
@@ -196,6 +196,9 @@ components:
         date: { type: string, format: date }
         title: { type: string }
         designatedStartAt: { type: [string, 'null'], format: date-time }
+        preRollStartsAt: { type: [string, 'null'], format: date-time }
+        availableFrom: { type: [string, 'null'], format: date-time }
+        expiresAt: { type: [string, 'null'], format: date-time }
         countdownItemId: { type: [string, 'null'], format: uuid }
         preRollEnabled: { type: boolean, default: false }
     PlaylistItemInput:

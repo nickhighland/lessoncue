@@ -77,6 +77,11 @@ private struct LibraryView: View {
                 Text("LESSONCUE").font(.headline).tracking(5).foregroundStyle(Color.lessonGold)
                 Text(model.manifest?.screen.name ?? "Apple TV").font(.system(size: 48, weight: .bold))
                 Text("Offline manifest \(model.manifest?.manifestVersion ?? 0)").foregroundStyle(.secondary)
+                if let signage = model.manifest?.signage.first(where: { $0.mode == "emergency" }) ?? model.manifest?.signage.first {
+                    Text(signage.mode == "emergency" ? "EMERGENCY" : signage.name.uppercased())
+                        .font(.headline).tracking(3).foregroundStyle(signage.mode == "emergency" ? Color.lessonCoral : Color.lessonGold).padding(.top, 16)
+                    Text(signage.message).font(.title2.bold())
+                }
                 Spacer()
                 Text("TODAY’S LESSON").font(.headline).foregroundStyle(.secondary)
                 Text("Choose a lesson and press Start.").font(.title3)
@@ -113,13 +118,21 @@ private struct PlaybackView: View {
     let index: Int
     let seekMs: Int64
     @State private var player: AVPlayer?
+    @State private var imageURL: URL?
     @State private var unavailable = false
 
     private var item: CueItem? { items.indices.contains(index) ? items[index] : nil }
 
     var body: some View {
         ZStack(alignment: .top) {
-            if let player { VideoPlayer(player: player).ignoresSafeArea() }
+            if item?.type == "image", let imageURL {
+                AsyncImage(url: imageURL) { phase in
+                    if let image = phase.image { image.resizable().scaledToFit() }
+                    else if phase.error != nil { ContentUnavailableView("Image unavailable", systemImage: "photo") }
+                    else { ProgressView() }
+                }.ignoresSafeArea()
+            }
+            else if let player { VideoPlayer(player: player).ignoresSafeArea() }
             else if unavailable { ContentUnavailableView("Media unavailable", systemImage: "wifi.slash", description: Text("Reconnect to the server or download this lesson before going offline.")) }
             HStack {
                 VStack(alignment: .leading) {
@@ -130,6 +143,10 @@ private struct PlaybackView: View {
                 Button("Exit") { model.leavePlayback() }
             }
             .padding(28).background(.black.opacity(0.7))
+            if let notes = item?.notes, !notes.isEmpty {
+                Text(notes).font(.title3).padding(18).background(.black.opacity(0.8))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading).padding(28)
+            }
         }
         .task(id: item?.id) { await prepare() }
         .onDisappear { player?.pause() }
@@ -147,11 +164,29 @@ private struct PlaybackView: View {
     private func prepare() async {
         guard let item, let url = await model.mediaURL(for: item) else { unavailable = true; return }
         unavailable = false
+        if item.type == "image" {
+            player?.pause(); player = nil; imageURL = url
+            try? await Task.sleep(nanoseconds: UInt64(max(1, item.imageDurationSeconds ?? 10)) * 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            if item.endBehavior == "advance" || playlist.preRoll?.items.contains(item) == true { advance() }
+            return
+        }
+        imageURL = nil
         let next = AVPlayer(url: url)
-        next.volume = min(1, Float(item.volumePercent) / 100)
-        await next.seek(to: CMTime(value: max(item.startMs, seekMs), timescale: 1000))
+        let targetVolume = min(1.5, Float(item.volumePercent) / 100)
+        next.volume = (item.fadeInMs ?? 0) > 0 ? 0 : targetVolume
+        await next.seek(to: CMTime(value: item.startMs + max(0, seekMs), timescale: 1000))
         player = next
         next.play()
+        while !Task.isCancelled {
+            let position = Int64(next.currentTime().seconds * 1000)
+            let fadeIn = (item.fadeInMs ?? 0) > 0 ? min(1, max(0, Float(position - item.startMs) / Float(item.fadeInMs!))) : 1
+            let end = item.endMs ?? (next.currentItem?.duration.seconds.isFinite == true ? Int64(next.currentItem!.duration.seconds * 1000) : nil)
+            let fadeOut = (item.fadeOutMs ?? 0) > 0 && end != nil ? min(1, max(0, Float(end! - position) / Float(item.fadeOutMs!))) : 1
+            next.volume = targetVolume * min(fadeIn, fadeOut)
+            if let end = item.endMs, position >= end { await handleCompletion(); return }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
     }
 
     private func handleCompletion() async {
