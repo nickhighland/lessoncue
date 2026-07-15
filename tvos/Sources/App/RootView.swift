@@ -1,4 +1,5 @@
 import AVKit
+import Combine
 import SwiftUI
 
 struct RootView: View {
@@ -132,6 +133,10 @@ private struct PlaybackView: View {
         }
         .task(id: item?.id) { await prepare() }
         .onDisappear { player?.pause() }
+        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
+            guard let ended = notification.object as? AVPlayerItem, ended === player?.currentItem else { return }
+            Task { await handleCompletion() }
+        }
         .onPlayPauseCommand { player?.rate == 0 ? player?.play() : player?.pause() }
         .onMoveCommand { direction in
             if direction == .right { advance() }
@@ -144,15 +149,16 @@ private struct PlaybackView: View {
         unavailable = false
         let next = AVPlayer(url: url)
         next.volume = min(1, Float(item.volumePercent) / 100)
-        next.seek(to: CMTime(value: max(item.startMs, seekMs), timescale: 1000))
+        await next.seek(to: CMTime(value: max(item.startMs, seekMs), timescale: 1000))
         player = next
         next.play()
-        for await _ in NotificationCenter.default.notifications(named: .AVPlayerItemDidPlayToEndTime, object: next.currentItem) {
-            if item.endBehavior == "loop" { next.seek(to: .zero); next.play() }
-            else if item.endBehavior == "advance" || playlist.preRoll?.items.contains(item) == true { advance() }
-            else { next.pause() }
-            break
-        }
+    }
+
+    private func handleCompletion() async {
+        guard let item, let player else { return }
+        if item.endBehavior == "loop" { await player.seek(to: .zero); player.play() }
+        else if item.endBehavior == "advance" || playlist.preRoll?.items.contains(item) == true { advance() }
+        else { player.pause() }
     }
 
     private func advance() {
