@@ -9,8 +9,9 @@ class ScheduleCoordinatorTest {
     private val start = Instant.parse("2026-07-19T13:00:00Z")
     private val lesson = LessonPlaylist(
         id = "lesson", title = "Lesson", designatedStartAt = start,
-        countdown = CountdownCue("countdown", 300_000, start.minusMillis(300_000), CueItem("countdown", "Countdown", "video", null, 300_000)),
-        preRoll = PreRollCue(listOf(CueItem("welcome", "Welcome", "video", null, 30_000))),
+        preRollStartsAt = null,
+        countdown = CountdownCue("countdown", 300_000, start.minusMillis(300_000), CueItem("countdown", "Countdown", "video", null, durationMs = 300_000)),
+        preRoll = PreRollCue(listOf(CueItem("welcome", "Welcome", "video", null, durationMs = 30_000))),
         items = emptyList()
     )
 
