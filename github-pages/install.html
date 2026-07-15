@@ -20,22 +20,21 @@
         <pre>ssh YOUR_USERNAME@SERVER_IP</pre>
       </article>
       <article>
-        <b>STEP 2 · COPY THIS ENTIRE BLOCK</b>
+        <b>STEP 2 · COPY THESE COMMANDS</b>
         <h2>Download and install the latest release</h2>
-        <pre>set -euo pipefail&#10;&#10;sudo apt-get update&#10;sudo apt-get install -y curl ca-certificates ffmpeg avahi-daemon libicu-dev zlib1g openssl&#10;&#10;case "$(uname -m)" in&#10;  x86_64|amd64) LESSONCUE_RUNTIME="linux-x64" ;;&#10;  aarch64|arm64) LESSONCUE_RUNTIME="linux-arm64" ;;&#10;  *) echo "Unsupported CPU architecture: $(uname -m)"; exit 1 ;;&#10;esac&#10;&#10;LESSONCUE_VERSION="$(curl -fsSL -o /dev/null -w '%{url_effective}' &#10;  https://github.com/nickhighland/lessoncue/releases/latest | awk -F/ '{print $NF}')"&#10;LESSONCUE_WORKDIR="$(mktemp -d)"&#10;&#10;curl -fL &#10;  "https://github.com/nickhighland/lessoncue/releases/download/${LESSONCUE_VERSION}/LessonCue-Server-${LESSONCUE_RUNTIME}.tar.gz" &#10;  -o "${LESSONCUE_WORKDIR}/lessoncue.tar.gz"&#10;&#10;tar -xzf "${LESSONCUE_WORKDIR}/lessoncue.tar.gz" -C "${LESSONCUE_WORKDIR}"&#10;sudo "${LESSONCUE_WORKDIR}/install.sh"&#10;cd /&#10;rm -rf "${LESSONCUE_WORKDIR}"&#10;&#10;if command -v ufw &gt;/dev/null 2&gt;&amp;1; then&#10;  sudo ufw allow 8080/tcp&#10;fi&#10;&#10;SERVER_IP="$(hostname -I | awk '{print $1}')"&#10;echo "LessonCue is installed at http://${SERVER_IP}:8080"&#10;curl -fsS http://127.0.0.1:8080/health&#10;echo</pre>
-        <p>The final response should contain <code>"status":"healthy"</code>. LessonCue now runs as a systemd service and starts automatically after reboot.</p>
+        <pre>sudo apt-get update&#10;sudo apt-get install -y curl ca-certificates&#10;curl -fsSL https://raw.githubusercontent.com/nickhighland/lessoncue/main/installers/linux/install-latest.sh | bash</pre>
+        <p>The installer waits for the service and prints <code>LessonCue is ready</code> with the local browser address.</p>
       </article>
       <article>
-        <b>STEP 3 · COPY THIS ENTIRE BLOCK</b>
-        <h2>Replace the development pairing PIN</h2>
-        <pre>set -euo pipefail&#10;PAIRING_PIN="$(od -An -N4 -tu4 /dev/urandom | awk '{printf "%06d", $1 % 1000000}')"&#10;sudo sed -i -E &#10;  "s/(\"PairingPin\"[[:space:]]*:[[:space:]]*\")[0-9]{6}(\")/\1${PAIRING_PIN}\2/" &#10;  /opt/lessoncue/appsettings.json&#10;sudo systemctl restart lessoncue&#10;echo "LessonCue pairing PIN: ${PAIRING_PIN}"</pre>
-        <p>Save the printed PIN in your password manager.</p>
+        <b>STEP 3</b>
+        <h2>Open the local interface</h2>
+        <p>Open the printed address from another computer on the same network. Create your local administrator account, then use the random pairing PIN shown on the Dashboard to pair a TV.</p>
       </article>
       <article>
         <b>STEP 4</b>
         <h2>Verify and find the local address</h2>
         <pre>sudo systemctl status lessoncue --no-pager&#10;curl -fsS http://127.0.0.1:8080/health &amp;&amp; echo&#10;hostname -I | awk '{print "http://" $1 ":8080"}'</pre>
-        <p>Open the printed address from another computer on the same network. The v0.1.0 local server currently exposes its API status; the interactive administration experience remains separately hosted.</p>
+        <p>The complete browser interface, API, database, schedules, and media are served by this local machine. No hosted interface is used.</p>
       </article>
       <article>
         <b>LOGS AND RECOVERY</b>

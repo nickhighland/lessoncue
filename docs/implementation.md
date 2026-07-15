@@ -14,16 +14,16 @@ This repository keeps the native clients independent while sharing a published w
 
 ## Administration UI
 
-The product tour and administration experience is the React/TypeScript application at the repository root.
+The administration experience is the React/TypeScript application in `web-admin`. Vite writes its production bundle into the ASP.NET server's `wwwroot`, so the browser and API always share the same local origin.
 
 ```bash
 npm ci
-npm run dev
+npm run dev:admin
 npm run lint
 npm test
 ```
 
-The hosted deployment is configured by `.openai/hosting.json`. The browser app should consume `/api/v1` through a configurable server origin when it is moved from product-tour data to live server data.
+For production, run `npm run build:admin` before `dotnet publish`. The Dockerfile and release workflows do this automatically. The Vite development server proxies API and SignalR requests to `http://127.0.0.1:8080`.
 
 ## Server
 
@@ -40,13 +40,13 @@ Configuration uses environment variables in production:
 - `LESSONCUE_SERVER_NAME` — discovery display name.
 - `ASPNETCORE_URLS` — optional standard ASP.NET listener override.
 
-SQLite is created with `EnsureCreated` for the foundation release. Before schema changes reach production data, add EF Core migrations and test forward and rollback paths against copied databases.
+SQLite is created with `EnsureCreated`; an idempotent upgrade adds local administrator accounts to earlier databases. Future schema changes should use EF Core migrations and be tested against copied production databases.
 
 ### Implemented API path
 
-The server currently includes discovery, health, class and lesson creation, playlist item creation, duplicate-aware media upload, range-enabled media delivery, rate-limited PIN pairing, revocable hashed device credentials, authenticated screen manifests, status reporting, audit events, and SignalR manifest invalidation.
+The server includes local administrator setup and cookie login, dashboard data, classes and lessons, playlist editing and reordering, duplicate-aware media upload, screen assignment and revocation, range-enabled media delivery, rate-limited PIN pairing, hashed device credentials, authenticated screen manifests, status reporting, audit events, and SignalR invalidation.
 
-The next production-hardening work is browser authentication/authorization, CSRF protection around the administration API, resumable chunk uploads, FFmpeg workers, restore UI, and signed short-lived download URLs.
+The next production-hardening work is explicit antiforgery tokens, resumable chunk uploads, FFmpeg workers, restore UI, administrator password recovery, and signed short-lived download URLs.
 
 ## Android TV
 

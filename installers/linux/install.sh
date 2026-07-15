@@ -15,6 +15,19 @@ fi
 
 id lessoncue >/dev/null 2>&1 || useradd --system --home /var/lib/lessoncue --shell /usr/sbin/nologin lessoncue
 install -d -o lessoncue -g lessoncue /var/lib/lessoncue/{database,media/originals,media/processed,media/thumbnails,media/temporary,branding,backups,logs,config}
+
+CONFIG_FILE=/var/lib/lessoncue/config/appsettings.json
+if [[ ! -f "${CONFIG_FILE}" ]]; then
+  if [[ -f /opt/lessoncue/appsettings.json ]]; then
+    cp /opt/lessoncue/appsettings.json "${CONFIG_FILE}"
+  else
+    PAIRING_PIN="$(od -An -N4 -tu4 /dev/urandom | awk '{printf "%06d", $1 % 1000000}')"
+    printf '{\n  "LessonCue": {\n    "PairingPin": "%s"\n  }\n}\n' "${PAIRING_PIN}" > "${CONFIG_FILE}"
+  fi
+  chown lessoncue:lessoncue "${CONFIG_FILE}"
+  chmod 0600 "${CONFIG_FILE}"
+fi
+
 install -d /opt/lessoncue
 cp -a "${PAYLOAD_DIR}/." /opt/lessoncue/
 chown -R root:root /opt/lessoncue
@@ -29,5 +42,6 @@ fi
 
 if command -v ufw >/dev/null 2>&1; then ufw allow 8080/tcp >/dev/null || true; fi
 systemctl daemon-reload
-systemctl enable --now lessoncue
+systemctl enable lessoncue
+systemctl restart lessoncue
 echo "LessonCue is installed. Open http://$(hostname -I | awk '{print $1}'):8080"

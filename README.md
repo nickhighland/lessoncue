@@ -2,11 +2,11 @@
 
 LessonCue is a self-hosted lesson scheduling and television playback system for churches and schools. Administrators build dated media playlists in a browser; paired Android TV, Fire TV, and Apple TV clients cache their assignments and keep playing when the network is unavailable.
 
-[Live product tour](https://lessoncue-media.nick247475.chatgpt.site/) · [Installation guide](docs/installation.md) · [Implementation guide](docs/implementation.md) · [Protocol](protocol/openapi.yaml)
+[Installation guide](docs/installation.md) · [Implementation guide](docs/implementation.md) · [Protocol](protocol/openapi.yaml)
 
 ## What is included
 
-- A working React/TypeScript administration experience in the repository root.
+- A complete React/TypeScript administration interface served directly by the local server.
 - An ASP.NET Core 10 API with SQLite, pairing, manifests, health reporting, SignalR invalidation, and range-enabled media hosting.
 - A native Android TV/Fire TV application using Kotlin, Compose for TV, Media3, DataStore, and WorkManager.
 - A native tvOS application using SwiftUI, AVKit, Bonjour discovery declarations, and persistent offline manifests.
@@ -31,8 +31,11 @@ For browser-interface development:
 
 ```bash
 npm ci
-npm run dev
+npm run build:admin
+dotnet run --project server/LessonCue.Server
 ```
+
+Open `http://localhost:8080`. For live front-end development, run `npm run dev:admin` in a second terminal and open `http://localhost:5173`.
 
 For native development and production installation, see [docs/installation.md](docs/installation.md). The server API is independently runnable with `dotnet run --project server/LessonCue.Server`.
 
@@ -48,7 +51,7 @@ If the countdown duration is five minutes and class begins at 09:00, the TV tran
 ## Repository map
 
 ```text
-app/                 React administration prototype
+web-admin/           Local React administration interface
 server/              ASP.NET Core API and tests
 android-tv/          Android TV and Fire TV client
 tvos/                Apple TV client and shared Swift protocol package
@@ -61,7 +64,7 @@ github-pages/        Public project documentation site
 
 ## Project status
 
-The repository is a complete, buildable foundation across all specified phases. The end-to-end administrator workflow is implemented in the hosted product tour, while the server and TV clients establish the production architecture and core local-network workflow. Hardware-specific signing, store submission, FFmpeg/LibreOffice provisioning, and unattended auto-start validation must be completed against the target deployment devices before a production release.
+The end-to-end administrator workflow runs on the self-hosted server: first-run setup, login, classes, lessons, local uploads, pre-roll, duration-aware countdown, pairing, screen assignment, and server status. Hardware-specific signing and store submission still require the target deployment accounts and devices.
 
 ## License
 

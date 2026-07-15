@@ -2,6 +2,7 @@
 node_modules/
 .next/
 dist/
+server/LessonCue.Server/wwwroot/
 .wrangler/
 .vinext/
 .dev.vars

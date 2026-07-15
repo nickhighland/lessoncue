@@ -5,6 +5,7 @@ namespace LessonCue.Server;
 public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbContext(options)
 {
     public DbSet<Organization> Organizations => Set<Organization>();
+    public DbSet<AdminAccount> AdminAccounts => Set<AdminAccount>();
     public DbSet<LessonClass> Classes => Set<LessonClass>();
     public DbSet<Lesson> Lessons => Set<Lesson>();
     public DbSet<PlaylistItem> PlaylistItems => Set<PlaylistItem>();
@@ -17,6 +18,7 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<LessonClass>().HasIndex(x => x.Name).IsUnique();
+        modelBuilder.Entity<AdminAccount>().HasIndex(x => x.Username).IsUnique();
         modelBuilder.Entity<Lesson>().HasMany(x => x.Items).WithOne(x => x.Lesson)
             .HasForeignKey(x => x.LessonId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<PlaylistItem>().Property(x => x.Position).HasPrecision(18, 6);

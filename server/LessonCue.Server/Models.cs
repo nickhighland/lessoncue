@@ -9,6 +9,15 @@ public sealed class Organization
     [MaxLength(100)] public string TimeZone { get; set; } = "America/New_York";
 }
 
+public sealed class AdminAccount
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    [MaxLength(80)] public required string Username { get; set; }
+    public required string PasswordHash { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? LastLoginAt { get; set; }
+}
+
 public sealed class LessonClass
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -119,3 +128,15 @@ public sealed record PairingRequestInput(string DeviceName, string Platform, str
 public sealed record PairingConfirmInput(Guid RequestId, string Pin);
 public sealed record TvStatusInput(Guid ScreenId, string AppVersion, bool Online, long FreeBytes,
     int ManifestVersion, int FailedDownloads);
+public sealed record AdminSetupInput(string OrganizationName, string Username, string Password);
+public sealed record AdminLoginInput(string Username, string Password);
+public sealed record LessonUpdateInput(string? Title, DateOnly? Date, DateTimeOffset? AvailableFrom,
+    DateTimeOffset? ExpiresAt, DateTimeOffset? DesignatedStartAt, bool? PreRollEnabled, Guid? CountdownItemId,
+    bool ClearCountdown = false, bool ClearAvailableFrom = false, bool ClearExpiresAt = false,
+    bool ClearDesignatedStartAt = false);
+public sealed record PlaylistItemUpdateInput(string? Title, string? Type, string? Role, Guid? MediaId,
+    long? DurationMs, long? StartMs, long? EndMs, int? VolumePercent, int? ImageDurationSeconds,
+    string? EndBehavior, bool? AllowSkip, bool ClearEndMs = false);
+public sealed record PlaylistReorderInput(List<Guid> ItemIds);
+public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool? VolunteerMode,
+    bool ClearAssignment = false);

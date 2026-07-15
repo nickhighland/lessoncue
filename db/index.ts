@@ -5,7 +5,7 @@ import * as schema from "./schema";
 export function getDb() {
   if (!env.DB) {
     throw new Error(
-      "Cloudflare D1 binding `DB` is unavailable. Set the `d1` field in .openai/hosting.json to `DB` or let your control plane inject the real binding values before using the database."
+      "The legacy prototype database binding is unavailable. The production LessonCue application uses the local ASP.NET Core server and SQLite."
     );
   }
 

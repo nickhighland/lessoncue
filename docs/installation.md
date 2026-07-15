@@ -12,61 +12,21 @@ SSH into the server from your computer:
 ssh YOUR_USERNAME@SERVER_IP
 ```
 
-Paste this entire block into the SSH session. It detects Intel/AMD versus ARM64, downloads the latest LessonCue release, installs required packages, registers the systemd service, and starts it:
+Paste these two commands into the SSH session. They install the small download prerequisites, then run the LessonCue installer. The installer detects Intel/AMD versus ARM64, installs server dependencies, downloads the latest release, registers the systemd service, waits for it to become healthy, and prints the browser address:
 
 ```bash
-set -euo pipefail
-
 sudo apt-get update
-sudo apt-get install -y curl ca-certificates ffmpeg avahi-daemon libicu-dev zlib1g openssl
-
-case "$(uname -m)" in
-  x86_64|amd64) LESSONCUE_RUNTIME="linux-x64" ;;
-  aarch64|arm64) LESSONCUE_RUNTIME="linux-arm64" ;;
-  *) echo "Unsupported CPU architecture: $(uname -m)"; exit 1 ;;
-esac
-
-LESSONCUE_VERSION="$(curl -fsSL -o /dev/null -w '%{url_effective}' \
-  https://github.com/nickhighland/lessoncue/releases/latest | awk -F/ '{print $NF}')"
-LESSONCUE_WORKDIR="$(mktemp -d)"
-
-curl -fL \
-  "https://github.com/nickhighland/lessoncue/releases/download/${LESSONCUE_VERSION}/LessonCue-Server-${LESSONCUE_RUNTIME}.tar.gz" \
-  -o "${LESSONCUE_WORKDIR}/lessoncue.tar.gz"
-
-tar -xzf "${LESSONCUE_WORKDIR}/lessoncue.tar.gz" -C "${LESSONCUE_WORKDIR}"
-sudo "${LESSONCUE_WORKDIR}/install.sh"
-
-cd /
-rm -rf "${LESSONCUE_WORKDIR}"
-
-if command -v ufw >/dev/null 2>&1; then
-  sudo ufw allow 8080/tcp
-fi
-
-SERVER_IP="$(hostname -I | awk '{print $1}')"
-echo "LessonCue is installed at http://${SERVER_IP}:8080"
-curl -fsS "http://127.0.0.1:8080/health"
-echo
+sudo apt-get install -y curl ca-certificates
+curl -fsSL https://raw.githubusercontent.com/nickhighland/lessoncue/main/installers/linux/install-latest.sh | bash
 ```
 
-The final health response should contain `"status":"healthy"`. The SSH connection can now be closed; systemd keeps LessonCue running and starts it again after reboot.
+The final message says `LessonCue is ready` and prints an address such as `http://192.168.4.75:8080`. The SSH connection can then be closed; systemd keeps LessonCue running and starts it again after reboot.
 
-### Set a private pairing PIN
+### First browser setup
 
-The foundation release ships with a development PIN. Paste this block once to replace it with a random six-digit PIN:
+On a computer connected to the same local network, open the address printed by the installer. LessonCue will ask you to create the organization name, administrator username, and password. This account, the complete web interface, database, schedules, and media all remain on your local server.
 
-```bash
-set -euo pipefail
-PAIRING_PIN="$(od -An -N4 -tu4 /dev/urandom | awk '{printf "%06d", $1 % 1000000}')"
-sudo sed -i -E \
-  "s/(\"PairingPin\"[[:space:]]*:[[:space:]]*\")[0-9]{6}(\")/\1${PAIRING_PIN}\2/" \
-  /opt/lessoncue/appsettings.json
-sudo systemctl restart lessoncue
-echo "LessonCue pairing PIN: ${PAIRING_PIN}"
-```
-
-Save that PIN in your password manager. To rotate it, paste the same block again.
+The installer creates a random six-digit screen-pairing PIN. After signing in, find it on the Dashboard and Screens pages.
 
 ### Verify from SSH
 
@@ -87,7 +47,7 @@ Find the server's local address over SSH:
 hostname -I | awk '{print "http://" $1 ":8080"}'
 ```
 
-Open the printed address from a browser on the same local network. The current v0.1.0 server displays its API status at that address. The interactive administration experience is available at [lessoncue-media.nick247475.chatgpt.site](https://lessoncue-media.nick247475.chatgpt.site/) and is not yet embedded into the local server release.
+Open the printed address from a browser on the same local network. The complete LessonCue administration interface is served from that local address. It does not load or depend on the hosted prototype.
 
 Do not forward port 8080 from the internet. Use a VPN for remote access.
 
@@ -159,7 +119,7 @@ http://SERVER-IP:8080/health
 http://SERVER-IP:8080/.well-known/lessoncue
 ```
 
-The first response should say `healthy`; the second should report the server identity and API version. Change the development PIN in `/opt/lessoncue/appsettings.json` before a real deployment and restrict log access.
+The first response should say `healthy`; the second should report the server identity and API version. The complete browser interface is at `http://SERVER-IP:8080`.
 
 ## Android TV and Fire TV
 
@@ -201,7 +161,7 @@ Select your development team, choose the Apple TV, and Run. Bonjour and local-ne
 
 Stop the server or use SQLite's online backup support before copying live database files. Back up the entire data directory, especially `database`, `media`, `branding`, and `config`. Test restoration on a separate machine.
 
-For Docker, pull/build the new image and run `docker compose up -d`. For native installations, back up data and repeat the headless installation block; the installer replaces the application but preserves `/var/lib/lessoncue`. Reapply or rotate the pairing PIN after an update. Installers never delete media automatically.
+For Docker, pull/build the new image and run `docker compose up -d`. For native installations, back up data and repeat the two headless installation commands; the installer replaces the application but preserves `/var/lib/lessoncue`, including the pairing PIN and administrator account. Installers never delete media automatically.
 
 To remove the headless Linux service while preserving its database and media:
 

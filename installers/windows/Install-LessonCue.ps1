@@ -11,6 +11,18 @@ if (-not (Test-Path (Join-Path $Source 'LessonCue.Server.exe'))) {
 New-Item -ItemType Directory -Force -Path $Target, $Data | Out-Null
 'database','media\originals','media\processed','media\thumbnails','media\temporary','branding','backups','logs','config' |
     ForEach-Object { New-Item -ItemType Directory -Force -Path (Join-Path $Data $_) | Out-Null }
+
+$ConfigFile = Join-Path $Data 'config\appsettings.json'
+if (-not (Test-Path $ConfigFile)) {
+    $OldConfig = Join-Path $Target 'appsettings.json'
+    if (Test-Path $OldConfig) {
+        Copy-Item $OldConfig $ConfigFile
+    } else {
+        $PairingPin = Get-Random -Minimum 0 -Maximum 1000000
+        @{ LessonCue = @{ PairingPin = $PairingPin.ToString('D6') } } |
+            ConvertTo-Json -Depth 3 | Set-Content -Encoding UTF8 $ConfigFile
+    }
+}
 Copy-Item "$Source\*" $Target -Recurse -Force
 
 $Binary = '"{0}"' -f (Join-Path $Target 'LessonCue.Server.exe')
