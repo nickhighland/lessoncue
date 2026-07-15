@@ -25,6 +25,10 @@ test("server-renders the LessonCue lesson editor", async () => {
   assert.match(html, /Lesson playlist/);
   assert.match(html, /Offline ready/);
   assert.match(html, /Volunteer view/);
+  assert.match(html, /Pre-class run-up/i);
+  assert.match(html, /Pre-roll loops/);
+  assert.match(html, /ends exactly at 9:00 AM/);
+  assert.match(html, /Scheduled countdown/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });
 

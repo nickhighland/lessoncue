@@ -37,6 +37,25 @@ const library = [
   { title: "Offering Bumper", meta: "Video · 00:30", kind: "video" as const, thumb: "countdown" },
 ];
 
+const preRollOptions = [
+  { id: "doors", title: "Doors Open Loop", duration: "01:12", thumb: "title" },
+  { id: "welcome-bumper", title: "Welcome to CityHope", duration: "00:45", thumb: "worship" },
+  { id: "community", title: "This Week at CityHope", duration: "01:30", thumb: "closing" },
+];
+
+function timeBefore(startTime: string, duration: string) {
+  const [hour, minute, second = 0] = startTime.split(":").map(Number);
+  const [durationMinutes, durationSeconds] = duration.split(":").map(Number);
+  const totalSeconds = hour * 3600 + minute * 60 + second - durationMinutes * 60 - durationSeconds;
+  const normalized = (totalSeconds + 86400) % 86400;
+  return `${String(Math.floor(normalized / 3600)).padStart(2, "0")}:${String(Math.floor((normalized % 3600) / 60)).padStart(2, "0")}:${String(normalized % 60).padStart(2, "0")}`;
+}
+
+function displayTime(value: string) {
+  const [hour, minute, second = 0] = value.split(":").map(Number);
+  return `${hour % 12 || 12}:${String(minute).padStart(2, "0")}${second ? `:${String(second).padStart(2, "0")}` : ""} ${hour >= 12 ? "PM" : "AM"}`;
+}
+
 function Icon({ children }: { children: React.ReactNode }) {
   return <span className="icon" aria-hidden="true">{children}</span>;
 }
@@ -64,6 +83,12 @@ export default function LessonCue() {
   const [playing, setPlaying] = useState(false);
   const [assigned, setAssigned] = useState(["Elementary Main"]);
   const [assignmentOpen, setAssignmentOpen] = useState(false);
+  const [runUpOpen, setRunUpOpen] = useState(false);
+  const [preRollEnabled, setPreRollEnabled] = useState(true);
+  const [countdownEnabled, setCountdownEnabled] = useState(true);
+  const [preRollStart, setPreRollStart] = useState("08:30");
+  const [preRollIds, setPreRollIds] = useState(["doors", "welcome-bumper"]);
+  const [countdownId, setCountdownId] = useState("welcome");
   const [toast, setToast] = useState("");
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -74,6 +99,9 @@ export default function LessonCue() {
     const [m, s] = item.duration.split(":").map(Number);
     return total + m * 60 + s;
   }, 0), [items]);
+  const countdownItem = items.find((item) => item.id === countdownId) ?? items[0];
+  const countdownStart = timeBefore("09:00", countdownItem?.duration ?? "00:00");
+  const enabledPreRoll = preRollOptions.filter((item) => preRollIds.includes(item.id));
 
   useEffect(() => () => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -187,6 +215,11 @@ export default function LessonCue() {
     announceSave("Screen assignment updated");
   }
 
+  function togglePreRollItem(id: string) {
+    setPreRollIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+    announceSave();
+  }
+
   function startPlayer(volunteer = false) {
     setVolunteerMode(volunteer);
     setCurrentIndex(0);
@@ -272,6 +305,27 @@ export default function LessonCue() {
                   </div>
                 </div>
 
+                <section className="runup-card" aria-label="Pre-class playback schedule">
+                  <div className="runup-title">
+                    <span className="runup-icon">◷</span>
+                    <div><small>PRE-CLASS RUN-UP</small><strong>{preRollEnabled || countdownEnabled ? "Scheduled automatically" : "Not scheduled"}</strong></div>
+                  </div>
+                  <div className={`runup-step ${preRollEnabled ? "enabled" : "disabled"}`}>
+                    <span>{displayTime(preRollStart)}</span>
+                    <div><strong>Pre-roll loops</strong><small>{preRollEnabled ? `${enabledPreRoll.length} video${enabledPreRoll.length === 1 ? "" : "s"} · loops until countdown` : "Off"}</small></div>
+                    <i>↻</i>
+                  </div>
+                  <span className="runup-arrow">→</span>
+                  <div className={`runup-step countdown-step ${countdownEnabled ? "enabled" : "disabled"}`}>
+                    <span>{displayTime(countdownStart)}</span>
+                    <div><strong>{countdownItem?.title ?? "Countdown"}</strong><small>{countdownEnabled ? `${countdownItem?.duration} · ends exactly at 9:00 AM` : "Off"}</small></div>
+                    <i>▸</i>
+                  </div>
+                  <span className="runup-arrow">→</span>
+                  <div className="runup-class"><span>9:00 AM</span><strong>Class starts</strong></div>
+                  <button onClick={() => setRunUpOpen(true)}>Edit run-up</button>
+                </section>
+
                 <div className="timeline" role="list" aria-label="Lesson playlist">
                   {items.map((item, index) => (
                     <article
@@ -296,7 +350,7 @@ export default function LessonCue() {
                         {item.kind !== "image" && <i className="play-dot">▶</i>}
                       </div>
                       <div className="item-info">
-                        <div className="item-title"><strong>{item.title}</strong>{item.behavior === "Pause at end" && <span className="pause-badge">Ⅱ Pause at end</span>}</div>
+                        <div className="item-title"><strong>{item.title}</strong>{countdownEnabled && item.id === countdownId && <span className="countdown-badge">◷ Scheduled countdown</span>}{item.behavior === "Pause at end" && <span className="pause-badge">Ⅱ Pause at end</span>}</div>
                         <div className="item-meta"><span>{item.kind}</span><i></i><span>{item.duration}</span><i></i><span className="offline">✓ {item.status}</span></div>
                         {item.note && <div className="volunteer-note"><span>✎</span>{item.note}</div>}
                       </div>
@@ -340,6 +394,34 @@ export default function LessonCue() {
       </section>
 
       {libraryOpen && <div className="modal-backdrop" onMouseDown={() => setLibraryOpen(false)}><section className="library-modal" onMouseDown={(event) => event.stopPropagation()}><header><div><small>MEDIA LIBRARY</small><h2>Add to lesson</h2><p>Choose approved media that is ready for offline playback.</p></div><button onClick={() => setLibraryOpen(false)}>×</button></header><div className="modal-search">⌕ <input autoFocus placeholder="Search media library" /></div><div className="library-grid">{library.map((item) => <button key={item.title} onClick={() => addLibraryItem(item)}><div className={`library-thumb ${item.thumb}`}>{item.thumb === "audio" ? "♪" : "▶"}</div><strong>{item.title}</strong><small>{item.meta}</small><span>＋ Add</span></button>)}</div></section></div>}
+
+      {runUpOpen && <div className="modal-backdrop" onMouseDown={() => setRunUpOpen(false)}>
+        <section className="runup-modal" onMouseDown={(event) => event.stopPropagation()}>
+          <header><div><small>PLAYBACK AUTOMATION</small><h2>Pre-class run-up</h2><p>Keep the room active before class, then land precisely on the lesson start.</p></div><button onClick={() => setRunUpOpen(false)}>×</button></header>
+          <div className="runup-summary">
+            <div><span>{displayTime(preRollStart)}</span><strong>Pre-roll begins</strong></div><i></i>
+            <div><span>{displayTime(countdownStart)}</span><strong>Countdown begins</strong></div><i></i>
+            <div><span>9:00 AM</span><strong>Lesson available</strong></div>
+          </div>
+          <section className={`automation-section ${preRollEnabled ? "on" : ""}`}>
+            <div className="automation-head"><div><span className="automation-number">1</span><div><strong>Loop pre-roll videos</strong><small>Play this series repeatedly until the countdown takes over.</small></div></div><label className="compact-switch"><input type="checkbox" checked={preRollEnabled} onChange={(event) => { setPreRollEnabled(event.target.checked); announceSave(); }} /><i></i></label></div>
+            <div className="automation-body">
+              <label className="field"><span>Begin pre-roll at</span><input type="time" value={preRollStart} onChange={(event) => { setPreRollStart(event.target.value); announceSave(); }} /></label>
+              <div className="pre-roll-choices"><span>Videos in loop</span>{preRollOptions.map((item, index) => <label key={item.id} className={preRollIds.includes(item.id) ? "chosen" : ""}><input type="checkbox" checked={preRollIds.includes(item.id)} onChange={() => togglePreRollItem(item.id)} /><b>{index + 1}</b><div className={`mini-thumb ${item.thumb}`}>▶</div><span><strong>{item.title}</strong><small>{item.duration} · Offline ready</small></span><i>{preRollIds.includes(item.id) ? "✓" : "+"}</i></label>)}</div>
+              <div className="loop-note"><span>↻</span><p>When the series ends, it starts again. The current video will stop when the countdown’s scheduled start time arrives.</p></div>
+            </div>
+          </section>
+          <section className={`automation-section ${countdownEnabled ? "on" : ""}`}>
+            <div className="automation-head"><div><span className="automation-number">2</span><div><strong>Start a countdown automatically</strong><small>Back-time the selected video so it ends at exactly 9:00 AM.</small></div></div><label className="compact-switch"><input type="checkbox" checked={countdownEnabled} onChange={(event) => { setCountdownEnabled(event.target.checked); announceSave(); }} /><i></i></label></div>
+            <div className="automation-body countdown-config">
+              <label className="field"><span>Countdown video</span><select value={countdownId} onChange={(event) => { setCountdownId(event.target.value); announceSave(); }}>{items.filter((item) => item.kind === "video").map((item) => <option key={item.id} value={item.id}>{item.title} · {item.duration}</option>)}</select></label>
+              <div className="countdown-math"><div><small>LESSON START</small><strong>9:00:00 AM</strong></div><span>−</span><div><small>VIDEO DURATION</small><strong>{countdownItem?.duration}</strong></div><span>=</span><div className="result"><small>AUTO-START</small><strong>{displayTime(countdownStart)}</strong></div></div>
+              <p className="precision-note"><span>✓</span> LessonCue calculates this automatically whenever the countdown video or designated class time changes.</p>
+            </div>
+          </section>
+          <footer><span><b>✓ Offline safe</b> This schedule is stored on assigned screens.</span><button className="primary-btn" onClick={() => { setRunUpOpen(false); announceSave("Pre-class run-up updated"); }}>Save run-up</button></footer>
+        </section>
+      </div>}
 
       {playerOpen && currentItem && <PlayerModal item={currentItem} index={currentIndex} total={items.length} playing={playing} volunteer={volunteerMode} onPlay={() => setPlaying(!playing)} onClose={() => { setPlayerOpen(false); setPlaying(false); }} onNext={() => setCurrentIndex((value) => Math.min(items.length - 1, value + 1))} onPrev={() => setCurrentIndex((value) => Math.max(0, value - 1))} />}
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
