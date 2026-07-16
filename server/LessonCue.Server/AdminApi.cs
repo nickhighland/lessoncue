@@ -76,7 +76,7 @@ public static class AdminApi
         var admin = api.MapGroup("").RequireAuthorization();
 
         admin.MapGet("/admin/bootstrap", async (LessonCueDb db, PairingCodeService pairing, StorageService storage,
-            UpdateService updates, CancellationToken ct) =>
+            UpdateService updates, LocalAddressService localAddress, CancellationToken ct) =>
         {
             var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
             var storageStatus = await storage.GetSnapshotAsync(organization.StorageLimitBytes, ct);
@@ -92,6 +92,7 @@ public static class AdminApi
                 pairingFixed = pairing.FixedPin is not null,
                 storage = storageStatus,
                 update = updates.Status,
+                localAddress = localAddress.Status,
                 counts = new
                 {
                     classes = await db.Classes.CountAsync(ct),
@@ -689,6 +690,22 @@ public static class AdminApi
             Audit(db, "storage.limit.update", organization.Id, input.LimitBytes == 0 ? "automatic" : input.LimitBytes.ToString());
             await db.SaveChangesAsync(ct);
             return Results.Ok(await storage.GetSnapshotAsync(input.LimitBytes, ct));
+        });
+
+        admin.MapGet("/local-address", (LocalAddressService localAddress) => Results.Ok(localAddress.Status));
+
+        admin.MapPut("/local-address", async (LocalHostnameInput input, LocalAddressService localAddress,
+            LessonCueDb db, HttpContext context, CancellationToken ct) =>
+        {
+            if (!IsManager(context.User)) return Results.Forbid();
+            try
+            {
+                var status = await localAddress.SetAsync(input.Hostname, ct);
+                Audit(db, "server.local-address.update", Guid.Empty, status.Address);
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(status);
+            }
+            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         admin.MapGet("/updates", (UpdateService updates) => Results.Ok(updates.Status));

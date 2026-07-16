@@ -1,5 +1,5 @@
 [Unit]
-Description=Watch for a LessonCue update request
+Description=Watch for a protected LessonCue server operation
 
 [Path]
 PathChanged=/var/lib/lessoncue/config/update-request

@@ -39,7 +39,18 @@ if command -v avahi-daemon >/dev/null 2>&1; then
   AVAHI_SOURCE="${SOURCE_DIR}/docker/avahi-service.xml"
   [[ -f "${AVAHI_SOURCE}" ]] || AVAHI_SOURCE="${SOURCE_DIR}/../../docker/avahi-service.xml"
   install -m 0644 "${AVAHI_SOURCE}" /etc/avahi/services/lessoncue.service
-  systemctl reload avahi-daemon || true
+  if [[ -f /etc/avahi/avahi-daemon.conf ]]; then
+    AVAHI_HOSTNAME=lessoncue
+    if [[ -f /var/lib/lessoncue/config/local-hostname ]]; then
+      SAVED_HOSTNAME="$(tr -d '[:space:]' < /var/lib/lessoncue/config/local-hostname)"
+      if [[ "${SAVED_HOSTNAME}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then AVAHI_HOSTNAME="${SAVED_HOSTNAME}"; fi
+    fi
+    printf '%s\n' "${AVAHI_HOSTNAME}" > /var/lib/lessoncue/config/local-hostname
+    printf 'hostname:%s\n' "${AVAHI_HOSTNAME}" > /var/lib/lessoncue/config/update-request
+    chown lessoncue:lessoncue /var/lib/lessoncue/config/local-hostname /var/lib/lessoncue/config/update-request
+    chmod 0600 /var/lib/lessoncue/config/local-hostname /var/lib/lessoncue/config/update-request
+    /usr/local/sbin/lessoncue-update
+  fi
 fi
 
 if command -v ufw >/dev/null 2>&1; then ufw allow 8080/tcp >/dev/null || true; fi
@@ -47,4 +58,5 @@ systemctl daemon-reload
 systemctl enable --now lessoncue-update.path
 systemctl enable lessoncue
 systemctl restart lessoncue
-echo "LessonCue is installed. Open http://$(hostname -I | awk '{print $1}'):8080"
+echo "LessonCue is installed. Open http://lessoncue.local:8080"
+echo "Numeric fallback: http://$(hostname -I | awk '{print $1}'):8080"

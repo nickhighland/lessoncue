@@ -38,6 +38,8 @@ builder.Services.AddSingleton(new PairingCodeService(dataPath, builder.Configura
 builder.Services.AddSingleton(new BackupService(dataPath));
 builder.Services.AddSingleton(new MediaStoragePaths(dataPath));
 builder.Services.AddSingleton(new StorageService(dataPath));
+builder.Services.AddSingleton(services => new LocalAddressService(dataPath, services.GetRequiredService<ILogger<LocalAddressService>>()));
+builder.Services.AddHostedService(services => services.GetRequiredService<LocalAddressService>());
 builder.Services.AddHostedService<MediaProcessingService>();
 builder.Services.AddHostedService<MediaRetentionService>();
 builder.Services.AddHttpClient("updates", client =>
@@ -144,6 +146,7 @@ var serverId = ServerIdentity.LoadOrCreate(dataPath);
 var serverName = Environment.GetEnvironmentVariable("LESSONCUE_SERVER_NAME")
     ?? builder.Configuration["LessonCue:ServerName"] ?? "LessonCue";
 var pairingCodes = app.Services.GetRequiredService<PairingCodeService>();
+var localAddress = app.Services.GetRequiredService<LocalAddressService>();
 app.Logger.LogInformation("LessonCue pairing PIN: {PairingPin}", pairingCodes.Current);
 
 app.MapGet("/.well-known/lessoncue", () => new
@@ -151,6 +154,7 @@ app.MapGet("/.well-known/lessoncue", () => new
     product = "LessonCue",
     serverId,
     serverName,
+    localAddress = localAddress.Status.Address,
     apiVersion = 1,
     pairingEnabled = true
 });

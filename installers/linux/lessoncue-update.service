@@ -1,5 +1,5 @@
 [Unit]
-Description=Install the latest verified LessonCue release
+Description=Run a protected LessonCue server operation
 After=network-online.target
 Wants=network-online.target
 

@@ -16,6 +16,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - Direct lesson uploads, reusable or four-week lesson retention, automatic cleanup, resumable large uploads, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, link classification, codec readiness, and range-enabled delivery.
 - Daily release checks, administrator alerts, protected one-click Linux updates with health-check rollback, and administrator-controlled storage allocation with uploader-visible capacity.
 - A locally configurable six-digit pairing PIN, with a choice between a persistent administrator-set PIN and automatic ten-minute rotation.
+- Automatic `lessoncue.local` setup on native Linux, with an administrator-configurable `.local` browser name and numeric-IP fallback.
 - GitHub Actions that build the web app, server, Android APK, tvOS app, release packages, and GitHub Pages documentation.
 
 ## Quick start
@@ -29,7 +30,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Then open `http://localhost:8080`. On a local network, the preferred address is `http://lessoncue.local:8080` when mDNS is available.
+Then open `http://localhost:8080`. Native Linux installations automatically configure the preferred local-network address `http://lessoncue.local:8080`; administrators can change the name in Settings.
 
 For browser-interface development:
 
@@ -59,6 +60,8 @@ Every file upload asks how it should be stored. **For a lesson** is the default 
 ## Updates and storage
 
 Native Linux installations check for a new LessonCue release once per day. Owners and administrators can check immediately and install an available update from **Settings → Software updates**. The protected updater verifies the published checksum, restarts the server, performs a health check, and restores the previous application version if the new one cannot start. Existing servers must run the current SSH installer once to add this updater; later releases can be installed from the browser.
+
+Native Linux also advertises `http://lessoncue.local:8080` automatically. Owners and administrators can choose a different single-label `.local` name under **Settings → Connection & pairing** without changing the computer's Linux or SSH hostname.
 
 Owners and administrators can choose an explicit LessonCue storage allocation or let it follow safely available disk space. LessonCue preserves a 512 MB operating-system reserve, rejects uploads that exceed the allocation, and shows remaining upload capacity to every user who has upload access.
 

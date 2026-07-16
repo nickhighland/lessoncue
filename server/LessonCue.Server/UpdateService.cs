@@ -76,7 +76,7 @@ public sealed class UpdateService(
         if (!AutomaticInstallSupported() || _status.Installing) return false;
         try
         {
-            await File.WriteAllTextAsync(UpdateRequestPath, DateTimeOffset.UtcNow.ToString("O"), ct);
+            await File.WriteAllTextAsync(UpdateRequestPath, $"update:{DateTimeOffset.UtcNow:O}", ct);
             _status = _status with { Installing = true, Error = null };
             return true;
         }

@@ -20,13 +20,15 @@ sudo apt-get install -y curl ca-certificates
 curl -fsSL https://raw.githubusercontent.com/nickhighland/lessoncue/main/installers/linux/install-latest.sh | bash
 ```
 
-The final message says `LessonCue is ready` and prints an address such as `http://192.168.4.75:8080`. The SSH connection can then be closed; systemd keeps LessonCue running and starts it again after reboot.
+The final message says `LessonCue is ready` and prints `http://lessoncue.local:8080` plus a numeric fallback such as `http://192.168.4.75:8080`. The SSH connection can then be closed; systemd keeps LessonCue running and starts it again after reboot.
 
 ### First browser setup
 
 On a computer connected to the same local network, open the address printed by the installer. LessonCue will ask you to create the organization name, administrator username, and password. This account, the complete web interface, database, schedules, and media all remain on your local server.
 
 LessonCue creates a private local pairing secret and displays a six-digit PIN that rotates every ten minutes. After signing in, find the current PIN on the Dashboard and Screens pages. An owner or administrator can instead set a persistent six-digit local PIN under **Settings → Connection & pairing**. The same control switches back to automatic rotation at any time; the setting stays entirely on the local server.
+
+Native Linux installation configures `http://lessoncue.local:8080` automatically. An owner or administrator can change `lessoncue` to another single `.local` name under **Settings → Connection & pairing**. LessonCue changes only its Avahi/mDNS network identity; it does not rename the Linux computer or change the SSH hostname. Keep the numeric address as a fallback for networks that block multicast DNS.
 
 ### Verify from SSH
 
@@ -47,7 +49,7 @@ Find the server's local address over SSH:
 hostname -I | awk '{print "http://" $1 ":8080"}'
 ```
 
-Open the printed address from a browser on the same local network. The complete LessonCue administration interface is served from that local address. It does not load or depend on the hosted prototype.
+First try `http://lessoncue.local:8080`, then use the printed numeric address if `.local` discovery is unavailable on that network. The complete LessonCue administration interface is served from the local server. It does not load or depend on the hosted prototype.
 
 Do not forward port 8080 from the internet. Use a VPN for remote access.
 

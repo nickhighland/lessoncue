@@ -25,7 +25,8 @@ for attempt in $(seq 1 30); do
     server_ip="$(hostname -I | awk '{print $1}')"
     echo
     echo "LessonCue is ready."
-    echo "Open http://${server_ip}:8080 in a browser on the same network."
+    echo "Open http://lessoncue.local:8080 in a browser on the same network."
+    echo "Numeric fallback: http://${server_ip}:8080"
     exit 0
   fi
   sleep 1

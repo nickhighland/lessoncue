@@ -12,6 +12,62 @@ if ! flock -n 9; then
   exit 0
 fi
 
+REQUEST_PATH=/var/lib/lessoncue/config/update-request
+REQUEST="$(head -n 1 "${REQUEST_PATH}" 2>/dev/null || true)"
+if [[ "${REQUEST}" == hostname:* ]]; then
+  LOCAL_HOSTNAME="${REQUEST#hostname:}"
+  if [[ ! "${LOCAL_HOSTNAME}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
+    echo "LessonCue rejected an invalid local hostname."
+    exit 1
+  fi
+  if [[ ! -f /etc/avahi/avahi-daemon.conf ]]; then
+    echo "Avahi is not installed; the LessonCue .local address cannot be configured."
+    exit 1
+  fi
+
+  AVAHI_CONFIG="$(mktemp)"
+  trap 'rm -f "${AVAHI_CONFIG}"' EXIT
+  awk -v hostname="${LOCAL_HOSTNAME}" '
+    BEGIN { in_server = 0; server_found = 0; hostname_written = 0 }
+    /^\[server\][[:space:]]*$/ {
+      print
+      in_server = 1
+      server_found = 1
+      next
+    }
+    /^\[/ {
+      if (in_server && !hostname_written) {
+        print "host-name=" hostname
+        hostname_written = 1
+      }
+      in_server = 0
+    }
+    in_server && /^[#[:space:]]*host-name[[:space:]]*=/ {
+      if (!hostname_written) {
+        print "host-name=" hostname
+        hostname_written = 1
+      }
+      next
+    }
+    { print }
+    END {
+      if (in_server && !hostname_written) print "host-name=" hostname
+      if (!server_found) {
+        print ""
+        print "[server]"
+        print "host-name=" hostname
+      }
+    }
+  ' /etc/avahi/avahi-daemon.conf > "${AVAHI_CONFIG}"
+  install -m 0644 "${AVAHI_CONFIG}" /etc/avahi/avahi-daemon.conf
+  systemctl restart avahi-daemon
+  printf '%s\n' "${LOCAL_HOSTNAME}" > /var/lib/lessoncue/config/hostname-result
+  chown lessoncue:lessoncue /var/lib/lessoncue/config/hostname-result
+  chmod 0600 /var/lib/lessoncue/config/hostname-result
+  echo "LessonCue is available at http://${LOCAL_HOSTNAME}.local:8080"
+  exit 0
+fi
+
 case "$(uname -m)" in
   x86_64|amd64) RUNTIME=linux-x64 ;;
   aarch64|arm64) RUNTIME=linux-arm64 ;;
