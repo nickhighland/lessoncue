@@ -198,6 +198,20 @@ api.MapGet("/media/{mediaId:guid}/thumbnail", async (Guid mediaId, LessonCueDb d
     return Results.File(path, "image/jpeg", enableRangeProcessing: true);
 });
 
+api.MapGet("/media/{mediaId:guid}/filmstrip", async (Guid mediaId, LessonCueDb db,
+    MediaStoragePaths paths, CancellationToken ct) =>
+{
+    var media = await db.MediaAssets.AsNoTracking().SingleOrDefaultAsync(x => x.Id == mediaId, ct);
+    return DerivativeFile(media?.FilmstripPath, paths.Thumbnails, "image/jpeg");
+});
+
+api.MapGet("/media/{mediaId:guid}/waveform", async (Guid mediaId, LessonCueDb db,
+    MediaStoragePaths paths, CancellationToken ct) =>
+{
+    var media = await db.MediaAssets.AsNoTracking().SingleOrDefaultAsync(x => x.Id == mediaId, ct);
+    return DerivativeFile(media?.WaveformPath, paths.Thumbnails, "image/png");
+});
+
 api.MapPost("/pairing/request", async (PairingRequestInput input, LessonCueDb db,
     IPasswordHasher<PairingAttempt> hasher, CancellationToken ct) =>
 {
@@ -280,6 +294,16 @@ app.MapFallbackToFile("index.html");
 app.Run();
 
 static string HashToken(string token) => Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
+
+static IResult DerivativeFile(string? relativePath, string root, string contentType)
+{
+    if (string.IsNullOrWhiteSpace(relativePath)) return Results.NotFound();
+    var normalizedRoot = Path.GetFullPath(root) + Path.DirectorySeparatorChar;
+    var path = Path.GetFullPath(Path.Combine(root, relativePath));
+    return path.StartsWith(normalizedRoot, StringComparison.Ordinal) && File.Exists(path)
+        ? Results.File(path, contentType, enableRangeProcessing: true)
+        : Results.NotFound();
+}
 
 static async Task<bool> HasDeviceAccess(HttpRequest request, LessonCueDb db, Guid screenId, CancellationToken ct)
 {

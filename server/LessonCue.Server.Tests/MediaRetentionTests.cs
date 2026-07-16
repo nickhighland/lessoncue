@@ -8,6 +8,29 @@ namespace LessonCue.Server.Tests;
 public sealed class MediaRetentionTests
 {
     [Fact]
+    public async Task UpgradeAddsVisualTimelineDerivativesToExistingDatabases()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(cancellationToken);
+        var options = new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options;
+        await using var db = new LessonCueDb(options);
+        await db.Database.EnsureCreatedAsync(cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"FilmstripPath\"", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"WaveformPath\"", cancellationToken);
+
+        await DatabaseUpgrade.ApplyAsync(db, cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA table_info(\"MediaAssets\")";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var columns = new List<string>();
+        while (await reader.ReadAsync(cancellationToken)) columns.Add(reader.GetString(1));
+        Assert.Contains("FilmstripPath", columns);
+        Assert.Contains("WaveformPath", columns);
+    }
+
+    [Fact]
     public async Task UpgradeAddsTheManualRetentionMarkerToExistingDatabases()
     {
         var cancellationToken = TestContext.Current.CancellationToken;

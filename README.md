@@ -22,6 +22,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - Administrator user management with editable names, usernames, email addresses, roles, and passwords, plus pause/reactivate and protected account deletion.
 - Local interface branding with independent navigation background, navigation text, selected-tab, and accent colors.
 - Browser previews for every ready media item, including playlist trim points, fades, volume, looping, and operator notes.
+- A visual lesson timeline with locally generated video filmstrips and audio waveforms, 0.04-second trim nudging, fade handles, selection preview, and the original numeric controls as a simple fallback.
 - A phone-first local controller for selecting screens, lessons, and individual media, with play, pause, resume, previous, next, stop, and seek controls; actual playback state, progress, errors, and command acknowledgement arrive live from the TV and the controller can be saved to an iPhone, iPad, or Android home screen.
 - GitHub Actions that build the web app, server, Android APK, tvOS app, release packages, and GitHub Pages documentation.
 

@@ -16,7 +16,7 @@ type UpdateStatus = { currentVersion: string; latestVersion?: string; updateAvai
 type LocalAddressStatus = { hostname: string; address: string; supported: boolean; pending: boolean; appliedAt?: string; error?: string };
 type HttpPortStatus = { port: number; address: string; configurable: boolean; supported: boolean; pending: boolean; appliedAt?: string; error?: string };
 type LessonClass = { id: string; name: string; description: string; lessonCount: number; screenCount: number };
-type Media = { id: string; fileName: string; contentType: string; sizeBytes: number; durationMs?: number; downloadUrl: string; thumbnailUrl?: string; processingStatus: string; processingError?: string; videoCodec?: string; audioCodec?: string; width?: number; height?: number; sourceKind: string; sourceUrl?: string; linkKind?: string; offlineEligible: boolean; storagePolicy: "lesson" | "persistent"; originLessonId?: string; deleteAfter?: string; retentionDateIsManual: boolean };
+type Media = { id: string; fileName: string; contentType: string; sizeBytes: number; durationMs?: number; downloadUrl: string; thumbnailUrl?: string; filmstripUrl?: string; waveformUrl?: string; processingStatus: string; processingError?: string; videoCodec?: string; audioCodec?: string; width?: number; height?: number; sourceKind: string; sourceUrl?: string; linkKind?: string; offlineEligible: boolean; storagePolicy: "lesson" | "persistent"; originLessonId?: string; deleteAfter?: string; retentionDateIsManual: boolean };
 type PlaylistItem = {
   id: string; title: string; type: string; role: "lesson" | "preRoll" | "countdown"; position: number;
   mediaAssetId?: string; mediaFileName?: string; durationMs?: number; mediaDurationMs?: number;
@@ -331,7 +331,7 @@ function LessonEditor({ lesson, media, onBack, refresh, notify, canUpload, stora
       <section className="online-choice"><h3>Add online media</h3><p>Show a webpage or play a YouTube video. A local YouTube copy can play without internet after downloading.</p><form className="stack" onSubmit={addOnline}><Field label="Webpage or YouTube URL"><input name="url" type="url" required placeholder="https://…" disabled={uploading} /></Field><fieldset className="retention-options"><legend>How should LessonCue use it?</legend><label><input type="radio" checked={onlineMode === "online"} onChange={() => setOnlineMode("online")} /><span><strong>Play online</strong><small>YouTube uses an embedded player; other URLs display as webpages.</small></span></label><label><input type="radio" checked={onlineMode === "download"} onChange={() => setOnlineMode("download")} /><span><strong>Download YouTube locally</strong><small>Use only for video you are authorized to copy. Processing continues in the background.</small></span></label></fieldset>{onlineMode === "download" && <RetentionChoices lessonDate={lesson.date} />}<div className="two-fields">{onlineMode === "download" && <Field label="Playlist role"><select name="role"><option value="lesson">Main lesson</option><option value="preRoll">Pre-roll loop</option><option value="countdown">Countdown video</option></select></Field>}<Field label="Display title"><input name="title" placeholder={onlineMode === "download" ? "YouTube video" : "Use website name"} /></Field></div><button className="button primary" disabled={uploading}>{uploading ? "Adding…" : onlineMode === "download" ? "Queue download and add" : "Add online media"}</button></form></section>
       {playableMedia.length > 0 && <section className="library-choice"><h3>Choose existing media</h3><form className="stack" onSubmit={addItem}><Field label="Ready media"><select name="mediaId" required>{playableMedia.map(m => <option key={m.id} value={m.id}>{m.fileName}</option>)}</select></Field><div className="two-fields"><Field label="Playlist role"><select name="role"><option value="lesson">Main lesson</option><option value="preRoll">Pre-roll loop</option><option value="countdown">Countdown video</option></select></Field><Field label="Display title"><input name="title" placeholder="Use media filename" /></Field></div><button className="button">Add existing media</button></form></section>}
     </div></Modal>}
-    {previewItem && <Modal title={`Preview: ${previewItem.title}`} onClose={() => setPreviewItem(undefined)}><MediaPreview media={media.find(asset => asset.id === previewItem.mediaAssetId)} item={previewItem} /></Modal>}
+    {previewItem && <Modal title={`Timeline: ${previewItem.title}`} onClose={() => setPreviewItem(undefined)}><TimelineEditor item={previewItem} media={media.find(asset => asset.id === previewItem.mediaAssetId)} onSave={changes => changeItem(previewItem, changes)} /></Modal>}
     <div className="editor-grid">
       <section className="panel schedule-panel"><h2>Timing</h2><form className="stack" onSubmit={updateLesson}><Field label="Lesson title"><input name="title" defaultValue={lesson.title} required /></Field><Field label="Lesson date"><input name="date" type="date" defaultValue={lesson.date} required /></Field><Field label="Pre-roll begins" hint="Paired screens automatically start looping pre-roll at this time."><input name="preRollStartsAt" type="datetime-local" defaultValue={toLocalInput(lesson.preRollStartsAt)} /></Field><Field label="Designated class start" hint="The countdown begins exactly one countdown-video duration before this time."><input name="designatedStartAt" type="datetime-local" defaultValue={toLocalInput(lesson.designatedStartAt)} /></Field><label className="switch-row"><input type="checkbox" name="preRollEnabled" defaultChecked={lesson.preRollEnabled} /><span /><div><strong>Enable pre-roll</strong><small>Loop all pre-roll items until the countdown or class begins.</small></div></label><button className="button primary">Save timing</button></form>
         <div className="timing-explain"><span>◷</span><div><strong>{countdown && lesson.designatedStartAt ? `Countdown begins ${formatDuration(countdown.durationMs || countdown.mediaDurationMs)} before class` : "Countdown is optional"}</strong><p>Assign one video as the countdown. Its full duration determines when it starts automatically.</p></div></div>
@@ -538,6 +538,40 @@ function Settings({ bootstrap, backups, audit, refresh, notify, canManage }: { b
   </>;
 }
 
+function TimelineEditor({ media, item, onSave }: { media?: Media; item: PlaylistItem; onSave: (changes: Record<string, unknown>) => void | Promise<void> }) {
+  const duration = Math.max(.04, (media?.durationMs || item.mediaDurationMs || item.durationMs || 1_000) / 1000);
+  const [start, setStart] = useState(Math.min(duration, item.startMs / 1000));
+  const [end, setEnd] = useState(Math.min(duration, (item.endMs || media?.durationMs || item.mediaDurationMs || item.durationMs || 1_000) / 1000));
+  const [fadeIn, setFadeIn] = useState((item.fadeInMs || 0) / 1000);
+  const [fadeOut, setFadeOut] = useState((item.fadeOutMs || 0) / 1000);
+  const player = useRef<HTMLMediaElement>(null);
+  const source = media?.downloadUrl;
+  const startPercent = start / duration * 100;
+  const endPercent = end / duration * 100;
+  function seek(value: number, edge: "start" | "end") {
+    const next = Math.round(value * 25) / 25;
+    if (edge === "start") setStart(Math.min(next, end - .04)); else setEnd(Math.max(next, start + .04));
+    if (player.current) player.current.currentTime = edge === "start" ? Math.min(next, end - .04) : start;
+  }
+  function updatePreview(element: HTMLMediaElement) {
+    const position = element.currentTime;
+    if (position >= end) { element.pause(); element.currentTime = start; return; }
+    const intoSelection = position - start;
+    const remaining = end - position;
+    const fade = Math.min(fadeIn ? intoSelection / fadeIn : 1, fadeOut ? remaining / fadeOut : 1, 1);
+    element.volume = Math.max(0, Math.min(1, item.volumePercent / 100 * fade));
+  }
+  if (!media || !source || (!media.contentType.startsWith("video/") && !media.contentType.startsWith("audio/"))) return <MediaPreview media={media} item={item} />;
+  return <section className="timeline-editor">
+    <div className="timeline-player">{media.contentType.startsWith("video/") ? <video ref={player as React.RefObject<HTMLVideoElement>} src={source} controls playsInline onLoadedMetadata={e => { e.currentTarget.currentTime = start; }} onTimeUpdate={e => updatePreview(e.currentTarget)} /> : <audio ref={player as React.RefObject<HTMLAudioElement>} src={source} controls onLoadedMetadata={e => { e.currentTarget.currentTime = start; }} onTimeUpdate={e => updatePreview(e.currentTarget)} />}</div>
+    <div className="timeline-art" aria-label="Media filmstrip and waveform">{media.filmstripUrl && <img src={media.filmstripUrl} alt="Video filmstrip" />}{media.waveformUrl && <img className="waveform" src={media.waveformUrl} alt="Audio waveform" />}<i className="trim-before" style={{ width: `${startPercent}%` }} /><i className="trim-after" style={{ left: `${endPercent}%` }} /><span className="selection" style={{ left: `${startPercent}%`, width: `${Math.max(0, endPercent - startPercent)}%` }} /></div>
+    <div className="timeline-rulers"><label>In <strong>{formatPreciseTime(start)}</strong><input type="range" min="0" max={duration} step="0.04" value={start} onChange={e => seek(Number(e.target.value), "start")} /></label><label>Out <strong>{formatPreciseTime(end)}</strong><input type="range" min="0.04" max={duration} step="0.04" value={end} onChange={e => seek(Number(e.target.value), "end")} /></label></div>
+    <div className="timeline-fades"><Field label={`Fade in · ${fadeIn.toFixed(1)}s`}><input type="range" min="0" max={Math.min(30, end - start)} step="0.1" value={fadeIn} onChange={e => setFadeIn(Number(e.target.value))} /></Field><Field label={`Fade out · ${fadeOut.toFixed(1)}s`}><input type="range" min="0" max={Math.min(30, end - start)} step="0.1" value={fadeOut} onChange={e => setFadeOut(Number(e.target.value))} /></Field></div>
+    <div className="timeline-actions"><button className="button" onClick={() => { if (player.current) { player.current.currentTime = start; void player.current.play(); } }}>▶ Preview selection</button><button className="button primary" onClick={() => onSave({ startMs: Math.round(start * 1000), endMs: Math.round(end * 1000), fadeInMs: Math.round(fadeIn * 1000), fadeOutMs: Math.round(fadeOut * 1000) })}>Save timeline</button></div>
+    <small>Arrow keys nudge a focused trim handle by one 0.04-second frame step. The shaded area will not play.</small>
+  </section>;
+}
+
 function MediaPreview({ media, item }: { media?: Media; item?: PlaylistItem }) {
   const player = useRef<HTMLMediaElement>(null);
   const [positionMs, setPositionMs] = useState(item?.startMs || 0);
@@ -595,6 +629,7 @@ function formatDateAfterDays(date: string, days: number) { const value = new Dat
 function formatShortDate(value: string) { return new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }); }
 function dateInputValue(value?: string, addDays = 0) { if (value) return value.slice(0, 10); const date = new Date(); if (addDays) date.setDate(date.getDate() + addDays); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
 function formatDuration(ms?: number) { if (ms === undefined || ms === null) return "Duration unknown"; const seconds = Math.round(ms / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
+function formatPreciseTime(seconds: number) { return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}.${String(Math.round(seconds % 1 * 100)).padStart(2, "0")}`; }
 function formatBytes(bytes: number) { if (bytes === 0) return "0 B"; if (!Number.isFinite(bytes) || bytes < 0) return "—"; const units = ["B", "KB", "MB", "GB", "TB"]; const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1); return `${(bytes / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`; }
 function friendlyType(type: string) { if (type.startsWith("video")) return "Video"; if (type.startsWith("audio")) return "Audio"; if (type.startsWith("image")) return "Image"; if (type.includes("pdf")) return "PDF"; return "Document"; }
 function friendlyPlaybackState(state?: string) { return ({ idle: "Ready", loading: "Loading", buffering: "Buffering", playing: "Playing", paused: "Paused", completed: "Completed", error: "Error" } as Record<string, string>)[state || "idle"] || "Unknown"; }

@@ -103,6 +103,8 @@ public sealed class MediaAsset
     public int? Height { get; set; }
     public double? LoudnessLufs { get; set; }
     [MaxLength(512)] public string? ThumbnailPath { get; set; }
+    [MaxLength(512)] public string? FilmstripPath { get; set; }
+    [MaxLength(512)] public string? WaveformPath { get; set; }
     [MaxLength(32)] public string SourceKind { get; set; } = "upload";
     [MaxLength(2048)] public string? SourceUrl { get; set; }
     [MaxLength(32)] public string? LinkKind { get; set; }

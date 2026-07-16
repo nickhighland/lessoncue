@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
@@ -76,6 +77,14 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, ILogger<
                 var seek = item.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ? "" : "-ss 0.1 ";
                 await RunAsync("ffmpeg", $"-y {seek}-i \"{fullPath.Replace("\"", "\\\"")}\" -frames:v 1 -vf scale=640:-2:out_range=full -pix_fmt yuvj420p \"{output.Replace("\"", "\\\"")}\"", ct);
                 item.ThumbnailPath = relative;
+                if (item.DurationMs is > 0)
+                {
+                    var filmstripRelative = item.Id + "-filmstrip.jpg";
+                    var filmstripOutput = Path.Combine(thumbnails, filmstripRelative);
+                    var interval = Math.Max(.1, item.DurationMs.Value / 6000d).ToString("0.###", CultureInfo.InvariantCulture);
+                    await RunDerivativeAsync("ffmpeg", $"-y -i \"{fullPath.Replace("\"", "\\\"")}\" -vf \"fps=1/{interval},scale=160:90:force_original_aspect_ratio=decrease,pad=160:90:(ow-iw)/2:(oh-ih)/2,tile=6x1\" -frames:v 1 -q:v 3 \"{filmstripOutput.Replace("\"", "\\\"")}\"", item.FileName, ct);
+                    if (File.Exists(filmstripOutput)) item.FilmstripPath = filmstripRelative;
+                }
             }
             if (item.AudioCodec is not null)
             {
@@ -84,6 +93,12 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, ILogger<
                 if (match.Success && double.TryParse(match.Groups["value"].Value,
                     System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lufs))
                     item.LoudnessLufs = lufs;
+                var thumbnails = Path.Combine(dataPath, "media", "thumbnails");
+                Directory.CreateDirectory(thumbnails);
+                var waveformRelative = item.Id + "-waveform.png";
+                var waveformOutput = Path.Combine(thumbnails, waveformRelative);
+                await RunDerivativeAsync("ffmpeg", $"-y -i \"{fullPath.Replace("\"", "\\\"")}\" -filter_complex \"aformat=channel_layouts=mono,showwavespic=s=1200x140:colors=#d89127\" -frames:v 1 \"{waveformOutput.Replace("\"", "\\\"")}\"", item.FileName, ct);
+                if (File.Exists(waveformOutput)) item.WaveformPath = waveformRelative;
             }
             item.ProcessingStatus = "ready";
             item.ProcessingError = null;
@@ -113,5 +128,11 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, ILogger<
         var errors = await stderr;
         if (process.ExitCode != 0) throw new InvalidOperationException(errors.Trim());
         return string.IsNullOrWhiteSpace(output) ? errors : output;
+    }
+
+    private async Task RunDerivativeAsync(string fileName, string arguments, string mediaName, CancellationToken ct)
+    {
+        try { await RunAsync(fileName, arguments, ct); }
+        catch (Exception ex) { logger.LogWarning(ex, "Could not create timeline derivative for {MediaFile}", mediaName); }
     }
 }

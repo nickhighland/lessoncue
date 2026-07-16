@@ -103,6 +103,8 @@ public static class DatabaseUpgrade
             ["MediaAssets.Height"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"Height\" INTEGER NULL"),
             ["MediaAssets.LoudnessLufs"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"LoudnessLufs\" REAL NULL"),
             ["MediaAssets.ThumbnailPath"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"ThumbnailPath\" TEXT NULL"),
+            ["MediaAssets.FilmstripPath"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"FilmstripPath\" TEXT NULL"),
+            ["MediaAssets.WaveformPath"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"WaveformPath\" TEXT NULL"),
             ["MediaAssets.SourceKind"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"SourceKind\" TEXT NOT NULL DEFAULT 'upload'"),
             ["MediaAssets.SourceUrl"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"SourceUrl\" TEXT NULL"),
             ["MediaAssets.LinkKind"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"LinkKind\" TEXT NULL"),

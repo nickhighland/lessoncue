@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 1.8.0
+  version: 1.9.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local
@@ -182,6 +182,30 @@ paths:
         '200': { description: Media file }
         '206': { description: Partial media response }
         '404': { description: Not found }
+  /api/v1/media/{mediaId}/filmstrip:
+    get:
+      operationId: getMediaFilmstrip
+      description: Locally generated six-frame JPEG used by the visual timeline editor.
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Filmstrip JPEG }
+        '404': { description: Derivative is not available }
+  /api/v1/media/{mediaId}/waveform:
+    get:
+      operationId: getMediaWaveform
+      description: Locally generated PNG waveform used by the visual timeline editor.
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Waveform PNG }
+        '404': { description: Derivative is not available }
   /api/v1/media/bulk:
     post:
       operationId: updateMediaInBulk

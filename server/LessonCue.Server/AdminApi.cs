@@ -431,6 +431,8 @@ public static class AdminApi
                 x.DeleteAfter,
                 x.RetentionDateIsManual,
                 thumbnailUrl = x.ThumbnailPath == null ? null : $"/api/v1/media/{x.Id}/thumbnail",
+                filmstripUrl = x.FilmstripPath == null ? null : $"/api/v1/media/{x.Id}/filmstrip",
+                waveformUrl = x.WaveformPath == null ? null : $"/api/v1/media/{x.Id}/waveform",
                 downloadUrl = $"/api/v1/media/{x.Id}/file"
             }).ToListAsync(ct));
 

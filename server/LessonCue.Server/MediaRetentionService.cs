@@ -126,6 +126,8 @@ public sealed class MediaRetentionService(
 
         DeleteStoredFile(paths.Originals, media.RelativePath);
         if (!string.IsNullOrWhiteSpace(media.ThumbnailPath)) DeleteStoredFile(paths.Thumbnails, media.ThumbnailPath);
+        if (!string.IsNullOrWhiteSpace(media.FilmstripPath)) DeleteStoredFile(paths.Thumbnails, media.FilmstripPath);
+        if (!string.IsNullOrWhiteSpace(media.WaveformPath)) DeleteStoredFile(paths.Thumbnails, media.WaveformPath);
         db.MediaAssets.Remove(media);
         db.AuditEvents.Add(new AuditEvent
         {
