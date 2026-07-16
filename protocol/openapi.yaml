@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 2.6.0
+  version: 2.7.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local
@@ -89,6 +89,32 @@ paths:
             schema: { $ref: '#/components/schemas/LessonInput' }
       responses:
         '201': { description: Created }
+  /api/v1/lessons/bulk:
+    post:
+      operationId: updateLessonsInBulk
+      description: Archives, restores, moves, shifts, prefixes, or permanently deletes as many as 500 lessons in one transaction.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LessonBulkInput' }
+      responses:
+        '200': { description: Bulk lesson action completed }
+        '400': { description: Invalid selection, action, destination, shift, or title prefix }
+        '404': { description: A selected lesson or destination class no longer exists }
+  /api/v1/playlist-items/bulk:
+    post:
+      operationId: updatePlaylistItemsInBulk
+      description: Removes or updates role, volume, ending, skipping, or title prefix for as many as 500 lesson cues.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlaylistItemBulkInput' }
+      responses:
+        '200': { description: Bulk playlist action completed and affected manifests invalidated }
+        '400': { description: Invalid selection, action, role, volume, ending, or title prefix }
+        '404': { description: A selected playlist item no longer exists }
   /api/v1/lessons/{lessonId}/items:
     post:
       operationId: addPlaylistItem
@@ -600,7 +626,7 @@ paths:
   /api/v1/media/bulk:
     post:
       operationId: updateMediaInBulk
-      description: Applies organization, deletion, or an explicit retention policy to as many as 500 selected media items. Deletion safely detaches media from lessons and signage before removing current and archived local files.
+      description: Applies naming, organization, deletion, or an explicit retention policy to as many as 500 selected media items. Deletion safely detaches media from lessons and signage before removing current and archived local files.
       requestBody:
         required: true
         content:
@@ -616,8 +642,8 @@ paths:
                 required: [updated, action]
                 properties:
                   updated: { type: integer, minimum: 1, maximum: 500 }
-                  action: { enum: [delete, expire, keep, organize] }
-        '400': { description: Empty selection, invalid action, missing date, or date in the past }
+                  action: { enum: [delete, expire, keep, organize, prefix-name] }
+        '400': { description: Empty selection, invalid action, invalid prefix, missing date, or date in the past }
         '404': { description: A selected media item no longer exists }
   /api/v1/storage:
     get:
@@ -908,13 +934,14 @@ components:
           maxItems: 500
           uniqueItems: true
           items: { type: string, format: uuid }
-        action: { enum: [delete, expire, keep, organize] }
+        action: { enum: [delete, expire, keep, organize, prefix-name] }
         deleteOn:
           type: [string, 'null']
           format: date
           description: Required when action is expire. Media remains available through the end of this date.
         folder: { type: [string, 'null'], maxLength: 120, description: Applied when action is organize. }
         tagsCsv: { type: [string, 'null'], maxLength: 500, description: Applied when action is organize. }
+        fileNamePrefix: { type: [string, 'null'], minLength: 1, maxLength: 80, description: Applied when action is prefix-name. }
     UpdateStatus:
       type: object
       required: [currentVersion, updateAvailable, automaticInstallSupported, installing]
@@ -1039,6 +1066,20 @@ components:
         expiresAt: { type: [string, 'null'], format: date-time }
         countdownItemId: { type: [string, 'null'], format: uuid }
         preRollEnabled: { type: boolean, default: false }
+    LessonBulkInput:
+      type: object
+      required: [lessonIds, action]
+      properties:
+        lessonIds:
+          type: array
+          minItems: 1
+          maxItems: 500
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        action: { enum: [archive, restore, delete, move, shift, prefix-title] }
+        classId: { type: [string, 'null'], format: uuid, description: Destination required for move. }
+        shiftDays: { type: [integer, 'null'], minimum: -3650, maximum: 3650, description: Required for shift. }
+        titlePrefix: { type: [string, 'null'], minLength: 1, maxLength: 80, description: Required for prefix-title. }
     LessonTemplateFromLessonInput:
       type: object
       required: [lessonId, name]
@@ -1119,6 +1160,22 @@ components:
         position: { type: number }
         durationMs: { type: [integer, 'null'] }
         endBehavior: { enum: [advance, pause, loop, menu, stop] }
+    PlaylistItemBulkInput:
+      type: object
+      required: [itemIds, action]
+      properties:
+        itemIds:
+          type: array
+          minItems: 1
+          maxItems: 500
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        action: { enum: [delete, role, volume, end-behavior, allow-skip, prefix-title] }
+        role: { type: [string, 'null'], enum: [lesson, preRoll, countdown, null], description: Required for role; countdown can target only one selected cue. }
+        volumePercent: { type: [integer, 'null'], minimum: 0, maximum: 150, description: Required for volume. }
+        endBehavior: { type: [string, 'null'], enum: [advance, pause, loop, menu, stop, null], description: Required for end-behavior. }
+        allowSkip: { type: [boolean, 'null'], description: Required for allow-skip. }
+        titlePrefix: { type: [string, 'null'], minLength: 1, maxLength: 80, description: Required for prefix-title. }
     PlaylistItemUpdateInput:
       type: object
       properties:

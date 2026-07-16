@@ -74,8 +74,30 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   });
   await uploadForm.getByLabel("Display title").fill("Browser Test Audio");
   await uploadForm.getByRole("button", { name: "Upload and add" }).click();
-  await expect(page.getByText("Media added. It will be deleted four weeks after", { exact: false })).toBeVisible();
+  await expect(page.getByText("1 file added. It will be deleted four weeks after", { exact: false })).toBeVisible();
   await expect(page.getByText("Browser Test Audio", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Add media" }).click();
+  const multiUploadForm = page.locator("form").filter({ has: page.getByLabel("Media files") });
+  await multiUploadForm.getByLabel("Media files").setInputFiles([
+    { name: "bulk-cue-one.wav", mimeType: "audio/wav", buffer: silentWav(1) },
+    { name: "bulk-cue-two.wav", mimeType: "audio/wav", buffer: silentWav(2) },
+  ]);
+  await multiUploadForm.getByRole("button", { name: "Upload and add" }).click();
+  await expect(page.getByText("2 files added.", { exact: false })).toBeVisible();
+  await expect(page.getByText("bulk-cue-one.wav", { exact: true })).toBeVisible();
+  await expect(page.getByText("bulk-cue-two.wav", { exact: true })).toBeVisible();
+  await page.getByLabel("Select cue bulk-cue-one.wav").check();
+  await page.getByLabel("Select cue bulk-cue-two.wav").check();
+  await page.getByLabel("Bulk cue action").selectOption("volume");
+  await page.locator('.cue-bulk-actions input[name="volumePercent"]').fill("65");
+  await page.locator(".cue-bulk-actions").getByRole("button", { name: "Apply" }).click();
+  await expect(page.getByText("2 playlist cues updated.", { exact: false })).toBeVisible();
+  await expect.poll(() => page.evaluate(async () => {
+    const lessons = await fetch("/api/v1/lessons").then(response => response.json());
+    const lesson = lessons.find((item: { title: string }) => item.title === "Sample Lesson");
+    return lesson.items.filter((item: { title: string }) => item.title.startsWith("bulk-cue-")).map((item: { volumePercent: number }) => item.volumePercent).join(",");
+  })).toBe("65,65");
 
   await page.getByRole("button", { name: "Add media" }).click();
   const videoUploadForm = page.locator("form").filter({ has: page.getByLabel("Media file") });
@@ -142,6 +164,16 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     return items.find((item: { fileName: string }) => item.fileName === "browser-test-audio.wav")?.processingStatus;
   }), { timeout: 30_000 }).toBe("ready");
 
+  await page.getByLabel("Select bulk-cue-one.wav").check();
+  await page.getByLabel("Select bulk-cue-two.wav").check();
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  const bulkRenameDialog = page.getByRole("dialog", { name: "Rename 2 selected media items" });
+  await bulkRenameDialog.getByLabel("Name prefix").fill("Term A —");
+  await bulkRenameDialog.getByRole("button", { name: "Rename selected media" }).click();
+  await expect(page.getByText("2 media items renamed.", { exact: false })).toBeVisible();
+  await expect(page.locator(".media-table").filter({ hasText: "Term A — bulk-cue-one.wav" })).toBeVisible();
+  await expect(page.locator(".media-table").filter({ hasText: "Term A — bulk-cue-two.wav" })).toBeVisible();
+
   const organizedRow = page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" });
   await organizedRow.getByRole("button", { name: "Manage versions & impact" }).click();
   await page.getByLabel("Replace current file").setInputFiles({ name: "browser-test-audio-v2.wav", mimeType: "audio/wav", buffer: silentWav(1) });
@@ -187,7 +219,11 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByText("Reusable lesson template created.", { exact: false })).toBeVisible();
   const templateCard = page.locator(".template-card").filter({ hasText: "Reusable Browser Lesson" });
   await expect(templateCard).toContainText("Pre-roll");
-  await expect(templateCard).toContainText("Online Learning Page");
+  await expect.poll(() => page.evaluate(async () => {
+    const templates = await fetch("/api/v1/lesson-templates").then(response => response.json());
+    return templates.find((item: { name: string }) => item.name === "Reusable Browser Lesson")?.items
+      .some((item: { title: string }) => item.title === "Online Learning Page");
+  })).toBe(true);
 
   await page.getByRole("button", { name: "New schedule" }).click();
   const scheduleDialog = page.getByRole("dialog", { name: "Create recurring schedule" });
@@ -286,6 +322,45 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByText("Cached welcome", { exact: true })).toBeVisible();
   await expect(page.locator(".codec-list > span")).toContainText("H.264 / AVC");
   await expect(page.getByAltText("Diagnostic screenshot from Browser Test TV")).toBeVisible();
+
+  await page.getByRole("button", { name: /Classes$/ }).click();
+  const quickCreate = page.locator("form.quick-create");
+  await quickCreate.locator('input[name="title"]').fill("Bulk Lesson One");
+  await quickCreate.locator('input[name="date"]').fill(dateDaysFromNow(35));
+  await quickCreate.getByRole("button", { name: "Create lesson" }).click();
+  await page.getByRole("button", { name: /Back to/ }).click();
+  await quickCreate.locator('input[name="title"]').fill("Bulk Lesson Two");
+  await quickCreate.locator('input[name="date"]').fill(dateDaysFromNow(42));
+  await quickCreate.getByRole("button", { name: "Create lesson" }).click();
+  await page.getByRole("button", { name: /Back to/ }).click();
+  await page.getByLabel("Select lesson Bulk Lesson One").check();
+  await page.getByLabel("Select lesson Bulk Lesson Two").check();
+  await page.getByRole("button", { name: "Bulk edit" }).click();
+  const lessonBulkDialog = page.getByRole("dialog", { name: "Bulk edit 2 lessons" });
+  await lessonBulkDialog.getByLabel("Action").selectOption("prefix-title");
+  await lessonBulkDialog.getByRole("textbox", { name: "Prefix", exact: true }).fill("Batch —");
+  await lessonBulkDialog.getByRole("button", { name: "Apply to selected lessons" }).click();
+  await expect(page.getByText("Batch — Bulk Lesson One", { exact: true })).toBeVisible();
+  await expect(page.getByText("Batch — Bulk Lesson Two", { exact: true })).toBeVisible();
+  const lessonBulkApi = await page.evaluate(async () => {
+    const headers = { "Content-Type": "application/json" };
+    const lessons = await fetch("/api/v1/lessons").then(response => response.json());
+    const selected = lessons.filter((item: { title: string }) => item.title.startsWith("Batch — Bulk Lesson"));
+    const targetClass = await fetch("/api/v1/classes", { method: "POST", headers,
+      body: JSON.stringify({ name: "Bulk Destination", description: "Bulk action verification" }) }).then(response => response.json());
+    const apply = (action: string, extras = {}) => fetch("/api/v1/lessons/bulk", { method: "POST", headers,
+      body: JSON.stringify({ lessonIds: selected.map((item: { id: string }) => item.id), action, ...extras }) });
+    const archive = await apply("archive");
+    const restore = await apply("restore");
+    const shift = await apply("shift", { shiftDays: 7 });
+    const move = await apply("move", { classId: targetClass.id });
+    const moved = await fetch("/api/v1/lessons").then(response => response.json());
+    const updated = moved.filter((item: { id: string }) => selected.some((original: { id: string }) => original.id === item.id));
+    const remove = await apply("delete");
+    return { statuses: [archive.status, restore.status, shift.status, move.status, remove.status], moved: updated.every((item: { classId: string }) => item.classId === targetClass.id),
+      shifted: updated.every((item: { date: string }, index: number) => item.date !== selected[index].date) };
+  });
+  expect(lessonBulkApi).toEqual({ statuses: [200, 200, 200, 200, 200], moved: true, shifted: true });
 
   await page.getByRole("button", { name: /Users$/ }).click();
   await page.getByRole("button", { name: "Add user" }).click();

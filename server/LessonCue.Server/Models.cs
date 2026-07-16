@@ -386,6 +386,10 @@ public sealed record PlaylistItemUpdateInput(string? Title, string? Type, string
     List<CuePointInput>? CuePoints = null);
 public sealed record CuePointInput(string Name, long PositionMs);
 public sealed record PlaylistReorderInput(List<Guid> ItemIds);
+public sealed record LessonBulkInput(List<Guid> LessonIds, string Action, Guid? ClassId = null,
+    int? ShiftDays = null, string? TitlePrefix = null);
+public sealed record PlaylistItemBulkInput(List<Guid> ItemIds, string Action, string? Role = null,
+    int? VolumePercent = null, string? EndBehavior = null, bool? AllowSkip = null, string? TitlePrefix = null);
 public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool? VolunteerMode,
     bool ClearAssignment = false, string? TagsCsv = null, string? Site = null,
     bool? AllowDiagnosticScreenshots = null);
@@ -405,7 +409,7 @@ public sealed record LinkInput(string Url, string? Title, bool Download = false,
 public sealed record UploadCompleteInput(string FileName, string ContentType, int TotalChunks, long? DurationMs,
     bool Persistent = false, Guid? LessonId = null, string? Folder = null, string? TagsCsv = null);
 public sealed record MediaBulkInput(List<Guid> MediaIds, string? Action, DateOnly? DeleteOn = null,
-    string? Folder = null, string? TagsCsv = null);
+    string? Folder = null, string? TagsCsv = null, string? FileNamePrefix = null);
 public sealed record MediaOrganizeInput(string? FileName, string? Folder, string? TagsCsv);
 public sealed record PresentationLessonInput(Guid LessonId, int ImageDurationSeconds = 10);
 public sealed record LessonTemplateFromLessonInput(Guid LessonId, string Name, string? Description = null);

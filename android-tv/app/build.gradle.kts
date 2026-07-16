@@ -11,8 +11,8 @@ android {
         applicationId = "org.lessoncue.tv"
         minSdk = 26
         targetSdk = 36
-        versionCode = 22
-        versionName = "0.18.0"
+        versionCode = 23
+        versionName = "0.19.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

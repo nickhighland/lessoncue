@@ -306,6 +306,70 @@ public static class AdminApi
             return Results.Ok(new { lesson.Archived });
         });
 
+        planning.MapPost("/lessons/bulk", async (LessonBulkInput input, LessonCueDb db,
+            IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            if (input.LessonIds is null || string.IsNullOrWhiteSpace(input.Action))
+                return Results.BadRequest(new { error = "Select lessons and choose an action." });
+            var ids = input.LessonIds.Distinct().ToList();
+            if (input.LessonIds.Count > 500 || ids.Count is 0 or > 500) return Results.BadRequest(new { error = "Select between 1 and 500 lessons." });
+            var lessons = await db.Lessons.Include(x => x.Items).Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+            if (lessons.Count != ids.Count) return Results.BadRequest(new { error = "One or more selected lessons no longer exist." });
+            var action = input.Action.Trim().ToLowerInvariant();
+            switch (action)
+            {
+                case "archive":
+                case "restore":
+                    foreach (var lesson in lessons) { lesson.Archived = action == "archive"; lesson.Version++; }
+                    break;
+                case "delete":
+                    db.Lessons.RemoveRange(lessons);
+                    break;
+                case "move":
+                    if (input.ClassId is not Guid classId || !await db.Classes.AnyAsync(x => x.Id == classId, ct))
+                        return Results.BadRequest(new { error = "Choose an existing destination class." });
+                    foreach (var lesson in lessons) { lesson.ClassId = classId; lesson.GeneratedByScheduleId = null; lesson.Version++; }
+                    break;
+                case "shift":
+                    if (input.ShiftDays is not int shiftDays || shiftDays is < -3650 or > 3650 || shiftDays == 0)
+                        return Results.BadRequest(new { error = "Enter a non-zero date shift between -3650 and 3650 days." });
+                    foreach (var lesson in lessons)
+                    {
+                        lesson.Date = lesson.Date.AddDays(shiftDays);
+                        lesson.AvailableFrom = lesson.AvailableFrom?.AddDays(shiftDays);
+                        lesson.ExpiresAt = lesson.ExpiresAt?.AddDays(shiftDays);
+                        lesson.DesignatedStartAt = lesson.DesignatedStartAt?.AddDays(shiftDays);
+                        lesson.PreRollStartsAt = lesson.PreRollStartsAt?.AddDays(shiftDays);
+                        lesson.GeneratedByScheduleId = null;
+                        lesson.Version++;
+                    }
+                    var mediaIds = lessons.SelectMany(x => x.Items).Where(x => x.MediaAssetId != null)
+                        .Select(x => x.MediaAssetId!.Value).Distinct().ToList();
+                    var media = await db.MediaAssets.Where(x => mediaIds.Contains(x.Id) && x.StoragePolicy == MediaRetention.LessonScoped).ToListAsync(ct);
+                    foreach (var asset in media)
+                        foreach (var lesson in lessons.Where(x => x.Items.Any(item => item.MediaAssetId == asset.Id)))
+                            MediaRetention.KeepForLesson(asset, lesson);
+                    break;
+                case "prefix-title":
+                    var prefix = input.TitlePrefix?.Trim();
+                    if (string.IsNullOrWhiteSpace(prefix) || prefix.Length > 80)
+                        return Results.BadRequest(new { error = "Enter a title prefix of 1 to 80 characters." });
+                    foreach (var lesson in lessons)
+                    {
+                        lesson.Title = (prefix + " " + lesson.Title).Trim();
+                        if (lesson.Title.Length > 160) lesson.Title = lesson.Title[..160].TrimEnd();
+                        lesson.Version++;
+                    }
+                    break;
+                default:
+                    return Results.BadRequest(new { error = "Unsupported bulk lesson action." });
+            }
+            Audit(db, $"lesson.bulk.{action}", lessons[0].Id, $"{lessons.Count} lessons");
+            await db.SaveChangesAsync(ct);
+            await InvalidateAsync(hub, lessons.Max(x => x.Version), ct);
+            return Results.Ok(new { updated = lessons.Count, action });
+        });
+
         admin.MapGet("/lesson-templates", async (LessonCueDb db, CancellationToken ct) =>
             Results.Ok(await db.LessonTemplates.AsNoTracking().OrderBy(x => x.Name).Select(x => new
             {
@@ -588,6 +652,78 @@ public static class AdminApi
             await db.SaveChangesAsync(ct);
             await InvalidateAsync(hub, lesson.Version, ct);
             return Results.NoContent();
+        });
+
+        planning.MapPost("/playlist-items/bulk", async (PlaylistItemBulkInput input, LessonCueDb db,
+            IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            if (input.ItemIds is null || string.IsNullOrWhiteSpace(input.Action))
+                return Results.BadRequest(new { error = "Select playlist items and choose an action." });
+            var ids = input.ItemIds.Distinct().ToList();
+            if (input.ItemIds.Count > 500 || ids.Count is 0 or > 500) return Results.BadRequest(new { error = "Select between 1 and 500 playlist items." });
+            var items = await db.PlaylistItems.Include(x => x.Lesson).Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+            if (items.Count != ids.Count || items.Any(x => x.Lesson is null))
+                return Results.BadRequest(new { error = "One or more selected playlist items no longer exist." });
+            var action = input.Action.Trim().ToLowerInvariant();
+            switch (action)
+            {
+                case "delete":
+                    foreach (var item in items.Where(x => x.Lesson!.CountdownItemId == x.Id)) item.Lesson!.CountdownItemId = null;
+                    db.PlaylistItems.RemoveRange(items);
+                    break;
+                case "role":
+                    if (input.Role is not ("lesson" or "preRoll" or "countdown"))
+                        return Results.BadRequest(new { error = "Choose main lesson, pre-roll, or countdown." });
+                    var role = NormalizeRole(input.Role);
+                    if (role == "countdown" && items.Count != 1)
+                        return Results.BadRequest(new { error = "A lesson can have only one countdown. Select exactly one item." });
+                    foreach (var item in items) item.Role = role;
+                    if (role == "countdown")
+                    {
+                        var item = items[0];
+                        var otherCountdowns = await db.PlaylistItems.Where(x => x.LessonId == item.LessonId && x.Id != item.Id && x.Role == "countdown").ToListAsync(ct);
+                        foreach (var other in otherCountdowns) other.Role = "lesson";
+                        item.Lesson!.CountdownItemId = item.Id;
+                    }
+                    foreach (var lesson in items.Select(x => x.Lesson!).Distinct())
+                    {
+                        if (role != "countdown" && items.Any(x => x.LessonId == lesson.Id && lesson.CountdownItemId == x.Id)) lesson.CountdownItemId = null;
+                        if (role == "preRoll") lesson.PreRollEnabled = true;
+                    }
+                    break;
+                case "volume":
+                    if (input.VolumePercent is not int volume || volume is < 0 or > 150)
+                        return Results.BadRequest(new { error = "Volume must be from 0 to 150." });
+                    foreach (var item in items) item.VolumePercent = volume;
+                    break;
+                case "end-behavior":
+                    if (input.EndBehavior is not ("advance" or "loop" or "pause" or "menu" or "stop"))
+                        return Results.BadRequest(new { error = "Choose a supported end behavior." });
+                    foreach (var item in items) item.EndBehavior = input.EndBehavior;
+                    break;
+                case "allow-skip":
+                    if (input.AllowSkip is not bool allowSkip) return Results.BadRequest(new { error = "Choose whether skipping is allowed." });
+                    foreach (var item in items) item.AllowSkip = allowSkip;
+                    break;
+                case "prefix-title":
+                    var prefix = input.TitlePrefix?.Trim();
+                    if (string.IsNullOrWhiteSpace(prefix) || prefix.Length > 80)
+                        return Results.BadRequest(new { error = "Enter a title prefix of 1 to 80 characters." });
+                    foreach (var item in items)
+                    {
+                        item.Title = (prefix + " " + item.Title).Trim();
+                        if (item.Title.Length > 160) item.Title = item.Title[..160].TrimEnd();
+                    }
+                    break;
+                default:
+                    return Results.BadRequest(new { error = "Unsupported bulk playlist action." });
+            }
+            var lessons = items.Select(x => x.Lesson!).Distinct().ToList();
+            foreach (var lesson in lessons) lesson.Version++;
+            Audit(db, $"playlist.bulk.{action}", lessons[0].Id, $"{items.Count} items across {lessons.Count} lessons");
+            await db.SaveChangesAsync(ct);
+            await InvalidateAsync(hub, lessons.Max(x => x.Version), ct);
+            return Results.Ok(new { updated = items.Count, lessons = lessons.Count, action });
         });
 
         admin.MapGet("/media", async (LessonCueDb db, CancellationToken ct) =>
@@ -918,8 +1054,24 @@ public static class AdminApi
                         db.AuditEvents.Add(new AuditEvent { Actor = actor, Action = "media.organize", Object = item.Id.ToString(), Summary = $"{item.FileName}: {folder}; {tags}" });
                     }
                     break;
+                case "prefix-name":
+                    var prefix = input.FileNamePrefix?.Trim();
+                    if (string.IsNullOrWhiteSpace(prefix))
+                        return Results.BadRequest(new { error = "Enter a name prefix." });
+                    if (prefix.Length > 80)
+                        return Results.BadRequest(new { error = "Name prefixes are limited to 80 characters." });
+                    foreach (var item in media)
+                    {
+                        var extension = item.SourceKind == "link" ? "" : Path.GetExtension(item.FileName);
+                        var baseName = extension.Length == 0 ? item.FileName : Path.GetFileNameWithoutExtension(item.FileName);
+                        var maximumBaseLength = Math.Max(1, 255 - extension.Length);
+                        var prefixed = $"{prefix} {baseName}";
+                        item.FileName = (prefixed.Length > maximumBaseLength ? prefixed[..maximumBaseLength].TrimEnd() : prefixed) + extension;
+                        db.AuditEvents.Add(new AuditEvent { Actor = actor, Action = "media.rename", Object = item.Id.ToString(), Summary = item.FileName });
+                    }
+                    break;
                 default:
-                    return Results.BadRequest(new { error = "Choose delete, expire, keep permanently, or organize." });
+                    return Results.BadRequest(new { error = "Choose delete, expire, keep permanently, organize, or add a name prefix." });
             }
 
             await db.SaveChangesAsync(ct);
