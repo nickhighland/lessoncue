@@ -247,6 +247,46 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.locator(".template-card").filter({ hasText: "Reusable Browser Lesson" })).toBeVisible();
   await expect(page.locator(".schedule-card").filter({ hasText: "Browser Test Term" })).toContainText("1");
 
+  const diagnostics = await page.evaluate(async () => {
+    const jsonHeaders = { "Content-Type": "application/json" };
+    const bootstrap = await fetch("/api/v1/admin/bootstrap").then(response => response.json());
+    const pairing = await fetch("/api/v1/pairing/request", { method: "POST", headers: jsonHeaders,
+      body: JSON.stringify({ deviceName: "Browser Test TV", platform: "android-tv", appVersion: "0.18.0" }) }).then(response => response.json());
+    const identity = await fetch("/api/v1/pairing/confirm", { method: "POST", headers: jsonHeaders,
+      body: JSON.stringify({ requestId: pairing.requestId, pin: bootstrap.pairingPin }) }).then(response => response.json());
+    const deviceHeaders = { ...jsonHeaders, Authorization: `Bearer ${identity.deviceToken}` };
+    await fetch("/api/v1/tv/status", { method: "POST", headers: deviceHeaders, body: JSON.stringify({
+      screenId: identity.screenId, appVersion: "0.18.0", online: true, freeBytes: 4_000_000_000,
+      manifestVersion: 12, failedDownloads: 1, cachedItems: 1, totalItems: 2,
+      clientTimeUnixMs: Date.now() + 6_000, networkLatencyMs: 72,
+      cacheInventory: [{ itemId: "cached-1", title: "Cached welcome", state: "cached", sizeBytes: 1_024, expectedBytes: 1_024 }],
+      downloadQueue: [{ itemId: "queued-1", title: "Queued lesson", state: "downloading", bytesDownloaded: 512, expectedBytes: 2_048 }],
+      codecCapabilities: [{ kind: "video", codec: "H.264 / AVC", supported: true, detail: "video/avc" }],
+      recentErrors: [{ timestamp: new Date().toISOString(), area: "download", message: "Test retry", itemId: "queued-1" }]
+    }) });
+    await fetch(`/api/v1/screens/${identity.screenId}`, { method: "PATCH", headers: jsonHeaders,
+      body: JSON.stringify({ allowDiagnosticScreenshots: true }) });
+    const screenshotRequest = await fetch(`/api/v1/screens/${identity.screenId}/diagnostics/screenshot-request`,
+      { method: "POST", headers: jsonHeaders, body: "{}" }).then(response => response.json());
+    const control = await fetch(`/api/v1/screens/${identity.screenId}/control`, { headers: { Authorization: `Bearer ${identity.deviceToken}` } }).then(response => response.json());
+    const jpeg = Uint8Array.from(atob("/9j/4AAQSkZJRgABAQAAAQABAAD/2Q=="), character => character.charCodeAt(0));
+    const upload = await fetch(`/api/v1/tv/screens/${identity.screenId}/diagnostics/screenshot/${screenshotRequest.requestId}`,
+      { method: "PUT", headers: { Authorization: `Bearer ${identity.deviceToken}`, "Content-Type": "image/jpeg" }, body: jpeg });
+    const screens = await fetch("/api/v1/screens").then(response => response.json());
+    const screen = screens.find((item: { id: string }) => item.id === identity.screenId);
+    const screenshot = await fetch(`/api/v1/screens/${identity.screenId}/diagnostics/screenshot`);
+    return { upload: upload.status, screenshot: screenshot.status, requestMatches: control.screenshotRequestId === screenshotRequest.requestId,
+      cache: JSON.parse(screen.cacheInventoryJson)[0]?.title, quality: screen.networkQuality, screenshotAvailable: screen.screenshotAvailable };
+  });
+  expect(diagnostics).toEqual({ upload: 202, screenshot: 200, requestMatches: true, cache: "Cached welcome", quality: "good", screenshotAvailable: true });
+
+  await page.getByRole("button", { name: /Screens$/ }).click();
+  await expect(page.locator('input.screen-name-input[value="Browser Test TV"]')).toBeVisible();
+  await page.getByRole("button", { name: "View diagnostics" }).click();
+  await expect(page.getByText("Cached welcome", { exact: true })).toBeVisible();
+  await expect(page.locator(".codec-list > span")).toContainText("H.264 / AVC");
+  await expect(page.getByAltText("Diagnostic screenshot from Browser Test TV")).toBeVisible();
+
   await page.getByRole("button", { name: /Users$/ }).click();
   await page.getByRole("button", { name: "Add user" }).click();
   const userDialog = page.getByRole("dialog", { name: "Add a local user" });

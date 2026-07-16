@@ -8,6 +8,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Instant
 import java.io.File
+import android.media.MediaCodecList
 
 class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
     val baseUrl = serverUrl.trim().trimEnd('/').let { if (it.startsWith("http")) it else "http://$it" }
@@ -21,7 +22,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         val body = JSONObject()
             .put("deviceName", deviceName)
             .put("platform", "android-tv")
-            .put("appVersion", "0.17.0")
+            .put("appVersion", "0.18.0")
         JSONObject(request("/api/v1/pairing/request", "POST", body.toString())).getString("requestId")
     }
 
@@ -40,13 +41,42 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
     suspend fun reportStatus(identity: DeviceIdentity, manifestVersion: Int, freeBytes: Long, failedDownloads: Int = 0,
         acknowledgedControlVersion: Int = 0, playback: PlaybackTelemetry = PlaybackTelemetry(),
         cachedItems: Int = 0, totalItems: Int = 0) = withContext(Dispatchers.IO) {
+        val manifest = cachedManifest()
+        val allItems = manifest?.allItems().orEmpty()
+        val mediaDirectory = manifestCache?.parentFile?.resolve("media")
+        val inventory = JSONArray()
+        val queue = JSONArray()
+        allItems.filter { it.offlineEligible }.forEach { item ->
+            val file = mediaDirectory?.resolve(item.cacheFileName())
+            val partial = mediaDirectory?.resolve("${item.cacheFileName()}.part")
+            val errorFile = mediaDirectory?.resolve("${item.cacheFileName()}.error")
+            val state = when { file?.exists() == true -> "cached"; errorFile?.exists() == true -> "failed"; partial?.exists() == true -> "downloading"; else -> "queued" }
+            val size = when { file?.exists() == true -> file.length(); partial?.exists() == true -> partial.length(); else -> 0L }
+            val entry = JSONObject().put("itemId", item.id).put("title", item.title).put("state", state)
+                .put("sizeBytes", size).put("expectedBytes", item.sizeBytes)
+            errorFile?.takeIf(File::exists)?.readLines()?.drop(1)?.joinToString(" ")?.takeIf { it.isNotBlank() }?.let { entry.put("error", it) }
+            inventory.put(entry)
+            if (state != "cached") queue.put(JSONObject().put("itemId", item.id).put("title", item.title)
+                .put("state", state).put("bytesDownloaded", size).put("expectedBytes", item.sizeBytes)
+                .also { queued -> entry.optString("error").takeIf(String::isNotBlank)?.let { queued.put("error", it) } })
+        }
+        val codecs = codecCapabilities()
+        val errors = JSONArray().apply {
+            playback.error?.let { put(JSONObject().put("timestamp", Instant.now().toString())
+                .put("area", "playback").put("message", it).put("itemId", playback.itemId)) }
+            allItems.forEach { item -> mediaDirectory?.resolve("${item.cacheFileName()}.error")?.takeIf(File::exists)?.let { file ->
+                val lines = file.readLines(); val timestamp = lines.firstOrNull()?.toLongOrNull()?.let(Instant::ofEpochMilli) ?: Instant.now()
+                put(JSONObject().put("timestamp", timestamp.toString()).put("area", "download")
+                    .put("message", lines.drop(1).joinToString(" ").ifBlank { "Media download failed." }).put("itemId", item.id))
+            } }
+        }
         val body = JSONObject()
             .put("screenId", identity.screenId)
-            .put("appVersion", "0.17.0")
+            .put("appVersion", "0.18.0")
             .put("online", true)
             .put("freeBytes", freeBytes)
             .put("manifestVersion", manifestVersion)
-            .put("failedDownloads", failedDownloads)
+            .put("failedDownloads", maxOf(failedDownloads, errors.length() - if (playback.error != null) 1 else 0))
             .put("acknowledgedControlVersion", acknowledgedControlVersion)
             .put("playbackState", playback.state)
             .put("lessonId", playback.lessonId)
@@ -59,6 +89,12 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
             .put("totalItems", totalItems)
             .put("deviceModel", android.os.Build.MODEL)
             .put("osVersion", "Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
+            .put("clientTimeUnixMs", System.currentTimeMillis())
+            .put("networkLatencyMs", lastLatencyMs.toInt())
+            .put("cacheInventory", inventory)
+            .put("downloadQueue", queue)
+            .put("codecCapabilities", codecs)
+            .put("recentErrors", errors)
         request("/api/v1/tv/status", "POST", body.toString(), identity.token)
         Unit
     }
@@ -72,8 +108,26 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
             action = json.optString("action", "none"),
             lessonId = json.optString("lessonId").takeIf { it.isNotBlank() && it != "null" },
             itemId = json.optString("itemId").takeIf { it.isNotBlank() && it != "null" },
-            positionMs = json.optLong("positionMs").takeIf { json.has("positionMs") && !json.isNull("positionMs") }
+            positionMs = json.optLong("positionMs").takeIf { json.has("positionMs") && !json.isNull("positionMs") },
+            screenshotRequestId = json.optString("screenshotRequestId").takeIf { it.isNotBlank() && it != "null" },
+            screenshotExpiresAt = json.optString("screenshotExpiresAt").takeIf { it.isNotBlank() && it != "null" }?.let(Instant::parse)
         )
+    }
+
+    suspend fun uploadDiagnosticScreenshot(identity: DeviceIdentity, requestId: String, jpeg: ByteArray) = withContext(Dispatchers.IO) {
+        val connection = URL("$baseUrl/api/v1/tv/screens/${identity.screenId}/diagnostics/screenshot/$requestId").openConnection() as HttpURLConnection
+        connection.requestMethod = "PUT"
+        connection.connectTimeout = 8_000
+        connection.readTimeout = 20_000
+        connection.doOutput = true
+        connection.setFixedLengthStreamingMode(jpeg.size)
+        connection.setRequestProperty("Content-Type", "image/jpeg")
+        connection.setRequestProperty("Authorization", "Bearer ${identity.token}")
+        connection.outputStream.use { it.write(jpeg) }
+        val status = connection.responseCode
+        val response = (if (status in 200..299) connection.inputStream else connection.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+        connection.disconnect()
+        if (status !in 200..299) error("LessonCue returned HTTP $status: $response")
     }
 
     fun cachedManifest(): ScreenManifest? = runCatching { manifestCache?.takeIf(File::exists)?.readText()?.let { parseManifest(JSONObject(it)) } }.getOrNull()
@@ -143,6 +197,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
     )
 
     private fun request(path: String, method: String = "GET", body: String? = null, token: String? = null): String {
+        val started = System.nanoTime()
         val connection = URL("$baseUrl$path").openConnection() as HttpURLConnection
         connection.requestMethod = method
         connection.connectTimeout = 8_000
@@ -158,10 +213,32 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         val stream = if (status in 200..299) connection.inputStream else connection.errorStream
         val response = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
         connection.disconnect()
+        lastLatencyMs = ((System.nanoTime() - started) / 1_000_000).coerceIn(0, 120_000)
         if (status !in 200..299) error("LessonCue returned HTTP $status: $response")
         return response
     }
+
+    private fun codecCapabilities(): JSONArray = JSONArray(codecCapabilitiesJson)
+
+    companion object {
+        @Volatile private var lastLatencyMs = 0L
+        private val codecCapabilitiesJson by lazy {
+            val available = runCatching { MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.filter { !it.isEncoder }
+                .flatMap { it.supportedTypes.asList() }.map { it.lowercase() }.toSet() }.getOrDefault(emptySet())
+            JSONArray().apply {
+                listOf("video/avc" to "H.264 / AVC", "video/hevc" to "H.265 / HEVC", "video/x-vnd.on2.vp9" to "VP9",
+                    "video/av01" to "AV1", "audio/mp4a-latm" to "AAC", "audio/mpeg" to "MP3").forEach { (mime, label) ->
+                    put(JSONObject().put("kind", if (mime.startsWith("video")) "video" else "audio")
+                        .put("codec", label).put("supported", mime in available).put("detail", mime))
+                }
+            }.toString()
+        }
+    }
 }
+
+private fun ScreenManifest.allItems(): List<CueItem> = playlists.flatMap {
+    it.items + it.preRoll?.items.orEmpty() + listOfNotNull(it.countdown?.item)
+}.distinctBy { it.id }
 
 private fun <T> JSONArray.mapObjects(transform: (JSONObject) -> T): List<T> =
     (0 until length()).map { transform(getJSONObject(it)) }

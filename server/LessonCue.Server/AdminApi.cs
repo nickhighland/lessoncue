@@ -1152,8 +1152,68 @@ public static class AdminApi
                 x.CachedItems,
                 x.TotalItems,
                 x.DeviceModel,
-                x.OsVersion
+                x.OsVersion,
+                x.CacheInventoryJson,
+                x.DownloadQueueJson,
+                x.CodecCapabilitiesJson,
+                x.RecentErrorsJson,
+                x.ClockOffsetMs,
+                x.NetworkLatencyMs,
+                x.NetworkQuality,
+                x.DiagnosticsUpdatedAt,
+                x.AllowDiagnosticScreenshots,
+                x.ScreenshotRequestId,
+                x.ScreenshotRequestedAt,
+                x.ScreenshotExpiresAt,
+                x.ScreenshotStatus,
+                x.ScreenshotCapturedAt,
+                screenshotAvailable = x.ScreenshotStatus == "ready" && x.ScreenshotCapturedAt != null &&
+                    x.ScreenshotCapturedAt >= DateTimeOffset.UtcNow.AddHours(-24)
             }).ToListAsync(ct);
+        });
+
+        screens.MapPost("/screens/{id:guid}/diagnostics/screenshot-request", async (Guid id, LessonCueDb db,
+            IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            var screen = await db.Screens.SingleOrDefaultAsync(x => x.Id == id && !x.Revoked, ct);
+            if (screen is null) return Results.NotFound();
+            if (!screen.AllowDiagnosticScreenshots)
+                return Results.Conflict(new { error = "Diagnostic screenshots are disabled for this screen. Enable the privacy control first." });
+            if (screen.LastSeenAt is null || screen.LastSeenAt < DateTimeOffset.UtcNow.AddMinutes(-2))
+                return Results.Conflict(new { error = "This screen is offline. Bring it online before requesting a screenshot." });
+            screen.ScreenshotRequestId = Guid.NewGuid();
+            screen.ScreenshotRequestedAt = DateTimeOffset.UtcNow;
+            screen.ScreenshotExpiresAt = screen.ScreenshotRequestedAt.Value.AddMinutes(1);
+            screen.ScreenshotStatus = "pending";
+            Audit(db, "screen.screenshot.request", screen.Id, "One-time request; expires in 60 seconds");
+            await db.SaveChangesAsync(ct);
+            await hub.Clients.Group($"screen:{id}").SendAsync("DiagnosticScreenshotRequested",
+                new { screen.ScreenshotRequestId, screen.ScreenshotExpiresAt }, ct);
+            return Results.Accepted(value: new { requestId = screen.ScreenshotRequestId, expiresAt = screen.ScreenshotExpiresAt });
+        });
+
+        screens.MapGet("/screens/{id:guid}/diagnostics/screenshot", async (Guid id, LessonCueDb db, CancellationToken ct) =>
+        {
+            var screen = await db.Screens.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && !x.Revoked, ct);
+            if (screen?.ScreenshotStatus != "ready" || screen.ScreenshotCapturedAt is null ||
+                screen.ScreenshotCapturedAt < DateTimeOffset.UtcNow.AddHours(-24) || string.IsNullOrWhiteSpace(screen.ScreenshotRelativePath))
+                return Results.NotFound();
+            var root = Path.GetFullPath(dataPath) + Path.DirectorySeparatorChar;
+            var path = Path.GetFullPath(Path.Combine(dataPath, screen.ScreenshotRelativePath));
+            if (!path.StartsWith(root, StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
+            var contentType = Path.GetExtension(path).Equals(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg";
+            return Results.File(path, contentType, enableRangeProcessing: false);
+        });
+
+        screens.MapDelete("/screens/{id:guid}/diagnostics/screenshot", async (Guid id, LessonCueDb db, CancellationToken ct) =>
+        {
+            var screen = await db.Screens.SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (screen is null) return Results.NotFound();
+            DeleteDiagnosticScreenshot(dataPath, screen.ScreenshotRelativePath);
+            ClearDiagnosticScreenshot(screen);
+            Audit(db, "screen.screenshot.delete", screen.Id, "Diagnostic screenshot deleted");
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
         });
 
         playback.MapPost("/screens/{id:guid}/control", async (Guid id, ScreenControlInput input, LessonCueDb db,
@@ -1211,6 +1271,15 @@ public static class AdminApi
             if (input.VolunteerMode is not null) screen.VolunteerMode = input.VolunteerMode.Value;
             if (input.TagsCsv is not null) screen.TagsCsv = input.TagsCsv.Trim();
             if (input.Site is not null) screen.Site = input.Site.Trim();
+            if (input.AllowDiagnosticScreenshots is bool allowScreenshots)
+            {
+                screen.AllowDiagnosticScreenshots = allowScreenshots;
+                if (!allowScreenshots)
+                {
+                    DeleteDiagnosticScreenshot(dataPath, screen.ScreenshotRelativePath);
+                    ClearDiagnosticScreenshot(screen);
+                }
+            }
             Audit(db, "screen.update", screen.Id, screen.Name);
             await db.SaveChangesAsync(ct);
             await hub.Clients.Group($"screen:{id}").SendAsync("ManifestInvalidated", new { type = "MANIFEST_INVALIDATED" }, ct);
@@ -1698,6 +1767,24 @@ public static class AdminApi
 
     private static void Audit(LessonCueDb db, string action, Guid id, string? summary) =>
         db.AuditEvents.Add(new AuditEvent { Actor = "admin", Action = action, Object = id.ToString(), Summary = summary });
+
+    private static void DeleteDiagnosticScreenshot(string dataPath, string? relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath)) return;
+        var root = Path.GetFullPath(dataPath) + Path.DirectorySeparatorChar;
+        var path = Path.GetFullPath(Path.Combine(dataPath, relativePath));
+        if (path.StartsWith(root, StringComparison.Ordinal)) try { File.Delete(path); } catch { }
+    }
+
+    private static void ClearDiagnosticScreenshot(Screen screen)
+    {
+        screen.ScreenshotRequestId = null;
+        screen.ScreenshotRequestedAt = null;
+        screen.ScreenshotExpiresAt = null;
+        screen.ScreenshotStatus = "none";
+        screen.ScreenshotCapturedAt = null;
+        screen.ScreenshotRelativePath = null;
+    }
 
     private static Task InvalidateAsync(IHubContext<SyncHub> hub, int version, CancellationToken ct) =>
         hub.Clients.All.SendAsync("ManifestInvalidated", new { type = "MANIFEST_INVALIDATED", manifestVersion = version }, ct);

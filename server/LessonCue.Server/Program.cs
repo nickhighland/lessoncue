@@ -53,6 +53,9 @@ builder.Services.AddHostedService<PresentationConversionService>();
 builder.Services.AddHostedService<YouTubeImportService>();
 builder.Services.AddHostedService<MediaRetentionService>();
 builder.Services.AddHostedService<RecurringLessonGeneratorService>();
+builder.Services.AddSingleton(services => new ScreenDiagnosticCleanupService(services.GetRequiredService<IServiceScopeFactory>(),
+    dataPath, services.GetRequiredService<ILogger<ScreenDiagnosticCleanupService>>()));
+builder.Services.AddHostedService(services => services.GetRequiredService<ScreenDiagnosticCleanupService>());
 builder.Services.AddHttpClient("updates", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(20);
@@ -299,7 +302,53 @@ api.MapGet("/screens/{screenId:guid}/control", async (Guid screenId, int? after,
     return Results.Ok(new { changed = command is not null, version = command?.Version ?? screen.ControlVersion,
         action = command?.Action ?? "none", lessonId = command?.LessonId,
         itemId = command?.ItemId, positionMs = command?.PositionMs,
-        issuedAt = command?.IssuedAt, state = screen.PlaybackState });
+        issuedAt = command?.IssuedAt, state = screen.PlaybackState,
+        screenshotRequestId = screen.AllowDiagnosticScreenshots && screen.ScreenshotStatus == "pending" &&
+            screen.ScreenshotExpiresAt > DateTimeOffset.UtcNow ? screen.ScreenshotRequestId : null,
+        screenshotExpiresAt = screen.AllowDiagnosticScreenshots && screen.ScreenshotStatus == "pending" &&
+            screen.ScreenshotExpiresAt > DateTimeOffset.UtcNow ? screen.ScreenshotExpiresAt : null });
+});
+
+api.MapPut("/tv/screens/{screenId:guid}/diagnostics/screenshot/{requestId:guid}", async (Guid screenId, Guid requestId,
+    HttpRequest request, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+{
+    if (!await HasDeviceAccess(request, db, screenId, ct)) return Results.Unauthorized();
+    var screen = await db.Screens.SingleOrDefaultAsync(x => x.Id == screenId && !x.Revoked, ct);
+    if (screen is null) return Results.NotFound();
+    if (!screen.AllowDiagnosticScreenshots || screen.ScreenshotStatus != "pending" ||
+        screen.ScreenshotRequestId != requestId || screen.ScreenshotExpiresAt <= DateTimeOffset.UtcNow)
+        return Results.Conflict(new { error = "This one-time diagnostic screenshot request is no longer active." });
+    if (request.ContentLength is null or <= 0 or > 8 * 1024 * 1024)
+        return Results.BadRequest(new { error = "Screenshot must be between 1 byte and 8 MB." });
+    var extension = request.ContentType?.StartsWith("image/png", StringComparison.OrdinalIgnoreCase) == true ? ".png" :
+        request.ContentType?.StartsWith("image/jpeg", StringComparison.OrdinalIgnoreCase) == true ? ".jpg" : null;
+    if (extension is null) return Results.BadRequest(new { error = "Screenshot must be JPEG or PNG." });
+
+    var relative = Path.Combine("diagnostics", "screens", screenId.ToString("N"), requestId.ToString("N") + extension);
+    var destination = Path.GetFullPath(Path.Combine(dataPath, relative));
+    Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+    var temporary = destination + ".upload";
+    await using (var output = File.Create(temporary)) await request.Body.CopyToAsync(output, ct);
+    if (new FileInfo(temporary).Length > 8 * 1024 * 1024) { File.Delete(temporary); return Results.BadRequest(new { error = "Screenshot exceeds 8 MB." }); }
+    var signature = new byte[8];
+    await using (var input = File.OpenRead(temporary)) _ = await input.ReadAsync(signature, ct);
+    var validJpeg = extension == ".jpg" && signature[0] == 0xff && signature[1] == 0xd8 && signature[2] == 0xff;
+    var validPng = extension == ".png" && signature.SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
+    if (!validJpeg && !validPng) { File.Delete(temporary); return Results.BadRequest(new { error = "Screenshot data does not match its image type." }); }
+    if (!string.IsNullOrWhiteSpace(screen.ScreenshotRelativePath))
+    {
+        var previous = Path.GetFullPath(Path.Combine(dataPath, screen.ScreenshotRelativePath));
+        if (previous.StartsWith(Path.GetFullPath(dataPath) + Path.DirectorySeparatorChar, StringComparison.Ordinal)) try { File.Delete(previous); } catch { }
+    }
+    File.Move(temporary, destination, true);
+    screen.ScreenshotRelativePath = relative;
+    screen.ScreenshotCapturedAt = DateTimeOffset.UtcNow;
+    screen.ScreenshotStatus = "ready";
+    db.AuditEvents.Add(new AuditEvent { Actor = screen.Name, Action = "screen.screenshot.capture", Object = screen.Id.ToString(),
+        Summary = "Privacy-gated diagnostic screenshot captured; automatic expiry 24 hours" });
+    await db.SaveChangesAsync(ct);
+    await hub.Clients.Group("admins").SendAsync("ScreenStatusChanged", new { screen.Id }, ct);
+    return Results.Accepted();
 });
 
 api.MapPost("/tv/status", async (TvStatusInput input, HttpRequest request, LessonCueDb db,

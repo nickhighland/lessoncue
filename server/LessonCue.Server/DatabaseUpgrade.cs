@@ -235,7 +235,22 @@ public static class DatabaseUpgrade
             ["Screens.CachedItems"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"CachedItems\" INTEGER NOT NULL DEFAULT 0"),
             ["Screens.TotalItems"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"TotalItems\" INTEGER NOT NULL DEFAULT 0"),
             ["Screens.DeviceModel"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"DeviceModel\" TEXT NULL"),
-            ["Screens.OsVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"OsVersion\" TEXT NULL")
+            ["Screens.OsVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"OsVersion\" TEXT NULL"),
+            ["Screens.CacheInventoryJson"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"CacheInventoryJson\" TEXT NOT NULL DEFAULT '[]'"),
+            ["Screens.DownloadQueueJson"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"DownloadQueueJson\" TEXT NOT NULL DEFAULT '[]'"),
+            ["Screens.CodecCapabilitiesJson"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"CodecCapabilitiesJson\" TEXT NOT NULL DEFAULT '[]'"),
+            ["Screens.RecentErrorsJson"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"RecentErrorsJson\" TEXT NOT NULL DEFAULT '[]'"),
+            ["Screens.ClockOffsetMs"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ClockOffsetMs\" INTEGER NULL"),
+            ["Screens.NetworkLatencyMs"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"NetworkLatencyMs\" INTEGER NULL"),
+            ["Screens.NetworkQuality"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"NetworkQuality\" TEXT NOT NULL DEFAULT 'unknown'"),
+            ["Screens.DiagnosticsUpdatedAt"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"DiagnosticsUpdatedAt\" TEXT NULL"),
+            ["Screens.AllowDiagnosticScreenshots"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"AllowDiagnosticScreenshots\" INTEGER NOT NULL DEFAULT 0"),
+            ["Screens.ScreenshotRequestId"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ScreenshotRequestId\" TEXT NULL"),
+            ["Screens.ScreenshotRequestedAt"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ScreenshotRequestedAt\" TEXT NULL"),
+            ["Screens.ScreenshotExpiresAt"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ScreenshotExpiresAt\" TEXT NULL"),
+            ["Screens.ScreenshotStatus"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ScreenshotStatus\" TEXT NOT NULL DEFAULT 'none'"),
+            ["Screens.ScreenshotCapturedAt"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ScreenshotCapturedAt\" TEXT NULL"),
+            ["Screens.ScreenshotRelativePath"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ScreenshotRelativePath\" TEXT NULL")
         };
 
         foreach (var (key, addition) in additions)

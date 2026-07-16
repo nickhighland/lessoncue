@@ -55,7 +55,9 @@ data class ControlCommand(
     val action: String,
     val lessonId: String? = null,
     val itemId: String? = null,
-    val positionMs: Long? = null
+    val positionMs: Long? = null,
+    val screenshotRequestId: String? = null,
+    val screenshotExpiresAt: Instant? = null
 )
 
 data class PlaybackTelemetry(

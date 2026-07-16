@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -18,11 +19,13 @@ final class AppModel: ObservableObject {
     @Published var playbackCommand: ControlCommand?
     @Published var playbackTelemetry = PlaybackTelemetry()
     @Published var acknowledgedControlVersion = 0
+    @Published var diagnosticCaptureVisible = false
     let discovery = BonjourDiscovery()
     private(set) var identity: DeviceIdentity?
     private var scheduleTask: Task<Void, Never>?
     private var statusTask: Task<Void, Never>?
     private var controlTask: Task<Void, Never>?
+    private var handledScreenshotRequest: String?
 
     func start() async {
         discovery.start()
@@ -154,10 +157,13 @@ final class AppModel: ObservableObject {
                 let attributes = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory())
                 let freeBytes = (attributes?[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
                 let cachedItems = await OfflineCache.shared.cachedItemCount()
+                let diagnostics = await OfflineCache.shared.diagnostics(for: manifest.allItems)
+                let recentErrors = await OfflineCache.shared.diagnosticErrors()
                 try? await api.reportStatus(identity: identity, manifestVersion: manifest.manifestVersion,
                     freeBytes: freeBytes, acknowledgedControlVersion: self.acknowledgedControlVersion,
                     playback: self.playbackTelemetry, cachedItems: cachedItems,
-                    totalItems: manifest.allItems.count)
+                    totalItems: manifest.allItems.count, cacheInventory: diagnostics.0, downloadQueue: diagnostics.1,
+                    recentDeviceErrors: recentErrors)
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }
@@ -172,6 +178,16 @@ final class AppModel: ObservableObject {
             while !Task.isCancelled {
                 if let command = try? await api.control(identity: identity, after: version) {
                     version = max(version, command.version)
+                    if let requestId = command.screenshotRequestId, requestId != self.handledScreenshotRequest,
+                       command.screenshotExpiresAt.map({ $0 > Date() }) != false {
+                        self.handledScreenshotRequest = requestId
+                        self.diagnosticCaptureVisible = true
+                        try? await Task.sleep(nanoseconds: 2_500_000_000)
+                        if let jpeg = self.captureDiagnosticScreenshot() {
+                            try? await api.uploadDiagnosticScreenshot(identity: identity, requestId: requestId, jpeg: jpeg)
+                        }
+                        self.diagnosticCaptureVisible = false
+                    }
                     if command.changed { await self.apply(command, api: api, identity: identity) }
                 }
                 try? await Task.sleep(nanoseconds: 750_000_000)
@@ -214,9 +230,20 @@ final class AppModel: ObservableObject {
         let attributes = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory())
         let freeBytes = (attributes?[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
         let cachedItems = await OfflineCache.shared.cachedItemCount()
+        let diagnostics = await OfflineCache.shared.diagnostics(for: manifest.allItems)
+        let recentErrors = await OfflineCache.shared.diagnosticErrors()
         try? await api.reportStatus(identity: identity, manifestVersion: manifest.manifestVersion,
             freeBytes: freeBytes, acknowledgedControlVersion: acknowledgedControlVersion,
-            playback: playbackTelemetry, cachedItems: cachedItems, totalItems: manifest.allItems.count)
+            playback: playbackTelemetry, cachedItems: cachedItems, totalItems: manifest.allItems.count,
+            cacheInventory: diagnostics.0, downloadQueue: diagnostics.1, recentDeviceErrors: recentErrors)
+    }
+
+    private func captureDiagnosticScreenshot() -> Data? {
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+              let window = scene.windows.first(where: \.isKeyWindow) ?? scene.windows.first else { return nil }
+        let renderer = UIGraphicsImageRenderer(bounds: window.bounds)
+        let image = renderer.image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }
+        return image.jpegData(compressionQuality: 0.82)
     }
 
     func mediaURL(for item: CueItem) async -> URL? {

@@ -17,6 +17,7 @@ server/LessonCue.Server/wwwroot/
 
 # Android
 .gradle/
+android-tv/.kotlin/
 android-tv/local.properties
 android-tv/**/build/
 *.apk

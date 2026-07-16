@@ -255,6 +255,21 @@ public sealed class Screen
     public int TotalItems { get; set; }
     [MaxLength(160)] public string? DeviceModel { get; set; }
     [MaxLength(80)] public string? OsVersion { get; set; }
+    public string CacheInventoryJson { get; set; } = "[]";
+    public string DownloadQueueJson { get; set; } = "[]";
+    public string CodecCapabilitiesJson { get; set; } = "[]";
+    public string RecentErrorsJson { get; set; } = "[]";
+    public long? ClockOffsetMs { get; set; }
+    public int? NetworkLatencyMs { get; set; }
+    [MaxLength(24)] public string NetworkQuality { get; set; } = "unknown";
+    public DateTimeOffset? DiagnosticsUpdatedAt { get; set; }
+    public bool AllowDiagnosticScreenshots { get; set; }
+    public Guid? ScreenshotRequestId { get; set; }
+    public DateTimeOffset? ScreenshotRequestedAt { get; set; }
+    public DateTimeOffset? ScreenshotExpiresAt { get; set; }
+    [MaxLength(24)] public string ScreenshotStatus { get; set; } = "none";
+    public DateTimeOffset? ScreenshotCapturedAt { get; set; }
+    [MaxLength(255)] public string? ScreenshotRelativePath { get; set; }
 }
 
 public sealed class PlaybackCommandRecord
@@ -346,7 +361,16 @@ public sealed record TvStatusInput(Guid ScreenId, string AppVersion, bool Online
     string? PlaybackState = null, Guid? LessonId = null, Guid? ItemId = null,
     long? PositionMs = null, long? DurationMs = null, int? VolumePercent = null,
     string? PlaybackError = null, int? CachedItems = null, int? TotalItems = null,
-    string? DeviceModel = null, string? OsVersion = null);
+    string? DeviceModel = null, string? OsVersion = null, long? ClientTimeUnixMs = null,
+    int? NetworkLatencyMs = null, string? NetworkQuality = null,
+    List<TvCacheItemInput>? CacheInventory = null, List<TvDownloadItemInput>? DownloadQueue = null,
+    List<TvCodecCapabilityInput>? CodecCapabilities = null, List<TvDiagnosticErrorInput>? RecentErrors = null);
+public sealed record TvCacheItemInput(string ItemId, string Title, string State, long SizeBytes,
+    long? ExpectedBytes = null, string? Error = null);
+public sealed record TvDownloadItemInput(string ItemId, string Title, string State, long BytesDownloaded = 0,
+    long? ExpectedBytes = null, string? Error = null);
+public sealed record TvCodecCapabilityInput(string Kind, string Codec, bool Supported, string? Detail = null);
+public sealed record TvDiagnosticErrorInput(DateTimeOffset Timestamp, string Area, string Message, string? ItemId = null);
 public sealed record AdminSetupInput(string OrganizationName, string Username, string Password,
     string? DisplayName = null, string? TimeZone = null, string? Email = null,
     string? SiteName = null, string? WeekStartsOn = null);
@@ -363,7 +387,8 @@ public sealed record PlaylistItemUpdateInput(string? Title, string? Type, string
 public sealed record CuePointInput(string Name, long PositionMs);
 public sealed record PlaylistReorderInput(List<Guid> ItemIds);
 public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool? VolunteerMode,
-    bool ClearAssignment = false, string? TagsCsv = null, string? Site = null);
+    bool ClearAssignment = false, string? TagsCsv = null, string? Site = null,
+    bool? AllowDiagnosticScreenshots = null);
 public sealed record ScreenControlInput(string Action, Guid? LessonId = null, Guid? ItemId = null, long? PositionMs = null);
 public sealed record UserInput(string Username, string DisplayName, string? Email, string Role, string? Password,
     bool Disabled = false, List<string>? Permissions = null);

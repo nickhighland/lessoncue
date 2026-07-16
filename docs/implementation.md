@@ -112,6 +112,8 @@ Exception dates are stored explicitly on the schedule. Adding an exception remov
 
 ## Android TV
 
+TV players post backward-compatible structured diagnostics with the existing `/api/v1/tv/status` heartbeat: cache inventory, pending/failed downloads, decoder capabilities, recent errors, client wall-clock time, and measured request latency. The server bounds every collection and string before storing it. Screen administrators can opt an individual player into screenshot diagnostics; a one-time request is delivered through the device command poll and expires after 60 seconds. Native clients visibly announce the capture, upload a validated image over their paired-device bearer credential, and the server cleanup service removes it after 24 hours.
+
 ```bash
 gradle -p android-tv :app:testDebugUnitTest :app:assembleDebug
 ```

@@ -3,6 +3,10 @@ package org.lessoncue.tv
 import android.annotation.SuppressLint
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.graphics.Bitmap
+import android.view.PixelCopy
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -61,6 +65,9 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import java.io.ByteArrayOutputStream
+import kotlin.coroutines.resume
 import java.time.Instant
 
 class MainActivity : ComponentActivity() {
@@ -96,6 +103,8 @@ fun LessonCueApp() {
     var acknowledgedControlVersion by remember { mutableStateOf(0) }
     var playbackTelemetry by remember { mutableStateOf(PlaybackTelemetry()) }
     var totalManifestItems by remember { mutableStateOf(0) }
+    var diagnosticCaptureVisible by remember { mutableStateOf(false) }
+    var handledScreenshotRequest by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         val identity = store.load()
@@ -130,6 +139,16 @@ fun LessonCueApp() {
         var controlVersion = runCatching { api.control(identity).version }.getOrDefault(0)
         while (true) {
             runCatching { api.control(identity, controlVersion) }.getOrNull()?.let { command ->
+                if (command.screenshotRequestId != null && command.screenshotRequestId != handledScreenshotRequest &&
+                    (command.screenshotExpiresAt == null || command.screenshotExpiresAt.isAfter(Instant.now()))) {
+                    handledScreenshotRequest = command.screenshotRequestId
+                    diagnosticCaptureVisible = true
+                    kotlinx.coroutines.delay(2_500)
+                    val activity = context as? ComponentActivity
+                    val jpeg = activity?.let { captureDiagnosticScreenshot(it) }
+                    if (jpeg != null) runCatching { api.uploadDiagnosticScreenshot(identity, command.screenshotRequestId, jpeg) }
+                    diagnosticCaptureVisible = false
+                }
                 if (command.changed) {
                     controlVersion = command.version
                     playbackControl = command
@@ -164,6 +183,7 @@ fun LessonCueApp() {
 
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize(), colors = androidx.tv.material3.SurfaceDefaults.colors(containerColor = Navy)) {
+          Box(Modifier.fillMaxSize()) {
             when (val current = screen) {
                 AppScreen.Loading -> CenterMessage("Searching for LessonCue…")
                 is AppScreen.Connect -> ConnectScreen(current.message) { address ->
@@ -269,8 +289,26 @@ fun LessonCueApp() {
                     onNext = { next -> screen = current.copy(itemIndex = next, seekMs = 0) })
                 }
             }
+            if (diagnosticCaptureVisible) Text("DIAGNOSTIC SCREENSHOT · ADMIN REQUEST",
+                color = Cream, fontSize = 18.sp, modifier = Modifier.align(Alignment.TopEnd).background(Coral).padding(14.dp))
+          }
         }
     }
+}
+
+private suspend fun captureDiagnosticScreenshot(activity: ComponentActivity): ByteArray? = suspendCancellableCoroutine { continuation ->
+    val width = activity.window.decorView.width.coerceAtLeast(1)
+    val height = activity.window.decorView.height.coerceAtLeast(1)
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    PixelCopy.request(activity.window, bitmap, { result ->
+        if (!continuation.isActive) return@request
+        if (result == PixelCopy.SUCCESS) {
+            val output = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output)
+            continuation.resume(output.toByteArray())
+        } else continuation.resume(null)
+        bitmap.recycle()
+    }, Handler(Looper.getMainLooper()))
 }
 
 @Composable

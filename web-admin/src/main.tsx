@@ -50,7 +50,15 @@ type Screen = {
   lastIpAddress?: string; controlVersion: number; controlAction: string; controlLessonId?: string; controlItemId?: string; controlPositionMs?: number; controlIssuedAt?: string;
   acknowledgedControlVersion: number; playbackState: string; playbackLessonId?: string; playbackItemId?: string; playbackPositionMs: number; playbackDurationMs?: number;
   playbackVolumePercent: number; playbackUpdatedAt?: string; playbackError?: string; cachedItems: number; totalItems: number; deviceModel?: string; osVersion?: string;
+  cacheInventoryJson: string; downloadQueueJson: string; codecCapabilitiesJson: string; recentErrorsJson: string;
+  clockOffsetMs?: number; networkLatencyMs?: number; networkQuality: string; diagnosticsUpdatedAt?: string;
+  allowDiagnosticScreenshots: boolean; screenshotRequestId?: string; screenshotRequestedAt?: string; screenshotExpiresAt?: string;
+  screenshotStatus: string; screenshotCapturedAt?: string; screenshotAvailable: boolean;
 };
+type CacheDiagnostic = { itemId?: string; title?: string; state?: string; sizeBytes?: number; expectedBytes?: number; error?: string };
+type DownloadDiagnostic = { itemId?: string; title?: string; state?: string; bytesDownloaded?: number; expectedBytes?: number; error?: string };
+type CodecDiagnostic = { kind?: string; codec?: string; supported?: boolean; detail?: string };
+type ErrorDiagnostic = { timestamp?: string; area?: string; message?: string; itemId?: string };
 type User = { id: string; username: string; displayName: string; email?: string; role: string; disabled: boolean; createdAt: string; lastLoginAt?: string; permissions: Permission[]; customPermissions?: Permission[] | null };
 type Signage = { id: string; name: string; mode: string; enabled: boolean; priority: number; startsAt?: string; endsAt?: string; message: string; backgroundColor: string; textColor: string; mediaAssetId?: string; mediaFileName?: string; targetTagsCsv: string };
 type Backup = { id: string; fileName: string; kind: string; sizeBytes: number; createdAt: string; createdBy: string };
@@ -579,11 +587,48 @@ function ControllerView({ screens, lessons, refresh, notify }: { screens: Screen
 
 function ScreensView({ screens, classes, pin, refresh, notify, canManage }: { screens: Screen[]; classes: LessonClass[]; pin?: string; refresh: () => void; notify: (s: string) => void; canManage: boolean }) {
   const active = screens.filter(s => !s.revoked);
+  const [expanded, setExpanded] = useState<string>();
+  const [screenshotNonce, setScreenshotNonce] = useState(Date.now());
+  const [busy, setBusy] = useState<string>();
   async function change(screen: Screen, changes: object) { try { await api(`/api/v1/screens/${screen.id}`, { method: "PATCH", body: JSON.stringify(changes) }); refresh(); } catch (e) { notify(errorText(e)); } }
   async function revoke(screen: Screen) { if (!confirm(`Revoke ${screen.name}? It will need to be paired again.`)) return; await api(`/api/v1/screens/${screen.id}`, { method: "DELETE" }); refresh(); }
-  return <><PageHead eyebrow="PLAYBACK DEVICES" title="Screens" detail="Pair TVs, assign a class, and check whether each player is ready." action={canManage && pin ? <div className="pin-card"><span>PAIRING PIN</span><strong>{pin}</strong></div> : undefined} />
-    <section className="panel"><div className="screen-grid">{active.length ? active.map(s => <article className="screen-card" key={s.id}><div className="screen-card-top"><span className={`screen-icon large ${isOnline(s) ? "online" : ""}`}>▣</span><Status online={isOnline(s)} /></div><input aria-label="Screen name" className="screen-name-input" defaultValue={s.name} disabled={!canManage} onBlur={e => e.target.value !== s.name && change(s, { name: e.target.value })} /><small>{s.deviceModel || s.platform} · {s.osVersion || s.appVersion} · {s.lastSeenAt ? `Last seen ${timeAgo(s.lastSeenAt)}` : "Waiting for first check-in"}</small><div className="screen-diagnostics"><span><b>{friendlyPlaybackState(s.playbackState)}</b> playback</span><span><b>{s.acknowledgedControlVersion}/{s.controlVersion}</b> command</span><span><b>{s.cachedItems}/{s.totalItems}</b> cached</span><span><b>{s.failedDownloads}</b> errors</span></div>{s.playbackError && <div className="playback-error">{s.playbackError}</div>}<Field label="Assigned class"><select value={s.assignedClassId || ""} disabled={!canManage} onChange={e => change(s, e.target.value ? { assignedClassId: e.target.value } : { clearAssignment: true })}><option value="">Not assigned</option>{classes.map(c => <option value={c.id} key={c.id}>{c.name}</option>)}</select></Field><div className="two-fields"><Field label="Site"><input defaultValue={s.site} disabled={!canManage} onBlur={e => change(s, { site: e.target.value })} /></Field><Field label="Tags"><input defaultValue={s.tagsCsv} disabled={!canManage} placeholder="lobby, elementary" onBlur={e => change(s, { tagsCsv: e.target.value })} /></Field></div><label className="switch-row compact"><input type="checkbox" checked={s.volunteerMode} disabled={!canManage} onChange={e => change(s, { volunteerMode: e.target.checked })} /><span /><div><strong>Volunteer mode</strong></div></label><div className="screen-meta"><span>{formatBytes(s.freeBytes)} device free</span><span>Manifest {s.manifestVersion} · {s.lastIpAddress || "IP pending"}</span></div>{canManage && <button className="text-danger" onClick={() => revoke(s)}>Revoke pairing</button>}</article>) : <Empty title="No screens paired" body={canManage && pin ? `Install LessonCue TV, choose Pair, and enter ${pin}.` : "No paired screens are reporting to this server."} />}</div></section>
+  async function requestScreenshot(screen: Screen) { setBusy(screen.id); try { await api(`/api/v1/screens/${screen.id}/diagnostics/screenshot-request`, { method: "POST", body: "{}" }); notify("One-time screenshot requested. The TV will show a visible notice before capture."); setTimeout(() => { setScreenshotNonce(Date.now()); refresh(); }, 4_000); refresh(); } catch (e) { notify(errorText(e)); } finally { setBusy(undefined); } }
+  async function deleteScreenshot(screen: Screen) { setBusy(screen.id); try { await api(`/api/v1/screens/${screen.id}/diagnostics/screenshot`, { method: "DELETE" }); refresh(); notify("Diagnostic screenshot deleted."); } catch (e) { notify(errorText(e)); } finally { setBusy(undefined); } }
+  return <><PageHead eyebrow="PLAYBACK DEVICES" title="Screens" detail="Pair TVs, assign a class, and inspect cache, downloads, codecs, timing, network quality, and recent errors." action={canManage && pin ? <div className="pin-card"><span>PAIRING PIN</span><strong>{pin}</strong></div> : undefined} />
+    <section className="panel"><div className="screen-grid">{active.length ? active.map(s => {
+      const cache = parseDiagnosticJson<CacheDiagnostic>(s.cacheInventoryJson);
+      const downloads = parseDiagnosticJson<DownloadDiagnostic>(s.downloadQueueJson);
+      const codecs = parseDiagnosticJson<CodecDiagnostic>(s.codecCapabilitiesJson);
+      const errors = parseDiagnosticJson<ErrorDiagnostic>(s.recentErrorsJson);
+      const clockWarning = Math.abs(s.clockOffsetMs || 0) > 5_000;
+      return <article className={`screen-card ${expanded === s.id ? "expanded" : ""}`} key={s.id}>
+        <div className="screen-card-top"><span className={`screen-icon large ${isOnline(s) ? "online" : ""}`}>▣</span><Status online={isOnline(s)} /></div>
+        <input aria-label="Screen name" className="screen-name-input" defaultValue={s.name} disabled={!canManage} onBlur={e => e.target.value !== s.name && change(s, { name: e.target.value })} />
+        <small>{s.deviceModel || s.platform} · {s.osVersion || s.appVersion} · {s.lastSeenAt ? `Last seen ${timeAgo(s.lastSeenAt)}` : "Waiting for first check-in"}</small>
+        <div className="screen-diagnostics"><span><b>{friendlyPlaybackState(s.playbackState)}</b> playback</span><span><b>{s.acknowledgedControlVersion}/{s.controlVersion}</b> command</span><span><b>{s.cachedItems}/{s.totalItems}</b> cached</span><span><b>{downloads.length}</b> queued</span><span><b className={`quality-${s.networkQuality}`}>{s.networkQuality || "unknown"}</b> network</span><span><b className={clockWarning ? "warning-text" : ""}>{formatClockOffset(s.clockOffsetMs)}</b> clock</span></div>
+        {s.playbackError && <div className="playback-error">{s.playbackError}</div>}
+        <Field label="Assigned class"><select value={s.assignedClassId || ""} disabled={!canManage} onChange={e => change(s, e.target.value ? { assignedClassId: e.target.value } : { clearAssignment: true })}><option value="">Not assigned</option>{classes.map(c => <option value={c.id} key={c.id}>{c.name}</option>)}</select></Field>
+        <div className="two-fields"><Field label="Site"><input defaultValue={s.site} disabled={!canManage} onBlur={e => change(s, { site: e.target.value })} /></Field><Field label="Tags"><input defaultValue={s.tagsCsv} disabled={!canManage} placeholder="lobby, elementary" onBlur={e => change(s, { tagsCsv: e.target.value })} /></Field></div>
+        <label className="switch-row compact"><input type="checkbox" checked={s.volunteerMode} disabled={!canManage} onChange={e => change(s, { volunteerMode: e.target.checked })} /><span /><div><strong>Volunteer mode</strong></div></label>
+        <div className="screen-meta"><span>{formatBytes(s.freeBytes)} device free</span><span>{s.networkLatencyMs != null ? `${s.networkLatencyMs} ms` : "Latency pending"} · {s.lastIpAddress || "IP pending"}</span></div>
+        <button className="button wide" onClick={() => setExpanded(expanded === s.id ? undefined : s.id)}>{expanded === s.id ? "Hide diagnostics" : "View diagnostics"}</button>
+        {expanded === s.id && <div className="diagnostic-detail">
+          <div className="diagnostic-summary"><span><b>{cache.filter(x => x.state === "cached").length}</b> cached files</span><span><b>{formatBytes(cache.reduce((sum, x) => sum + (x.sizeBytes || 0), 0))}</b> cache size</span><span><b>{codecs.filter(x => x.supported).length}/{codecs.length}</b> codecs</span><span><b>{errors.length}</b> recent errors</span></div>
+          <DiagnosticList title="Cache inventory" empty="No detailed inventory reported yet." items={cache.map(item => ({ title: item.title || item.itemId || "Media", detail: `${item.state || "unknown"} · ${formatBytes(item.sizeBytes || 0)}${item.expectedBytes ? ` / ${formatBytes(item.expectedBytes)}` : ""}`, error: item.error }))} />
+          <DiagnosticList title="Download queue" empty="Download queue is clear." items={downloads.map(item => ({ title: item.title || item.itemId || "Media", detail: `${item.state || "queued"} · ${formatBytes(item.bytesDownloaded || 0)}${item.expectedBytes ? ` / ${formatBytes(item.expectedBytes)}` : ""}`, error: item.error }))} />
+          <div className="codec-list"><strong>Decoder capabilities</strong>{codecs.length ? codecs.map((item, index) => <span className={item.supported ? "supported" : "unsupported"} key={`${item.codec}-${index}`}>{item.codec || "Unknown"}<i>{item.supported ? "Supported" : "Unavailable"}</i></span>) : <small>Upgrade the TV player to receive codec details.</small>}</div>
+          <DiagnosticList title="Recent device errors" empty="No recent errors reported." items={errors.map(item => ({ title: item.area || "device", detail: item.timestamp ? `${timeAgo(item.timestamp)} · ${item.message || "Unknown error"}` : item.message || "Unknown error" }))} />
+          <div className="screenshot-privacy"><div><strong>Privacy-gated screenshot</strong><small>Off by default. A one-time request expires in 60 seconds, displays a banner on the TV, and is deleted after 24 hours.</small></div><label className="switch-row compact"><input type="checkbox" checked={s.allowDiagnosticScreenshots} disabled={!canManage} onChange={e => change(s, { allowDiagnosticScreenshots: e.target.checked })} /><span /><div><strong>{s.allowDiagnosticScreenshots ? "Allowed" : "Disabled"}</strong></div></label>{s.screenshotAvailable && <img src={`/api/v1/screens/${s.id}/diagnostics/screenshot?v=${screenshotNonce}`} alt={`Diagnostic screenshot from ${s.name}`} />}{canManage && <div className="card-actions"><button className="button primary" disabled={!s.allowDiagnosticScreenshots || !isOnline(s) || busy === s.id} onClick={() => requestScreenshot(s)}>{s.screenshotStatus === "pending" ? "Capture pending…" : "Request screenshot"}</button>{s.screenshotAvailable && <button className="button" onClick={() => deleteScreenshot(s)}>Delete now</button>}</div>}</div>
+          <small className="diagnostic-freshness">Diagnostics {s.diagnosticsUpdatedAt ? `updated ${timeAgo(s.diagnosticsUpdatedAt)}` : "will appear after a 0.18 TV player checks in"} · Manifest {s.manifestVersion}</small>
+        </div>}
+        {canManage && <button className="text-danger" onClick={() => revoke(s)}>Revoke pairing</button>}
+      </article>;
+    }) : <Empty title="No screens paired" body={canManage && pin ? `Install LessonCue TV, choose Pair, and enter ${pin}.` : "No paired screens are reporting to this server."} />}</div></section>
   </>;
+}
+
+function DiagnosticList({ title, empty, items }: { title: string; empty: string; items: { title: string; detail: string; error?: string }[] }) {
+  return <div className="diagnostic-list"><strong>{title}</strong>{items.length ? items.map((item, index) => <div key={`${item.title}-${index}`}><span>{item.title}</span><small>{item.detail}</small>{item.error && <em>{item.error}</em>}</div>) : <small>{empty}</small>}</div>;
 }
 
 function TemplatesView({ templates, schedules, lessons, classes, refresh, notify }: {
@@ -887,6 +932,8 @@ function scheduleSummary(schedule: RecurringSchedule) { if (schedule.frequency =
 function formatDuration(ms?: number) { if (ms === undefined || ms === null) return "Duration unknown"; const seconds = Math.round(ms / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
 function formatPreciseTime(seconds: number) { return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}.${String(Math.round(seconds % 1 * 100)).padStart(2, "0")}`; }
 function formatBytes(bytes: number) { if (bytes === 0) return "0 B"; if (!Number.isFinite(bytes) || bytes < 0) return "—"; const units = ["B", "KB", "MB", "GB", "TB"]; const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1); return `${(bytes / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`; }
+function parseDiagnosticJson<T>(value?: string): T[] { try { const parsed = JSON.parse(value || "[]"); return Array.isArray(parsed) ? parsed : []; } catch { return []; } }
+function formatClockOffset(value?: number) { if (value == null) return "pending"; const absolute = Math.abs(value); if (absolute < 1_000) return `${absolute} ms`; const direction = value > 0 ? "fast" : "slow"; return `${(absolute / 1_000).toFixed(1)}s ${direction}`; }
 function cuePoints(item?: PlaylistItem): CuePoint[] {
   if (!item?.cuePointsJson) return [];
   try {

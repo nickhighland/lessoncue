@@ -17,8 +17,9 @@ class MediaCacheWorker(context: Context, parameters: WorkerParameters) : Corouti
         val token = inputData.getString("token")
         val serverHost = inputData.getString("serverHost")
         val expectedSha = inputData.getString("sha256")
+        val destination = applicationContext.filesDir.resolve("media").also { it.mkdirs() }.resolve(fileName)
+        val diagnosticError = destination.resolveSibling("$fileName.error")
         runCatching {
-            val destination = applicationContext.filesDir.resolve("media").also { it.mkdirs() }.resolve(fileName)
             val partial = destination.resolveSibling("$fileName.part")
             val existing = if (partial.exists()) partial.length() else 0L
             val connection = URL(url).openConnection() as HttpURLConnection
@@ -37,7 +38,11 @@ class MediaCacheWorker(context: Context, parameters: WorkerParameters) : Corouti
                 if (!actual.equals(expectedSha, ignoreCase = true)) { partial.delete(); error("Cached media checksum did not match") }
             }
             if (!partial.renameTo(destination)) error("Unable to finalize cached media")
+            diagnosticError.delete()
             connection.disconnect()
-        }.fold(onSuccess = { Result.success() }, onFailure = { Result.retry() })
+        }.fold(onSuccess = { Result.success() }, onFailure = { error ->
+            diagnosticError.writeText("${System.currentTimeMillis()}\n${error.message ?: error.javaClass.simpleName}")
+            Result.retry()
+        })
     }
 }

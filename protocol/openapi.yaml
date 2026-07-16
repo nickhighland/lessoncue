@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 2.5.0
+  version: 2.6.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local
@@ -322,6 +322,67 @@ paths:
             schema: { $ref: '#/components/schemas/TvStatus' }
       responses:
         '202': { description: Accepted }
+  /api/v1/screens/{screenId}/diagnostics/screenshot-request:
+    post:
+      operationId: requestScreenDiagnosticScreenshot
+      description: Requires screens.manage. Creates a one-time request only when the screen-specific privacy opt-in is enabled and the player is online.
+      parameters:
+        - name: screenId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '202': { description: One-time 60-second request created }
+        '409': { description: 'Screenshot access is disabled or the player is offline' }
+  /api/v1/screens/{screenId}/diagnostics/screenshot:
+    get:
+      operationId: getScreenDiagnosticScreenshot
+      description: Requires screens.manage. Returns the latest unexpired screenshot for this screen.
+      parameters:
+        - name: screenId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Latest diagnostic image
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+        '404': { description: No unexpired screenshot }
+    delete:
+      operationId: deleteScreenDiagnosticScreenshot
+      description: Requires screens.manage. Immediately deletes the stored diagnostic image and request metadata.
+      parameters:
+        - name: screenId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Screenshot deleted }
+  /api/v1/tv/screens/{screenId}/diagnostics/screenshot/{requestId}:
+    put:
+      operationId: uploadTvDiagnosticScreenshot
+      description: Fulfills an administrator-enabled, one-time request that expires after 60 seconds. The player displays a visible capture notice; the server retains only the latest image for 24 hours.
+      security: [{ deviceBearer: [] }]
+      parameters:
+        - name: screenId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: requestId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          image/jpeg: { schema: { type: string, format: binary, maxLength: 8388608 } }
+          image/png: { schema: { type: string, format: binary, maxLength: 8388608 } }
+      responses:
+        '202': { description: Screenshot accepted }
+        '400': { description: Invalid or oversized image }
+        '409': { description: 'Request is disabled, expired, or already fulfilled' }
   /api/v1/media/{mediaId}/file:
     get:
       operationId: downloadMedia
@@ -1098,6 +1159,61 @@ components:
         totalItems: { type: [integer, 'null'], minimum: 0 }
         deviceModel: { type: [string, 'null'], maxLength: 160 }
         osVersion: { type: [string, 'null'], maxLength: 80 }
+        clientTimeUnixMs: { type: [integer, 'null'], format: int64 }
+        networkLatencyMs: { type: [integer, 'null'], minimum: 0, maximum: 120000 }
+        networkQuality: { type: [string, 'null'], enum: [excellent, good, fair, poor, offline, null] }
+        cacheInventory:
+          type: [array, 'null']
+          maxItems: 500
+          items: { $ref: '#/components/schemas/TvCacheDiagnostic' }
+        downloadQueue:
+          type: [array, 'null']
+          maxItems: 500
+          items: { $ref: '#/components/schemas/TvDownloadDiagnostic' }
+        codecCapabilities:
+          type: [array, 'null']
+          maxItems: 100
+          items: { $ref: '#/components/schemas/TvCodecCapability' }
+        recentErrors:
+          type: [array, 'null']
+          maxItems: 50
+          items: { $ref: '#/components/schemas/TvDiagnosticError' }
+    TvCacheDiagnostic:
+      type: object
+      required: [itemId, title, state, sizeBytes]
+      properties:
+        itemId: { type: string, maxLength: 80 }
+        title: { type: string, maxLength: 160 }
+        state: { enum: [cached, queued, downloading, failed, missing, unknown] }
+        sizeBytes: { type: integer, format: int64, minimum: 0 }
+        expectedBytes: { type: [integer, 'null'], format: int64, minimum: 0 }
+        error: { type: [string, 'null'], maxLength: 500 }
+    TvDownloadDiagnostic:
+      type: object
+      required: [itemId, title, state]
+      properties:
+        itemId: { type: string, maxLength: 80 }
+        title: { type: string, maxLength: 160 }
+        state: { enum: [queued, downloading, failed, missing] }
+        bytesDownloaded: { type: integer, format: int64, minimum: 0 }
+        expectedBytes: { type: [integer, 'null'], format: int64, minimum: 0 }
+        error: { type: [string, 'null'], maxLength: 500 }
+    TvCodecCapability:
+      type: object
+      required: [kind, codec, supported]
+      properties:
+        kind: { enum: [video, audio] }
+        codec: { type: string, maxLength: 80 }
+        supported: { type: boolean }
+        detail: { type: [string, 'null'], maxLength: 160 }
+    TvDiagnosticError:
+      type: object
+      required: [timestamp, area, message]
+      properties:
+        timestamp: { type: string, format: date-time }
+        area: { type: string, maxLength: 40 }
+        message: { type: string, maxLength: 500 }
+        itemId: { type: [string, 'null'], maxLength: 80 }
     ScreenControlInput:
       type: object
       required: [action]
@@ -1118,3 +1234,5 @@ components:
         positionMs: { type: [integer, 'null'], format: int64, minimum: 0 }
         issuedAt: { type: [string, 'null'], format: date-time }
         state: { enum: [idle, loading, buffering, playing, paused, completed, error] }
+        screenshotRequestId: { type: [string, 'null'], format: uuid }
+        screenshotExpiresAt: { type: [string, 'null'], format: date-time }

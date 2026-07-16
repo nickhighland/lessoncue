@@ -22,6 +22,11 @@ struct RootView: View {
             case .playback(let playlist, let items, let index, let seekMs):
                 PlaybackView(playlist: playlist, items: items, index: index, seekMs: seekMs)
             }
+            if model.diagnosticCaptureVisible {
+                VStack { HStack { Spacer(); Text("DIAGNOSTIC SCREENSHOT · ADMIN REQUEST")
+                    .font(.caption.bold()).padding(14).background(Color.red.opacity(0.92)).clipShape(RoundedRectangle(cornerRadius: 8)) }
+                    Spacer() }.padding(36)
+            }
         }
         .foregroundStyle(Color.lessonCream)
     }
