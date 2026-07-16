@@ -13,6 +13,7 @@ public sealed class BackupServiceTests
         var ct = TestContext.Current.CancellationToken;
         var root = Path.Combine(Path.GetTempPath(), $"lessoncue-restore-{Guid.NewGuid():N}");
         Directory.CreateDirectory(Path.Combine(root, "database"));
+        Directory.CreateDirectory(Path.Combine(root, "config"));
         Directory.CreateDirectory(Path.Combine(root, "media", "originals"));
         try
         {
@@ -25,8 +26,11 @@ public sealed class BackupServiceTests
                 new MediaAsset { FileName = "lesson.mp4", RelativePath = "lesson.mp4", SizeBytes = 8 });
             await db.SaveChangesAsync(ct);
             await File.WriteAllTextAsync(Path.Combine(root, "media", "originals", "lesson.mp4"), "original", ct);
+            await File.WriteAllTextAsync(Path.Combine(root, "config", "cloudflare-token.pending"), "must-not-be-backed-up", ct);
             var service = new BackupService(root);
             var backup = await service.CreateAsync(db, true, "owner", ct);
+            using (var created = ZipFile.OpenRead(service.Resolve(backup.FileName)!))
+                Assert.DoesNotContain(created.Entries, entry => entry.FullName.EndsWith("cloudflare-token.pending", StringComparison.Ordinal));
             await using var archive = File.OpenRead(service.Resolve(backup.FileName)!);
             var preview = await service.StageAsync(archive, backup.FileName, archive.Length, ct);
 

@@ -31,6 +31,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:admin
+      - run: bash -n installers/linux/install-latest.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue-update
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x

@@ -245,6 +245,15 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(scheduleCard.locator(".schedule-count")).toContainText("1");
 
   await page.getByRole("button", { name: /Settings$/ }).click();
+  await expect(page.getByRole("heading", { name: "Optional remote access" })).toBeVisible();
+  await expect(page.getByText("Not configured", { exact: true })).toBeVisible();
+  const unsupportedTunnel = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/cloudflare-tunnel", { method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: true, publicHostname: "lesson.example.org", token: `eyJ${"a".repeat(77)}`, acknowledgedRemoteExposure: true }) });
+    return { status: response.status, body: await response.json() };
+  });
+  expect(unsupportedTunnel.status).toBe(400);
+  expect(unsupportedTunnel.body.error).toContain("native Linux installation");
   await page.getByRole("button", { name: "Full backup" }).click();
   await expect(page.getByText("Full backup created.", { exact: false })).toBeVisible();
   const fullBackupLink = page.locator("a.backup-row").filter({ hasText: "full" });

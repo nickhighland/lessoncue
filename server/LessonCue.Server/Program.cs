@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -65,6 +66,11 @@ builder.Services.AddHttpClient("updates", client =>
 });
 builder.Services.AddSingleton<UpdateService>();
 builder.Services.AddHostedService(services => services.GetRequiredService<UpdateService>());
+builder.Services.AddHttpClient("cloudflare-tunnel", client => client.Timeout = TimeSpan.FromSeconds(2));
+builder.Services.AddSingleton(services => new CloudflareTunnelService(dataPath,
+    services.GetRequiredService<HttpPortService>(), services.GetRequiredService<IHttpClientFactory>(),
+    services.GetRequiredService<ILogger<CloudflareTunnelService>>()));
+builder.Services.AddHostedService(services => services.GetRequiredService<CloudflareTunnelService>());
 builder.Services.AddSingleton<IPasswordHasher<PairingAttempt>, PasswordHasher<PairingAttempt>>();
 builder.Services.AddSingleton<IPasswordHasher<AdminAccount>, PasswordHasher<AdminAccount>>();
 builder.Services.AddSignalR();
@@ -123,6 +129,16 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+var forwardedHeaders = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+    ForwardLimit = 1
+};
+forwardedHeaders.KnownIPNetworks.Clear();
+forwardedHeaders.KnownProxies.Clear();
+forwardedHeaders.KnownProxies.Add(System.Net.IPAddress.Loopback);
+forwardedHeaders.KnownProxies.Add(System.Net.IPAddress.IPv6Loopback);
+app.UseForwardedHeaders(forwardedHeaders);
 app.Use(async (context, next) =>
 {
     context.Response.Headers.XContentTypeOptions = "nosniff";

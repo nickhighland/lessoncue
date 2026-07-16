@@ -1,0 +1,27 @@
+[Unit]
+Description=LessonCue optional Cloudflare Tunnel connector
+After=network-online.target lessoncue.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lessoncue-tunnel
+Group=lessoncue-tunnel
+ExecStart=/usr/local/bin/cloudflared tunnel --no-autoupdate --metrics 127.0.0.1:60123 run --token-file /etc/lessoncue/cloudflare-token
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

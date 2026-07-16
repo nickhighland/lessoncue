@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 2.7.0
+  version: 2.8.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local
@@ -728,6 +728,31 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/HttpPortStatus' }
         '400': { description: Invalid port }
+  /api/v1/cloudflare-tunnel:
+    get:
+      operationId: getCloudflareTunnel
+      description: Requires settings.manage. Returns public configuration and connector health without returning the tunnel credential.
+      responses:
+        '200':
+          description: Optional remote-access status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudflareTunnelStatus' }
+    put:
+      operationId: setCloudflareTunnel
+      description: Requires settings.manage. Uses the protected native Linux helper to install, enable, rotate, or remove an outbound Cloudflare Tunnel connector.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CloudflareTunnelInput' }
+      responses:
+        '202':
+          description: Protected tunnel operation requested
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudflareTunnelStatus' }
+        '400': { description: Unsupported host, invalid public hostname or token, missing exposure acknowledgement, or missing initial credential }
   /api/v1/updates:
     get:
       operationId: getUpdateStatus
@@ -973,6 +998,31 @@ components:
         configurable: { type: boolean }
         supported: { type: boolean }
         pending: { type: boolean }
+        appliedAt: { type: [string, 'null'], format: date-time }
+        error: { type: [string, 'null'] }
+    CloudflareTunnelInput:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+        publicHostname: { type: [string, 'null'], description: Public DNS hostname configured as the tunnel's published application route. }
+        token: { type: [string, 'null'], writeOnly: true, minLength: 50, maxLength: 4096, description: Tunnel token or complete Cloudflare service-install command; omitted to retain an existing credential. }
+        acknowledgedRemoteExposure: { type: boolean, default: false, description: Required when enabling because the public hostname must be protected according to the administrator's policy. }
+    CloudflareTunnelStatus:
+      type: object
+      required: [enabled, originUrl, supported, pending, credentialConfigured, serviceInstalled, connected, activeConnections]
+      properties:
+        enabled: { type: boolean }
+        publicHostname: { type: [string, 'null'] }
+        publicUrl: { type: [string, 'null'], format: uri }
+        originUrl: { type: string, format: uri }
+        supported: { type: boolean }
+        pending: { type: boolean }
+        credentialConfigured: { type: boolean }
+        serviceInstalled: { type: boolean }
+        connected: { type: boolean }
+        activeConnections: { type: integer, minimum: 0 }
+        cloudflaredVersion: { type: [string, 'null'] }
         appliedAt: { type: [string, 'null'], format: date-time }
         error: { type: [string, 'null'] }
     PairingRequest:

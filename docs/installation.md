@@ -36,6 +36,26 @@ Permission enforcement happens on the server even if someone constructs an API r
 
 Native Linux installation configures `http://lessoncue.local` on standard HTTP port 80 automatically. A user with **Server settings** permission can change either `lessoncue` or the browser port under **Settings → Connection & pairing**. LessonCue applies the change and restarts itself; if a chosen port cannot be opened, it returns to the previous working port. Changing the name does not rename the Linux computer or SSH hostname. Keep the numeric address as a fallback for networks that block multicast DNS.
 
+### Optional: use your own internet hostname with Cloudflare Tunnel
+
+LessonCue does not require remote access. If staff must reach it away from the local network, native Linux installations can configure an outbound-only, remotely managed Cloudflare Tunnel from **Settings → Optional remote access**. You need a domain managed in your own Cloudflare account. Protect the hostname with Cloudflare Access before inviting users; without Access, anyone on the internet can reach the LessonCue sign-in page.
+
+1. In the [Cloudflare dashboard](https://one.dash.cloudflare.com/), create a remotely managed Cloudflare Tunnel.
+2. Add a published application route using the hostname you want, such as `lesson.example.org`.
+3. Set its service to the exact **Local origin route** shown by LessonCue, normally `http://127.0.0.1:80`.
+4. In the tunnel's **Overview → Add a replica** instructions, copy the `eyJ…` tunnel token or the complete `cloudflared service install …` command. Do not run it over SSH.
+5. In LessonCue, open **Settings → Optional remote access**, enable the tunnel, enter the same public hostname, paste the token or command, acknowledge the exposure warning, and select **Install and enable tunnel**.
+6. Wait for LessonCue to report active edge connections, then open the HTTPS public address.
+
+The browser sends the secret once. LessonCue passes it through the protected root operation channel, stores it outside the web server's readable files, and never returns it through the API or writes it to the audit log. The connector runs as the separate `lessoncue-tunnel` user. Disabling the feature stops the connector and deletes its stored credential while leaving `lessoncue.local` and the numeric local address unchanged.
+
+If you later change LessonCue's HTTP port, update the Cloudflare published application service to the new **Local origin route**. Paste a replacement token and select **Update tunnel** to rotate the connector credential. For diagnostics over SSH:
+
+```bash
+sudo systemctl status lessoncue-cloudflared --no-pager
+sudo journalctl -u lessoncue-cloudflared -n 100 --no-pager
+```
+
 ### Set up reusable lessons and schedules
 
 No additional service or cloud account is required. Build one complete lesson under **Classes**, then open **Templates → New template** and select it as the source. LessonCue keeps media used by a reusable template permanently. Choose **Create lesson** for a one-time dated copy, or **New schedule** for weekly, multi-week, monthly, term-based, or explicit custom dates.
@@ -89,7 +109,7 @@ hostname -I | awk '{print "http://" $1}'
 
 First try `http://lessoncue.local`, then use the printed numeric address if `.local` discovery is unavailable on that network. The complete LessonCue administration interface is served from the local server. It does not load or depend on the hosted prototype.
 
-Do not forward LessonCue's HTTP port from the internet. Use a VPN for remote access.
+Do not forward LessonCue's HTTP port directly from the internet. Use the protected Cloudflare Tunnel option above or an administrator-managed VPN.
 
 ### Use the cellphone controller
 

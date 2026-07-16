@@ -21,6 +21,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - Daily release checks, administrator alerts, protected one-click Linux updates with health-check rollback, and administrator-controlled storage allocation with uploader-visible capacity.
 - A locally configurable six-digit pairing PIN, with a choice between a persistent administrator-set PIN and automatic ten-minute rotation.
 - Automatic `lessoncue.local` setup on native Linux, with an administrator-configurable `.local` browser name and numeric-IP fallback.
+- Optional Cloudflare Tunnel remote access through an administrator-owned hostname, with a write-only token, checksum-verified connector installation, a restricted local service account, active edge-connection status, safe disable/credential removal, and strong Cloudflare Access guidance. Local-only operation remains the default.
 - Local administrator password recovery over SSH, including username listing, audited resets, and existing-session invalidation.
 - Administrator user management with editable names, usernames, email addresses, roles, and passwords, plus pause/reactivate and protected account deletion.
 - Granular per-user permissions for lesson planning, media uploads, live playback, screen administration, user administration, server settings, backups, and software updates. Built-in roles supply safe defaults, while owners can grant an exact custom combination.

@@ -55,7 +55,8 @@ public sealed class BackupService
                     await JsonSerializer.SerializeAsync(stream, new { product = "LessonCue", formatVersion = 1,
                         createdAt = DateTimeOffset.UtcNow, kind, includesMedia = includeMedia }, cancellationToken: ct);
                 archive.CreateEntryFromFile(databaseSnapshot, "database/lessoncue.db", CompressionLevel.Fastest);
-                AddDirectory(archive, Path.Combine(dataPath, "config"), "config");
+                AddDirectory(archive, Path.Combine(dataPath, "config"), "config", path =>
+                    !string.Equals(Path.GetFileName(path), "cloudflare-token.pending", StringComparison.Ordinal));
                 if (includeMedia) AddDirectory(archive, Path.Combine(dataPath, "media"), "media", path =>
                     !path.StartsWith(Path.Combine(dataPath, "media", "temporary"), StringComparison.Ordinal));
             }
@@ -147,7 +148,7 @@ public sealed class BackupService
             if (mediaRollback is not null) TryDelete(mediaRollback);
             TryDelete(stage);
             return new BackupRestoreResult(safety.Id, safety.FileName, preview.Kind, preview.Organization,
-                preview.IncludesMedia, ["server identity", "encryption keys", "hostname and port", "pairing secrets"]);
+                preview.IncludesMedia, ["server identity", "encryption keys", "hostname and port", "pairing secrets", "optional remote-access credential"]);
         }
         catch
         {

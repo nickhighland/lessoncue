@@ -83,7 +83,8 @@ public static class AdminApi
         var settings = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Settings);
 
         admin.MapGet("/admin/bootstrap", async (LessonCueDb db, PairingCodeService pairing, StorageService storage,
-            UpdateService updates, LocalAddressService localAddress, HttpPortService httpPort, HttpContext context,
+            UpdateService updates, LocalAddressService localAddress, HttpPortService httpPort,
+            CloudflareTunnelService cloudflareTunnel, HttpContext context,
             CancellationToken ct) =>
         {
             var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
@@ -104,6 +105,7 @@ public static class AdminApi
                 update = updates.Status,
                 localAddress = localAddress.Status,
                 httpPort = httpPort.Status,
+                cloudflareTunnel = cloudflareTunnel.Status,
                 permissionDefinitions = LessonCuePermissions.All,
                 permissionPresets = new
                 {
@@ -1535,6 +1537,23 @@ public static class AdminApi
                 Audit(db, "server.http-port.update", Guid.Empty, input.Port.ToString(CultureInfo.InvariantCulture));
                 await db.SaveChangesAsync(ct);
                 return Results.Ok(status);
+            }
+            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        settings.MapGet("/cloudflare-tunnel", (CloudflareTunnelService tunnel) => Results.Ok(tunnel.Status));
+
+        settings.MapPut("/cloudflare-tunnel", async (CloudflareTunnelInput input, CloudflareTunnelService tunnel,
+            LessonCueDb db, CancellationToken ct) =>
+        {
+            try
+            {
+                var status = await tunnel.SetAsync(input.Enabled, input.PublicHostname, input.Token,
+                    input.AcknowledgedRemoteExposure, ct);
+                Audit(db, input.Enabled ? "server.cloudflare-tunnel.enable" : "server.cloudflare-tunnel.disable",
+                    Guid.Empty, input.Enabled ? status.PublicHostname ?? "configured" : "disabled");
+                await db.SaveChangesAsync(ct);
+                return Results.Accepted(value: status);
             }
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });

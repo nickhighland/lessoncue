@@ -12,7 +12,7 @@
     <p class="eyebrow">HEADLESS LINUX INSTALLATION</p>
     <h1>Install entirely over SSH.</h1>
     <p class="intro">These commands install LessonCue on a 64-bit Ubuntu or Debian server with no desktop or GUI. Use a non-root SSH account with <code>sudo</code>.</p>
-    <div class="notice">Keep the server on your trusted local network. Do not forward LessonCue's HTTP port from the public internet.</div>
+    <div class="notice">Keep the server on your trusted local network. Do not forward LessonCue's HTTP port from the public internet; use its optional protected Cloudflare Tunnel integration or an administrator-managed VPN.</div>
     <section class="steps">
       <article>
         <b>STEP 1</b>
@@ -35,6 +35,11 @@
         <h2>Verify and find the local address</h2>
         <pre>sudo systemctl status lessoncue --no-pager&#10;curl -fsS http://127.0.0.1/health &amp;&amp; echo&#10;hostname -I | awk '{print "http://" $1}'</pre>
         <p>The complete browser interface, API, database, schedules, and media are served by this local machine. No hosted interface is used.</p>
+      </article>
+      <article>
+        <b>OPTIONAL REMOTE ACCESS</b>
+        <h2>Connect your own Cloudflare hostname</h2>
+        <p>Create a remotely managed tunnel and published application route in your Cloudflare account, point it to the origin shown in <strong>Settings → Optional remote access</strong>, protect it with Cloudflare Access, then paste the tunnel token into LessonCue. The token is write-only and the connector runs as a restricted local service.</p>
       </article>
       <article>
         <b>CELLPHONE CONTROLLER</b>

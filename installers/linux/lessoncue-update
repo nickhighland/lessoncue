@@ -30,6 +30,152 @@ set_avahi_port() {
   install -m 0644 "${temporary}" "${service}"
   rm -f "${temporary}"
 }
+write_tunnel_result() {
+  local enabled="$1" credential="$2" installed="$3" error="$4" result=/var/lib/lessoncue/config/cloudflare-result.json temporary
+  temporary="$(mktemp)"
+  if [[ -n "${error}" ]]; then
+    printf '{"enabled":%s,"credentialConfigured":%s,"serviceInstalled":%s,"appliedAt":"%s","error":"%s"}\n' \
+      "${enabled}" "${credential}" "${installed}" "$(date --iso-8601=seconds)" "${error}" > "${temporary}"
+  else
+    printf '{"enabled":%s,"credentialConfigured":%s,"serviceInstalled":%s,"appliedAt":"%s","error":null}\n' \
+      "${enabled}" "${credential}" "${installed}" "$(date --iso-8601=seconds)" > "${temporary}"
+  fi
+  install -o lessoncue -g lessoncue -m 0600 "${temporary}" "${result}"
+  rm -f "${temporary}"
+}
+install_tunnel_unit() {
+  local temporary
+  temporary="$(mktemp)"
+  cat > "${temporary}" <<'LESSONCUE_TUNNEL_UNIT'
+[Unit]
+Description=LessonCue optional Cloudflare Tunnel connector
+After=network-online.target lessoncue.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lessoncue-tunnel
+Group=lessoncue-tunnel
+ExecStart=/usr/local/bin/cloudflared tunnel --no-autoupdate --metrics 127.0.0.1:60123 run --token-file /etc/lessoncue/cloudflare-token
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target
+LESSONCUE_TUNNEL_UNIT
+  install -m 0644 "${temporary}" /etc/systemd/system/lessoncue-cloudflared.service
+  rm -f "${temporary}"
+}
+if [[ "${REQUEST}" == tunnel:disable ]]; then
+  systemctl disable --now lessoncue-cloudflared.service >/dev/null 2>&1 || true
+  rm -f /etc/lessoncue/cloudflare-token /var/lib/lessoncue/config/cloudflare-token.pending
+  if [[ -f /etc/systemd/system/lessoncue-cloudflared.service ]]; then SERVICE_INSTALLED=true; else SERVICE_INSTALLED=false; fi
+  write_tunnel_result false false "${SERVICE_INSTALLED}" ""
+  echo "LessonCue Cloudflare Tunnel is disabled."
+  exit 0
+fi
+
+if [[ "${REQUEST}" == tunnel:enable ]]; then
+  TOKEN_PENDING=/var/lib/lessoncue/config/cloudflare-token.pending
+  TOKEN_INSTALLED=/etc/lessoncue/cloudflare-token
+  if systemctl is-active --quiet cloudflared.service 2>/dev/null; then
+    rm -f /var/lib/lessoncue/config/cloudflare-token.pending
+    write_tunnel_result false false true "Another cloudflared service is already active. Add LessonCue to that tunnel manually or stop it before enabling LessonCue integration."
+    exit 1
+  fi
+  if [[ -f "${TOKEN_PENDING}" ]]; then TOKEN="$(tr -d '[:space:]' < "${TOKEN_PENDING}")"
+  elif [[ -f "${TOKEN_INSTALLED}" ]]; then TOKEN="$(tr -d '[:space:]' < "${TOKEN_INSTALLED}")"
+  else
+    write_tunnel_result false false true "A Cloudflare tunnel token is required."
+    exit 1
+  fi
+  if [[ ! "${TOKEN}" =~ ^[A-Za-z0-9._=+/-]{50,4096}$ ]]; then
+    rm -f "${TOKEN_PENDING}"
+    write_tunnel_result false false true "The Cloudflare tunnel token was rejected."
+    exit 1
+  fi
+
+  CLOUDFLARED_VERSION=2026.7.2
+  case "$(uname -m)" in
+    x86_64|amd64)
+      CLOUDFLARED_ASSET=cloudflared-linux-amd64
+      CLOUDFLARED_SHA256=ec905ea7b7e327ff8abdde8cb64697a2152de74dbcdbf6aec9db8364eb3886cd ;;
+    aarch64|arm64)
+      CLOUDFLARED_ASSET=cloudflared-linux-arm64
+      CLOUDFLARED_SHA256=405df476437e027fc6d18729a5a77155c0a33a6082aeee60a799a688f3052e66 ;;
+    *)
+      rm -f "${TOKEN_PENDING}"
+      write_tunnel_result false false false "Cloudflare Tunnel is not packaged for this CPU architecture."
+      exit 1 ;;
+  esac
+  CLOUDFLARED_INSTALL=true
+  if [[ -x /usr/local/bin/cloudflared ]]; then
+    CURRENT_CLOUDFLARED_VERSION="$(/usr/local/bin/cloudflared --version 2>/dev/null | awk '{print $3}' | head -n 1)"
+    if [[ "${CURRENT_CLOUDFLARED_VERSION}" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] &&
+       [[ "$(printf '%s\n' 2025.4.0 "${CURRENT_CLOUDFLARED_VERSION}" | sort -V | head -n 1)" == 2025.4.0 ]]; then
+      CLOUDFLARED_INSTALL=false
+    fi
+  fi
+  if [[ "${CLOUDFLARED_INSTALL}" == true ]]; then
+    CLOUDFLARED_TEMP="$(mktemp)"
+    trap 'rm -f "${CLOUDFLARED_TEMP:-}"' EXIT
+    if ! curl -fL "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/${CLOUDFLARED_ASSET}" -o "${CLOUDFLARED_TEMP}"; then
+      rm -f "${TOKEN_PENDING}"
+      write_tunnel_result false false false "The official Cloudflare connector could not be downloaded. Check this server's internet connection."
+      exit 1
+    fi
+    if ! printf '%s  %s\n' "${CLOUDFLARED_SHA256}" "${CLOUDFLARED_TEMP}" | sha256sum -c -; then
+      rm -f "${TOKEN_PENDING}"
+      write_tunnel_result false false false "The Cloudflare connector checksum did not match; nothing was installed."
+      exit 1
+    fi
+    chmod 0755 "${CLOUDFLARED_TEMP}"
+    if ! "${CLOUDFLARED_TEMP}" --version >/dev/null; then
+      rm -f "${TOKEN_PENDING}"
+      write_tunnel_result false false false "The downloaded Cloudflare connector could not run on this server."
+      exit 1
+    fi
+    install -m 0755 "${CLOUDFLARED_TEMP}" /usr/local/bin/cloudflared
+  fi
+
+  id lessoncue-tunnel >/dev/null 2>&1 || useradd --system --home /var/lib/lessoncue-tunnel --create-home --shell /usr/sbin/nologin lessoncue-tunnel
+  install -d -o root -g lessoncue-tunnel -m 0750 /etc/lessoncue
+  TOKEN_TEMP="$(mktemp)"
+  printf '%s\n' "${TOKEN}" > "${TOKEN_TEMP}"
+  install -o root -g lessoncue-tunnel -m 0640 "${TOKEN_TEMP}" "${TOKEN_INSTALLED}"
+  rm -f "${TOKEN_TEMP}" "${TOKEN_PENDING}"
+  install_tunnel_unit
+  systemctl daemon-reload
+  if ! systemctl enable --now lessoncue-cloudflared.service >/dev/null; then
+    write_tunnel_result false true true "The protected Cloudflare Tunnel service could not start. Check journalctl -u lessoncue-cloudflared."
+    exit 1
+  fi
+  for _ in {1..20}; do
+    if curl -fsS http://127.0.0.1:60123/metrics 2>/dev/null | grep -Eq '^cloudflared_tunnel_ha_connections [1-9][0-9]*(\.[0-9]+)?$'; then
+      write_tunnel_result true true true ""
+      echo "LessonCue Cloudflare Tunnel is connected."
+      exit 0
+    fi
+    if systemctl is-failed --quiet lessoncue-cloudflared.service; then break; fi
+    sleep 1
+  done
+  systemctl disable --now lessoncue-cloudflared.service >/dev/null 2>&1 || true
+  write_tunnel_result false true true "Cloudflare Tunnel could not connect. Check the token, published hostname route, internet access, and journalctl -u lessoncue-cloudflared."
+  exit 1
+fi
+
 if [[ "${REQUEST}" == hostname:* ]]; then
   LOCAL_HOSTNAME="${REQUEST#hostname:}"
   if [[ ! "${LOCAL_HOSTNAME}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
@@ -166,7 +312,9 @@ install -m 0755 "${WORKDIR}/archive/lessoncue-update" /usr/local/sbin/lessoncue-
 install -m 0644 "${WORKDIR}/archive/lessoncue-update.service" /etc/systemd/system/lessoncue-update.service
 install -m 0644 "${WORKDIR}/archive/lessoncue-update.path" /etc/systemd/system/lessoncue-update.path
 install -m 0644 "${WORKDIR}/archive/lessoncue.service" /etc/systemd/system/lessoncue.service
+install -m 0644 "${WORKDIR}/archive/lessoncue-cloudflared.service" /etc/systemd/system/lessoncue-cloudflared.service
 systemctl daemon-reload
+systemctl try-restart lessoncue-cloudflared.service >/dev/null 2>&1 || true
 
 systemctl stop lessoncue.service
 rm -rf "${PREVIOUS}" "${FAILED}"
