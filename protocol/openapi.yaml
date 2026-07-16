@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 2.0.0
+  version: 2.1.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local
@@ -199,6 +199,48 @@ paths:
         '200': { description: Media file }
         '206': { description: Partial media response }
         '404': { description: Not found }
+  /api/v1/backups/restore/preview:
+    post:
+      operationId: previewBackupRestore
+      description: Stages and validates a LessonCue ZIP without changing current data.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '200':
+          description: Validated restore preview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackupPreview' }
+        '400': { description: Invalid, unsafe, corrupt, or oversized backup }
+  /api/v1/backups/restore:
+    post:
+      operationId: restoreBackup
+      description: Revalidates the staged archive, creates a full safety backup, then restores database and optional media while preserving server-local identity and connection settings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [restoreId, confirmation]
+              properties:
+                restoreId: { type: string, format: uuid }
+                confirmation: { type: string, const: RESTORE }
+      responses:
+        '200':
+          description: Restore completed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackupRestoreResult' }
+        '400': { description: Invalid confirmation or expired staged backup }
+        '409': { description: Another restore is running }
   /api/v1/media/{mediaId}/filmstrip:
     get:
       operationId: getMediaFilmstrip
@@ -432,6 +474,35 @@ components:
       type: http
       scheme: bearer
   schemas:
+    BackupPreview:
+      type: object
+      required: [restoreId, fileName, kind, compressedBytes, uncompressedBytes, fileCount, organization, users, classes, lessons, mediaRecords, mediaFiles, includesMedia, warnings, expiresAt]
+      properties:
+        restoreId: { type: string, format: uuid }
+        fileName: { type: string }
+        kind: { enum: [configuration, full] }
+        compressedBytes: { type: integer, format: int64, minimum: 1 }
+        uncompressedBytes: { type: integer, format: int64, minimum: 1 }
+        fileCount: { type: integer, minimum: 1 }
+        organization: { type: string }
+        users: { type: integer, minimum: 0 }
+        classes: { type: integer, minimum: 0 }
+        lessons: { type: integer, minimum: 0 }
+        mediaRecords: { type: integer, minimum: 0 }
+        mediaFiles: { type: integer, minimum: 0 }
+        includesMedia: { type: boolean }
+        warnings: { type: array, items: { type: string } }
+        expiresAt: { type: string, format: date-time }
+    BackupRestoreResult:
+      type: object
+      required: [safetyBackupId, safetyBackupFileName, kind, organization, mediaRestored, preservedServerSettings]
+      properties:
+        safetyBackupId: { type: string, format: uuid }
+        safetyBackupFileName: { type: string }
+        kind: { enum: [configuration, full] }
+        organization: { type: string }
+        mediaRestored: { type: boolean }
+        preservedServerSettings: { type: array, items: { type: string } }
     Discovery:
       type: object
       required: [product, serverId, serverName, localAddress, apiVersion, pairingEnabled]

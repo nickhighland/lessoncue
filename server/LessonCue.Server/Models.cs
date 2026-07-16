@@ -235,6 +235,7 @@ public sealed record PlaylistItemInput(string Title, string Type, string? Role, 
 public sealed record PairingRequestInput(string DeviceName, string Platform, string AppVersion, string? DevicePublicKey);
 public sealed record PairingConfirmInput(Guid RequestId, string Pin);
 public sealed record PairingPinInput(string? Pin, bool Automatic = false);
+public sealed record BackupRestoreInput(Guid RestoreId, string Confirmation);
 public sealed record TvStatusInput(Guid ScreenId, string AppVersion, bool Online, long FreeBytes,
     int ManifestVersion, int FailedDownloads, int? AcknowledgedControlVersion = null,
     string? PlaybackState = null, Guid? LessonId = null, Guid? ItemId = null,

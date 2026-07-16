@@ -50,4 +50,30 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(audioRow).toBeVisible();
   await expect(audioRow.getByRole("button", { name: /Deletes/ })).toBeVisible();
   await expect(page.locator(".media-table").filter({ hasText: "Online Learning Page" })).toBeVisible();
+
+  await page.getByRole("button", { name: /Settings$/ }).click();
+  await page.getByRole("button", { name: "Full backup" }).click();
+  await expect(page.getByText("Full backup created.", { exact: false })).toBeVisible();
+  const fullBackupLink = page.locator("a.backup-row").filter({ hasText: "full" });
+  await expect(fullBackupLink).toBeVisible();
+  const downloadPromise = page.waitForEvent("download");
+  await fullBackupLink.click();
+  const backupDownload = await downloadPromise;
+  const backupPath = await backupDownload.path();
+  expect(backupPath).not.toBeNull();
+
+  await page.getByLabel("Organization", { exact: true }).fill("Changed Organization");
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.getByText("Organization settings saved.", { exact: false })).toBeVisible();
+
+  await page.getByLabel("Restore a LessonCue backup").setInputFiles(backupPath!);
+  await page.getByRole("button", { name: "Validate and preview" }).click();
+  await expect(page.getByRole("heading", { name: "Review backup restore" })).toBeVisible();
+  await expect(page.getByText("LessonCue Browser Test", { exact: true })).toBeVisible();
+  await page.getByLabel("Type RESTORE to continue").fill("RESTORE");
+  await page.getByRole("button", { name: "Create safety backup and restore" }).click();
+  await expect(page.getByRole("heading", { name: "Restore complete" })).toBeVisible();
+  await expect(page.getByText("A full safety backup was created first", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Reload restored LessonCue" }).click();
+  await expect(page.getByText("LessonCue Browser Test", { exact: true })).toBeVisible();
 });

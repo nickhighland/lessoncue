@@ -12,7 +12,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - A native tvOS application using SwiftUI, AVKit, Bonjour discovery declarations, and persistent offline manifests.
 - A versioned OpenAPI contract and JSON Schema shared by every client.
 - Docker, Windows, and Linux installation assets.
-- Calendar, local role-based users, scheduled/emergency signage, rotating pairing codes, screen tags, audit history, and downloadable full/configuration backups.
+- Calendar, local role-based users, scheduled/emergency signage, rotating pairing codes, screen tags, audit history, and downloadable full/configuration backups with validated browser restore and an automatic pre-restore safety backup.
 - Direct lesson uploads, online webpages, embedded YouTube playback, queued local YouTube imports, reusable or four-week lesson retention, automatic cleanup, resumable large uploads, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, codec readiness, and range-enabled delivery.
 - Media Library selection and bulk actions for safe deletion, an explicit selectable expiration date, or permanent retention; every retention date can also be edited directly from its table row.
 - Daily release checks, administrator alerts, protected one-click Linux updates with health-check rollback, and administrator-controlled storage allocation with uploader-visible capacity.

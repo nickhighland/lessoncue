@@ -133,6 +133,13 @@ app.UseAuthentication();
 app.Use(async (context, next) =>
 {
     var unsafeMethod = context.Request.Method is "POST" or "PUT" or "PATCH" or "DELETE";
+    var restore = context.RequestServices.GetRequiredService<BackupService>();
+    if (unsafeMethod && restore.IsRestoring && !context.Request.Path.StartsWithSegments("/api/v1/backups/restore"))
+    {
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        await context.Response.WriteAsJsonAsync(new { error = "LessonCue is restoring a backup. Try again after it finishes." });
+        return;
+    }
     if (unsafeMethod && context.Request.Path.StartsWithSegments("/api/v1") && context.User.Identity?.IsAuthenticated == true)
     {
         if (context.User.IsInRole("Viewer")) { context.Response.StatusCode = StatusCodes.Status403Forbidden; return; }

@@ -206,7 +206,13 @@ Select your development team, choose the Apple TV, and Run. Bonjour and local-ne
 
 ## Backups and updates
 
-Owners can create and download a consistent configuration backup or a full backup from **Settings → Privacy & backups** while the server is running. For a manual disaster-recovery copy, stop the service first and archive the entire data directory:
+Owners can create and download a consistent configuration backup or a full backup from **Settings → Privacy & backups** while the server is running.
+
+To restore a LessonCue ZIP from the browser, open **Settings → Privacy & backups → Restore a LessonCue backup**. LessonCue validates the archive and database without changing current data, shows the organization and record counts, and warns whether media is included. Type `RESTORE` only after reviewing that preview. LessonCue creates a full safety backup automatically, restores the database, restores media only when the uploaded archive is a full backup, and preserves the receiving server's identity, encryption keys, hostname, port, and pairing secrets. The staged upload expires after 24 hours.
+
+Use a backup produced by the same or an older LessonCue release. A newer server automatically applies required database upgrades after restoration. A configuration backup preserves media already on the receiving server; use a full backup when moving media to another computer.
+
+For a manual whole-server disaster-recovery copy, stop the service first and archive the entire data directory:
 
 ```bash
 sudo systemctl stop lessoncue
@@ -214,7 +220,7 @@ sudo tar -C /var/lib -czf "lessoncue-manual-$(date +%Y%m%d).tar.gz" lessoncue
 sudo systemctl start lessoncue
 ```
 
-To restore, install the same or newer LessonCue version, stop the service, replace `/var/lib/lessoncue` with the saved directory contents, restore ownership with `sudo chown -R lessoncue:lessoncue /var/lib/lessoncue`, and start the service. Test restoration on a separate machine before relying on a backup policy.
+To restore that manual whole-directory archive, install the same or newer LessonCue version, stop the service, replace `/var/lib/lessoncue` with the saved directory contents, restore ownership with `sudo chown -R lessoncue:lessoncue /var/lib/lessoncue`, and start the service. Test restoration on a separate machine before relying on a backup policy.
 
 For Docker, pull/build the new image and run `docker compose up -d`. Native Linux installations check for releases daily and alert signed-in users. An owner or administrator can use **Settings → Software updates → Install**; LessonCue verifies the release checksum, restarts, health-checks the new server, and rolls back the application files if that check fails. Run the two headless installation commands once on a server installed before version 0.4.0 to enable this protected updater. Application updates preserve `/var/lib/lessoncue`, including accounts, media, settings, pairing credentials, and backups.
 

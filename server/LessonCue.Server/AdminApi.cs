@@ -1010,6 +1010,34 @@ public static class AdminApi
             var record = await db.BackupRecords.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (record is null) return Results.NotFound();
             var path = backups.Resolve(record.FileName); return path is null ? Results.NotFound() : Results.File(path, "application/zip", record.FileName);
         });
+        admin.MapPost("/backups/restore/preview", async (HttpRequest request, BackupService backups,
+            HttpContext context, CancellationToken ct) =>
+        {
+            if (!IsManager(context.User)) return Results.Forbid();
+            if (!request.HasFormContentType) return Results.BadRequest(new { error = "Choose a LessonCue ZIP backup." });
+            var form = await request.ReadFormAsync(ct);
+            var upload = form.Files.GetFile("file");
+            if (upload is null || upload.Length == 0) return Results.BadRequest(new { error = "Choose a non-empty LessonCue ZIP backup." });
+            try { await using var stream = upload.OpenReadStream(); return Results.Ok(await backups.StageAsync(stream, upload.FileName, upload.Length, ct)); }
+            catch (InvalidDataException ex) { return Results.BadRequest(new { error = ex.Message }); }
+            catch (IOException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+        admin.MapPost("/backups/restore", async (BackupRestoreInput input, LessonCueDb db, BackupService backups,
+            IHubContext<SyncHub> hub, HttpContext context, CancellationToken ct) =>
+        {
+            if (!IsManager(context.User)) return Results.Forbid();
+            if (!string.Equals(input.Confirmation?.Trim(), "RESTORE", StringComparison.Ordinal))
+                return Results.BadRequest(new { error = "Type RESTORE to confirm this replacement." });
+            try
+            {
+                var result = await backups.RestoreAsync(db, input.RestoreId, context.User.Identity?.Name ?? "admin", ct);
+                await InvalidateAsync(hub, 0, ct);
+                return Results.Ok(result);
+            }
+            catch (FileNotFoundException ex) { return Results.BadRequest(new { error = ex.Message }); }
+            catch (InvalidDataException ex) { return Results.BadRequest(new { error = ex.Message }); }
+            catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+        });
 
         admin.MapGet("/pairing/status", (PairingCodeService pairing) => Results.Ok(new
         {
