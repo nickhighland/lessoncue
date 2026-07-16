@@ -11,6 +11,7 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
     public DbSet<PlaylistItem> PlaylistItems => Set<PlaylistItem>();
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
     public DbSet<Screen> Screens => Set<Screen>();
+    public DbSet<PlaybackCommandRecord> PlaybackCommands => Set<PlaybackCommandRecord>();
     public DbSet<PairingAttempt> PairingAttempts => Set<PairingAttempt>();
     public DbSet<DeviceCredential> DeviceCredentials => Set<DeviceCredential>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
@@ -26,5 +27,8 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
             .HasForeignKey(x => x.LessonId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<PlaylistItem>().Property(x => x.Position).HasPrecision(18, 6);
         modelBuilder.Entity<DeviceCredential>().HasIndex(x => x.TokenHash).IsUnique();
+        modelBuilder.Entity<PlaybackCommandRecord>().HasIndex(x => new { x.ScreenId, x.Version }).IsUnique();
+        modelBuilder.Entity<PlaybackCommandRecord>().HasOne(x => x.Screen).WithMany()
+            .HasForeignKey(x => x.ScreenId).OnDelete(DeleteBehavior.Cascade);
     }
 }

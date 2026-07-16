@@ -44,7 +44,7 @@ SQLite is created with `EnsureCreated`; an idempotent appliance upgrader brings 
 
 ### Implemented API path
 
-The server includes local setup and role-based cookie login, same-origin mutation protection, CSP/security headers, classes and lessons, playlist editing/reordering/duplication/archiving, resumable and duplicate-aware uploads, FFprobe/FFmpeg background inspection, online media classification, queued YouTube imports, screen tags/assignment/revocation, scheduled and emergency signage, configuration/full backup archives, range-enabled media delivery, rotating rate-limited PIN pairing, hashed device credentials, authenticated screen manifests, status telemetry, audit events, and SignalR invalidation.
+The server includes local setup and role-based cookie login, same-origin mutation protection, CSP/security headers, classes and lessons, playlist editing/reordering/duplication/archiving, resumable and duplicate-aware uploads, FFprobe/FFmpeg background inspection, online media classification, queued YouTube imports, browser media/effect previews, screen tags/assignment/revocation, a phone-first playback controller, scheduled and emergency signage, configuration/full backup archives, range-enabled media delivery, rotating rate-limited PIN pairing, hashed device credentials, authenticated screen manifests, status telemetry, audit events, and SignalR invalidation.
 
 Arbitrary webpage links are never fetched by the server. Direct files, YouTube embeds, and webpage destinations are classified from their URL. An explicit administrator-selected YouTube import is the sole server-side online fetch: it accepts exact YouTube domains, invokes the bundled `yt-dlp` executable without a shell or user-controlled arguments, disables playlists and configuration files, limits output to the remaining storage allocation, and requests a single MP4. Successful imports pass through the normal FFprobe/FFmpeg pipeline and retention system. Webpages and embedded players remain online-only.
 
@@ -65,6 +65,16 @@ The same protected request channel accepts only a strictly validated single-labe
 ### Local administrator recovery
 
 `AdminRecoveryCommand` runs before the web host is constructed when the server binary receives `--list-admins` or `--reset-password USERNAME`. It opens only the installed SQLite database, applies the idempotent schema upgrade, and uses the same `PasswordHasher<AdminAccount>` and password policy as browser account management. A successful reset increments the account's session version, invalidating its existing cookies, and records an audit event. Native Linux instructions run the command as the restricted `lessoncue` service account; there is no anonymous password-reset HTTP endpoint.
+
+### Local controller command channel
+
+The `/controller` route is part of the same React build and cookie-authenticated local administration surface. It posts commands to `/api/v1/screens/{screenId}/control`. The server validates lesson/item relationships, increments a per-screen command version, persists the latest command in SQLite, and signals connected listeners. Android TV and tvOS establish a baseline cursor when they start and poll the device-authenticated GET form with their last seen version. This prevents an old play command from replaying after an app restart while preserving strict ordering for commands sent during the current session. The channel supports play, pause, resume, stop, previous, next, and absolute seek.
+
+The web manifest starts at `/controller` in standalone mode. Apple mobile-web-app metadata supports iOS home-screen web clips; Android browsers can add or install the same local page when platform secure-context rules allow it. No phone-specific binary or hosted relay is involved.
+
+### Browser preview semantics
+
+The Media Library exposes every ready asset through the server's normal range-enabled URL. Lesson previews layer playlist behavior on top of the raw source: the browser seeks to `startMs`, pauses or loops at `endMs`, updates volume through the fade-in/fade-out windows, applies the stored volume ceiling, and overlays operator notes. Online YouTube URLs are converted only to standard embed URLs in the browser; arbitrary webpage previews remain client-side iframe navigation and are never fetched by the LessonCue server.
 
 ## Android TV
 

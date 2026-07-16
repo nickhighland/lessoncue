@@ -85,6 +85,7 @@ fun LessonCueApp() {
     var screen by remember { mutableStateOf<AppScreen>(AppScreen.Loading) }
     var activeIdentity by remember { mutableStateOf<DeviceIdentity?>(null) }
     var activeManifestVersion by remember { mutableStateOf(0) }
+    var playbackControl by remember { mutableStateOf<ControlCommand?>(null) }
 
     LaunchedEffect(Unit) {
         val identity = store.load()
@@ -98,6 +99,42 @@ fun LessonCueApp() {
                 AppScreen.Library(identity, manifest)
             }
                 .getOrElse { api.cachedManifest()?.let { activeManifestVersion = it.version; AppScreen.Library(identity, it) } ?: AppScreen.Connect("Saved server unavailable. Enter its address to reconnect.") }
+        }
+    }
+
+    LaunchedEffect(activeIdentity?.screenId) {
+        val identity = activeIdentity ?: return@LaunchedEffect
+        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
+        var controlVersion = runCatching { api.control(identity).version }.getOrDefault(0)
+        while (true) {
+            runCatching { api.control(identity, controlVersion) }.getOrNull()?.let { command ->
+                if (command.changed) {
+                    controlVersion = command.version
+                    playbackControl = command
+                    when (command.action) {
+                        "play" -> runCatching { api.manifest(identity) }.getOrNull()?.let { manifest ->
+                            activeManifestVersion = manifest.version
+                            val playlist = manifest.playlists.firstOrNull { it.id == command.lessonId }
+                            if (playlist != null) {
+                                val allItems = playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) + playlist.items
+                                val selected = command.itemId?.let { id -> allItems.indexOfFirst { it.id == id } }?.takeIf { it >= 0 }
+                                screen = if (selected != null) AppScreen.Player(playlist, allItems, selected)
+                                    else AppScreen.Player(playlist)
+                            }
+                        }
+                        "stop" -> runCatching { api.manifest(identity) }.getOrNull()?.let { screen = AppScreen.Library(identity, it) }
+                        "next" -> (screen as? AppScreen.Player)?.let { current ->
+                            if (current.itemIndex + 1 < current.items.size) screen = current.copy(itemIndex = current.itemIndex + 1, seekMs = 0)
+                        }
+                        "previous" -> (screen as? AppScreen.Player)?.let { current ->
+                            screen = current.copy(itemIndex = (current.itemIndex - 1).coerceAtLeast(0), seekMs = 0)
+                        }
+                        "seek" -> (screen as? AppScreen.Player)?.let { current -> screen = current.copy(seekMs = command.positionMs ?: 0) }
+                        "pause", "resume" -> Unit
+                    }
+                } else controlVersion = maxOf(controlVersion, command.version)
+            }
+            kotlinx.coroutines.delay(750)
         }
     }
 
@@ -202,7 +239,7 @@ fun LessonCueApp() {
                             kotlinx.coroutines.delay(250)
                         }
                     }
-                    PlayerScreen(current.playlist, current.items, current.itemIndex, current.seekMs,
+                    PlayerScreen(current.playlist, current.items, current.itemIndex, current.seekMs, playbackControl,
                     onExit = { scope.launch { store.load()?.let { identity -> val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json")); screen = runCatching { AppScreen.Library(identity, api.manifest(identity)) }.getOrElse { AppScreen.Library(identity, api.cachedManifest() ?: current.playlist.let { playlist -> ScreenManifest(1, "LessonCue", emptyList(), listOf(playlist)) }) } } } },
                     onNext = { next -> screen = current.copy(itemIndex = next, seekMs = 0) })
                 }
@@ -268,10 +305,10 @@ private fun LibraryScreen(manifest: ScreenManifest, onStart: (LessonPlaylist) ->
 }
 
 @Composable
-private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: Int, seekMs: Long, onExit: () -> Unit, onNext: (Int) -> Unit) {
+private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: Int, seekMs: Long, control: ControlCommand?, onExit: () -> Unit, onNext: (Int) -> Unit) {
     val item = items.getOrNull(index)
     if (item?.playbackUrl != null && item.linkKind in setOf("youtube", "embedded", "webpage", "external")) {
-        OnlineMediaScreen(item, onExit)
+        OnlineMediaScreen(item, control, onExit)
         return
     }
     if (item?.url == null) {
@@ -321,6 +358,12 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
             kotlinx.coroutines.delay(100)
         }
     }
+    LaunchedEffect(control?.version) {
+        when (control?.action) {
+            "pause" -> player.pause()
+            "resume" -> player.play()
+        }
+    }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -352,7 +395,7 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun OnlineMediaScreen(item: CueItem, onExit: () -> Unit) {
+private fun OnlineMediaScreen(item: CueItem, control: ControlCommand?, onExit: () -> Unit) {
     val context = LocalContext.current
     val webView = remember(item.id) {
         WebView(context).apply {
@@ -364,6 +407,12 @@ private fun OnlineMediaScreen(item: CueItem, onExit: () -> Unit) {
             webChromeClient = WebChromeClient()
             setBackgroundColor(android.graphics.Color.BLACK)
             loadUrl(item.playbackUrl!!)
+        }
+    }
+    LaunchedEffect(control?.version) {
+        when (control?.action) {
+            "pause" -> webView.onPause()
+            "resume" -> webView.onResume()
         }
     }
     DisposableEffect(webView) { onDispose { webView.stopLoading(); webView.destroy() } }

@@ -120,7 +120,7 @@ app.Use(async (context, next) =>
     context.Response.Headers.XContentTypeOptions = "nosniff";
     context.Response.Headers.XFrameOptions = "DENY";
     context.Response.Headers["Referrer-Policy"] = "no-referrer";
-    context.Response.Headers.ContentSecurityPolicy = "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+    context.Response.Headers.ContentSecurityPolicy = "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss:; frame-src 'self' https: http:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
     await next();
 });
 app.UseDefaultFiles();
@@ -241,6 +241,21 @@ api.MapGet("/screens/{screenId:guid}/manifest", async (Guid screenId, HttpReques
     if (!await HasDeviceAccess(request, db, screenId, ct)) return Results.Unauthorized();
     var manifest = await manifests.BuildAsync(screenId, ct);
     return manifest is null ? Results.NotFound() : Results.Ok(manifest);
+});
+
+api.MapGet("/screens/{screenId:guid}/control", async (Guid screenId, int? after, HttpRequest request,
+    LessonCueDb db, CancellationToken ct) =>
+{
+    if (!await HasDeviceAccess(request, db, screenId, ct)) return Results.Unauthorized();
+    var screen = await db.Screens.AsNoTracking().SingleOrDefaultAsync(x => x.Id == screenId && !x.Revoked, ct);
+    if (screen is null) return Results.NotFound();
+    var command = after is null ? null : await db.PlaybackCommands.AsNoTracking()
+        .Where(x => x.ScreenId == screenId && x.Version > after.Value)
+        .OrderBy(x => x.Version).FirstOrDefaultAsync(ct);
+    return Results.Ok(new { changed = command is not null, version = command?.Version ?? screen.ControlVersion,
+        action = command?.Action ?? "none", lessonId = command?.LessonId,
+        itemId = command?.ItemId, positionMs = command?.PositionMs,
+        issuedAt = command?.IssuedAt, state = screen.PlaybackState });
 });
 
 api.MapPost("/tv/status", async (TvStatusInput input, HttpRequest request, LessonCueDb db, CancellationToken ct) =>

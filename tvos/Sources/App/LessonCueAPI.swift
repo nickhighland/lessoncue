@@ -9,6 +9,14 @@ struct DeviceIdentity: Codable, Sendable {
 private struct DiscoveryResponse: Decodable { let serverName: String }
 private struct PairingRequestResponse: Decodable { let requestId: String }
 private struct PairingResponse: Decodable { let screenId: String; let deviceToken: String }
+struct ControlCommand: Decodable, Equatable, Sendable {
+    let changed: Bool
+    let version: Int
+    let action: String
+    let lessonId: String?
+    let itemId: String?
+    let positionMs: Int64?
+}
 
 struct LessonCueAPI: Sendable {
     let serverURL: URL
@@ -26,7 +34,7 @@ struct LessonCueAPI: Sendable {
 
     func beginPairing(deviceName: String) async throws -> String {
         let body = try JSONSerialization.data(withJSONObject: [
-            "deviceName": deviceName, "platform": "tvos", "appVersion": "0.5.0"
+            "deviceName": deviceName, "platform": "tvos", "appVersion": "0.6.0"
         ])
         let response: PairingRequestResponse = try await request(path: "/api/v1/pairing/request", method: "POST", body: body)
         return response.requestId
@@ -42,10 +50,15 @@ struct LessonCueAPI: Sendable {
         try await request(path: "/api/v1/screens/\(identity.screenId)/manifest", token: identity.deviceToken)
     }
 
+    func control(identity: DeviceIdentity, after: Int? = nil) async throws -> ControlCommand {
+        let suffix = after.map { "?after=\($0)" } ?? ""
+        return try await request(path: "/api/v1/screens/\(identity.screenId)/control\(suffix)", token: identity.deviceToken)
+    }
+
     func reportStatus(identity: DeviceIdentity, manifestVersion: Int, freeBytes: Int64, failedDownloads: Int = 0) async throws {
         let body = try JSONSerialization.data(withJSONObject: [
             "screenId": identity.screenId,
-            "appVersion": "0.5.0",
+            "appVersion": "0.6.0",
             "online": true,
             "freeBytes": freeBytes,
             "manifestVersion": manifestVersion,

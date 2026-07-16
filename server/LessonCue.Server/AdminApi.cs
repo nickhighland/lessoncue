@@ -630,8 +630,60 @@ public static class AdminApi
                 x.ManifestVersion,
                 x.TagsCsv,
                 x.Site,
-                x.LastIpAddress
+                x.LastIpAddress,
+                x.ControlVersion,
+                x.ControlAction,
+                x.ControlLessonId,
+                x.ControlItemId,
+                x.ControlPositionMs,
+                x.ControlIssuedAt,
+                x.PlaybackState
             }).ToListAsync(ct);
+        });
+
+        admin.MapPost("/screens/{id:guid}/control", async (Guid id, ScreenControlInput input, LessonCueDb db,
+            IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            var action = input.Action.Trim().ToLowerInvariant();
+            var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { "play", "pause", "resume", "stop", "next", "previous", "seek" };
+            if (!allowed.Contains(action)) return Results.BadRequest(new { error = "Unsupported playback command." });
+            var screen = await db.Screens.SingleOrDefaultAsync(x => x.Id == id && !x.Revoked, ct);
+            if (screen is null) return Results.NotFound();
+            if (action == "play")
+            {
+                if (input.LessonId is not Guid lessonId)
+                    return Results.BadRequest(new { error = "Choose a lesson to play." });
+                var lesson = await db.Lessons.Include(x => x.Items).SingleOrDefaultAsync(x => x.Id == lessonId && !x.Archived, ct);
+                if (lesson is null) return Results.BadRequest(new { error = "The selected lesson is unavailable." });
+                if (input.ItemId is Guid itemId && lesson.Items.All(x => x.Id != itemId))
+                    return Results.BadRequest(new { error = "The selected item is not in that lesson." });
+            }
+            screen.ControlVersion = screen.ControlVersion == int.MaxValue ? 1 : screen.ControlVersion + 1;
+            screen.ControlAction = action;
+            screen.ControlLessonId = input.LessonId;
+            screen.ControlItemId = input.ItemId;
+            screen.ControlPositionMs = input.PositionMs is null ? null : Math.Max(0, input.PositionMs.Value);
+            screen.ControlIssuedAt = DateTimeOffset.UtcNow;
+            screen.PlaybackState = action switch { "play" or "resume" => "playing", "pause" => "paused", "stop" => "idle", _ => screen.PlaybackState };
+            db.PlaybackCommands.Add(new PlaybackCommandRecord
+            {
+                ScreenId = screen.Id,
+                Version = screen.ControlVersion,
+                Action = action,
+                LessonId = input.LessonId,
+                ItemId = input.ItemId,
+                PositionMs = screen.ControlPositionMs,
+                IssuedAt = screen.ControlIssuedAt.Value
+            });
+            var oldestRetainedVersion = Math.Max(0, screen.ControlVersion - 1000);
+            var staleCommands = await db.PlaybackCommands.Where(x => x.ScreenId == id && x.Version < oldestRetainedVersion).ToListAsync(ct);
+            db.PlaybackCommands.RemoveRange(staleCommands);
+            Audit(db, "screen.control", screen.Id, $"{action}:{screen.ControlVersion}");
+            await db.SaveChangesAsync(ct);
+            await hub.Clients.Group($"screen:{id}").SendAsync("PlaybackCommand", new { screen.ControlVersion }, ct);
+            return Results.Accepted(value: new { version = screen.ControlVersion, action, lessonId = input.LessonId,
+                itemId = input.ItemId, positionMs = screen.ControlPositionMs, issuedAt = screen.ControlIssuedAt, state = screen.PlaybackState });
         });
 
         admin.MapPatch("/screens/{id:guid}", async (Guid id, ScreenUpdateInput input, LessonCueDb db,

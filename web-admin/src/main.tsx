@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -28,12 +28,13 @@ type Lesson = {
 type Screen = {
   id: string; name: string; platform: string; assignedClassId?: string; assignedClassName?: string;
   volunteerMode: boolean; lastSeenAt?: string; online: boolean; freeBytes: number; failedDownloads: number; revoked: boolean; appVersion: string; manifestVersion: number; tagsCsv: string; site: string;
+  controlVersion: number; controlAction: string; controlLessonId?: string; controlItemId?: string; controlPositionMs?: number; controlIssuedAt?: string; playbackState: string;
 };
 type User = { id: string; username: string; displayName: string; email?: string; role: string; disabled: boolean; createdAt: string; lastLoginAt?: string };
 type Signage = { id: string; name: string; mode: string; enabled: boolean; priority: number; startsAt?: string; endsAt?: string; message: string; backgroundColor: string; textColor: string; mediaAssetId?: string; mediaFileName?: string; targetTagsCsv: string };
 type Backup = { id: string; fileName: string; kind: string; sizeBytes: number; createdAt: string; createdBy: string };
 type Audit = { id: number; timestamp: string; actor: string; action: string; object: string; result: string; summary?: string };
-type View = "dashboard" | "classes" | "calendar" | "media" | "screens" | "signage" | "users" | "settings";
+type View = "dashboard" | "controller" | "classes" | "calendar" | "media" | "screens" | "signage" | "users" | "settings";
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -76,7 +77,7 @@ async function uploadMediaFile(file: File, options: { persistent: boolean; lesso
 
 function App() {
   const [session, setSession] = useState<Session>();
-  const [view, setView] = useState<View>("dashboard");
+  const [view, setView] = useState<View>(location.pathname.startsWith("/controller") ? "controller" : "dashboard");
   const [notice, setNotice] = useState("");
 
   useEffect(() => { api<Session>("/api/v1/auth/session").then(setSession).catch(() => setSession({ setupRequired: false, authenticated: false })); }, []);
@@ -164,10 +165,14 @@ function Shell({ view, setView, username, role, onLogout, notice, setNotice }: {
     const interval = window.setInterval(poll, 60 * 60 * 1000);
     return () => { window.clearTimeout(initial); window.clearInterval(interval); };
   }, []);
+  useEffect(() => {
+    const path = view === "controller" ? "/controller" : "/";
+    if (location.pathname !== path) history.replaceState(null, "", path);
+  }, [view]);
 
   const canUpload = role !== "Viewer";
-  const nav: [View, string, string][] = [["dashboard", "⌂", "Dashboard"], ["classes", "▤", "Classes"], ["calendar", "□", "Calendar"], ["media", "▶", "Media Library"], ["screens", "▣", "Screens"], ["signage", "◇", "Signage"], ["users", "♙", "Users"], ["settings", "⚙", "Settings"]];
-  return <><a className="skip-link" href="#main-content">Skip to main content</a><div className="app-shell">
+  const nav: [View, string, string][] = [["dashboard", "⌂", "Dashboard"], ["controller", "⌁", "Controller"], ["classes", "▤", "Classes"], ["calendar", "□", "Calendar"], ["media", "▶", "Media Library"], ["screens", "▣", "Screens"], ["signage", "◇", "Signage"], ["users", "♙", "Users"], ["settings", "⚙", "Settings"]];
+  return <><a className="skip-link" href="#main-content">Skip to main content</a><div className={`app-shell ${view === "controller" ? "controller-mode" : ""}`}>
     <aside className="sidebar">
       <div className="brand-lockup inverse"><div className="brand-mark">LC</div><div><strong>LessonCue</strong><span>{bootstrap?.organization || "Local server"}</span></div></div>
       <nav>{nav.map(([key, icon, label]) => <button key={key} className={view === key ? "active" : ""} onClick={() => setView(key)}><span>{icon}</span>{label}</button>)}</nav>
@@ -178,6 +183,7 @@ function Shell({ view, setView, username, role, onLogout, notice, setNotice }: {
       {loading && !bootstrap ? <div className="loading">Loading local data…</div> : <>
         {bootstrap?.update.updateAvailable && <div className="update-banner" role="status"><div><strong>LessonCue {bootstrap.update.latestVersion} is available</strong><span>Your server can be updated from Settings.</span></div><button className="button" onClick={() => setView("settings")}>Review update</button></div>}
         {view === "dashboard" && bootstrap && <Dashboard bootstrap={bootstrap} lessons={lessons} screens={screens} onNavigate={setView} />}
+        {view === "controller" && bootstrap && <ControllerView screens={screens} lessons={lessons} refresh={refresh} notify={setNotice} />}
         {view === "classes" && <ClassesView classes={classes} lessons={lessons} media={media} refresh={refresh} notify={setNotice} canUpload={canUpload} storage={bootstrap?.storage} />}
         {view === "calendar" && <CalendarView lessons={lessons} />}
         {view === "media" && <MediaView media={media} lessons={lessons} refresh={refresh} notify={setNotice} canUpload={canUpload} storage={bootstrap?.storage} />}
@@ -253,6 +259,7 @@ function LessonEditor({ lesson, media, onBack, refresh, notify, canUpload, stora
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [onlineMode, setOnlineMode] = useState<"online" | "download">("online");
+  const [previewItem, setPreviewItem] = useState<PlaylistItem>();
   const items = [...lesson.items].sort((a, b) => a.position - b.position);
   const countdown = items.find(i => i.role === "countdown");
   const playableMedia = media.filter(item => (/^(video|audio|image)\//.test(item.contentType) || item.sourceKind === "link") && item.processingStatus === "ready");
@@ -308,11 +315,13 @@ function LessonEditor({ lesson, media, onBack, refresh, notify, canUpload, stora
       <section className="online-choice"><h3>Add online media</h3><p>Show a webpage or play a YouTube video. A local YouTube copy can play without internet after downloading.</p><form className="stack" onSubmit={addOnline}><Field label="Webpage or YouTube URL"><input name="url" type="url" required placeholder="https://…" disabled={uploading} /></Field><fieldset className="retention-options"><legend>How should LessonCue use it?</legend><label><input type="radio" checked={onlineMode === "online"} onChange={() => setOnlineMode("online")} /><span><strong>Play online</strong><small>YouTube uses an embedded player; other URLs display as webpages.</small></span></label><label><input type="radio" checked={onlineMode === "download"} onChange={() => setOnlineMode("download")} /><span><strong>Download YouTube locally</strong><small>Use only for video you are authorized to copy. Processing continues in the background.</small></span></label></fieldset>{onlineMode === "download" && <RetentionChoices lessonDate={lesson.date} />}<div className="two-fields">{onlineMode === "download" && <Field label="Playlist role"><select name="role"><option value="lesson">Main lesson</option><option value="preRoll">Pre-roll loop</option><option value="countdown">Countdown video</option></select></Field>}<Field label="Display title"><input name="title" placeholder={onlineMode === "download" ? "YouTube video" : "Use website name"} /></Field></div><button className="button primary" disabled={uploading}>{uploading ? "Adding…" : onlineMode === "download" ? "Queue download and add" : "Add online media"}</button></form></section>
       {playableMedia.length > 0 && <section className="library-choice"><h3>Choose existing media</h3><form className="stack" onSubmit={addItem}><Field label="Ready media"><select name="mediaId" required>{playableMedia.map(m => <option key={m.id} value={m.id}>{m.fileName}</option>)}</select></Field><div className="two-fields"><Field label="Playlist role"><select name="role"><option value="lesson">Main lesson</option><option value="preRoll">Pre-roll loop</option><option value="countdown">Countdown video</option></select></Field><Field label="Display title"><input name="title" placeholder="Use media filename" /></Field></div><button className="button">Add existing media</button></form></section>}
     </div></Modal>}
+    {previewItem && <Modal title={`Preview: ${previewItem.title}`} onClose={() => setPreviewItem(undefined)}><MediaPreview media={media.find(asset => asset.id === previewItem.mediaAssetId)} item={previewItem} /></Modal>}
     <div className="editor-grid">
       <section className="panel schedule-panel"><h2>Timing</h2><form className="stack" onSubmit={updateLesson}><Field label="Lesson title"><input name="title" defaultValue={lesson.title} required /></Field><Field label="Lesson date"><input name="date" type="date" defaultValue={lesson.date} required /></Field><Field label="Pre-roll begins" hint="Paired screens automatically start looping pre-roll at this time."><input name="preRollStartsAt" type="datetime-local" defaultValue={toLocalInput(lesson.preRollStartsAt)} /></Field><Field label="Designated class start" hint="The countdown begins exactly one countdown-video duration before this time."><input name="designatedStartAt" type="datetime-local" defaultValue={toLocalInput(lesson.designatedStartAt)} /></Field><label className="switch-row"><input type="checkbox" name="preRollEnabled" defaultChecked={lesson.preRollEnabled} /><span /><div><strong>Enable pre-roll</strong><small>Loop all pre-roll items until the countdown or class begins.</small></div></label><button className="button primary">Save timing</button></form>
         <div className="timing-explain"><span>◷</span><div><strong>{countdown && lesson.designatedStartAt ? `Countdown begins ${formatDuration(countdown.durationMs || countdown.mediaDurationMs)} before class` : "Countdown is optional"}</strong><p>Assign one video as the countdown. Its full duration determines when it starts automatically.</p></div></div>
       </section>
       <section className="panel playlist-panel"><div className="panel-heading"><div><h2>Playback sequence</h2><p>Pre-roll loops, countdown runs once, then lesson media plays in order.</p></div><span className="pill">{items.length} items</span></div>
+        {items.length > 0 && <div className="preview-strip"><span>PREVIEW WITH TRIMS & FADES</span>{items.map(item => <button key={item.id} onClick={() => setPreviewItem(item)}>▶ {item.title}</button>)}</div>}
         {items.length ? <div className="playlist">{items.map((item, index) => <article key={item.id} className={`playlist-item ${item.role}`}><div className="order-controls"><button aria-label={`Move ${item.title} up`} disabled={!index} onClick={() => move(index, -1)}>↑</button><span>{index + 1}</span><button aria-label={`Move ${item.title} down`} disabled={index === items.length - 1} onClick={() => move(index, 1)}>↓</button></div><div className="media-thumb">{item.type === "video" ? "▶" : item.type === "audio" ? "♫" : "▧"}</div><div className="item-main"><div><span className={`role ${item.role}`}>{roleName(item.role)}</span><strong>{item.title}</strong></div><small>{item.mediaFileName || item.type} · {formatDuration(item.durationMs || item.mediaDurationMs)}</small><div className="item-options"><select aria-label="Role" value={item.role} onChange={e => changeItem(item, { role: e.target.value })}><option value="preRoll">Pre-roll</option><option value="countdown">Countdown</option><option value="lesson">Main lesson</option></select><select aria-label="End behavior" value={item.endBehavior} onChange={e => changeItem(item, { endBehavior: e.target.value })}><option value="advance">Advance</option><option value="loop">Loop</option><option value="pause">Pause on final frame</option></select><label>Volume <input type="number" min="0" max="150" defaultValue={item.volumePercent} onBlur={e => changeItem(item, { volumePercent: Number(e.target.value) })} />%</label></div><details className="item-advanced"><summary>Trim, fades & volunteer notes</summary><div className="advanced-grid"><Field label="Display title"><input defaultValue={item.title} onBlur={e => e.target.value !== item.title && changeItem(item, { title: e.target.value })} /></Field><Field label="Start at (seconds)"><input type="number" min="0" step="0.1" defaultValue={item.startMs / 1000} onBlur={e => changeItem(item, { startMs: Math.round(Number(e.target.value) * 1000) })} /></Field><Field label="End at (seconds)"><input type="number" min="0" step="0.1" defaultValue={item.endMs ? item.endMs / 1000 : ""} onBlur={e => changeItem(item, e.target.value ? { endMs: Math.round(Number(e.target.value) * 1000) } : { clearEndMs: true })} /></Field><Field label="Fade in (seconds)"><input type="number" min="0" max="30" step="0.1" defaultValue={(item.fadeInMs || 0) / 1000} onBlur={e => changeItem(item, { fadeInMs: Math.round(Number(e.target.value) * 1000) })} /></Field><Field label="Fade out (seconds)"><input type="number" min="0" max="30" step="0.1" defaultValue={(item.fadeOutMs || 0) / 1000} onBlur={e => changeItem(item, { fadeOutMs: Math.round(Number(e.target.value) * 1000) })} /></Field><Field label="Volunteer notes"><input defaultValue={item.notes || ""} placeholder="Shown during playback" onBlur={e => changeItem(item, { notes: e.target.value })} /></Field></div><label className="check-line"><input type="checkbox" defaultChecked={item.normalizeAudio} onChange={e => changeItem(item, { normalizeAudio: e.target.checked })} /> Normalize audio when a processed derivative is available</label></details></div><button className="delete-button" onClick={() => removeItem(item.id)} title="Remove item">×</button></article>)}</div> : <Empty title="This playlist is empty" body="Add videos, audio, or images from your local media library." action={<button className="button primary" onClick={() => setShowAdd(true)}>Add media</button>} />}
       </section>
     </div>
@@ -323,6 +332,7 @@ function MediaView({ media, lessons, refresh, notify, canUpload, storage }: { me
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showLink, setShowLink] = useState(false);
+  const [previewMedia, setPreviewMedia] = useState<Media>();
   const availableLessons = [...lessons].filter(l => !l.archived).sort((a, b) => a.date.localeCompare(b.date));
   const firstUpcoming = availableLessons.find(l => new Date(`${l.date}T23:59:59`) >= new Date()) || availableLessons.at(-1);
   const [showUpload, setShowUpload] = useState(false);
@@ -351,10 +361,41 @@ function MediaView({ media, lessons, refresh, notify, canUpload, storage }: { me
   async function addLink(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); const download = linkMode === "download"; const persistent = !download || linkStoragePolicy === "persistent"; try { await api("/api/v1/media/link", { method: "POST", body: JSON.stringify({ url: form.get("url"), title: form.get("title") || null, download, persistent, lessonId: persistent ? null : form.get("lessonId") }) }); setShowLink(false); refresh(); notify(download ? "YouTube download queued for local processing." : "Online media added to the library."); } catch (e) { notify(errorText(e)); } }
   return <><PageHead eyebrow="LOCAL STORAGE" title="Media library" detail="Files stay on this server. Lesson media expires automatically; reusable media can be kept permanently." action={canUpload ? <div className="head-actions"><button className="button" onClick={() => setShowLink(true)}>Add link</button><button className="button primary" onClick={() => setShowUpload(true)}>Upload media</button></div> : undefined} />
     {canUpload && storage && <section className="storage-overview" aria-label="LessonCue storage"><div><span>Available for uploads</span><strong>{formatBytes(storage.remainingBytes)}</strong></div><StorageMeter storage={storage} /><small>{formatBytes(storage.usedBytes)} used of {formatBytes(storage.allocationBytes)} allocated</small></section>}
+    {previewMedia && <Modal title={`Preview: ${previewMedia.fileName}`} onClose={() => setPreviewMedia(undefined)}><MediaPreview media={previewMedia} /></Modal>}
+    {media.length > 0 && <section className="media-preview-grid" aria-label="Media previews">{media.map(item => <button key={item.id} onClick={() => setPreviewMedia(item)} disabled={item.processingStatus !== "ready"}><span>{item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" /> : item.contentType.startsWith("audio") ? "♫" : item.sourceKind === "link" ? "↗" : "▶"}</span><strong>{item.fileName}</strong><small>{item.processingStatus === "ready" ? "Preview" : item.processingStatus}</small></button>)}</section>}
     {showUpload && <Modal title="Upload media" onClose={() => !uploading && setShowUpload(false)}><form className="stack" onSubmit={upload}><Field label="Files"><input name="files" type="file" multiple accept="video/*,audio/*,image/*,.pdf,.pptx" required disabled={uploading} /></Field><fieldset className="retention-options"><legend>How long should LessonCue keep these files?</legend>{availableLessons.length > 0 && <label><input type="radio" name="storagePolicy" value="lesson" checked={storagePolicy === "lesson"} onChange={() => setStoragePolicy("lesson")} /><span><strong>For a lesson (default)</strong><small>Delete automatically four weeks after the lesson date.</small></span></label>}<label><input type="radio" name="storagePolicy" value="persistent" checked={storagePolicy === "persistent"} onChange={() => setStoragePolicy("persistent")} /><span><strong>Keep permanently</strong><small>Store in the reusable media library until someone deletes it.</small></span></label></fieldset>{storagePolicy === "lesson" && <Field label="Lesson" hint="Reusing the file in a later lesson automatically extends its deletion date."><select name="lessonId" defaultValue={firstUpcoming?.id} required>{availableLessons.map(l => <option value={l.id} key={l.id}>{formatDate(l.date)} — {l.title}</option>)}</select></Field>}{!availableLessons.length && <div className="alert">Create a lesson before uploading temporary lesson media. This upload will be kept permanently.</div>}<button className="button primary" disabled={uploading}>{uploading ? `Uploading ${uploadProgress}%` : "Upload to local server"}</button></form></Modal>}
     {showLink && <Modal title="Add online media" onClose={() => setShowLink(false)}><form className="stack" onSubmit={addLink}><Field label="Webpage or YouTube URL" hint="Online entries require internet. YouTube videos can instead be copied into local storage."><input name="url" type="url" required autoFocus placeholder="https://…" /></Field><fieldset className="retention-options"><legend>How should LessonCue use it?</legend><label><input type="radio" checked={linkMode === "online"} onChange={() => setLinkMode("online")} /><span><strong>Use online</strong><small>Display a webpage or embedded YouTube player.</small></span></label><label><input type="radio" checked={linkMode === "download"} onChange={() => setLinkMode("download")} /><span><strong>Download YouTube locally</strong><small>Use only for video you are authorized to copy.</small></span></label></fieldset>{linkMode === "download" && <fieldset className="retention-options"><legend>How long should LessonCue keep the copy?</legend>{availableLessons.length > 0 && <label><input type="radio" checked={linkStoragePolicy === "lesson"} onChange={() => setLinkStoragePolicy("lesson")} /><span><strong>For a lesson (default)</strong><small>Delete automatically four weeks after its lesson.</small></span></label>}<label><input type="radio" checked={linkStoragePolicy === "persistent"} onChange={() => setLinkStoragePolicy("persistent")} /><span><strong>Keep permanently</strong><small>Store until someone deletes it.</small></span></label></fieldset>}{linkMode === "download" && linkStoragePolicy === "lesson" && <Field label="Lesson"><select name="lessonId" defaultValue={firstUpcoming?.id} required>{availableLessons.map(l => <option value={l.id} key={l.id}>{formatDate(l.date)} — {l.title}</option>)}</select></Field>}<Field label="Display title"><input name="title" /></Field><button className="button primary">{linkMode === "download" ? "Queue local download" : "Add online media"}</button></form></Modal>}
     <section className="panel"><div className="media-table table-head"><span>File</span><span>Type</span><span>Duration</span><span>Size</span><span>Retention</span><span>Status</span></div>{media.length ? media.map(m => <div className="media-table" key={m.id}><span className="media-name">{m.thumbnailUrl ? <img src={m.thumbnailUrl} alt="" /> : <b>{m.contentType.startsWith("video") ? "▶" : m.contentType.startsWith("audio") ? "♫" : m.sourceKind === "link" ? "↗" : "▧"}</b>}<span><strong>{m.fileName}</strong><small>{m.processingStatus === "failed" ? m.processingError : [m.videoCodec, m.audioCodec, m.width && m.height ? `${m.width}×${m.height}` : ""].filter(Boolean).join(" · ") || m.id.slice(0, 8)}</small></span></span><span>{m.sourceKind === "link" ? `${m.linkKind} link` : friendlyType(m.contentType)}</span><span>{formatDuration(m.durationMs)}</span><span>{formatBytes(m.sizeBytes)}</span><span className={`retention-badge ${m.storagePolicy === "lesson" ? "temporary" : ""}`}>{m.storagePolicy === "lesson" && m.deleteAfter ? `Deletes ${formatShortDate(m.deleteAfter)}` : "Keep permanently"}</span><span className={`availability ${m.offlineEligible ? "" : "internet"}`}><i className="available-dot" /> {m.processingStatus === "pending" || m.processingStatus === "processing" ? "Processing" : m.offlineEligible ? "Offline ready" : "Internet required"}</span></div>) : <Empty title="No media uploaded" body="Upload MP4, MOV, audio, image, PDF, or PowerPoint files." />}</section>
   </>;
+}
+
+function ControllerView({ screens, lessons, refresh, notify }: { screens: Screen[]; lessons: Lesson[]; refresh: () => void; notify: (s: string) => void }) {
+  const [liveScreens, setLiveScreens] = useState(screens.filter(screen => !screen.revoked));
+  const [screenId, setScreenId] = useState(screens.find(screen => screen.online && !screen.revoked)?.id || screens.find(screen => !screen.revoked)?.id || "");
+  const selectedScreen = liveScreens.find(screen => screen.id === screenId);
+  const availableLessons = lessons.filter(lesson => !lesson.archived && (!selectedScreen?.assignedClassId || lesson.classId === selectedScreen.assignedClassId));
+  const [lessonId, setLessonId] = useState(availableLessons[0]?.id || "");
+  const lesson = availableLessons.find(item => item.id === lessonId) || availableLessons[0];
+  const orderedItems = [...(lesson?.items || [])].sort((a, b) => a.position - b.position);
+  const [selectedItemId, setSelectedItemId] = useState("");
+  const selectedItem = orderedItems.find(item => item.id === selectedItemId);
+  const [seekSeconds, setSeekSeconds] = useState(0);
+  useEffect(() => { const timer = window.setInterval(() => api<Screen[]>("/api/v1/screens").then(data => setLiveScreens(data.filter(screen => !screen.revoked))).catch(() => undefined), 2500); return () => window.clearInterval(timer); }, []);
+  async function command(action: string, extras: Record<string, unknown> = {}) {
+    if (!screenId) return notify("Choose a paired screen first.");
+    try {
+      await api(`/api/v1/screens/${screenId}/control`, { method: "POST", body: JSON.stringify({ action, ...extras }) });
+      setLiveScreens(current => current.map(screen => screen.id === screenId ? { ...screen, playbackState: action === "pause" ? "paused" : action === "stop" ? "idle" : action === "play" || action === "resume" ? "playing" : screen.playbackState, controlAction: action, controlIssuedAt: new Date().toISOString() } : screen));
+      notify(`${action[0].toUpperCase()}${action.slice(1)} sent to ${selectedScreen?.name || "screen"}.`); refresh();
+    } catch (e) { notify(errorText(e)); }
+  }
+  const play = (itemId?: string) => lesson && command("play", { lessonId: lesson.id, itemId: itemId || null });
+  const durationSeconds = Math.max(1, Math.round(((selectedItem?.endMs ? selectedItem.endMs - selectedItem.startMs : selectedItem?.durationMs || selectedItem?.mediaDurationMs) || 600_000) / 1000));
+  return <div className="controller-page"><PageHead eyebrow="LIVE CONTROL" title="Cellphone controller" detail="Choose a paired screen, then run the lesson from any phone on this local network." action={<span className={`controller-connection ${selectedScreen?.online ? "online" : ""}`}><i />{selectedScreen?.online ? "Screen online" : "Screen offline"}</span>} />
+    <div className="controller-grid"><section className="panel controller-target"><Field label="Control this screen"><select value={screenId} onChange={e => { setScreenId(e.target.value); setLessonId(""); setSelectedItemId(""); }}>{liveScreens.map(screen => <option value={screen.id} key={screen.id}>{screen.name} · {screen.online ? "online" : "offline"}</option>)}</select></Field><div className="now-playing"><span>SCREEN STATE</span><strong>{selectedScreen?.playbackState === "playing" ? "Playing" : selectedScreen?.playbackState === "paused" ? "Paused" : "Ready"}</strong><small>{selectedScreen?.controlIssuedAt ? `Last command ${timeAgo(selectedScreen.controlIssuedAt)}` : "Waiting for a command"}</small></div><div className="transport" aria-label="Playback controls"><button onClick={() => command("previous")} aria-label="Previous media">‹‹</button><button className="transport-main" onClick={() => command(selectedScreen?.playbackState === "paused" ? "resume" : "pause")} aria-label={selectedScreen?.playbackState === "paused" ? "Resume" : "Pause"}>{selectedScreen?.playbackState === "paused" ? "▶" : "Ⅱ"}</button><button onClick={() => command("next")} aria-label="Next media">››</button></div><button className="button stop-button" onClick={() => command("stop")}>■ Stop playback</button></section>
+      <section className="panel controller-media"><Field label="Lesson"><select value={lesson?.id || ""} onChange={e => { setLessonId(e.target.value); setSelectedItemId(""); }}><option value="">Choose a lesson</option>{availableLessons.map(item => <option key={item.id} value={item.id}>{formatDate(item.date)} — {item.title}</option>)}</select></Field>{lesson ? <><button className="button primary wide controller-play-all" onClick={() => play()}>▶ Play lesson from the beginning</button><div className="controller-list"><span>SELECT MEDIA</span>{orderedItems.map((item, index) => <button key={item.id} className={selectedItemId === item.id ? "selected" : ""} onClick={() => { setSelectedItemId(item.id); play(item.id); }}><b>{index + 1}</b><span><strong>{item.title}</strong><small>{roleName(item.role)} · {formatDuration(item.durationMs || item.mediaDurationMs)}</small></span><i>▶</i></button>)}</div>{selectedItem && <div className="controller-seek"><label><span>Seek within {selectedItem.title}</span><strong>{formatDuration(seekSeconds * 1000)}</strong></label><input type="range" min="0" max={durationSeconds} value={seekSeconds} onChange={e => setSeekSeconds(Number(e.target.value))} /><button className="button" onClick={() => command("seek", { positionMs: seekSeconds * 1000 })}>Go to position</button></div>}</> : <Empty title="No lesson selected" body="Assign a class to this screen or choose a lesson to begin." />}</section>
+    </div><section className="controller-install"><div className="brand-mark">LC</div><div><strong>Save this controller as an app</strong><p>On iPhone or iPad, use Share → Add to Home Screen. On Android, open the browser menu and choose Install app or Add to Home screen.</p><small>{location.origin}/controller</small></div></section>
+  </div>;
 }
 
 function ScreensView({ screens, classes, pin, refresh, notify }: { screens: Screen[]; classes: LessonClass[]; pin: string; refresh: () => void; notify: (s: string) => void }) {
@@ -419,6 +460,45 @@ function Settings({ bootstrap, backups, audit, refresh, notify, canManage }: { b
   </>;
 }
 
+function MediaPreview({ media, item }: { media?: Media; item?: PlaylistItem }) {
+  const player = useRef<HTMLMediaElement>(null);
+  const [positionMs, setPositionMs] = useState(item?.startMs || 0);
+  const startMs = item?.startMs || 0;
+  const requestedEnd = item?.endMs;
+  const fadeInMs = item?.fadeInMs || 0;
+  const fadeOutMs = item?.fadeOutMs || 0;
+  const targetVolume = Math.min(1, (item?.volumePercent ?? 100) / 100);
+  const source = media?.sourceKind === "link" ? media.sourceUrl : media?.downloadUrl;
+  const online = media?.linkKind === "youtube" || media?.linkKind === "embedded" || media?.linkKind === "webpage";
+  const frameSource = media?.linkKind === "youtube" ? youtubeEmbedUrl(source) || source : source;
+  useEffect(() => {
+    const element = player.current; if (!element) return;
+    const timer = window.setInterval(() => {
+      const current = Math.max(0, element.currentTime * 1000); setPositionMs(current);
+      const actualEnd = requestedEnd || (Number.isFinite(element.duration) ? element.duration * 1000 : undefined);
+      const fadeIn = fadeInMs ? Math.min(1, Math.max(0, (current - startMs) / fadeInMs)) : 1;
+      const fadeOut = fadeOutMs && actualEnd ? Math.min(1, Math.max(0, (actualEnd - current) / fadeOutMs)) : 1;
+      element.volume = targetVolume * Math.min(fadeIn, fadeOut);
+      if (requestedEnd && current >= requestedEnd) {
+        if (item?.endBehavior === "loop") { element.currentTime = startMs / 1000; void element.play(); }
+        else element.pause();
+      }
+    }, 50);
+    return () => window.clearInterval(timer);
+  }, [fadeInMs, fadeOutMs, item?.endBehavior, requestedEnd, startMs, targetVolume]);
+  if (!media) return <div className="preview-unavailable"><strong>Media unavailable</strong><p>This playlist entry no longer has a media file attached.</p></div>;
+  if (media.processingStatus !== "ready") return <div className="preview-unavailable"><strong>{media.processingStatus === "failed" ? "Preview failed" : "Media is still processing"}</strong><p>{media.processingError || "Preview will be available when processing finishes."}</p></div>;
+  if (!source) return <div className="preview-unavailable"><strong>No preview source</strong><p>The file is not currently available from this server.</p></div>;
+  const mediaElement = media.contentType.startsWith("video") ? <video ref={player as React.RefObject<HTMLVideoElement>} src={source} controls autoPlay playsInline onLoadedMetadata={event => { event.currentTarget.currentTime = startMs / 1000; }} />
+    : media.contentType.startsWith("audio") ? <div className="audio-preview"><div>♫</div><audio ref={player as React.RefObject<HTMLAudioElement>} src={source} controls autoPlay onLoadedMetadata={event => { event.currentTarget.currentTime = startMs / 1000; }} /></div>
+    : media.contentType.startsWith("image") ? <img src={source} alt={media.fileName} />
+    : media.contentType.includes("pdf") ? <object data={source} type="application/pdf"><a href={source} target="_blank" rel="noreferrer">Open PDF preview</a></object>
+    : media.contentType.includes("presentation") || media.fileName.toLowerCase().endsWith(".pptx") ? <div className="document-preview"><span>▤</span><strong>{media.fileName}</strong><p>Presentation file · {formatBytes(media.sizeBytes)}</p><a className="button" href={source} target="_blank" rel="noreferrer">Open presentation</a></div>
+    : online ? <iframe src={frameSource} title={media.fileName} allow="autoplay; fullscreen" />
+    : <iframe src={source} title={media.fileName} />;
+  return <div className="media-preview"><div className="preview-stage">{mediaElement}{item?.notes && <div className="preview-notes">{item.notes}</div>}</div>{item && <div className="preview-readout"><span>Position <strong>{formatDuration(positionMs)}</strong></span><span>Trim <strong>{formatDuration(startMs)} → {requestedEnd ? formatDuration(requestedEnd) : "media end"}</strong></span><span>Fades <strong>{(fadeInMs / 1000).toFixed(1)}s in · {(fadeOutMs / 1000).toFixed(1)}s out</strong></span><span>Volume <strong>{item.volumePercent}%</strong></span></div>}{online && <a className="preview-open" href={source} target="_blank" rel="noreferrer">Open original page ↗</a>}</div>;
+}
+
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>; }
 function RetentionChoices({ lessonDate }: { lessonDate: string }) { return <fieldset className="retention-options"><legend>How long should LessonCue keep this file?</legend><label><input type="radio" name="storagePolicy" value="lesson" defaultChecked /><span><strong>For this lesson (default)</strong><small>Delete automatically on {formatDateAfterDays(lessonDate, 28)}.</small></span></label><label><input type="radio" name="storagePolicy" value="persistent" /><span><strong>Keep permanently</strong><small>Make it reusable for future lessons.</small></span></label></fieldset>; }
 function Stat({ label, value, sub, mono }: { label: string; value: string | number; sub: string; mono?: boolean }) { return <div className="stat-card"><span>{label}</span><strong className={mono ? "mono" : ""}>{value}</strong><small>{sub}</small></div>; }
@@ -435,9 +515,23 @@ function dayPart() { const h = new Date().getHours(); return h < 12 ? "morning" 
 function formatDate(date: string) { return new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" }); }
 function formatDateAfterDays(date: string, days: number) { const value = new Date(`${date}T12:00:00`); value.setDate(value.getDate() + days); return value.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }); }
 function formatShortDate(value: string) { return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }); }
-function formatDuration(ms?: number) { if (!ms) return "Duration unknown"; const seconds = Math.round(ms / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
+function formatDuration(ms?: number) { if (ms === undefined || ms === null) return "Duration unknown"; const seconds = Math.round(ms / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
 function formatBytes(bytes: number) { if (bytes === 0) return "0 B"; if (!Number.isFinite(bytes) || bytes < 0) return "—"; const units = ["B", "KB", "MB", "GB", "TB"]; const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1); return `${(bytes / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`; }
 function friendlyType(type: string) { if (type.startsWith("video")) return "Video"; if (type.startsWith("audio")) return "Audio"; if (type.startsWith("image")) return "Image"; if (type.includes("pdf")) return "PDF"; return "Document"; }
+function youtubeEmbedUrl(value?: string) {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    let id = "";
+    if (host === "youtu.be") id = url.pathname.split("/").filter(Boolean)[0] || "";
+    if (host === "youtube.com" || host === "m.youtube.com" || host === "music.youtube.com") {
+      if (url.pathname === "/watch") id = url.searchParams.get("v") || "";
+      else if (/^\/(embed|shorts|live)\//.test(url.pathname)) id = url.pathname.split("/").filter(Boolean)[1] || "";
+    }
+    return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/embed/${id}?autoplay=1&rel=0` : undefined;
+  } catch { return undefined; }
+}
 function isOnline(screen: Screen) { return screen.online; }
 function timeAgo(value: string) { const seconds = Math.max(1, Math.round((Date.now() - new Date(value).getTime()) / 1000)); if (seconds < 60) return `${seconds}s ago`; if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`; if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`; return `${Math.floor(seconds / 86400)}d ago`; }
 function roleName(role: PlaylistItem["role"]) { return role === "preRoll" ? "PRE-ROLL" : role === "countdown" ? "COUNTDOWN" : "LESSON"; }
@@ -448,3 +542,7 @@ async function waitForVersion(version?: string) { await new Promise(resolve => s
 function detectDuration(file: File): Promise<number | undefined> { if (!file.type.startsWith("video/") && !file.type.startsWith("audio/")) return Promise.resolve(undefined); return new Promise(resolve => { const element = document.createElement(file.type.startsWith("video/") ? "video" : "audio"); const url = URL.createObjectURL(file); element.preload = "metadata"; element.onloadedmetadata = () => { const result = Number.isFinite(element.duration) ? Math.round(element.duration * 1000) : undefined; URL.revokeObjectURL(url); resolve(result); }; element.onerror = () => { URL.revokeObjectURL(url); resolve(undefined); }; element.src = url; }); }
 
 createRoot(document.getElementById("root")!).render(<App />);
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => undefined));
+}

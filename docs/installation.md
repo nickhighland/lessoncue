@@ -73,6 +73,19 @@ First try `http://lessoncue.local:8080`, then use the printed numeric address if
 
 Do not forward port 8080 from the internet. Use a VPN for remote access.
 
+### Use the cellphone controller
+
+Connect the phone to the same trusted Wi-Fi as the LessonCue server and TV. Open one of these addresses in Safari or Chrome, replacing `SERVER-IP` when needed:
+
+```text
+http://lessoncue.local:8080/controller
+http://SERVER-IP:8080/controller
+```
+
+Sign in with a local LessonCue account. Choose the paired screen, choose a lesson, and use **Play lesson**, an individual media row, pause/resume, previous/next, stop, or seek. The television app must be open and paired; its status should say **Screen online** in the controller.
+
+On iPhone or iPad, tap **Share**, then **Add to Home Screen**. On Android, open the browser menu and tap **Add to Home screen** or **Install app** when offered. This saves the local browser controller as an app-like icon; it does not install a separate LessonCue phone binary or connect to a hosted service.
+
 ## Before you begin
 
 Choose a server with:

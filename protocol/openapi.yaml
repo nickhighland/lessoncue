@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 1.3.0
+  version: 1.4.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local:8080
@@ -120,6 +120,44 @@ paths:
           content:
             application/json:
               schema: { $ref: './manifest.schema.json' }
+  /api/v1/screens/{screenId}/control:
+    get:
+      operationId: getScreenControlCommand
+      description: Device-authenticated command cursor. Omit `after` at startup to establish a baseline without replaying an old command, then poll with the last version.
+      security: [{ deviceBearer: [] }]
+      parameters:
+        - name: screenId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: after
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: Latest command and whether it is newer than the supplied cursor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScreenControlCommand' }
+        '401': { description: Device credential is invalid or revoked }
+    post:
+      operationId: sendScreenControlCommand
+      description: Sends an ordered playback command from an authenticated local browser controller.
+      parameters:
+        - name: screenId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScreenControlInput' }
+      responses:
+        '202': { description: Command saved for the screen }
+        '400': { description: Invalid command, lesson, or playlist item }
+        '404': { description: Screen not found }
   /api/v1/tv/status:
     post:
       operationId: reportTvStatus
@@ -365,3 +403,23 @@ components:
         freeBytes: { type: integer }
         manifestVersion: { type: integer }
         failedDownloads: { type: integer }
+    ScreenControlInput:
+      type: object
+      required: [action]
+      properties:
+        action: { enum: [play, pause, resume, stop, next, previous, seek] }
+        lessonId: { type: [string, 'null'], format: uuid }
+        itemId: { type: [string, 'null'], format: uuid }
+        positionMs: { type: [integer, 'null'], format: int64, minimum: 0 }
+    ScreenControlCommand:
+      type: object
+      required: [changed, version, action, state]
+      properties:
+        changed: { type: boolean }
+        version: { type: integer, minimum: 0 }
+        action: { type: string }
+        lessonId: { type: [string, 'null'], format: uuid }
+        itemId: { type: [string, 'null'], format: uuid }
+        positionMs: { type: [integer, 'null'], format: int64, minimum: 0 }
+        issuedAt: { type: [string, 'null'], format: date-time }
+        state: { enum: [idle, playing, paused] }

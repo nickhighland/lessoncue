@@ -42,6 +42,15 @@ data class LessonPlaylist(
 
 data class ScreenManifest(val version: Int, val screenName: String, val signage: List<SignageCue>, val playlists: List<LessonPlaylist>)
 
+data class ControlCommand(
+    val changed: Boolean,
+    val version: Int,
+    val action: String,
+    val lessonId: String? = null,
+    val itemId: String? = null,
+    val positionMs: Long? = null
+)
+
 sealed interface PlaybackPhase {
     data object Idle : PlaybackPhase
     data class PreRoll(val itemIndex: Int) : PlaybackPhase

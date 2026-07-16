@@ -127,6 +127,26 @@ public sealed class Screen
     [MaxLength(500)] public string TagsCsv { get; set; } = "";
     [MaxLength(100)] public string Site { get; set; } = "Main Site";
     [MaxLength(64)] public string? LastIpAddress { get; set; }
+    public int ControlVersion { get; set; }
+    [MaxLength(24)] public string ControlAction { get; set; } = "none";
+    public Guid? ControlLessonId { get; set; }
+    public Guid? ControlItemId { get; set; }
+    public long? ControlPositionMs { get; set; }
+    public DateTimeOffset? ControlIssuedAt { get; set; }
+    [MaxLength(24)] public string PlaybackState { get; set; } = "idle";
+}
+
+public sealed class PlaybackCommandRecord
+{
+    public long Id { get; set; }
+    public Guid ScreenId { get; set; }
+    public Screen? Screen { get; set; }
+    public int Version { get; set; }
+    [MaxLength(24)] public string Action { get; set; } = "none";
+    public Guid? LessonId { get; set; }
+    public Guid? ItemId { get; set; }
+    public long? PositionMs { get; set; }
+    public DateTimeOffset IssuedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
 public sealed class SignagePlaylist
@@ -216,6 +236,7 @@ public sealed record PlaylistItemUpdateInput(string? Title, string? Type, string
 public sealed record PlaylistReorderInput(List<Guid> ItemIds);
 public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool? VolunteerMode,
     bool ClearAssignment = false, string? TagsCsv = null, string? Site = null);
+public sealed record ScreenControlInput(string Action, Guid? LessonId = null, Guid? ItemId = null, long? PositionMs = null);
 public sealed record UserInput(string Username, string DisplayName, string? Email, string Role, string? Password, bool Disabled = false);
 public sealed record OrganizationInput(string Name, string SiteName, string TimeZone, string WeekStartsOn,
     int DefaultLessonDurationMinutes, int DefaultRetentionDays, string PrimaryColor, string AccentColor,

@@ -14,10 +14,12 @@ final class AppModel: ObservableObject {
     @Published var route: Route = .loading
     @Published var manifest: ScreenManifest?
     @Published var errorMessage: String?
+    @Published var playbackCommand: ControlCommand?
     let discovery = BonjourDiscovery()
     private(set) var identity: DeviceIdentity?
     private var scheduleTask: Task<Void, Never>?
     private var statusTask: Task<Void, Never>?
+    private var controlTask: Task<Void, Never>?
 
     func start() async {
         discovery.start()
@@ -29,6 +31,7 @@ final class AppModel: ObservableObject {
             route = .library
             beginScheduleMonitor()
             beginStatusMonitor()
+            beginControlMonitor()
             await cacheAssignedMedia()
         } catch {
             if let cached = ManifestStore.load() {
@@ -37,6 +40,7 @@ final class AppModel: ObservableObject {
                 route = .library
                 beginScheduleMonitor()
                 beginStatusMonitor()
+                beginControlMonitor()
             } else {
                 errorMessage = "The saved server could not be reached. You can reconnect without losing downloaded media."
                 route = .connect
@@ -64,6 +68,7 @@ final class AppModel: ObservableObject {
             route = .library
             beginScheduleMonitor()
             beginStatusMonitor()
+            beginControlMonitor()
             await cacheAssignedMedia()
         } catch { errorMessage = error.localizedDescription }
     }
@@ -134,6 +139,50 @@ final class AppModel: ObservableObject {
                 try? await api.reportStatus(identity: identity, manifestVersion: manifest.manifestVersion, freeBytes: freeBytes)
                 try? await Task.sleep(nanoseconds: 60_000_000_000)
             }
+        }
+    }
+
+    private func beginControlMonitor() {
+        controlTask?.cancel()
+        controlTask = Task { [weak self] in
+            guard let self, let identity = self.identity,
+                  let api = try? LessonCueAPI(address: identity.serverURL.absoluteString) else { return }
+            var version = (try? await api.control(identity: identity).version) ?? 0
+            while !Task.isCancelled {
+                if let command = try? await api.control(identity: identity, after: version) {
+                    version = max(version, command.version)
+                    if command.changed { await self.apply(command, api: api, identity: identity) }
+                }
+                try? await Task.sleep(nanoseconds: 750_000_000)
+            }
+        }
+    }
+
+    private func apply(_ command: ControlCommand, api: LessonCueAPI, identity: DeviceIdentity) async {
+        playbackCommand = command
+        switch command.action {
+        case "play":
+            if let latest = try? await api.manifest(identity: identity) { manifest = latest }
+            guard let playlist = manifest?.playlists.first(where: { $0.id == command.lessonId }) else { return }
+            let allItems = (playlist.preRoll?.items ?? []) + [playlist.countdown?.item].compactMap { $0 } + playlist.items
+            if let itemId = command.itemId, let index = allItems.firstIndex(where: { $0.id == itemId }) {
+                route = .playback(playlist: playlist, items: allItems, index: index, seekMs: 0)
+            } else { route = .playback(playlist: playlist, items: playlist.items, index: 0, seekMs: 0) }
+        case "stop": route = .library
+        case "next":
+            if case .playback(let playlist, let items, let index, _) = route, index + 1 < items.count {
+                route = .playback(playlist: playlist, items: items, index: index + 1, seekMs: 0)
+            }
+        case "previous":
+            if case .playback(let playlist, let items, let index, _) = route {
+                route = .playback(playlist: playlist, items: items, index: max(0, index - 1), seekMs: 0)
+            }
+        case "seek":
+            if case .playback(let playlist, let items, let index, _) = route {
+                route = .playback(playlist: playlist, items: items, index: index, seekMs: max(0, command.positionMs ?? 0))
+            }
+        case "pause", "resume": break
+        default: break
         }
     }
 

@@ -21,7 +21,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         val body = JSONObject()
             .put("deviceName", deviceName)
             .put("platform", "android-tv")
-            .put("appVersion", "0.5.0")
+            .put("appVersion", "0.6.0")
         JSONObject(request("/api/v1/pairing/request", "POST", body.toString())).getString("requestId")
     }
 
@@ -40,13 +40,26 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
     suspend fun reportStatus(identity: DeviceIdentity, manifestVersion: Int, freeBytes: Long, failedDownloads: Int = 0) = withContext(Dispatchers.IO) {
         val body = JSONObject()
             .put("screenId", identity.screenId)
-            .put("appVersion", "0.5.0")
+            .put("appVersion", "0.6.0")
             .put("online", true)
             .put("freeBytes", freeBytes)
             .put("manifestVersion", manifestVersion)
             .put("failedDownloads", failedDownloads)
         request("/api/v1/tv/status", "POST", body.toString(), identity.token)
         Unit
+    }
+
+    suspend fun control(identity: DeviceIdentity, after: Int? = null): ControlCommand = withContext(Dispatchers.IO) {
+        val suffix = after?.let { "?after=$it" } ?: ""
+        val json = JSONObject(request("/api/v1/screens/${identity.screenId}/control$suffix", token = identity.token))
+        ControlCommand(
+            changed = json.optBoolean("changed", false),
+            version = json.optInt("version", 0),
+            action = json.optString("action", "none"),
+            lessonId = json.optString("lessonId").takeIf { it.isNotBlank() && it != "null" },
+            itemId = json.optString("itemId").takeIf { it.isNotBlank() && it != "null" },
+            positionMs = json.optLong("positionMs").takeIf { json.has("positionMs") && !json.isNull("positionMs") }
+        )
     }
 
     fun cachedManifest(): ScreenManifest? = runCatching { manifestCache?.takeIf(File::exists)?.readText()?.let { parseManifest(JSONObject(it)) } }.getOrNull()

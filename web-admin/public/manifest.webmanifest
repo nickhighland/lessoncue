@@ -1,0 +1,19 @@
+{
+  "name": "LessonCue Controller",
+  "short_name": "LessonCue",
+  "description": "Control local LessonCue playback from a phone or tablet.",
+  "start_url": "/controller",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f6f5f0",
+  "theme_color": "#25302d",
+  "icons": [
+    {
+      "src": "/lessoncue-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

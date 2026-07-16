@@ -155,6 +155,10 @@ private struct PlaybackView: View {
             Task { await handleCompletion() }
         }
         .onPlayPauseCommand { player?.rate == 0 ? player?.play() : player?.pause() }
+        .onChange(of: model.playbackCommand?.version) { _, _ in
+            if model.playbackCommand?.action == "pause" { player?.pause() }
+            if model.playbackCommand?.action == "resume" { player?.play() }
+        }
         .onMoveCommand { direction in
             if direction == .right { advance() }
             if direction == .left, index > 0 { model.route = .playback(playlist: playlist, items: items, index: index - 1, seekMs: 0) }

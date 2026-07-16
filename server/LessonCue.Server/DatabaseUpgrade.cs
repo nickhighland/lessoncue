@@ -55,6 +55,18 @@ public static class DatabaseUpgrade
                 "CreatedAt" TEXT NOT NULL,
                 "CreatedBy" TEXT NOT NULL DEFAULT 'system'
             );
+            CREATE TABLE IF NOT EXISTS "PlaybackCommands" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_PlaybackCommands" PRIMARY KEY AUTOINCREMENT,
+                "ScreenId" TEXT NOT NULL,
+                "Version" INTEGER NOT NULL,
+                "Action" TEXT NOT NULL DEFAULT 'none',
+                "LessonId" TEXT NULL,
+                "ItemId" TEXT NULL,
+                "PositionMs" INTEGER NULL,
+                "IssuedAt" TEXT NOT NULL,
+                CONSTRAINT "FK_PlaybackCommands_Screens_ScreenId" FOREIGN KEY ("ScreenId") REFERENCES "Screens" ("Id") ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_PlaybackCommands_ScreenId_Version" ON "PlaybackCommands" ("ScreenId", "Version");
             """, cancellationToken);
 
         var additions = new Dictionary<string, (string Table, string Sql)>
@@ -101,7 +113,14 @@ public static class DatabaseUpgrade
             ["Screens.ManifestVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ManifestVersion\" INTEGER NOT NULL DEFAULT 0"),
             ["Screens.TagsCsv"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"TagsCsv\" TEXT NOT NULL DEFAULT ''"),
             ["Screens.Site"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"Site\" TEXT NOT NULL DEFAULT 'Main Site'"),
-            ["Screens.LastIpAddress"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"LastIpAddress\" TEXT NULL")
+            ["Screens.LastIpAddress"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"LastIpAddress\" TEXT NULL"),
+            ["Screens.ControlVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ControlVersion\" INTEGER NOT NULL DEFAULT 0"),
+            ["Screens.ControlAction"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ControlAction\" TEXT NOT NULL DEFAULT 'none'"),
+            ["Screens.ControlLessonId"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ControlLessonId\" TEXT NULL"),
+            ["Screens.ControlItemId"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ControlItemId\" TEXT NULL"),
+            ["Screens.ControlPositionMs"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ControlPositionMs\" INTEGER NULL"),
+            ["Screens.ControlIssuedAt"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ControlIssuedAt\" TEXT NULL"),
+            ["Screens.PlaybackState"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"PlaybackState\" TEXT NOT NULL DEFAULT 'idle'")
         };
 
         foreach (var (key, addition) in additions)
