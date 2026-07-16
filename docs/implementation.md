@@ -76,6 +76,12 @@ The web manifest starts at `/controller` in standalone mode. Apple mobile-web-ap
 
 The Media Library exposes every ready asset through the server's normal range-enabled URL. Lesson previews layer playlist behavior on top of the raw source: the browser seeks to `startMs`, pauses or loops at `endMs`, updates volume through the fade-in/fade-out windows, applies the stored volume ceiling, and overlays operator notes. Online YouTube URLs are converted only to standard embed URLs in the browser; arbitrary webpage previews remain client-side iframe navigation and are never fetched by the LessonCue server.
 
+### Media organization and versioning
+
+`MediaAsset` keeps a stable identifier while its current original advances through numbered versions. Folder and normalized tag metadata are searchable in the browser and can be assigned during upload or replaced in bulk. Before replacement, the impact endpoint groups every referencing playlist cue by lesson and lists referencing signage. The new original is written to a distinct path, the current original is copied under `media/versions`, and the database change is committed before the now-unreferenced current path is removed. If file preparation or database persistence fails, new and archived candidates are removed while the current database and original remain untouched.
+
+`MediaAssetVersion` stores the archived original's filename, type, checksum, size, source details, actor, and version number. Restoring history copies the selected original into a new current version and archives the displaced current original, so restoration never rewrites history. Replacement and restoration increment affected lesson manifest versions and trigger SignalR invalidation. Reprocessing clears derived metadata and queues the existing original through the normal FFprobe/FFmpeg worker. Storage accounting includes version files, and retention deletion removes the current original, derivatives, and all archived originals together.
+
 ## Android TV
 
 ```bash

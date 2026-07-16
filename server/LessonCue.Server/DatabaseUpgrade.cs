@@ -31,6 +31,24 @@ public static class DatabaseUpgrade
             );
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_AdminAccounts_Username" ON "AdminAccounts" ("Username");
             CREATE INDEX IF NOT EXISTS "IX_MediaAssets_Sha256" ON "MediaAssets" ("Sha256");
+            CREATE TABLE IF NOT EXISTS "MediaAssetVersions" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_MediaAssetVersions" PRIMARY KEY,
+                "MediaAssetId" TEXT NOT NULL,
+                "VersionNumber" INTEGER NOT NULL,
+                "FileName" TEXT NOT NULL,
+                "ContentType" TEXT NOT NULL DEFAULT 'application/octet-stream',
+                "RelativePath" TEXT NOT NULL,
+                "Sha256" TEXT NULL,
+                "SizeBytes" INTEGER NOT NULL DEFAULT 0,
+                "DurationMs" INTEGER NULL,
+                "SourceKind" TEXT NOT NULL DEFAULT 'upload',
+                "SourceUrl" TEXT NULL,
+                "LinkKind" TEXT NULL,
+                "ArchivedAt" TEXT NOT NULL,
+                "ArchivedBy" TEXT NOT NULL DEFAULT 'admin',
+                CONSTRAINT "FK_MediaAssetVersions_MediaAssets_MediaAssetId" FOREIGN KEY ("MediaAssetId") REFERENCES "MediaAssets" ("Id") ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_MediaAssetVersions_MediaAssetId_VersionNumber" ON "MediaAssetVersions" ("MediaAssetId", "VersionNumber");
             CREATE TABLE IF NOT EXISTS "SignagePlaylists" (
                 "Id" TEXT NOT NULL CONSTRAINT "PK_SignagePlaylists" PRIMARY KEY,
                 "Name" TEXT NOT NULL,
@@ -113,6 +131,10 @@ public static class DatabaseUpgrade
             ["MediaAssets.OriginLessonId"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"OriginLessonId\" TEXT NULL"),
             ["MediaAssets.DeleteAfter"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"DeleteAfter\" TEXT NULL"),
             ["MediaAssets.RetentionDateIsManual"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"RetentionDateIsManual\" INTEGER NOT NULL DEFAULT 0"),
+            ["MediaAssets.Folder"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"Folder\" TEXT NOT NULL DEFAULT ''"),
+            ["MediaAssets.TagsCsv"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"TagsCsv\" TEXT NOT NULL DEFAULT ''"),
+            ["MediaAssets.Version"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"Version\" INTEGER NOT NULL DEFAULT 1"),
+            ["MediaAssets.ReplacedAt"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"ReplacedAt\" TEXT NULL"),
             ["Screens.AppVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"AppVersion\" TEXT NOT NULL DEFAULT 'unknown'"),
             ["Screens.ManifestVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ManifestVersion\" INTEGER NOT NULL DEFAULT 0"),
             ["Screens.TagsCsv"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"TagsCsv\" TEXT NOT NULL DEFAULT ''"),

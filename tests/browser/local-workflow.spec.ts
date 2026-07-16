@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-function silentWav() {
+function silentWav(marker = 0) {
   const sampleRate = 8_000;
   const dataBytes = sampleRate * 2;
   const buffer = Buffer.alloc(44 + dataBytes);
@@ -8,6 +8,7 @@ function silentWav() {
   buffer.write("fmt ", 12); buffer.writeUInt32LE(16, 16); buffer.writeUInt16LE(1, 20);
   buffer.writeUInt16LE(1, 22); buffer.writeUInt32LE(sampleRate, 24); buffer.writeUInt32LE(sampleRate * 2, 28);
   buffer.writeUInt16LE(2, 32); buffer.writeUInt16LE(16, 34); buffer.write("data", 36); buffer.writeUInt32LE(dataBytes, 40);
+  buffer[buffer.length - 1] = marker;
   return buffer;
 }
 
@@ -51,6 +52,32 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(audioRow.getByRole("button", { name: /Deletes/ })).toBeVisible();
   await expect(page.locator(".media-table").filter({ hasText: "Online Learning Page" })).toBeVisible();
 
+  await audioRow.getByRole("button", { name: "Manage versions & impact" }).click();
+  await expect(page.getByRole("heading", { name: "Manage: browser-test-audio.wav" })).toBeVisible();
+  await expect(page.getByText("Sample Lesson", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Rename, folder & tags" }).click();
+  const organizeDialog = page.getByRole("dialog", { name: "Organize: browser-test-audio.wav" });
+  await organizeDialog.getByRole("textbox", { name: /^Folder/ }).fill("Audio/Classroom");
+  await organizeDialog.getByRole("textbox", { name: /^Tags/ }).fill("welcome, reusable");
+  await organizeDialog.getByRole("button", { name: "Save organization" }).click();
+  await expect(page.getByText("1 media item organized.", { exact: false })).toBeVisible();
+  await expect(page.locator(".media-table").filter({ hasText: "Audio/Classroom" })).toBeVisible();
+
+  const organizedRow = page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" });
+  await organizedRow.getByRole("button", { name: "Manage versions & impact" }).click();
+  await page.getByLabel("Replace current file").setInputFiles({ name: "browser-test-audio-v2.wav", mimeType: "audio/wav", buffer: silentWav(1) });
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "Preview impact and replace" }).click();
+  await expect(page.getByText("previous version remains available", { exact: false })).toBeVisible();
+  const replacedRow = page.locator(".media-table").filter({ hasText: "browser-test-audio-v2.wav" });
+  await expect(replacedRow).toContainText("v2");
+  await replacedRow.getByRole("button", { name: "Manage versions & impact" }).click();
+  await expect(page.getByText("v1 · browser-test-audio.wav", { exact: false })).toBeVisible();
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "Restore", exact: true }).click();
+  await expect(page.getByText("restored as a new current version", { exact: false })).toBeVisible();
+  await expect(page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" })).toContainText("v3");
+
   await page.getByRole("button", { name: /Settings$/ }).click();
   await page.getByRole("button", { name: "Full backup" }).click();
   await expect(page.getByText("Full backup created.", { exact: false })).toBeVisible();
@@ -76,4 +103,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByText("A full safety backup was created first", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Reload restored LessonCue" }).click();
   await expect(page.getByText("LessonCue Browser Test", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /Media Library$/ }).click();
+  const restoredVersionRow = page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" });
+  await expect(restoredVersionRow).toContainText("Audio/Classroom");
+  await expect(restoredVersionRow).toContainText("v3");
 });

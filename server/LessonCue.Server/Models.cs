@@ -113,6 +113,30 @@ public sealed class MediaAsset
     public Guid? OriginLessonId { get; set; }
     public DateTimeOffset? DeleteAfter { get; set; }
     public bool RetentionDateIsManual { get; set; }
+    [MaxLength(120)] public string Folder { get; set; } = "";
+    [MaxLength(500)] public string TagsCsv { get; set; } = "";
+    public int Version { get; set; } = 1;
+    public DateTimeOffset? ReplacedAt { get; set; }
+    public List<MediaAssetVersion> Versions { get; set; } = [];
+}
+
+public sealed class MediaAssetVersion
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid MediaAssetId { get; set; }
+    public MediaAsset? MediaAsset { get; set; }
+    public int VersionNumber { get; set; }
+    [MaxLength(255)] public required string FileName { get; set; }
+    [MaxLength(100)] public string ContentType { get; set; } = "application/octet-stream";
+    [MaxLength(512)] public required string RelativePath { get; set; }
+    [MaxLength(64)] public string? Sha256 { get; set; }
+    public long SizeBytes { get; set; }
+    public long? DurationMs { get; set; }
+    [MaxLength(32)] public string SourceKind { get; set; } = "upload";
+    [MaxLength(2048)] public string? SourceUrl { get; set; }
+    [MaxLength(32)] public string? LinkKind { get; set; }
+    public DateTimeOffset ArchivedAt { get; set; } = DateTimeOffset.UtcNow;
+    [MaxLength(80)] public string ArchivedBy { get; set; } = "admin";
 }
 
 public sealed class Screen
@@ -269,7 +293,10 @@ public sealed record LocalHostnameInput(string Hostname);
 public sealed record HttpPortInput(int Port);
 public sealed record SignageInput(string Name, string Mode, bool Enabled, int Priority, DateTimeOffset? StartsAt,
     DateTimeOffset? EndsAt, string? Message, string? BackgroundColor, string? TextColor, Guid? MediaAssetId, string? TargetTagsCsv);
-public sealed record LinkInput(string Url, string? Title, bool Download = false, bool Persistent = true, Guid? LessonId = null);
+public sealed record LinkInput(string Url, string? Title, bool Download = false, bool Persistent = true,
+    Guid? LessonId = null, string? Folder = null, string? TagsCsv = null);
 public sealed record UploadCompleteInput(string FileName, string ContentType, int TotalChunks, long? DurationMs,
-    bool Persistent = false, Guid? LessonId = null);
-public sealed record MediaBulkInput(List<Guid> MediaIds, string? Action, DateOnly? DeleteOn = null);
+    bool Persistent = false, Guid? LessonId = null, string? Folder = null, string? TagsCsv = null);
+public sealed record MediaBulkInput(List<Guid> MediaIds, string? Action, DateOnly? DeleteOn = null,
+    string? Folder = null, string? TagsCsv = null);
+public sealed record MediaOrganizeInput(string? FileName, string? Folder, string? TagsCsv);

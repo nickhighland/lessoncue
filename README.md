@@ -15,6 +15,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - Calendar, local role-based users, scheduled/emergency signage, rotating pairing codes, screen tags, audit history, and downloadable full/configuration backups with validated browser restore and an automatic pre-restore safety backup.
 - Direct lesson uploads, online webpages, embedded YouTube playback, queued local YouTube imports, reusable or four-week lesson retention, automatic cleanup, resumable large uploads, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, codec readiness, and range-enabled delivery.
 - Media Library selection and bulk actions for safe deletion, an explicit selectable expiration date, or permanent retention; every retention date can also be edited directly from its table row.
+- Searchable media folders and tags, upload-time and bulk organization, lesson/signage impact previews, local reprocessing, and safe file replacement behind a stable media ID with downloadable and restorable original-version history.
 - Daily release checks, administrator alerts, protected one-click Linux updates with health-check rollback, and administrator-controlled storage allocation with uploader-visible capacity.
 - A locally configurable six-digit pairing PIN, with a choice between a persistent administrator-set PIN and automatic ten-minute rotation.
 - Automatic `lessoncue.local` setup on native Linux, with an administrator-configurable `.local` browser name and numeric-IP fallback.

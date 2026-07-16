@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 2.1.0
+  version: 2.2.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local
@@ -265,10 +265,101 @@ paths:
       responses:
         '200': { description: Waveform PNG }
         '404': { description: Derivative is not available }
+  /api/v1/media/{mediaId}/impact:
+    get:
+      operationId: getMediaImpact
+      description: Lists every lesson cue and sign that currently uses the media, plus locally archived versions.
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Media usage and version history
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaImpact' }
+        '404': { description: Media not found }
+  /api/v1/media/{mediaId}/organize:
+    patch:
+      operationId: organizeMedia
+      description: Renames a media item and assigns its local folder and tags without changing lesson references.
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MediaOrganizeInput' }
+      responses:
+        '200': { description: Media organized }
+        '400': { description: Invalid display name }
+        '404': { description: Media not found }
+  /api/v1/media/{mediaId}/reprocess:
+    post:
+      operationId: reprocessMedia
+      description: Clears derived metadata and queues local FFprobe/FFmpeg processing again without replacing the original.
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '202': { description: Reprocessing queued }
+        '400': { description: Media has no local file }
+        '409': { description: Media is already processing }
+  /api/v1/media/{mediaId}/replace:
+    post:
+      operationId: replaceMedia
+      description: Archives the current local original as a restorable version, installs a replacement behind the stable media ID, and invalidates affected lesson manifests.
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '200': { description: Replacement installed and old original archived }
+        '400': { description: Invalid, unsupported, or identical replacement }
+        '409': { description: Current media is missing or processing }
+        '507': { description: Storage allocation is insufficient }
+  /api/v1/media/{mediaId}/versions/{versionId}/file:
+    get:
+      operationId: downloadMediaVersion
+      parameters:
+        - { name: mediaId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: versionId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Archived original file }
+        '404': { description: Version or local file not found }
+  /api/v1/media/{mediaId}/versions/{versionId}/restore:
+    post:
+      operationId: restoreMediaVersion
+      description: Restores an archived original as a new current version while preserving the current original in history.
+      parameters:
+        - { name: mediaId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: versionId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Archived file restored as a new version }
+        '404': { description: Media version not found }
+        '409': { description: A required local file is missing }
+        '507': { description: Storage allocation is insufficient }
   /api/v1/media/bulk:
     post:
       operationId: updateMediaInBulk
-      description: Applies deletion or an explicit retention policy to as many as 500 selected media items. Deletion safely detaches media from lessons and signage before removing local files.
+      description: Applies organization, deletion, or an explicit retention policy to as many as 500 selected media items. Deletion safely detaches media from lessons and signage before removing current and archived local files.
       requestBody:
         required: true
         content:
@@ -284,7 +375,7 @@ paths:
                 required: [updated, action]
                 properties:
                   updated: { type: integer, minimum: 1, maximum: 500 }
-                  action: { enum: [delete, expire, keep] }
+                  action: { enum: [delete, expire, keep, organize] }
         '400': { description: Empty selection, invalid action, missing date, or date in the past }
         '404': { description: A selected media item no longer exists }
   /api/v1/storage:
@@ -523,6 +614,37 @@ components:
         allocationBytes: { type: integer, format: int64 }
         remainingBytes: { type: integer, format: int64 }
         automaticAllocation: { type: boolean }
+    MediaOrganizeInput:
+      type: object
+      properties:
+        fileName: { type: [string, 'null'], minLength: 1, maxLength: 255 }
+        folder: { type: [string, 'null'], maxLength: 120 }
+        tagsCsv: { type: [string, 'null'], maxLength: 500 }
+    MediaImpact:
+      type: object
+      required: [id, fileName, folder, tagsCsv, version, lessons, signage, versions]
+      properties:
+        id: { type: string, format: uuid }
+        fileName: { type: string }
+        folder: { type: string }
+        tagsCsv: { type: string }
+        version: { type: integer, minimum: 1 }
+        replacedAt: { type: [string, 'null'], format: date-time }
+        lessons: { type: array, items: { type: object } }
+        signage: { type: array, items: { type: object } }
+        versions:
+          type: array
+          items:
+            type: object
+            required: [id, versionNumber, fileName, sizeBytes, archivedAt, archivedBy, downloadUrl]
+            properties:
+              id: { type: string, format: uuid }
+              versionNumber: { type: integer, minimum: 1 }
+              fileName: { type: string }
+              sizeBytes: { type: integer, format: int64, minimum: 0 }
+              archivedAt: { type: string, format: date-time }
+              archivedBy: { type: string }
+              downloadUrl: { type: string }
     MediaBulkInput:
       type: object
       required: [mediaIds, action]
@@ -533,11 +655,13 @@ components:
           maxItems: 500
           uniqueItems: true
           items: { type: string, format: uuid }
-        action: { enum: [delete, expire, keep] }
+        action: { enum: [delete, expire, keep, organize] }
         deleteOn:
           type: [string, 'null']
           format: date
           description: Required when action is expire. Media remains available through the end of this date.
+        folder: { type: [string, 'null'], maxLength: 120, description: Applied when action is organize. }
+        tagsCsv: { type: [string, 'null'], maxLength: 500, description: Applied when action is organize. }
     UpdateStatus:
       type: object
       required: [currentVersion, updateAvailable, automaticInstallSupported, installing]

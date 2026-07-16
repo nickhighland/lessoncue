@@ -73,6 +73,36 @@ public sealed class MediaRetentionTests
     }
 
     [Fact]
+    public async Task UpgradeAddsMediaOrganizationAndVersionHistory()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(cancellationToken);
+        var options = new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options;
+        await using var db = new LessonCueDb(options);
+        await db.Database.EnsureCreatedAsync(cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("DROP TABLE \"MediaAssetVersions\"", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"Folder\"", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"TagsCsv\"", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"Version\"", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"ReplacedAt\"", cancellationToken);
+
+        await DatabaseUpgrade.ApplyAsync(db, cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='MediaAssetVersions'";
+        Assert.Equal(1L, (long)(await command.ExecuteScalarAsync(cancellationToken))!);
+        command.CommandText = "PRAGMA table_info(\"MediaAssets\")";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var columns = new List<string>();
+        while (await reader.ReadAsync(cancellationToken)) columns.Add(reader.GetString(1));
+        Assert.Contains("Folder", columns);
+        Assert.Contains("TagsCsv", columns);
+        Assert.Contains("Version", columns);
+        Assert.Contains("ReplacedAt", columns);
+    }
+
+    [Fact]
     public void TemporaryMediaExpiresAtEndOfDayFourWeeksAfterLesson()
     {
         var actual = MediaRetention.DeleteAfterFor(new DateOnly(2026, 7, 19));
@@ -139,6 +169,7 @@ public sealed class MediaRetentionTests
         var root = Path.Combine(Path.GetTempPath(), $"lessoncue-retention-{Guid.NewGuid():N}");
         var paths = new MediaStoragePaths(root);
         Directory.CreateDirectory(paths.Originals);
+        Directory.CreateDirectory(Path.Combine(paths.Versions, "archive"));
         try
         {
             var lessonClass = new LessonClass { Name = "Learning Lab" };
@@ -151,8 +182,11 @@ public sealed class MediaRetentionTests
             };
             var item = new PlaylistItem { LessonId = lesson.Id, Title = "Presentation", MediaAssetId = media.Id };
             var signage = new SignagePlaylist { Name = "Welcome", MediaAssetId = media.Id };
+            var version = new MediaAssetVersion { MediaAssetId = media.Id, VersionNumber = 1, FileName = "older.mp4",
+                RelativePath = "archive/older.mp4", SizeBytes = 7 };
             await File.WriteAllTextAsync(Path.Combine(paths.Originals, media.RelativePath), "media", cancellationToken);
-            db.AddRange(lessonClass, lesson, media, item, signage);
+            await File.WriteAllTextAsync(Path.Combine(paths.Versions, version.RelativePath), "version", cancellationToken);
+            db.AddRange(lessonClass, lesson, media, item, signage, version);
             await db.SaveChangesAsync(cancellationToken);
 
             var deleted = await MediaRetentionService.CleanupAsync(db, paths,
@@ -163,6 +197,7 @@ public sealed class MediaRetentionTests
             Assert.Null((await db.PlaylistItems.SingleAsync(cancellationToken)).MediaAssetId);
             Assert.Null((await db.SignagePlaylists.SingleAsync(cancellationToken)).MediaAssetId);
             Assert.False(File.Exists(Path.Combine(paths.Originals, media.RelativePath)));
+            Assert.False(File.Exists(Path.Combine(paths.Versions, version.RelativePath)));
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }

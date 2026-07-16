@@ -7,6 +7,7 @@ public sealed record MediaStoragePaths(string DataPath)
 {
     public string Originals => Path.Combine(DataPath, "media", "originals");
     public string Thumbnails => Path.Combine(DataPath, "media", "thumbnails");
+    public string Versions => Path.Combine(DataPath, "media", "versions");
 }
 
 public static class MediaRetention
@@ -123,6 +124,9 @@ public sealed class MediaRetentionService(
         }
         var signageItems = await db.SignagePlaylists.Where(x => x.MediaAssetId == media.Id).ToListAsync(ct);
         foreach (var signage in signageItems) signage.MediaAssetId = null;
+
+        var versions = await db.MediaAssetVersions.Where(x => x.MediaAssetId == media.Id).ToListAsync(ct);
+        foreach (var version in versions) DeleteStoredFile(paths.Versions, version.RelativePath);
 
         DeleteStoredFile(paths.Originals, media.RelativePath);
         if (!string.IsNullOrWhiteSpace(media.ThumbnailPath)) DeleteStoredFile(paths.Thumbnails, media.ThumbnailPath);

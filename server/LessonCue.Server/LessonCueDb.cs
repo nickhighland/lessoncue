@@ -10,6 +10,7 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
     public DbSet<Lesson> Lessons => Set<Lesson>();
     public DbSet<PlaylistItem> PlaylistItems => Set<PlaylistItem>();
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
+    public DbSet<MediaAssetVersion> MediaAssetVersions => Set<MediaAssetVersion>();
     public DbSet<Screen> Screens => Set<Screen>();
     public DbSet<PlaybackCommandRecord> PlaybackCommands => Set<PlaybackCommandRecord>();
     public DbSet<PairingAttempt> PairingAttempts => Set<PairingAttempt>();
@@ -23,6 +24,9 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
         modelBuilder.Entity<LessonClass>().HasIndex(x => x.Name).IsUnique();
         modelBuilder.Entity<AdminAccount>().HasIndex(x => x.Username).IsUnique();
         modelBuilder.Entity<MediaAsset>().HasIndex(x => x.Sha256);
+        modelBuilder.Entity<MediaAssetVersion>().HasIndex(x => new { x.MediaAssetId, x.VersionNumber }).IsUnique();
+        modelBuilder.Entity<MediaAssetVersion>().HasOne(x => x.MediaAsset).WithMany(x => x.Versions)
+            .HasForeignKey(x => x.MediaAssetId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<Lesson>().HasMany(x => x.Items).WithOne(x => x.Lesson)
             .HasForeignKey(x => x.LessonId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<PlaylistItem>().Property(x => x.Position).HasPrecision(18, 6);

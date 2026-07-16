@@ -226,6 +226,8 @@ For Docker, pull/build the new image and run `docker compose up -d`. Native Linu
 
 In **Settings → Storage allocation**, an owner or administrator can choose a maximum amount of disk space or leave automatic allocation enabled. The page shows current LessonCue usage, free computer disk space, and the maximum safe allocation. LessonCue keeps a 512 MB safety reserve and refuses uploads that would exceed the allocation. Editors and administrators can always see the remaining upload capacity in the sidebar and Media Library. Uploads marked **For a lesson** are automatically removed four weeks after the latest lesson that uses them; uploads marked **Keep permanently** are not automatically removed.
 
+Media can be assigned to hierarchical folders and comma-separated tags during upload or later in the Media Library. **Manage versions & impact** shows every lesson cue and sign that uses an item before replacement. Replacing a local file preserves its stable media ID, archives the current original, refreshes affected screen manifests, and queues fresh metadata and preview processing. Previous originals can be downloaded or restored as a new current version. Archived versions count against the storage allocation and are removed with their parent media when its retention period ends.
+
 To remove the headless Linux service while preserving its database and media:
 
 ```bash

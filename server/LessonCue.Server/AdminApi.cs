@@ -444,11 +444,215 @@ public static class AdminApi
                 x.OriginLessonId,
                 x.DeleteAfter,
                 x.RetentionDateIsManual,
+                x.Folder,
+                x.TagsCsv,
+                x.Version,
+                x.ReplacedAt,
                 thumbnailUrl = x.ThumbnailPath == null ? null : $"/api/v1/media/{x.Id}/thumbnail",
                 filmstripUrl = x.FilmstripPath == null ? null : $"/api/v1/media/{x.Id}/filmstrip",
                 waveformUrl = x.WaveformPath == null ? null : $"/api/v1/media/{x.Id}/waveform",
                 downloadUrl = $"/api/v1/media/{x.Id}/file"
             }).ToListAsync(ct));
+
+        admin.MapGet("/media/{id:guid}/impact", async (Guid id, LessonCueDb db, CancellationToken ct) =>
+        {
+            var media = await db.MediaAssets.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (media is null) return Results.NotFound();
+            var lessonItems = await db.PlaylistItems.AsNoTracking().Where(x => x.MediaAssetId == id)
+                .Select(x => new { x.Id, itemTitle = x.Title, x.LessonId, lessonTitle = x.Lesson!.Title, x.Lesson.Date })
+                .OrderBy(x => x.Date).ToListAsync(ct);
+            var signage = await db.SignagePlaylists.AsNoTracking().Where(x => x.MediaAssetId == id)
+                .Select(x => new { x.Id, x.Name, x.Mode, x.Enabled }).OrderBy(x => x.Name).ToListAsync(ct);
+            var versions = await db.MediaAssetVersions.AsNoTracking().Where(x => x.MediaAssetId == id)
+                .OrderByDescending(x => x.VersionNumber).Select(x => new
+                {
+                    x.Id, x.VersionNumber, x.FileName, x.ContentType, x.SizeBytes, x.DurationMs, x.Sha256,
+                    x.ArchivedAt, x.ArchivedBy,
+                    downloadUrl = $"/api/v1/media/{id}/versions/{x.Id}/file"
+                }).ToListAsync(ct);
+            return Results.Ok(new
+            {
+                media.Id, media.FileName, media.Folder, media.TagsCsv, media.Version, media.ReplacedAt,
+                lessons = lessonItems.GroupBy(x => new { x.LessonId, x.lessonTitle, x.Date })
+                    .Select(group => new { id = group.Key.LessonId, title = group.Key.lessonTitle, date = group.Key.Date, itemCount = group.Count() }),
+                signage,
+                versions
+            });
+        });
+
+        admin.MapPatch("/media/{id:guid}/organize", async (Guid id, MediaOrganizeInput input, LessonCueDb db,
+            HttpContext context, CancellationToken ct) =>
+        {
+            var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (media is null) return Results.NotFound();
+            if (input.FileName is not null)
+            {
+                var name = Path.GetFileName(input.FileName.Trim());
+                if (string.IsNullOrWhiteSpace(name) || name.Length > 255)
+                    return Results.BadRequest(new { error = "The media name must be between 1 and 255 characters." });
+                media.FileName = name;
+            }
+            if (input.Folder is not null) media.Folder = NormalizeMediaFolder(input.Folder);
+            if (input.TagsCsv is not null) media.TagsCsv = NormalizeMediaTags(input.TagsCsv);
+            db.AuditEvents.Add(new AuditEvent { Actor = context.User.Identity?.Name ?? "admin", Action = "media.organize",
+                Object = media.Id.ToString(), Summary = $"{media.FileName}: {media.Folder}; {media.TagsCsv}" });
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(media);
+        });
+
+        admin.MapPost("/media/{id:guid}/reprocess", async (Guid id, LessonCueDb db, MediaStoragePaths paths,
+            HttpContext context, CancellationToken ct) =>
+        {
+            var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (media is null) return Results.NotFound();
+            if (media.SourceKind == "link" || string.IsNullOrWhiteSpace(media.RelativePath))
+                return Results.BadRequest(new { error = "Online-only media does not have a local file to reprocess." });
+            if (media.ProcessingStatus is "processing" or "downloading")
+                return Results.Conflict(new { error = "This media is already being processed." });
+            var derivatives = ResetMediaProcessing(media);
+            db.AuditEvents.Add(new AuditEvent { Actor = context.User.Identity?.Name ?? "admin", Action = "media.reprocess",
+                Object = media.Id.ToString(), Summary = media.FileName });
+            await db.SaveChangesAsync(ct);
+            DeleteDerivatives(paths, derivatives);
+            return Results.Accepted($"/api/v1/media/{id}", media);
+        });
+
+        admin.MapGet("/media/{id:guid}/versions/{versionId:guid}/file", async (Guid id, Guid versionId,
+            LessonCueDb db, MediaStoragePaths paths, CancellationToken ct) =>
+        {
+            var version = await db.MediaAssetVersions.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == versionId && x.MediaAssetId == id, ct);
+            if (version is null) return Results.NotFound();
+            var path = ResolveStoredFile(paths.Versions, version.RelativePath);
+            return path is null ? Results.NotFound() : Results.File(path, version.ContentType, version.FileName, enableRangeProcessing: true);
+        });
+
+        admin.MapPost("/media/{id:guid}/replace", async (Guid id, HttpRequest request, LessonCueDb db,
+            StorageService storage, MediaStoragePaths paths, IHubContext<SyncHub> hub, HttpContext context,
+            CancellationToken ct) =>
+        {
+            var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (media is null) return Results.NotFound();
+            if (media.SourceKind == "link" || string.IsNullOrWhiteSpace(media.RelativePath))
+                return Results.BadRequest(new { error = "Online-only media cannot be replaced with a local version." });
+            if (media.ProcessingStatus is "processing" or "downloading")
+                return Results.Conflict(new { error = "Wait for current processing to finish before replacing this media." });
+            if (!request.HasFormContentType) return Results.BadRequest(new { error = "Choose a replacement media file." });
+            var form = await request.ReadFormAsync(ct);
+            var upload = form.Files.GetFile("file");
+            if (upload is null || upload.Length == 0) return Results.BadRequest(new { error = "Choose a non-empty replacement file." });
+            var extension = Path.GetExtension(upload.FileName);
+            if (!IsSupportedMediaExtension(extension)) return Results.BadRequest(new { error = "Unsupported media type." });
+            if (await storage.EnsureAvailableAsync(db, SaturatingAdd(upload.Length, media.SizeBytes), ct) is null)
+                return StorageExceeded(upload.Length);
+            var currentPath = ResolveStoredFile(paths.Originals, media.RelativePath);
+            if (currentPath is null) return Results.Conflict(new { error = "The current local media file is missing. Re-upload it as a new library item." });
+
+            var actor = context.User.Identity?.Name ?? "admin";
+            var temporaryRoot = Path.Combine(dataPath, "media", "temporary");
+            Directory.CreateDirectory(temporaryRoot);
+            var temporary = Path.Combine(temporaryRoot, $"replace-{Guid.NewGuid():N}{extension.ToLowerInvariant()}");
+            var newRelative = $"{media.Id:N}-v{media.Version + 1}-{Guid.NewGuid().ToString("N")[..8]}{extension.ToLowerInvariant()}";
+            var newPath = Path.Combine(paths.Originals, newRelative);
+            var archiveRelative = $"{media.Id:N}/v{media.Version:D4}-{Guid.NewGuid().ToString("N")[..8]}{Path.GetExtension(media.RelativePath).ToLowerInvariant()}";
+            var archivePath = Path.Combine(paths.Versions, archiveRelative.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(archivePath)!);
+            try
+            {
+                await using (var output = File.Create(temporary)) await upload.CopyToAsync(output, ct);
+                string sha;
+                await using (var source = File.OpenRead(temporary))
+                    sha = Convert.ToHexString(await SHA256.HashDataAsync(source, ct)).ToLowerInvariant();
+                if (string.Equals(sha, media.Sha256, StringComparison.OrdinalIgnoreCase))
+                    return Results.BadRequest(new { error = "This file is identical to the current version." });
+                File.Copy(currentPath, archivePath, false);
+                File.Move(temporary, newPath);
+                var archived = CreateArchivedVersion(media, archiveRelative, actor);
+                var derivatives = ResetMediaProcessing(media);
+                media.FileName = Path.GetFileName(upload.FileName);
+                media.ContentType = string.IsNullOrWhiteSpace(upload.ContentType) ? "application/octet-stream" : upload.ContentType;
+                media.RelativePath = newRelative;
+                media.Sha256 = sha;
+                media.SizeBytes = upload.Length;
+                media.SourceKind = "upload";
+                media.SourceUrl = null;
+                media.LinkKind = null;
+                media.Version++;
+                media.ReplacedAt = DateTimeOffset.UtcNow;
+                db.MediaAssetVersions.Add(archived);
+                await IncrementMediaLessonVersionsAsync(db, id, ct);
+                db.AuditEvents.Add(new AuditEvent { Actor = actor, Action = "media.replace", Object = id.ToString(),
+                    Summary = $"Version {archived.VersionNumber} archived; version {media.Version} is {media.FileName}." });
+                try { await db.SaveChangesAsync(ct); }
+                catch { TryDeleteFile(newPath); TryDeleteFile(archivePath); throw; }
+                TryDeleteFile(currentPath);
+                DeleteDerivatives(paths, derivatives);
+                await InvalidateAsync(hub, media.Version, ct);
+                return Results.Ok(new { media.Id, media.FileName, media.Version, archivedVersionId = archived.Id });
+            }
+            catch
+            {
+                TryDeleteFile(newPath);
+                TryDeleteFile(archivePath);
+                throw;
+            }
+            finally { TryDeleteFile(temporary); }
+        }).DisableAntiforgery();
+
+        admin.MapPost("/media/{id:guid}/versions/{versionId:guid}/restore", async (Guid id, Guid versionId,
+            LessonCueDb db, StorageService storage, MediaStoragePaths paths, IHubContext<SyncHub> hub,
+            HttpContext context, CancellationToken ct) =>
+        {
+            var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
+            var selected = await db.MediaAssetVersions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == versionId && x.MediaAssetId == id, ct);
+            if (media is null || selected is null) return Results.NotFound();
+            var currentPath = ResolveStoredFile(paths.Originals, media.RelativePath);
+            var selectedPath = ResolveStoredFile(paths.Versions, selected.RelativePath);
+            if (currentPath is null || selectedPath is null) return Results.Conflict(new { error = "A required version file is missing from local storage." });
+            if (await storage.EnsureAvailableAsync(db, SaturatingAdd(selected.SizeBytes, media.SizeBytes), ct) is null)
+                return StorageExceeded(selected.SizeBytes);
+            var actor = context.User.Identity?.Name ?? "admin";
+            var extension = Path.GetExtension(selected.RelativePath);
+            var newRelative = $"{media.Id:N}-v{media.Version + 1}-{Guid.NewGuid().ToString("N")[..8]}{extension}";
+            var newPath = Path.Combine(paths.Originals, newRelative);
+            var archiveRelative = $"{media.Id:N}/v{media.Version:D4}-{Guid.NewGuid().ToString("N")[..8]}{Path.GetExtension(media.RelativePath)}";
+            var archivePath = Path.Combine(paths.Versions, archiveRelative.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(archivePath)!);
+            try
+            {
+                File.Copy(currentPath, archivePath, false);
+                File.Copy(selectedPath, newPath, false);
+                var archived = CreateArchivedVersion(media, archiveRelative, actor);
+                var derivatives = ResetMediaProcessing(media);
+                media.FileName = selected.FileName;
+                media.ContentType = selected.ContentType;
+                media.RelativePath = newRelative;
+                media.Sha256 = selected.Sha256;
+                media.SizeBytes = selected.SizeBytes;
+                media.DurationMs = selected.DurationMs;
+                media.SourceKind = selected.SourceKind;
+                media.SourceUrl = selected.SourceUrl;
+                media.LinkKind = selected.LinkKind;
+                media.Version++;
+                media.ReplacedAt = DateTimeOffset.UtcNow;
+                db.MediaAssetVersions.Add(archived);
+                await IncrementMediaLessonVersionsAsync(db, id, ct);
+                db.AuditEvents.Add(new AuditEvent { Actor = actor, Action = "media.version.restore", Object = id.ToString(),
+                    Summary = $"Archived version {selected.VersionNumber} restored as version {media.Version}." });
+                try { await db.SaveChangesAsync(ct); }
+                catch { TryDeleteFile(newPath); TryDeleteFile(archivePath); throw; }
+                TryDeleteFile(currentPath);
+                DeleteDerivatives(paths, derivatives);
+                await InvalidateAsync(hub, media.Version, ct);
+                return Results.Ok(new { media.Id, media.FileName, media.Version, restoredFrom = selected.VersionNumber });
+            }
+            catch
+            {
+                TryDeleteFile(newPath);
+                TryDeleteFile(archivePath);
+                throw;
+            }
+        });
 
         admin.MapPost("/media/bulk", async (MediaBulkInput input, LessonCueDb db, MediaStoragePaths paths,
             IHubContext<SyncHub> hub, HttpContext context, CancellationToken ct) =>
@@ -486,8 +690,18 @@ public static class AdminApi
                     foreach (var item in media)
                         await MediaRetentionService.DeleteAsync(db, paths, item, actor, "media.delete", $"Deleted {item.FileName} from the media library.", ct);
                     break;
+                case "organize":
+                    var folder = NormalizeMediaFolder(input.Folder);
+                    var tags = NormalizeMediaTags(input.TagsCsv);
+                    foreach (var item in media)
+                    {
+                        item.Folder = folder;
+                        item.TagsCsv = tags;
+                        db.AuditEvents.Add(new AuditEvent { Actor = actor, Action = "media.organize", Object = item.Id.ToString(), Summary = $"{item.FileName}: {folder}; {tags}" });
+                    }
+                    break;
                 default:
-                    return Results.BadRequest(new { error = "Choose delete, expire, or keep permanently." });
+                    return Results.BadRequest(new { error = "Choose delete, expire, keep permanently, or organize." });
             }
 
             await db.SaveChangesAsync(ct);
@@ -521,14 +735,17 @@ public static class AdminApi
             var storedName = id + extension.ToLowerInvariant();
             var destination = Path.Combine(mediaPath, storedName);
             await using (var output = File.Create(destination)) await upload.CopyToAsync(output, ct);
-            await using var stream = File.OpenRead(destination);
-            var sha = Convert.ToHexString(await SHA256.HashDataAsync(stream, ct)).ToLowerInvariant();
+            string sha;
+            await using (var stream = File.OpenRead(destination))
+                sha = Convert.ToHexString(await SHA256.HashDataAsync(stream, ct)).ToLowerInvariant();
             var existing = await db.MediaAssets.FirstOrDefaultAsync(x => x.Sha256 == sha, ct);
             if (existing is not null)
             {
                 File.Delete(destination);
                 if (persistent) MediaRetention.KeepPermanently(existing);
                 else if (existing.StoragePolicy == MediaRetention.LessonScoped) MediaRetention.KeepForLesson(existing, retentionLesson!);
+                if (!string.IsNullOrWhiteSpace(form["folder"])) existing.Folder = NormalizeMediaFolder(form["folder"]);
+                if (!string.IsNullOrWhiteSpace(form["tagsCsv"])) existing.TagsCsv = NormalizeMediaTags(form["tagsCsv"]);
                 await db.SaveChangesAsync(ct);
                 return Results.Ok(new { duplicate = true, media = existing });
             }
@@ -541,7 +758,9 @@ public static class AdminApi
                 RelativePath = storedName,
                 Sha256 = sha,
                 SizeBytes = upload.Length,
-                DurationMs = duration
+                DurationMs = duration,
+                Folder = NormalizeMediaFolder(form["folder"]),
+                TagsCsv = NormalizeMediaTags(form["tagsCsv"])
             };
             if (persistent) MediaRetention.KeepPermanently(media);
             else MediaRetention.SetNewUploadPolicy(media, retentionLesson!);
@@ -570,7 +789,8 @@ public static class AdminApi
                 var pendingTitle = string.IsNullOrWhiteSpace(input.Title) ? "YouTube video" : input.Title.Trim();
                 var pending = new MediaAsset { FileName = pendingTitle, ContentType = "video/mp4", RelativePath = "",
                     SizeBytes = 0, OfflineEligible = false, ProcessingStatus = "downloading", SourceKind = "youtube-download",
-                    SourceUrl = uri.ToString(), LinkKind = "youtube-local" };
+                    SourceUrl = uri.ToString(), LinkKind = "youtube-local", Folder = NormalizeMediaFolder(input.Folder),
+                    TagsCsv = NormalizeMediaTags(input.TagsCsv) };
                 if (input.Persistent) MediaRetention.KeepPermanently(pending);
                 else MediaRetention.SetNewUploadPolicy(pending, retentionLesson!);
                 db.MediaAssets.Add(pending); Audit(db, "media.youtube.queue", pending.Id, uri.Host); await db.SaveChangesAsync(ct);
@@ -594,7 +814,8 @@ public static class AdminApi
             };
             var title = string.IsNullOrWhiteSpace(input.Title) ? uri.Host : input.Title.Trim();
             var media = new MediaAsset { FileName = title, ContentType = contentType, RelativePath = "",
-                SizeBytes = 0, OfflineEligible = direct, ProcessingStatus = "ready", SourceKind = "link", SourceUrl = uri.ToString(), LinkKind = kind };
+                SizeBytes = 0, OfflineEligible = direct, ProcessingStatus = "ready", SourceKind = "link", SourceUrl = uri.ToString(), LinkKind = kind,
+                Folder = NormalizeMediaFolder(input.Folder), TagsCsv = NormalizeMediaTags(input.TagsCsv) };
             db.MediaAssets.Add(media); Audit(db, "media.link", media.Id, $"{kind}: {uri.Host}"); await db.SaveChangesAsync(ct);
             return Results.Created($"/api/v1/media/{media.Id}", media);
         });
@@ -655,18 +876,23 @@ public static class AdminApi
                 }
             }
             Directory.Delete(folder, true);
-            await using var stream = File.OpenRead(destination); var sha = Convert.ToHexString(await SHA256.HashDataAsync(stream, ct)).ToLowerInvariant();
+            string sha;
+            await using (var stream = File.OpenRead(destination))
+                sha = Convert.ToHexString(await SHA256.HashDataAsync(stream, ct)).ToLowerInvariant();
             var existing = await db.MediaAssets.FirstOrDefaultAsync(x => x.Sha256 == sha, ct);
             if (existing is not null)
             {
                 File.Delete(destination);
                 if (input.Persistent) MediaRetention.KeepPermanently(existing);
                 else if (existing.StoragePolicy == MediaRetention.LessonScoped) MediaRetention.KeepForLesson(existing, retentionLesson!);
+                if (!string.IsNullOrWhiteSpace(input.Folder)) existing.Folder = NormalizeMediaFolder(input.Folder);
+                if (!string.IsNullOrWhiteSpace(input.TagsCsv)) existing.TagsCsv = NormalizeMediaTags(input.TagsCsv);
                 await db.SaveChangesAsync(ct);
                 return Results.Ok(new { duplicate = true, media = existing });
             }
             var media = new MediaAsset { Id = mediaId, FileName = Path.GetFileName(input.FileName), ContentType = input.ContentType,
-                RelativePath = storedName, Sha256 = sha, SizeBytes = new FileInfo(destination).Length, DurationMs = input.DurationMs };
+                RelativePath = storedName, Sha256 = sha, SizeBytes = new FileInfo(destination).Length, DurationMs = input.DurationMs,
+                Folder = NormalizeMediaFolder(input.Folder), TagsCsv = NormalizeMediaTags(input.TagsCsv) };
             if (input.Persistent) MediaRetention.KeepPermanently(media);
             else MediaRetention.SetNewUploadPolicy(media, retentionLesson!);
             db.MediaAssets.Add(media); Audit(db, "media.upload.complete", media.Id, media.FileName); await db.SaveChangesAsync(ct);
@@ -1061,6 +1287,89 @@ public static class AdminApi
     private static string NormalizeAdminRole(string role) => role is "Owner" or "Administrator" or "Editor" or "Viewer" ? role : "Viewer";
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static bool IsColor(string? value) => value is { Length: 7 } && value[0] == '#' && value[1..].All(Uri.IsHexDigit);
+
+    private static bool IsSupportedMediaExtension(string extension) => extension.ToLowerInvariant() is
+        ".mp4" or ".m4v" or ".mov" or ".mp3" or ".m4a" or ".aac" or ".wav" or
+        ".jpg" or ".jpeg" or ".png" or ".webp" or ".pdf" or ".pptx";
+
+    private static string NormalizeMediaFolder(string? folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder)) return "";
+        var normalized = string.Join("/", folder.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .Select(part => part.Trim()).Where(part => part is not "." and not ".." && part.Length > 0));
+        return normalized.Length <= 120 ? normalized : normalized[..120].TrimEnd('/');
+    }
+
+    private static string NormalizeMediaTags(string? tags)
+    {
+        var normalized = (tags ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(tag => tag.Trim()).Where(tag => tag.Length > 0).Select(tag => tag.Length > 40 ? tag[..40] : tag)
+            .Distinct(StringComparer.OrdinalIgnoreCase).Take(20).ToList();
+        while (normalized.Count > 0 && string.Join(", ", normalized).Length > 500) normalized.RemoveAt(normalized.Count - 1);
+        return string.Join(", ", normalized);
+    }
+
+    private static MediaAssetVersion CreateArchivedVersion(MediaAsset media, string relativePath, string actor) => new()
+    {
+        MediaAssetId = media.Id,
+        VersionNumber = media.Version,
+        FileName = media.FileName,
+        ContentType = media.ContentType,
+        RelativePath = relativePath,
+        Sha256 = media.Sha256,
+        SizeBytes = media.SizeBytes,
+        DurationMs = media.DurationMs,
+        SourceKind = media.SourceKind,
+        SourceUrl = media.SourceUrl,
+        LinkKind = media.LinkKind,
+        ArchivedBy = actor
+    };
+
+    private static (string? Thumbnail, string? Filmstrip, string? Waveform) ResetMediaProcessing(MediaAsset media)
+    {
+        var derivatives = (media.ThumbnailPath, media.FilmstripPath, media.WaveformPath);
+        media.DurationMs = null;
+        media.OfflineEligible = false;
+        media.ProcessingStatus = "pending";
+        media.ProcessingError = null;
+        media.VideoCodec = null;
+        media.AudioCodec = null;
+        media.Width = null;
+        media.Height = null;
+        media.LoudnessLufs = null;
+        media.ThumbnailPath = null;
+        media.FilmstripPath = null;
+        media.WaveformPath = null;
+        return derivatives;
+    }
+
+    private static void DeleteDerivatives(MediaStoragePaths paths,
+        (string? Thumbnail, string? Filmstrip, string? Waveform) derivatives)
+    {
+        foreach (var relative in new[] { derivatives.Thumbnail, derivatives.Filmstrip, derivatives.Waveform })
+        {
+            var path = relative is null ? null : ResolveStoredFile(paths.Thumbnails, relative);
+            if (path is not null) TryDeleteFile(path);
+        }
+    }
+
+    private static string? ResolveStoredFile(string root, string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath)) return null;
+        var normalizedRoot = Path.GetFullPath(root) + Path.DirectorySeparatorChar;
+        var path = Path.GetFullPath(Path.Combine(root, relativePath));
+        return path.StartsWith(normalizedRoot, StringComparison.Ordinal) && File.Exists(path) ? path : null;
+    }
+
+    private static void TryDeleteFile(string path) { try { if (File.Exists(path)) File.Delete(path); } catch { } }
+    private static long SaturatingAdd(long left, long right) => left > long.MaxValue - right ? long.MaxValue : left + right;
+
+    private static async Task IncrementMediaLessonVersionsAsync(LessonCueDb db, Guid mediaId, CancellationToken ct)
+    {
+        var lessonIds = await db.PlaylistItems.Where(x => x.MediaAssetId == mediaId).Select(x => x.LessonId).Distinct().ToListAsync(ct);
+        var lessons = await db.Lessons.Where(x => lessonIds.Contains(x.Id)).ToListAsync(ct);
+        foreach (var lesson in lessons) lesson.Version++;
+    }
 
     private static string NormalizeRole(string? role) => role is "preRoll" or "countdown" ? role : "lesson";
 
