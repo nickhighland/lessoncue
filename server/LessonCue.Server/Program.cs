@@ -97,7 +97,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         }
     };
 });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(LessonCuePermissions.AddPolicies);
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -144,7 +144,6 @@ app.Use(async (context, next) =>
     }
     if (unsafeMethod && context.Request.Path.StartsWithSegments("/api/v1") && context.User.Identity?.IsAuthenticated == true)
     {
-        if (context.User.IsInRole("Viewer")) { context.Response.StatusCode = StatusCodes.Status403Forbidden; return; }
         var origin = context.Request.Headers.Origin.ToString();
         if (!string.IsNullOrEmpty(origin) && (!Uri.TryCreate(origin, UriKind.Absolute, out var uri) ||
             !string.Equals(uri.Authority, context.Request.Host.Value, StringComparison.OrdinalIgnoreCase)))

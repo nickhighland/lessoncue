@@ -24,7 +24,8 @@ public static class AdminApi
             authenticated = context.User.Identity?.IsAuthenticated == true,
             username = context.User.Identity?.Name,
             displayName = context.User.FindFirstValue("display_name"),
-            role = context.User.FindFirstValue(ClaimTypes.Role)
+            role = context.User.FindFirstValue(ClaimTypes.Role),
+            permissions = LessonCuePermissions.Effective(context.User)
         });
 
         auth.MapPost("/setup", async (AdminSetupInput input, HttpContext context, LessonCueDb db,
@@ -75,12 +76,20 @@ public static class AdminApi
         }).RequireAuthorization();
 
         var admin = api.MapGroup("").RequireAuthorization();
+        var planning = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Planning);
+        var uploads = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Uploads);
+        var playback = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Playback);
+        var screens = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Screens);
+        var settings = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Settings);
 
         admin.MapGet("/admin/bootstrap", async (LessonCueDb db, PairingCodeService pairing, StorageService storage,
-            UpdateService updates, LocalAddressService localAddress, HttpPortService httpPort, CancellationToken ct) =>
+            UpdateService updates, LocalAddressService localAddress, HttpPortService httpPort, HttpContext context,
+            CancellationToken ct) =>
         {
             var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
             var storageStatus = await storage.GetSnapshotAsync(organization.StorageLimitBytes, ct);
+            var canPair = LessonCuePermissions.Has(context.User, LessonCuePermissions.Screens) ||
+                LessonCuePermissions.Has(context.User, LessonCuePermissions.Settings);
             return Results.Ok(new
             {
                 serverId,
@@ -88,13 +97,21 @@ public static class AdminApi
                 organization = organization.Name,
                 settings = organization,
                 organization.TimeZone,
-                pairingPin = pairing.Current,
-                pairingExpiresAt = pairing.ExpiresAt,
-                pairingFixed = pairing.FixedPin is not null,
+                pairingPin = canPair ? pairing.Current : null,
+                pairingExpiresAt = canPair ? (DateTimeOffset?)pairing.ExpiresAt : null,
+                pairingFixed = canPair && pairing.FixedPin is not null,
                 storage = storageStatus,
                 update = updates.Status,
                 localAddress = localAddress.Status,
                 httpPort = httpPort.Status,
+                permissionDefinitions = LessonCuePermissions.All,
+                permissionPresets = new
+                {
+                    owner = LessonCuePermissions.Defaults("Owner"),
+                    administrator = LessonCuePermissions.Defaults("Administrator"),
+                    editor = LessonCuePermissions.Defaults("Editor"),
+                    viewer = LessonCuePermissions.Defaults("Viewer")
+                },
                 counts = new
                 {
                     classes = await db.Classes.CountAsync(ct),
@@ -115,7 +132,7 @@ public static class AdminApi
                 screenCount = db.Screens.Count(screen => screen.AssignedClassId == x.Id && !screen.Revoked)
             }).ToListAsync(ct));
 
-        admin.MapPost("/classes", async (ClassInput input, LessonCueDb db, CancellationToken ct) =>
+        planning.MapPost("/classes", async (ClassInput input, LessonCueDb db, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Class name is required." });
             var item = new LessonClass { Name = input.Name.Trim(), Description = input.Description?.Trim() ?? "" };
@@ -125,7 +142,7 @@ public static class AdminApi
             return Results.Created($"/api/v1/classes/{item.Id}", item);
         });
 
-        admin.MapPut("/classes/{id:guid}", async (Guid id, ClassInput input, LessonCueDb db, CancellationToken ct) =>
+        planning.MapPut("/classes/{id:guid}", async (Guid id, ClassInput input, LessonCueDb db, CancellationToken ct) =>
         {
             var item = await db.Classes.FindAsync([id], ct);
             if (item is null) return Results.NotFound();
@@ -186,7 +203,7 @@ public static class AdminApi
             }).ToListAsync(ct));
         });
 
-        admin.MapPost("/lessons", async (LessonInput input, LessonCueDb db, CancellationToken ct) =>
+        planning.MapPost("/lessons", async (LessonInput input, LessonCueDb db, CancellationToken ct) =>
         {
             if (!await db.Classes.AnyAsync(x => x.Id == input.ClassId, ct)) return Results.BadRequest(new { error = "Class does not exist." });
             if (string.IsNullOrWhiteSpace(input.Title)) return Results.BadRequest(new { error = "Lesson title is required." });
@@ -208,7 +225,7 @@ public static class AdminApi
             return Results.Created($"/api/v1/lessons/{lesson.Id}", lesson);
         });
 
-        admin.MapPut("/lessons/{id:guid}", async (Guid id, LessonUpdateInput input, LessonCueDb db,
+        planning.MapPut("/lessons/{id:guid}", async (Guid id, LessonUpdateInput input, LessonCueDb db,
             IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var lesson = await db.Lessons.FindAsync([id], ct);
@@ -233,7 +250,7 @@ public static class AdminApi
             return Results.Ok(lesson);
         });
 
-        admin.MapDelete("/lessons/{id:guid}", async (Guid id, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        planning.MapDelete("/lessons/{id:guid}", async (Guid id, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var lesson = await db.Lessons.FindAsync([id], ct);
             if (lesson is null) return Results.NotFound();
@@ -244,7 +261,7 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        admin.MapPost("/lessons/{id:guid}/duplicate", async (Guid id, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        planning.MapPost("/lessons/{id:guid}/duplicate", async (Guid id, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var source = await db.Lessons.AsNoTracking().Include(x => x.Items).SingleOrDefaultAsync(x => x.Id == id, ct);
             if (source is null) return Results.NotFound();
@@ -279,7 +296,7 @@ public static class AdminApi
             return Results.Created($"/api/v1/lessons/{copy.Id}", new { copy.Id });
         });
 
-        admin.MapPost("/lessons/{id:guid}/archive", async (Guid id, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        planning.MapPost("/lessons/{id:guid}/archive", async (Guid id, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var lesson = await db.Lessons.FindAsync([id], ct);
             if (lesson is null) return Results.NotFound();
@@ -306,7 +323,7 @@ public static class AdminApi
                 })
             }).ToListAsync(ct)));
 
-        admin.MapPost("/lesson-templates/from-lesson", async (LessonTemplateFromLessonInput input,
+        planning.MapPost("/lesson-templates/from-lesson", async (LessonTemplateFromLessonInput input,
             LessonCueDb db, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Template name is required." });
@@ -316,7 +333,7 @@ public static class AdminApi
                 Results.Created($"/api/v1/lesson-templates/{template.Id}", new { template.Id });
         });
 
-        admin.MapPut("/lesson-templates/{id:guid}", async (Guid id, LessonTemplateUpdateInput input,
+        planning.MapPut("/lesson-templates/{id:guid}", async (Guid id, LessonTemplateUpdateInput input,
             LessonCueDb db, CancellationToken ct) =>
         {
             var template = await db.LessonTemplates.FindAsync([id], ct);
@@ -334,14 +351,14 @@ public static class AdminApi
             return Results.Ok(new { template.Id });
         });
 
-        admin.MapPost("/lesson-templates/{id:guid}/replace-from-lesson", async (Guid id,
+        planning.MapPost("/lesson-templates/{id:guid}/replace-from-lesson", async (Guid id,
             LessonTemplateReplaceInput input, LessonCueDb db, CancellationToken ct) =>
         {
             var replaced = await LessonScheduleService.ReplaceTemplateFromLessonAsync(db, id, input.LessonId, "admin", ct);
             return replaced ? Results.Ok(new { id }) : Results.NotFound(new { error = "The template or source lesson was not found." });
         });
 
-        admin.MapDelete("/lesson-templates/{id:guid}", async (Guid id, LessonCueDb db, CancellationToken ct) =>
+        planning.MapDelete("/lesson-templates/{id:guid}", async (Guid id, LessonCueDb db, CancellationToken ct) =>
         {
             var template = await db.LessonTemplates.FindAsync([id], ct);
             if (template is null) return Results.NotFound();
@@ -349,7 +366,7 @@ public static class AdminApi
             await db.SaveChangesAsync(ct); return Results.NoContent();
         });
 
-        admin.MapPost("/lesson-templates/{id:guid}/instantiate", async (Guid id, LessonTemplateInstantiateInput input,
+        planning.MapPost("/lesson-templates/{id:guid}/instantiate", async (Guid id, LessonTemplateInstantiateInput input,
             LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             if (input.StartMinutes is < 0 or > 1439) return Results.BadRequest(new { error = "Start time is invalid." });
@@ -370,7 +387,7 @@ public static class AdminApi
                 generatedCount = db.Lessons.Count(lesson => lesson.GeneratedByScheduleId == x.Id)
             }).ToListAsync(ct)));
 
-        admin.MapPost("/recurring-schedules", async (RecurringScheduleInput input, LessonCueDb db,
+        planning.MapPost("/recurring-schedules", async (RecurringScheduleInput input, LessonCueDb db,
             IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var error = ValidateSchedule(input);
@@ -386,7 +403,7 @@ public static class AdminApi
             return Results.Created($"/api/v1/recurring-schedules/{schedule.Id}", new { schedule.Id, generated = created });
         });
 
-        admin.MapPut("/recurring-schedules/{id:guid}", async (Guid id, RecurringScheduleInput input,
+        planning.MapPut("/recurring-schedules/{id:guid}", async (Guid id, RecurringScheduleInput input,
             LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var error = ValidateSchedule(input);
@@ -402,7 +419,7 @@ public static class AdminApi
             return Results.Ok(new { schedule.Id, generated = created });
         });
 
-        admin.MapDelete("/recurring-schedules/{id:guid}", async (Guid id, LessonCueDb db, CancellationToken ct) =>
+        planning.MapDelete("/recurring-schedules/{id:guid}", async (Guid id, LessonCueDb db, CancellationToken ct) =>
         {
             var schedule = await db.RecurringLessonSchedules.FindAsync([id], ct);
             if (schedule is null) return Results.NotFound();
@@ -410,7 +427,7 @@ public static class AdminApi
             await db.SaveChangesAsync(ct); return Results.NoContent();
         });
 
-        admin.MapPost("/recurring-schedules/{id:guid}/generate", async (Guid id,
+        planning.MapPost("/recurring-schedules/{id:guid}/generate", async (Guid id,
             RecurringScheduleGenerateInput input, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var created = await LessonScheduleService.GenerateAsync(db, id, input.ThroughDate, "admin", ct);
@@ -419,7 +436,7 @@ public static class AdminApi
             return Results.Ok(new { generated = created });
         });
 
-        admin.MapPost("/recurring-schedules/{id:guid}/exception", async (Guid id,
+        planning.MapPost("/recurring-schedules/{id:guid}/exception", async (Guid id,
             RecurringScheduleExceptionInput input, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var schedule = await db.RecurringLessonSchedules.FindAsync([id], ct);
@@ -442,7 +459,7 @@ public static class AdminApi
             return Results.Ok(new { schedule.ExcludedDatesJson, removed, generated = created });
         });
 
-        admin.MapPost("/lessons/{lessonId:guid}/items", async (Guid lessonId, PlaylistItemInput input,
+        planning.MapPost("/lessons/{lessonId:guid}/items", async (Guid lessonId, PlaylistItemInput input,
             LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var lesson = await db.Lessons.SingleOrDefaultAsync(x => x.Id == lessonId, ct);
@@ -494,7 +511,7 @@ public static class AdminApi
             });
         });
 
-        admin.MapPatch("/playlist-items/{id:guid}", async (Guid id, PlaylistItemUpdateInput input,
+        planning.MapPatch("/playlist-items/{id:guid}", async (Guid id, PlaylistItemUpdateInput input,
             LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var item = await db.PlaylistItems.Include(x => x.Lesson).Include(x => x.MediaAsset).SingleOrDefaultAsync(x => x.Id == id, ct);
@@ -542,7 +559,7 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        admin.MapDelete("/playlist-items/{id:guid}", async (Guid id, LessonCueDb db,
+        planning.MapDelete("/playlist-items/{id:guid}", async (Guid id, LessonCueDb db,
             IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var item = await db.PlaylistItems.Include(x => x.Lesson).SingleOrDefaultAsync(x => x.Id == id, ct);
@@ -557,7 +574,7 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        admin.MapPost("/lessons/{lessonId:guid}/reorder", async (Guid lessonId, PlaylistReorderInput input,
+        planning.MapPost("/lessons/{lessonId:guid}/reorder", async (Guid lessonId, PlaylistReorderInput input,
             LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var lesson = await db.Lessons.Include(x => x.Items).SingleOrDefaultAsync(x => x.Id == lessonId, ct);
@@ -648,7 +665,7 @@ public static class AdminApi
             });
         });
 
-        admin.MapPatch("/media/{id:guid}/organize", async (Guid id, MediaOrganizeInput input, LessonCueDb db,
+        uploads.MapPatch("/media/{id:guid}/organize", async (Guid id, MediaOrganizeInput input, LessonCueDb db,
             HttpContext context, CancellationToken ct) =>
         {
             var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
@@ -668,7 +685,7 @@ public static class AdminApi
             return Results.Ok(media);
         });
 
-        admin.MapPost("/media/{id:guid}/reprocess", async (Guid id, LessonCueDb db, MediaStoragePaths paths,
+        uploads.MapPost("/media/{id:guid}/reprocess", async (Guid id, LessonCueDb db, MediaStoragePaths paths,
             HttpContext context, CancellationToken ct) =>
         {
             var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
@@ -685,7 +702,7 @@ public static class AdminApi
             return Results.Accepted($"/api/v1/media/{id}", media);
         });
 
-        admin.MapPost("/media/{id:guid}/convert", async (Guid id, LessonCueDb db, HttpContext context,
+        uploads.MapPost("/media/{id:guid}/convert", async (Guid id, LessonCueDb db, HttpContext context,
             CancellationToken ct) =>
         {
             var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
@@ -702,7 +719,7 @@ public static class AdminApi
             return Results.Accepted($"/api/v1/media/{id}/impact", new { media.Id, media.ConversionStatus });
         });
 
-        admin.MapPost("/media/{id:guid}/conversion/add-to-lesson", async (Guid id, PresentationLessonInput input,
+        uploads.MapPost("/media/{id:guid}/conversion/add-to-lesson", async (Guid id, PresentationLessonInput input,
             LessonCueDb db, IHubContext<SyncHub> hub, HttpContext context, CancellationToken ct) =>
         {
             var source = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
@@ -716,7 +733,7 @@ public static class AdminApi
                 return Results.Ok(new { added = count, lesson.Id, lesson.Version });
             }
             catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
-        });
+        }).RequireAuthorization(LessonCuePermissions.Planning);
 
         admin.MapGet("/media/{id:guid}/versions/{versionId:guid}/file", async (Guid id, Guid versionId,
             LessonCueDb db, MediaStoragePaths paths, CancellationToken ct) =>
@@ -728,7 +745,7 @@ public static class AdminApi
             return path is null ? Results.NotFound() : Results.File(path, version.ContentType, version.FileName, enableRangeProcessing: true);
         });
 
-        admin.MapPost("/media/{id:guid}/replace", async (Guid id, HttpRequest request, LessonCueDb db,
+        uploads.MapPost("/media/{id:guid}/replace", async (Guid id, HttpRequest request, LessonCueDb db,
             StorageService storage, MediaStoragePaths paths, IHubContext<SyncHub> hub, HttpContext context,
             CancellationToken ct) =>
         {
@@ -771,7 +788,7 @@ public static class AdminApi
                 var archived = CreateArchivedVersion(media, archiveRelative, actor);
                 var derivatives = ResetMediaProcessing(media, clearConversion: true);
                 media.FileName = Path.GetFileName(upload.FileName);
-                media.ContentType = string.IsNullOrWhiteSpace(upload.ContentType) ? "application/octet-stream" : upload.ContentType;
+                media.ContentType = NormalizeContentType(upload.FileName, upload.ContentType);
                 media.RelativePath = newRelative;
                 media.Sha256 = sha;
                 media.SizeBytes = upload.Length;
@@ -800,7 +817,7 @@ public static class AdminApi
             finally { TryDeleteFile(temporary); }
         }).DisableAntiforgery();
 
-        admin.MapPost("/media/{id:guid}/versions/{versionId:guid}/restore", async (Guid id, Guid versionId,
+        uploads.MapPost("/media/{id:guid}/versions/{versionId:guid}/restore", async (Guid id, Guid versionId,
             LessonCueDb db, StorageService storage, MediaStoragePaths paths, IHubContext<SyncHub> hub,
             HttpContext context, CancellationToken ct) =>
         {
@@ -855,7 +872,7 @@ public static class AdminApi
             }
         });
 
-        admin.MapPost("/media/bulk", async (MediaBulkInput input, LessonCueDb db, MediaStoragePaths paths,
+        uploads.MapPost("/media/bulk", async (MediaBulkInput input, LessonCueDb db, MediaStoragePaths paths,
             IHubContext<SyncHub> hub, HttpContext context, CancellationToken ct) =>
         {
             if (input.MediaIds is null || input.MediaIds.Count == 0)
@@ -910,7 +927,7 @@ public static class AdminApi
             return Results.Ok(new { updated = media.Count, action });
         });
 
-        admin.MapPost("/media", async (HttpRequest request, LessonCueDb db, StorageService storage, CancellationToken ct) =>
+        uploads.MapPost("/media", async (HttpRequest request, LessonCueDb db, StorageService storage, CancellationToken ct) =>
         {
             if (!request.HasFormContentType) return Results.BadRequest(new { error = "multipart/form-data is required." });
             var form = await request.ReadFormAsync(ct);
@@ -925,10 +942,8 @@ public static class AdminApi
                 retentionLesson = await db.Lessons.SingleOrDefaultAsync(x => x.Id == retentionLessonId, ct);
                 if (retentionLesson is null) return Results.BadRequest(new { error = "The selected lesson does not exist." });
             }
-            var allowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { ".mp4", ".m4v", ".mov", ".mp3", ".m4a", ".aac", ".wav", ".jpg", ".jpeg", ".png", ".webp", ".pdf", ".pptx", ".odp", ".docx" };
             var extension = Path.GetExtension(upload.FileName);
-            if (!allowedExtensions.Contains(extension)) return Results.BadRequest(new { error = "Unsupported media type." });
+            if (!IsSupportedMediaExtension(extension)) return Results.BadRequest(new { error = "Unsupported media type." });
             if (await storage.EnsureAvailableAsync(db, upload.Length, ct) is null)
                 return StorageExceeded(upload.Length);
 
@@ -955,7 +970,7 @@ public static class AdminApi
             {
                 Id = id,
                 FileName = Path.GetFileName(upload.FileName),
-                ContentType = string.IsNullOrWhiteSpace(upload.ContentType) ? "application/octet-stream" : upload.ContentType,
+                ContentType = NormalizeContentType(upload.FileName, upload.ContentType),
                 RelativePath = storedName,
                 Sha256 = sha,
                 SizeBytes = upload.Length,
@@ -971,7 +986,7 @@ public static class AdminApi
             return Results.Created($"/api/v1/media/{media.Id}", media);
         }).DisableAntiforgery();
 
-        admin.MapPost("/media/link", async (LinkInput input, LessonCueDb db, CancellationToken ct) =>
+        uploads.MapPost("/media/link", async (LinkInput input, LessonCueDb db, CancellationToken ct) =>
         {
             if (!Uri.TryCreate(input.Url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
                 return Results.BadRequest(new { error = "Enter a complete http or https URL." });
@@ -1021,7 +1036,7 @@ public static class AdminApi
             return Results.Created($"/api/v1/media/{media.Id}", media);
         });
 
-        admin.MapPost("/uploads", async (string? fileName, long? totalBytes, LessonCueDb db, StorageService storage,
+        uploads.MapPost("/uploads", async (string? fileName, long? totalBytes, LessonCueDb db, StorageService storage,
             CancellationToken ct) =>
         {
             if (totalBytes is null or <= 0) return Results.BadRequest(new { error = "The total upload size is required." });
@@ -1029,7 +1044,7 @@ public static class AdminApi
             return Results.Ok(new { uploadId = Guid.NewGuid(), fileName = Path.GetFileName(fileName ?? "upload.bin"), chunkSize = 8 * 1024 * 1024 });
         });
 
-        admin.MapPut("/uploads/{uploadId:guid}/chunks/{index:int}", async (Guid uploadId, int index, HttpRequest request,
+        uploads.MapPut("/uploads/{uploadId:guid}/chunks/{index:int}", async (Guid uploadId, int index, HttpRequest request,
             LessonCueDb db, StorageService storage, CancellationToken ct) =>
         {
             if (index < 0 || request.ContentLength is > 8 * 1024 * 1024) return Results.BadRequest(new { error = "Invalid upload chunk." });
@@ -1050,11 +1065,9 @@ public static class AdminApi
             return Results.NoContent();
         }).DisableAntiforgery();
 
-        admin.MapPost("/uploads/{uploadId:guid}/complete", async (Guid uploadId, UploadCompleteInput input, LessonCueDb db, CancellationToken ct) =>
+        uploads.MapPost("/uploads/{uploadId:guid}/complete", async (Guid uploadId, UploadCompleteInput input, LessonCueDb db, CancellationToken ct) =>
         {
-            var allowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { ".mp4", ".m4v", ".mov", ".mp3", ".m4a", ".aac", ".wav", ".jpg", ".jpeg", ".png", ".webp", ".pdf", ".pptx", ".odp", ".docx" };
-            var extension = Path.GetExtension(input.FileName); if (!allowedExtensions.Contains(extension)) return Results.BadRequest(new { error = "Unsupported media type." });
+            var extension = Path.GetExtension(input.FileName); if (!IsSupportedMediaExtension(extension)) return Results.BadRequest(new { error = "Unsupported media type." });
             if (input.TotalChunks is < 1 or > 100000) return Results.BadRequest(new { error = "Invalid chunk count." });
             Lesson? retentionLesson = null;
             if (!input.Persistent)
@@ -1091,7 +1104,7 @@ public static class AdminApi
                 await db.SaveChangesAsync(ct);
                 return Results.Ok(new { duplicate = true, media = existing });
             }
-            var media = new MediaAsset { Id = mediaId, FileName = Path.GetFileName(input.FileName), ContentType = input.ContentType,
+            var media = new MediaAsset { Id = mediaId, FileName = Path.GetFileName(input.FileName), ContentType = NormalizeContentType(input.FileName, input.ContentType),
                 RelativePath = storedName, Sha256 = sha, SizeBytes = new FileInfo(destination).Length, DurationMs = input.DurationMs,
                 Folder = NormalizeMediaFolder(input.Folder), TagsCsv = NormalizeMediaTags(input.TagsCsv) };
             if (input.Persistent) MediaRetention.KeepPermanently(media);
@@ -1143,7 +1156,7 @@ public static class AdminApi
             }).ToListAsync(ct);
         });
 
-        admin.MapPost("/screens/{id:guid}/control", async (Guid id, ScreenControlInput input, LessonCueDb db,
+        playback.MapPost("/screens/{id:guid}/control", async (Guid id, ScreenControlInput input, LessonCueDb db,
             IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var action = input.Action.Trim().ToLowerInvariant();
@@ -1187,7 +1200,7 @@ public static class AdminApi
                 itemId = input.ItemId, positionMs = screen.ControlPositionMs, issuedAt = screen.ControlIssuedAt, state = screen.PlaybackState });
         });
 
-        admin.MapPatch("/screens/{id:guid}", async (Guid id, ScreenUpdateInput input, LessonCueDb db,
+        screens.MapPatch("/screens/{id:guid}", async (Guid id, ScreenUpdateInput input, LessonCueDb db,
             IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var screen = await db.Screens.FindAsync([id], ct);
@@ -1204,7 +1217,7 @@ public static class AdminApi
             return Results.Ok(screen);
         });
 
-        admin.MapDelete("/screens/{id:guid}", async (Guid id, LessonCueDb db, CancellationToken ct) =>
+        screens.MapDelete("/screens/{id:guid}", async (Guid id, LessonCueDb db, CancellationToken ct) =>
         {
             var screen = await db.Screens.FindAsync([id], ct);
             if (screen is null) return Results.NotFound();
@@ -1216,7 +1229,7 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        admin.MapGet("/audit", async (LessonCueDb db, CancellationToken ct) =>
+        settings.MapGet("/audit", async (LessonCueDb db, CancellationToken ct) =>
             (await db.AuditEvents.AsNoTracking().OrderByDescending(x => x.Id).Take(250).ToListAsync(ct)).OrderByDescending(x => x.Timestamp));
 
         MapOperations(admin, dataPath);
@@ -1224,12 +1237,17 @@ public static class AdminApi
 
     private static void MapOperations(RouteGroupBuilder admin, string dataPath)
     {
-        admin.MapGet("/organization", async (LessonCueDb db, CancellationToken ct) =>
+        var planning = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Planning);
+        var userAdmin = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Users);
+        var settings = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Settings);
+        var backupsAdmin = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Backups);
+        var updatesAdmin = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Updates);
+
+        settings.MapGet("/organization", async (LessonCueDb db, CancellationToken ct) =>
             await db.Organizations.AsNoTracking().FirstAsync(ct));
 
-        admin.MapPut("/organization", async (OrganizationInput input, LessonCueDb db, HttpContext context, CancellationToken ct) =>
+        settings.MapPut("/organization", async (OrganizationInput input, LessonCueDb db, CancellationToken ct) =>
         {
-            if (!IsManager(context.User)) return Results.Forbid();
             if (string.IsNullOrWhiteSpace(input.Name) || string.IsNullOrWhiteSpace(input.TimeZone))
                 return Results.BadRequest(new { error = "Organization name and time zone are required." });
             try { _ = TimeZoneInfo.FindSystemTimeZoneById(input.TimeZone); }
@@ -1251,13 +1269,12 @@ public static class AdminApi
             return Results.Ok(organization);
         });
 
-        admin.MapGet("/storage", async (LessonCueDb db, StorageService storage, CancellationToken ct) =>
+        settings.MapGet("/storage", async (LessonCueDb db, StorageService storage, CancellationToken ct) =>
             Results.Ok(await storage.GetSnapshotAsync(db, ct)));
 
-        admin.MapPut("/storage", async (StorageLimitInput input, LessonCueDb db, StorageService storage,
-            HttpContext context, CancellationToken ct) =>
+        settings.MapPut("/storage", async (StorageLimitInput input, LessonCueDb db, StorageService storage,
+            CancellationToken ct) =>
         {
-            if (!IsManager(context.User)) return Results.Forbid();
             var organization = await db.Organizations.FirstAsync(ct);
             var snapshot = await storage.GetSnapshotAsync(organization.StorageLimitBytes, ct);
             if (input.LimitBytes < 0) return Results.BadRequest(new { error = "Storage allocation cannot be negative." });
@@ -1271,12 +1288,11 @@ public static class AdminApi
             return Results.Ok(await storage.GetSnapshotAsync(input.LimitBytes, ct));
         });
 
-        admin.MapGet("/local-address", (LocalAddressService localAddress) => Results.Ok(localAddress.Status));
+        settings.MapGet("/local-address", (LocalAddressService localAddress) => Results.Ok(localAddress.Status));
 
-        admin.MapPut("/local-address", async (LocalHostnameInput input, LocalAddressService localAddress,
-            LessonCueDb db, HttpContext context, CancellationToken ct) =>
+        settings.MapPut("/local-address", async (LocalHostnameInput input, LocalAddressService localAddress,
+            LessonCueDb db, CancellationToken ct) =>
         {
-            if (!IsManager(context.User)) return Results.Forbid();
             try
             {
                 var status = await localAddress.SetAsync(input.Hostname, ct);
@@ -1287,12 +1303,11 @@ public static class AdminApi
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
-        admin.MapGet("/http-port", (HttpPortService httpPort) => Results.Ok(httpPort.Status));
+        settings.MapGet("/http-port", (HttpPortService httpPort) => Results.Ok(httpPort.Status));
 
-        admin.MapPut("/http-port", async (HttpPortInput input, HttpPortService httpPort,
-            LessonCueDb db, HttpContext context, CancellationToken ct) =>
+        settings.MapPut("/http-port", async (HttpPortInput input, HttpPortService httpPort,
+            LessonCueDb db, CancellationToken ct) =>
         {
-            if (!IsManager(context.User)) return Results.Forbid();
             try
             {
                 var status = await httpPort.SetAsync(input.Port, ct);
@@ -1303,15 +1318,14 @@ public static class AdminApi
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
-        admin.MapGet("/updates", (UpdateService updates) => Results.Ok(updates.Status));
+        updatesAdmin.MapGet("/updates", (UpdateService updates) => Results.Ok(updates.Status));
 
-        admin.MapPost("/updates/check", async (UpdateService updates, CancellationToken ct) =>
+        updatesAdmin.MapPost("/updates/check", async (UpdateService updates, CancellationToken ct) =>
             Results.Ok(await updates.CheckAsync(true, ct)));
 
-        admin.MapPost("/updates/install", async (UpdateService updates, LessonCueDb db, HttpContext context,
+        updatesAdmin.MapPost("/updates/install", async (UpdateService updates, LessonCueDb db, HttpContext context,
             CancellationToken ct) =>
         {
-            if (!IsManager(context.User)) return Results.Forbid();
             var status = await updates.CheckAsync(true, ct);
             if (!status.UpdateAvailable) return Results.Conflict(new { error = "LessonCue is already up to date." });
             if (!status.AutomaticInstallSupported)
@@ -1323,31 +1337,42 @@ public static class AdminApi
                 : Results.Problem("The server could not start the protected update service.", statusCode: 500);
         });
 
-        admin.MapGet("/users", async (LessonCueDb db, CancellationToken ct) =>
-            await db.AdminAccounts.AsNoTracking().OrderBy(x => x.DisplayName).Select(x => new
-            { x.Id, x.Username, x.DisplayName, x.Email, x.Role, x.Disabled, x.CreatedAt, x.LastLoginAt }).ToListAsync(ct));
+        userAdmin.MapGet("/users", async (LessonCueDb db, CancellationToken ct) =>
+        {
+            var accounts = await db.AdminAccounts.AsNoTracking().OrderBy(x => x.DisplayName).ToListAsync(ct);
+            return Results.Ok(accounts.Select(x => new
+            {
+                x.Id, x.Username, x.DisplayName, x.Email, x.Role, x.Disabled, x.CreatedAt, x.LastLoginAt,
+                permissions = LessonCuePermissions.Effective(x),
+                customPermissions = x.PermissionsCsv is null ? null : LessonCuePermissions.Parse(x.PermissionsCsv)
+            }));
+        });
 
-        admin.MapPost("/users", async (UserInput input, LessonCueDb db, HttpContext context,
+        userAdmin.MapPost("/users", async (UserInput input, LessonCueDb db, HttpContext context,
             IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
         {
-            if (!IsManager(context.User)) return Results.Forbid();
             var validation = ValidateCredentials(input.Username, input.Password ?? "");
             if (validation is not null) return Results.BadRequest(new { error = validation });
             if (string.IsNullOrWhiteSpace(input.DisplayName)) return Results.BadRequest(new { error = "Name is required." });
             var username = input.Username.Trim().ToLowerInvariant();
             if (await db.AdminAccounts.AnyAsync(x => x.Username == username, ct)) return Results.Conflict(new { error = "That username already exists." });
+            var role = NormalizeAdminRole(input.Role);
+            if (role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
             var account = new AdminAccount { Username = username, DisplayName = input.DisplayName.Trim(), Email = NullIfBlank(input.Email),
-                Role = NormalizeAdminRole(input.Role), Disabled = input.Disabled, PasswordHash = "pending" };
+                Role = role, PermissionsCsv = LessonCuePermissions.NormalizeCustom(input.Permissions, role),
+                Disabled = input.Disabled, PasswordHash = "pending" };
+            if (!context.User.IsInRole("Owner") && LessonCuePermissions.Effective(account)
+                .Except(LessonCuePermissions.Effective(context.User)).Any()) return Results.Forbid();
             account.PasswordHash = hasher.HashPassword(account, input.Password!);
             db.AdminAccounts.Add(account); Audit(db, "user.create", account.Id, account.Username); await db.SaveChangesAsync(ct);
             return Results.Created($"/api/v1/users/{account.Id}", new { account.Id });
         });
 
-        admin.MapPut("/users/{id:guid}", async (Guid id, UserInput input, LessonCueDb db, HttpContext context,
+        userAdmin.MapPut("/users/{id:guid}", async (Guid id, UserInput input, LessonCueDb db, HttpContext context,
             IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
         {
-            if (!IsManager(context.User)) return Results.Forbid();
             var account = await db.AdminAccounts.FindAsync([id], ct); if (account is null) return Results.NotFound();
+            if (account.Role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
             var currentAccountId = Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentId) ? currentId : Guid.Empty;
             if (account.Id == currentAccountId && input.Disabled)
                 return Results.BadRequest(new { error = "You cannot pause your own account." });
@@ -1358,12 +1383,23 @@ public static class AdminApi
             if (await db.AdminAccounts.AnyAsync(x => x.Username == username && x.Id != id, ct))
                 return Results.Conflict(new { error = "That username already exists." });
             var role = NormalizeAdminRole(input.Role);
+            if (role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
             if (account.Role == "Owner" && (role != "Owner" || input.Disabled) && await db.AdminAccounts.CountAsync(x => x.Role == "Owner" && !x.Disabled, ct) <= 1)
                 return Results.BadRequest(new { error = "At least one active owner is required." });
+            var permissionsCsv = LessonCuePermissions.NormalizeCustom(input.Permissions, role);
+            if (account.Id == currentAccountId && (account.Role != role || account.PermissionsCsv != permissionsCsv))
+                return Results.BadRequest(new { error = "Another user administrator must change your role or permissions." });
+            var requestedAccess = new AdminAccount
+            {
+                Username = account.Username, PasswordHash = account.PasswordHash, Role = role, PermissionsCsv = permissionsCsv
+            };
+            if (!context.User.IsInRole("Owner") && LessonCuePermissions.Effective(requestedAccess)
+                .Except(LessonCuePermissions.Effective(context.User)).Any()) return Results.Forbid();
             var identityChanged = account.Username != username || account.DisplayName != input.DisplayName.Trim() ||
-                account.Email != NullIfBlank(input.Email) || account.Role != role || account.Disabled != input.Disabled;
+                account.Email != NullIfBlank(input.Email) || account.Role != role || account.PermissionsCsv != permissionsCsv ||
+                account.Disabled != input.Disabled;
             account.Username = username; account.DisplayName = input.DisplayName.Trim(); account.Email = NullIfBlank(input.Email);
-            account.Role = role; account.Disabled = input.Disabled;
+            account.Role = role; account.PermissionsCsv = permissionsCsv; account.Disabled = input.Disabled;
             if (!string.IsNullOrWhiteSpace(input.Password))
             {
                 var validation = ValidateCredentials(account.Username, input.Password); if (validation is not null) return Results.BadRequest(new { error = validation });
@@ -1377,12 +1413,12 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        admin.MapDelete("/users/{id:guid}", async (Guid id, LessonCueDb db, HttpContext context, CancellationToken ct) =>
+        userAdmin.MapDelete("/users/{id:guid}", async (Guid id, LessonCueDb db, HttpContext context, CancellationToken ct) =>
         {
-            if (!IsManager(context.User)) return Results.Forbid();
             var currentAccountId = Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentId) ? currentId : Guid.Empty;
             if (id == currentAccountId) return Results.BadRequest(new { error = "You cannot delete your own account." });
             var account = await db.AdminAccounts.FindAsync([id], ct); if (account is null) return Results.NotFound();
+            if (account.Role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
             if (account.Role == "Owner" && !account.Disabled && await db.AdminAccounts.CountAsync(x => x.Role == "Owner" && !x.Disabled, ct) <= 1)
                 return Results.BadRequest(new { error = "At least one active owner is required." });
             db.AdminAccounts.Remove(account);
@@ -1396,7 +1432,7 @@ public static class AdminApi
             { x.Id, x.Name, x.Mode, x.Enabled, x.Priority, x.StartsAt, x.EndsAt, x.Message, x.BackgroundColor, x.TextColor,
                 x.MediaAssetId, mediaFileName = x.MediaAsset != null ? x.MediaAsset.FileName : null, x.TargetTagsCsv, x.CreatedAt }).ToListAsync(ct));
 
-        admin.MapPost("/signage", async (SignageInput input, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        planning.MapPost("/signage", async (SignageInput input, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Signage name is required." });
             var item = new SignagePlaylist { Name = input.Name.Trim(), Mode = input.Mode is "emergency" or "idle" ? input.Mode : "scheduled",
@@ -1407,7 +1443,7 @@ public static class AdminApi
             await InvalidateAsync(hub, 0, ct); return Results.Created($"/api/v1/signage/{item.Id}", item);
         });
 
-        admin.MapPut("/signage/{id:guid}", async (Guid id, SignageInput input, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        planning.MapPut("/signage/{id:guid}", async (Guid id, SignageInput input, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var item = await db.SignagePlaylists.FindAsync([id], ct); if (item is null) return Results.NotFound();
             item.Name = input.Name.Trim(); item.Mode = input.Mode is "emergency" or "idle" ? input.Mode : "scheduled"; item.Enabled = input.Enabled;
@@ -1417,30 +1453,28 @@ public static class AdminApi
             Audit(db, "signage.update", item.Id, item.Name); await db.SaveChangesAsync(ct); await InvalidateAsync(hub, 0, ct); return Results.Ok(item);
         });
 
-        admin.MapDelete("/signage/{id:guid}", async (Guid id, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        planning.MapDelete("/signage/{id:guid}", async (Guid id, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var item = await db.SignagePlaylists.FindAsync([id], ct); if (item is null) return Results.NotFound();
             db.SignagePlaylists.Remove(item); Audit(db, "signage.delete", id, item.Name); await db.SaveChangesAsync(ct); await InvalidateAsync(hub, 0, ct);
             return Results.NoContent();
         });
 
-        admin.MapGet("/backups", async (LessonCueDb db, CancellationToken ct) =>
+        backupsAdmin.MapGet("/backups", async (LessonCueDb db, CancellationToken ct) =>
             (await db.BackupRecords.AsNoTracking().ToListAsync(ct)).OrderByDescending(x => x.CreatedAt));
-        admin.MapPost("/backups", async (bool? full, LessonCueDb db, BackupService backups, HttpContext context, CancellationToken ct) =>
+        backupsAdmin.MapPost("/backups", async (bool? full, LessonCueDb db, BackupService backups, HttpContext context, CancellationToken ct) =>
         {
-            if (!IsManager(context.User)) return Results.Forbid();
             var record = await backups.CreateAsync(db, full == true, context.User.Identity?.Name ?? "admin", ct);
             Audit(db, "backup.create", record.Id, record.Kind); await db.SaveChangesAsync(ct); return Results.Created($"/api/v1/backups/{record.Id}/file", record);
         });
-        admin.MapGet("/backups/{id:guid}/file", async (Guid id, LessonCueDb db, BackupService backups, CancellationToken ct) =>
+        backupsAdmin.MapGet("/backups/{id:guid}/file", async (Guid id, LessonCueDb db, BackupService backups, CancellationToken ct) =>
         {
             var record = await db.BackupRecords.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (record is null) return Results.NotFound();
             var path = backups.Resolve(record.FileName); return path is null ? Results.NotFound() : Results.File(path, "application/zip", record.FileName);
         });
-        admin.MapPost("/backups/restore/preview", async (HttpRequest request, BackupService backups,
-            HttpContext context, CancellationToken ct) =>
+        backupsAdmin.MapPost("/backups/restore/preview", async (HttpRequest request, BackupService backups,
+            CancellationToken ct) =>
         {
-            if (!IsManager(context.User)) return Results.Forbid();
             if (!request.HasFormContentType) return Results.BadRequest(new { error = "Choose a LessonCue ZIP backup." });
             var form = await request.ReadFormAsync(ct);
             var upload = form.Files.GetFile("file");
@@ -1449,10 +1483,9 @@ public static class AdminApi
             catch (InvalidDataException ex) { return Results.BadRequest(new { error = ex.Message }); }
             catch (IOException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
-        admin.MapPost("/backups/restore", async (BackupRestoreInput input, LessonCueDb db, BackupService backups,
+        backupsAdmin.MapPost("/backups/restore", async (BackupRestoreInput input, LessonCueDb db, BackupService backups,
             IHubContext<SyncHub> hub, HttpContext context, CancellationToken ct) =>
         {
-            if (!IsManager(context.User)) return Results.Forbid();
             if (!string.Equals(input.Confirmation?.Trim(), "RESTORE", StringComparison.Ordinal))
                 return Results.BadRequest(new { error = "Type RESTORE to confirm this replacement." });
             try
@@ -1466,16 +1499,15 @@ public static class AdminApi
             catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
         });
 
-        admin.MapGet("/pairing/status", (PairingCodeService pairing) => Results.Ok(new
+        settings.MapGet("/pairing/status", (PairingCodeService pairing) => Results.Ok(new
         {
             pin = pairing.Current,
             expiresAt = pairing.ExpiresAt,
             fixedPin = pairing.FixedPin is not null
         }));
-        admin.MapPut("/pairing/pin", async (PairingPinInput input, PairingCodeService pairing, LessonCueDb db,
-            HttpContext context, CancellationToken ct) =>
+        settings.MapPut("/pairing/pin", async (PairingPinInput input, PairingCodeService pairing, LessonCueDb db,
+            CancellationToken ct) =>
         {
-            if (!IsManager(context.User)) return Results.Forbid();
             try { pairing.SetFixedPin(input.Automatic ? null : input.Pin); }
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
             Audit(db, "pairing.pin.update", Guid.Empty, input.Automatic ? "automatic" : "fixed");
@@ -1484,14 +1516,35 @@ public static class AdminApi
         });
     }
 
-    private static bool IsManager(ClaimsPrincipal user) => user.IsInRole("Owner") || user.IsInRole("Administrator");
     private static string NormalizeAdminRole(string role) => role is "Owner" or "Administrator" or "Editor" or "Viewer" ? role : "Viewer";
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static bool IsColor(string? value) => value is { Length: 7 } && value[0] == '#' && value[1..].All(Uri.IsHexDigit);
 
     private static bool IsSupportedMediaExtension(string extension) => extension.ToLowerInvariant() is
-        ".mp4" or ".m4v" or ".mov" or ".mp3" or ".m4a" or ".aac" or ".wav" or
+        ".mp4" or ".m4v" or ".mov" or ".mkv" or ".webm" or ".avi" or ".wmv" or ".asf" or
+        ".mpeg" or ".mpg" or ".mpe" or ".ts" or ".mts" or ".m2ts" or ".flv" or ".f4v" or
+        ".ogv" or ".3gp" or ".3g2" or ".vob" or ".mp3" or ".m4a" or ".aac" or ".wav" or
         ".jpg" or ".jpeg" or ".png" or ".webp" or ".pdf" or ".pptx" or ".odp" or ".docx";
+
+    private static string NormalizeContentType(string fileName, string? provided)
+    {
+        if (!string.IsNullOrWhiteSpace(provided) && !provided.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase))
+            return provided;
+        return Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".mp4" or ".m4v" or ".mov" or ".f4v" => "video/mp4",
+            ".mkv" => "video/x-matroska", ".webm" => "video/webm", ".avi" => "video/x-msvideo",
+            ".wmv" or ".asf" => "video/x-ms-wmv", ".mpeg" or ".mpg" or ".mpe" or ".vob" => "video/mpeg",
+            ".ts" or ".mts" or ".m2ts" => "video/mp2t", ".flv" => "video/x-flv", ".ogv" => "video/ogg",
+            ".3gp" or ".3g2" => "video/3gpp", ".mp3" => "audio/mpeg", ".m4a" or ".aac" => "audio/aac",
+            ".wav" => "audio/wav", ".jpg" or ".jpeg" => "image/jpeg", ".png" => "image/png",
+            ".webp" => "image/webp", ".pdf" => "application/pdf",
+            ".pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ".odp" => "application/vnd.oasis.opendocument.presentation",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            _ => "application/octet-stream"
+        };
+    }
 
     private static string NormalizeMediaFolder(string? folder)
     {
@@ -1627,13 +1680,18 @@ public static class AdminApi
 
     private static Task SignInAsync(HttpContext context, AdminAccount account)
     {
-        var identity = new ClaimsIdentity([
+        var claims = new List<Claim>
+        {
             new Claim(ClaimTypes.NameIdentifier, account.Id.ToString()),
             new Claim(ClaimTypes.Name, account.Username),
             new Claim(ClaimTypes.Role, account.Role),
             new Claim("display_name", account.DisplayName),
-            new Claim("session_version", account.SessionVersion.ToString(CultureInfo.InvariantCulture))
-        ], CookieAuthenticationDefaults.AuthenticationScheme);
+            new Claim("session_version", account.SessionVersion.ToString(CultureInfo.InvariantCulture)),
+            new Claim("lessoncue_permissions_version", "1")
+        };
+        claims.AddRange(LessonCuePermissions.Effective(account).Select(permission =>
+            new Claim(LessonCuePermissions.ClaimType, permission)));
+        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         return context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity),
             new AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddHours(12) });
     }

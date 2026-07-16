@@ -26,6 +26,7 @@ public sealed class AdminAccount
     [MaxLength(120)] public string DisplayName { get; set; } = "Administrator";
     [MaxLength(200)] public string? Email { get; set; }
     [MaxLength(32)] public string Role { get; set; } = "Owner";
+    [MaxLength(512)] public string? PermissionsCsv { get; set; }
     public bool Disabled { get; set; }
     public required string PasswordHash { get; set; }
     public int SessionVersion { get; set; } = 1;
@@ -364,7 +365,8 @@ public sealed record PlaylistReorderInput(List<Guid> ItemIds);
 public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool? VolunteerMode,
     bool ClearAssignment = false, string? TagsCsv = null, string? Site = null);
 public sealed record ScreenControlInput(string Action, Guid? LessonId = null, Guid? ItemId = null, long? PositionMs = null);
-public sealed record UserInput(string Username, string DisplayName, string? Email, string Role, string? Password, bool Disabled = false);
+public sealed record UserInput(string Username, string DisplayName, string? Email, string Role, string? Password,
+    bool Disabled = false, List<string>? Permissions = null);
 public sealed record OrganizationInput(string Name, string SiteName, string TimeZone, string WeekStartsOn,
     int DefaultLessonDurationMinutes, int DefaultRetentionDays, string PrimaryColor, string AccentColor,
     string? NavigationTextColor, string? SelectedTabColor, string WelcomeMessage);

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 2.4.0
+  version: 2.5.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local
@@ -561,7 +561,7 @@ paths:
   /api/v1/storage:
     get:
       operationId: getStorageStatus
-      description: Returns current LessonCue usage, computer free space, allocation, and remaining upload capacity.
+      description: Requires settings.manage. Returns current LessonCue usage, computer free space, allocation, and remaining upload capacity. Upload-capable users receive a capacity summary through bootstrap and the Media Library.
       responses:
         '200':
           description: Storage status
@@ -570,7 +570,7 @@ paths:
               schema: { $ref: '#/components/schemas/StorageStatus' }
     put:
       operationId: setStorageAllocation
-      description: Owner or administrator only. Zero enables automatic safe allocation.
+      description: Requires settings.manage. Zero enables automatic safe allocation.
       requestBody:
         required: true
         content:
@@ -586,6 +586,7 @@ paths:
   /api/v1/local-address:
     get:
       operationId: getLocalAddress
+      description: Requires settings.manage.
       responses:
         '200':
           description: Requested `.local` hostname and native Linux application status
@@ -594,7 +595,7 @@ paths:
               schema: { $ref: '#/components/schemas/LocalAddressStatus' }
     put:
       operationId: setLocalAddress
-      description: Owner or administrator only. Applies a single-label mDNS hostname on native Linux.
+      description: Requires settings.manage. Applies a single-label mDNS hostname on native Linux.
       requestBody:
         required: true
         content:
@@ -614,6 +615,7 @@ paths:
   /api/v1/http-port:
     get:
       operationId: getHttpPort
+      description: Requires settings.manage.
       responses:
         '200':
           description: Configured browser port and application status
@@ -622,7 +624,7 @@ paths:
               schema: { $ref: '#/components/schemas/HttpPortStatus' }
     put:
       operationId: setHttpPort
-      description: Owner or administrator only. Saves the listener port and applies it automatically on native Linux.
+      description: Requires settings.manage. Saves the listener port and applies it automatically on native Linux.
       requestBody:
         required: true
         content:
@@ -642,6 +644,7 @@ paths:
   /api/v1/updates:
     get:
       operationId: getUpdateStatus
+      description: Requires updates.manage. All signed-in users still receive the daily update-available alert through bootstrap.
       responses:
         '200':
           description: Installed and latest release status
@@ -651,18 +654,20 @@ paths:
   /api/v1/updates/check:
     post:
       operationId: checkForUpdate
+      description: Requires updates.manage.
       responses:
         '200': { description: Refreshed update status }
   /api/v1/updates/install:
     post:
       operationId: installUpdate
-      description: Owner or administrator only. Starts the protected native Linux updater.
+      description: Requires updates.manage. Starts the protected native Linux updater.
       responses:
         '202': { description: Update installation started }
         '409': { description: No update is available or automatic installation is not configured }
   /api/v1/pairing/status:
     get:
       operationId: getPairingStatus
+      description: Requires settings.manage.
       responses:
         '200':
           description: Current local pairing PIN and mode
@@ -672,7 +677,7 @@ paths:
   /api/v1/pairing/pin:
     put:
       operationId: setPairingPin
-      description: Owner or administrator only. Set a fixed local six-digit PIN or restore automatic rotation.
+      description: Requires settings.manage. Set a fixed local six-digit PIN or restore automatic rotation.
       requestBody:
         required: true
         content:
@@ -692,7 +697,7 @@ paths:
   /api/v1/users:
     get:
       operationId: listUsers
-      description: Lists local accounts for the signed-in browser user.
+      description: Requires users.manage. Lists local accounts with their effective and optional custom permissions.
       responses:
         '200':
           description: Local user accounts
@@ -703,7 +708,7 @@ paths:
                 items: { $ref: '#/components/schemas/User' }
     post:
       operationId: createUser
-      description: Owner or administrator only.
+      description: Requires users.manage. Only an owner can create another owner.
       requestBody:
         required: true
         content:
@@ -721,7 +726,7 @@ paths:
         schema: { type: string, format: uuid }
     put:
       operationId: updateUser
-      description: Owner or administrator only. Updates identity, role, status, and optionally the password. Identity and status changes invalidate earlier sessions.
+      description: Requires users.manage. Updates identity, role, granular permissions, status, and optionally the password. Security changes invalidate earlier sessions. Only an owner can alter an owner account or grant the owner role.
       requestBody:
         required: true
         content:
@@ -734,7 +739,7 @@ paths:
         '409': { description: Username already exists }
     delete:
       operationId: deleteUser
-      description: Owner or administrator only. Self-deletion and deletion of the final active owner are rejected.
+      description: Requires users.manage. Self-deletion and deletion of the final active owner are rejected; only an owner can delete an owner.
       responses:
         '204': { description: User deleted }
         '400': { description: Self-deletion or final active owner protection }
@@ -907,13 +912,23 @@ components:
         fixedPin: { type: boolean }
     User:
       type: object
-      required: [id, username, displayName, role, disabled, createdAt]
+      required: [id, username, displayName, role, permissions, disabled, createdAt]
       properties:
         id: { type: string, format: uuid }
         username: { type: string, minLength: 3, maxLength: 80 }
         displayName: { type: string, minLength: 1 }
         email: { type: [string, 'null'], format: email }
         role: { enum: [Viewer, Editor, Administrator, Owner] }
+        permissions:
+          type: array
+          items: { $ref: '#/components/schemas/Permission' }
+          uniqueItems: true
+          description: Effective capabilities after applying role defaults or the custom override.
+        customPermissions:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/Permission' }
+          uniqueItems: true
+          description: Null uses role defaults; an empty array intentionally grants no management capabilities.
         disabled: { type: boolean }
         createdAt: { type: string, format: date-time }
         lastLoginAt: { type: [string, 'null'], format: date-time }
@@ -925,11 +940,18 @@ components:
         displayName: { type: string, minLength: 1 }
         email: { type: [string, 'null'], format: email }
         role: { enum: [Viewer, Editor, Administrator, Owner] }
+        permissions:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/Permission' }
+          uniqueItems: true
+          description: Null uses role defaults; an empty array intentionally grants no management capabilities. Owners always retain every capability.
         password:
           type: [string, 'null']
           minLength: 10
           description: Required when creating an account; omit or send null during updates to retain the current password.
         disabled: { type: boolean, default: false }
+    Permission:
+      enum: [planning.manage, uploads.manage, playback.control, screens.manage, users.manage, settings.manage, backups.manage, updates.manage]
     Class:
       allOf:
         - $ref: '#/components/schemas/ClassInput'

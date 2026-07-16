@@ -23,6 +23,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - Automatic `lessoncue.local` setup on native Linux, with an administrator-configurable `.local` browser name and numeric-IP fallback.
 - Local administrator password recovery over SSH, including username listing, audited resets, and existing-session invalidation.
 - Administrator user management with editable names, usernames, email addresses, roles, and passwords, plus pause/reactivate and protected account deletion.
+- Granular per-user permissions for lesson planning, media uploads, live playback, screen administration, user administration, server settings, backups, and software updates. Built-in roles supply safe defaults, while owners can grant an exact custom combination.
 - Local interface branding with independent navigation background, navigation text, selected-tab, and accent colors.
 - Browser previews for every ready media item, including playlist trim points, fades, volume, looping, and operator notes.
 - A prominent **Edit visual timeline, trims & fades** action on every lesson cue, with locally generated video filmstrips and audio waveforms, visible fade regions, 0.04-second trim nudging, selection preview, and numeric controls as a fallback.
@@ -85,6 +86,12 @@ Native Linux installations check for a new LessonCue release once per day. Owner
 Native Linux also advertises `http://lessoncue.local` automatically. Owners and administrators can choose a different single-label `.local` name or HTTP port under **Settings → Connection & pairing** without changing the computer's Linux or SSH hostname. Port 80 is the default, so it does not need to appear in the address.
 
 Owners and administrators can choose an explicit LessonCue storage allocation or let it follow safely available disk space. LessonCue preserves a 512 MB operating-system reserve, rejects uploads that exceed the allocation, and shows remaining upload capacity to every user who has upload access.
+
+## Roles and granular permissions
+
+Open **Users**, create or edit an account, and enable **Customize this role** to choose its exact capabilities. Owners and Administrators default to all eight capabilities; Editors default to lesson planning, uploads, and live playback; Viewers default to read-only access. A custom empty selection intentionally grants no management actions. Owners always retain every capability, and only an owner can create, edit, or delete another owner.
+
+Permission checks run on the local server, not only in the browser. Restricted navigation and controls are hidden, direct API attempts return HTTP 403, pairing PINs are withheld from accounts without screen or settings authority, and changing identity, role, permissions, status, or password invalidates older sessions.
 
 ## Preview and cellphone control
 

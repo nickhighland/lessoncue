@@ -167,6 +167,7 @@ public static class DatabaseUpgrade
             ["AdminAccounts.DisplayName"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"DisplayName\" TEXT NOT NULL DEFAULT 'Administrator'"),
             ["AdminAccounts.Email"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"Email\" TEXT NULL"),
             ["AdminAccounts.Role"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"Role\" TEXT NOT NULL DEFAULT 'Owner'"),
+            ["AdminAccounts.PermissionsCsv"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"PermissionsCsv\" TEXT NULL"),
             ["AdminAccounts.Disabled"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"Disabled\" INTEGER NOT NULL DEFAULT 0"),
             ["AdminAccounts.SessionVersion"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"SessionVersion\" INTEGER NOT NULL DEFAULT 1"),
             ["Lessons.Archived"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"Archived\" INTEGER NOT NULL DEFAULT 0"),

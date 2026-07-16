@@ -80,8 +80,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: "Add media" }).click();
   const videoUploadForm = page.locator("form").filter({ has: page.getByLabel("Media file") });
   await videoUploadForm.getByLabel("Media file").setInputFiles({
-    name: "needs-tv-conversion.mp4",
-    mimeType: "video/mp4",
+    name: "needs-tv-conversion.avi",
+    mimeType: "application/octet-stream",
     buffer: incompatibleVideo(),
   });
   await videoUploadForm.getByLabel("Display title").fill("Browser Compatibility Video");
@@ -89,12 +89,12 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByText("Browser Compatibility Video", { exact: true })).toBeVisible();
   await expect.poll(async () => page.evaluate(async () => {
     const items = await fetch("/api/v1/media").then(response => response.json());
-    const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
+    const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.avi");
     return `${item?.processingStatus}:${item?.compatibilityStatus}`;
   }), { timeout: 60_000 }).toBe("ready:ready");
   const playbackDelivery = await page.evaluate(async () => {
     const items = await fetch("/api/v1/media").then(response => response.json());
-    const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
+    const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.avi");
     const response = await fetch(item.playbackUrl);
     const bytes = new Uint8Array(await response.arrayBuffer());
     return { contentType: response.headers.get("content-type"), signature: String.fromCharCode(...bytes.slice(4, 8)) };
@@ -238,7 +238,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(restoredVersionRow).toContainText("Audio/Classroom");
   await expect(restoredVersionRow).toContainText("v3");
   await expect(page.locator(".media-table").filter({ hasText: "one-page-handout.pdf" })).toBeVisible();
-  await expect(page.locator(".media-table").filter({ hasText: "needs-tv-conversion.mp4" })).toContainText("TV copy ready");
+  await expect(page.locator(".media-table").filter({ hasText: "needs-tv-conversion.avi" })).toContainText("TV copy ready");
   await expect(page.locator(".media-table").filter({ hasText: "one-page-handout — Slide 1" })).toBeVisible();
   await page.getByRole("button", { name: /Classes$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
@@ -246,4 +246,34 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: /Templates$/ }).click();
   await expect(page.locator(".template-card").filter({ hasText: "Reusable Browser Lesson" })).toBeVisible();
   await expect(page.locator(".schedule-card").filter({ hasText: "Browser Test Term" })).toContainText("1");
+
+  await page.getByRole("button", { name: /Users$/ }).click();
+  await page.getByRole("button", { name: "Add user" }).click();
+  const userDialog = page.getByRole("dialog", { name: "Add a local user" });
+  await userDialog.getByLabel("Name", { exact: true }).fill("Playback Volunteer");
+  await userDialog.getByLabel("Username").fill("playback-volunteer");
+  await userDialog.getByRole("combobox", { name: /Role/ }).selectOption("Viewer");
+  await userDialog.getByLabel("Customize this role").check();
+  await userDialog.getByRole("button", { name: /^Live playback/ }).click();
+  await expect(userDialog.getByRole("button", { name: /Live playback/ })).toHaveAttribute("aria-pressed", "true");
+  await userDialog.getByLabel("Temporary password").fill("PlaybackOnly42");
+  await userDialog.getByRole("button", { name: "Create user" }).click();
+  await expect(page.getByText("Local user created.", { exact: false })).toBeVisible();
+  const volunteerRow = page.locator(".user-row").filter({ hasText: "Playback Volunteer" });
+  await expect(volunteerRow).toContainText("1 of 8 permissions · custom");
+
+  await page.getByRole("button", { name: /Test Administrator.*Sign out/ }).click();
+  await page.getByLabel("Username").fill("playback-volunteer");
+  await page.getByLabel("Password").fill("PlaybackOnly42");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("button", { name: /Controller$/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Classes$/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Users$/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Settings$/ })).toHaveCount(0);
+  const permissionStatuses = await page.evaluate(async () => ({
+    planning: (await fetch("/api/v1/classes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Denied", description: "" }) })).status,
+    users: (await fetch("/api/v1/users")).status,
+    playback: (await fetch("/api/v1/screens/00000000-0000-0000-0000-000000000000/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "stop" }) })).status,
+  }));
+  expect(permissionStatuses).toEqual({ planning: 403, users: 403, playback: 404 });
 });
