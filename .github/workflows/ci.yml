@@ -53,7 +53,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - run: sudo apt-get update && sudo apt-get install -y libreoffice-impress poppler-utils
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg libreoffice-impress poppler-utils
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run build:admin
