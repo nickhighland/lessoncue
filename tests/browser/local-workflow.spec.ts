@@ -311,7 +311,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   expect(backupPath).not.toBeNull();
 
   await page.getByLabel("Organization", { exact: true }).fill("Changed Organization");
-  await page.getByRole("button", { name: "Save settings" }).click();
+  await page.getByRole("button", { name: "Save organization & appearance" }).click();
   await expect(page.getByText("Organization settings saved.", { exact: false })).toBeVisible();
 
   await page.getByLabel("Restore a LessonCue backup").setInputFiles(backupPath!);
