@@ -28,13 +28,21 @@ public sealed class ManifestTests
             AvailableFrom = DateTimeOffset.UtcNow.AddHours(-1),
             ExpiresAt = DateTimeOffset.UtcNow.AddHours(1)
         };
+        var media = new MediaAsset
+        {
+            FileName = "guided.mov", ContentType = "video/quicktime", RelativePath = "guided.mov",
+            Sha256 = "original", SizeBytes = 100, CompatibilityStatus = "ready",
+            CompatibilityPath = "guided-compatible.mp4", CompatibilitySha256 = "compatible", CompatibilitySizeBytes = 80,
+            OfflineEligible = true
+        };
         lesson.Items.Add(new PlaylistItem
         {
             Title = "Guided example",
             Type = "video",
+            MediaAssetId = media.Id,
             CuePointsJson = "[{\"Name\":\"Discussion\",\"PositionMs\":42000}]"
         });
-        db.AddRange(lessonClass, screen, lesson, new SignagePlaylist
+        db.AddRange(lessonClass, screen, lesson, media, new SignagePlaylist
         {
             Name = "Lobby notice", Enabled = true, TargetTagsCsv = "elementary",
             StartsAt = DateTimeOffset.UtcNow.AddHours(-1), EndsAt = DateTimeOffset.UtcNow.AddHours(1)
@@ -47,5 +55,9 @@ public sealed class ManifestTests
         Assert.Contains("Lobby notice", json);
         Assert.Contains("Discussion", json);
         Assert.Contains("42000", json);
+        Assert.Contains($"/api/v1/media/{media.Id}/playback", json);
+        Assert.Contains("\"contentType\":\"video/mp4\"", json);
+        Assert.Contains("\"fileExtension\":\"mp4\"", json);
+        Assert.Contains("\"sha256\":\"compatible\"", json);
     }
 }

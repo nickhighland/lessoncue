@@ -13,6 +13,8 @@ data class CueItem(
     val url: String?,
     val playbackUrl: String? = null,
     val linkKind: String? = null,
+    val contentType: String? = null,
+    val fileExtension: String? = null,
     val sha256: String? = null,
     val sizeBytes: Long? = null,
     val durationMs: Long? = null,
@@ -27,6 +29,8 @@ data class CueItem(
     val offlineEligible: Boolean = false,
     val cuePoints: List<CuePoint> = emptyList()
 )
+
+fun CueItem.cacheFileName(): String = "$id.${fileExtension?.takeIf { it.matches(Regex("[a-zA-Z0-9]{1,8}")) } ?: "bin"}"
 
 data class CountdownCue(val itemId: String, val durationMs: Long, val startAt: Instant?, val item: CueItem)
 data class PreRollCue(val items: List<CueItem>)

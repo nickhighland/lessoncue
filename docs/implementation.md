@@ -76,9 +76,17 @@ The web manifest starts at `/controller` in standalone mode. Apple mobile-web-ap
 
 The Media Library exposes every ready asset through the server's normal range-enabled URL. Lesson previews layer playlist behavior on top of the raw source: the browser seeks to `startMs`, pauses or loops at `endMs`, updates volume through the fade-in/fade-out windows, applies the stored volume ceiling, and overlays operator notes. Online YouTube URLs are converted only to standard embed URLs in the browser; arbitrary webpage previews remain client-side iframe navigation and are never fetched by the LessonCue server.
 
+Every playlist cue exposes the visual editor directly from its lesson row. Filmstrip and waveform derivatives share the selected trim window with the browser preview, while the timeline overlays fade-in and fade-out regions and keeps numeric fields available for exact entry. Saving writes the same trim, fade, marker, volume, and loop fields consumed by both native manifests.
+
+### TV playback compatibility
+
+`MediaProcessingService` probes every local video, including existing ready media first encountered after an upgrade. A file is considered universally native only when it is an MP4 containing 8-bit 4:2:0 H.264 at level 4.2 or lower, no more than 1920 by 1080, and AAC or no audio. Compatible H.264/AAC content in another container is remuxed when possible; all other video is transcoded locally to H.264 High 4.1, `yuv420p`, AAC stereo at 48 kHz, and a maximum 1920-by-1080 frame with MP4 fast-start metadata.
+
+Conversion is written to operating-system temporary storage first, then checked against LessonCue's allocation before installation under `media/compatibility`. The original remains authoritative and is never overwritten. The derivative has an independent SHA-256 checksum and size, is served through the range-enabled `/api/v1/media/{id}/playback` route, and is removed with the asset by retention cleanup. Manifests publish the chosen playback URL, MIME type, extension, checksum, size, and compatibility state. Native caches preserve that extension and provide the MIME type explicitly to ExoPlayer or AVPlayer, avoiding content-sniffing failures from legacy extensionless cache files.
+
 ### Media organization and versioning
 
-`MediaAsset` keeps a stable identifier while its current original advances through numbered versions. Folder and normalized tag metadata are searchable in the browser and can be assigned during upload or replaced in bulk. Before replacement, the impact endpoint groups every referencing playlist cue by lesson and lists referencing signage. The new original is written to a distinct path, the current original is copied under `media/versions`, and the database change is committed before the now-unreferenced current path is removed. If file preparation or database persistence fails, new and archived candidates are removed while the current database and original remain untouched.
+`MediaAsset` keeps a stable identifier while its current original advances through numbered versions. Folder and normalized tag metadata are searchable in the browser and can be assigned during upload or replaced in bulk. Before replacement, the impact endpoint groups every referencing playlist cue by lesson and template and lists referencing signage. The new original is written to a distinct path, the current original is copied under `media/versions`, and the database change is committed before the now-unreferenced current path is removed. If file preparation or database persistence fails, new and archived candidates are removed while the current database and original remain untouched.
 
 `MediaAssetVersion` stores the archived original's filename, type, checksum, size, source details, actor, and version number. Restoring history copies the selected original into a new current version and archives the displaced current original, so restoration never rewrites history. Replacement and restoration increment affected lesson manifest versions and trigger SignalR invalidation. Reprocessing clears derived metadata and queues the existing original through the normal FFprobe/FFmpeg worker. Storage accounting includes version files, and retention deletion removes the current original, derivatives, and all archived originals together.
 
@@ -88,13 +96,21 @@ The Media Library exposes every ready asset through the server's normal range-en
 
 The source stores only the ordered identifiers for its latest conversion. Older generated slides remain ordinary media when a source is converted again, which prevents an existing lesson from breaking. Adding a conversion to a lesson resolves every child ID first, appends all pages in order with a configurable 1–3600 second duration, extends lesson-scoped retention, increments the manifest version, audits the operation, and invalidates screen manifests. A conversion failure removes partially installed files, detaches uncommitted rows, records a concise local error, and leaves the source document intact.
 
+### Reusable templates and recurring lessons
+
+`LessonTemplate` and `LessonTemplateItem` are independent snapshots rather than pointers to a source lesson. They preserve ordered cue roles, media identity, trims, fades, volume, looping, notes, cue markers, image duration, designated local start time, pre-roll lead, availability/expiration offsets, download policy, and offline behavior. Creating or refreshing a template promotes referenced lesson-scoped media to permanent retention; this prevents a reusable structure from silently losing content after the original lesson's four-week window. Refreshing replaces the structure transactionally while retaining the template ID, name, description, and linked schedules. Existing generated lessons remain immutable copies.
+
+`RecurringLessonSchedule` supports weekly recurrence with a 1–52 week interval, monthly recurrence with invalid calendar days skipped, bounded terms through start/end dates, and explicit custom dates. Title patterns accept `{template}`, `{class}`, and `{date}`. Local start times are resolved through the organization's IANA time zone on each occurrence, so the correct UTC offset is selected across daylight-saving boundaries. A unique `(GeneratedByScheduleId, Date)` database index and a process-wide generation lock make manual, startup, and daily runs idempotent. The hosted generator materializes the administrator-selected look-ahead window once per day and broadcasts manifest invalidation when it creates lessons.
+
+Exception dates are stored explicitly on the schedule. Adding an exception removes only the matching generated occurrence and leaves hand-built lessons untouched; removing an exception regenerates the missing occurrence when the schedule is enabled. Pausing or deleting a schedule never removes already-generated lessons. Template instantiation and schedule generation extend retention where needed, write audit events, and clone countdown identity to the new playlist item ID.
+
 ## Android TV
 
 ```bash
 gradle -p android-tv :app:testDebugUnitTest :app:assembleDebug
 ```
 
-The app uses a LEANBACK launcher, Compose focusable surfaces, Media3/ExoPlayer, DataStore credentials, and WorkManager caching. The API client implements discovery, pairing, manifest parsing, and authenticated downloads.
+The app uses a LEANBACK launcher, Compose focusable surfaces, Media3/ExoPlayer, DataStore credentials, and WorkManager caching. The API client implements discovery, pairing, manifest parsing, and authenticated downloads. Its lesson-detail route combines pre-roll, countdown, and normal cues in one D-pad focus list; focus changes explicitly bring rows into view so a remote can scroll beyond the visible screen before starting any cue.
 
 Before managed-store distribution, provision an organization-owned signing key, exercise Fire OS background behavior on each supported model, and complete accessibility/device certification. The included worker persists manifests and media, validates hashes, and reports download health; Media3 `DownloadService` remains an optional scale upgrade for very large fleets.
 
@@ -116,7 +132,7 @@ xcodebuild -project LessonCueTV.xcodeproj -scheme LessonCueTV \
   CODE_SIGNING_ALLOWED=NO build
 ```
 
-The tvOS client uses Bonjour, Keychain device credentials, AVPlayer, an actor-isolated offline cache, checksum verification, and the shared schedule semantics. Background URLSession identifiers and App Store signing must be supplied by the deployment team.
+The tvOS client uses Bonjour, Keychain device credentials, AVPlayer, an actor-isolated offline cache, checksum verification, and the shared schedule semantics. Its lesson-detail route combines pre-roll, countdown, and normal cues in a focus-tracked `ScrollViewReader`, allowing the Siri Remote to scroll and select every item. Background URLSession identifiers and App Store signing must be supplied by the deployment team.
 
 ## Countdown and pre-roll semantics
 

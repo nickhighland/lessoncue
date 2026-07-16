@@ -9,6 +9,9 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
     public DbSet<LessonClass> Classes => Set<LessonClass>();
     public DbSet<Lesson> Lessons => Set<Lesson>();
     public DbSet<PlaylistItem> PlaylistItems => Set<PlaylistItem>();
+    public DbSet<LessonTemplate> LessonTemplates => Set<LessonTemplate>();
+    public DbSet<LessonTemplateItem> LessonTemplateItems => Set<LessonTemplateItem>();
+    public DbSet<RecurringLessonSchedule> RecurringLessonSchedules => Set<RecurringLessonSchedule>();
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
     public DbSet<MediaAssetVersion> MediaAssetVersions => Set<MediaAssetVersion>();
     public DbSet<Screen> Screens => Set<Screen>();
@@ -29,7 +32,17 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
             .HasForeignKey(x => x.MediaAssetId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<Lesson>().HasMany(x => x.Items).WithOne(x => x.Lesson)
             .HasForeignKey(x => x.LessonId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Lesson>().HasIndex(x => new { x.GeneratedByScheduleId, x.Date }).IsUnique();
         modelBuilder.Entity<PlaylistItem>().Property(x => x.Position).HasPrecision(18, 6);
+        modelBuilder.Entity<LessonTemplate>().HasMany(x => x.Items).WithOne(x => x.Template)
+            .HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<LessonTemplate>().HasMany(x => x.Schedules).WithOne(x => x.Template)
+            .HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<LessonTemplateItem>().Property(x => x.Position).HasPrecision(18, 6);
+        modelBuilder.Entity<LessonTemplateItem>().HasOne(x => x.MediaAsset).WithMany()
+            .HasForeignKey(x => x.MediaAssetId).OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<RecurringLessonSchedule>().HasOne(x => x.Class).WithMany()
+            .HasForeignKey(x => x.ClassId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<DeviceCredential>().HasIndex(x => x.TokenHash).IsUnique();
         modelBuilder.Entity<PlaybackCommandRecord>().HasIndex(x => new { x.ScreenId, x.Version }).IsUnique();
         modelBuilder.Entity<PlaybackCommandRecord>().HasOne(x => x.Screen).WithMany()

@@ -7,6 +7,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -22,7 +23,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -34,6 +37,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -69,6 +75,7 @@ private sealed interface AppScreen {
     data class Connect(val message: String? = null) : AppScreen
     data class EnterPin(val api: LessonCueApi, val requestId: String, val serverName: String) : AppScreen
     data class Library(val identity: DeviceIdentity, val manifest: ScreenManifest) : AppScreen
+    data class LessonDetail(val identity: DeviceIdentity, val manifest: ScreenManifest, val playlist: LessonPlaylist) : AppScreen
     data class Player(
         val playlist: LessonPlaylist,
         val items: List<CueItem> = playlist.items,
@@ -204,21 +211,28 @@ fun LessonCueApp() {
                             kotlinx.coroutines.delay(1_000)
                         }
                     }
-                    LibraryScreen(current.manifest) { playlist ->
-                        val phase = ScheduleCoordinator.phase(playlist, Instant.now())
-                        screen = when (phase) {
-                        is PlaybackPhase.Countdown -> {
-                            val countdownItem = playlist.countdown?.item
-                            if (countdownItem != null) AppScreen.Player(playlist, listOf(countdownItem), seekMs = phase.seekMs)
-                            else AppScreen.Player(playlist)
-                        }
-                        is PlaybackPhase.PreRoll -> {
-                            val preRollItems = playlist.preRoll?.items.orEmpty()
-                            AppScreen.Player(playlist, loopingPreRoll(preRollItems))
-                        }
-                        else -> AppScreen.Player(playlist)
+                    LibraryScreen(current.manifest) { playlist -> screen = AppScreen.LessonDetail(current.identity, current.manifest, playlist) }
+                }
+                is AppScreen.LessonDetail -> {
+                    LaunchedEffect(current.playlist.id) {
+                        while (true) {
+                            when (val phase = ScheduleCoordinator.phase(current.playlist, Instant.now())) {
+                                is PlaybackPhase.Countdown -> current.playlist.countdown?.item?.let {
+                                    screen = AppScreen.Player(current.playlist, listOf(it), seekMs = phase.seekMs)
+                                    return@LaunchedEffect
+                                }
+                                is PlaybackPhase.PreRoll -> {
+                                    screen = AppScreen.Player(current.playlist, loopingPreRoll(current.playlist.preRoll?.items.orEmpty()))
+                                    return@LaunchedEffect
+                                }
+                                else -> Unit
+                            }
+                            kotlinx.coroutines.delay(1_000)
                         }
                     }
+                    LessonDetailScreen(current.playlist,
+                        onBack = { screen = AppScreen.Library(current.identity, current.manifest) },
+                        onPlay = { items, index -> screen = AppScreen.Player(current.playlist, items, index) })
                 }
                 is AppScreen.Player -> {
                     LaunchedEffect(current.playlist.id, current.items.map { it.id }) {
@@ -244,7 +258,14 @@ fun LessonCueApp() {
                     }
                     PlayerScreen(current.playlist, current.items, current.itemIndex, current.seekMs, playbackControl,
                     onTelemetry = { playbackTelemetry = it },
-                    onExit = { scope.launch { store.load()?.let { identity -> val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json")); screen = runCatching { AppScreen.Library(identity, api.manifest(identity)) }.getOrElse { AppScreen.Library(identity, api.cachedManifest() ?: current.playlist.let { playlist -> ScreenManifest(1, "LessonCue", emptyList(), listOf(playlist)) }) } } } },
+                    onExit = { scope.launch { store.load()?.let { identity ->
+                        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
+                        val manifest = runCatching { api.manifest(identity) }.getOrElse {
+                            api.cachedManifest() ?: ScreenManifest(1, "LessonCue", emptyList(), listOf(current.playlist))
+                        }
+                        screen = AppScreen.LessonDetail(identity, manifest,
+                            manifest.playlists.firstOrNull { it.id == current.playlist.id } ?: current.playlist)
+                    } } },
                     onNext = { next -> screen = current.copy(itemIndex = next, seekMs = 0) })
                 }
             }
@@ -276,6 +297,10 @@ private fun PinScreen(serverName: String, onConfirm: (String) -> Unit) {
 @Composable
 private fun LibraryScreen(manifest: ScreenManifest, onStart: (LessonPlaylist) -> Unit) {
     val signage = manifest.signage.firstOrNull { it.mode == "emergency" } ?: manifest.signage.firstOrNull()
+    val firstFocus = remember { FocusRequester() }
+    LaunchedEffect(manifest.version, manifest.playlists.size) {
+        if (manifest.playlists.isNotEmpty()) runCatching { firstFocus.requestFocus() }
+    }
     Row(Modifier.fillMaxSize().padding(56.dp), horizontalArrangement = Arrangement.spacedBy(56.dp)) {
         Column(Modifier.width(340.dp)) {
             Text("LESSONCUE", color = Gold, letterSpacing = 3.sp)
@@ -292,15 +317,16 @@ private fun LibraryScreen(manifest: ScreenManifest, onStart: (LessonPlaylist) ->
             Text("Select a lesson and press Start.", color = Cream, modifier = Modifier.padding(top = 8.dp))
         }
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            items(manifest.playlists) { playlist ->
-                Surface(onClick = { onStart(playlist) }, modifier = Modifier.fillMaxWidth()) {
+            itemsIndexed(manifest.playlists, key = { _, playlist -> playlist.id }) { index, playlist ->
+                Surface(onClick = { onStart(playlist) }, modifier = remoteListItemModifier()
+                    .then(if (index == 0) Modifier.focusRequester(firstFocus) else Modifier)) {
                     Row(Modifier.padding(26.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(playlist.title, fontSize = 28.sp)
                             val readiness = if (playlist.items.all { !it.offlineEligible || it.url != null }) "Ready" else "Internet required"
                             Text(readiness, color = if (readiness == "Ready") Mint else Coral)
                         }
-                        Text("START  ›", color = Gold)
+                        Text("VIEW MEDIA  ›", color = Gold)
                     }
                 }
             }
@@ -309,9 +335,60 @@ private fun LibraryScreen(manifest: ScreenManifest, onStart: (LessonPlaylist) ->
 }
 
 @Composable
+private fun LessonDetailScreen(playlist: LessonPlaylist, onBack: () -> Unit,
+    onPlay: (List<CueItem>, Int) -> Unit) {
+    val allItems = playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) + playlist.items
+    val preRollIds = playlist.preRoll?.items.orEmpty().map { it.id }.toSet()
+    val countdownId = playlist.countdown?.item?.id
+    val firstFocus = remember { FocusRequester() }
+    BackHandler(onBack = onBack)
+    LaunchedEffect(playlist.id, allItems.size) {
+        if (allItems.isNotEmpty()) runCatching { firstFocus.requestFocus() }
+    }
+    Row(Modifier.fillMaxSize().padding(56.dp), horizontalArrangement = Arrangement.spacedBy(56.dp)) {
+        Column(Modifier.width(340.dp)) {
+            Text("LESSON MEDIA", color = Gold, letterSpacing = 3.sp)
+            Spacer(Modifier.height(20.dp))
+            Text(playlist.title, fontSize = 34.sp, color = Cream)
+            Text("Use Up/Down to scroll every cue. Press Select to start at that item.", color = Muted,
+                modifier = Modifier.padding(top = 12.dp))
+            Spacer(Modifier.height(28.dp))
+            Button(onClick = onBack) { Text("‹ Back to lessons") }
+        }
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            itemsIndexed(allItems, key = { _, item -> item.id }) { index, item ->
+                val role = when (item.id) { countdownId -> "COUNTDOWN"; in preRollIds -> "PRE-ROLL"; else -> "LESSON" }
+                Surface(onClick = { onPlay(allItems, index) }, modifier = remoteListItemModifier()
+                    .then(if (index == 0) Modifier.focusRequester(firstFocus) else Modifier)) {
+                    Row(Modifier.padding(horizontal = 24.dp, vertical = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${index + 1}", color = Gold, fontSize = 20.sp, modifier = Modifier.width(46.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(item.title, fontSize = 25.sp)
+                            Text("$role · ${item.type.uppercase()}", color = Muted, fontSize = 16.sp)
+                        }
+                        Text("PLAY  ›", color = Gold)
+                    }
+                }
+            }
+            if (allItems.isEmpty()) item { Text("No media has been added to this lesson.", color = Muted, fontSize = 24.sp) }
+        }
+    }
+}
+
+@Composable
+private fun remoteListItemModifier(): Modifier {
+    val requester = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
+    return Modifier.fillMaxWidth().bringIntoViewRequester(requester).onFocusChanged { state ->
+        if (state.isFocused) scope.launch { requester.bringIntoView() }
+    }
+}
+
+@Composable
 private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: Int, seekMs: Long,
     control: ControlCommand?, onTelemetry: (PlaybackTelemetry) -> Unit, onExit: () -> Unit, onNext: (Int) -> Unit) {
     val item = items.getOrNull(index)
+    BackHandler(onBack = onExit)
     if (item?.playbackUrl != null && item.linkKind in setOf("youtube", "embedded", "webpage", "external")) {
         OnlineMediaScreen(playlist.id, item, control, onTelemetry, onExit)
         return
@@ -325,7 +402,8 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         return
     }
     val context = LocalContext.current
-    val cached = context.filesDir.resolve("media").resolve("${item.id}.bin").takeIf { it.exists() }
+    val cached = context.filesDir.resolve("media").resolve(item.cacheFileName()).takeIf { it.exists() }
+        ?: context.filesDir.resolve("media").resolve("${item.id}.bin").takeIf { it.exists() }
     if (item.type == "image") {
         LaunchedEffect(item.id) {
             val duration = (item.imageDurationSeconds ?: 10).coerceAtLeast(1) * 1_000L
@@ -353,7 +431,8 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
             val clipping = MediaItem.ClippingConfiguration.Builder().setStartPositionMs(item.startMs).apply {
                 item.endMs?.let { setEndPositionMs(it) }
             }.build()
-            setMediaItem(MediaItem.Builder().setUri(cached?.toURI()?.toString() ?: item.url).setClippingConfiguration(clipping).build())
+            setMediaItem(MediaItem.Builder().setUri(cached?.toURI()?.toString() ?: item.url)
+                .setMimeType(item.contentType).setClippingConfiguration(clipping).build())
             prepare()
             seekTo(seekMs.coerceAtLeast(0))
             volume = (item.volumePercent / 100f).coerceIn(0f, 1.5f)
@@ -497,7 +576,7 @@ private fun scheduleMediaCaches(context: android.content.Context, identity: Devi
         .distinctBy { it.id }.filter { it.offlineEligible && it.url != null }
     items.forEach { item ->
         val request = OneTimeWorkRequestBuilder<MediaCacheWorker>().setInputData(workDataOf(
-            "url" to item.url, "fileName" to "${item.id}.bin", "token" to identity.token,
+            "url" to item.url, "fileName" to item.cacheFileName(), "token" to identity.token,
             "serverHost" to java.net.URL(identity.serverUrl).host, "sha256" to item.sha256
         )).build()
         manager.enqueueUniqueWork("lessoncue-media-${item.id}", ExistingWorkPolicy.KEEP, request)

@@ -30,6 +30,18 @@ LessonCue creates a private local pairing secret and displays a six-digit PIN th
 
 Native Linux installation configures `http://lessoncue.local` on standard HTTP port 80 automatically. An owner or administrator can change either `lessoncue` or the browser port under **Settings → Connection & pairing**. LessonCue applies the change and restarts itself; if a chosen port cannot be opened, it returns to the previous working port. Changing the name does not rename the Linux computer or SSH hostname. Keep the numeric address as a fallback for networks that block multicast DNS.
 
+### Set up reusable lessons and schedules
+
+No additional service or cloud account is required. Build one complete lesson under **Classes**, then open **Templates → New template** and select it as the source. LessonCue keeps media used by a reusable template permanently. Choose **Create lesson** for a one-time dated copy, or **New schedule** for weekly, multi-week, monthly, term-based, or explicit custom dates.
+
+Choose how far LessonCue should generate ahead. The server checks enabled schedules daily, and **Generate now** safely fills only missing dates. Under each schedule, add school breaks, holidays, closures, or other skipped dates. LessonCue removes the lesson generated for that occurrence; click the date chip to restore and regenerate it. Pausing or deleting a schedule leaves lessons already created in place.
+
+### Let LessonCue prepare videos for televisions
+
+No converter setup is required after using the recommended installer; FFmpeg and FFprobe are included as server dependencies. Every new upload is inspected automatically. When a video is not in the broadly supported TV profile, LessonCue keeps the original and creates an H.264/AAC MP4 playback copy locally. Existing videos are inspected in the background after an update, so no re-upload is necessary. In **Media Library**, wait for **TV copy ready** or **TV ready** before relying on offline playback. A compatibility error remains visible there and can be retried with **Manage versions & impact → Reprocess metadata**.
+
+Compatibility copies count toward the storage allocation. For reliable initial conversion, leave enough available capacity for the original plus a second video file. Neither the original nor its playback copy leaves the local server.
+
 ### Verify from SSH
 
 ```bash
@@ -83,6 +95,8 @@ http://SERVER-IP/controller
 ```
 
 Sign in with a local LessonCue account. Choose the paired screen, choose a lesson, and use **Play lesson**, an individual media row, pause/resume, previous/next, stop, or seek. The television app must be open and paired; its status should say **Screen online** in the controller.
+
+The native Android TV, Fire TV, and Apple TV interfaces also let an operator choose a lesson and scroll through every pre-roll, countdown, and lesson cue with the television remote's directional pad. Press the center/select button to play the focused item and Back/Menu to return to the lesson list. This browsing does not require the phone controller.
 
 On iPhone or iPad, tap **Share**, then **Add to Home Screen**. On Android, open the browser menu and tap **Add to Home screen** or **Install app** when offered. This saves the local browser controller as an app-like icon; it does not install a separate LessonCue phone binary or connect to a hosted service.
 

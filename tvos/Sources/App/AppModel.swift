@@ -8,6 +8,7 @@ final class AppModel: ObservableObject {
         case connect
         case pin(api: LessonCueAPI, requestId: String, serverName: String)
         case library
+        case lesson(LessonPlaylist)
         case playback(playlist: LessonPlaylist, items: [CueItem], index: Int, seekMs: Int64)
     }
 
@@ -87,14 +88,26 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func browse(_ playlist: LessonPlaylist) { route = .lesson(playlist) }
+
+    func play(_ playlist: LessonPlaylist, itemAt index: Int) {
+        let items = (playlist.preRoll?.items ?? []) + [playlist.countdown?.item].compactMap { $0 } + playlist.items
+        guard items.indices.contains(index) else { return }
+        route = .playback(playlist: playlist, items: items, index: index, seekMs: 0)
+    }
+
     func playNext(playlist: LessonPlaylist, items: [CueItem], index: Int, loops: Bool) {
         let next = index + 1
         if next < items.count { route = .playback(playlist: playlist, items: items, index: next, seekMs: 0) }
         else if loops && !items.isEmpty { route = .playback(playlist: playlist, items: items, index: 0, seekMs: 0) }
-        else { playbackTelemetry = PlaybackTelemetry(); route = .library }
+        else { playbackTelemetry = PlaybackTelemetry(); route = .lesson(playlist) }
     }
 
-    func leavePlayback() { playbackTelemetry = PlaybackTelemetry(); route = .library }
+    func leavePlayback() {
+        playbackTelemetry = PlaybackTelemetry()
+        if case .playback(let playlist, _, _, _) = route { route = .lesson(playlist) }
+        else { route = .library }
+    }
 
     func updatePlayback(_ telemetry: PlaybackTelemetry) { playbackTelemetry = telemetry }
 
@@ -104,7 +117,7 @@ final class AppModel: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 switch self.route {
-                case .library:
+                case .library, .lesson(_):
                     guard let playlists = self.manifest?.playlists else { break }
                     if let playlist = playlists.first(where: {
                         switch ScheduleCoordinator.phase(for: $0) { case .countdown(_), .preRoll: true; default: false }

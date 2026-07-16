@@ -4,6 +4,8 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 
 ## Implemented roadmap milestones
 
+- [x] **Reliable TV video playback and remote cue browser (v0.16.0)** — automatic codec/container/pixel-format inspection; local TV-safe H.264/AAC MP4 remuxing or transcoding with originals retained; compatibility progress and errors; derivative storage, checksums, retention, backup, range delivery, and manifest metadata; existing-library background auditing; format-aware Android and Apple TV caches; remote-scrollable pre-roll, countdown, and lesson cue selection on both native TV clients; and a directly visible visual timeline/fade action on every lesson cue.
+- [x] **Reusable templates and recurring schedules (v0.16.0)** — complete lesson-structure snapshots; permanent retention for referenced reusable media; safe structure refresh; one-time instantiation; DST-aware weekly, biweekly, monthly, term, and custom-date generation; configurable title patterns and look-ahead; automatic daily and manual idempotent generation; pause/delete preservation; reversible holiday exceptions; audit, backup/restore, manifest live sync, responsive administration, and browser workflow coverage.
 - [x] **Fully local presentation conversion (v0.15.0)** — asynchronous PDF, PowerPoint, OpenDocument Presentation, and Word conversion through headless LibreOffice and Poppler; screen-sized PNG media assets; storage and retention enforcement; conversion status/errors; generated folders/tags; configurable per-slide timing; ordered lesson insertion; audit and manifest invalidation; and a real PDF-to-lesson browser test.
 - [x] **Media organization and safe versioning (v0.14.0)** — searchable hierarchical folders and tags, upload-time organization, filtered bulk organization, stable media IDs, lesson/signage impact previews, replacement with automatic original archival, downloadable and restorable version history, manual metadata reprocessing, manifest invalidation, and retention cleanup of every archived file.
 - [x] **Validated browser backup restore (v0.13.0)** — staged ZIP and SQLite validation, record and media preview, explicit confirmation, disk-space protection, serialized restore mode, automatic full safety backup, database rollback on failure, optional media replacement, and preservation of server-local identity and connection settings.
@@ -14,17 +16,19 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 
 1. [x] **Visual timeline editor (v0.12.0)** — waveform and filmstrip-based trim, fade, chapter, and cue editing with frame-accurate preview.
 2. [x] **Playback acknowledgement and live state (v0.10.0)** — show which cue is actually playing, progress, volume, cache readiness, and whether each controller command reached the screen.
-3. [ ] **Automated browser and hardware playback tests** — exercise uploads, lesson editing, pre-roll, countdown transitions, controller commands, offline recovery, and upgrades on real TV devices. _Headless browser CI foundation added after v0.12.0: a fresh local server is configured through the UI, media is uploaded directly to a lesson with retention verified, and online media is added. Native state-machine tests cover countdown scheduling; physical Android TV and Apple TV, offline recovery, controller, and upgrade matrices remain._
+3. [ ] **Automated browser and hardware playback tests** — exercise uploads, lesson editing, pre-roll, countdown transitions, controller commands, offline recovery, and upgrades on real TV devices. _The headless browser suite now configures a fresh local server, uploads an intentionally incompatible MPEG-4/MP3 video through a lesson, waits for its H.264/AAC TV derivative, validates MP4 range delivery, edits and saves visual fades, exercises templates/schedules, and verifies backup restore. Native state-machine and compile tests cover countdown scheduling and remote media navigation; physical Android TV and Apple TV, offline recovery, controller, and upgrade matrices remain._
 4. [x] **Restore workflow in Settings (v0.13.0)** — upload and validate a backup, preview its contents, restore it safely, and automatically preserve the pre-restore state.
 5. [x] **Media organization and versioning (v0.14.0)** — build on the existing bulk deletion and retention controls with tags, folders, replacement versions, reprocessing, and impact previews.
 6. [x] **Presentation conversion (v0.15.0)** — convert PowerPoint, Keynote-exported PDF, and common document formats into screen-ready slide sequences.
-7. [ ] **Reusable templates and recurring schedules** — create a standard lesson structure, generate dated instances, and handle holiday exceptions.
+7. [x] **Reusable templates and recurring schedules (v0.16.0)** — create a standard lesson structure, generate dated instances, and handle holiday exceptions.
 8. [ ] **Granular permissions** — separately control planning, uploads, playback, screen administration, user administration, settings, backups, and updates.
 9. [ ] **Screen diagnostics** — expose cache inventory, download queue, codec capabilities, recent errors, clock drift, network quality, and a privacy-conscious screenshot request. _Foundation shipped in v0.10.0: device/OS identity, free space, cache totals, command state, and playback/download errors._
 10. [ ] **Bulk editing** — on lesson plans, media library, etc., bulk upload, bulk delete, bulk select to modify or edit, delete lessons, delete media, rename, etc. _Media-library bulk retention and deletion shipped before v0.10.0; lesson-plan bulk operations remain._
 11. [ ] **Cloudflare integration** — integrate optional Cloudflare Tunnel support so an administrator can make LessonCue available through a dedicated web domain.
-12. [ ] **Dedicated classroom playback landing pages** — allow appropriately authorized administrators to assign a subdomain or path to each classroom, such as `classroom1.lessoncue.com` or `lessoncue.com/classroom1`, which can be saved as a custom app on a teacher's phone.
-
+12. [ ] **Dedicated classroom playback landing pages** — allow appropriately authorized administrators to assign a subdomain or path to each classroom's mobile control page, such as `classroom1.lessoncue.com` or `lessoncue.com/classroom1`, which can be saved as a custom app on a teacher's phone.  Keep the main one that controls all classrooms, too, at something like lessoncue.com/universalremote, but require a pin determined on the setting page for accessing this one.  Let admins assign a unique color theme to each classroom. QR-code generation (generation for admins) and launch into a particular room, lesson, or restricted temporary controller session.
+13. Make sure that everything can be edited - classrooms can be added and deleted, access to them can be modified, media and lessons can be added, deleted, renamed, etc.  Everything should be able to be removed.  Also, when a lesson, class, or media is deleted, make it recoverable for 30 days by the administrator only in a kind of "recycling bin", with a "purge" button available to the admin to instantly and permanently delete all recycling bin content.
+14) Expand the folders and tags for media, allowing users to upload to administrator-determined folders and assign admin-determined tags for easier grouping.
+15) Focus on ## Editing and playback section.
 
 ## Administration and user experience
 
@@ -56,7 +60,6 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 - Conflict warnings for overlapping schedules, shared screens, missing files, or insufficient download time.
 - Calendar day, week, month, agenda, and room views.
 - Teacher notes on the mobile interface for each media item.
-- iCalendar import/export and optional two-way synchronization with common calendar services.
 - Substitute-operator notes, printable run sheets, and QR codes that open the correct controller view.
 - Lesson version history, named snapshots, compare, restore, and audit attribution.
 - Conditional cues and simple branching for different audience choices or time remaining.
@@ -68,7 +71,7 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 
 ## Media library and content lifecycle
 
-- Folders, tags, collections, ratings, favorites, custom metadata, and saved searches.
+- Folders, tags, collections, favorites.
 - Full-text search across filenames, titles, notes, captions, transcripts, and lesson usage.
 - Bulk upload, drag-and-drop folders, background transfers, pause/resume, retry, and resumable browser sessions.
 - Watch folders and optional imports from local NAS, SMB, NFS, SFTP, or removable storage.

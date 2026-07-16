@@ -85,6 +85,71 @@ public static class DatabaseUpgrade
                 CONSTRAINT "FK_PlaybackCommands_Screens_ScreenId" FOREIGN KEY ("ScreenId") REFERENCES "Screens" ("Id") ON DELETE CASCADE
             );
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_PlaybackCommands_ScreenId_Version" ON "PlaybackCommands" ("ScreenId", "Version");
+            CREATE TABLE IF NOT EXISTS "LessonTemplates" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_LessonTemplates" PRIMARY KEY,
+                "Name" TEXT NOT NULL,
+                "Description" TEXT NOT NULL DEFAULT '',
+                "DefaultTitle" TEXT NOT NULL DEFAULT 'Lesson',
+                "DefaultStartMinutes" INTEGER NULL,
+                "PreRollLeadMinutes" INTEGER NULL,
+                "AvailableLeadMinutes" INTEGER NULL,
+                "ExpiresAfterMinutes" INTEGER NULL,
+                "PreRollEnabled" INTEGER NOT NULL DEFAULT 0,
+                "KeepOffline" INTEGER NOT NULL DEFAULT 0,
+                "DownloadDaysBefore" INTEGER NOT NULL DEFAULT 7,
+                "CreatedAt" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS "LessonTemplateItems" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_LessonTemplateItems" PRIMARY KEY,
+                "TemplateId" TEXT NOT NULL,
+                "Title" TEXT NOT NULL,
+                "Type" TEXT NOT NULL DEFAULT 'video',
+                "Role" TEXT NOT NULL DEFAULT 'lesson',
+                "Position" TEXT NOT NULL,
+                "MediaAssetId" TEXT NULL,
+                "DurationMs" INTEGER NULL,
+                "StartMs" INTEGER NOT NULL DEFAULT 0,
+                "EndMs" INTEGER NULL,
+                "VolumePercent" INTEGER NOT NULL DEFAULT 100,
+                "ImageDurationSeconds" INTEGER NULL,
+                "EndBehavior" TEXT NOT NULL DEFAULT 'advance',
+                "AllowSkip" INTEGER NOT NULL DEFAULT 1,
+                "Notes" TEXT NOT NULL DEFAULT '',
+                "FadeInMs" INTEGER NOT NULL DEFAULT 0,
+                "FadeOutMs" INTEGER NOT NULL DEFAULT 0,
+                "NormalizeAudio" INTEGER NOT NULL DEFAULT 0,
+                "CuePointsJson" TEXT NOT NULL DEFAULT '[]',
+                CONSTRAINT "FK_LessonTemplateItems_LessonTemplates_TemplateId" FOREIGN KEY ("TemplateId") REFERENCES "LessonTemplates" ("Id") ON DELETE CASCADE,
+                CONSTRAINT "FK_LessonTemplateItems_MediaAssets_MediaAssetId" FOREIGN KEY ("MediaAssetId") REFERENCES "MediaAssets" ("Id") ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS "IX_LessonTemplateItems_TemplateId" ON "LessonTemplateItems" ("TemplateId");
+            CREATE INDEX IF NOT EXISTS "IX_LessonTemplateItems_MediaAssetId" ON "LessonTemplateItems" ("MediaAssetId");
+            CREATE TABLE IF NOT EXISTS "RecurringLessonSchedules" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_RecurringLessonSchedules" PRIMARY KEY,
+                "TemplateId" TEXT NOT NULL,
+                "ClassId" TEXT NOT NULL,
+                "Name" TEXT NOT NULL,
+                "Frequency" TEXT NOT NULL DEFAULT 'weekly',
+                "Interval" INTEGER NOT NULL DEFAULT 1,
+                "DayOfWeek" INTEGER NULL,
+                "DayOfMonth" INTEGER NULL,
+                "StartDate" TEXT NOT NULL,
+                "EndDate" TEXT NULL,
+                "StartMinutes" INTEGER NULL,
+                "TitlePattern" TEXT NOT NULL DEFAULT '{template} — {date}',
+                "CustomDatesJson" TEXT NOT NULL DEFAULT '[]',
+                "ExcludedDatesJson" TEXT NOT NULL DEFAULT '[]',
+                "Enabled" INTEGER NOT NULL DEFAULT 1,
+                "GenerateDaysAhead" INTEGER NOT NULL DEFAULT 90,
+                "LastGeneratedAt" TEXT NULL,
+                "CreatedAt" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL,
+                CONSTRAINT "FK_RecurringLessonSchedules_LessonTemplates_TemplateId" FOREIGN KEY ("TemplateId") REFERENCES "LessonTemplates" ("Id") ON DELETE CASCADE,
+                CONSTRAINT "FK_RecurringLessonSchedules_Classes_ClassId" FOREIGN KEY ("ClassId") REFERENCES "Classes" ("Id") ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS "IX_RecurringLessonSchedules_TemplateId" ON "RecurringLessonSchedules" ("TemplateId");
+            CREATE INDEX IF NOT EXISTS "IX_RecurringLessonSchedules_ClassId" ON "RecurringLessonSchedules" ("ClassId");
             """, cancellationToken);
 
         var additions = new Dictionary<string, (string Table, string Sql)>
@@ -108,6 +173,7 @@ public static class DatabaseUpgrade
             ["Lessons.KeepOffline"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"KeepOffline\" INTEGER NOT NULL DEFAULT 0"),
             ["Lessons.DownloadDaysBefore"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"DownloadDaysBefore\" INTEGER NOT NULL DEFAULT 7"),
             ["Lessons.PreRollStartsAt"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"PreRollStartsAt\" TEXT NULL"),
+            ["Lessons.GeneratedByScheduleId"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"GeneratedByScheduleId\" TEXT NULL"),
             ["PlaylistItems.Notes"] = ("PlaylistItems", "ALTER TABLE \"PlaylistItems\" ADD COLUMN \"Notes\" TEXT NOT NULL DEFAULT ''"),
             ["PlaylistItems.FadeInMs"] = ("PlaylistItems", "ALTER TABLE \"PlaylistItems\" ADD COLUMN \"FadeInMs\" INTEGER NOT NULL DEFAULT 0"),
             ["PlaylistItems.FadeOutMs"] = ("PlaylistItems", "ALTER TABLE \"PlaylistItems\" ADD COLUMN \"FadeOutMs\" INTEGER NOT NULL DEFAULT 0"),
@@ -124,6 +190,12 @@ public static class DatabaseUpgrade
             ["MediaAssets.ThumbnailPath"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"ThumbnailPath\" TEXT NULL"),
             ["MediaAssets.FilmstripPath"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"FilmstripPath\" TEXT NULL"),
             ["MediaAssets.WaveformPath"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"WaveformPath\" TEXT NULL"),
+            ["MediaAssets.CompatibilityPath"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"CompatibilityPath\" TEXT NULL"),
+            ["MediaAssets.CompatibilitySha256"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"CompatibilitySha256\" TEXT NULL"),
+            ["MediaAssets.CompatibilitySizeBytes"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"CompatibilitySizeBytes\" INTEGER NULL"),
+            ["MediaAssets.CompatibilityStatus"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"CompatibilityStatus\" TEXT NOT NULL DEFAULT 'pending'"),
+            ["MediaAssets.CompatibilityError"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"CompatibilityError\" TEXT NULL"),
+            ["MediaAssets.CompatibilityTranscodedAt"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"CompatibilityTranscodedAt\" TEXT NULL"),
             ["MediaAssets.SourceKind"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"SourceKind\" TEXT NOT NULL DEFAULT 'upload'"),
             ["MediaAssets.SourceUrl"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"SourceUrl\" TEXT NULL"),
             ["MediaAssets.LinkKind"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"LinkKind\" TEXT NULL"),
@@ -171,6 +243,10 @@ public static class DatabaseUpgrade
             if (!await ColumnExistsAsync(connection, addition.Table, column, cancellationToken))
                 await ExecuteAsync(connection, addition.Sql, cancellationToken);
         }
+
+        await ExecuteAsync(connection,
+            "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_Lessons_GeneratedByScheduleId_Date\" ON \"Lessons\" (\"GeneratedByScheduleId\", \"Date\");",
+            cancellationToken);
 
         // Rename only the exact untouched demonstration records shipped in earlier releases.
         await ExecuteAsync(connection,

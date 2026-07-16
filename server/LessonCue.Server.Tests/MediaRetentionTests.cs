@@ -90,6 +90,12 @@ public sealed class MediaRetentionTests
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"ConversionError\"", cancellationToken);
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"ConvertedSlidesJson\"", cancellationToken);
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"ConvertedAt\"", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"CompatibilityPath\"", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"CompatibilitySha256\"", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"CompatibilitySizeBytes\"", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"CompatibilityStatus\"", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"CompatibilityError\"", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"CompatibilityTranscodedAt\"", cancellationToken);
 
         await DatabaseUpgrade.ApplyAsync(db, cancellationToken);
 
@@ -108,6 +114,12 @@ public sealed class MediaRetentionTests
         Assert.Contains("ConversionError", columns);
         Assert.Contains("ConvertedSlidesJson", columns);
         Assert.Contains("ConvertedAt", columns);
+        Assert.Contains("CompatibilityPath", columns);
+        Assert.Contains("CompatibilitySha256", columns);
+        Assert.Contains("CompatibilitySizeBytes", columns);
+        Assert.Contains("CompatibilityStatus", columns);
+        Assert.Contains("CompatibilityError", columns);
+        Assert.Contains("CompatibilityTranscodedAt", columns);
     }
 
     [Fact]
@@ -178,6 +190,7 @@ public sealed class MediaRetentionTests
         var paths = new MediaStoragePaths(root);
         Directory.CreateDirectory(paths.Originals);
         Directory.CreateDirectory(Path.Combine(paths.Versions, "archive"));
+        Directory.CreateDirectory(paths.Compatibility);
         try
         {
             var lessonClass = new LessonClass { Name = "Learning Lab" };
@@ -185,6 +198,7 @@ public sealed class MediaRetentionTests
             var media = new MediaAsset
             {
                 FileName = "sample.mp4", ContentType = "video/mp4", RelativePath = "sample.mp4",
+                CompatibilityPath = "sample-compatible.mp4", CompatibilityStatus = "ready",
                 StoragePolicy = MediaRetention.LessonScoped, OriginLessonId = lesson.Id,
                 DeleteAfter = MediaRetention.DeleteAfterFor(lesson.Date)
             };
@@ -194,6 +208,7 @@ public sealed class MediaRetentionTests
                 RelativePath = "archive/older.mp4", SizeBytes = 7 };
             await File.WriteAllTextAsync(Path.Combine(paths.Originals, media.RelativePath), "media", cancellationToken);
             await File.WriteAllTextAsync(Path.Combine(paths.Versions, version.RelativePath), "version", cancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(paths.Compatibility, media.CompatibilityPath!), "compatible", cancellationToken);
             db.AddRange(lessonClass, lesson, media, item, signage, version);
             await db.SaveChangesAsync(cancellationToken);
 
@@ -206,6 +221,7 @@ public sealed class MediaRetentionTests
             Assert.Null((await db.SignagePlaylists.SingleAsync(cancellationToken)).MediaAssetId);
             Assert.False(File.Exists(Path.Combine(paths.Originals, media.RelativePath)));
             Assert.False(File.Exists(Path.Combine(paths.Versions, version.RelativePath)));
+            Assert.False(File.Exists(Path.Combine(paths.Compatibility, media.CompatibilityPath!)));
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }

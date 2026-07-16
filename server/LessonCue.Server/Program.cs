@@ -52,6 +52,7 @@ builder.Services.AddHostedService<MediaProcessingService>();
 builder.Services.AddHostedService<PresentationConversionService>();
 builder.Services.AddHostedService<YouTubeImportService>();
 builder.Services.AddHostedService<MediaRetentionService>();
+builder.Services.AddHostedService<RecurringLessonGeneratorService>();
 builder.Services.AddHttpClient("updates", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(20);
@@ -194,6 +195,24 @@ api.MapGet("/media/{mediaId:guid}/file", async (Guid mediaId, LessonCueDb db, Ca
     if (!path.StartsWith(Path.GetFullPath(mediaPath), StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
     return Results.File(path, media.ContentType, media.FileName, enableRangeProcessing: true,
         entityTag: media.Sha256 is null ? null : new Microsoft.Net.Http.Headers.EntityTagHeaderValue($"\"{media.Sha256}\""));
+});
+
+api.MapGet("/media/{mediaId:guid}/playback", async (Guid mediaId, LessonCueDb db,
+    MediaStoragePaths paths, CancellationToken ct) =>
+{
+    var media = await db.MediaAssets.AsNoTracking().SingleOrDefaultAsync(x => x.Id == mediaId, ct);
+    if (media is null || media.SourceKind == "link") return Results.NotFound();
+    var compatible = media.CompatibilityStatus == "ready" && !string.IsNullOrWhiteSpace(media.CompatibilityPath);
+    var root = compatible ? paths.Compatibility : paths.Originals;
+    var relative = compatible ? media.CompatibilityPath! : media.RelativePath;
+    var normalizedRoot = Path.GetFullPath(root) + Path.DirectorySeparatorChar;
+    var path = Path.GetFullPath(Path.Combine(root, relative));
+    if (!path.StartsWith(normalizedRoot, StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
+    var contentType = compatible ? "video/mp4" : media.ContentType;
+    var fileName = compatible ? Path.GetFileNameWithoutExtension(media.FileName) + ".mp4" : media.FileName;
+    var hash = compatible ? media.CompatibilitySha256 : media.Sha256;
+    return Results.File(path, contentType, fileName, enableRangeProcessing: true,
+        entityTag: hash is null ? null : new Microsoft.Net.Http.Headers.EntityTagHeaderValue($"\"{hash}\""));
 });
 
 api.MapGet("/media/{mediaId:guid}/thumbnail", async (Guid mediaId, LessonCueDb db, CancellationToken ct) =>

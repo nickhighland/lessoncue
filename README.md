@@ -13,10 +13,11 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - A versioned OpenAPI contract and JSON Schema shared by every client.
 - Docker, Windows, and Linux installation assets.
 - Calendar, local role-based users, scheduled/emergency signage, rotating pairing codes, screen tags, audit history, and downloadable full/configuration backups with validated browser restore and an automatic pre-restore safety backup.
-- Direct lesson uploads, online webpages, embedded YouTube playback, queued local YouTube imports, reusable or four-week lesson retention, automatic cleanup, resumable large uploads, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, codec readiness, and range-enabled delivery.
+- Direct lesson uploads, online webpages, embedded YouTube playback, queued local YouTube imports, reusable or four-week lesson retention, automatic cleanup, resumable large uploads, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, and range-enabled delivery. Uploaded video is audited automatically and, when necessary, converted locally to a TV-safe H.264/AAC MP4 while preserving the original.
 - Media Library selection and bulk actions for safe deletion, an explicit selectable expiration date, or permanent retention; every retention date can also be edited directly from its table row.
 - Searchable media folders and tags, upload-time and bulk organization, lesson/signage impact previews, local reprocessing, and safe file replacement behind a stable media ID with downloadable and restorable original-version history.
 - Fully local PDF, PowerPoint, OpenDocument Presentation, and Word conversion into ordered, screen-ready PNG slide sequences, with configurable timing and one-step lesson insertion; Keynote is supported through its PDF export.
+- Reusable lesson templates that preserve complete playlist and timing structure, one-click dated instantiation, and automatic weekly, biweekly, monthly, term, or custom-date schedules with idempotent generation and reversible holiday exceptions.
 - Daily release checks, administrator alerts, protected one-click Linux updates with health-check rollback, and administrator-controlled storage allocation with uploader-visible capacity.
 - A locally configurable six-digit pairing PIN, with a choice between a persistent administrator-set PIN and automatic ten-minute rotation.
 - Automatic `lessoncue.local` setup on native Linux, with an administrator-configurable `.local` browser name and numeric-IP fallback.
@@ -24,7 +25,8 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - Administrator user management with editable names, usernames, email addresses, roles, and passwords, plus pause/reactivate and protected account deletion.
 - Local interface branding with independent navigation background, navigation text, selected-tab, and accent colors.
 - Browser previews for every ready media item, including playlist trim points, fades, volume, looping, and operator notes.
-- A visual lesson timeline with locally generated video filmstrips and audio waveforms, 0.04-second trim nudging, fade handles, selection preview, and the original numeric controls as a simple fallback.
+- A prominent **Edit visual timeline, trims & fades** action on every lesson cue, with locally generated video filmstrips and audio waveforms, visible fade regions, 0.04-second trim nudging, selection preview, and numeric controls as a fallback.
+- A remote-friendly media browser in both native TV apps: choose a lesson, scroll through pre-roll, countdown, and lesson cues with the directional pad, and start any item without returning to the local browser.
 - A phone-first local controller for selecting screens, lessons, and individual media, with play, pause, resume, previous, next, stop, and seek controls; actual playback state, progress, errors, and command acknowledgement arrive live from the TV and the controller can be saved to an iPhone, iPad, or Android home screen.
 - GitHub Actions that build the web app, server, Android APK, tvOS app, release packages, and GitHub Pages documentation.
 
@@ -62,11 +64,19 @@ LessonCue publishes two coordinated pre-class modes in every screen manifest:
 
 If the countdown duration is five minutes and class begins at 09:00, the TV transitions from pre-roll to countdown at 08:55. Clients calculate this locally from the manifest, so an already-synchronized screen can make the transition while offline.
 
+## Templates and recurring schedules
+
+Open **Templates** to capture any existing lesson as a reusable structure. LessonCue copies playlist order, media links, roles, trims, fades, cue markers, notes, pre-roll and countdown settings, start-time offsets, availability, and offline defaults. Media referenced by a template is changed to permanent retention so a future generated lesson cannot lose its source. A template can create one dated lesson immediately, and its structure can later be refreshed from a newer lesson without changing its schedules or previously generated lessons.
+
+Recurring schedules support weekly or multi-week intervals, monthly dates, bounded terms, and explicit custom dates. Each schedule generates ahead by an administrator-selected window and the local server checks enabled schedules once per day. Generation is idempotent: a schedule/date pair is created at most once even after restarts or manual reruns. Adding a holiday or skipped date removes only that schedule's generated lesson; restoring the date safely regenerates it. Pausing or deleting a schedule preserves lessons already created.
+
 ## Media retention
 
 Every file upload asks how it should be stored. **For a lesson** is the default and automatically deletes the file four weeks after the latest lesson that uses it. **Keep permanently** places reusable material in the media library until an administrator removes it. Playlist history remains intact when an expired file is cleaned up.
 
 Lesson pages and the Media Library also accept webpages and YouTube URLs. Android TV and Fire TV render webpages and the embedded YouTube player while online. A YouTube URL can instead be queued as a local MP4 import and then uses the same four-week or permanent retention policy as an upload; only import video you are authorized to copy. Apple TV plays the downloaded local copy because tvOS does not provide the web-view surface used by the Android client.
+
+LessonCue inspects every uploaded video in the background. MP4/H.264/AAC files that meet the common TV profile are used directly. Other containers, codecs, pixel formats, oversized frames, or unsupported H.264 levels receive a local H.264 High 4.1, 8-bit 4:2:0, AAC, 1080p-or-smaller playback copy. The original remains available for future reprocessing, and the Media Library shows whether the item is already TV-ready, is making its TV copy, or needs attention. Existing videos are audited automatically after upgrading.
 
 ## Updates and storage
 
@@ -79,6 +89,8 @@ Owners and administrators can choose an explicit LessonCue storage allocation or
 ## Preview and cellphone control
 
 Select **Preview** on any ready item in the Media Library, or use the preview row on a lesson playlist. Video and audio previews reproduce the saved start/end trims, fade-in and fade-out, volume, loop behavior, and notes. Images, PDFs, online webpages, and YouTube embeds preview in the same local interface; presentation files provide a local open action when the browser cannot render the format directly.
+
+On a lesson page, choose **Edit visual timeline, trims & fades** beneath a cue. The visual editor is part of the cue row rather than a separate application or settings page. It displays the filmstrip or waveform, current selection, and fade-in/fade-out regions and saves those values into the TV manifest.
 
 On a phone connected to the same trusted network, open `http://lessoncue.local/controller` (or replace the hostname with the server's numeric local IP) and sign in with a LessonCue account. Select a paired screen and lesson, then start the complete sequence or a particular media item. Commands are versioned and stored on the local server, so a short Wi-Fi interruption does not reorder them; the controller distinguishes a command that was sent from one the TV has acknowledged. Actual title, player state, elapsed time, duration, and playback errors update through the local SignalR connection with automatic polling fallback.
 

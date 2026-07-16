@@ -158,6 +158,7 @@ public static class AdminApi
                 x.Archived,
                 x.KeepOffline,
                 x.DownloadDaysBefore,
+                x.GeneratedByScheduleId,
                 items = x.Items.OrderBy(item => item.Position).Select(item => new
                 {
                     item.Id,
@@ -286,6 +287,159 @@ public static class AdminApi
             Audit(db, lesson.Archived ? "lesson.archive" : "lesson.restore", id, lesson.Title);
             await db.SaveChangesAsync(ct); await InvalidateAsync(hub, lesson.Version, ct);
             return Results.Ok(new { lesson.Archived });
+        });
+
+        admin.MapGet("/lesson-templates", async (LessonCueDb db, CancellationToken ct) =>
+            Results.Ok(await db.LessonTemplates.AsNoTracking().OrderBy(x => x.Name).Select(x => new
+            {
+                x.Id, x.Name, x.Description, x.DefaultTitle, x.DefaultStartMinutes, x.PreRollLeadMinutes,
+                x.AvailableLeadMinutes, x.ExpiresAfterMinutes, x.PreRollEnabled, x.KeepOffline,
+                x.DownloadDaysBefore, x.CreatedAt, x.UpdatedAt,
+                scheduleCount = x.Schedules.Count,
+                items = x.Items.OrderBy(item => item.Position).Select(item => new
+                {
+                    item.Id, item.Title, item.Type, item.Role, item.Position, item.MediaAssetId,
+                    mediaFileName = item.MediaAsset != null ? item.MediaAsset.FileName : null,
+                    item.DurationMs, item.StartMs, item.EndMs, item.VolumePercent, item.ImageDurationSeconds,
+                    item.EndBehavior, item.AllowSkip, item.Notes, item.FadeInMs, item.FadeOutMs,
+                    item.NormalizeAudio, item.CuePointsJson
+                })
+            }).ToListAsync(ct)));
+
+        admin.MapPost("/lesson-templates/from-lesson", async (LessonTemplateFromLessonInput input,
+            LessonCueDb db, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Template name is required." });
+            var template = await LessonScheduleService.CreateTemplateFromLessonAsync(db, input.LessonId,
+                input.Name, input.Description ?? "", ct);
+            return template is null ? Results.NotFound(new { error = "The source lesson was not found." }) :
+                Results.Created($"/api/v1/lesson-templates/{template.Id}", new { template.Id });
+        });
+
+        admin.MapPut("/lesson-templates/{id:guid}", async (Guid id, LessonTemplateUpdateInput input,
+            LessonCueDb db, CancellationToken ct) =>
+        {
+            var template = await db.LessonTemplates.FindAsync([id], ct);
+            if (template is null) return Results.NotFound();
+            if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Template name is required." });
+            if (input.DefaultStartMinutes is < 0 or > 1439 || input.PreRollLeadMinutes is < 0 or > 1440 ||
+                input.DownloadDaysBefore is < 0 or > 365)
+                return Results.BadRequest(new { error = "Template timing is outside the supported range." });
+            template.Name = input.Name.Trim(); template.Description = input.Description?.Trim() ?? "";
+            template.DefaultTitle = string.IsNullOrWhiteSpace(input.DefaultTitle) ? template.Name : input.DefaultTitle.Trim();
+            template.DefaultStartMinutes = input.DefaultStartMinutes; template.PreRollLeadMinutes = input.PreRollLeadMinutes;
+            template.PreRollEnabled = input.PreRollEnabled; template.KeepOffline = input.KeepOffline;
+            template.DownloadDaysBefore = input.DownloadDaysBefore; template.UpdatedAt = DateTimeOffset.UtcNow;
+            Audit(db, "template.update", id, template.Name); await db.SaveChangesAsync(ct);
+            return Results.Ok(new { template.Id });
+        });
+
+        admin.MapPost("/lesson-templates/{id:guid}/replace-from-lesson", async (Guid id,
+            LessonTemplateReplaceInput input, LessonCueDb db, CancellationToken ct) =>
+        {
+            var replaced = await LessonScheduleService.ReplaceTemplateFromLessonAsync(db, id, input.LessonId, "admin", ct);
+            return replaced ? Results.Ok(new { id }) : Results.NotFound(new { error = "The template or source lesson was not found." });
+        });
+
+        admin.MapDelete("/lesson-templates/{id:guid}", async (Guid id, LessonCueDb db, CancellationToken ct) =>
+        {
+            var template = await db.LessonTemplates.FindAsync([id], ct);
+            if (template is null) return Results.NotFound();
+            db.LessonTemplates.Remove(template); Audit(db, "template.delete", id, template.Name);
+            await db.SaveChangesAsync(ct); return Results.NoContent();
+        });
+
+        admin.MapPost("/lesson-templates/{id:guid}/instantiate", async (Guid id, LessonTemplateInstantiateInput input,
+            LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            if (input.StartMinutes is < 0 or > 1439) return Results.BadRequest(new { error = "Start time is invalid." });
+            var lesson = await LessonScheduleService.InstantiateAsync(db, id, input.ClassId, input.Date,
+                input.Title, input.StartMinutes, null, "admin", ct);
+            if (lesson is null) return Results.NotFound(new { error = "The template or class was not found." });
+            await InvalidateAsync(hub, lesson.Version, ct);
+            return Results.Created($"/api/v1/lessons/{lesson.Id}", new { lesson.Id });
+        });
+
+        admin.MapGet("/recurring-schedules", async (LessonCueDb db, CancellationToken ct) =>
+            Results.Ok(await db.RecurringLessonSchedules.AsNoTracking().OrderBy(x => x.Name).Select(x => new
+            {
+                x.Id, x.TemplateId, templateName = x.Template!.Name, x.ClassId, className = x.Class!.Name,
+                x.Name, x.Frequency, x.Interval, x.DayOfWeek, x.DayOfMonth, x.StartDate, x.EndDate,
+                x.StartMinutes, x.TitlePattern, x.CustomDatesJson, x.ExcludedDatesJson, x.Enabled,
+                x.GenerateDaysAhead, x.LastGeneratedAt, x.CreatedAt, x.UpdatedAt,
+                generatedCount = db.Lessons.Count(lesson => lesson.GeneratedByScheduleId == x.Id)
+            }).ToListAsync(ct)));
+
+        admin.MapPost("/recurring-schedules", async (RecurringScheduleInput input, LessonCueDb db,
+            IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            var error = ValidateSchedule(input);
+            if (error is not null) return Results.BadRequest(new { error });
+            if (!await db.LessonTemplates.AnyAsync(x => x.Id == input.TemplateId, ct) ||
+                !await db.Classes.AnyAsync(x => x.Id == input.ClassId, ct))
+                return Results.BadRequest(new { error = "The selected template or class does not exist." });
+            var schedule = new RecurringLessonSchedule { Name = input.Name.Trim() }; ApplySchedule(schedule, input);
+            db.RecurringLessonSchedules.Add(schedule); Audit(db, "schedule.create", schedule.Id, schedule.Name);
+            await db.SaveChangesAsync(ct);
+            var created = schedule.Enabled ? await LessonScheduleService.GenerateAsync(db, schedule.Id, null, "admin", ct) : 0;
+            if (created > 0) await InvalidateAsync(hub, created, ct);
+            return Results.Created($"/api/v1/recurring-schedules/{schedule.Id}", new { schedule.Id, generated = created });
+        });
+
+        admin.MapPut("/recurring-schedules/{id:guid}", async (Guid id, RecurringScheduleInput input,
+            LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            var error = ValidateSchedule(input);
+            if (error is not null) return Results.BadRequest(new { error });
+            var schedule = await db.RecurringLessonSchedules.FindAsync([id], ct);
+            if (schedule is null) return Results.NotFound();
+            if (!await db.LessonTemplates.AnyAsync(x => x.Id == input.TemplateId, ct) ||
+                !await db.Classes.AnyAsync(x => x.Id == input.ClassId, ct))
+                return Results.BadRequest(new { error = "The selected template or class does not exist." });
+            ApplySchedule(schedule, input); Audit(db, "schedule.update", id, schedule.Name); await db.SaveChangesAsync(ct);
+            var created = schedule.Enabled ? await LessonScheduleService.GenerateAsync(db, schedule.Id, null, "admin", ct) : 0;
+            if (created > 0) await InvalidateAsync(hub, created, ct);
+            return Results.Ok(new { schedule.Id, generated = created });
+        });
+
+        admin.MapDelete("/recurring-schedules/{id:guid}", async (Guid id, LessonCueDb db, CancellationToken ct) =>
+        {
+            var schedule = await db.RecurringLessonSchedules.FindAsync([id], ct);
+            if (schedule is null) return Results.NotFound();
+            db.RecurringLessonSchedules.Remove(schedule); Audit(db, "schedule.delete", id, schedule.Name);
+            await db.SaveChangesAsync(ct); return Results.NoContent();
+        });
+
+        admin.MapPost("/recurring-schedules/{id:guid}/generate", async (Guid id,
+            RecurringScheduleGenerateInput input, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            var created = await LessonScheduleService.GenerateAsync(db, id, input.ThroughDate, "admin", ct);
+            if (created < 0) return Results.NotFound();
+            if (created > 0) await InvalidateAsync(hub, created, ct);
+            return Results.Ok(new { generated = created });
+        });
+
+        admin.MapPost("/recurring-schedules/{id:guid}/exception", async (Guid id,
+            RecurringScheduleExceptionInput input, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            var schedule = await db.RecurringLessonSchedules.FindAsync([id], ct);
+            if (schedule is null) return Results.NotFound();
+            var dates = LessonScheduleService.ParseDates(schedule.ExcludedDatesJson);
+            if (input.Excluded) dates.Add(input.Date); else dates.Remove(input.Date);
+            schedule.ExcludedDatesJson = LessonScheduleService.SerializeDates(dates);
+            schedule.UpdatedAt = DateTimeOffset.UtcNow;
+            var removed = 0;
+            if (input.Excluded)
+            {
+                var generated = await db.Lessons.SingleOrDefaultAsync(x => x.GeneratedByScheduleId == id && x.Date == input.Date, ct);
+                if (generated is not null) { db.Lessons.Remove(generated); removed = 1; }
+            }
+            Audit(db, input.Excluded ? "schedule.exception.add" : "schedule.exception.remove", id, input.Date.ToString("yyyy-MM-dd"));
+            await db.SaveChangesAsync(ct);
+            var created = !input.Excluded && schedule.Enabled
+                ? await LessonScheduleService.GenerateAsync(db, id, input.Date, "admin", ct) : 0;
+            if (removed > 0 || created > 0) await InvalidateAsync(hub, created, ct);
+            return Results.Ok(new { schedule.ExcludedDatesJson, removed, generated = created });
         });
 
         admin.MapPost("/lessons/{lessonId:guid}/items", async (Guid lessonId, PlaylistItemInput input,
@@ -437,6 +591,10 @@ public static class AdminApi
                 x.Width,
                 x.Height,
                 x.LoudnessLufs,
+                x.CompatibilityStatus,
+                x.CompatibilityError,
+                x.CompatibilityTranscodedAt,
+                x.CompatibilitySizeBytes,
                 x.SourceKind,
                 x.SourceUrl,
                 x.LinkKind,
@@ -455,7 +613,8 @@ public static class AdminApi
                 thumbnailUrl = x.ThumbnailPath == null ? null : $"/api/v1/media/{x.Id}/thumbnail",
                 filmstripUrl = x.FilmstripPath == null ? null : $"/api/v1/media/{x.Id}/filmstrip",
                 waveformUrl = x.WaveformPath == null ? null : $"/api/v1/media/{x.Id}/waveform",
-                downloadUrl = $"/api/v1/media/{x.Id}/file"
+                downloadUrl = $"/api/v1/media/{x.Id}/file",
+                playbackUrl = x.SourceKind == "link" ? x.SourceUrl : $"/api/v1/media/{x.Id}/playback"
             }).ToListAsync(ct));
 
         admin.MapGet("/media/{id:guid}/impact", async (Guid id, LessonCueDb db, CancellationToken ct) =>
@@ -467,6 +626,9 @@ public static class AdminApi
                 .OrderBy(x => x.Date).ToListAsync(ct);
             var signage = await db.SignagePlaylists.AsNoTracking().Where(x => x.MediaAssetId == id)
                 .Select(x => new { x.Id, x.Name, x.Mode, x.Enabled }).OrderBy(x => x.Name).ToListAsync(ct);
+            var templateItems = await db.LessonTemplateItems.AsNoTracking().Where(x => x.MediaAssetId == id)
+                .Select(x => new { x.Id, itemTitle = x.Title, x.TemplateId, templateName = x.Template!.Name })
+                .OrderBy(x => x.templateName).ToListAsync(ct);
             var versions = await db.MediaAssetVersions.AsNoTracking().Where(x => x.MediaAssetId == id)
                 .OrderByDescending(x => x.VersionNumber).Select(x => new
                 {
@@ -479,6 +641,8 @@ public static class AdminApi
                 media.Id, media.FileName, media.Folder, media.TagsCsv, media.Version, media.ReplacedAt,
                 lessons = lessonItems.GroupBy(x => new { x.LessonId, x.lessonTitle, x.Date })
                     .Select(group => new { id = group.Key.LessonId, title = group.Key.lessonTitle, date = group.Key.Date, itemCount = group.Count() }),
+                templates = templateItems.GroupBy(x => new { x.TemplateId, x.templateName })
+                    .Select(group => new { id = group.Key.TemplateId, name = group.Key.templateName, itemCount = group.Count() }),
                 signage,
                 versions
             });
@@ -1362,10 +1526,10 @@ public static class AdminApi
         ArchivedBy = actor
     };
 
-    private static (string? Thumbnail, string? Filmstrip, string? Waveform) ResetMediaProcessing(MediaAsset media,
+    private static (string? Thumbnail, string? Filmstrip, string? Waveform, string? Compatibility) ResetMediaProcessing(MediaAsset media,
         bool clearConversion = false)
     {
-        var derivatives = (media.ThumbnailPath, media.FilmstripPath, media.WaveformPath);
+        var derivatives = (media.ThumbnailPath, media.FilmstripPath, media.WaveformPath, media.CompatibilityPath);
         media.DurationMs = null;
         media.OfflineEligible = false;
         media.ProcessingStatus = "pending";
@@ -1378,6 +1542,12 @@ public static class AdminApi
         media.ThumbnailPath = null;
         media.FilmstripPath = null;
         media.WaveformPath = null;
+        media.CompatibilityPath = null;
+        media.CompatibilitySha256 = null;
+        media.CompatibilitySizeBytes = null;
+        media.CompatibilityStatus = "pending";
+        media.CompatibilityError = null;
+        media.CompatibilityTranscodedAt = null;
         if (clearConversion)
         {
             media.ConversionStatus = "none";
@@ -1389,13 +1559,15 @@ public static class AdminApi
     }
 
     private static void DeleteDerivatives(MediaStoragePaths paths,
-        (string? Thumbnail, string? Filmstrip, string? Waveform) derivatives)
+        (string? Thumbnail, string? Filmstrip, string? Waveform, string? Compatibility) derivatives)
     {
         foreach (var relative in new[] { derivatives.Thumbnail, derivatives.Filmstrip, derivatives.Waveform })
         {
             var path = relative is null ? null : ResolveStoredFile(paths.Thumbnails, relative);
             if (path is not null) TryDeleteFile(path);
         }
+        var compatibility = derivatives.Compatibility is null ? null : ResolveStoredFile(paths.Compatibility, derivatives.Compatibility);
+        if (compatibility is not null) TryDeleteFile(compatibility);
     }
 
     private static string? ResolveStoredFile(string root, string relativePath)
@@ -1417,6 +1589,36 @@ public static class AdminApi
     }
 
     private static string NormalizeRole(string? role) => role is "preRoll" or "countdown" ? role : "lesson";
+
+    private static string? ValidateSchedule(RecurringScheduleInput input)
+    {
+        if (string.IsNullOrWhiteSpace(input.Name)) return "Schedule name is required.";
+        if (input.Frequency is not ("weekly" or "monthly" or "custom")) return "Choose a weekly, monthly, or custom schedule.";
+        if (input.Interval is < 1 or > 52) return "Recurrence interval must be from 1 to 52.";
+        if (input.DayOfWeek is < 0 or > 6) return "Day of week is invalid.";
+        if (input.DayOfMonth is < 1 or > 31) return "Day of month is invalid.";
+        if (input.StartMinutes is < 0 or > 1439) return "Start time is invalid.";
+        if (input.EndDate is DateOnly end && end < input.StartDate) return "End date must be on or after the start date.";
+        if (input.GenerateDaysAhead is < 1 or > 730) return "Generation window must be from 1 to 730 days.";
+        if (input.Frequency == "weekly" && input.DayOfWeek is null) return "Choose a weekday for a weekly schedule.";
+        if (input.Frequency == "monthly" && input.DayOfMonth is null) return "Choose a day of month for a monthly schedule.";
+        if (input.Frequency == "custom" && (input.CustomDates is null || input.CustomDates.Count == 0)) return "Add at least one custom date.";
+        if ((input.CustomDates?.Count ?? 0) > 500 || (input.ExcludedDates?.Count ?? 0) > 500) return "A schedule supports at most 500 custom or excluded dates.";
+        return null;
+    }
+
+    private static void ApplySchedule(RecurringLessonSchedule schedule, RecurringScheduleInput input)
+    {
+        schedule.TemplateId = input.TemplateId; schedule.ClassId = input.ClassId; schedule.Name = input.Name.Trim();
+        schedule.Frequency = input.Frequency; schedule.Interval = input.Interval; schedule.DayOfWeek = input.DayOfWeek;
+        schedule.DayOfMonth = input.DayOfMonth; schedule.StartDate = input.StartDate; schedule.EndDate = input.EndDate;
+        schedule.StartMinutes = input.StartMinutes;
+        schedule.TitlePattern = string.IsNullOrWhiteSpace(input.TitlePattern) ? "{template} — {date}" : input.TitlePattern.Trim();
+        schedule.CustomDatesJson = LessonScheduleService.SerializeDates(input.CustomDates ?? []);
+        schedule.ExcludedDatesJson = LessonScheduleService.SerializeDates(input.ExcludedDates ?? []);
+        schedule.Enabled = input.Enabled; schedule.GenerateDaysAhead = input.GenerateDaysAhead;
+        schedule.UpdatedAt = DateTimeOffset.UtcNow;
+    }
 
     private static string? ValidateCredentials(string username, string password)
     {

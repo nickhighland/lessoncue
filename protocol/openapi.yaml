@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 2.3.0
+  version: 2.4.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local
@@ -105,6 +105,142 @@ paths:
       responses:
         '201': { description: Created and manifest invalidated }
         '404': { description: Lesson not found }
+  /api/v1/lesson-templates:
+    get:
+      operationId: listLessonTemplates
+      responses:
+        '200':
+          description: Reusable lesson structures with ordered cue snapshots and schedule counts
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/LessonTemplate' } }
+  /api/v1/lesson-templates/from-lesson:
+    post:
+      operationId: createLessonTemplateFromLesson
+      description: Captures playlist, timing, pre-roll, countdown, offline, trim, fade, cue, and media settings. Referenced lesson-scoped media becomes permanent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LessonTemplateFromLessonInput' }
+      responses:
+        '201': { description: Template created }
+        '404': { description: Source lesson not found }
+  /api/v1/lesson-templates/{templateId}:
+    put:
+      operationId: updateLessonTemplate
+      parameters:
+        - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LessonTemplateUpdateInput' }
+      responses:
+        '200': { description: Template defaults updated }
+        '404': { description: Template not found }
+    delete:
+      operationId: deleteLessonTemplate
+      parameters:
+        - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Template and its schedules deleted; generated lessons preserved }
+  /api/v1/lesson-templates/{templateId}/replace-from-lesson:
+    post:
+      operationId: replaceLessonTemplateStructure
+      parameters:
+        - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lessonId]
+              properties:
+                lessonId: { type: string, format: uuid }
+      responses:
+        '200': { description: Playlist and timing structure replaced while template identity and schedules remain }
+        '404': { description: Template or lesson not found }
+  /api/v1/lesson-templates/{templateId}/instantiate:
+    post:
+      operationId: instantiateLessonTemplate
+      parameters:
+        - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LessonTemplateInstantiateInput' }
+      responses:
+        '201': { description: One dated lesson created from the template }
+        '404': { description: Template or class not found }
+  /api/v1/recurring-schedules:
+    get:
+      operationId: listRecurringLessonSchedules
+      responses:
+        '200': { description: Recurring schedules with generated counts and explicit exception dates }
+    post:
+      operationId: createRecurringLessonSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecurringScheduleInput' }
+      responses:
+        '201': { description: Schedule created and enabled occurrences generated idempotently }
+        '400': { description: Invalid recurrence, template, or class }
+  /api/v1/recurring-schedules/{scheduleId}:
+    put:
+      operationId: updateRecurringLessonSchedule
+      parameters:
+        - { name: scheduleId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecurringScheduleInput' }
+      responses:
+        '200': { description: Schedule updated and missing enabled occurrences generated }
+    delete:
+      operationId: deleteRecurringLessonSchedule
+      parameters:
+        - { name: scheduleId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Schedule deleted; generated lessons preserved }
+  /api/v1/recurring-schedules/{scheduleId}/generate:
+    post:
+      operationId: generateRecurringLessons
+      description: Materializes missing occurrences only; rerunning never duplicates a schedule date.
+      parameters:
+        - { name: scheduleId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                throughDate: { type: [string, 'null'], format: date }
+      responses:
+        '200': { description: Number of newly generated lessons }
+  /api/v1/recurring-schedules/{scheduleId}/exception:
+    post:
+      operationId: setRecurringScheduleException
+      description: Excluding a date removes that schedule's generated lesson; restoring it regenerates the missing occurrence.
+      parameters:
+        - { name: scheduleId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date, excluded]
+              properties:
+                date: { type: string, format: date }
+                excluded: { type: boolean }
+      responses:
+        '200': { description: Exception list and occurrence updated }
   /api/v1/playlist-items/{itemId}:
     patch:
       operationId: updatePlaylistItem
@@ -199,6 +335,19 @@ paths:
         '200': { description: Media file }
         '206': { description: Partial media response }
         '404': { description: Not found }
+  /api/v1/media/{mediaId}/playback:
+    get:
+      operationId: streamCompatibleMedia
+      description: Streams the original when it meets the shared TV codec policy, otherwise the locally generated H.264/AAC MP4 derivative. Supports byte ranges and strong ETags.
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: TV-compatible playback media }
+        '206': { description: Partial playback media range }
+        '404': { description: Media or compatible file not found }
   /api/v1/backups/restore/preview:
     post:
       operationId: previewBackupRestore
@@ -659,7 +808,7 @@ components:
         imageDurationSeconds: { type: integer, minimum: 1, maximum: 3600, default: 10 }
     MediaImpact:
       type: object
-      required: [id, fileName, folder, tagsCsv, version, lessons, signage, versions]
+      required: [id, fileName, folder, tagsCsv, version, lessons, templates, signage, versions]
       properties:
         id: { type: string, format: uuid }
         fileName: { type: string }
@@ -668,6 +817,7 @@ components:
         version: { type: integer, minimum: 1 }
         replacedAt: { type: [string, 'null'], format: date-time }
         lessons: { type: array, items: { type: object } }
+        templates: { type: array, items: { type: object } }
         signage: { type: array, items: { type: object } }
         versions:
           type: array
@@ -806,6 +956,75 @@ components:
         expiresAt: { type: [string, 'null'], format: date-time }
         countdownItemId: { type: [string, 'null'], format: uuid }
         preRollEnabled: { type: boolean, default: false }
+    LessonTemplateFromLessonInput:
+      type: object
+      required: [lessonId, name]
+      properties:
+        lessonId: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 160 }
+        description: { type: [string, 'null'], maxLength: 1000 }
+    LessonTemplateUpdateInput:
+      type: object
+      required: [name, preRollEnabled, keepOffline, downloadDaysBefore]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        description: { type: [string, 'null'], maxLength: 1000 }
+        defaultTitle: { type: [string, 'null'], maxLength: 160 }
+        defaultStartMinutes: { type: [integer, 'null'], minimum: 0, maximum: 1439 }
+        preRollLeadMinutes: { type: [integer, 'null'], minimum: 0, maximum: 1440 }
+        preRollEnabled: { type: boolean }
+        keepOffline: { type: boolean }
+        downloadDaysBefore: { type: integer, minimum: 0, maximum: 365 }
+    LessonTemplateInstantiateInput:
+      type: object
+      required: [classId, date]
+      properties:
+        classId: { type: string, format: uuid }
+        date: { type: string, format: date }
+        title: { type: [string, 'null'], maxLength: 160 }
+        startMinutes: { type: [integer, 'null'], minimum: 0, maximum: 1439 }
+    LessonTemplate:
+      type: object
+      required: [id, name, description, defaultTitle, preRollEnabled, keepOffline, downloadDaysBefore, scheduleCount, items]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        defaultTitle: { type: string }
+        defaultStartMinutes: { type: [integer, 'null'], minimum: 0, maximum: 1439 }
+        preRollLeadMinutes: { type: [integer, 'null'], minimum: 0 }
+        availableLeadMinutes: { type: [integer, 'null'], minimum: 0 }
+        expiresAfterMinutes: { type: [integer, 'null'], minimum: 0 }
+        preRollEnabled: { type: boolean }
+        keepOffline: { type: boolean }
+        downloadDaysBefore: { type: integer }
+        scheduleCount: { type: integer, minimum: 0 }
+        items: { type: array, items: { type: object } }
+    RecurringScheduleInput:
+      type: object
+      required: [templateId, classId, name, frequency, interval, startDate, enabled, generateDaysAhead]
+      properties:
+        templateId: { type: string, format: uuid }
+        classId: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 160 }
+        frequency: { enum: [weekly, monthly, custom] }
+        interval: { type: integer, minimum: 1, maximum: 52 }
+        dayOfWeek: { type: [integer, 'null'], minimum: 0, maximum: 6 }
+        dayOfMonth: { type: [integer, 'null'], minimum: 1, maximum: 31 }
+        startDate: { type: string, format: date }
+        endDate: { type: [string, 'null'], format: date }
+        startMinutes: { type: [integer, 'null'], minimum: 0, maximum: 1439 }
+        titlePattern: { type: [string, 'null'], maxLength: 240, default: '{template} — {date}' }
+        customDates:
+          type: [array, 'null']
+          maxItems: 500
+          items: { type: string, format: date }
+        excludedDates:
+          type: [array, 'null']
+          maxItems: 500
+          items: { type: string, format: date }
+        enabled: { type: boolean, default: true }
+        generateDaysAhead: { type: integer, minimum: 1, maximum: 730, default: 90 }
     PlaylistItemInput:
       type: object
       required: [title, type]

@@ -80,36 +80,44 @@ public sealed class ManifestService(LessonCueDb db)
         ? null
         : item.EndMs is { } end ? Math.Max(0, end - item.StartMs) : item.DurationMs ?? item.MediaAsset?.DurationMs;
 
-    private static object MapItem(PlaylistItem item) => new
+    private static object MapItem(PlaylistItem item)
     {
-        itemId = item.Id,
-        mediaId = item.MediaAssetId,
-        item.Type,
-        item.Title,
-        downloadUrl = item.MediaAsset is { SourceKind: "link", LinkKind: "direct" } linked ? linked.SourceUrl :
-            item.MediaAssetId is { } mediaId && item.MediaAsset?.SourceKind != "link" && !string.IsNullOrWhiteSpace(item.MediaAsset?.RelativePath)
-                ? $"/api/v1/media/{mediaId}/file" : null,
-        playbackUrl = item.MediaAsset is { SourceKind: "link" } online
-            ? YouTubeMedia.EmbedUrl(online.SourceUrl) ?? online.SourceUrl : null,
-        sha256 = item.MediaAsset?.Sha256,
-        sizeBytes = item.MediaAsset?.SizeBytes,
-        durationMs = item.DurationMs ?? item.MediaAsset?.DurationMs,
-        item.StartMs,
-        item.EndMs,
-        item.VolumePercent,
-        item.ImageDurationSeconds,
-        item.EndBehavior,
-        item.AllowSkip,
-        offlineEligible = item.MediaAsset?.OfflineEligible ?? false
-        ,sourceKind = item.MediaAsset?.SourceKind,
-        sourceUrl = item.MediaAsset?.SourceUrl,
-        linkKind = item.MediaAsset?.LinkKind,
-        item.Notes,
-        item.FadeInMs,
-        item.FadeOutMs,
-        item.NormalizeAudio,
-        cuePoints = ParseCuePoints(item.CuePointsJson)
-    };
+        var media = item.MediaAsset;
+        var compatible = media?.CompatibilityStatus == "ready" && !string.IsNullOrWhiteSpace(media.CompatibilityPath);
+        return new
+        {
+            itemId = item.Id,
+            mediaId = item.MediaAssetId,
+            item.Type,
+            item.Title,
+            downloadUrl = media is { SourceKind: "link", LinkKind: "direct" } linked ? linked.SourceUrl :
+                item.MediaAssetId is { } mediaId && media?.SourceKind != "link" && !string.IsNullOrWhiteSpace(media?.RelativePath)
+                    ? $"/api/v1/media/{mediaId}/playback" : null,
+            playbackUrl = media is { SourceKind: "link" } online
+                ? YouTubeMedia.EmbedUrl(online.SourceUrl) ?? online.SourceUrl : null,
+            sha256 = compatible ? media?.CompatibilitySha256 : media?.Sha256,
+            sizeBytes = compatible ? media?.CompatibilitySizeBytes : media?.SizeBytes,
+            contentType = compatible ? "video/mp4" : media?.ContentType,
+            fileExtension = compatible ? "mp4" : Path.GetExtension(media?.RelativePath ?? "").TrimStart('.').ToLowerInvariant(),
+            compatibilityStatus = media?.CompatibilityStatus,
+            durationMs = item.DurationMs ?? media?.DurationMs,
+            item.StartMs,
+            item.EndMs,
+            item.VolumePercent,
+            item.ImageDurationSeconds,
+            item.EndBehavior,
+            item.AllowSkip,
+            offlineEligible = media?.OfflineEligible ?? false,
+            sourceKind = media?.SourceKind,
+            sourceUrl = media?.SourceUrl,
+            linkKind = media?.LinkKind,
+            item.Notes,
+            item.FadeInMs,
+            item.FadeOutMs,
+            item.NormalizeAudio,
+            cuePoints = ParseCuePoints(item.CuePointsJson)
+        };
+    }
 
     private static List<CuePointInput> ParseCuePoints(string json)
     {

@@ -17,6 +17,8 @@ struct RootView: View {
                 PairingView(api: api, requestId: requestId, serverName: serverName)
             case .library:
                 LibraryView()
+            case .lesson(let playlist):
+                LessonMediaView(playlist: playlist)
             case .playback(let playlist, let items, let index, let seekMs):
                 PlaybackView(playlist: playlist, items: items, index: index, seekMs: seekMs)
             }
@@ -91,7 +93,7 @@ private struct LibraryView: View {
             ScrollView {
                 LazyVStack(spacing: 22) {
                     ForEach(model.manifest?.playlists ?? []) { playlist in
-                        Button { model.start(playlist) } label: {
+                        Button { model.browse(playlist) } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text(playlist.title).font(.title2.bold())
@@ -99,7 +101,7 @@ private struct LibraryView: View {
                                         .font(.callout).foregroundStyle(Color.lessonMint)
                                 }
                                 Spacer()
-                                Text("START  ›").font(.headline).foregroundStyle(Color.lessonGold)
+                                Text("VIEW MEDIA  ›").font(.headline).foregroundStyle(Color.lessonGold)
                             }.padding(28)
                         }
                         .buttonStyle(.card)
@@ -108,6 +110,65 @@ private struct LibraryView: View {
             }
         }
         .padding(70)
+    }
+}
+
+private struct LessonMediaView: View {
+    @EnvironmentObject private var model: AppModel
+    let playlist: LessonPlaylist
+    @FocusState private var focusedItem: String?
+
+    private var items: [CueItem] {
+        (playlist.preRoll?.items ?? []) + [playlist.countdown?.item].compactMap { $0 } + playlist.items
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 80) {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("LESSON MEDIA").font(.headline).tracking(5).foregroundStyle(Color.lessonGold)
+                Text(playlist.title).font(.system(size: 44, weight: .bold))
+                Text("Use Up and Down to scroll every cue. Press Select to start at that item.")
+                    .font(.title3).foregroundStyle(.secondary)
+                Button("‹ Back to lessons") { model.route = .library }.padding(.top, 14)
+                Spacer()
+            }.frame(width: 420, alignment: .leading)
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 18) {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                            Button { model.play(playlist, itemAt: index) } label: {
+                                HStack(spacing: 22) {
+                                    Text("\(index + 1)").font(.title2.bold()).foregroundStyle(Color.lessonGold)
+                                        .frame(width: 48, alignment: .leading)
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text(item.title).font(.title2.bold())
+                                        Text("\(role(for: item)) · \(item.type.uppercased())")
+                                            .font(.callout).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Text("PLAY  ›").font(.headline).foregroundStyle(Color.lessonGold)
+                                }.padding(25)
+                            }
+                            .buttonStyle(.card).id(item.id).focused($focusedItem, equals: item.id)
+                        }
+                        if items.isEmpty { ContentUnavailableView("No lesson media", systemImage: "play.slash") }
+                    }
+                }
+                .onChange(of: focusedItem) { _, value in
+                    if let value { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(value, anchor: .center) } }
+                }
+            }
+        }
+        .padding(70)
+        .onAppear { focusedItem = items.first?.id }
+        .onExitCommand { model.route = .library }
+    }
+
+    private func role(for item: CueItem) -> String {
+        if item.id == playlist.countdown?.item.id { return "COUNTDOWN" }
+        if playlist.preRoll?.items.contains(item) == true { return "PRE-ROLL" }
+        return "LESSON"
     }
 }
 

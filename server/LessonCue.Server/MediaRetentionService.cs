@@ -8,6 +8,7 @@ public sealed record MediaStoragePaths(string DataPath)
     public string Originals => Path.Combine(DataPath, "media", "originals");
     public string Thumbnails => Path.Combine(DataPath, "media", "thumbnails");
     public string Versions => Path.Combine(DataPath, "media", "versions");
+    public string Compatibility => Path.Combine(DataPath, "media", "compatibility");
 }
 
 public static class MediaRetention
@@ -132,6 +133,7 @@ public sealed class MediaRetentionService(
         if (!string.IsNullOrWhiteSpace(media.ThumbnailPath)) DeleteStoredFile(paths.Thumbnails, media.ThumbnailPath);
         if (!string.IsNullOrWhiteSpace(media.FilmstripPath)) DeleteStoredFile(paths.Thumbnails, media.FilmstripPath);
         if (!string.IsNullOrWhiteSpace(media.WaveformPath)) DeleteStoredFile(paths.Thumbnails, media.WaveformPath);
+        if (!string.IsNullOrWhiteSpace(media.CompatibilityPath)) DeleteStoredFile(paths.Compatibility, media.CompatibilityPath);
         db.MediaAssets.Remove(media);
         db.AuditEvents.Add(new AuditEvent
         {

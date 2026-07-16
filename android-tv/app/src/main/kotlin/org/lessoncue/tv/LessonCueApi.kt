@@ -21,7 +21,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         val body = JSONObject()
             .put("deviceName", deviceName)
             .put("platform", "android-tv")
-            .put("appVersion", "0.15.0")
+            .put("appVersion", "0.16.0")
         JSONObject(request("/api/v1/pairing/request", "POST", body.toString())).getString("requestId")
     }
 
@@ -42,7 +42,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         cachedItems: Int = 0, totalItems: Int = 0) = withContext(Dispatchers.IO) {
         val body = JSONObject()
             .put("screenId", identity.screenId)
-            .put("appVersion", "0.15.0")
+            .put("appVersion", "0.16.0")
             .put("online", true)
             .put("freeBytes", freeBytes)
             .put("manifestVersion", manifestVersion)
@@ -123,6 +123,8 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         url = json.optString("downloadUrl").takeIf { it.isNotBlank() && it != "null" }?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
         playbackUrl = json.optString("playbackUrl").takeIf { it.isNotBlank() && it != "null" }?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
         linkKind = json.optString("linkKind").takeIf { it.isNotBlank() && it != "null" },
+        contentType = json.optString("contentType").takeIf { it.isNotBlank() && it != "null" },
+        fileExtension = json.optString("fileExtension").takeIf { it.isNotBlank() && it != "null" },
         sha256 = json.optString("sha256").takeIf { it.isNotBlank() && it != "null" },
         sizeBytes = json.optLong("sizeBytes").takeIf { json.has("sizeBytes") && !json.isNull("sizeBytes") },
         durationMs = json.optLong("durationMs").takeIf { json.has("durationMs") && !json.isNull("durationMs") },

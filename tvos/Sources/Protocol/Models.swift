@@ -16,6 +16,8 @@ public struct CueItem: Codable, Identifiable, Equatable, Sendable {
     public let type: String
     public let title: String
     public let downloadUrl: String?
+    public let contentType: String?
+    public let fileExtension: String?
     public let sha256: String?
     public let sizeBytes: Int64?
     public let durationMs: Int64?
@@ -33,14 +35,16 @@ public struct CueItem: Codable, Identifiable, Equatable, Sendable {
     public var id: String { itemId }
 
     public init(itemId: String, mediaId: String? = nil, type: String = "video", title: String,
-                downloadUrl: String? = nil, sha256: String? = nil, sizeBytes: Int64? = nil,
+                downloadUrl: String? = nil, contentType: String? = nil, fileExtension: String? = nil,
+                sha256: String? = nil, sizeBytes: Int64? = nil,
                 durationMs: Int64? = nil, startMs: Int64 = 0, endMs: Int64? = nil,
                 volumePercent: Int = 100, imageDurationSeconds: Int? = nil,
                 endBehavior: String = "advance", allowSkip: Bool = true, notes: String? = nil,
                 fadeInMs: Int64? = nil, fadeOutMs: Int64? = nil, offlineEligible: Bool = false,
                 cuePoints: [CuePoint]? = nil) {
         self.itemId = itemId; self.mediaId = mediaId; self.type = type; self.title = title
-        self.downloadUrl = downloadUrl; self.sha256 = sha256; self.sizeBytes = sizeBytes
+        self.downloadUrl = downloadUrl; self.contentType = contentType; self.fileExtension = fileExtension
+        self.sha256 = sha256; self.sizeBytes = sizeBytes
         self.durationMs = durationMs; self.startMs = startMs; self.endMs = endMs
         self.volumePercent = volumePercent; self.imageDurationSeconds = imageDurationSeconds
         self.endBehavior = endBehavior; self.allowSkip = allowSkip; self.notes = notes

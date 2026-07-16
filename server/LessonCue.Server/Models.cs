@@ -57,7 +57,77 @@ public sealed class Lesson
     public bool Archived { get; set; }
     public bool KeepOffline { get; set; }
     public int DownloadDaysBefore { get; set; } = 7;
+    public Guid? GeneratedByScheduleId { get; set; }
     public List<PlaylistItem> Items { get; set; } = [];
+}
+
+public sealed class LessonTemplate
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    [MaxLength(160)] public required string Name { get; set; }
+    [MaxLength(1000)] public string Description { get; set; } = "";
+    [MaxLength(160)] public string DefaultTitle { get; set; } = "Lesson";
+    public int? DefaultStartMinutes { get; set; }
+    public int? PreRollLeadMinutes { get; set; }
+    public int? AvailableLeadMinutes { get; set; }
+    public int? ExpiresAfterMinutes { get; set; }
+    public bool PreRollEnabled { get; set; }
+    public bool KeepOffline { get; set; }
+    public int DownloadDaysBefore { get; set; } = 7;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public List<LessonTemplateItem> Items { get; set; } = [];
+    public List<RecurringLessonSchedule> Schedules { get; set; } = [];
+}
+
+public sealed class LessonTemplateItem
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid TemplateId { get; set; }
+    public LessonTemplate? Template { get; set; }
+    [MaxLength(160)] public required string Title { get; set; }
+    [MaxLength(32)] public string Type { get; set; } = "video";
+    [MaxLength(32)] public string Role { get; set; } = "lesson";
+    public decimal Position { get; set; }
+    public Guid? MediaAssetId { get; set; }
+    public MediaAsset? MediaAsset { get; set; }
+    public long? DurationMs { get; set; }
+    public long StartMs { get; set; }
+    public long? EndMs { get; set; }
+    public int VolumePercent { get; set; } = 100;
+    public int? ImageDurationSeconds { get; set; }
+    [MaxLength(24)] public string EndBehavior { get; set; } = "advance";
+    public bool AllowSkip { get; set; } = true;
+    [MaxLength(2000)] public string Notes { get; set; } = "";
+    public int FadeInMs { get; set; }
+    public int FadeOutMs { get; set; }
+    public bool NormalizeAudio { get; set; }
+    [MaxLength(8000)] public string CuePointsJson { get; set; } = "[]";
+}
+
+public sealed class RecurringLessonSchedule
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid TemplateId { get; set; }
+    public LessonTemplate? Template { get; set; }
+    public Guid ClassId { get; set; }
+    public LessonClass? Class { get; set; }
+    [MaxLength(160)] public required string Name { get; set; }
+    [MaxLength(32)] public string Frequency { get; set; } = "weekly";
+    public int Interval { get; set; } = 1;
+    public int? DayOfWeek { get; set; }
+    public int? DayOfMonth { get; set; }
+    public DateOnly StartDate { get; set; }
+    public DateOnly? EndDate { get; set; }
+    public int? StartMinutes { get; set; }
+    [MaxLength(240)] public string TitlePattern { get; set; } = "{template} — {date}";
+    [MaxLength(12000)] public string CustomDatesJson { get; set; } = "[]";
+    [MaxLength(12000)] public string ExcludedDatesJson { get; set; } = "[]";
+    public bool Enabled { get; set; } = true;
+    public int GenerateDaysAhead { get; set; } = 90;
+    public DateTimeOffset? LastGeneratedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
 public sealed class PlaylistItem
@@ -106,6 +176,12 @@ public sealed class MediaAsset
     [MaxLength(512)] public string? ThumbnailPath { get; set; }
     [MaxLength(512)] public string? FilmstripPath { get; set; }
     [MaxLength(512)] public string? WaveformPath { get; set; }
+    [MaxLength(512)] public string? CompatibilityPath { get; set; }
+    [MaxLength(64)] public string? CompatibilitySha256 { get; set; }
+    public long? CompatibilitySizeBytes { get; set; }
+    [MaxLength(24)] public string CompatibilityStatus { get; set; } = "pending";
+    [MaxLength(1000)] public string? CompatibilityError { get; set; }
+    public DateTimeOffset? CompatibilityTranscodedAt { get; set; }
     [MaxLength(32)] public string SourceKind { get; set; } = "upload";
     [MaxLength(2048)] public string? SourceUrl { get; set; }
     [MaxLength(32)] public string? LinkKind { get; set; }
@@ -305,3 +381,14 @@ public sealed record MediaBulkInput(List<Guid> MediaIds, string? Action, DateOnl
     string? Folder = null, string? TagsCsv = null);
 public sealed record MediaOrganizeInput(string? FileName, string? Folder, string? TagsCsv);
 public sealed record PresentationLessonInput(Guid LessonId, int ImageDurationSeconds = 10);
+public sealed record LessonTemplateFromLessonInput(Guid LessonId, string Name, string? Description = null);
+public sealed record LessonTemplateReplaceInput(Guid LessonId);
+public sealed record LessonTemplateUpdateInput(string Name, string? Description, string? DefaultTitle,
+    int? DefaultStartMinutes, int? PreRollLeadMinutes, bool PreRollEnabled, bool KeepOffline, int DownloadDaysBefore);
+public sealed record LessonTemplateInstantiateInput(Guid ClassId, DateOnly Date, string? Title = null, int? StartMinutes = null);
+public sealed record RecurringScheduleInput(Guid TemplateId, Guid ClassId, string Name, string Frequency,
+    int Interval, int? DayOfWeek, int? DayOfMonth, DateOnly StartDate, DateOnly? EndDate,
+    int? StartMinutes, string? TitlePattern, List<DateOnly>? CustomDates, List<DateOnly>? ExcludedDates,
+    bool Enabled = true, int GenerateDaysAhead = 90);
+public sealed record RecurringScheduleGenerateInput(DateOnly? ThroughDate = null);
+public sealed record RecurringScheduleExceptionInput(DateOnly Date, bool Excluded = true);
