@@ -816,9 +816,10 @@ public static class AdminApi
             if (!IsManager(context.User)) return Results.Forbid();
             var validation = ValidateCredentials(input.Username, input.Password ?? "");
             if (validation is not null) return Results.BadRequest(new { error = validation });
+            if (string.IsNullOrWhiteSpace(input.DisplayName)) return Results.BadRequest(new { error = "Name is required." });
             var username = input.Username.Trim().ToLowerInvariant();
             if (await db.AdminAccounts.AnyAsync(x => x.Username == username, ct)) return Results.Conflict(new { error = "That username already exists." });
-            var account = new AdminAccount { Username = username, DisplayName = input.DisplayName.Trim(), Email = input.Email?.Trim(),
+            var account = new AdminAccount { Username = username, DisplayName = input.DisplayName.Trim(), Email = NullIfBlank(input.Email),
                 Role = NormalizeAdminRole(input.Role), Disabled = input.Disabled, PasswordHash = "pending" };
             account.PasswordHash = hasher.HashPassword(account, input.Password!);
             db.AdminAccounts.Add(account); Audit(db, "user.create", account.Id, account.Username); await db.SaveChangesAsync(ct);
@@ -830,17 +831,47 @@ public static class AdminApi
         {
             if (!IsManager(context.User)) return Results.Forbid();
             var account = await db.AdminAccounts.FindAsync([id], ct); if (account is null) return Results.NotFound();
+            var currentAccountId = Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentId) ? currentId : Guid.Empty;
+            if (account.Id == currentAccountId && input.Disabled)
+                return Results.BadRequest(new { error = "You cannot pause your own account." });
+            var usernameValidation = AdminCredentialPolicy.ValidateUsername(input.Username);
+            if (usernameValidation is not null) return Results.BadRequest(new { error = usernameValidation });
+            if (string.IsNullOrWhiteSpace(input.DisplayName)) return Results.BadRequest(new { error = "Name is required." });
+            var username = input.Username.Trim().ToLowerInvariant();
+            if (await db.AdminAccounts.AnyAsync(x => x.Username == username && x.Id != id, ct))
+                return Results.Conflict(new { error = "That username already exists." });
             var role = NormalizeAdminRole(input.Role);
             if (account.Role == "Owner" && (role != "Owner" || input.Disabled) && await db.AdminAccounts.CountAsync(x => x.Role == "Owner" && !x.Disabled, ct) <= 1)
                 return Results.BadRequest(new { error = "At least one active owner is required." });
-            account.DisplayName = input.DisplayName.Trim(); account.Email = input.Email?.Trim(); account.Role = role; account.Disabled = input.Disabled;
+            var identityChanged = account.Username != username || account.DisplayName != input.DisplayName.Trim() ||
+                account.Email != NullIfBlank(input.Email) || account.Role != role || account.Disabled != input.Disabled;
+            account.Username = username; account.DisplayName = input.DisplayName.Trim(); account.Email = NullIfBlank(input.Email);
+            account.Role = role; account.Disabled = input.Disabled;
             if (!string.IsNullOrWhiteSpace(input.Password))
             {
                 var validation = ValidateCredentials(account.Username, input.Password); if (validation is not null) return Results.BadRequest(new { error = validation });
                 account.PasswordHash = hasher.HashPassword(account, input.Password);
-                account.SessionVersion++;
+                identityChanged = true;
             }
-            Audit(db, "user.update", account.Id, account.Username); await db.SaveChangesAsync(ct); return Results.NoContent();
+            if (identityChanged) account.SessionVersion++;
+            Audit(db, "user.update", account.Id, account.Username);
+            await db.SaveChangesAsync(ct);
+            if (account.Id == currentAccountId) await SignInAsync(context, account);
+            return Results.NoContent();
+        });
+
+        admin.MapDelete("/users/{id:guid}", async (Guid id, LessonCueDb db, HttpContext context, CancellationToken ct) =>
+        {
+            if (!IsManager(context.User)) return Results.Forbid();
+            var currentAccountId = Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentId) ? currentId : Guid.Empty;
+            if (id == currentAccountId) return Results.BadRequest(new { error = "You cannot delete your own account." });
+            var account = await db.AdminAccounts.FindAsync([id], ct); if (account is null) return Results.NotFound();
+            if (account.Role == "Owner" && !account.Disabled && await db.AdminAccounts.CountAsync(x => x.Role == "Owner" && !x.Disabled, ct) <= 1)
+                return Results.BadRequest(new { error = "At least one active owner is required." });
+            db.AdminAccounts.Remove(account);
+            Audit(db, "user.delete", account.Id, account.Username);
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
         });
 
         admin.MapGet("/signage", async (LessonCueDb db, CancellationToken ct) =>
@@ -910,6 +941,7 @@ public static class AdminApi
 
     private static bool IsManager(ClaimsPrincipal user) => user.IsInRole("Owner") || user.IsInRole("Administrator");
     private static string NormalizeAdminRole(string role) => role is "Owner" or "Administrator" or "Editor" or "Viewer" ? role : "Viewer";
+    private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static bool IsColor(string? value) => value is { Length: 7 } && value[0] == '#' && value[1..].All(Uri.IsHexDigit);
 
     private static string NormalizeRole(string? role) => role is "preRoll" or "countdown" ? role : "lesson";

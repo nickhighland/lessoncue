@@ -2,7 +2,7 @@
 
 LessonCue is a self-hosted lesson scheduling and television playback system for schools, churches, training programs, and other learning organizations. Administrators build dated media playlists in a browser; paired Android TV, Fire TV, and Apple TV clients cache their assignments and keep playing when the network is unavailable.
 
-[Installation guide](docs/installation.md) · [Implementation guide](docs/implementation.md) · [Protocol](protocol/openapi.yaml)
+[Installation guide](docs/installation.md) · [Implementation guide](docs/implementation.md) · [Feature roadmap](docs/feature-roadmap.md) · [Protocol](protocol/openapi.yaml)
 
 ## What is included
 
@@ -18,6 +18,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - A locally configurable six-digit pairing PIN, with a choice between a persistent administrator-set PIN and automatic ten-minute rotation.
 - Automatic `lessoncue.local` setup on native Linux, with an administrator-configurable `.local` browser name and numeric-IP fallback.
 - Local administrator password recovery over SSH, including username listing, audited resets, and existing-session invalidation.
+- Administrator user management with editable names, usernames, email addresses, roles, and passwords, plus pause/reactivate and protected account deletion.
 - Local interface branding with independent navigation background, navigation text, selected-tab, and accent colors.
 - Browser previews for every ready media item, including playlist trim points, fades, volume, looping, and operator notes.
 - A phone-first local controller for selecting screens, lessons, and individual media, with play, pause, resume, previous, next, stop, and seek controls; it can be saved to an iPhone, iPad, or Android home screen.

@@ -13,5 +13,7 @@ LessonCue is local-network software, not trusted-network software. Treat every r
 - LessonCue uses role-based browser sessions, same-origin mutation checks, CSP, rate-limited pairing/login, revocable hashed device credentials, and durable local data-protection keys. Uploaded media URLs remain reachable on the trusted television network so native players can stream them; do not expose the service directly to the internet.
 - Retain audit logs and test backups and restoration.
 - Keep SSH or equivalent physical administrator access available for account recovery. The recovery command runs as the restricted `lessoncue` account, stores only a new adaptive password hash, audits the reset, and invalidates existing sessions for that account.
+- Owners and administrators can edit local names, usernames, emails, roles, and passwords from **Users**. They can also pause, reactivate, and permanently delete other accounts. Pausing or changing an account invalidates its previous browser sessions immediately.
+- LessonCue prevents an administrator from pausing or deleting the account they are currently using, rejects duplicate usernames, and always preserves at least one active owner. Use the SSH recovery procedure if every known owner password is lost.
 
 Report security issues privately to the repository owner rather than opening an issue containing exploit details.

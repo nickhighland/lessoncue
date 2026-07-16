@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 1.4.0
+  version: 1.5.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local:8080
@@ -285,6 +285,56 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/PairingStatus' }
         '400': { description: The fixed PIN is not exactly six digits }
+  /api/v1/users:
+    get:
+      operationId: listUsers
+      description: Lists local accounts for the signed-in browser user.
+      responses:
+        '200':
+          description: Local user accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/User' }
+    post:
+      operationId: createUser
+      description: Owner or administrator only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserInput' }
+      responses:
+        '201': { description: User created }
+        '400': { description: Invalid username, name, or password }
+        '409': { description: Username already exists }
+  /api/v1/users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      operationId: updateUser
+      description: Owner or administrator only. Updates identity, role, status, and optionally the password. Identity and status changes invalidate earlier sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserInput' }
+      responses:
+        '204': { description: User updated }
+        '400': { description: Invalid update, self-pause, or final active owner protection }
+        '404': { description: User not found }
+        '409': { description: Username already exists }
+    delete:
+      operationId: deleteUser
+      description: Owner or administrator only. Self-deletion and deletion of the final active owner are rejected.
+      responses:
+        '204': { description: User deleted }
+        '400': { description: Self-deletion or final active owner protection }
+        '404': { description: User not found }
 components:
   securitySchemes:
     deviceBearer:
@@ -356,6 +406,31 @@ components:
         pin: { type: string, pattern: '^[0-9]{6}$' }
         expiresAt: { type: string, format: date-time }
         fixedPin: { type: boolean }
+    User:
+      type: object
+      required: [id, username, displayName, role, disabled, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string, minLength: 3, maxLength: 80 }
+        displayName: { type: string, minLength: 1 }
+        email: { type: [string, 'null'], format: email }
+        role: { enum: [Viewer, Editor, Administrator, Owner] }
+        disabled: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        lastLoginAt: { type: [string, 'null'], format: date-time }
+    UserInput:
+      type: object
+      required: [username, displayName, role, disabled]
+      properties:
+        username: { type: string, minLength: 3, maxLength: 80 }
+        displayName: { type: string, minLength: 1 }
+        email: { type: [string, 'null'], format: email }
+        role: { enum: [Viewer, Editor, Administrator, Owner] }
+        password:
+          type: [string, 'null']
+          minLength: 10
+          description: Required when creating an account; omit or send null during updates to retain the current password.
+        disabled: { type: boolean, default: false }
     Class:
       allOf:
         - $ref: '#/components/schemas/ClassInput'

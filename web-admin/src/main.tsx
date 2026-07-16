@@ -83,7 +83,7 @@ function App() {
   useEffect(() => { api<Session>("/api/v1/auth/session").then(setSession).catch(() => setSession({ setupRequired: false, authenticated: false })); }, []);
   if (!session) return <Splash />;
   if (!session.authenticated) return <Auth session={session} onAuthenticated={() => api<Session>("/api/v1/auth/session").then(setSession)} />;
-  return <Shell view={view} setView={setView} username={session.displayName || session.username || "admin"} role={session.role || "Viewer"} notice={notice} setNotice={setNotice}
+  return <Shell view={view} setView={setView} username={session.displayName || session.username || "admin"} currentUsername={session.username || ""} role={session.role || "Viewer"} notice={notice} setNotice={setNotice}
     onLogout={async () => { await api<void>("/api/v1/auth/logout", { method: "POST", body: "{}" }); setSession({ ...session, authenticated: false, setupRequired: false }); }} />;
 }
 
@@ -127,8 +127,8 @@ function Auth({ session, onAuthenticated }: { session: Session; onAuthenticated:
   </main>;
 }
 
-function Shell({ view, setView, username, role, onLogout, notice, setNotice }: {
-  view: View; setView: (view: View) => void; username: string; role: string; onLogout: () => void; notice: string; setNotice: (v: string) => void;
+function Shell({ view, setView, username, currentUsername, role, onLogout, notice, setNotice }: {
+  view: View; setView: (view: View) => void; username: string; currentUsername: string; role: string; onLogout: () => void; notice: string; setNotice: (v: string) => void;
 }) {
   const [dataVersion, setDataVersion] = useState(0);
   const [bootstrap, setBootstrap] = useState<Bootstrap>();
@@ -189,7 +189,7 @@ function Shell({ view, setView, username, role, onLogout, notice, setNotice }: {
         {view === "media" && <MediaView media={media} lessons={lessons} refresh={refresh} notify={setNotice} canUpload={canUpload} storage={bootstrap?.storage} />}
         {view === "screens" && bootstrap && <ScreensView screens={screens} classes={classes} pin={bootstrap.pairingPin} refresh={refresh} notify={setNotice} />}
         {view === "signage" && <SignageView signage={signage} media={media} refresh={refresh} notify={setNotice} />}
-        {view === "users" && <UsersView users={users} refresh={refresh} notify={setNotice} canManage={role === "Owner" || role === "Administrator"} />}
+        {view === "users" && <UsersView users={users} currentUsername={currentUsername} refresh={refresh} notify={setNotice} canManage={role === "Owner" || role === "Administrator"} />}
         {view === "settings" && bootstrap && <Settings bootstrap={bootstrap} backups={backups} audit={audit} refresh={refresh} notify={setNotice} canManage={role === "Owner" || role === "Administrator"} />}
       </>}
     </main>
@@ -425,12 +425,34 @@ function SignageView({ signage, media, refresh, notify }: { signage: Signage[]; 
   </>;
 }
 
-function UsersView({ users, refresh, notify, canManage }: { users: User[]; refresh: () => void; notify: (s: string) => void; canManage: boolean }) {
+function UsersView({ users, currentUsername, refresh, notify, canManage }: { users: User[]; currentUsername: string; refresh: () => void; notify: (s: string) => void; canManage: boolean }) {
   const [showForm, setShowForm] = useState(false);
+  const [editingUser, setEditingUser] = useState<User>();
   async function create(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget)); try { await api("/api/v1/users", { method: "POST", body: JSON.stringify({ ...values, disabled: false }) }); setShowForm(false); refresh(); notify("Local user created."); } catch (e) { notify(errorText(e)); } }
+  async function update(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!editingUser) return;
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    try {
+      await api(`/api/v1/users/${editingUser.id}`, { method: "PUT", body: JSON.stringify({ ...values, password: values.password || null, disabled: editingUser.disabled }) });
+      setEditingUser(undefined); notify("User details saved.");
+      if (editingUser.username === currentUsername) location.reload(); else refresh();
+    } catch (e) { notify(errorText(e)); }
+  }
+  async function togglePaused(user: User) {
+    try {
+      await api(`/api/v1/users/${user.id}`, { method: "PUT", body: JSON.stringify({ username: user.username, displayName: user.displayName, email: user.email || null, role: user.role, password: null, disabled: !user.disabled }) });
+      refresh(); notify(user.disabled ? `${user.displayName} can sign in again.` : `${user.displayName} is paused and has been signed out.`);
+    } catch (e) { notify(errorText(e)); }
+  }
+  async function remove(user: User) {
+    if (!confirm(`Delete ${user.displayName}? This permanently removes the local account and cannot be undone.`)) return;
+    try { await api(`/api/v1/users/${user.id}`, { method: "DELETE" }); refresh(); notify(`${user.displayName} was deleted.`); }
+    catch (e) { notify(errorText(e)); }
+  }
   return <><PageHead eyebrow="ACCESS CONTROL" title="Users" detail="Give staff only the access they need. All accounts remain on this server." action={canManage ? <button className="button primary" onClick={() => setShowForm(true)}>Add user</button> : undefined} />
     {showForm && <Modal title="Add a local user" onClose={() => setShowForm(false)}><form className="stack" onSubmit={create}><Field label="Name"><input name="displayName" required autoFocus /></Field><div className="two-fields"><Field label="Username"><input name="username" required minLength={3} /></Field><Field label="Email (optional)"><input name="email" type="email" /></Field></div><Field label="Role"><select name="role"><option>Editor</option><option>Viewer</option><option>Administrator</option><option>Owner</option></select></Field><Field label="Temporary password" hint="10+ characters with uppercase, lowercase, and a number"><input name="password" type="password" required minLength={10} /></Field><button className="button primary">Create user</button></form></Modal>}
-    <section className="panel user-table"><div className="user-row user-head"><span>User</span><span>Role</span><span>Status</span><span>Last sign-in</span></div>{users.map(user => <div className="user-row" key={user.id}><span className="user-name"><b>{initials(user.displayName)}</b><span><strong>{user.displayName}</strong><small>@{user.username}{user.email ? ` · ${user.email}` : ""}</small></span></span><span><i className="pill">{user.role}</i></span><span>{user.disabled ? "Disabled" : "Active"}</span><span>{user.lastLoginAt ? timeAgo(user.lastLoginAt) : "Never"}</span></div>)}</section>
+    {editingUser && <Modal title={`Edit ${editingUser.displayName}`} onClose={() => setEditingUser(undefined)}><form className="stack" onSubmit={update}><Field label="Name"><input name="displayName" required autoFocus defaultValue={editingUser.displayName} /></Field><div className="two-fields"><Field label="Username"><input name="username" required minLength={3} maxLength={80} defaultValue={editingUser.username} /></Field><Field label="Email (optional)"><input name="email" type="email" defaultValue={editingUser.email || ""} /></Field></div><Field label="Role"><select name="role" defaultValue={editingUser.role}><option>Editor</option><option>Viewer</option><option>Administrator</option><option>Owner</option></select></Field><Field label="New password (optional)" hint="Leave blank to keep the current password. A new password needs 10+ characters with uppercase, lowercase, and a number."><input name="password" type="password" minLength={10} autoComplete="new-password" /></Field><button className="button primary">Save user</button></form></Modal>}
+    <section className="panel user-table"><div className="user-row user-head"><span>User</span><span>Role</span><span>Status</span><span>Last sign-in</span><span>Actions</span></div>{users.map(user => { const self = user.username === currentUsername; return <div className={`user-row ${user.disabled ? "paused" : ""}`} key={user.id}><span className="user-name"><b>{initials(user.displayName)}</b><span><strong>{user.displayName}{self ? " (you)" : ""}</strong><small>@{user.username}{user.email ? ` · ${user.email}` : ""}</small></span></span><span><i className="pill">{user.role}</i></span><span className={`user-status ${user.disabled ? "paused" : ""}`}><i />{user.disabled ? "Paused" : "Active"}</span><span>{user.lastLoginAt ? timeAgo(user.lastLoginAt) : "Never"}</span><span className="user-actions">{canManage && <><button onClick={() => setEditingUser(user)}>Edit</button><button onClick={() => togglePaused(user)} disabled={self} title={self ? "You cannot pause your own account." : undefined}>{user.disabled ? "Reactivate" : "Pause"}</button><button className="danger" onClick={() => remove(user)} disabled={self} title={self ? "You cannot delete your own account." : undefined}>Delete</button></>}</span></div>; })}</section>
   </>;
 }
 
