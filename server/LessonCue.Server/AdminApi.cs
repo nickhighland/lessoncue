@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
@@ -178,6 +179,7 @@ public static class AdminApi
                     item.FadeInMs,
                     item.FadeOutMs,
                     item.NormalizeAudio,
+                    item.CuePointsJson,
                     offlineEligible = item.MediaAsset != null && item.MediaAsset.OfflineEligible
                 }).ToList()
             }).ToListAsync(ct));
@@ -262,7 +264,8 @@ public static class AdminApi
                     StartMs = sourceItem.StartMs, EndMs = sourceItem.EndMs, VolumePercent = sourceItem.VolumePercent,
                     ImageDurationSeconds = sourceItem.ImageDurationSeconds, EndBehavior = sourceItem.EndBehavior,
                     AllowSkip = sourceItem.AllowSkip, Notes = sourceItem.Notes, FadeInMs = sourceItem.FadeInMs,
-                    FadeOutMs = sourceItem.FadeOutMs, NormalizeAudio = sourceItem.NormalizeAudio
+                    FadeOutMs = sourceItem.FadeOutMs, NormalizeAudio = sourceItem.NormalizeAudio,
+                    CuePointsJson = sourceItem.CuePointsJson
                 };
                 copy.Items.Add(clone);
                 if (sourceItem.Id == source.CountdownItemId || sourceItem.Role == "countdown") copy.CountdownItemId = clone.Id;
@@ -340,7 +343,7 @@ public static class AdminApi
         admin.MapPatch("/playlist-items/{id:guid}", async (Guid id, PlaylistItemUpdateInput input,
             LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
-            var item = await db.PlaylistItems.Include(x => x.Lesson).SingleOrDefaultAsync(x => x.Id == id, ct);
+            var item = await db.PlaylistItems.Include(x => x.Lesson).Include(x => x.MediaAsset).SingleOrDefaultAsync(x => x.Id == id, ct);
             if (item?.Lesson is null) return Results.NotFound();
             if (input.Title is not null) item.Title = input.Title.Trim();
             if (input.Type is not null) item.Type = input.Type;
@@ -359,6 +362,17 @@ public static class AdminApi
             if (input.FadeInMs is not null) item.FadeInMs = Math.Clamp(input.FadeInMs.Value, 0, 30_000);
             if (input.FadeOutMs is not null) item.FadeOutMs = Math.Clamp(input.FadeOutMs.Value, 0, 30_000);
             if (input.NormalizeAudio is not null) item.NormalizeAudio = input.NormalizeAudio.Value;
+            if (input.CuePoints is not null)
+            {
+                if (input.CuePoints.Count > 50) return Results.BadRequest(new { error = "A media item can have at most 50 named markers." });
+                var minimum = item.StartMs;
+                var maximum = item.EndMs ?? item.MediaAsset?.DurationMs ?? item.DurationMs ?? long.MaxValue;
+                if (input.CuePoints.Any(x => string.IsNullOrWhiteSpace(x.Name) || x.Name.Trim().Length > 80 || x.PositionMs < minimum || x.PositionMs > maximum))
+                    return Results.BadRequest(new { error = "Every marker needs a name and a position within the playable selection." });
+                var normalized = input.CuePoints.Select(x => new CuePointInput(x.Name.Trim(), x.PositionMs))
+                    .OrderBy(x => x.PositionMs).ThenBy(x => x.Name).ToList();
+                item.CuePointsJson = JsonSerializer.Serialize(normalized);
+            }
             if (item.Role == "countdown")
             {
                 var otherCountdowns = await db.PlaylistItems.Where(x => x.LessonId == item.LessonId && x.Id != item.Id && x.Role == "countdown").ToListAsync(ct);

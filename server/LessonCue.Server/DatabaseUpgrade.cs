@@ -94,6 +94,7 @@ public static class DatabaseUpgrade
             ["PlaylistItems.FadeInMs"] = ("PlaylistItems", "ALTER TABLE \"PlaylistItems\" ADD COLUMN \"FadeInMs\" INTEGER NOT NULL DEFAULT 0"),
             ["PlaylistItems.FadeOutMs"] = ("PlaylistItems", "ALTER TABLE \"PlaylistItems\" ADD COLUMN \"FadeOutMs\" INTEGER NOT NULL DEFAULT 0"),
             ["PlaylistItems.NormalizeAudio"] = ("PlaylistItems", "ALTER TABLE \"PlaylistItems\" ADD COLUMN \"NormalizeAudio\" INTEGER NOT NULL DEFAULT 0"),
+            ["PlaylistItems.CuePointsJson"] = ("PlaylistItems", "ALTER TABLE \"PlaylistItems\" ADD COLUMN \"CuePointsJson\" TEXT NOT NULL DEFAULT '[]'"),
             ["MediaAssets.CreatedAt"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"CreatedAt\" TEXT NOT NULL DEFAULT '1970-01-01T00:00:00+00:00'"),
             ["MediaAssets.ProcessingStatus"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"ProcessingStatus\" TEXT NOT NULL DEFAULT 'ready'"),
             ["MediaAssets.ProcessingError"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"ProcessingError\" TEXT NULL"),

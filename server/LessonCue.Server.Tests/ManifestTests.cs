@@ -28,6 +28,12 @@ public sealed class ManifestTests
             AvailableFrom = DateTimeOffset.UtcNow.AddHours(-1),
             ExpiresAt = DateTimeOffset.UtcNow.AddHours(1)
         };
+        lesson.Items.Add(new PlaylistItem
+        {
+            Title = "Guided example",
+            Type = "video",
+            CuePointsJson = "[{\"Name\":\"Discussion\",\"PositionMs\":42000}]"
+        });
         db.AddRange(lessonClass, screen, lesson, new SignagePlaylist
         {
             Name = "Lobby notice", Enabled = true, TargetTagsCsv = "elementary",
@@ -39,5 +45,7 @@ public sealed class ManifestTests
         var json = JsonSerializer.Serialize(manifest);
         Assert.Contains("Current lesson", json);
         Assert.Contains("Lobby notice", json);
+        Assert.Contains("Discussion", json);
+        Assert.Contains("42000", json);
     }
 }

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 1.9.0
+  version: 2.0.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local
@@ -105,6 +105,23 @@ paths:
       responses:
         '201': { description: Created and manifest invalidated }
         '404': { description: Lesson not found }
+  /api/v1/playlist-items/{itemId}:
+    patch:
+      operationId: updatePlaylistItem
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlaylistItemUpdateInput' }
+      responses:
+        '200': { description: Updated and manifest invalidated }
+        '400': { description: Invalid trim, fade, or cue marker }
+        '404': { description: Playlist item not found }
   /api/v1/screens/{screenId}/manifest:
     get:
       operationId: getScreenManifest
@@ -568,6 +585,24 @@ components:
         position: { type: number }
         durationMs: { type: [integer, 'null'] }
         endBehavior: { enum: [advance, pause, loop, menu, stop] }
+    PlaylistItemUpdateInput:
+      type: object
+      properties:
+        title: { type: [string, 'null'] }
+        startMs: { type: [integer, 'null'], format: int64, minimum: 0 }
+        endMs: { type: [integer, 'null'], format: int64, minimum: 0 }
+        fadeInMs: { type: [integer, 'null'], minimum: 0, maximum: 30000 }
+        fadeOutMs: { type: [integer, 'null'], minimum: 0, maximum: 30000 }
+        cuePoints:
+          type: array
+          maxItems: 50
+          items: { $ref: '#/components/schemas/CuePoint' }
+    CuePoint:
+      type: object
+      required: [name, positionMs]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        positionMs: { type: integer, format: int64, minimum: 0 }
     TvStatus:
       type: object
       required: [screenId, appVersion, online, freeBytes, manifestVersion, failedDownloads]

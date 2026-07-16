@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace LessonCue.Server;
 
@@ -106,8 +107,15 @@ public sealed class ManifestService(LessonCueDb db)
         item.Notes,
         item.FadeInMs,
         item.FadeOutMs,
-        item.NormalizeAudio
+        item.NormalizeAudio,
+        cuePoints = ParseCuePoints(item.CuePointsJson)
     };
+
+    private static List<CuePointInput> ParseCuePoints(string json)
+    {
+        try { return JsonSerializer.Deserialize<List<CuePointInput>>(json) ?? []; }
+        catch (JsonException) { return []; }
+    }
 
     private static string[] SplitTags(string tags) => tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     private static bool TagsMatch(string screenTags, string targetTags)

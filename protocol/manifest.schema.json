@@ -96,14 +96,27 @@
         "imageDurationSeconds": { "type": ["integer", "null"], "minimum": 1 },
         "endBehavior": { "enum": ["advance", "pause", "loop", "menu", "stop"] },
         "allowSkip": { "type": "boolean", "default": true },
-        "offlineEligible": { "type": "boolean" }
-        ,"sourceKind": { "type": ["string", "null"] },
+        "offlineEligible": { "type": "boolean" },
+        "sourceKind": { "type": ["string", "null"] },
         "sourceUrl": { "type": ["string", "null"] },
         "linkKind": { "type": ["string", "null"] },
         "notes": { "type": "string" },
         "fadeInMs": { "type": "integer", "minimum": 0 },
         "fadeOutMs": { "type": "integer", "minimum": 0 },
-        "normalizeAudio": { "type": "boolean" }
+        "normalizeAudio": { "type": "boolean" },
+        "cuePoints": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/cuePoint" }
+        }
+      }
+    },
+    "cuePoint": {
+      "type": "object",
+      "required": ["name", "positionMs"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "positionMs": { "type": "integer", "minimum": 0 }
       }
     }
   }

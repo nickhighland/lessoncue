@@ -17,11 +17,12 @@ type LocalAddressStatus = { hostname: string; address: string; supported: boolea
 type HttpPortStatus = { port: number; address: string; configurable: boolean; supported: boolean; pending: boolean; appliedAt?: string; error?: string };
 type LessonClass = { id: string; name: string; description: string; lessonCount: number; screenCount: number };
 type Media = { id: string; fileName: string; contentType: string; sizeBytes: number; durationMs?: number; downloadUrl: string; thumbnailUrl?: string; filmstripUrl?: string; waveformUrl?: string; processingStatus: string; processingError?: string; videoCodec?: string; audioCodec?: string; width?: number; height?: number; sourceKind: string; sourceUrl?: string; linkKind?: string; offlineEligible: boolean; storagePolicy: "lesson" | "persistent"; originLessonId?: string; deleteAfter?: string; retentionDateIsManual: boolean };
+type CuePoint = { name: string; positionMs: number };
 type PlaylistItem = {
   id: string; title: string; type: string; role: "lesson" | "preRoll" | "countdown"; position: number;
   mediaAssetId?: string; mediaFileName?: string; durationMs?: number; mediaDurationMs?: number;
   volumePercent: number; endBehavior: string; allowSkip: boolean; startMs: number; endMs?: number;
-  notes: string; fadeInMs: number; fadeOutMs: number; normalizeAudio: boolean;
+  notes: string; fadeInMs: number; fadeOutMs: number; normalizeAudio: boolean; cuePointsJson: string;
 };
 type Lesson = {
   id: string; classId: string; className: string; date: string; title: string; designatedStartAt?: string; preRollStartsAt?: string;
@@ -447,7 +448,7 @@ function ControllerView({ screens, lessons, refresh, notify }: { screens: Screen
   const progress = selectedScreen?.playbackDurationMs ? Math.min(100, (selectedScreen.playbackPositionMs / selectedScreen.playbackDurationMs) * 100) : 0;
   return <div className="controller-page"><PageHead eyebrow="LIVE CONTROL" title="Cellphone controller" detail="Choose a paired screen, then run the lesson from any phone on this local network." action={<span className={`controller-connection ${selectedScreen?.online ? "online" : ""}`}><i />{selectedScreen?.online ? "Screen online" : "Screen offline"}</span>} />
     <div className="controller-grid"><section className="panel controller-target"><Field label="Control this screen"><select value={screenId} onChange={e => { setScreenId(e.target.value); setLessonId(""); setSelectedItemId(""); }}>{liveScreens.map(screen => <option value={screen.id} key={screen.id}>{screen.name} · {screen.online ? "online" : "offline"}</option>)}</select></Field><div className="now-playing"><span>ACTUAL SCREEN STATE</span><strong>{friendlyPlaybackState(selectedScreen?.playbackState)}</strong><small>{reportedItem?.title || reportedLesson?.title || (selectedScreen?.playbackState === "idle" ? "Nothing playing" : "Waiting for item details")}</small>{selectedScreen?.playbackDurationMs ? <><div className="playback-progress"><i style={{ width: `${progress}%` }} /></div><small>{formatDuration(selectedScreen.playbackPositionMs)} / {formatDuration(selectedScreen.playbackDurationMs)}</small></> : null}<span className={`command-ack ${commandPending ? "pending" : ""}`}>{commandPending ? `Sending ${selectedScreen?.controlAction}…` : selectedScreen?.controlVersion ? `Command ${selectedScreen.acknowledgedControlVersion} received` : "Ready for a command"}</span>{selectedScreen?.playbackError && <div className="playback-error">{selectedScreen.playbackError}</div>}</div><div className="transport" aria-label="Playback controls"><button onClick={() => command("previous")} aria-label="Previous media">‹‹</button><button className="transport-main" onClick={() => command(selectedScreen?.playbackState === "paused" ? "resume" : "pause")} aria-label={selectedScreen?.playbackState === "paused" ? "Resume" : "Pause"}>{selectedScreen?.playbackState === "paused" ? "▶" : "Ⅱ"}</button><button onClick={() => command("next")} aria-label="Next media">››</button></div><button className="button stop-button" onClick={() => command("stop")}>■ Stop playback</button></section>
-      <section className="panel controller-media"><Field label="Lesson"><select value={lesson?.id || ""} onChange={e => { setLessonId(e.target.value); setSelectedItemId(""); }}><option value="">Choose a lesson</option>{availableLessons.map(item => <option key={item.id} value={item.id}>{formatDate(item.date)} — {item.title}</option>)}</select></Field>{lesson ? <><button className="button primary wide controller-play-all" onClick={() => play()}>▶ Play lesson from the beginning</button><div className="controller-list"><span>SELECT MEDIA</span>{orderedItems.map((item, index) => <button key={item.id} className={selectedItemId === item.id ? "selected" : ""} onClick={() => { setSelectedItemId(item.id); play(item.id); }}><b>{index + 1}</b><span><strong>{item.title}</strong><small>{roleName(item.role)} · {formatDuration(item.durationMs || item.mediaDurationMs)}</small></span><i>▶</i></button>)}</div>{selectedItem && <div className="controller-seek"><label><span>Seek within {selectedItem.title}</span><strong>{formatDuration(seekSeconds * 1000)}</strong></label><input type="range" min="0" max={durationSeconds} value={seekSeconds} onChange={e => setSeekSeconds(Number(e.target.value))} /><button className="button" onClick={() => command("seek", { positionMs: seekSeconds * 1000 })}>Go to position</button></div>}</> : <Empty title="No lesson selected" body="Assign a class to this screen or choose a lesson to begin." />}</section>
+      <section className="panel controller-media"><Field label="Lesson"><select value={lesson?.id || ""} onChange={e => { setLessonId(e.target.value); setSelectedItemId(""); }}><option value="">Choose a lesson</option>{availableLessons.map(item => <option key={item.id} value={item.id}>{formatDate(item.date)} — {item.title}</option>)}</select></Field>{lesson ? <><button className="button primary wide controller-play-all" onClick={() => play()}>▶ Play lesson from the beginning</button><div className="controller-list"><span>SELECT MEDIA</span>{orderedItems.map((item, index) => <button key={item.id} className={selectedItemId === item.id ? "selected" : ""} onClick={() => { setSelectedItemId(item.id); setSeekSeconds(0); play(item.id); }}><b>{index + 1}</b><span><strong>{item.title}</strong><small>{roleName(item.role)} · {formatDuration(item.durationMs || item.mediaDurationMs)}</small></span><i>▶</i></button>)}</div>{selectedItem && <div className="controller-seek"><label><span>Seek within {selectedItem.title}</span><strong>{formatDuration(seekSeconds * 1000)}</strong></label><input type="range" min="0" max={durationSeconds} value={seekSeconds} onChange={e => setSeekSeconds(Number(e.target.value))} />{cuePoints(selectedItem).length > 0 && <div className="controller-markers" aria-label="Jump to named cue"><span>JUMP TO CUE</span>{cuePoints(selectedItem).map((marker, index) => { const relativeMs = Math.max(0, marker.positionMs - selectedItem.startMs); return <button type="button" key={`${marker.positionMs}-${index}`} onClick={() => { setSeekSeconds(Math.round(relativeMs / 1000)); void command("seek", { positionMs: relativeMs }); }}><strong>{marker.name}</strong><small>{formatDuration(relativeMs)}</small></button>; })}</div>}<button className="button" onClick={() => command("seek", { positionMs: seekSeconds * 1000 })}>Go to position</button></div>}</> : <Empty title="No lesson selected" body="Assign a class to this screen or choose a lesson to begin." />}</section>
     </div><section className="controller-install"><div className="brand-mark">LC</div><div><strong>Save this controller as an app</strong><p>On iPhone or iPad, use Share → Add to Home Screen. On Android, open the browser menu and choose Install app or Add to Home screen.</p><small>{location.origin}/controller</small></div></section>
   </div>;
 }
@@ -544,6 +545,9 @@ function TimelineEditor({ media, item, onSave }: { media?: Media; item: Playlist
   const [end, setEnd] = useState(Math.min(duration, (item.endMs || media?.durationMs || item.mediaDurationMs || item.durationMs || 1_000) / 1000));
   const [fadeIn, setFadeIn] = useState((item.fadeInMs || 0) / 1000);
   const [fadeOut, setFadeOut] = useState((item.fadeOutMs || 0) / 1000);
+  const [markers, setMarkers] = useState<CuePoint[]>(() => cuePoints(item));
+  const [markerName, setMarkerName] = useState("");
+  const [cursor, setCursor] = useState(Math.min(duration, item.startMs / 1000));
   const player = useRef<HTMLMediaElement>(null);
   const source = media?.downloadUrl;
   const startPercent = start / duration * 100;
@@ -551,23 +555,38 @@ function TimelineEditor({ media, item, onSave }: { media?: Media; item: Playlist
   function seek(value: number, edge: "start" | "end") {
     const next = Math.round(value * 25) / 25;
     if (edge === "start") setStart(Math.min(next, end - .04)); else setEnd(Math.max(next, start + .04));
-    if (player.current) player.current.currentTime = edge === "start" ? Math.min(next, end - .04) : start;
+    const previewPosition = edge === "start" ? Math.min(next, end - .04) : start;
+    setCursor(previewPosition);
+    if (player.current) player.current.currentTime = previewPosition;
   }
   function updatePreview(element: HTMLMediaElement) {
     const position = element.currentTime;
+    setCursor(position);
     if (position >= end) { element.pause(); element.currentTime = start; return; }
     const intoSelection = position - start;
     const remaining = end - position;
     const fade = Math.min(fadeIn ? intoSelection / fadeIn : 1, fadeOut ? remaining / fadeOut : 1, 1);
     element.volume = Math.max(0, Math.min(1, item.volumePercent / 100 * fade));
   }
+  function jumpToMarker(marker: CuePoint) {
+    const position = Math.max(start, Math.min(end, marker.positionMs / 1000));
+    setCursor(position);
+    if (player.current) player.current.currentTime = position;
+  }
+  function addMarker() {
+    const name = markerName.trim() || `Marker ${markers.length + 1}`;
+    const positionMs = Math.round(Math.max(start, Math.min(end, cursor)) * 1000);
+    setMarkers(current => [...current, { name, positionMs }].sort((a, b) => a.positionMs - b.positionMs));
+    setMarkerName("");
+  }
   if (!media || !source || (!media.contentType.startsWith("video/") && !media.contentType.startsWith("audio/"))) return <MediaPreview media={media} item={item} />;
   return <section className="timeline-editor">
     <div className="timeline-player">{media.contentType.startsWith("video/") ? <video ref={player as React.RefObject<HTMLVideoElement>} src={source} controls playsInline onLoadedMetadata={e => { e.currentTarget.currentTime = start; }} onTimeUpdate={e => updatePreview(e.currentTarget)} /> : <audio ref={player as React.RefObject<HTMLAudioElement>} src={source} controls onLoadedMetadata={e => { e.currentTarget.currentTime = start; }} onTimeUpdate={e => updatePreview(e.currentTarget)} />}</div>
-    <div className="timeline-art" aria-label="Media filmstrip and waveform">{media.filmstripUrl && <img src={media.filmstripUrl} alt="Video filmstrip" />}{media.waveformUrl && <img className="waveform" src={media.waveformUrl} alt="Audio waveform" />}<i className="trim-before" style={{ width: `${startPercent}%` }} /><i className="trim-after" style={{ left: `${endPercent}%` }} /><span className="selection" style={{ left: `${startPercent}%`, width: `${Math.max(0, endPercent - startPercent)}%` }} /></div>
+    <div className="timeline-art" aria-label="Media filmstrip, waveform, and cue markers">{media.filmstripUrl && <img src={media.filmstripUrl} alt="Video filmstrip" />}{media.waveformUrl && <img className="waveform" src={media.waveformUrl} alt="Audio waveform" />}<i className="trim-before" style={{ width: `${startPercent}%` }} /><i className="trim-after" style={{ left: `${endPercent}%` }} /><span className="selection" style={{ left: `${startPercent}%`, width: `${Math.max(0, endPercent - startPercent)}%` }} />{markers.map((marker, index) => <button type="button" className="timeline-marker" style={{ left: `${Math.min(100, marker.positionMs / 1000 / duration * 100)}%` }} title={`${marker.name} · ${formatPreciseTime(marker.positionMs / 1000)}`} aria-label={`Jump preview to ${marker.name}`} onClick={() => jumpToMarker(marker)} key={`${marker.positionMs}-${index}`}><span /></button>)}</div>
     <div className="timeline-rulers"><label>In <strong>{formatPreciseTime(start)}</strong><input type="range" min="0" max={duration} step="0.04" value={start} onChange={e => seek(Number(e.target.value), "start")} /></label><label>Out <strong>{formatPreciseTime(end)}</strong><input type="range" min="0.04" max={duration} step="0.04" value={end} onChange={e => seek(Number(e.target.value), "end")} /></label></div>
     <div className="timeline-fades"><Field label={`Fade in · ${fadeIn.toFixed(1)}s`}><input type="range" min="0" max={Math.min(30, end - start)} step="0.1" value={fadeIn} onChange={e => setFadeIn(Number(e.target.value))} /></Field><Field label={`Fade out · ${fadeOut.toFixed(1)}s`}><input type="range" min="0" max={Math.min(30, end - start)} step="0.1" value={fadeOut} onChange={e => setFadeOut(Number(e.target.value))} /></Field></div>
-    <div className="timeline-actions"><button className="button" onClick={() => { if (player.current) { player.current.currentTime = start; void player.current.play(); } }}>▶ Preview selection</button><button className="button primary" onClick={() => onSave({ startMs: Math.round(start * 1000), endMs: Math.round(end * 1000), fadeInMs: Math.round(fadeIn * 1000), fadeOutMs: Math.round(fadeOut * 1000) })}>Save timeline</button></div>
+    <section className="marker-editor"><div><Field label={`New marker at ${formatPreciseTime(cursor)}`}><input value={markerName} maxLength={80} placeholder={`Marker ${markers.length + 1}`} onChange={e => setMarkerName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addMarker(); } }} /></Field><button type="button" className="button" onClick={addMarker} disabled={markers.length >= 50}>＋ Add at playhead</button></div>{markers.length ? <div className="marker-list" aria-label="Named cue markers">{markers.map((marker, index) => <div key={`${marker.positionMs}-${index}`}><button type="button" className="marker-time" onClick={() => jumpToMarker(marker)} aria-label={`Preview ${marker.name}`}>{formatPreciseTime(marker.positionMs / 1000)}</button><input value={marker.name} maxLength={80} aria-label={`Name for marker at ${formatPreciseTime(marker.positionMs / 1000)}`} onChange={e => setMarkers(current => current.map((value, position) => position === index ? { ...value, name: e.target.value } : value))} /><button type="button" className="marker-delete" aria-label={`Delete ${marker.name || "marker"}`} onClick={() => setMarkers(current => current.filter((_, position) => position !== index))}>×</button></div>)}</div> : <small>No named markers yet. Play or scrub to a useful moment, then add one.</small>}</section>
+    <div className="timeline-actions"><button className="button" onClick={() => { if (player.current) { player.current.currentTime = start; setCursor(start); void player.current.play(); } }}>▶ Preview selection</button><button className="button primary" onClick={() => onSave({ startMs: Math.round(start * 1000), endMs: Math.round(end * 1000), fadeInMs: Math.round(fadeIn * 1000), fadeOutMs: Math.round(fadeOut * 1000), cuePoints: markers.map(marker => ({ name: marker.name.trim(), positionMs: marker.positionMs })).filter(marker => marker.name) })}>Save timeline and markers</button></div>
     <small>Arrow keys nudge a focused trim handle by one 0.04-second frame step. The shaded area will not play.</small>
   </section>;
 }
@@ -631,6 +650,13 @@ function dateInputValue(value?: string, addDays = 0) { if (value) return value.s
 function formatDuration(ms?: number) { if (ms === undefined || ms === null) return "Duration unknown"; const seconds = Math.round(ms / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
 function formatPreciseTime(seconds: number) { return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}.${String(Math.round(seconds % 1 * 100)).padStart(2, "0")}`; }
 function formatBytes(bytes: number) { if (bytes === 0) return "0 B"; if (!Number.isFinite(bytes) || bytes < 0) return "—"; const units = ["B", "KB", "MB", "GB", "TB"]; const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1); return `${(bytes / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`; }
+function cuePoints(item?: PlaylistItem): CuePoint[] {
+  if (!item?.cuePointsJson) return [];
+  try {
+    const values = JSON.parse(item.cuePointsJson) as Array<Partial<CuePoint> & { Name?: string; PositionMs?: number }>;
+    return values.map(value => ({ name: String(value.name ?? value.Name ?? "").trim(), positionMs: Number(value.positionMs ?? value.PositionMs) })).filter(value => value.name && Number.isFinite(value.positionMs) && value.positionMs >= 0).sort((a, b) => a.positionMs - b.positionMs);
+  } catch { return []; }
+}
 function friendlyType(type: string) { if (type.startsWith("video")) return "Video"; if (type.startsWith("audio")) return "Audio"; if (type.startsWith("image")) return "Image"; if (type.includes("pdf")) return "PDF"; return "Document"; }
 function friendlyPlaybackState(state?: string) { return ({ idle: "Ready", loading: "Loading", buffering: "Buffering", playing: "Playing", paused: "Paused", completed: "Completed", error: "Error" } as Record<string, string>)[state || "idle"] || "Unknown"; }
 function youtubeEmbedUrl(value?: string) {

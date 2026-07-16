@@ -1,5 +1,15 @@
 import Foundation
 
+public struct CuePoint: Codable, Equatable, Sendable {
+    public let name: String
+    public let positionMs: Int64
+
+    public init(name: String, positionMs: Int64) {
+        self.name = name
+        self.positionMs = positionMs
+    }
+}
+
 public struct CueItem: Codable, Identifiable, Equatable, Sendable {
     public let itemId: String
     public let mediaId: String?
@@ -19,6 +29,7 @@ public struct CueItem: Codable, Identifiable, Equatable, Sendable {
     public let fadeInMs: Int64?
     public let fadeOutMs: Int64?
     public let offlineEligible: Bool
+    public let cuePoints: [CuePoint]?
     public var id: String { itemId }
 
     public init(itemId: String, mediaId: String? = nil, type: String = "video", title: String,
@@ -26,13 +37,15 @@ public struct CueItem: Codable, Identifiable, Equatable, Sendable {
                 durationMs: Int64? = nil, startMs: Int64 = 0, endMs: Int64? = nil,
                 volumePercent: Int = 100, imageDurationSeconds: Int? = nil,
                 endBehavior: String = "advance", allowSkip: Bool = true, notes: String? = nil,
-                fadeInMs: Int64? = nil, fadeOutMs: Int64? = nil, offlineEligible: Bool = false) {
+                fadeInMs: Int64? = nil, fadeOutMs: Int64? = nil, offlineEligible: Bool = false,
+                cuePoints: [CuePoint]? = nil) {
         self.itemId = itemId; self.mediaId = mediaId; self.type = type; self.title = title
         self.downloadUrl = downloadUrl; self.sha256 = sha256; self.sizeBytes = sizeBytes
         self.durationMs = durationMs; self.startMs = startMs; self.endMs = endMs
         self.volumePercent = volumePercent; self.imageDurationSeconds = imageDurationSeconds
         self.endBehavior = endBehavior; self.allowSkip = allowSkip; self.notes = notes
         self.fadeInMs = fadeInMs; self.fadeOutMs = fadeOutMs; self.offlineEligible = offlineEligible
+        self.cuePoints = cuePoints
     }
 }
 

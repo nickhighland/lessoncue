@@ -82,6 +82,7 @@ public sealed class PlaylistItem
     public int FadeInMs { get; set; }
     public int FadeOutMs { get; set; }
     public bool NormalizeAudio { get; set; }
+    [MaxLength(8000)] public string CuePointsJson { get; set; } = "[]";
 }
 
 public sealed class MediaAsset
@@ -251,7 +252,9 @@ public sealed record LessonUpdateInput(string? Title, DateOnly? Date, DateTimeOf
 public sealed record PlaylistItemUpdateInput(string? Title, string? Type, string? Role, Guid? MediaId,
     long? DurationMs, long? StartMs, long? EndMs, int? VolumePercent, int? ImageDurationSeconds,
     string? EndBehavior, bool? AllowSkip, bool ClearEndMs = false, string? Notes = null,
-    int? FadeInMs = null, int? FadeOutMs = null, bool? NormalizeAudio = null);
+    int? FadeInMs = null, int? FadeOutMs = null, bool? NormalizeAudio = null,
+    List<CuePointInput>? CuePoints = null);
+public sealed record CuePointInput(string Name, long PositionMs);
 public sealed record PlaylistReorderInput(List<Guid> ItemIds);
 public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool? VolunteerMode,
     bool ClearAssignment = false, string? TagsCsv = null, string? Site = null);

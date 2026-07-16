@@ -21,7 +21,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         val body = JSONObject()
             .put("deviceName", deviceName)
             .put("platform", "android-tv")
-            .put("appVersion", "0.11.0")
+            .put("appVersion", "0.12.0")
         JSONObject(request("/api/v1/pairing/request", "POST", body.toString())).getString("requestId")
     }
 
@@ -42,7 +42,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         cachedItems: Int = 0, totalItems: Int = 0) = withContext(Dispatchers.IO) {
         val body = JSONObject()
             .put("screenId", identity.screenId)
-            .put("appVersion", "0.11.0")
+            .put("appVersion", "0.12.0")
             .put("online", true)
             .put("freeBytes", freeBytes)
             .put("manifestVersion", manifestVersion)
@@ -134,7 +134,10 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         imageDurationSeconds = json.optInt("imageDurationSeconds").takeIf { json.has("imageDurationSeconds") && !json.isNull("imageDurationSeconds") },
         fadeInMs = json.optInt("fadeInMs", 0),
         fadeOutMs = json.optInt("fadeOutMs", 0),
-        offlineEligible = json.optBoolean("offlineEligible", false)
+        offlineEligible = json.optBoolean("offlineEligible", false),
+        cuePoints = json.optJSONArray("cuePoints")?.mapObjects { cue ->
+            CuePoint(cue.getString("name"), cue.getLong("positionMs"))
+        } ?: emptyList()
     )
 
     private fun request(path: String, method: String = "GET", body: String? = null, token: String? = null): String {

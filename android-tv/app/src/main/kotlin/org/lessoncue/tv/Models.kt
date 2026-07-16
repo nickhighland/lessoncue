@@ -4,6 +4,8 @@ import java.time.Instant
 
 data class DeviceIdentity(val screenId: String, val token: String, val serverUrl: String)
 
+data class CuePoint(val name: String, val positionMs: Long)
+
 data class CueItem(
     val id: String,
     val title: String,
@@ -22,7 +24,8 @@ data class CueItem(
     val imageDurationSeconds: Int? = null,
     val fadeInMs: Int = 0,
     val fadeOutMs: Int = 0,
-    val offlineEligible: Boolean = false
+    val offlineEligible: Boolean = false,
+    val cuePoints: List<CuePoint> = emptyList()
 )
 
 data class CountdownCue(val itemId: String, val durationMs: Long, val startAt: Instant?, val item: CueItem)
