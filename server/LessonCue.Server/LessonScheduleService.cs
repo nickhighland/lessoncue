@@ -89,7 +89,7 @@ public static class LessonScheduleService
                 throw new InvalidOperationException("A schedule can generate at most ten years at a time.");
 
             var dates = Occurrences(schedule, through).Take(1000).ToList();
-            var existing = await db.Lessons.AsNoTracking()
+            var existing = await db.Lessons.IgnoreQueryFilters().AsNoTracking()
                 .Where(x => x.GeneratedByScheduleId == schedule.Id && dates.Contains(x.Date))
                 .Select(x => x.Date).ToListAsync(ct);
             var existingSet = existing.ToHashSet();

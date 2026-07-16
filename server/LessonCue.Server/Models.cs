@@ -44,6 +44,8 @@ public sealed class LessonClass
     [MaxLength(63)] public string ControllerSlug { get; set; } = "";
     [MaxLength(16)] public string ControllerColor { get; set; } = "#2d6a4f";
     [MaxLength(253)] public string? ControllerHostname { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    [MaxLength(80)] public string? DeletedBy { get; set; }
 }
 
 public sealed class Lesson
@@ -64,6 +66,8 @@ public sealed class Lesson
     public bool KeepOffline { get; set; }
     public int DownloadDaysBefore { get; set; } = 7;
     public Guid? GeneratedByScheduleId { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    [MaxLength(80)] public string? DeletedBy { get; set; }
     public List<PlaylistItem> Items { get; set; } = [];
 }
 
@@ -172,6 +176,8 @@ public sealed class MediaAsset
     public long? DurationMs { get; set; }
     public bool OfflineEligible { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? DeletedAt { get; set; }
+    [MaxLength(80)] public string? DeletedBy { get; set; }
     [MaxLength(32)] public string ProcessingStatus { get; set; } = "pending";
     [MaxLength(1000)] public string? ProcessingError { get; set; }
     [MaxLength(40)] public string? VideoCodec { get; set; }
@@ -363,6 +369,8 @@ public sealed record PairingConfirmInput(Guid RequestId, string Pin);
 public sealed record PairingPinInput(string? Pin, bool Automatic = false);
 public sealed record ControllerPinInput(string Pin);
 public sealed record TemporaryControllerSessionInput(Guid ClassId, Guid? LessonId, int ExpiresInMinutes = 60);
+public sealed record RecycleBinItem(string Kind, Guid Id, string Title, string Detail,
+    DateTimeOffset DeletedAt, string? DeletedBy);
 public sealed record BackupRestoreInput(Guid RestoreId, string Confirmation);
 public sealed record TvStatusInput(Guid ScreenId, string AppVersion, bool Online, long FreeBytes,
     int ManifestVersion, int FailedDownloads, int? AcknowledgedControlVersion = null,

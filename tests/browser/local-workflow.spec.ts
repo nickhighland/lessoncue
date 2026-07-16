@@ -360,6 +360,32 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(controllerDialog.getByAltText(/QR code for/)).toBeVisible();
   await expect(controllerDialog.getByText(/\/room\/browser-room/)).toBeVisible();
   await controllerDialog.getByRole("button", { name: "Close" }).click();
+  const recycleWorkflow = await page.evaluate(async () => {
+    const headers = { "Content-Type": "application/json" };
+    const classes = await fetch("/api/v1/classes").then(response => response.json());
+    const lessons = await fetch("/api/v1/lessons").then(response => response.json());
+    const media = await fetch("/api/v1/media").then(response => response.json());
+    const lesson = lessons.find((item: { classId: string }) => item.classId === classes[0].id);
+    const asset = media.find((item: { fileName: string }) => item.fileName === "Online Learning Page");
+    const recycleClass = await fetch(`/api/v1/classes/${classes[0].id}`, { method: "DELETE" });
+    const afterClassDelete = await fetch("/api/v1/recycle-bin").then(response => response.json());
+    const restoreClass = await fetch(`/api/v1/recycle-bin/class/${classes[0].id}/restore`, { method: "POST", headers, body: "{}" });
+    const recycleLesson = await fetch(`/api/v1/lessons/${lesson.id}`, { method: "DELETE" });
+    const restoreLesson = await fetch(`/api/v1/recycle-bin/lesson/${lesson.id}/restore`, { method: "POST", headers, body: "{}" });
+    const recycleMedia = await fetch("/api/v1/media/bulk", { method: "POST", headers,
+      body: JSON.stringify({ mediaIds: [asset.id], action: "delete" }) });
+    const restoreMedia = await fetch(`/api/v1/recycle-bin/media/${asset.id}/restore`, { method: "POST", headers, body: "{}" });
+    const disposable = await fetch("/api/v1/classes", { method: "POST", headers,
+      body: JSON.stringify({ name: "Disposable Browser Class", description: "Purge verification" }) }).then(response => response.json());
+    await fetch(`/api/v1/classes/${disposable.id}`, { method: "DELETE" });
+    const purge = await fetch("/api/v1/recycle-bin", { method: "DELETE" });
+    return { statuses: [recycleClass.status, restoreClass.status, recycleLesson.status, restoreLesson.status, recycleMedia.status, restoreMedia.status, purge.status],
+      classEntries: afterClassDelete.filter((item: { kind: string }) => item.kind === "class").length,
+      lessonEntries: afterClassDelete.filter((item: { kind: string }) => item.kind === "lesson").length,
+      purged: (await purge.json()).purged };
+  });
+  expect(recycleWorkflow).toEqual({ statuses: [204, 204, 204, 204, 200, 204, 200], classEntries: 1, lessonEntries: expect.any(Number), purged: 1 });
+  expect(recycleWorkflow.lessonEntries).toBeGreaterThan(0);
   const quickCreate = page.locator("form.quick-create");
   await quickCreate.locator('input[name="title"]').fill("Bulk Lesson One");
   await quickCreate.locator('input[name="date"]').fill(dateDaysFromNow(35));
@@ -424,7 +450,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const permissionStatuses = await page.evaluate(async () => ({
     planning: (await fetch("/api/v1/classes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Denied", description: "" }) })).status,
     users: (await fetch("/api/v1/users")).status,
+    recycle: (await fetch("/api/v1/recycle-bin")).status,
     playback: (await fetch("/api/v1/screens/00000000-0000-0000-0000-000000000000/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "stop" }) })).status,
   }));
-  expect(permissionStatuses).toEqual({ planning: 403, users: 403, playback: 404 });
+  expect(permissionStatuses).toEqual({ planning: 403, users: 403, recycle: 403, playback: 404 });
 });

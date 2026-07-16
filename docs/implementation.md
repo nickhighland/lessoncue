@@ -92,6 +92,12 @@ The web manifest starts at `/universalremote` in standalone mode. Class settings
 
 The Media Library exposes every ready asset through the server's normal range-enabled URL. Lesson previews layer playlist behavior on top of the raw source: the browser seeks to `startMs`, pauses or loops at `endMs`, updates volume through the fade-in/fade-out windows, applies the stored volume ceiling, and overlays operator notes. Online YouTube URLs are converted only to standard embed URLs in the browser; arbitrary webpage previews remain client-side iframe navigation and are never fetched by the LessonCue server.
 
+### Recycling and permanent purge
+
+`LessonClass`, `Lesson`, and `MediaAsset` use global active-record filters over `DeletedAt`. Normal planning, schedule, playback-manifest, media, and controller queries therefore cannot return recycled records. Deleting a class applies one timestamp to the class and its active lessons so a class restore can recover exactly those children without reviving a lesson deleted earlier. Recycled media keeps its database references, original, compatibility derivative, thumbnails, and archived versions, so restore is lossless and its disk use remains visible in storage allocation.
+
+The server-settings policy protects recycle listing, restore, and purge-all endpoints. `MediaRetentionService` also sends automatically expired media to the same bin and runs permanent cleanup hourly for records older than 30 days. Permanent media purge first clears every active or recycled playlist/signage reference and then deletes all stored derivatives and versions.
+
 Every playlist cue exposes the visual editor directly from its lesson row. Filmstrip and waveform derivatives share the selected trim window with the browser preview, while the timeline overlays fade-in and fade-out regions and keeps numeric fields available for exact entry. Saving writes the same trim, fade, marker, volume, and loop fields consumed by both native manifests.
 
 ### TV playback compatibility

@@ -177,7 +177,7 @@ public sealed class MediaRetentionTests
     }
 
     [Fact]
-    public async Task CleanupDeletesExpiredFileAndPreservesPlaylistItem()
+    public async Task CleanupMovesExpiredFileToRecycleBinAndPreservesReferences()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         await using var connection = new SqliteConnection("Data Source=:memory:");
@@ -217,11 +217,19 @@ public sealed class MediaRetentionTests
 
             Assert.Equal(1, deleted);
             Assert.False(await db.MediaAssets.AnyAsync(cancellationToken));
+            Assert.NotNull((await db.MediaAssets.IgnoreQueryFilters().SingleAsync(cancellationToken)).DeletedAt);
+            Assert.Equal(media.Id, (await db.PlaylistItems.SingleAsync(cancellationToken)).MediaAssetId);
+            Assert.Equal(media.Id, (await db.SignagePlaylists.SingleAsync(cancellationToken)).MediaAssetId);
+            Assert.True(File.Exists(Path.Combine(paths.Originals, media.RelativePath)));
+            Assert.True(File.Exists(Path.Combine(paths.Versions, version.RelativePath)));
+            Assert.True(File.Exists(Path.Combine(paths.Compatibility, media.CompatibilityPath!)));
+
+            var purged = await RecycleBinService.PurgeAsync(db, paths,
+                new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero), ct: cancellationToken);
+            Assert.Equal(1, purged);
+            Assert.False(await db.MediaAssets.IgnoreQueryFilters().AnyAsync(cancellationToken));
             Assert.Null((await db.PlaylistItems.SingleAsync(cancellationToken)).MediaAssetId);
-            Assert.Null((await db.SignagePlaylists.SingleAsync(cancellationToken)).MediaAssetId);
             Assert.False(File.Exists(Path.Combine(paths.Originals, media.RelativePath)));
-            Assert.False(File.Exists(Path.Combine(paths.Versions, version.RelativePath)));
-            Assert.False(File.Exists(Path.Combine(paths.Compatibility, media.CompatibilityPath!)));
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }

@@ -32,6 +32,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - Actionable screen diagnostics with per-file cache and queue detail, decoder capabilities, download and playback errors, local-network latency, clock drift, and freshness. Optional screenshots are disabled per screen by default, visibly announced on the TV, valid for one request and 60 seconds, restricted to screen administrators, and deleted automatically after 24 hours.
 - A phone-first local controller for selecting screens, lessons, and individual media, with play, pause, resume, previous, next, stop, and seek controls; actual playback state, progress, errors, and command acknowledgement arrive live from the TV and the controller can be saved to an iPhone, iPad, or Android home screen.
 - Dedicated classroom controller paths with unique colors and optional public hostnames; locally generated room or lesson QR codes; expiring restricted substitute/event links; and a separately PIN-protected universal remote.
+- Editable and removable classrooms plus an administrator-only recycling bin: deleted classes, lessons, and media remain restorable for 30 days, keep their relationships and files intact, and can be purged immediately when recovery is not needed.
 - GitHub Actions that build the web app, server, Android APK, tvOS app, release packages, and GitHub Pages documentation.
 
 ## Quick start

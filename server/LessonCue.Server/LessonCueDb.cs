@@ -25,6 +25,12 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<LessonClass>().HasIndex(x => x.Name).IsUnique();
+        modelBuilder.Entity<LessonClass>().HasQueryFilter(x => x.DeletedAt == null);
+        modelBuilder.Entity<Lesson>().HasQueryFilter(x => x.DeletedAt == null);
+        modelBuilder.Entity<MediaAsset>().HasQueryFilter(x => x.DeletedAt == null);
+        modelBuilder.Entity<PlaylistItem>().HasQueryFilter(x => x.Lesson!.DeletedAt == null);
+        modelBuilder.Entity<MediaAssetVersion>().HasQueryFilter(x => x.MediaAsset!.DeletedAt == null);
+        modelBuilder.Entity<RecurringLessonSchedule>().HasQueryFilter(x => x.Class!.DeletedAt == null);
         modelBuilder.Entity<AdminAccount>().HasIndex(x => x.Username).IsUnique();
         modelBuilder.Entity<MediaAsset>().HasIndex(x => x.Sha256);
         modelBuilder.Entity<MediaAssetVersion>().HasIndex(x => new { x.MediaAssetId, x.VersionNumber }).IsUnique();

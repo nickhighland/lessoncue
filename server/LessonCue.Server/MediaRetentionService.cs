@@ -105,19 +105,21 @@ public sealed class MediaRetentionService(
                 media.DeleteAfter = MediaRetention.DeleteAfterFor(lessonDates.Max());
             if (media.DeleteAfter is null || media.DeleteAfter >= now) continue;
 
-            await DeleteAsync(db, paths, media, "system", "media.retention.delete",
-                media.RetentionDateIsManual ? $"Deleted {media.FileName} on its selected expiration date." : $"Deleted {media.FileName} four weeks after its last lesson date.", ct);
+            media.DeletedAt = now; media.DeletedBy = "system";
+            db.AuditEvents.Add(new AuditEvent { Actor = "system", Action = "media.retention.recycle", Object = media.Id.ToString(),
+                Summary = media.RetentionDateIsManual ? $"Moved {media.FileName} to the recycling bin on its selected expiration date." : $"Moved {media.FileName} to the recycling bin four weeks after its last lesson date." });
             deleted++;
         }
 
         if (db.ChangeTracker.HasChanges()) await db.SaveChangesAsync(ct);
+        await RecycleBinService.PurgeAsync(db, paths, now.AddDays(-RecycleBinService.RetentionDays), "system", ct);
         return deleted;
     }
 
     public static async Task DeleteAsync(LessonCueDb db, MediaStoragePaths paths, MediaAsset media,
         string actor, string action, string summary, CancellationToken ct = default)
     {
-        var playlistItems = await db.PlaylistItems.Where(x => x.MediaAssetId == media.Id).Include(x => x.Lesson).ToListAsync(ct);
+        var playlistItems = await db.PlaylistItems.IgnoreQueryFilters().Where(x => x.MediaAssetId == media.Id).Include(x => x.Lesson).ToListAsync(ct);
         foreach (var item in playlistItems)
         {
             item.MediaAssetId = null;
@@ -126,7 +128,7 @@ public sealed class MediaRetentionService(
         var signageItems = await db.SignagePlaylists.Where(x => x.MediaAssetId == media.Id).ToListAsync(ct);
         foreach (var signage in signageItems) signage.MediaAssetId = null;
 
-        var versions = await db.MediaAssetVersions.Where(x => x.MediaAssetId == media.Id).ToListAsync(ct);
+        var versions = await db.MediaAssetVersions.IgnoreQueryFilters().Where(x => x.MediaAssetId == media.Id).ToListAsync(ct);
         foreach (var version in versions) DeleteStoredFile(paths.Versions, version.RelativePath);
 
         DeleteStoredFile(paths.Originals, media.RelativePath);

@@ -182,6 +182,21 @@ public static class AdminApi
             return Results.Ok(item);
         });
 
+        planning.MapDelete("/classes/{id:guid}", async (Guid id, LessonCueDb db, HttpContext context,
+            IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            var item = await db.Classes.SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (item is null) return Results.NotFound();
+            var now = DateTimeOffset.UtcNow;
+            var actor = context.User.Identity?.Name ?? "admin";
+            item.DeletedAt = now; item.DeletedBy = actor;
+            var lessons = await db.Lessons.Where(x => x.ClassId == id).ToListAsync(ct);
+            foreach (var lesson in lessons) { lesson.DeletedAt = now; lesson.DeletedBy = actor; }
+            Audit(db, "class.recycle", id, $"{item.Name}; {lessons.Count} lessons");
+            await db.SaveChangesAsync(ct); await InvalidateAsync(hub, 0, ct);
+            return Results.NoContent();
+        });
+
         planning.MapPost("/controller/sessions", async (TemporaryControllerSessionInput input,
             ControllerSessionService controllerSessions, LessonCueDb db, CancellationToken ct) =>
         {
@@ -306,12 +321,12 @@ public static class AdminApi
             return Results.Ok(lesson);
         });
 
-        planning.MapDelete("/lessons/{id:guid}", async (Guid id, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        planning.MapDelete("/lessons/{id:guid}", async (Guid id, LessonCueDb db, HttpContext context, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var lesson = await db.Lessons.FindAsync([id], ct);
             if (lesson is null) return Results.NotFound();
-            db.Lessons.Remove(lesson);
-            Audit(db, "lesson.delete", id, lesson.Title);
+            lesson.DeletedAt = DateTimeOffset.UtcNow; lesson.DeletedBy = context.User.Identity?.Name ?? "admin";
+            Audit(db, "lesson.recycle", id, lesson.Title);
             await db.SaveChangesAsync(ct);
             await InvalidateAsync(hub, 0, ct);
             return Results.NoContent();
@@ -363,7 +378,7 @@ public static class AdminApi
         });
 
         planning.MapPost("/lessons/bulk", async (LessonBulkInput input, LessonCueDb db,
-            IHubContext<SyncHub> hub, CancellationToken ct) =>
+            HttpContext context, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             if (input.LessonIds is null || string.IsNullOrWhiteSpace(input.Action))
                 return Results.BadRequest(new { error = "Select lessons and choose an action." });
@@ -379,7 +394,7 @@ public static class AdminApi
                     foreach (var lesson in lessons) { lesson.Archived = action == "archive"; lesson.Version++; }
                     break;
                 case "delete":
-                    db.Lessons.RemoveRange(lessons);
+                    foreach (var lesson in lessons) { lesson.DeletedAt = DateTimeOffset.UtcNow; lesson.DeletedBy = context.User.Identity?.Name ?? "admin"; }
                     break;
                 case "move":
                     if (input.ClassId is not Guid classId || !await db.Classes.AnyAsync(x => x.Id == classId, ct))
@@ -1098,7 +1113,10 @@ public static class AdminApi
                     break;
                 case "delete":
                     foreach (var item in media)
-                        await MediaRetentionService.DeleteAsync(db, paths, item, actor, "media.delete", $"Deleted {item.FileName} from the media library.", ct);
+                    {
+                        item.DeletedAt = DateTimeOffset.UtcNow; item.DeletedBy = actor;
+                        db.AuditEvents.Add(new AuditEvent { Actor = actor, Action = "media.recycle", Object = item.Id.ToString(), Summary = item.FileName });
+                    }
                     break;
                 case "organize":
                     var folder = NormalizeMediaFolder(input.Folder);
@@ -1582,6 +1600,64 @@ public static class AdminApi
             Audit(db, "controller.pin.update", organization.Id, "Universal controller PIN changed");
             await db.SaveChangesAsync(ct);
             return Results.NoContent();
+        });
+
+        settings.MapGet("/recycle-bin", async (LessonCueDb db, CancellationToken ct) =>
+        {
+            var classes = await db.Classes.IgnoreQueryFilters().AsNoTracking().Where(x => x.DeletedAt != null)
+                .Select(x => new { kind = "class", x.Id, title = x.Name, detail = x.Description, x.DeletedAt, x.DeletedBy }).ToListAsync(ct);
+            var classNames = await db.Classes.IgnoreQueryFilters().AsNoTracking().ToDictionaryAsync(x => x.Id, x => x.Name, ct);
+            var lessons = await db.Lessons.IgnoreQueryFilters().AsNoTracking().Where(x => x.DeletedAt != null)
+                .Select(x => new { x.Id, x.Title, x.ClassId, x.Date, x.DeletedAt, x.DeletedBy }).ToListAsync(ct);
+            var media = await db.MediaAssets.IgnoreQueryFilters().AsNoTracking().Where(x => x.DeletedAt != null)
+                .Select(x => new { x.Id, x.FileName, x.SizeBytes, x.DeletedAt, x.DeletedBy }).ToListAsync(ct);
+            var results = classes.Select(x => new RecycleBinItem(x.kind, x.Id, x.title, x.detail, x.DeletedAt!.Value, x.DeletedBy))
+                .Concat(lessons.Select(x => new RecycleBinItem("lesson", x.Id, x.Title,
+                    $"{classNames.GetValueOrDefault(x.ClassId, "Deleted class")} · {x.Date:yyyy-MM-dd}", x.DeletedAt!.Value, x.DeletedBy)))
+                .Concat(media.Select(x => new RecycleBinItem("media", x.Id, x.FileName, $"{x.SizeBytes} bytes", x.DeletedAt!.Value, x.DeletedBy)))
+                .OrderByDescending(x => x.DeletedAt);
+            return Results.Ok(results);
+        });
+
+        settings.MapPost("/recycle-bin/{kind}/{id:guid}/restore", async (string kind, Guid id, LessonCueDb db,
+            HttpContext context, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            var actor = context.User.Identity?.Name ?? "admin";
+            switch (kind.ToLowerInvariant())
+            {
+                case "class":
+                    var lessonClass = await db.Classes.IgnoreQueryFilters().SingleOrDefaultAsync(x => x.Id == id && x.DeletedAt != null, ct);
+                    if (lessonClass is null) return Results.NotFound();
+                    var deletedAt = lessonClass.DeletedAt;
+                    lessonClass.DeletedAt = null; lessonClass.DeletedBy = null;
+                    var childLessons = await db.Lessons.IgnoreQueryFilters().Where(x => x.ClassId == id && x.DeletedAt == deletedAt).ToListAsync(ct);
+                    foreach (var lesson in childLessons) { lesson.DeletedAt = null; lesson.DeletedBy = null; }
+                    break;
+                case "lesson":
+                    var deletedLesson = await db.Lessons.IgnoreQueryFilters().SingleOrDefaultAsync(x => x.Id == id && x.DeletedAt != null, ct);
+                    if (deletedLesson is null) return Results.NotFound();
+                    if (!await db.Classes.AnyAsync(x => x.Id == deletedLesson.ClassId, ct))
+                        return Results.Conflict(new { error = "Restore the lesson's class first." });
+                    deletedLesson.DeletedAt = null; deletedLesson.DeletedBy = null;
+                    break;
+                case "media":
+                    var deletedMedia = await db.MediaAssets.IgnoreQueryFilters().SingleOrDefaultAsync(x => x.Id == id && x.DeletedAt != null, ct);
+                    if (deletedMedia is null) return Results.NotFound();
+                    deletedMedia.DeletedAt = null; deletedMedia.DeletedBy = null;
+                    break;
+                default: return Results.BadRequest(new { error = "Unknown recycling-bin item type." });
+            }
+            db.AuditEvents.Add(new AuditEvent { Actor = actor, Action = $"recycle.{kind}.restore", Object = id.ToString() });
+            await db.SaveChangesAsync(ct); await InvalidateAsync(hub, 0, ct);
+            return Results.NoContent();
+        });
+
+        settings.MapDelete("/recycle-bin", async (LessonCueDb db, MediaStoragePaths paths, HttpContext context,
+            IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            var purged = await RecycleBinService.PurgeAsync(db, paths, DateTimeOffset.MaxValue, context.User.Identity?.Name ?? "admin", ct);
+            await InvalidateAsync(hub, 0, ct);
+            return Results.Ok(new { purged });
         });
 
         playback.MapPost("/controller/unlock", async (ControllerPinInput input, LessonCueDb db,

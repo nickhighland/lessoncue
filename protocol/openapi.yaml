@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 2.9.0
+  version: 3.0.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local
@@ -91,6 +91,11 @@ paths:
       responses:
         '200': { description: Updated class }
         '409': { description: Controller path is already assigned }
+    delete:
+      operationId: recycleClass
+      description: Requires planning.manage. Moves a class and its active lessons into the 30-day recycling bin.
+      responses:
+        '204': { description: Class and lessons recycled }
   /api/v1/lessons:
     get:
       operationId: listLessons
@@ -881,6 +886,39 @@ paths:
       responses:
         '204': { description: PIN replaced }
         '400': { description: PIN is not exactly six digits }
+  /api/v1/recycle-bin:
+    get:
+      operationId: listRecycleBin
+      description: Requires settings.manage. Lists deleted classes, lessons, and media retained for administrator recovery.
+      responses:
+        '200':
+          description: Recycled items ordered by deletion time
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RecycleBinItem' }
+    delete:
+      operationId: purgeRecycleBin
+      description: Requires settings.manage. Permanently removes all recycled records and stored media files.
+      responses:
+        '200': { description: Number of permanently purged items }
+  /api/v1/recycle-bin/{kind}/{id}/restore:
+    post:
+      operationId: restoreRecycleBinItem
+      description: Requires settings.manage. Restores one class, lesson, or media item; restoring a class also restores lessons recycled with it.
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { enum: [class, lesson, media] }
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Item restored }
+        '409': { description: A lesson's class must be restored first }
   /api/v1/users:
     get:
       operationId: listUsers
@@ -1193,6 +1231,16 @@ components:
         classId: { type: string, format: uuid }
         lessonId: { type: [string, 'null'], format: uuid }
         expiresInMinutes: { type: integer, minimum: 5, maximum: 10080, default: 60 }
+    RecycleBinItem:
+      type: object
+      required: [kind, id, title, detail, deletedAt]
+      properties:
+        kind: { enum: [class, lesson, media] }
+        id: { type: string, format: uuid }
+        title: { type: string }
+        detail: { type: string }
+        deletedAt: { type: string, format: date-time }
+        deletedBy: { type: [string, 'null'] }
     LessonInput:
       type: object
       required: [classId, date, title]
