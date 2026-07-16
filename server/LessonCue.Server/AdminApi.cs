@@ -103,6 +103,7 @@ public static class AdminApi
                 pairingFixed = canPair && pairing.FixedPin is not null,
                 controllerPinConfigured = organization.ControllerPinHash is not null,
                 storage = storageStatus,
+                mediaTaxonomy = MediaTaxonomy.Read(organization),
                 update = updates.Status,
                 localAddress = localAddress.Status,
                 httpPort = httpPort.Status,
@@ -900,6 +901,9 @@ public static class AdminApi
         {
             var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
             if (media is null) return Results.NotFound();
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var selection = MediaTaxonomy.Validate(organization, input.Folder ?? media.Folder, input.TagsCsv ?? media.TagsCsv);
+            if (selection.Error is not null) return Results.BadRequest(new { error = selection.Error });
             if (input.FileName is not null)
             {
                 var name = Path.GetFileName(input.FileName.Trim());
@@ -907,8 +911,8 @@ public static class AdminApi
                     return Results.BadRequest(new { error = "The media name must be between 1 and 255 characters." });
                 media.FileName = name;
             }
-            if (input.Folder is not null) media.Folder = NormalizeMediaFolder(input.Folder);
-            if (input.TagsCsv is not null) media.TagsCsv = NormalizeMediaTags(input.TagsCsv);
+            if (input.Folder is not null) media.Folder = selection.Folder;
+            if (input.TagsCsv is not null) media.TagsCsv = selection.TagsCsv;
             db.AuditEvents.Add(new AuditEvent { Actor = context.User.Identity?.Name ?? "admin", Action = "media.organize",
                 Object = media.Id.ToString(), Summary = $"{media.FileName}: {media.Folder}; {media.TagsCsv}" });
             await db.SaveChangesAsync(ct);
@@ -1145,8 +1149,11 @@ public static class AdminApi
                     }
                     break;
                 case "organize":
-                    var folder = NormalizeMediaFolder(input.Folder);
-                    var tags = NormalizeMediaTags(input.TagsCsv);
+                    var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+                    var selection = MediaTaxonomy.Validate(organization, input.Folder, input.TagsCsv);
+                    if (selection.Error is not null) return Results.BadRequest(new { error = selection.Error });
+                    var folder = selection.Folder;
+                    var tags = selection.TagsCsv;
                     foreach (var item in media)
                     {
                         item.Folder = folder;
@@ -1194,6 +1201,9 @@ public static class AdminApi
                 retentionLesson = await db.Lessons.SingleOrDefaultAsync(x => x.Id == retentionLessonId, ct);
                 if (retentionLesson is null) return Results.BadRequest(new { error = "The selected lesson does not exist." });
             }
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var selection = MediaTaxonomy.Validate(organization, form["folder"], form["tagsCsv"]);
+            if (selection.Error is not null) return Results.BadRequest(new { error = selection.Error });
             var extension = Path.GetExtension(upload.FileName);
             if (!IsSupportedMediaExtension(extension)) return Results.BadRequest(new { error = "Unsupported media type." });
             if (await storage.EnsureAvailableAsync(db, upload.Length, ct) is null)
@@ -1212,8 +1222,8 @@ public static class AdminApi
                 File.Delete(destination);
                 if (persistent) MediaRetention.KeepPermanently(existing);
                 else if (existing.StoragePolicy == MediaRetention.LessonScoped) MediaRetention.KeepForLesson(existing, retentionLesson!);
-                if (!string.IsNullOrWhiteSpace(form["folder"])) existing.Folder = NormalizeMediaFolder(form["folder"]);
-                if (!string.IsNullOrWhiteSpace(form["tagsCsv"])) existing.TagsCsv = NormalizeMediaTags(form["tagsCsv"]);
+                if (!string.IsNullOrWhiteSpace(form["folder"])) existing.Folder = selection.Folder;
+                if (!string.IsNullOrWhiteSpace(form["tagsCsv"])) existing.TagsCsv = selection.TagsCsv;
                 await db.SaveChangesAsync(ct);
                 return Results.Ok(new { duplicate = true, media = existing });
             }
@@ -1227,8 +1237,8 @@ public static class AdminApi
                 Sha256 = sha,
                 SizeBytes = upload.Length,
                 DurationMs = duration,
-                Folder = NormalizeMediaFolder(form["folder"]),
-                TagsCsv = NormalizeMediaTags(form["tagsCsv"])
+                Folder = selection.Folder,
+                TagsCsv = selection.TagsCsv
             };
             if (persistent) MediaRetention.KeepPermanently(media);
             else MediaRetention.SetNewUploadPolicy(media, retentionLesson!);
@@ -1242,6 +1252,9 @@ public static class AdminApi
         {
             if (!Uri.TryCreate(input.Url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
                 return Results.BadRequest(new { error = "Enter a complete http or https URL." });
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var selection = MediaTaxonomy.Validate(organization, input.Folder, input.TagsCsv);
+            if (selection.Error is not null) return Results.BadRequest(new { error = selection.Error });
             Lesson? retentionLesson = null;
             if (input.Download)
             {
@@ -1257,8 +1270,8 @@ public static class AdminApi
                 var pendingTitle = string.IsNullOrWhiteSpace(input.Title) ? "YouTube video" : input.Title.Trim();
                 var pending = new MediaAsset { FileName = pendingTitle, ContentType = "video/mp4", RelativePath = "",
                     SizeBytes = 0, OfflineEligible = false, ProcessingStatus = "downloading", SourceKind = "youtube-download",
-                    SourceUrl = uri.ToString(), LinkKind = "youtube-local", Folder = NormalizeMediaFolder(input.Folder),
-                    TagsCsv = NormalizeMediaTags(input.TagsCsv) };
+                    SourceUrl = uri.ToString(), LinkKind = "youtube-local", Folder = selection.Folder,
+                    TagsCsv = selection.TagsCsv };
                 if (input.Persistent) MediaRetention.KeepPermanently(pending);
                 else MediaRetention.SetNewUploadPolicy(pending, retentionLesson!);
                 db.MediaAssets.Add(pending); Audit(db, "media.youtube.queue", pending.Id, uri.Host); await db.SaveChangesAsync(ct);
@@ -1283,7 +1296,7 @@ public static class AdminApi
             var title = string.IsNullOrWhiteSpace(input.Title) ? uri.Host : input.Title.Trim();
             var media = new MediaAsset { FileName = title, ContentType = contentType, RelativePath = "",
                 SizeBytes = 0, OfflineEligible = direct, ProcessingStatus = "ready", SourceKind = "link", SourceUrl = uri.ToString(), LinkKind = kind,
-                Folder = NormalizeMediaFolder(input.Folder), TagsCsv = NormalizeMediaTags(input.TagsCsv) };
+                Folder = selection.Folder, TagsCsv = selection.TagsCsv };
             db.MediaAssets.Add(media); Audit(db, "media.link", media.Id, $"{kind}: {uri.Host}"); await db.SaveChangesAsync(ct);
             return Results.Created($"/api/v1/media/{media.Id}", media);
         });
@@ -1321,6 +1334,9 @@ public static class AdminApi
         {
             var extension = Path.GetExtension(input.FileName); if (!IsSupportedMediaExtension(extension)) return Results.BadRequest(new { error = "Unsupported media type." });
             if (input.TotalChunks is < 1 or > 100000) return Results.BadRequest(new { error = "Invalid chunk count." });
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var selection = MediaTaxonomy.Validate(organization, input.Folder, input.TagsCsv);
+            if (selection.Error is not null) return Results.BadRequest(new { error = selection.Error });
             Lesson? retentionLesson = null;
             if (!input.Persistent)
             {
@@ -1351,14 +1367,14 @@ public static class AdminApi
                 File.Delete(destination);
                 if (input.Persistent) MediaRetention.KeepPermanently(existing);
                 else if (existing.StoragePolicy == MediaRetention.LessonScoped) MediaRetention.KeepForLesson(existing, retentionLesson!);
-                if (!string.IsNullOrWhiteSpace(input.Folder)) existing.Folder = NormalizeMediaFolder(input.Folder);
-                if (!string.IsNullOrWhiteSpace(input.TagsCsv)) existing.TagsCsv = NormalizeMediaTags(input.TagsCsv);
+                if (!string.IsNullOrWhiteSpace(input.Folder)) existing.Folder = selection.Folder;
+                if (!string.IsNullOrWhiteSpace(input.TagsCsv)) existing.TagsCsv = selection.TagsCsv;
                 await db.SaveChangesAsync(ct);
                 return Results.Ok(new { duplicate = true, media = existing });
             }
             var media = new MediaAsset { Id = mediaId, FileName = Path.GetFileName(input.FileName), ContentType = NormalizeContentType(input.FileName, input.ContentType),
                 RelativePath = storedName, Sha256 = sha, SizeBytes = new FileInfo(destination).Length, DurationMs = input.DurationMs,
-                Folder = NormalizeMediaFolder(input.Folder), TagsCsv = NormalizeMediaTags(input.TagsCsv) };
+                Folder = selection.Folder, TagsCsv = selection.TagsCsv };
             if (input.Persistent) MediaRetention.KeepPermanently(media);
             else MediaRetention.SetNewUploadPolicy(media, retentionLesson!);
             db.MediaAssets.Add(media); Audit(db, "media.upload.complete", media.Id, media.FileName); await db.SaveChangesAsync(ct);
@@ -1615,6 +1631,41 @@ public static class AdminApi
             if (input.TranscodeLeadDays is not null) organization.TranscodeLeadDays = Math.Clamp(input.TranscodeLeadDays.Value, 1, 30);
             Audit(db, "organization.update", organization.Id, organization.Name); await db.SaveChangesAsync(ct);
             return Results.Ok(organization);
+        });
+
+        settings.MapPut("/media-taxonomy", async (MediaTaxonomyInput input, LessonCueDb db,
+            HttpContext context, CancellationToken ct) =>
+        {
+            if (!MediaTaxonomy.TryCreate(input.Folders, input.Tags, out var taxonomy, out var error))
+                return Results.BadRequest(new { error });
+
+            var media = await db.MediaAssets.IgnoreQueryFilters().AsNoTracking()
+                .Select(item => new { item.Folder, item.TagsCsv }).ToListAsync(ct);
+            var missingFolders = media.Select(item => MediaTaxonomy.NormalizeFolder(item.Folder))
+                .Where(folder => folder.Length > 0 && !taxonomy.Folders.Contains(folder, StringComparer.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(folder => folder).ToArray();
+            var missingTags = media.SelectMany(item => MediaTaxonomy.SplitTags(item.TagsCsv))
+                .Where(tag => !taxonomy.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(tag => tag).ToArray();
+            if (missingFolders.Length > 0 || missingTags.Length > 0)
+            {
+                var details = string.Join("; ", new[]
+                {
+                    missingFolders.Length > 0 ? $"folders in use: {string.Join(", ", missingFolders)}" : null,
+                    missingTags.Length > 0 ? $"tags in use: {string.Join(", ", missingTags)}" : null
+                }.Where(value => value is not null));
+                return Results.Conflict(new { error = $"Reassign existing media before removing approved {details}." });
+            }
+
+            var organization = await db.Organizations.FirstAsync(ct);
+            MediaTaxonomy.Store(organization, taxonomy);
+            db.AuditEvents.Add(new AuditEvent
+            {
+                Actor = context.User.Identity?.Name ?? "admin", Action = "media.taxonomy.update",
+                Object = organization.Id.ToString(), Summary = $"{taxonomy.Folders.Count} folders; {taxonomy.Tags.Count} tags"
+            });
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(taxonomy);
         });
 
         settings.MapPut("/controller-pin", async (ControllerPinInput input, LessonCueDb db,
@@ -1991,23 +2042,6 @@ public static class AdminApi
             ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             _ => "application/octet-stream"
         };
-    }
-
-    private static string NormalizeMediaFolder(string? folder)
-    {
-        if (string.IsNullOrWhiteSpace(folder)) return "";
-        var normalized = string.Join("/", folder.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries)
-            .Select(part => part.Trim()).Where(part => part is not "." and not ".." && part.Length > 0));
-        return normalized.Length <= 120 ? normalized : normalized[..120].TrimEnd('/');
-    }
-
-    private static string NormalizeMediaTags(string? tags)
-    {
-        var normalized = (tags ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
-            .Select(tag => tag.Trim()).Where(tag => tag.Length > 0).Select(tag => tag.Length > 40 ? tag[..40] : tag)
-            .Distinct(StringComparer.OrdinalIgnoreCase).Take(20).ToList();
-        while (normalized.Count > 0 && string.Join(", ", normalized).Length > 500) normalized.RemoveAt(normalized.Count - 1);
-        return string.Join(", ", normalized);
     }
 
     private static MediaAssetVersion CreateArchivedVersion(MediaAsset media, string relativePath, string actor) => new()

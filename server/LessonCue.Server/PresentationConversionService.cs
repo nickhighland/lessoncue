@@ -136,8 +136,11 @@ public sealed class PresentationConversionService(
 
             Directory.CreateDirectory(paths.Originals);
             var sourceTitle = Path.GetFileNameWithoutExtension(source.FileName);
-            var folder = string.IsNullOrWhiteSpace(source.Folder) ? sourceTitle : $"{source.Folder}/{sourceTitle}";
-            var tags = AppendTag(source.TagsCsv, "converted slide");
+            var taxonomy = MediaTaxonomy.Read(await db.Organizations.AsNoTracking().FirstAsync(ct));
+            var requestedFolder = MediaTaxonomy.NormalizeFolder(string.IsNullOrWhiteSpace(source.Folder) ? sourceTitle : $"{source.Folder}/{sourceTitle}");
+            var folder = taxonomy.Folders.FirstOrDefault(value => value.Equals(requestedFolder, StringComparison.OrdinalIgnoreCase)) ?? source.Folder;
+            var tags = taxonomy.Tags.Any(value => value.Equals("converted slide", StringComparison.OrdinalIgnoreCase))
+                ? AppendTag(source.TagsCsv, "converted slide") : source.TagsCsv;
             var slideIds = new List<Guid>();
             for (var index = 0; index < pages.Count; index++)
             {

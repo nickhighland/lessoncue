@@ -20,6 +20,8 @@ public sealed class Organization
     [MaxLength(240)] public string WelcomeMessage { get; set; } = "Welcome";
     public bool AdaptiveTranscodingEnabled { get; set; } = true;
     public int TranscodeLeadDays { get; set; } = 7;
+    [MaxLength(12000)] public string MediaFoldersJson { get; set; } = "[\"General\",\"Lessons\",\"Signage\"]";
+    [MaxLength(12000)] public string MediaTagsJson { get; set; } = "[\"Reusable\",\"Intro\",\"Outro\",\"Reference\"]";
     [JsonIgnore] public string? ControllerPinHash { get; set; }
 }
 
@@ -453,6 +455,7 @@ public sealed record UploadCompleteInput(string FileName, string ContentType, in
 public sealed record MediaBulkInput(List<Guid> MediaIds, string? Action, DateOnly? DeleteOn = null,
     string? Folder = null, string? TagsCsv = null, string? FileNamePrefix = null);
 public sealed record MediaOrganizeInput(string? FileName, string? Folder, string? TagsCsv);
+public sealed record MediaTaxonomyInput(List<string>? Folders, List<string>? Tags);
 public sealed record PresentationLessonInput(Guid LessonId, int ImageDurationSeconds = 10);
 public sealed record LessonTemplateFromLessonInput(Guid LessonId, string Name, string? Description = null);
 public sealed record LessonTemplateReplaceInput(Guid LessonId);

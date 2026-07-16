@@ -73,7 +73,13 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     buffer: silentWav(),
   });
   await uploadForm.getByLabel("Display title").fill("Browser Test Audio");
-  await uploadForm.getByRole("button", { name: "Upload and add" }).click();
+  await uploadForm.getByLabel("Folder").selectOption("General");
+  await uploadForm.getByLabel("Reusable", { exact: true }).check();
+  expect(await uploadForm.locator(":invalid").evaluateAll(elements => elements.map(element => ({
+    name: (element as HTMLInputElement).name, type: (element as HTMLInputElement).type,
+    message: (element as HTMLInputElement).validationMessage
+  })))).toEqual([]);
+  await uploadForm.getByRole("button", { name: "Upload and add" }).evaluate((button: HTMLButtonElement) => button.click());
   await expect(page.getByText("1 file added. It will be deleted four weeks after", { exact: false })).toBeVisible();
   await expect(page.getByText("Browser Test Audio", { exact: true })).toBeVisible();
 
@@ -173,13 +179,25 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(audioRow.getByRole("button", { name: /Deletes/ })).toBeVisible();
   await expect(page.locator(".media-table").filter({ hasText: "Online Learning Page" })).toBeVisible();
 
+  await page.getByRole("button", { name: /Settings$/ }).click();
+  await page.getByLabel("Approved folder paths").fill("General\nLessons\nSignage\nAudio/Classroom");
+  await page.getByLabel("Approved tags").fill("Reusable\nIntro\nOutro\nReference\nWelcome");
+  await page.getByRole("button", { name: "Save approved folders & tags" }).click();
+  await expect(page.getByText("Approved media folders and tags saved.", { exact: false })).toBeVisible();
+  expect(await page.evaluate(async () => (await fetch("/api/v1/media/link", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url: "https://example.org/rejected", title: "Rejected", folder: "Unapproved", tagsCsv: "Reusable" })
+  })).status)).toBe(400);
+  await page.getByRole("button", { name: /Media Library$/ }).click();
+
   await audioRow.getByRole("button", { name: "Manage versions & impact" }).click();
   await expect(page.getByRole("heading", { name: "Manage: browser-test-audio.wav" })).toBeVisible();
   await expect(page.getByText("Sample Lesson", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Rename, folder & tags" }).click();
   const organizeDialog = page.getByRole("dialog", { name: "Organize: browser-test-audio.wav" });
-  await organizeDialog.getByRole("textbox", { name: /^Folder/ }).fill("Audio/Classroom");
-  await organizeDialog.getByRole("textbox", { name: /^Tags/ }).fill("welcome, reusable");
+  await organizeDialog.getByLabel("Folder").selectOption("Audio/Classroom");
+  await organizeDialog.getByLabel("Welcome", { exact: true }).check();
+  await organizeDialog.getByLabel("Reusable", { exact: true }).check();
   await organizeDialog.getByRole("button", { name: "Save organization" }).click();
   await expect(page.getByText("1 media item organized.", { exact: false })).toBeVisible();
   await expect(page.locator(".media-table").filter({ hasText: "Audio/Classroom" })).toBeVisible();
