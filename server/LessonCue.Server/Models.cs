@@ -195,6 +195,7 @@ public sealed record PlaylistItemInput(string Title, string Type, string? Role, 
     int? ImageDurationSeconds, string? EndBehavior, bool AllowSkip);
 public sealed record PairingRequestInput(string DeviceName, string Platform, string AppVersion, string? DevicePublicKey);
 public sealed record PairingConfirmInput(Guid RequestId, string Pin);
+public sealed record PairingPinInput(string? Pin, bool Automatic = false);
 public sealed record TvStatusInput(Guid ScreenId, string AppVersion, bool Online, long FreeBytes,
     int ManifestVersion, int FailedDownloads);
 public sealed record AdminSetupInput(string OrganizationName, string Username, string Password,

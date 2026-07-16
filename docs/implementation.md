@@ -56,6 +56,10 @@ Media links are never fetched by the server. Direct file, supported embed, and e
 
 `UpdateService` checks the public GitHub latest-release endpoint after startup and once per day. It only discovers versions as the unprivileged, sandboxed `lessoncue` service account. Installation is deliberately separated: the web server writes a timestamp into its own config directory, and a root-owned systemd path unit turns that narrow signal into the update job. The web process receives no sudo access or new privileges. The root-owned oneshot updater downloads the fixed LessonCue repository and architecture-specific archive, verifies it against the release `SHA256SUMS`, stages a clean application directory, restarts LessonCue, and restores `/opt/lessoncue.previous` if the health endpoint does not recover. Persistent data under `/var/lib/lessoncue` is never replaced by the updater.
 
+### Local pairing PIN
+
+`PairingCodeService` always maintains a random local secret for automatic ten-minute PIN windows. Owners and administrators can replace the rotating value with an exact six-digit fixed PIN through the authenticated local API. The mode preference is written atomically to the protected LessonCue config directory and overrides deployment-time configuration across restarts. Selecting automatic mode writes an explicit override, so an older `appsettings.json` fixed PIN cannot unexpectedly return after reboot.
+
 ## Android TV
 
 ```bash

@@ -26,7 +26,7 @@ The final message says `LessonCue is ready` and prints an address such as `http:
 
 On a computer connected to the same local network, open the address printed by the installer. LessonCue will ask you to create the organization name, administrator username, and password. This account, the complete web interface, database, schedules, and media all remain on your local server.
 
-LessonCue creates a private local pairing secret and displays a six-digit PIN that rotates every ten minutes. After signing in, find the current PIN on the Dashboard and Screens pages.
+LessonCue creates a private local pairing secret and displays a six-digit PIN that rotates every ten minutes. After signing in, find the current PIN on the Dashboard and Screens pages. An owner or administrator can instead set a persistent six-digit local PIN under **Settings → Connection & pairing**. The same control switches back to automatic rotation at any time; the setting stays entirely on the local server.
 
 ### Verify from SSH
 

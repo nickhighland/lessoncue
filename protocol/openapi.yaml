@@ -190,6 +190,35 @@ paths:
       responses:
         '202': { description: Update installation started }
         '409': { description: No update is available or automatic installation is not configured }
+  /api/v1/pairing/status:
+    get:
+      operationId: getPairingStatus
+      responses:
+        '200':
+          description: Current local pairing PIN and mode
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PairingStatus' }
+  /api/v1/pairing/pin:
+    put:
+      operationId: setPairingPin
+      description: Owner or administrator only. Set a fixed local six-digit PIN or restore automatic rotation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pin: { type: [string, 'null'], pattern: '^[0-9]{6}$' }
+                automatic: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Updated pairing status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PairingStatus' }
+        '400': { description: The fixed PIN is not exactly six digits }
 components:
   securitySchemes:
     deviceBearer:
@@ -243,6 +272,13 @@ components:
         deviceToken: { type: string }
         apiVersion: { const: 1 }
         serverPublicKey: { type: [string, 'null'] }
+    PairingStatus:
+      type: object
+      required: [pin, expiresAt, fixedPin]
+      properties:
+        pin: { type: string, pattern: '^[0-9]{6}$' }
+        expiresAt: { type: string, format: date-time }
+        fixedPin: { type: boolean }
     Class:
       allOf:
         - $ref: '#/components/schemas/ClassInput'

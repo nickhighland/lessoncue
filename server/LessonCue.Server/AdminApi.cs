@@ -89,6 +89,7 @@ public static class AdminApi
                 organization.TimeZone,
                 pairingPin = pairing.Current,
                 pairingExpiresAt = pairing.ExpiresAt,
+                pairingFixed = pairing.FixedPin is not null,
                 storage = storageStatus,
                 update = updates.Status,
                 counts = new
@@ -793,7 +794,22 @@ public static class AdminApi
             var path = backups.Resolve(record.FileName); return path is null ? Results.NotFound() : Results.File(path, "application/zip", record.FileName);
         });
 
-        admin.MapGet("/pairing/status", (PairingCodeService pairing) => Results.Ok(new { pin = pairing.Current, expiresAt = pairing.ExpiresAt }));
+        admin.MapGet("/pairing/status", (PairingCodeService pairing) => Results.Ok(new
+        {
+            pin = pairing.Current,
+            expiresAt = pairing.ExpiresAt,
+            fixedPin = pairing.FixedPin is not null
+        }));
+        admin.MapPut("/pairing/pin", async (PairingPinInput input, PairingCodeService pairing, LessonCueDb db,
+            HttpContext context, CancellationToken ct) =>
+        {
+            if (!IsManager(context.User)) return Results.Forbid();
+            try { pairing.SetFixedPin(input.Automatic ? null : input.Pin); }
+            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+            Audit(db, "pairing.pin.update", Guid.Empty, input.Automatic ? "automatic" : "fixed");
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { pin = pairing.Current, expiresAt = pairing.ExpiresAt, fixedPin = pairing.FixedPin is not null });
+        });
     }
 
     private static bool IsManager(ClaimsPrincipal user) => user.IsInRole("Owner") || user.IsInRole("Administrator");

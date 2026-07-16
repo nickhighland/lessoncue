@@ -15,6 +15,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - Calendar, local role-based users, scheduled/emergency signage, rotating pairing codes, screen tags, audit history, and downloadable full/configuration backups.
 - Direct lesson uploads, reusable or four-week lesson retention, automatic cleanup, resumable large uploads, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, link classification, codec readiness, and range-enabled delivery.
 - Daily release checks, administrator alerts, protected one-click Linux updates with health-check rollback, and administrator-controlled storage allocation with uploader-visible capacity.
+- A locally configurable six-digit pairing PIN, with a choice between a persistent administrator-set PIN and automatic ten-minute rotation.
 - GitHub Actions that build the web app, server, Android APK, tvOS app, release packages, and GitHub Pages documentation.
 
 ## Quick start
