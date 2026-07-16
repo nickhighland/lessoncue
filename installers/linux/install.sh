@@ -14,7 +14,7 @@ if [[ ! -x "${PAYLOAD_DIR}/LessonCue.Server" ]]; then
 fi
 
 id lessoncue >/dev/null 2>&1 || useradd --system --home /var/lib/lessoncue --shell /usr/sbin/nologin lessoncue
-install -d -o lessoncue -g lessoncue /var/lib/lessoncue/{database,media/originals,media/processed,media/thumbnails,media/temporary,branding,backups,logs,config}
+install -d -o lessoncue -g lessoncue /var/lib/lessoncue/{database,media/originals,media/versions,media/processed,media/thumbnails,media/temporary,branding,backups,logs,config}
 
 CONFIG_FILE=/var/lib/lessoncue/config/appsettings.json
 if [[ ! -f "${CONFIG_FILE}" ]]; then

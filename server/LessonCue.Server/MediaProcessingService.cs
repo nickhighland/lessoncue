@@ -41,11 +41,11 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, ILogger<
         {
             if (item.SourceKind == "link") { item.ProcessingStatus = "ready"; await db.SaveChangesAsync(ct); return; }
             var extension = Path.GetExtension(fullPath).ToLowerInvariant();
-            if (extension is ".pdf" or ".pptx")
+            if (extension is ".pdf" or ".pptx" or ".odp" or ".docx")
             {
                 item.OfflineEligible = false;
                 item.ProcessingStatus = "ready";
-                item.ProcessingError = "Slide decks remain in the media library for planning; export slides to images for TV playback.";
+                item.ProcessingError = "Use Convert to slides in the Media Library to make this document screen-ready.";
                 await db.SaveChangesAsync(ct);
                 return;
             }

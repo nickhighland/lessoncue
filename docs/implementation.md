@@ -82,6 +82,12 @@ The Media Library exposes every ready asset through the server's normal range-en
 
 `MediaAssetVersion` stores the archived original's filename, type, checksum, size, source details, actor, and version number. Restoring history copies the selected original into a new current version and archives the displaced current original, so restoration never rewrites history. Replacement and restoration increment affected lesson manifest versions and trigger SignalR invalidation. Reprocessing clears derived metadata and queues the existing original through the normal FFprobe/FFmpeg worker. Storage accounting includes version files, and retention deletion removes the current original, derivatives, and all archived originals together.
 
+### Fully local document conversion
+
+`PresentationConversionService` resumes both pending and interrupted conversion jobs. PDF sources go directly to Poppler; PPTX, ODP, and DOCX sources first pass through a per-job isolated headless LibreOffice profile. Poppler preflights a maximum of 500 pages and rasterizes each page into a PNG whose longest dimension is at most 1920 pixels in an operating-system temporary directory. Each converter process has a ten-minute safety limit. LessonCue checks the complete output size against its configured allocation before moving any slide into persistent media storage. All child assets are SHA-256 identified, tagged as `presentation-slide`, organized beneath the source folder, and inherit the source retention policy.
+
+The source stores only the ordered identifiers for its latest conversion. Older generated slides remain ordinary media when a source is converted again, which prevents an existing lesson from breaking. Adding a conversion to a lesson resolves every child ID first, appends all pages in order with a configurable 1–3600 second duration, extends lesson-scoped retention, increments the manifest version, audits the operation, and invalidates screen manifests. A conversion failure removes partially installed files, detaches uncommitted rows, records a concise local error, and leaves the source document intact.
+
 ## Android TV
 
 ```bash

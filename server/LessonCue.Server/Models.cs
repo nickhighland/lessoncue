@@ -117,6 +117,10 @@ public sealed class MediaAsset
     [MaxLength(500)] public string TagsCsv { get; set; } = "";
     public int Version { get; set; } = 1;
     public DateTimeOffset? ReplacedAt { get; set; }
+    [MaxLength(24)] public string ConversionStatus { get; set; } = "none";
+    [MaxLength(1000)] public string? ConversionError { get; set; }
+    [MaxLength(24000)] public string ConvertedSlidesJson { get; set; } = "[]";
+    public DateTimeOffset? ConvertedAt { get; set; }
     public List<MediaAssetVersion> Versions { get; set; } = [];
 }
 
@@ -300,3 +304,4 @@ public sealed record UploadCompleteInput(string FileName, string ContentType, in
 public sealed record MediaBulkInput(List<Guid> MediaIds, string? Action, DateOnly? DeleteOn = null,
     string? Folder = null, string? TagsCsv = null);
 public sealed record MediaOrganizeInput(string? FileName, string? Folder, string? TagsCsv);
+public sealed record PresentationLessonInput(Guid LessonId, int ImageDurationSeconds = 10);

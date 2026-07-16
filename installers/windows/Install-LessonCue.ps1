@@ -9,7 +9,7 @@ if (-not (Test-Path (Join-Path $Source 'LessonCue.Server.exe'))) {
 }
 
 New-Item -ItemType Directory -Force -Path $Target, $Data | Out-Null
-'database','media\originals','media\processed','media\thumbnails','media\temporary','branding','backups','logs','config' |
+'database','media\originals','media\versions','media\processed','media\thumbnails','media\temporary','branding','backups','logs','config' |
     ForEach-Object { New-Item -ItemType Directory -Force -Path (Join-Path $Data $_) | Out-Null }
 
 $ConfigFile = Join-Path $Data 'config\appsettings.json'
@@ -32,3 +32,9 @@ New-Service -Name LessonCue -BinaryPathName $Binary -DisplayName 'LessonCue Serv
 New-NetFirewallRule -DisplayName 'LessonCue Server' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 80 -ErrorAction SilentlyContinue | Out-Null
 Start-Service LessonCue
 Write-Host 'LessonCue is installed. Open http://localhost'
+if (-not (Test-Path "$env:ProgramFiles\LibreOffice\program\soffice.exe")) {
+    Write-Warning 'Install LibreOffice to convert PowerPoint, OpenDocument, and Word files locally.'
+}
+if (-not $env:LESSONCUE_PDFTOPPM_PATH -and -not (Get-Command pdftoppm.exe -ErrorAction SilentlyContinue)) {
+    Write-Warning 'Install Poppler pdftoppm and set LESSONCUE_PDFTOPPM_PATH to enable local PDF/slide rendering.'
+}

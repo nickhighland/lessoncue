@@ -448,6 +448,10 @@ public static class AdminApi
                 x.TagsCsv,
                 x.Version,
                 x.ReplacedAt,
+                x.ConversionStatus,
+                x.ConversionError,
+                x.ConvertedSlidesJson,
+                x.ConvertedAt,
                 thumbnailUrl = x.ThumbnailPath == null ? null : $"/api/v1/media/{x.Id}/thumbnail",
                 filmstripUrl = x.FilmstripPath == null ? null : $"/api/v1/media/{x.Id}/filmstrip",
                 waveformUrl = x.WaveformPath == null ? null : $"/api/v1/media/{x.Id}/waveform",
@@ -517,6 +521,39 @@ public static class AdminApi
             return Results.Accepted($"/api/v1/media/{id}", media);
         });
 
+        admin.MapPost("/media/{id:guid}/convert", async (Guid id, LessonCueDb db, HttpContext context,
+            CancellationToken ct) =>
+        {
+            var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (media is null) return Results.NotFound();
+            if (!PresentationConversion.IsConvertible(media.RelativePath) || media.SourceKind == "link" || string.IsNullOrWhiteSpace(media.RelativePath))
+                return Results.BadRequest(new { error = "Local conversion supports PDF, PowerPoint (.pptx), OpenDocument Presentation (.odp), and Word (.docx) files." });
+            if (media.ConversionStatus is "pending" or "converting")
+                return Results.Conflict(new { error = "This presentation is already being converted." });
+            media.ConversionStatus = "pending";
+            media.ConversionError = null;
+            db.AuditEvents.Add(new AuditEvent { Actor = context.User.Identity?.Name ?? "admin", Action = "presentation.convert.queue",
+                Object = media.Id.ToString(), Summary = media.FileName });
+            await db.SaveChangesAsync(ct);
+            return Results.Accepted($"/api/v1/media/{id}/impact", new { media.Id, media.ConversionStatus });
+        });
+
+        admin.MapPost("/media/{id:guid}/conversion/add-to-lesson", async (Guid id, PresentationLessonInput input,
+            LessonCueDb db, IHubContext<SyncHub> hub, HttpContext context, CancellationToken ct) =>
+        {
+            var source = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
+            var lesson = await db.Lessons.SingleOrDefaultAsync(x => x.Id == input.LessonId && !x.Archived, ct);
+            if (source is null || lesson is null) return Results.NotFound();
+            try
+            {
+                var count = await PresentationConversion.AddToLessonAsync(db, source, lesson,
+                    input.ImageDurationSeconds, context.User.Identity?.Name ?? "admin", ct);
+                await InvalidateAsync(hub, lesson.Version, ct);
+                return Results.Ok(new { added = count, lesson.Id, lesson.Version });
+            }
+            catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+        });
+
         admin.MapGet("/media/{id:guid}/versions/{versionId:guid}/file", async (Guid id, Guid versionId,
             LessonCueDb db, MediaStoragePaths paths, CancellationToken ct) =>
         {
@@ -568,7 +605,7 @@ public static class AdminApi
                 File.Copy(currentPath, archivePath, false);
                 File.Move(temporary, newPath);
                 var archived = CreateArchivedVersion(media, archiveRelative, actor);
-                var derivatives = ResetMediaProcessing(media);
+                var derivatives = ResetMediaProcessing(media, clearConversion: true);
                 media.FileName = Path.GetFileName(upload.FileName);
                 media.ContentType = string.IsNullOrWhiteSpace(upload.ContentType) ? "application/octet-stream" : upload.ContentType;
                 media.RelativePath = newRelative;
@@ -623,7 +660,7 @@ public static class AdminApi
                 File.Copy(currentPath, archivePath, false);
                 File.Copy(selectedPath, newPath, false);
                 var archived = CreateArchivedVersion(media, archiveRelative, actor);
-                var derivatives = ResetMediaProcessing(media);
+                var derivatives = ResetMediaProcessing(media, clearConversion: true);
                 media.FileName = selected.FileName;
                 media.ContentType = selected.ContentType;
                 media.RelativePath = newRelative;
@@ -725,7 +762,7 @@ public static class AdminApi
                 if (retentionLesson is null) return Results.BadRequest(new { error = "The selected lesson does not exist." });
             }
             var allowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { ".mp4", ".m4v", ".mov", ".mp3", ".m4a", ".aac", ".wav", ".jpg", ".jpeg", ".png", ".webp", ".pdf", ".pptx" };
+                { ".mp4", ".m4v", ".mov", ".mp3", ".m4a", ".aac", ".wav", ".jpg", ".jpeg", ".png", ".webp", ".pdf", ".pptx", ".odp", ".docx" };
             var extension = Path.GetExtension(upload.FileName);
             if (!allowedExtensions.Contains(extension)) return Results.BadRequest(new { error = "Unsupported media type." });
             if (await storage.EnsureAvailableAsync(db, upload.Length, ct) is null)
@@ -852,7 +889,7 @@ public static class AdminApi
         admin.MapPost("/uploads/{uploadId:guid}/complete", async (Guid uploadId, UploadCompleteInput input, LessonCueDb db, CancellationToken ct) =>
         {
             var allowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { ".mp4", ".m4v", ".mov", ".mp3", ".m4a", ".aac", ".wav", ".jpg", ".jpeg", ".png", ".webp", ".pdf", ".pptx" };
+                { ".mp4", ".m4v", ".mov", ".mp3", ".m4a", ".aac", ".wav", ".jpg", ".jpeg", ".png", ".webp", ".pdf", ".pptx", ".odp", ".docx" };
             var extension = Path.GetExtension(input.FileName); if (!allowedExtensions.Contains(extension)) return Results.BadRequest(new { error = "Unsupported media type." });
             if (input.TotalChunks is < 1 or > 100000) return Results.BadRequest(new { error = "Invalid chunk count." });
             Lesson? retentionLesson = null;
@@ -1290,7 +1327,7 @@ public static class AdminApi
 
     private static bool IsSupportedMediaExtension(string extension) => extension.ToLowerInvariant() is
         ".mp4" or ".m4v" or ".mov" or ".mp3" or ".m4a" or ".aac" or ".wav" or
-        ".jpg" or ".jpeg" or ".png" or ".webp" or ".pdf" or ".pptx";
+        ".jpg" or ".jpeg" or ".png" or ".webp" or ".pdf" or ".pptx" or ".odp" or ".docx";
 
     private static string NormalizeMediaFolder(string? folder)
     {
@@ -1325,7 +1362,8 @@ public static class AdminApi
         ArchivedBy = actor
     };
 
-    private static (string? Thumbnail, string? Filmstrip, string? Waveform) ResetMediaProcessing(MediaAsset media)
+    private static (string? Thumbnail, string? Filmstrip, string? Waveform) ResetMediaProcessing(MediaAsset media,
+        bool clearConversion = false)
     {
         var derivatives = (media.ThumbnailPath, media.FilmstripPath, media.WaveformPath);
         media.DurationMs = null;
@@ -1340,6 +1378,13 @@ public static class AdminApi
         media.ThumbnailPath = null;
         media.FilmstripPath = null;
         media.WaveformPath = null;
+        if (clearConversion)
+        {
+            media.ConversionStatus = "none";
+            media.ConversionError = null;
+            media.ConvertedSlidesJson = "[]";
+            media.ConvertedAt = null;
+        }
         return derivatives;
     }
 

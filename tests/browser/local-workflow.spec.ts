@@ -12,6 +12,25 @@ function silentWav(marker = 0) {
   return buffer;
 }
 
+function onePagePdf() {
+  const content = "BT /F1 24 Tf 72 700 Td (LessonCue PDF slide) Tj ET\n";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}endstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let value = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => { offsets.push(Buffer.byteLength(value)); value += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+  const xref = Buffer.byteLength(value);
+  value += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (let index = 1; index <= objects.length; index++) value += `${String(offsets[index]).padStart(10, "0")} 00000 n \n`;
+  value += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(value);
+}
+
 test("fresh local server supports setup, direct lesson upload, retention, and online media", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Create your local administrator" })).toBeVisible();
@@ -62,6 +81,10 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await organizeDialog.getByRole("button", { name: "Save organization" }).click();
   await expect(page.getByText("1 media item organized.", { exact: false })).toBeVisible();
   await expect(page.locator(".media-table").filter({ hasText: "Audio/Classroom" })).toBeVisible();
+  await expect.poll(async () => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    return items.find((item: { fileName: string }) => item.fileName === "browser-test-audio.wav")?.processingStatus;
+  }), { timeout: 30_000 }).toBe("ready");
 
   const organizedRow = page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" });
   await organizedRow.getByRole("button", { name: "Manage versions & impact" }).click();
@@ -77,6 +100,27 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: "Restore", exact: true }).click();
   await expect(page.getByText("restored as a new current version", { exact: false })).toBeVisible();
   await expect(page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" })).toContainText("v3");
+
+  await page.getByRole("button", { name: "Upload media" }).click();
+  const uploadDialog = page.getByRole("dialog", { name: "Upload media" });
+  await uploadDialog.getByLabel("Files").setInputFiles({ name: "one-page-handout.pdf", mimeType: "application/pdf", buffer: onePagePdf() });
+  await uploadDialog.getByRole("button", { name: "Upload to local server" }).click();
+  await expect(page.getByText("stored until four weeks", { exact: false })).toBeVisible();
+  const pdfRow = page.locator(".media-table").filter({ hasText: "one-page-handout.pdf" });
+  await pdfRow.getByRole("button", { name: "Manage versions & impact" }).click();
+  await page.getByRole("button", { name: "Convert to slides" }).click();
+  await expect(page.getByText("queued for fully local slide conversion", { exact: false })).toBeVisible();
+  await expect.poll(async () => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    return items.find((item: { fileName: string }) => item.fileName === "one-page-handout.pdf")?.conversionStatus;
+  }), { timeout: 30_000 }).toBe("ready");
+  await page.reload();
+  await page.getByRole("button", { name: /Media Library$/ }).click();
+  const convertedPdfRow = page.locator(".media-table").filter({ hasText: "one-page-handout.pdf" });
+  await convertedPdfRow.getByRole("button", { name: "Manage versions & impact" }).click();
+  await expect(page.getByText("1 screen-ready slides", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Add slide sequence" }).click();
+  await expect(page.getByText("1 converted slides added to the lesson", { exact: false })).toBeVisible();
 
   await page.getByRole("button", { name: /Settings$/ }).click();
   await page.getByRole("button", { name: "Full backup" }).click();
@@ -107,4 +151,9 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const restoredVersionRow = page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" });
   await expect(restoredVersionRow).toContainText("Audio/Classroom");
   await expect(restoredVersionRow).toContainText("v3");
+  await expect(page.locator(".media-table").filter({ hasText: "one-page-handout.pdf" })).toBeVisible();
+  await expect(page.locator(".media-table").filter({ hasText: "one-page-handout — Slide 1" })).toBeVisible();
+  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Sample Lesson/ }).click();
+  await expect(page.getByText("one-page-handout — Slide 1", { exact: true })).toBeVisible();
 });

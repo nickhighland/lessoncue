@@ -228,6 +228,8 @@ In **Settings → Storage allocation**, an owner or administrator can choose a m
 
 Media can be assigned to hierarchical folders and comma-separated tags during upload or later in the Media Library. **Manage versions & impact** shows every lesson cue and sign that uses an item before replacement. Replacing a local file preserves its stable media ID, archives the current original, refreshes affected screen manifests, and queues fresh metadata and preview processing. Previous originals can be downloaded or restored as a new current version. Archived versions count against the storage allocation and are removed with their parent media when its retention period ends.
 
+PDF, PowerPoint (`.pptx`), OpenDocument Presentation (`.odp`), and Word (`.docx`) uploads expose **Convert to slides** under **Manage versions & impact**. Keynote users should export to PDF first. Conversion runs entirely on the LessonCue computer through headless LibreOffice and Poppler, creates PNG media with a maximum 1920-pixel dimension, and never sends the document to a cloud service. Choose a lesson and seconds per slide after conversion. The recommended Linux installer and Docker image include both converters. For a manual Debian/Ubuntu install, run `sudo apt-get install -y libreoffice-impress libreoffice-writer poppler-utils`. On Windows, install LibreOffice system-wide, install a Poppler build, set the machine environment variable `LESSONCUE_PDFTOPPM_PATH` to `pdftoppm.exe`, and restart the LessonCue service.
+
 To remove the headless Linux service while preserving its database and media:
 
 ```bash

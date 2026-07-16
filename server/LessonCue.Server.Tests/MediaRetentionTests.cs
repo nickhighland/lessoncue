@@ -86,6 +86,10 @@ public sealed class MediaRetentionTests
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"TagsCsv\"", cancellationToken);
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"Version\"", cancellationToken);
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"ReplacedAt\"", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"ConversionStatus\"", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"ConversionError\"", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"ConvertedSlidesJson\"", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"MediaAssets\" DROP COLUMN \"ConvertedAt\"", cancellationToken);
 
         await DatabaseUpgrade.ApplyAsync(db, cancellationToken);
 
@@ -100,6 +104,10 @@ public sealed class MediaRetentionTests
         Assert.Contains("TagsCsv", columns);
         Assert.Contains("Version", columns);
         Assert.Contains("ReplacedAt", columns);
+        Assert.Contains("ConversionStatus", columns);
+        Assert.Contains("ConversionError", columns);
+        Assert.Contains("ConvertedSlidesJson", columns);
+        Assert.Contains("ConvertedAt", columns);
     }
 
     [Fact]

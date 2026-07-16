@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 2.2.0
+  version: 2.3.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local
@@ -312,6 +312,37 @@ paths:
         '202': { description: Reprocessing queued }
         '400': { description: Media has no local file }
         '409': { description: Media is already processing }
+  /api/v1/media/{mediaId}/convert:
+    post:
+      operationId: convertPresentation
+      description: Queues a fully local LibreOffice/Poppler conversion of a PDF, PPTX, ODP, or DOCX into screen-ready PNG media assets.
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '202': { description: Conversion queued }
+        '400': { description: Unsupported or online-only source }
+        '409': { description: Conversion already queued or running }
+  /api/v1/media/{mediaId}/conversion/add-to-lesson:
+    post:
+      operationId: addConvertedSlidesToLesson
+      description: Adds the latest converted slide assets to a lesson in page order and extends lesson-scoped retention.
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PresentationLessonInput' }
+      responses:
+        '200': { description: Slide sequence appended to the lesson }
+        '404': { description: Source or lesson not found }
+        '409': { description: Conversion is incomplete or a converted slide is missing }
   /api/v1/media/{mediaId}/replace:
     post:
       operationId: replaceMedia
@@ -620,6 +651,12 @@ components:
         fileName: { type: [string, 'null'], minLength: 1, maxLength: 255 }
         folder: { type: [string, 'null'], maxLength: 120 }
         tagsCsv: { type: [string, 'null'], maxLength: 500 }
+    PresentationLessonInput:
+      type: object
+      required: [lessonId]
+      properties:
+        lessonId: { type: string, format: uuid }
+        imageDurationSeconds: { type: integer, minimum: 1, maximum: 3600, default: 10 }
     MediaImpact:
       type: object
       required: [id, fileName, folder, tagsCsv, version, lessons, signage, versions]

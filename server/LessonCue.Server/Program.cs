@@ -49,6 +49,7 @@ builder.Services.AddHostedService(services => services.GetRequiredService<HttpPo
 builder.Services.AddSingleton(services => new LocalAddressService(dataPath, port, services.GetRequiredService<ILogger<LocalAddressService>>()));
 builder.Services.AddHostedService(services => services.GetRequiredService<LocalAddressService>());
 builder.Services.AddHostedService<MediaProcessingService>();
+builder.Services.AddHostedService<PresentationConversionService>();
 builder.Services.AddHostedService<YouTubeImportService>();
 builder.Services.AddHostedService<MediaRetentionService>();
 builder.Services.AddHttpClient("updates", client =>
