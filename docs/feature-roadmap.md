@@ -11,7 +11,7 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 
 1. [x] **Visual timeline editor (v0.12.0)** — waveform and filmstrip-based trim, fade, chapter, and cue editing with frame-accurate preview.
 2. [x] **Playback acknowledgement and live state (v0.10.0)** — show which cue is actually playing, progress, volume, cache readiness, and whether each controller command reached the screen.
-3. [ ] **Automated browser and hardware playback tests** — exercise uploads, lesson editing, pre-roll, countdown transitions, controller commands, offline recovery, and upgrades on real TV devices.
+3. [ ] **Automated browser and hardware playback tests** — exercise uploads, lesson editing, pre-roll, countdown transitions, controller commands, offline recovery, and upgrades on real TV devices. _Headless browser CI foundation added after v0.12.0: a fresh local server is configured through the UI, media is uploaded directly to a lesson with retention verified, and online media is added. Native state-machine tests cover countdown scheduling; physical Android TV and Apple TV, offline recovery, controller, and upgrade matrices remain._
 4. [ ] **Restore workflow in Settings** — upload and validate a backup, preview its contents, restore it safely, and automatically preserve the pre-restore state.
 5. [ ] **Media organization and versioning** — build on the existing bulk deletion and retention controls with tags, folders, replacement versions, reprocessing, and impact previews.
 6. [ ] **Presentation conversion** — convert PowerPoint, Keynote-exported PDF, and common document formats into screen-ready slide sequences.

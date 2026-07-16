@@ -2,6 +2,8 @@
 node_modules/
 .next/
 dist/
+test-results/
+playwright-report/
 server/LessonCue.Server/wwwroot/
 .wrangler/
 .vinext/
