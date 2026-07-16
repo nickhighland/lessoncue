@@ -15,6 +15,8 @@ public sealed record CloudflareTunnelStatus(
     bool Connected,
     int ActiveConnections,
     string? CloudflaredVersion,
+    DateTimeOffset? CloudflaredCheckedAt,
+    string? CloudflaredUpdateError,
     DateTimeOffset? AppliedAt,
     string? Error);
 
@@ -28,6 +30,7 @@ public sealed class CloudflareTunnelService : BackgroundService
     private readonly string _configPath;
     private readonly string _pendingTokenPath;
     private readonly string _resultPath;
+    private readonly string _connectorResultPath;
     private readonly HttpPortService _httpPort;
     private readonly IHttpClientFactory _clients;
     private readonly ILogger<CloudflareTunnelService> _logger;
@@ -35,6 +38,7 @@ public sealed class CloudflareTunnelService : BackgroundService
     private CloudflareTunnelStatus _status;
     private TunnelMetrics? _metrics;
     private DateTimeOffset _lastRequestAt = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastConnectorPrepareAt = DateTimeOffset.MinValue;
 
     public CloudflareTunnelService(string dataPath, HttpPortService httpPort, IHttpClientFactory clients,
         ILogger<CloudflareTunnelService> logger)
@@ -44,6 +48,7 @@ public sealed class CloudflareTunnelService : BackgroundService
         _configPath = Path.Combine(configDirectory, "cloudflare-tunnel.json");
         _pendingTokenPath = Path.Combine(configDirectory, "cloudflare-token.pending");
         _resultPath = Path.Combine(configDirectory, "cloudflare-result.json");
+        _connectorResultPath = Path.Combine(configDirectory, "cloudflared-result.json");
         _httpPort = httpPort;
         _clients = clients;
         _logger = logger;
@@ -119,6 +124,21 @@ public sealed class CloudflareTunnelService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var startupConfig = ReadConfig();
+        var startupResult = ReadResult();
+        if (startupConfig.Enabled && startupResult.CredentialConfigured && startupResult.ServiceInstalled && !startupResult.Enabled)
+        {
+            // v0.24.0 disabled the unit after a short initial handshake timeout.
+            // Ask the protected helper to repair that state as soon as the
+            // upgraded server starts; the credential never re-enters the app.
+            await File.WriteAllTextAsync(ProtectedRequestPath, "tunnel:enable\n", stoppingToken);
+            _lastRequestAt = DateTimeOffset.UtcNow;
+        }
+        else if (IsSupported())
+        {
+            await File.WriteAllTextAsync(ProtectedRequestPath, "connector:prepare\n", stoppingToken);
+        }
+        _lastConnectorPrepareAt = DateTimeOffset.UtcNow;
         await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -130,6 +150,11 @@ public sealed class CloudflareTunnelService : BackgroundService
                 {
                     await File.WriteAllTextAsync(ProtectedRequestPath, config.Enabled ? "tunnel:enable\n" : "tunnel:disable\n", stoppingToken);
                     _lastRequestAt = DateTimeOffset.UtcNow;
+                }
+                if (IsSupported() && DateTimeOffset.UtcNow - _lastConnectorPrepareAt > TimeSpan.FromHours(23))
+                {
+                    await File.WriteAllTextAsync(ProtectedRequestPath, "connector:prepare\n", stoppingToken);
+                    _lastConnectorPrepareAt = DateTimeOffset.UtcNow;
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -143,7 +168,7 @@ public sealed class CloudflareTunnelService : BackgroundService
         var config = ReadConfig();
         var result = ReadResult();
         TunnelMetrics? metrics = null;
-        if (config.Enabled && result.Enabled)
+        if (config.Enabled && result.CredentialConfigured && result.ServiceInstalled)
         {
             try
             {
@@ -168,11 +193,14 @@ public sealed class CloudflareTunnelService : BackgroundService
         var pending = supported && configExists && result.Error is null && (config.Enabled != result.Enabled ||
             result.AppliedAt is null || configWrittenAt > result.AppliedAt.Value.UtcDateTime.AddSeconds(1));
         var origin = $"http://127.0.0.1:{_httpPort.Status.Port}";
+        var connected = metrics is { ActiveConnections: > 0 };
+        var connector = ReadConnectorResult();
         return new CloudflareTunnelStatus(config.Enabled, config.PublicHostname,
             config.PublicHostname is null ? null : $"https://{config.PublicHostname}", origin, supported, pending,
-            result.CredentialConfigured, result.ServiceInstalled, result.Enabled && metrics is { ActiveConnections: > 0 },
-            result.Enabled ? metrics?.ActiveConnections ?? 0 : 0, metrics?.Version, result.AppliedAt,
-            supported ? result.Error : "Automatic Cloudflare Tunnel setup requires a native Linux installation updated with the latest LessonCue installer.");
+            result.CredentialConfigured, result.ServiceInstalled, connected,
+            metrics?.ActiveConnections ?? 0, metrics?.Version ?? connector.InstalledVersion,
+            connector.CheckedAt, connector.Error, result.AppliedAt,
+            supported ? connected ? null : result.Error : "Automatic Cloudflare Tunnel setup requires a native Linux installation updated with the latest LessonCue installer.");
     }
 
     private TunnelConfig ReadConfig()
@@ -185,6 +213,12 @@ public sealed class CloudflareTunnelService : BackgroundService
     {
         try { return JsonSerializer.Deserialize<TunnelResult>(File.ReadAllText(_resultPath), JsonOptions) ?? new(false, false, false, null, null); }
         catch { return new(false, false, File.Exists(ServicePath), null, null); }
+    }
+
+    private ConnectorResult ReadConnectorResult()
+    {
+        try { return JsonSerializer.Deserialize<ConnectorResult>(File.ReadAllText(_connectorResultPath), JsonOptions) ?? new(null, null, null); }
+        catch { return new(null, null, null); }
     }
 
     private static async Task WritePrivateJsonAsync<T>(string path, T value, CancellationToken ct) =>
@@ -205,5 +239,6 @@ public sealed class CloudflareTunnelService : BackgroundService
     private sealed record TunnelConfig(bool Enabled, string? PublicHostname);
     private sealed record TunnelResult(bool Enabled, bool CredentialConfigured, bool ServiceInstalled,
         DateTimeOffset? AppliedAt, string? Error);
+    private sealed record ConnectorResult(string? InstalledVersion, DateTimeOffset? CheckedAt, string? Error);
     private sealed record TunnelMetrics(int ActiveConnections, string? Version);
 }

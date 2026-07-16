@@ -45,16 +45,21 @@ LessonCue does not require remote access. If staff must reach it away from the l
 3. Set its service to the exact **Local origin route** shown by LessonCue, normally `http://127.0.0.1:80`.
 4. In the tunnel's **Overview → Add a replica** instructions, copy the `eyJ…` tunnel token or the complete `cloudflared service install …` command. Do not run it over SSH.
 5. In LessonCue, open **Settings → Optional remote access**, enable the tunnel, enter the same public hostname, paste the token or command, acknowledge the exposure warning, and select **Install and enable tunnel**.
-6. Wait for LessonCue to report active edge connections, then open the HTTPS public address.
+6. Wait for LessonCue to report active edge connections, then open the HTTPS public address. The first connection can take more than a minute on networks where `cloudflared` must fall back between transports; LessonCue leaves the service enabled so it can keep retrying.
 
-The browser sends the secret once. LessonCue passes it through the protected root operation channel, stores it outside the web server's readable files, and never returns it through the API or writes it to the audit log. The connector runs as the separate `lessoncue-tunnel` user. Disabling the feature stops the connector and deletes its stored credential while leaving `lessoncue.local` and the numeric local address unchanged.
+The native installer pre-downloads and verifies the supported `cloudflared` connector even while remote access is off. LessonCue checks that pinned connector daily, refreshes it when an application update approves a newer version, and reports the installed version and last verification in Settings. Downloads are cached under `/var/cache/lessoncue`, verified against Cloudflare's published SHA-256 digest, checked for successful execution, and installed atomically. A working connector is restored if an active tunnel cannot restart with a replacement.
+
+The browser sends the tunnel secret once. LessonCue passes it through the protected root operation channel, stores it outside the web server's readable files, and never returns it through the API or writes it to the audit log. The connector runs as the separate `lessoncue-tunnel` user. Disabling the feature stops the connector and deletes its stored credential while leaving the verified connector ready for later use, and leaving `lessoncue.local` and the numeric local address unchanged.
 
 If you later change LessonCue's HTTP port, update the Cloudflare published application service to the new **Local origin route**. Paste a replacement token and select **Update tunnel** to rotate the connector credential. For diagnostics over SSH:
 
 ```bash
 sudo systemctl status lessoncue-cloudflared --no-pager
 sudo journalctl -u lessoncue-cloudflared -n 100 --no-pager
+sudo systemctl enable --now lessoncue-cloudflared
 ```
+
+The connector needs outbound access to Cloudflare on port `7844` (UDP for QUIC or TCP for HTTP/2). If the service is active but no edge connection appears, verify the tunnel token in Cloudflare, allow outbound TCP or UDP `7844`, and select **Retry tunnel connection** in LessonCue. The published hostname route controls where requests go after the connector reaches Cloudflare; it does not establish the edge connection itself.
 
 ### Set up reusable lessons and schedules
 

@@ -78,6 +78,110 @@ LESSONCUE_TUNNEL_UNIT
   install -m 0644 "${temporary}" /etc/systemd/system/lessoncue-cloudflared.service
   rm -f "${temporary}"
 }
+CLOUDFLARED_PINNED_VERSION=2026.7.2
+write_connector_result() {
+  local version="$1" error="$2" result=/var/lib/lessoncue/config/cloudflared-result.json temporary version_json=null
+  if [[ -n "${version}" ]]; then version_json="\"${version}\""; fi
+  temporary="$(mktemp)"
+  if [[ -n "${error}" ]]; then
+    printf '{"installedVersion":%s,"checkedAt":"%s","error":"%s"}\n' \
+      "${version_json}" "$(date --iso-8601=seconds)" "${error}" > "${temporary}"
+  else
+    printf '{"installedVersion":%s,"checkedAt":"%s","error":null}\n' \
+      "${version_json}" "$(date --iso-8601=seconds)" > "${temporary}"
+  fi
+  install -o lessoncue -g lessoncue -m 0600 "${temporary}" "${result}"
+  rm -f "${temporary}"
+}
+set_cloudflared_asset() {
+  case "$(uname -m)" in
+    x86_64|amd64)
+      CLOUDFLARED_ASSET=cloudflared-linux-amd64
+      CLOUDFLARED_SHA256=ec905ea7b7e327ff8abdde8cb64697a2152de74dbcdbf6aec9db8364eb3886cd ;;
+    aarch64|arm64)
+      CLOUDFLARED_ASSET=cloudflared-linux-arm64
+      CLOUDFLARED_SHA256=405df476437e027fc6d18729a5a77155c0a33a6082aeee60a799a688f3052e66 ;;
+    *)
+      CLOUDFLARED_PREPARE_ERROR="Cloudflare Tunnel is not packaged for this CPU architecture."
+      return 1 ;;
+  esac
+}
+prepare_cloudflared() {
+  local current_version="" cache_dir=/var/cache/lessoncue cache_file download_file active=false previous=/usr/local/bin/cloudflared.previous
+  CLOUDFLARED_PREPARE_ERROR=""
+  if ! set_cloudflared_asset; then
+    write_connector_result "" "${CLOUDFLARED_PREPARE_ERROR}"
+    return 1
+  fi
+  if [[ -x /usr/local/bin/cloudflared ]]; then
+    current_version="$(/usr/local/bin/cloudflared --version 2>/dev/null | awk '{print $3}' | head -n 1 || true)"
+    if [[ "${current_version}" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] &&
+       [[ "${current_version}" != "${CLOUDFLARED_PINNED_VERSION}" ]] &&
+       [[ "$(printf '%s\n' "${CLOUDFLARED_PINNED_VERSION}" "${current_version}" | sort -V | head -n 1)" == "${CLOUDFLARED_PINNED_VERSION}" ]]; then
+      write_connector_result "${current_version}" ""
+      return 0
+    fi
+    if [[ "${current_version}" == "${CLOUDFLARED_PINNED_VERSION}" ]] &&
+       printf '%s  %s\n' "${CLOUDFLARED_SHA256}" /usr/local/bin/cloudflared | sha256sum -c - >/dev/null 2>&1; then
+      install -d -o root -g root -m 0755 "${cache_dir}"
+      cache_file="${cache_dir}/${CLOUDFLARED_ASSET}-${CLOUDFLARED_PINNED_VERSION}"
+      install -o root -g root -m 0755 /usr/local/bin/cloudflared "${cache_file}"
+      write_connector_result "${current_version}" ""
+      return 0
+    fi
+  fi
+
+  install -d -o root -g root -m 0755 "${cache_dir}"
+  cache_file="${cache_dir}/${CLOUDFLARED_ASSET}-${CLOUDFLARED_PINNED_VERSION}"
+  if [[ ! -f "${cache_file}" ]] ||
+     ! printf '%s  %s\n' "${CLOUDFLARED_SHA256}" "${cache_file}" | sha256sum -c - >/dev/null 2>&1; then
+    download_file="$(mktemp)"
+    if ! curl -fL "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_PINNED_VERSION}/${CLOUDFLARED_ASSET}" -o "${download_file}"; then
+      rm -f "${download_file}"
+      CLOUDFLARED_PREPARE_ERROR="The official Cloudflare connector could not be pre-downloaded. Check this server's internet connection."
+      write_connector_result "${current_version}" "${CLOUDFLARED_PREPARE_ERROR}"
+      return 1
+    fi
+    if ! printf '%s  %s\n' "${CLOUDFLARED_SHA256}" "${download_file}" | sha256sum -c -; then
+      rm -f "${download_file}"
+      CLOUDFLARED_PREPARE_ERROR="The Cloudflare connector checksum did not match; the installed connector was not changed."
+      write_connector_result "${current_version}" "${CLOUDFLARED_PREPARE_ERROR}"
+      return 1
+    fi
+    chmod 0755 "${download_file}"
+    if ! "${download_file}" --version >/dev/null; then
+      rm -f "${download_file}"
+      CLOUDFLARED_PREPARE_ERROR="The downloaded Cloudflare connector could not run on this server."
+      write_connector_result "${current_version}" "${CLOUDFLARED_PREPARE_ERROR}"
+      return 1
+    fi
+    install -o root -g root -m 0755 "${download_file}" "${cache_file}"
+    rm -f "${download_file}"
+  fi
+
+  systemctl is-active --quiet lessoncue-cloudflared.service 2>/dev/null && active=true
+  rm -f "${previous}"
+  if [[ -x /usr/local/bin/cloudflared ]]; then cp -a /usr/local/bin/cloudflared "${previous}"; fi
+  install -o root -g root -m 0755 "${cache_file}" /usr/local/bin/cloudflared.new
+  mv -f /usr/local/bin/cloudflared.new /usr/local/bin/cloudflared
+  current_version="$(/usr/local/bin/cloudflared --version 2>/dev/null | awk '{print $3}' | head -n 1 || true)"
+  if [[ "${active}" == true ]] && ! systemctl restart lessoncue-cloudflared.service; then
+    if [[ -f "${previous}" ]]; then mv -f "${previous}" /usr/local/bin/cloudflared; systemctl restart lessoncue-cloudflared.service || true; fi
+    CLOUDFLARED_PREPARE_ERROR="The updated connector could not restart; LessonCue restored the previous connector."
+    write_connector_result "$(/usr/local/bin/cloudflared --version 2>/dev/null | awk '{print $3}' | head -n 1 || true)" "${CLOUDFLARED_PREPARE_ERROR}"
+    return 1
+  fi
+  rm -f "${previous}"
+  write_connector_result "${current_version}" ""
+}
+if [[ "${REQUEST}" == connector:prepare ]]; then
+  if prepare_cloudflared; then
+    echo "Cloudflare connector $(/usr/local/bin/cloudflared --version | awk '{print $3}') is verified and ready."
+    exit 0
+  fi
+  echo "${CLOUDFLARED_PREPARE_ERROR}"
+  exit 1
+fi
 if [[ "${REQUEST}" == tunnel:disable ]]; then
   systemctl disable --now lessoncue-cloudflared.service >/dev/null 2>&1 || true
   rm -f /etc/lessoncue/cloudflare-token /var/lib/lessoncue/config/cloudflare-token.pending
@@ -107,47 +211,10 @@ if [[ "${REQUEST}" == tunnel:enable ]]; then
     exit 1
   fi
 
-  CLOUDFLARED_VERSION=2026.7.2
-  case "$(uname -m)" in
-    x86_64|amd64)
-      CLOUDFLARED_ASSET=cloudflared-linux-amd64
-      CLOUDFLARED_SHA256=ec905ea7b7e327ff8abdde8cb64697a2152de74dbcdbf6aec9db8364eb3886cd ;;
-    aarch64|arm64)
-      CLOUDFLARED_ASSET=cloudflared-linux-arm64
-      CLOUDFLARED_SHA256=405df476437e027fc6d18729a5a77155c0a33a6082aeee60a799a688f3052e66 ;;
-    *)
-      rm -f "${TOKEN_PENDING}"
-      write_tunnel_result false false false "Cloudflare Tunnel is not packaged for this CPU architecture."
-      exit 1 ;;
-  esac
-  CLOUDFLARED_INSTALL=true
-  if [[ -x /usr/local/bin/cloudflared ]]; then
-    CURRENT_CLOUDFLARED_VERSION="$(/usr/local/bin/cloudflared --version 2>/dev/null | awk '{print $3}' | head -n 1)"
-    if [[ "${CURRENT_CLOUDFLARED_VERSION}" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] &&
-       [[ "$(printf '%s\n' 2025.4.0 "${CURRENT_CLOUDFLARED_VERSION}" | sort -V | head -n 1)" == 2025.4.0 ]]; then
-      CLOUDFLARED_INSTALL=false
-    fi
-  fi
-  if [[ "${CLOUDFLARED_INSTALL}" == true ]]; then
-    CLOUDFLARED_TEMP="$(mktemp)"
-    trap 'rm -f "${CLOUDFLARED_TEMP:-}"' EXIT
-    if ! curl -fL "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/${CLOUDFLARED_ASSET}" -o "${CLOUDFLARED_TEMP}"; then
-      rm -f "${TOKEN_PENDING}"
-      write_tunnel_result false false false "The official Cloudflare connector could not be downloaded. Check this server's internet connection."
-      exit 1
-    fi
-    if ! printf '%s  %s\n' "${CLOUDFLARED_SHA256}" "${CLOUDFLARED_TEMP}" | sha256sum -c -; then
-      rm -f "${TOKEN_PENDING}"
-      write_tunnel_result false false false "The Cloudflare connector checksum did not match; nothing was installed."
-      exit 1
-    fi
-    chmod 0755 "${CLOUDFLARED_TEMP}"
-    if ! "${CLOUDFLARED_TEMP}" --version >/dev/null; then
-      rm -f "${TOKEN_PENDING}"
-      write_tunnel_result false false false "The downloaded Cloudflare connector could not run on this server."
-      exit 1
-    fi
-    install -m 0755 "${CLOUDFLARED_TEMP}" /usr/local/bin/cloudflared
+  if ! prepare_cloudflared; then
+    rm -f "${TOKEN_PENDING}"
+    write_tunnel_result false false false "${CLOUDFLARED_PREPARE_ERROR}"
+    exit 1
   fi
 
   id lessoncue-tunnel >/dev/null 2>&1 || useradd --system --home /var/lib/lessoncue-tunnel --create-home --shell /usr/sbin/nologin lessoncue-tunnel
@@ -158,22 +225,25 @@ if [[ "${REQUEST}" == tunnel:enable ]]; then
   rm -f "${TOKEN_TEMP}" "${TOKEN_PENDING}"
   install_tunnel_unit
   systemctl daemon-reload
-  if ! systemctl enable --now lessoncue-cloudflared.service >/dev/null; then
+  systemctl enable lessoncue-cloudflared.service >/dev/null
+  if ! systemctl restart lessoncue-cloudflared.service >/dev/null; then
     write_tunnel_result false true true "The protected Cloudflare Tunnel service could not start. Check journalctl -u lessoncue-cloudflared."
     exit 1
   fi
-  for _ in {1..20}; do
+  # Cloudflare may need time to fall back from QUIC to HTTP/2 on networks that
+  # block UDP. Keep the connector installed and retrying instead of turning a
+  # slow first handshake into a permanently disabled service.
+  for _ in {1..60}; do
     if curl -fsS http://127.0.0.1:60123/metrics 2>/dev/null | grep -Eq '^cloudflared_tunnel_ha_connections [1-9][0-9]*(\.[0-9]+)?$'; then
       write_tunnel_result true true true ""
       echo "LessonCue Cloudflare Tunnel is connected."
       exit 0
     fi
-    if systemctl is-failed --quiet lessoncue-cloudflared.service; then break; fi
     sleep 1
   done
-  systemctl disable --now lessoncue-cloudflared.service >/dev/null 2>&1 || true
-  write_tunnel_result false true true "Cloudflare Tunnel could not connect. Check the token, published hostname route, internet access, and journalctl -u lessoncue-cloudflared."
-  exit 1
+  write_tunnel_result true true true "The connector is installed and will keep retrying, but no Cloudflare edge connection is active yet. Check the tunnel token and allow outbound TCP or UDP port 7844, then review journalctl -u lessoncue-cloudflared."
+  echo "LessonCue Cloudflare Tunnel is running and waiting for a Cloudflare edge connection."
+  exit 0
 fi
 
 if [[ "${REQUEST}" == hostname:* ]]; then
@@ -314,7 +384,14 @@ install -m 0644 "${WORKDIR}/archive/lessoncue-update.path" /etc/systemd/system/l
 install -m 0644 "${WORKDIR}/archive/lessoncue.service" /etc/systemd/system/lessoncue.service
 install -m 0644 "${WORKDIR}/archive/lessoncue-cloudflared.service" /etc/systemd/system/lessoncue-cloudflared.service
 systemctl daemon-reload
-systemctl try-restart lessoncue-cloudflared.service >/dev/null 2>&1 || true
+if [[ -f /etc/lessoncue/cloudflare-token ]] &&
+   grep -Eq '"enabled"[[:space:]]*:[[:space:]]*true' /var/lib/lessoncue/config/cloudflare-tunnel.json 2>/dev/null; then
+  # Repair older releases that disabled the connector after a short first
+  # handshake timeout. The existing protected credential remains in place.
+  systemctl enable --now lessoncue-cloudflared.service >/dev/null 2>&1 || true
+else
+  systemctl try-restart lessoncue-cloudflared.service >/dev/null 2>&1 || true
+fi
 
 systemctl stop lessoncue.service
 rm -rf "${PREVIOUS}" "${FAILED}"

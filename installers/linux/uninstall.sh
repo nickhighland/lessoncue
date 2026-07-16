@@ -19,6 +19,7 @@ fi
 rm -f /etc/systemd/system/lessoncue.service /etc/systemd/system/lessoncue-cloudflared.service /etc/systemd/system/lessoncue-update.service /etc/systemd/system/lessoncue-update.path /etc/avahi/services/lessoncue.service
 rm -f /usr/local/sbin/lessoncue-update
 rm -f /etc/lessoncue/cloudflare-token
+rm -rf /var/cache/lessoncue
 rmdir /etc/lessoncue 2>/dev/null || true
 userdel lessoncue-tunnel 2>/dev/null || true
 systemctl daemon-reload

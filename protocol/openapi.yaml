@@ -1169,6 +1169,8 @@ components:
         connected: { type: boolean }
         activeConnections: { type: integer, minimum: 0 }
         cloudflaredVersion: { type: [string, 'null'] }
+        cloudflaredCheckedAt: { type: [string, 'null'], format: date-time }
+        cloudflaredUpdateError: { type: [string, 'null'] }
         appliedAt: { type: [string, 'null'], format: date-time }
         error: { type: [string, 'null'] }
     PairingRequest:

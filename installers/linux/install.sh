@@ -62,6 +62,15 @@ if command -v avahi-daemon >/dev/null 2>&1; then
   fi
 fi
 
+# Keep the checksum-verified Cloudflare connector ready even when remote access
+# is still off, so enabling a tunnel never depends on a just-in-time download.
+printf 'connector:prepare\n' > /var/lib/lessoncue/config/update-request
+chown lessoncue:lessoncue /var/lib/lessoncue/config/update-request
+chmod 0600 /var/lib/lessoncue/config/update-request
+if ! /usr/local/sbin/lessoncue-update; then
+  echo "Warning: Cloudflare connector pre-download failed. LessonCue will retry automatically each day."
+fi
+
 if command -v ufw >/dev/null 2>&1; then ufw allow "${HTTP_PORT}/tcp" >/dev/null || true; fi
 systemctl daemon-reload
 systemctl enable --now lessoncue-update.path
