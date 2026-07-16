@@ -428,9 +428,55 @@ public static class AdminApi
                 x.StoragePolicy,
                 x.OriginLessonId,
                 x.DeleteAfter,
+                x.RetentionDateIsManual,
                 thumbnailUrl = x.ThumbnailPath == null ? null : $"/api/v1/media/{x.Id}/thumbnail",
                 downloadUrl = $"/api/v1/media/{x.Id}/file"
             }).ToListAsync(ct));
+
+        admin.MapPost("/media/bulk", async (MediaBulkInput input, LessonCueDb db, MediaStoragePaths paths,
+            IHubContext<SyncHub> hub, HttpContext context, CancellationToken ct) =>
+        {
+            if (input.MediaIds is null || input.MediaIds.Count == 0)
+                return Results.BadRequest(new { error = "Select at least one media item." });
+            var ids = input.MediaIds.Distinct().ToList();
+            if (ids.Count > 500) return Results.BadRequest(new { error = "Bulk actions are limited to 500 media items at a time." });
+            var media = await db.MediaAssets.Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+            if (media.Count != ids.Count) return Results.NotFound(new { error = "One or more selected media items no longer exist. Refresh the library and try again." });
+            var actor = context.User.Identity?.Name ?? "admin";
+            var action = input.Action?.Trim().ToLowerInvariant();
+
+            switch (action)
+            {
+                case "keep":
+                    foreach (var item in media)
+                    {
+                        MediaRetention.KeepPermanently(item);
+                        db.AuditEvents.Add(new AuditEvent { Actor = actor, Action = "media.retention.keep", Object = item.Id.ToString(), Summary = item.FileName });
+                    }
+                    break;
+                case "expire":
+                    if (input.DeleteOn is not DateOnly deleteOn)
+                        return Results.BadRequest(new { error = "Choose an expiration date." });
+                    if (deleteOn < DateOnly.FromDateTime(DateTime.Today))
+                        return Results.BadRequest(new { error = "The expiration date cannot be in the past." });
+                    foreach (var item in media)
+                    {
+                        MediaRetention.ExpireOn(item, deleteOn);
+                        db.AuditEvents.Add(new AuditEvent { Actor = actor, Action = "media.retention.expire", Object = item.Id.ToString(), Summary = $"{item.FileName} deletes {deleteOn:yyyy-MM-dd}" });
+                    }
+                    break;
+                case "delete":
+                    foreach (var item in media)
+                        await MediaRetentionService.DeleteAsync(db, paths, item, actor, "media.delete", $"Deleted {item.FileName} from the media library.", ct);
+                    break;
+                default:
+                    return Results.BadRequest(new { error = "Choose delete, expire, or keep permanently." });
+            }
+
+            await db.SaveChangesAsync(ct);
+            await InvalidateAsync(hub, 0, ct);
+            return Results.Ok(new { updated = media.Count, action });
+        });
 
         admin.MapPost("/media", async (HttpRequest request, LessonCueDb db, StorageService storage, CancellationToken ct) =>
         {

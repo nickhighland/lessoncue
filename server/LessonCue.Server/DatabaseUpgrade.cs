@@ -109,6 +109,7 @@ public static class DatabaseUpgrade
             ["MediaAssets.StoragePolicy"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"StoragePolicy\" TEXT NOT NULL DEFAULT 'persistent'"),
             ["MediaAssets.OriginLessonId"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"OriginLessonId\" TEXT NULL"),
             ["MediaAssets.DeleteAfter"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"DeleteAfter\" TEXT NULL"),
+            ["MediaAssets.RetentionDateIsManual"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"RetentionDateIsManual\" INTEGER NOT NULL DEFAULT 0"),
             ["Screens.AppVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"AppVersion\" TEXT NOT NULL DEFAULT 'unknown'"),
             ["Screens.ManifestVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ManifestVersion\" INTEGER NOT NULL DEFAULT 0"),
             ["Screens.TagsCsv"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"TagsCsv\" TEXT NOT NULL DEFAULT ''"),

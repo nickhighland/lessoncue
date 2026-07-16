@@ -109,6 +109,7 @@ public sealed class MediaAsset
     [MaxLength(32)] public string StoragePolicy { get; set; } = "persistent";
     public Guid? OriginLessonId { get; set; }
     public DateTimeOffset? DeleteAfter { get; set; }
+    public bool RetentionDateIsManual { get; set; }
 }
 
 public sealed class Screen
@@ -248,3 +249,4 @@ public sealed record SignageInput(string Name, string Mode, bool Enabled, int Pr
 public sealed record LinkInput(string Url, string? Title, bool Download = false, bool Persistent = true, Guid? LessonId = null);
 public sealed record UploadCompleteInput(string FileName, string ContentType, int TotalChunks, long? DurationMs,
     bool Persistent = false, Guid? LessonId = null);
+public sealed record MediaBulkInput(List<Guid> MediaIds, string? Action, DateOnly? DeleteOn = null);

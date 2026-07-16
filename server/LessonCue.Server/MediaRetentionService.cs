@@ -18,16 +18,21 @@ public static class MediaRetention
     public static DateTimeOffset DeleteAfterFor(DateOnly lessonDate) =>
         new(lessonDate.AddDays(DaysAfterLesson).ToDateTime(TimeOnly.MaxValue), TimeSpan.Zero);
 
+    public static DateTimeOffset DeleteOn(DateOnly date) =>
+        new(date.ToDateTime(TimeOnly.MaxValue), TimeSpan.Zero);
+
     public static void KeepPermanently(MediaAsset media)
     {
         media.StoragePolicy = Persistent;
         media.OriginLessonId = null;
         media.DeleteAfter = null;
+        media.RetentionDateIsManual = false;
     }
 
     public static void KeepForLesson(MediaAsset media, Lesson lesson)
     {
         if (media.StoragePolicy == Persistent) return;
+        if (media.RetentionDateIsManual) return;
         media.StoragePolicy = LessonScoped;
         media.OriginLessonId ??= lesson.Id;
         var deleteAfter = DeleteAfterFor(lesson.Date);
@@ -39,6 +44,14 @@ public static class MediaRetention
         media.StoragePolicy = LessonScoped;
         media.OriginLessonId = lesson.Id;
         media.DeleteAfter = DeleteAfterFor(lesson.Date);
+        media.RetentionDateIsManual = false;
+    }
+
+    public static void ExpireOn(MediaAsset media, DateOnly date)
+    {
+        media.StoragePolicy = LessonScoped;
+        media.DeleteAfter = DeleteOn(date);
+        media.RetentionDateIsManual = true;
     }
 }
 
@@ -86,34 +99,41 @@ public sealed class MediaRetentionService(
                 if (originDate is not null) lessonDates.Add(originDate.Value);
             }
 
-            if (lessonDates.Count > 0)
+            if (!media.RetentionDateIsManual && lessonDates.Count > 0)
                 media.DeleteAfter = MediaRetention.DeleteAfterFor(lessonDates.Max());
             if (media.DeleteAfter is null || media.DeleteAfter >= now) continue;
 
-            var playlistItems = await db.PlaylistItems.Where(x => x.MediaAssetId == media.Id).Include(x => x.Lesson).ToListAsync(ct);
-            foreach (var item in playlistItems)
-            {
-                item.MediaAssetId = null;
-                if (item.Lesson is not null) item.Lesson.Version++;
-            }
-            var signageItems = await db.SignagePlaylists.Where(x => x.MediaAssetId == media.Id).ToListAsync(ct);
-            foreach (var signage in signageItems) signage.MediaAssetId = null;
-
-            DeleteStoredFile(paths.Originals, media.RelativePath);
-            if (!string.IsNullOrWhiteSpace(media.ThumbnailPath)) DeleteStoredFile(paths.Thumbnails, media.ThumbnailPath);
-            db.MediaAssets.Remove(media);
-            db.AuditEvents.Add(new AuditEvent
-            {
-                Actor = "system",
-                Action = "media.retention.delete",
-                Object = media.Id.ToString(),
-                Summary = $"Deleted {media.FileName} four weeks after its last lesson date."
-            });
+            await DeleteAsync(db, paths, media, "system", "media.retention.delete",
+                media.RetentionDateIsManual ? $"Deleted {media.FileName} on its selected expiration date." : $"Deleted {media.FileName} four weeks after its last lesson date.", ct);
             deleted++;
         }
 
         if (db.ChangeTracker.HasChanges()) await db.SaveChangesAsync(ct);
         return deleted;
+    }
+
+    public static async Task DeleteAsync(LessonCueDb db, MediaStoragePaths paths, MediaAsset media,
+        string actor, string action, string summary, CancellationToken ct = default)
+    {
+        var playlistItems = await db.PlaylistItems.Where(x => x.MediaAssetId == media.Id).Include(x => x.Lesson).ToListAsync(ct);
+        foreach (var item in playlistItems)
+        {
+            item.MediaAssetId = null;
+            if (item.Lesson is not null) item.Lesson.Version++;
+        }
+        var signageItems = await db.SignagePlaylists.Where(x => x.MediaAssetId == media.Id).ToListAsync(ct);
+        foreach (var signage in signageItems) signage.MediaAssetId = null;
+
+        DeleteStoredFile(paths.Originals, media.RelativePath);
+        if (!string.IsNullOrWhiteSpace(media.ThumbnailPath)) DeleteStoredFile(paths.Thumbnails, media.ThumbnailPath);
+        db.MediaAssets.Remove(media);
+        db.AuditEvents.Add(new AuditEvent
+        {
+            Actor = actor,
+            Action = action,
+            Object = media.Id.ToString(),
+            Summary = summary
+        });
     }
 
     private static void DeleteStoredFile(string root, string relativePath)

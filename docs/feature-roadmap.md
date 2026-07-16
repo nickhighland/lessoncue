@@ -7,7 +7,7 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 1. **Playback acknowledgement and live state** — show which cue is actually playing, progress, volume, cache readiness, and whether each controller command reached the screen.
 2. **Automated browser and hardware playback tests** — exercise uploads, lesson editing, pre-roll, countdown transitions, controller commands, offline recovery, and upgrades on real TV devices.
 3. **Restore workflow in Settings** — upload and validate a backup, preview its contents, restore it safely, and automatically preserve the pre-restore state.
-4. **Bulk media management** — select, tag, move, change retention, reprocess, download, or delete multiple items with clear impact previews.
+4. **Media organization and versioning** — build on the existing bulk deletion and retention controls with tags, folders, replacement versions, reprocessing, and impact previews.
 5. **Visual timeline editor** — waveform and filmstrip-based trim, fade, chapter, and cue editing with frame-accurate preview.
 6. **Presentation conversion** — convert PowerPoint, Keynote-exported PDF, and common document formats into screen-ready slide sequences.
 7. **Reusable templates and recurring schedules** — create a standard lesson structure, generate dated instances, and handle holiday exceptions.
@@ -238,7 +238,7 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 
 ## Suggested delivery sequence
 
-**Now:** live playback acknowledgement, automated end-to-end tests, restore UI, bulk media tools, screen diagnostics, user self-service, and granular permissions.
+**Now:** live playback acknowledgement, automated end-to-end tests, restore UI, expanded media organization tools, screen diagnostics, user self-service, and granular permissions.
 
 **Next:** visual timeline, presentation conversion, templates and recurrence, captions, screen groups, update rings, scheduled encrypted backups, and API/webhooks.
 

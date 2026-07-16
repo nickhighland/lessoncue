@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 1.5.0
+  version: 1.6.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local:8080
@@ -182,6 +182,28 @@ paths:
         '200': { description: Media file }
         '206': { description: Partial media response }
         '404': { description: Not found }
+  /api/v1/media/bulk:
+    post:
+      operationId: updateMediaInBulk
+      description: Applies deletion or an explicit retention policy to as many as 500 selected media items. Deletion safely detaches media from lessons and signage before removing local files.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MediaBulkInput' }
+      responses:
+        '200':
+          description: Bulk action completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated, action]
+                properties:
+                  updated: { type: integer, minimum: 1, maximum: 500 }
+                  action: { enum: [delete, expire, keep] }
+        '400': { description: Empty selection, invalid action, missing date, or date in the past }
+        '404': { description: A selected media item no longer exists }
   /api/v1/storage:
     get:
       operationId: getStorageStatus
@@ -361,6 +383,21 @@ components:
         allocationBytes: { type: integer, format: int64 }
         remainingBytes: { type: integer, format: int64 }
         automaticAllocation: { type: boolean }
+    MediaBulkInput:
+      type: object
+      required: [mediaIds, action]
+      properties:
+        mediaIds:
+          type: array
+          minItems: 1
+          maxItems: 500
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        action: { enum: [delete, expire, keep] }
+        deleteOn:
+          type: [string, 'null']
+          format: date
+          description: Required when action is expire. Media remains available through the end of this date.
     UpdateStatus:
       type: object
       required: [currentVersion, updateAvailable, automaticInstallSupported, installing]
