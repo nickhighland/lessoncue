@@ -122,6 +122,23 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     return { contentType: response.headers.get("content-type"), signature: String.fromCharCode(...bytes.slice(4, 8)) };
   });
   expect(playbackDelivery).toEqual({ contentType: "video/mp4", signature: "ftyp" });
+  const adaptiveProfiles = await page.evaluate(async () => {
+    const media = await fetch("/api/v1/media").then(response => response.json());
+    const item = media.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.avi");
+    const queued = await fetch(`/api/v1/media/${item.id}/transcodes/all`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    return { id: item.id, queued: queued.status };
+  });
+  expect(adaptiveProfiles.queued).toBe(202);
+  await expect.poll(async () => page.evaluate(async id => {
+    const media = await fetch("/api/v1/media").then(response => response.json());
+    return media.find((item: { id: string }) => item.id === id)?.transcodes.map((item: { profile: string; status: string }) => `${item.profile}:${item.status}`).sort().join(",");
+  }, adaptiveProfiles.id), { timeout: 60_000 }).toBe("h264-480:ready,h264-720:ready");
+  const adaptiveDelivery = await page.evaluate(async id => {
+    const response = await fetch(`/api/v1/media/${id}/transcodes/h264-480`, { headers: { Range: "bytes=0-31" } });
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return { status: response.status, type: response.headers.get("content-type"), signature: String.fromCharCode(...bytes.slice(4, 8)) };
+  }, adaptiveProfiles.id);
+  expect(adaptiveDelivery).toEqual({ status: 206, type: "video/mp4", signature: "ftyp" });
 
   await page.reload();
   await page.getByRole("button", { name: /Classes$/ }).click();
@@ -324,6 +341,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const diagnostics = await page.evaluate(async () => {
     const jsonHeaders = { "Content-Type": "application/json" };
     const bootstrap = await fetch("/api/v1/admin/bootstrap").then(response => response.json());
+    const classes = await fetch("/api/v1/classes").then(response => response.json());
     const pairing = await fetch("/api/v1/pairing/request", { method: "POST", headers: jsonHeaders,
       body: JSON.stringify({ deviceName: "Browser Test TV", platform: "android-tv", appVersion: "0.18.0" }) }).then(response => response.json());
     const identity = await fetch("/api/v1/pairing/confirm", { method: "POST", headers: jsonHeaders,
@@ -332,14 +350,14 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     await fetch("/api/v1/tv/status", { method: "POST", headers: deviceHeaders, body: JSON.stringify({
       screenId: identity.screenId, appVersion: "0.18.0", online: true, freeBytes: 4_000_000_000,
       manifestVersion: 12, failedDownloads: 1, cachedItems: 1, totalItems: 2,
-      clientTimeUnixMs: Date.now() + 6_000, networkLatencyMs: 72,
+      clientTimeUnixMs: Date.now() + 6_000, networkLatencyMs: 500,
       cacheInventory: [{ itemId: "cached-1", title: "Cached welcome", state: "cached", sizeBytes: 1_024, expectedBytes: 1_024 }],
       downloadQueue: [{ itemId: "queued-1", title: "Queued lesson", state: "downloading", bytesDownloaded: 512, expectedBytes: 2_048 }],
       codecCapabilities: [{ kind: "video", codec: "H.264 / AVC", supported: true, detail: "video/avc" }],
       recentErrors: [{ timestamp: new Date().toISOString(), area: "download", message: "Test retry", itemId: "queued-1" }]
     }) });
     await fetch(`/api/v1/screens/${identity.screenId}`, { method: "PATCH", headers: jsonHeaders,
-      body: JSON.stringify({ allowDiagnosticScreenshots: true }) });
+      body: JSON.stringify({ assignedClassId: classes[0].id, allowDiagnosticScreenshots: true }) });
     const screenshotRequest = await fetch(`/api/v1/screens/${identity.screenId}/diagnostics/screenshot-request`,
       { method: "POST", headers: jsonHeaders, body: "{}" }).then(response => response.json());
     const control = await fetch(`/api/v1/screens/${identity.screenId}/control`, { headers: { Authorization: `Bearer ${identity.deviceToken}` } }).then(response => response.json());
@@ -348,11 +366,16 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
       { method: "PUT", headers: { Authorization: `Bearer ${identity.deviceToken}`, "Content-Type": "image/jpeg" }, body: jpeg });
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((item: { id: string }) => item.id === identity.screenId);
+    const manifest = await fetch(`/api/v1/screens/${identity.screenId}/manifest`, { headers: { Authorization: `Bearer ${identity.deviceToken}` } }).then(response => response.json());
+    const adaptiveItem = manifest.playlists.flatMap((playlist: { items: unknown[] }) => playlist.items)
+      .find((item: { title: string }) => item.title === "Browser Compatibility Video");
     const screenshot = await fetch(`/api/v1/screens/${identity.screenId}/diagnostics/screenshot`);
     return { upload: upload.status, screenshot: screenshot.status, requestMatches: control.screenshotRequestId === screenshotRequest.requestId,
-      cache: JSON.parse(screen.cacheInventoryJson)[0]?.title, quality: screen.networkQuality, screenshotAvailable: screen.screenshotAvailable };
+      cache: JSON.parse(screen.cacheInventoryJson)[0]?.title, quality: screen.networkQuality, screenshotAvailable: screen.screenshotAvailable,
+      requestedProfile: adaptiveItem?.requestedProfile, selectedProfile: adaptiveItem?.selectedProfile };
   });
-  expect(diagnostics).toEqual({ upload: 202, screenshot: 200, requestMatches: true, cache: "Cached welcome", quality: "good", screenshotAvailable: true });
+  expect(diagnostics).toEqual({ upload: 202, screenshot: 200, requestMatches: true, cache: "Cached welcome", quality: "poor", screenshotAvailable: true,
+    requestedProfile: "h264-480", selectedProfile: "h264-480" });
 
   await page.getByRole("button", { name: /Screens$/ }).click();
   await expect(page.locator('input.screen-name-input[value="Browser Test TV"]')).toBeVisible();

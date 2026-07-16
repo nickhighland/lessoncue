@@ -73,6 +73,26 @@ public static class DatabaseUpgrade
                 "CreatedAt" TEXT NOT NULL,
                 "CreatedBy" TEXT NOT NULL DEFAULT 'system'
             );
+            CREATE TABLE IF NOT EXISTS "MediaTranscodeVariants" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_MediaTranscodeVariants" PRIMARY KEY,
+                "MediaAssetId" TEXT NOT NULL,
+                "Profile" TEXT NOT NULL,
+                "Status" TEXT NOT NULL DEFAULT 'pending',
+                "RelativePath" TEXT NULL,
+                "Sha256" TEXT NULL,
+                "SizeBytes" INTEGER NULL,
+                "Width" INTEGER NOT NULL DEFAULT 0,
+                "Height" INTEGER NOT NULL DEFAULT 0,
+                "VideoBitrateKbps" INTEGER NOT NULL DEFAULT 0,
+                "SourceVersion" INTEGER NOT NULL DEFAULT 1,
+                "Error" TEXT NULL,
+                "QueuedAt" TEXT NOT NULL,
+                "StartedAt" TEXT NULL,
+                "CompletedAt" TEXT NULL,
+                CONSTRAINT "FK_MediaTranscodeVariants_MediaAssets_MediaAssetId" FOREIGN KEY ("MediaAssetId") REFERENCES "MediaAssets" ("Id") ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_MediaTranscodeVariants_MediaAssetId_Profile" ON "MediaTranscodeVariants" ("MediaAssetId", "Profile");
+            CREATE INDEX IF NOT EXISTS "IX_MediaTranscodeVariants_Status" ON "MediaTranscodeVariants" ("Status");
             CREATE TABLE IF NOT EXISTS "PlaybackCommands" (
                 "Id" INTEGER NOT NULL CONSTRAINT "PK_PlaybackCommands" PRIMARY KEY AUTOINCREMENT,
                 "ScreenId" TEXT NOT NULL,
@@ -164,6 +184,8 @@ public static class DatabaseUpgrade
             ["Organizations.NavigationTextColor"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"NavigationTextColor\" TEXT NOT NULL DEFAULT '#aac0bb'"),
             ["Organizations.SelectedTabColor"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"SelectedTabColor\" TEXT NOT NULL DEFAULT '#3a4541'"),
             ["Organizations.WelcomeMessage"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"WelcomeMessage\" TEXT NOT NULL DEFAULT 'Welcome'"),
+            ["Organizations.AdaptiveTranscodingEnabled"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"AdaptiveTranscodingEnabled\" INTEGER NOT NULL DEFAULT 1"),
+            ["Organizations.TranscodeLeadDays"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"TranscodeLeadDays\" INTEGER NOT NULL DEFAULT 7"),
             ["Organizations.ControllerPinHash"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"ControllerPinHash\" TEXT NULL"),
             ["Classes.ControllerSlug"] = ("Classes", "ALTER TABLE \"Classes\" ADD COLUMN \"ControllerSlug\" TEXT NOT NULL DEFAULT ''"),
             ["Classes.ControllerColor"] = ("Classes", "ALTER TABLE \"Classes\" ADD COLUMN \"ControllerColor\" TEXT NOT NULL DEFAULT '#2d6a4f'"),

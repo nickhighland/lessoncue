@@ -50,6 +50,7 @@ builder.Services.AddHostedService(services => services.GetRequiredService<HttpPo
 builder.Services.AddSingleton(services => new LocalAddressService(dataPath, port, services.GetRequiredService<ILogger<LocalAddressService>>()));
 builder.Services.AddHostedService(services => services.GetRequiredService<LocalAddressService>());
 builder.Services.AddHostedService<MediaProcessingService>();
+builder.Services.AddHostedService<AdaptiveTranscodeService>();
 builder.Services.AddHostedService<PresentationConversionService>();
 builder.Services.AddHostedService<YouTubeImportService>();
 builder.Services.AddHostedService<MediaRetentionService>();
@@ -233,6 +234,19 @@ api.MapGet("/media/{mediaId:guid}/playback", async (Guid mediaId, LessonCueDb db
     var hash = compatible ? media.CompatibilitySha256 : media.Sha256;
     return Results.File(path, contentType, fileName, enableRangeProcessing: true,
         entityTag: hash is null ? null : new Microsoft.Net.Http.Headers.EntityTagHeaderValue($"\"{hash}\""));
+});
+
+api.MapGet("/media/{mediaId:guid}/transcodes/{profile}", async (Guid mediaId, string profile,
+    LessonCueDb db, MediaStoragePaths paths, CancellationToken ct) =>
+{
+    var variant = await db.MediaTranscodeVariants.AsNoTracking().SingleOrDefaultAsync(x =>
+        x.MediaAssetId == mediaId && x.Profile == profile && x.Status == "ready", ct);
+    if (variant?.RelativePath is null) return Results.NotFound();
+    var root = Path.GetFullPath(paths.Transcodes) + Path.DirectorySeparatorChar;
+    var path = Path.GetFullPath(Path.Combine(paths.Transcodes, variant.RelativePath));
+    if (!path.StartsWith(root, StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
+    return Results.File(path, "video/mp4", enableRangeProcessing: true,
+        entityTag: variant.Sha256 is null ? null : new Microsoft.Net.Http.Headers.EntityTagHeaderValue($"\"{variant.Sha256}\""));
 });
 
 api.MapGet("/media/{mediaId:guid}/thumbnail", async (Guid mediaId, LessonCueDb db, CancellationToken ct) =>

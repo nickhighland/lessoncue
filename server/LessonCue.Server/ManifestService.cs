@@ -12,7 +12,7 @@ public sealed class ManifestService(LessonCueDb db)
 
         var now = DateTimeOffset.UtcNow;
         var lessonsQuery = db.Lessons.AsNoTracking().Include(x => x.Class).Include(x => x.Items)
-            .ThenInclude(x => x.MediaAsset).AsQueryable();
+            .ThenInclude(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants).AsSplitQuery().AsQueryable();
         if (screen.AssignedClassId is { } classId)
             lessonsQuery = lessonsQuery.Where(x => x.ClassId == classId);
 
@@ -31,11 +31,11 @@ public sealed class ManifestService(LessonCueDb db)
             screen = new { id = screen.Id, screen.Name, screen.VolunteerMode, screen.Site, tags = SplitTags(screen.TagsCsv) },
             signage = matchingSignage.Select(x => new { x.Id, x.Name, x.Mode, x.Priority, x.Message, x.BackgroundColor, x.TextColor,
                 x.MediaAssetId, mediaUrl = x.MediaAssetId is { } mediaId ? $"/api/v1/media/{mediaId}/file" : null, x.StartsAt, x.EndsAt }).ToArray(),
-            playlists = lessons.Select(BuildPlaylist).ToArray()
+            playlists = lessons.Select(x => BuildPlaylist(x, screen)).ToArray()
         };
     }
 
-    private static object BuildPlaylist(Lesson lesson)
+    private static object BuildPlaylist(Lesson lesson, Screen screen)
     {
         var ordered = lesson.Items.OrderBy(x => x.Position).ToList();
         var countdownItem = ordered.FirstOrDefault(x => x.Id == lesson.CountdownItemId || x.Role == "countdown");
@@ -43,7 +43,7 @@ public sealed class ManifestService(LessonCueDb db)
         var countdownStart = lesson.DesignatedStartAt is { } start && countdownDuration is { } duration
             ? start.AddMilliseconds(-duration)
             : (DateTimeOffset?)null;
-        var preRollItems = ordered.Where(x => x.Role == "preRoll").Select(MapItem).ToArray();
+        var preRollItems = ordered.Where(x => x.Role == "preRoll").Select(x => MapItem(x, screen)).ToArray();
 
         return new
         {
@@ -61,7 +61,7 @@ public sealed class ManifestService(LessonCueDb db)
                 itemId = countdownItem.Id,
                 durationMs = countdownDuration.Value,
                 startAt = countdownStart,
-                item = MapItem(countdownItem)
+                item = MapItem(countdownItem, screen)
             },
             preRoll = !lesson.PreRollEnabled || preRollItems.Length == 0 ? null : new
             {
@@ -69,7 +69,7 @@ public sealed class ManifestService(LessonCueDb db)
                 loop = true,
                 items = preRollItems
             },
-            items = ordered.Where(x => x.Role == "lesson").Select(MapItem).ToArray()
+            items = ordered.Where(x => x.Role == "lesson").Select(x => MapItem(x, screen)).ToArray()
         };
     }
 
@@ -80,10 +80,16 @@ public sealed class ManifestService(LessonCueDb db)
         ? null
         : item.EndMs is { } end ? Math.Max(0, end - item.StartMs) : item.DurationMs ?? item.MediaAsset?.DurationMs;
 
-    private static object MapItem(PlaylistItem item)
+    private static object MapItem(PlaylistItem item, Screen screen)
     {
         var media = item.MediaAsset;
         var compatible = media?.CompatibilityStatus == "ready" && !string.IsNullOrWhiteSpace(media.CompatibilityPath);
+        var requestedProfile = media?.VideoCodec is not null ? AdaptiveTranscodeProfiles.SelectForScreen(screen, media) : null;
+        var variant = requestedProfile is null ? null : media?.TranscodeVariants.FirstOrDefault(x =>
+            x.Profile == requestedProfile && x.Status == "ready" && x.SourceVersion == media.Version && !string.IsNullOrWhiteSpace(x.RelativePath));
+        var useVariant = variant is not null;
+        var useNative = requestedProfile == "native";
+        var selectedProfile = useVariant ? variant!.Profile : useNative ? "native" : compatible ? AdaptiveTranscodeProfiles.Universal1080 : media?.CompatibilityStatus == "native" ? "native" : "original";
         return new
         {
             itemId = item.Id,
@@ -91,15 +97,21 @@ public sealed class ManifestService(LessonCueDb db)
             item.Type,
             item.Title,
             downloadUrl = media is { SourceKind: "link", LinkKind: "direct" } linked ? linked.SourceUrl :
+                useVariant ? $"/api/v1/media/{media!.Id}/transcodes/{variant!.Profile}" :
+                useNative ? $"/api/v1/media/{media!.Id}/file" :
                 item.MediaAssetId is { } mediaId && media?.SourceKind != "link" && !string.IsNullOrWhiteSpace(media?.RelativePath)
                     ? $"/api/v1/media/{mediaId}/playback" : null,
             playbackUrl = media is { SourceKind: "link" } online
                 ? YouTubeMedia.EmbedUrl(online.SourceUrl) ?? online.SourceUrl : null,
-            sha256 = compatible ? media?.CompatibilitySha256 : media?.Sha256,
-            sizeBytes = compatible ? media?.CompatibilitySizeBytes : media?.SizeBytes,
-            contentType = compatible ? "video/mp4" : media?.ContentType,
-            fileExtension = compatible ? "mp4" : Path.GetExtension(media?.RelativePath ?? "").TrimStart('.').ToLowerInvariant(),
+            sha256 = useVariant ? variant!.Sha256 : compatible && !useNative ? media?.CompatibilitySha256 : media?.Sha256,
+            sizeBytes = useVariant ? variant!.SizeBytes : compatible && !useNative ? media?.CompatibilitySizeBytes : media?.SizeBytes,
+            contentType = useVariant || compatible && !useNative ? "video/mp4" : media?.ContentType,
+            fileExtension = useVariant || compatible && !useNative ? "mp4" : Path.GetExtension(media?.RelativePath ?? "").TrimStart('.').ToLowerInvariant(),
             compatibilityStatus = media?.CompatibilityStatus,
+            requestedProfile,
+            selectedProfile,
+            transcodeStatus = requestedProfile is not null && AdaptiveTranscodeProfiles.All.ContainsKey(requestedProfile)
+                ? media?.TranscodeVariants.FirstOrDefault(x => x.Profile == requestedProfile)?.Status ?? "not-generated" : "not-needed",
             durationMs = item.DurationMs ?? media?.DurationMs,
             item.StartMs,
             item.EndMs,

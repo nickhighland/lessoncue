@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 3.0.0
+  version: 3.1.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local
@@ -503,6 +503,39 @@ paths:
         '200': { description: TV-compatible playback media }
         '206': { description: Partial playback media range }
         '404': { description: Media or compatible file not found }
+  /api/v1/media/{mediaId}/transcodes/{profile}:
+    get:
+      operationId: streamAdaptiveMedia
+      description: Range-enabled locally generated adaptive H.264/AAC media selected by a device manifest. Supports strong ETags.
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: profile
+          in: path
+          required: true
+          schema: { enum: [h264-720, h264-480] }
+      responses:
+        '200': { description: Adaptive playback media }
+        '206': { description: Partial adaptive media range }
+        '404': { description: Profile is absent, stale, or not ready }
+    post:
+      operationId: queueAdaptiveMedia
+      description: Requires uploads.manage. Queues one adaptive profile or both profiles for local generation. Reuses a current ready copy and retries failed or stale copies.
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: profile
+          in: path
+          required: true
+          schema: { enum: [h264-720, h264-480, all] }
+      responses:
+        '202': { description: Requested profiles are queued or already available }
+        '400': { description: Media is not a processed local video or profile is invalid }
+        '404': { description: Media not found }
   /api/v1/backups/restore/preview:
     post:
       operationId: previewBackupRestore

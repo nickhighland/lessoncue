@@ -819,6 +819,11 @@ public static class AdminApi
                 x.CompatibilityError,
                 x.CompatibilityTranscodedAt,
                 x.CompatibilitySizeBytes,
+                transcodes = x.TranscodeVariants.OrderBy(v => v.Profile).Select(v => new
+                {
+                    v.Id, v.Profile, v.Status, v.SizeBytes, v.Width, v.Height, v.VideoBitrateKbps,
+                    v.SourceVersion, v.Error, v.QueuedAt, v.StartedAt, v.CompletedAt
+                }).ToArray(),
                 x.SourceKind,
                 x.SourceUrl,
                 x.LinkKind,
@@ -840,6 +845,24 @@ public static class AdminApi
                 downloadUrl = $"/api/v1/media/{x.Id}/file",
                 playbackUrl = x.SourceKind == "link" ? x.SourceUrl : $"/api/v1/media/{x.Id}/playback"
             }).ToListAsync(ct));
+
+        uploads.MapPost("/media/{id:guid}/transcodes/{profile}", async (Guid id, string profile,
+            LessonCueDb db, HttpContext context, CancellationToken ct) =>
+        {
+            var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (media is null) return Results.NotFound();
+            if (media.SourceKind == "link" || media.ProcessingStatus != "ready" || media.VideoCodec is null)
+                return Results.BadRequest(new { error = "Adaptive profiles require a processed local video." });
+            var profiles = profile.Equals("all", StringComparison.OrdinalIgnoreCase)
+                ? AdaptiveTranscodeProfiles.All.Keys.ToArray() : [profile];
+            if (profiles.Any(value => !AdaptiveTranscodeProfiles.All.ContainsKey(value)))
+                return Results.BadRequest(new { error = "Choose h264-720, h264-480, or all." });
+            foreach (var value in profiles) await AdaptiveTranscodeService.QueueAsync(db, media, value, ct);
+            db.AuditEvents.Add(new AuditEvent { Actor = context.User.Identity?.Name ?? "admin", Action = "media.transcode.queue",
+                Object = media.Id.ToString(), Summary = string.Join(',', profiles) });
+            await db.SaveChangesAsync(ct);
+            return Results.Accepted(value: new { queued = profiles });
+        });
 
         admin.MapGet("/media/{id:guid}/impact", async (Guid id, LessonCueDb db, CancellationToken ct) =>
         {
@@ -906,6 +929,7 @@ public static class AdminApi
                 Object = media.Id.ToString(), Summary = media.FileName });
             await db.SaveChangesAsync(ct);
             DeleteDerivatives(paths, derivatives);
+            await DeleteAdaptiveTranscodesAsync(db, paths, media.Id, ct);
             return Results.Accepted($"/api/v1/media/{id}", media);
         });
 
@@ -1012,6 +1036,7 @@ public static class AdminApi
                 catch { TryDeleteFile(newPath); TryDeleteFile(archivePath); throw; }
                 TryDeleteFile(currentPath);
                 DeleteDerivatives(paths, derivatives);
+                await DeleteAdaptiveTranscodesAsync(db, paths, media.Id, ct);
                 await InvalidateAsync(hub, media.Version, ct);
                 return Results.Ok(new { media.Id, media.FileName, media.Version, archivedVersionId = archived.Id });
             }
@@ -1068,6 +1093,7 @@ public static class AdminApi
                 catch { TryDeleteFile(newPath); TryDeleteFile(archivePath); throw; }
                 TryDeleteFile(currentPath);
                 DeleteDerivatives(paths, derivatives);
+                await DeleteAdaptiveTranscodesAsync(db, paths, media.Id, ct);
                 await InvalidateAsync(hub, media.Version, ct);
                 return Results.Ok(new { media.Id, media.FileName, media.Version, restoredFrom = selected.VersionNumber });
             }
@@ -1585,6 +1611,8 @@ public static class AdminApi
             if (input.NavigationTextColor is not null) organization.NavigationTextColor = input.NavigationTextColor;
             if (input.SelectedTabColor is not null) organization.SelectedTabColor = input.SelectedTabColor;
             organization.WelcomeMessage = input.WelcomeMessage.Trim();
+            if (input.AdaptiveTranscodingEnabled is not null) organization.AdaptiveTranscodingEnabled = input.AdaptiveTranscodingEnabled.Value;
+            if (input.TranscodeLeadDays is not null) organization.TranscodeLeadDays = Math.Clamp(input.TranscodeLeadDays.Value, 1, 30);
             Audit(db, "organization.update", organization.Id, organization.Name); await db.SaveChangesAsync(ct);
             return Results.Ok(organization);
         });
@@ -2040,6 +2068,19 @@ public static class AdminApi
         }
         var compatibility = derivatives.Compatibility is null ? null : ResolveStoredFile(paths.Compatibility, derivatives.Compatibility);
         if (compatibility is not null) TryDeleteFile(compatibility);
+    }
+
+    private static async Task DeleteAdaptiveTranscodesAsync(LessonCueDb db, MediaStoragePaths paths, Guid mediaId, CancellationToken ct)
+    {
+        var variants = await db.MediaTranscodeVariants.Where(x => x.MediaAssetId == mediaId).ToListAsync(ct);
+        var storedFiles = variants.Where(x => x.RelativePath is not null).Select(x => x.RelativePath!).ToArray();
+        db.MediaTranscodeVariants.RemoveRange(variants);
+        await db.SaveChangesAsync(ct);
+        foreach (var relativePath in storedFiles)
+        {
+            var path = ResolveStoredFile(paths.Transcodes, relativePath);
+            if (path is not null) TryDeleteFile(path);
+        }
     }
 
     private static string? ResolveStoredFile(string root, string relativePath)

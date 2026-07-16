@@ -18,6 +18,8 @@ public sealed class Organization
     [MaxLength(16)] public string NavigationTextColor { get; set; } = "#aac0bb";
     [MaxLength(16)] public string SelectedTabColor { get; set; } = "#3a4541";
     [MaxLength(240)] public string WelcomeMessage { get; set; } = "Welcome";
+    public bool AdaptiveTranscodingEnabled { get; set; } = true;
+    public int TranscodeLeadDays { get; set; } = 7;
     [JsonIgnore] public string? ControllerPinHash { get; set; }
 }
 
@@ -210,6 +212,27 @@ public sealed class MediaAsset
     [MaxLength(24000)] public string ConvertedSlidesJson { get; set; } = "[]";
     public DateTimeOffset? ConvertedAt { get; set; }
     public List<MediaAssetVersion> Versions { get; set; } = [];
+    public List<MediaTranscodeVariant> TranscodeVariants { get; set; } = [];
+}
+
+public sealed class MediaTranscodeVariant
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid MediaAssetId { get; set; }
+    public MediaAsset? MediaAsset { get; set; }
+    [MaxLength(32)] public required string Profile { get; set; }
+    [MaxLength(24)] public string Status { get; set; } = "pending";
+    [MaxLength(512)] public string? RelativePath { get; set; }
+    [MaxLength(64)] public string? Sha256 { get; set; }
+    public long? SizeBytes { get; set; }
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public int VideoBitrateKbps { get; set; }
+    public int SourceVersion { get; set; }
+    [MaxLength(1000)] public string? Error { get; set; }
+    public DateTimeOffset QueuedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? StartedAt { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
 }
 
 public sealed class MediaAssetVersion
@@ -414,7 +437,8 @@ public sealed record UserInput(string Username, string DisplayName, string? Emai
     bool Disabled = false, List<string>? Permissions = null);
 public sealed record OrganizationInput(string Name, string SiteName, string TimeZone, string WeekStartsOn,
     int DefaultLessonDurationMinutes, int DefaultRetentionDays, string PrimaryColor, string AccentColor,
-    string? NavigationTextColor, string? SelectedTabColor, string WelcomeMessage);
+    string? NavigationTextColor, string? SelectedTabColor, string WelcomeMessage,
+    bool? AdaptiveTranscodingEnabled = null, int? TranscodeLeadDays = null);
 public sealed record StorageLimitInput(long LimitBytes);
 public sealed record LocalHostnameInput(string Hostname);
 public sealed record HttpPortInput(int Port);

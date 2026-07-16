@@ -9,6 +9,7 @@ public sealed record MediaStoragePaths(string DataPath)
     public string Thumbnails => Path.Combine(DataPath, "media", "thumbnails");
     public string Versions => Path.Combine(DataPath, "media", "versions");
     public string Compatibility => Path.Combine(DataPath, "media", "compatibility");
+    public string Transcodes => Path.Combine(DataPath, "media", "transcodes");
 }
 
 public static class MediaRetention
@@ -136,6 +137,9 @@ public sealed class MediaRetentionService(
         if (!string.IsNullOrWhiteSpace(media.FilmstripPath)) DeleteStoredFile(paths.Thumbnails, media.FilmstripPath);
         if (!string.IsNullOrWhiteSpace(media.WaveformPath)) DeleteStoredFile(paths.Thumbnails, media.WaveformPath);
         if (!string.IsNullOrWhiteSpace(media.CompatibilityPath)) DeleteStoredFile(paths.Compatibility, media.CompatibilityPath);
+        var transcodes = await db.MediaTranscodeVariants.IgnoreQueryFilters().Where(x => x.MediaAssetId == media.Id).ToListAsync(ct);
+        foreach (var transcode in transcodes)
+            if (!string.IsNullOrWhiteSpace(transcode.RelativePath)) DeleteStoredFile(paths.Transcodes, transcode.RelativePath);
         db.MediaAssets.Remove(media);
         db.AuditEvents.Add(new AuditEvent
         {

@@ -14,6 +14,7 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
     public DbSet<RecurringLessonSchedule> RecurringLessonSchedules => Set<RecurringLessonSchedule>();
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
     public DbSet<MediaAssetVersion> MediaAssetVersions => Set<MediaAssetVersion>();
+    public DbSet<MediaTranscodeVariant> MediaTranscodeVariants => Set<MediaTranscodeVariant>();
     public DbSet<Screen> Screens => Set<Screen>();
     public DbSet<PlaybackCommandRecord> PlaybackCommands => Set<PlaybackCommandRecord>();
     public DbSet<PairingAttempt> PairingAttempts => Set<PairingAttempt>();
@@ -30,11 +31,16 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
         modelBuilder.Entity<MediaAsset>().HasQueryFilter(x => x.DeletedAt == null);
         modelBuilder.Entity<PlaylistItem>().HasQueryFilter(x => x.Lesson!.DeletedAt == null);
         modelBuilder.Entity<MediaAssetVersion>().HasQueryFilter(x => x.MediaAsset!.DeletedAt == null);
+        modelBuilder.Entity<MediaTranscodeVariant>().HasQueryFilter(x => x.MediaAsset!.DeletedAt == null);
         modelBuilder.Entity<RecurringLessonSchedule>().HasQueryFilter(x => x.Class!.DeletedAt == null);
         modelBuilder.Entity<AdminAccount>().HasIndex(x => x.Username).IsUnique();
         modelBuilder.Entity<MediaAsset>().HasIndex(x => x.Sha256);
         modelBuilder.Entity<MediaAssetVersion>().HasIndex(x => new { x.MediaAssetId, x.VersionNumber }).IsUnique();
         modelBuilder.Entity<MediaAssetVersion>().HasOne(x => x.MediaAsset).WithMany(x => x.Versions)
+            .HasForeignKey(x => x.MediaAssetId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<MediaTranscodeVariant>().HasIndex(x => new { x.MediaAssetId, x.Profile }).IsUnique();
+        modelBuilder.Entity<MediaTranscodeVariant>().HasIndex(x => x.Status);
+        modelBuilder.Entity<MediaTranscodeVariant>().HasOne(x => x.MediaAsset).WithMany(x => x.TranscodeVariants)
             .HasForeignKey(x => x.MediaAssetId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<Lesson>().HasMany(x => x.Items).WithOne(x => x.Lesson)
             .HasForeignKey(x => x.LessonId).OnDelete(DeleteBehavior.Cascade);
