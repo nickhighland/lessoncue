@@ -41,6 +41,26 @@ sudo journalctl -u lessoncue -n 50 --no-pager
 
 To follow the logs continuously, run `sudo journalctl -u lessoncue -f` and press `Ctrl+C` when finished.
 
+### Reset a forgotten administrator password
+
+Password recovery stays local and requires SSH access to the server. First list the local administrator usernames:
+
+```bash
+sudo -u lessoncue env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
+  /opt/lessoncue/LessonCue.Server --list-admins
+```
+
+Reset the password for the required active username, replacing `YOUR_USERNAME`:
+
+```bash
+sudo -u lessoncue env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
+  /opt/lessoncue/LessonCue.Server --reset-password YOUR_USERNAME
+```
+
+Enter the new password twice when prompted. Nothing is shown while typing. The password must contain at least ten characters with uppercase, lowercase, and numeric characters. The command writes the normal ASP.NET password hash, records an audit event, and signs out that account's existing browser sessions. It does not display or recover the old password.
+
+The web server can remain running during this operation. If the selected account is marked `disabled`, the password is still reset but another active owner must enable the account before it can sign in.
+
 ### Open LessonCue from another computer
 
 Find the server's local address over SSH:
@@ -111,6 +131,14 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 The script installs an automatically starting Windows service, adds the firewall rule, and stores data in `C:\ProgramData\LessonCue`. `Uninstall-LessonCue.ps1` removes the service and application but preserves that data directory.
+
+For password recovery, open PowerShell as Administrator and run:
+
+```powershell
+$env:LESSONCUE_DATA_PATH = "$env:ProgramData\LessonCue"
+& "$env:ProgramFiles\LessonCue\LessonCue.Server.exe" --list-admins
+& "$env:ProgramFiles\LessonCue\LessonCue.Server.exe" --reset-password YOUR_USERNAME
+```
 
 ## First server check from another computer
 

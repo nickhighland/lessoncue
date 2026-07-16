@@ -62,6 +62,10 @@ The same protected request channel accepts only a strictly validated single-labe
 
 `PairingCodeService` always maintains a random local secret for automatic ten-minute PIN windows. Owners and administrators can replace the rotating value with an exact six-digit fixed PIN through the authenticated local API. The mode preference is written atomically to the protected LessonCue config directory and overrides deployment-time configuration across restarts. Selecting automatic mode writes an explicit override, so an older `appsettings.json` fixed PIN cannot unexpectedly return after reboot.
 
+### Local administrator recovery
+
+`AdminRecoveryCommand` runs before the web host is constructed when the server binary receives `--list-admins` or `--reset-password USERNAME`. It opens only the installed SQLite database, applies the idempotent schema upgrade, and uses the same `PasswordHasher<AdminAccount>` and password policy as browser account management. A successful reset increments the account's session version, invalidating its existing cookies, and records an audit event. Native Linux instructions run the command as the restricted `lessoncue` service account; there is no anonymous password-reset HTTP endpoint.
+
 ## Android TV
 
 ```bash

@@ -12,5 +12,6 @@ LessonCue is local-network software, not trusted-network software. Treat every r
 - Do not fetch arbitrary external URLs. Resolve and block loopback, private, link-local, and metadata addresses unless an administrator explicitly allowlists a local stream.
 - LessonCue uses role-based browser sessions, same-origin mutation checks, CSP, rate-limited pairing/login, revocable hashed device credentials, and durable local data-protection keys. Uploaded media URLs remain reachable on the trusted television network so native players can stream them; do not expose the service directly to the internet.
 - Retain audit logs and test backups and restoration.
+- Keep SSH or equivalent physical administrator access available for account recovery. The recovery command runs as the restricted `lessoncue` account, stores only a new adaptive password hash, audits the reset, and invalidates existing sessions for that account.
 
 Report security issues privately to the repository owner rather than opening an issue containing exploit details.

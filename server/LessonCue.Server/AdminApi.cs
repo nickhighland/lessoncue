@@ -760,6 +760,7 @@ public static class AdminApi
             {
                 var validation = ValidateCredentials(account.Username, input.Password); if (validation is not null) return Results.BadRequest(new { error = validation });
                 account.PasswordHash = hasher.HashPassword(account, input.Password);
+                account.SessionVersion++;
             }
             Audit(db, "user.update", account.Id, account.Username); await db.SaveChangesAsync(ct); return Results.NoContent();
         });
@@ -837,11 +838,7 @@ public static class AdminApi
 
     private static string? ValidateCredentials(string username, string password)
     {
-        if (string.IsNullOrWhiteSpace(username) || username.Trim().Length < 3) return "Username must be at least three characters.";
-        if (password.Length < 10) return "Password must be at least ten characters.";
-        if (!password.Any(char.IsUpper) || !password.Any(char.IsLower) || !password.Any(char.IsDigit))
-            return "Password must contain uppercase, lowercase, and numeric characters.";
-        return null;
+        return AdminCredentialPolicy.Validate(username, password);
     }
 
     private static Task SignInAsync(HttpContext context, AdminAccount account)
@@ -850,7 +847,8 @@ public static class AdminApi
             new Claim(ClaimTypes.NameIdentifier, account.Id.ToString()),
             new Claim(ClaimTypes.Name, account.Username),
             new Claim(ClaimTypes.Role, account.Role),
-            new Claim("display_name", account.DisplayName)
+            new Claim("display_name", account.DisplayName),
+            new Claim("session_version", account.SessionVersion.ToString(CultureInfo.InvariantCulture))
         ], CookieAuthenticationDefaults.AuthenticationScheme);
         return context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity),
             new AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddHours(12) });

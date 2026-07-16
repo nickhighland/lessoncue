@@ -43,6 +43,12 @@
         <p>Press <code>Ctrl+C</code> to stop following logs. Disconnecting SSH does not stop LessonCue.</p>
       </article>
       <article>
+        <b>PASSWORD RECOVERY</b>
+        <h2>Reset an administrator over SSH</h2>
+        <pre>sudo -u lessoncue env LESSONCUE_DATA_PATH=/var/lib/lessoncue /opt/lessoncue/LessonCue.Server --list-admins&#10;&#10;sudo -u lessoncue env LESSONCUE_DATA_PATH=/var/lib/lessoncue /opt/lessoncue/LessonCue.Server --reset-password YOUR_USERNAME</pre>
+        <p>The new password is entered invisibly at the prompt, stored as a secure hash, and existing sessions for that account are signed out.</p>
+      </article>
+      <article>
         <b>ALTERNATIVES</b>
         <h2>Docker, Windows, and native TV apps</h2>
         <p>The full operator guide also covers Docker Compose, Windows services, Android TV, Fire TV, Apple TV, backups, updates, and clean uninstallation.</p>

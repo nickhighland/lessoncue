@@ -10,6 +10,10 @@ Native Linux servers advertise `lessoncue.local` by default. The administrator c
 
 Pairing requests expire after ten minutes and lock after repeated failures. Begin pairing again, verify the current server log/admin PIN, and confirm the TV is talking to the expected server.
 
+## Administrator password was forgotten
+
+Use the SSH commands in [Reset a forgotten administrator password](installation.md#reset-a-forgotten-administrator-password). The reset is intentionally not exposed as an unauthenticated browser endpoint and does not require email or a hosted service.
+
 ## Media says internet required
 
 Only uploaded or approved direct files are offline eligible. YouTube, Vimeo, subscription services, embedded players, and external app launches remain online-only unless the provider offers an authorized download mechanism.

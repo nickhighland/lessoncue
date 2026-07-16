@@ -12,6 +12,11 @@ using Microsoft.EntityFrameworkCore;
 var builder = WebApplication.CreateBuilder(args);
 var dataPath = Environment.GetEnvironmentVariable("LESSONCUE_DATA_PATH")
     ?? Path.Combine(builder.Environment.ContentRootPath, "data");
+if (AdminRecoveryCommand.IsRequested(args))
+{
+    Environment.ExitCode = await AdminRecoveryCommand.RunAsync(args, dataPath);
+    return;
+}
 var configPath = Path.Combine(dataPath, "config");
 var databasePath = Path.Combine(dataPath, "database");
 var mediaPath = Path.Combine(dataPath, "media", "originals");
@@ -76,8 +81,10 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     {
         var id = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         if (!Guid.TryParse(id, out var accountId)) { context.RejectPrincipal(); return; }
+        var sessionVersionValue = context.Principal?.FindFirst("session_version")?.Value;
+        var sessionVersion = int.TryParse(sessionVersionValue, out var parsedVersion) ? parsedVersion : 1;
         var db = context.HttpContext.RequestServices.GetRequiredService<LessonCueDb>();
-        if (!await db.AdminAccounts.AsNoTracking().AnyAsync(x => x.Id == accountId && !x.Disabled, context.HttpContext.RequestAborted))
+        if (!await db.AdminAccounts.AsNoTracking().AnyAsync(x => x.Id == accountId && !x.Disabled && x.SessionVersion == sessionVersion, context.HttpContext.RequestAborted))
         {
             context.RejectPrincipal();
             await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);

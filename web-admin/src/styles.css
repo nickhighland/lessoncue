@@ -33,6 +33,7 @@ input:focus,select:focus,textarea:focus { border-color:var(--gold); box-shadow:0
 .alert { padding:11px 13px; border-radius:8px; font-size:13px; }
 .alert.error { background:#f8dfda; color:#8b332b; }
 .local-note { border-top:1px solid var(--line); margin-top:26px; padding-top:18px; color:var(--muted); font-size:11px; display:flex; align-items:center; gap:7px; }
+.recovery-link { display:block; margin-top:15px; color:var(--green); font-size:11px; font-weight:700; text-align:center; }
 .status-dot,.available-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:#3ab37b; box-shadow:0 0 0 3px #3ab37b22; }
 .app-shell { min-height:100vh; display:grid; grid-template-columns:228px 1fr; }
 .sidebar { position:sticky; top:0; height:100vh; display:flex; flex-direction:column; background:var(--deep); color:#dfe5e0; padding:24px 14px 18px; }

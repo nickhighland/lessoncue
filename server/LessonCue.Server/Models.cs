@@ -26,6 +26,7 @@ public sealed class AdminAccount
     [MaxLength(32)] public string Role { get; set; } = "Owner";
     public bool Disabled { get; set; }
     public required string PasswordHash { get; set; }
+    public int SessionVersion { get; set; } = 1;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? LastLoginAt { get; set; }
 }

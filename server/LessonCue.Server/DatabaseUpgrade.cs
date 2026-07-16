@@ -26,7 +26,8 @@ public static class DatabaseUpgrade
                 "DisplayName" TEXT NOT NULL DEFAULT 'Administrator',
                 "Email" TEXT NULL,
                 "Role" TEXT NOT NULL DEFAULT 'Owner',
-                "Disabled" INTEGER NOT NULL DEFAULT 0
+                "Disabled" INTEGER NOT NULL DEFAULT 0,
+                "SessionVersion" INTEGER NOT NULL DEFAULT 1
             );
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_AdminAccounts_Username" ON "AdminAccounts" ("Username");
             CREATE INDEX IF NOT EXISTS "IX_MediaAssets_Sha256" ON "MediaAssets" ("Sha256");
@@ -70,6 +71,7 @@ public static class DatabaseUpgrade
             ["AdminAccounts.Email"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"Email\" TEXT NULL"),
             ["AdminAccounts.Role"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"Role\" TEXT NOT NULL DEFAULT 'Owner'"),
             ["AdminAccounts.Disabled"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"Disabled\" INTEGER NOT NULL DEFAULT 0"),
+            ["AdminAccounts.SessionVersion"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"SessionVersion\" INTEGER NOT NULL DEFAULT 1"),
             ["Lessons.Archived"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"Archived\" INTEGER NOT NULL DEFAULT 0"),
             ["Lessons.KeepOffline"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"KeepOffline\" INTEGER NOT NULL DEFAULT 0"),
             ["Lessons.DownloadDaysBefore"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"DownloadDaysBefore\" INTEGER NOT NULL DEFAULT 7"),

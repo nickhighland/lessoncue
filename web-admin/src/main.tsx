@@ -120,6 +120,7 @@ function Auth({ session, onAuthenticated }: { session: Session; onAuthenticated:
         {error && <div className="alert error">{error}</div>}
         <button className="button primary wide" disabled={busy}>{busy ? "Please wait…" : session.setupRequired ? "Finish setup" : "Sign in"}</button>
       </form>
+      {!session.setupRequired && <a className="recovery-link" href="https://github.com/nickhighland/lessoncue/blob/main/docs/installation.md#reset-a-forgotten-administrator-password" target="_blank" rel="noreferrer">Forgot your password? View local recovery instructions ↗</a>}
       <div className="local-note"><span className="status-dot" /> Local server · {location.host}</div>
     </section>
   </main>;
