@@ -101,6 +101,7 @@ public static class AdminApi
                 pairingPin = canPair ? pairing.Current : null,
                 pairingExpiresAt = canPair ? (DateTimeOffset?)pairing.ExpiresAt : null,
                 pairingFixed = canPair && pairing.FixedPin is not null,
+                controllerPinConfigured = organization.ControllerPinHash is not null,
                 storage = storageStatus,
                 update = updates.Status,
                 localAddress = localAddress.Status,
@@ -130,6 +131,9 @@ public static class AdminApi
                 x.Id,
                 x.Name,
                 x.Description,
+                x.ControllerSlug,
+                x.ControllerColor,
+                x.ControllerHostname,
                 lessonCount = db.Lessons.Count(lesson => lesson.ClassId == x.Id),
                 screenCount = db.Screens.Count(screen => screen.AssignedClassId == x.Id && !screen.Revoked)
             }).ToListAsync(ct));
@@ -137,7 +141,17 @@ public static class AdminApi
         planning.MapPost("/classes", async (ClassInput input, LessonCueDb db, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Class name is required." });
-            var item = new LessonClass { Name = input.Name.Trim(), Description = input.Description?.Trim() ?? "" };
+            var slug = NormalizeControllerSlug(input.ControllerSlug ?? input.Name);
+            var error = ValidateControllerAddress(slug, input.ControllerColor, input.ControllerHostname);
+            if (error is not null) return Results.BadRequest(new { error });
+            if (await db.Classes.AnyAsync(x => x.ControllerSlug == slug, ct))
+                return Results.Conflict(new { error = "That controller path is already assigned to another class." });
+            var hostname = NormalizeHostname(input.ControllerHostname);
+            if (hostname is not null && await db.Classes.AnyAsync(x => x.ControllerHostname == hostname, ct))
+                return Results.Conflict(new { error = "That controller hostname is already assigned to another class." });
+            var item = new LessonClass { Name = input.Name.Trim(), Description = input.Description?.Trim() ?? "",
+                ControllerSlug = slug, ControllerColor = input.ControllerColor?.Trim() ?? "#2d6a4f",
+                ControllerHostname = hostname };
             db.Classes.Add(item);
             Audit(db, "class.create", item.Id, item.Name);
             await db.SaveChangesAsync(ct);
@@ -149,11 +163,51 @@ public static class AdminApi
             var item = await db.Classes.FindAsync([id], ct);
             if (item is null) return Results.NotFound();
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Class name is required." });
+            var slug = NormalizeControllerSlug(input.ControllerSlug ??
+                (string.IsNullOrWhiteSpace(item.ControllerSlug) ? input.Name : item.ControllerSlug));
+            var error = ValidateControllerAddress(slug, input.ControllerColor ?? item.ControllerColor, input.ControllerHostname);
+            if (error is not null) return Results.BadRequest(new { error });
+            if (await db.Classes.AnyAsync(x => x.Id != id && x.ControllerSlug == slug, ct))
+                return Results.Conflict(new { error = "That controller path is already assigned to another class." });
+            var hostname = NormalizeHostname(input.ControllerHostname);
+            if (hostname is not null && await db.Classes.AnyAsync(x => x.Id != id && x.ControllerHostname == hostname, ct))
+                return Results.Conflict(new { error = "That controller hostname is already assigned to another class." });
             item.Name = input.Name.Trim();
             item.Description = input.Description?.Trim() ?? "";
+            item.ControllerSlug = slug;
+            item.ControllerColor = input.ControllerColor?.Trim() ?? item.ControllerColor;
+            item.ControllerHostname = hostname;
             Audit(db, "class.update", id, item.Name);
             await db.SaveChangesAsync(ct);
             return Results.Ok(item);
+        });
+
+        planning.MapPost("/controller/sessions", async (TemporaryControllerSessionInput input,
+            ControllerSessionService controllerSessions, LessonCueDb db, CancellationToken ct) =>
+        {
+            if (input.ExpiresInMinutes is < 5 or > 10_080)
+                return Results.BadRequest(new { error = "Temporary controller duration must be from 5 minutes to 7 days." });
+            var lessonClass = await db.Classes.AsNoTracking().SingleOrDefaultAsync(x => x.Id == input.ClassId, ct);
+            if (lessonClass is null) return Results.BadRequest(new { error = "Choose an existing class." });
+            if (input.LessonId is Guid lessonId && !await db.Lessons.AnyAsync(x => x.Id == lessonId && x.ClassId == input.ClassId && !x.Archived, ct))
+                return Results.BadRequest(new { error = "The selected lesson is unavailable in that class." });
+            var session = controllerSessions.Create(input.ClassId, input.LessonId, input.ExpiresInMinutes);
+            Audit(db, "controller.session.create", input.ClassId, $"expires:{session.ExpiresAt:O};lesson:{input.LessonId}");
+            await db.SaveChangesAsync(ct);
+            return Results.Created($"/api/v1/controller/sessions/{session.Token}", new
+            {
+                session.Token, session.ClassId, session.LessonId, session.ExpiresAt,
+                path = $"/session/{session.Token}"
+            });
+        });
+
+        playback.MapGet("/controller/sessions/{token}", (string token, ControllerSessionService controllerSessions) =>
+        {
+            var session = controllerSessions.Get(token);
+            return session is null ? Results.NotFound(new { error = "This temporary controller link is invalid or expired." }) : Results.Ok(new
+            {
+                session.ClassId, session.LessonId, session.ExpiresAt
+            });
         });
 
         admin.MapGet("/lessons", async (Guid? classId, LessonCueDb db, CancellationToken ct) =>
@@ -1370,8 +1424,8 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        playback.MapPost("/screens/{id:guid}/control", async (Guid id, ScreenControlInput input, LessonCueDb db,
-            IHubContext<SyncHub> hub, CancellationToken ct) =>
+        playback.MapPost("/screens/{id:guid}/control", async (Guid id, ScreenControlInput input, HttpContext context, LessonCueDb db,
+            IHubContext<SyncHub> hub, ControllerSessionService controllerSessions, CancellationToken ct) =>
         {
             var action = input.Action.Trim().ToLowerInvariant();
             var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -1379,6 +1433,30 @@ public static class AdminApi
             if (!allowed.Contains(action)) return Results.BadRequest(new { error = "Unsupported playback command." });
             var screen = await db.Screens.SingleOrDefaultAsync(x => x.Id == id && !x.Revoked, ct);
             if (screen is null) return Results.NotFound();
+            var controllerContext = context.Request.Headers["X-LessonCue-Controller"].ToString();
+            if (controllerContext.Equals("universal", StringComparison.OrdinalIgnoreCase))
+            {
+                var grant = context.Request.Headers["X-LessonCue-Controller-Grant"].ToString();
+                if (!controllerSessions.IsUniversalGrantValid(grant))
+                    return Results.Json(new { error = "Enter the current universal controller PIN." }, statusCode: StatusCodes.Status403Forbidden);
+            }
+            if (controllerContext.StartsWith("room:", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!Guid.TryParse(controllerContext[5..], out var roomId) || screen.AssignedClassId != roomId)
+                    return Results.Forbid();
+                if (input.LessonId is Guid scopedLessonId && !await db.Lessons.AnyAsync(x => x.Id == scopedLessonId && x.ClassId == roomId, ct))
+                    return Results.Forbid();
+            }
+            if (controllerContext.StartsWith("session:", StringComparison.OrdinalIgnoreCase))
+            {
+                var session = controllerSessions.Get(controllerContext[8..]);
+                if (session is null || screen.AssignedClassId != session.ClassId ||
+                    session.LessonId is Guid restrictedCurrentLessonId && action != "play" && screen.PlaybackLessonId != restrictedCurrentLessonId ||
+                    input.LessonId is Guid sessionLessonId &&
+                    (session.LessonId is Guid restrictedLessonId && sessionLessonId != restrictedLessonId ||
+                     !await db.Lessons.AnyAsync(x => x.Id == sessionLessonId && x.ClassId == session.ClassId, ct)))
+                    return Results.Forbid();
+            }
             if (action == "play")
             {
                 if (input.LessonId is not Guid lessonId)
@@ -1461,6 +1539,7 @@ public static class AdminApi
     private static void MapOperations(RouteGroupBuilder admin, string dataPath)
     {
         var planning = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Planning);
+        var playback = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Playback);
         var userAdmin = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Users);
         var settings = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Settings);
         var backupsAdmin = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Backups);
@@ -1491,6 +1570,30 @@ public static class AdminApi
             Audit(db, "organization.update", organization.Id, organization.Name); await db.SaveChangesAsync(ct);
             return Results.Ok(organization);
         });
+
+        settings.MapPut("/controller-pin", async (ControllerPinInput input, LessonCueDb db,
+            IPasswordHasher<Organization> hasher, ControllerSessionService controllerSessions, CancellationToken ct) =>
+        {
+            if (input.Pin.Length != 6 || input.Pin.Any(character => !char.IsAsciiDigit(character)))
+                return Results.BadRequest(new { error = "Universal controller PIN must be exactly six digits." });
+            var organization = await db.Organizations.SingleAsync(ct);
+            organization.ControllerPinHash = hasher.HashPassword(organization, input.Pin);
+            controllerSessions.RevokeUniversalGrants();
+            Audit(db, "controller.pin.update", organization.Id, "Universal controller PIN changed");
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        });
+
+        playback.MapPost("/controller/unlock", async (ControllerPinInput input, LessonCueDb db,
+            IPasswordHasher<Organization> hasher, ControllerSessionService controllerSessions, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().SingleAsync(ct);
+            if (organization.ControllerPinHash is null)
+                return Results.Conflict(new { error = "An administrator must configure the universal controller PIN in Settings." });
+            return hasher.VerifyHashedPassword(organization, organization.ControllerPinHash, input.Pin) == PasswordVerificationResult.Failed
+                ? Results.Json(new { error = "That controller PIN was not accepted." }, statusCode: StatusCodes.Status403Forbidden)
+                : Results.Ok(new { grant = controllerSessions.CreateUniversalGrant(), expiresAt = DateTimeOffset.UtcNow.AddHours(12) });
+        }).RequireRateLimiting("login");
 
         settings.MapGet("/storage", async (LessonCueDb db, StorageService storage, CancellationToken ct) =>
             Results.Ok(await storage.GetSnapshotAsync(db, ct)));
@@ -1916,6 +2019,32 @@ public static class AdminApi
     private static string? ValidateCredentials(string username, string password)
     {
         return AdminCredentialPolicy.Validate(username, password);
+    }
+
+    private static string NormalizeControllerSlug(string? value)
+    {
+        var source = (value ?? "").Trim().ToLowerInvariant();
+        var joined = string.Join('-', source.Split([' ', '_', '/', '\\'], StringSplitOptions.RemoveEmptyEntries));
+        var result = new string(joined.Where(character => char.IsAsciiLetterOrDigit(character) || character == '-').ToArray());
+        while (result.Contains("--", StringComparison.Ordinal)) result = result.Replace("--", "-", StringComparison.Ordinal);
+        return result.Trim('-');
+    }
+
+    private static string? NormalizeHostname(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim().TrimEnd('.').ToLowerInvariant();
+
+    private static string? ValidateControllerAddress(string slug, string? color, string? hostname)
+    {
+        if (slug.Length is < 1 or > 63 || slug.StartsWith('-') || slug.EndsWith('-'))
+            return "Controller path must be 1–63 lowercase letters, numbers, or hyphens.";
+        var selectedColor = color?.Trim() ?? "#2d6a4f";
+        if (selectedColor.Length != 7 || selectedColor[0] != '#' || selectedColor[1..].Any(character => !Uri.IsHexDigit(character)))
+            return "Controller color must be a six-digit hex color.";
+        var normalizedHost = NormalizeHostname(hostname);
+        if (normalizedHost is not null && (normalizedHost.Length > 253 || normalizedHost.Contains('/') || normalizedHost.Contains(':') ||
+            normalizedHost.Split('.').Any(label => label.Length is < 1 or > 63 || label.StartsWith('-') || label.EndsWith('-') || label.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '-'))))
+            return "Controller hostname must be a hostname only, without https://, a port, or a path.";
+        return null;
     }
 
     private static Task SignInAsync(HttpContext context, AdminAccount account)

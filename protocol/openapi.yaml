@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 2.8.0
+  version: 2.9.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local
@@ -74,6 +74,23 @@ paths:
             schema: { $ref: '#/components/schemas/ClassInput' }
       responses:
         '201': { description: Created }
+  /api/v1/classes/{id}:
+    put:
+      operationId: updateClass
+      description: Updates class details and its room-specific controller path, theme, and optional hostname. Requires planning.manage.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClassInput' }
+      responses:
+        '200': { description: Updated class }
+        '409': { description: Controller path is already assigned }
   /api/v1/lessons:
     get:
       operationId: listLessons
@@ -328,6 +345,16 @@ paths:
           in: path
           required: true
           schema: { type: string, format: uuid }
+        - name: X-LessonCue-Controller
+          in: header
+          required: false
+          description: Browser controller scope (`room:{classId}` or `universal`). Room scope is checked against screen and lesson assignments.
+          schema: { type: string }
+        - name: X-LessonCue-Controller-Grant
+          in: header
+          required: false
+          description: Opaque 12-hour grant returned after rate-limited PIN validation; required for universal browser-controller commands.
+          schema: { type: string, pattern: '^[0-9a-f]{64}$' }
       requestBody:
         required: true
         content:
@@ -337,6 +364,42 @@ paths:
         '202': { description: Command saved for the screen }
         '400': { description: Invalid command, lesson, or playlist item }
         '404': { description: Screen not found }
+  /api/v1/controller/unlock:
+    post:
+      operationId: unlockUniversalController
+      description: Requires playback.control. Validates the separately configured universal-controller PIN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ControllerPinInput' }
+      responses:
+        '200': { description: PIN accepted; returns an opaque 12-hour universal-controller grant }
+        '403': { description: PIN not accepted }
+        '409': { description: An administrator has not configured a PIN }
+  /api/v1/controller/sessions:
+    post:
+      operationId: createTemporaryControllerSession
+      description: Requires planning.manage. Creates an in-memory, expiring controller URL restricted to one class and optionally one lesson.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TemporaryControllerSessionInput' }
+      responses:
+        '201': { description: One-time temporary controller URL and expiry }
+  /api/v1/controller/sessions/{token}:
+    get:
+      operationId: getTemporaryControllerSession
+      description: Requires playback.control. Resolves an unexpired temporary controller scope.
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[0-9a-f]{48}$' }
+      responses:
+        '200': { description: Active restricted scope }
+        '404': { description: Link is invalid, expired, or was cleared by a server restart }
   /api/v1/tv/status:
     post:
       operationId: reportTvStatus
@@ -806,6 +869,18 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/PairingStatus' }
         '400': { description: The fixed PIN is not exactly six digits }
+  /api/v1/controller-pin:
+    put:
+      operationId: setUniversalControllerPin
+      description: Requires settings.manage. Hashes and replaces the six-digit universal-controller PIN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ControllerPinInput' }
+      responses:
+        '204': { description: PIN replaced }
+        '400': { description: PIN is not exactly six digits }
   /api/v1/users:
     get:
       operationId: listUsers
@@ -1103,6 +1178,21 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 120 }
         description: { type: string, maxLength: 1000 }
+        controllerSlug: { type: [string, 'null'], pattern: '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$' }
+        controllerColor: { type: [string, 'null'], pattern: '^#[0-9a-fA-F]{6}$' }
+        controllerHostname: { type: [string, 'null'], maxLength: 253 }
+    ControllerPinInput:
+      type: object
+      required: [pin]
+      properties:
+        pin: { type: string, pattern: '^[0-9]{6}$' }
+    TemporaryControllerSessionInput:
+      type: object
+      required: [classId, expiresInMinutes]
+      properties:
+        classId: { type: string, format: uuid }
+        lessonId: { type: [string, 'null'], format: uuid }
+        expiresInMinutes: { type: integer, minimum: 5, maximum: 10080, default: 60 }
     LessonInput:
       type: object
       required: [classId, date, title]

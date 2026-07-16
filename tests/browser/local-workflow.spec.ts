@@ -254,6 +254,28 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   });
   expect(unsupportedTunnel.status).toBe(400);
   expect(unsupportedTunnel.body.error).toContain("native Linux installation");
+  const universalPanel = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: "Universal controller" }) });
+  await universalPanel.getByLabel("Six-digit PIN").fill("482731");
+  await universalPanel.getByRole("button", { name: "Set controller PIN" }).click();
+  await expect(page.getByText("Universal controller PIN saved.", { exact: false })).toBeVisible();
+  const controllerSecurity = await page.evaluate(async () => {
+    const headers = { "Content-Type": "application/json" };
+    const unlock = (pin: string) => fetch("/api/v1/controller/unlock", { method: "POST", headers, body: JSON.stringify({ pin }) });
+    const denied = await unlock("000000");
+    const accepted = await unlock("482731");
+    const classes = await fetch("/api/v1/classes").then(response => response.json());
+    const lesson = (await fetch("/api/v1/lessons").then(response => response.json()))[0];
+    const updated = await fetch(`/api/v1/classes/${classes[0].id}`, { method: "PUT", headers,
+      body: JSON.stringify({ name: classes[0].name, description: classes[0].description, controllerSlug: "browser-room", controllerColor: "#316b83", controllerHostname: null }) });
+    const created = await fetch("/api/v1/controller/sessions", { method: "POST", headers,
+      body: JSON.stringify({ classId: classes[0].id, lessonId: lesson.id, expiresInMinutes: 15 }) });
+    const temporary = await created.json();
+    const resolved = await fetch(`/api/v1/controller/sessions/${temporary.token}`);
+    return { denied: denied.status, accepted: accepted.status, updated: updated.status, created: created.status,
+      resolved: resolved.status, path: temporary.path, scope: await resolved.json() };
+  });
+  expect(controllerSecurity).toMatchObject({ denied: 403, accepted: 200, updated: 200, created: 201, resolved: 200,
+    path: expect.stringMatching(/^\/session\/[0-9a-f]{48}$/), scope: { lessonId: expect.any(String) } });
   await page.getByRole("button", { name: "Full backup" }).click();
   await expect(page.getByText("Full backup created.", { exact: false })).toBeVisible();
   const fullBackupLink = page.locator("a.backup-row").filter({ hasText: "full" });
@@ -333,6 +355,11 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByAltText("Diagnostic screenshot from Browser Test TV")).toBeVisible();
 
   await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: "Controller link" }).click();
+  const controllerDialog = page.getByRole("dialog", { name: /controller$/ });
+  await expect(controllerDialog.getByAltText(/QR code for/)).toBeVisible();
+  await expect(controllerDialog.getByText(/\/room\/browser-room/)).toBeVisible();
+  await controllerDialog.getByRole("button", { name: "Close" }).click();
   const quickCreate = page.locator("form.quick-create");
   await quickCreate.locator('input[name="title"]').fill("Bulk Lesson One");
   await quickCreate.locator('input[name="date"]').fill(dateDaysFromNow(35));

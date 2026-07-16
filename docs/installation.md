@@ -116,8 +116,8 @@ Do not forward LessonCue's HTTP port directly from the internet. Use the protect
 Connect the phone to the same trusted Wi-Fi as the LessonCue server and TV. Open one of these addresses in Safari or Chrome, replacing `SERVER-IP` when needed:
 
 ```text
-http://lessoncue.local/controller
-http://SERVER-IP/controller
+http://lessoncue.local/universalremote
+http://SERVER-IP/universalremote
 ```
 
 Sign in with a local LessonCue account. Choose the paired screen, choose a lesson, and use **Play lesson**, an individual media row, pause/resume, previous/next, stop, or seek. The television app must be open and paired; its status should say **Screen online** in the controller.

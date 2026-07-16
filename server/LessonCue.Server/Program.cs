@@ -73,6 +73,8 @@ builder.Services.AddSingleton(services => new CloudflareTunnelService(dataPath,
 builder.Services.AddHostedService(services => services.GetRequiredService<CloudflareTunnelService>());
 builder.Services.AddSingleton<IPasswordHasher<PairingAttempt>, PasswordHasher<PairingAttempt>>();
 builder.Services.AddSingleton<IPasswordHasher<AdminAccount>, PasswordHasher<AdminAccount>>();
+builder.Services.AddSingleton<IPasswordHasher<Organization>, PasswordHasher<Organization>>();
+builder.Services.AddSingleton<ControllerSessionService>();
 builder.Services.AddSignalR();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(options =>
 {

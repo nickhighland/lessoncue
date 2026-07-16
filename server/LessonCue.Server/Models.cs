@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace LessonCue.Server;
 
@@ -17,6 +18,7 @@ public sealed class Organization
     [MaxLength(16)] public string NavigationTextColor { get; set; } = "#aac0bb";
     [MaxLength(16)] public string SelectedTabColor { get; set; } = "#3a4541";
     [MaxLength(240)] public string WelcomeMessage { get; set; } = "Welcome";
+    [JsonIgnore] public string? ControllerPinHash { get; set; }
 }
 
 public sealed class AdminAccount
@@ -39,6 +41,9 @@ public sealed class LessonClass
     public Guid Id { get; set; } = Guid.NewGuid();
     [MaxLength(120)] public required string Name { get; set; }
     [MaxLength(1000)] public string Description { get; set; } = "";
+    [MaxLength(63)] public string ControllerSlug { get; set; } = "";
+    [MaxLength(16)] public string ControllerColor { get; set; } = "#2d6a4f";
+    [MaxLength(253)] public string? ControllerHostname { get; set; }
 }
 
 public sealed class Lesson
@@ -345,7 +350,8 @@ public sealed class AuditEvent
     public string? Summary { get; set; }
 }
 
-public sealed record ClassInput(string Name, string? Description);
+public sealed record ClassInput(string Name, string? Description, string? ControllerSlug = null,
+    string? ControllerColor = null, string? ControllerHostname = null);
 public sealed record LessonInput(Guid ClassId, DateOnly Date, string Title, DateTimeOffset? AvailableFrom,
     DateTimeOffset? ExpiresAt, DateTimeOffset? DesignatedStartAt, bool PreRollEnabled, Guid? CountdownItemId,
     DateTimeOffset? PreRollStartsAt = null);
@@ -355,6 +361,8 @@ public sealed record PlaylistItemInput(string Title, string Type, string? Role, 
 public sealed record PairingRequestInput(string DeviceName, string Platform, string AppVersion, string? DevicePublicKey);
 public sealed record PairingConfirmInput(Guid RequestId, string Pin);
 public sealed record PairingPinInput(string? Pin, bool Automatic = false);
+public sealed record ControllerPinInput(string Pin);
+public sealed record TemporaryControllerSessionInput(Guid ClassId, Guid? LessonId, int ExpiresInMinutes = 60);
 public sealed record BackupRestoreInput(Guid RestoreId, string Confirmation);
 public sealed record TvStatusInput(Guid ScreenId, string AppVersion, bool Online, long FreeBytes,
     int ManifestVersion, int FailedDownloads, int? AcknowledgedControlVersion = null,

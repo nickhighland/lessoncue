@@ -2,7 +2,7 @@
   "name": "LessonCue Controller",
   "short_name": "LessonCue",
   "description": "Control local LessonCue playback from a phone or tablet.",
-  "start_url": "/controller",
+  "start_url": "/universalremote",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
