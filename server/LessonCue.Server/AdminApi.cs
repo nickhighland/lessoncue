@@ -76,7 +76,7 @@ public static class AdminApi
         var admin = api.MapGroup("").RequireAuthorization();
 
         admin.MapGet("/admin/bootstrap", async (LessonCueDb db, PairingCodeService pairing, StorageService storage,
-            UpdateService updates, LocalAddressService localAddress, CancellationToken ct) =>
+            UpdateService updates, LocalAddressService localAddress, HttpPortService httpPort, CancellationToken ct) =>
         {
             var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
             var storageStatus = await storage.GetSnapshotAsync(organization.StorageLimitBytes, ct);
@@ -93,6 +93,7 @@ public static class AdminApi
                 storage = storageStatus,
                 update = updates.Status,
                 localAddress = localAddress.Status,
+                httpPort = httpPort.Status,
                 counts = new
                 {
                     classes = await db.Classes.CountAsync(ct),
@@ -826,6 +827,22 @@ public static class AdminApi
             {
                 var status = await localAddress.SetAsync(input.Hostname, ct);
                 Audit(db, "server.local-address.update", Guid.Empty, status.Address);
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(status);
+            }
+            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        admin.MapGet("/http-port", (HttpPortService httpPort) => Results.Ok(httpPort.Status));
+
+        admin.MapPut("/http-port", async (HttpPortInput input, HttpPortService httpPort,
+            LessonCueDb db, HttpContext context, CancellationToken ct) =>
+        {
+            if (!IsManager(context.User)) return Results.Forbid();
+            try
+            {
+                var status = await httpPort.SetAsync(input.Port, ct);
+                Audit(db, "server.http-port.update", Guid.Empty, input.Port.ToString(CultureInfo.InvariantCulture));
                 await db.SaveChangesAsync(ct);
                 return Results.Ok(status);
             }

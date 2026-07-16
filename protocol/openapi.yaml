@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 1.6.0
+  version: 1.7.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
-  - url: http://lessoncue.local:8080
+  - url: http://lessoncue.local
 paths:
   /.well-known/lessoncue:
     get:
@@ -257,6 +257,34 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/LocalAddressStatus' }
         '400': { description: Invalid hostname }
+  /api/v1/http-port:
+    get:
+      operationId: getHttpPort
+      responses:
+        '200':
+          description: Configured browser port and application status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HttpPortStatus' }
+    put:
+      operationId: setHttpPort
+      description: Owner or administrator only. Saves the listener port and applies it automatically on native Linux.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [port]
+              properties:
+                port: { type: integer, minimum: 1, maximum: 65535 }
+      responses:
+        '200':
+          description: Saved HTTP port status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HttpPortStatus' }
+        '400': { description: Invalid port }
   /api/v1/updates:
     get:
       operationId: getUpdateStatus
@@ -416,6 +444,17 @@ components:
       properties:
         hostname: { type: string }
         address: { type: string, format: uri }
+        supported: { type: boolean }
+        pending: { type: boolean }
+        appliedAt: { type: [string, 'null'], format: date-time }
+        error: { type: [string, 'null'] }
+    HttpPortStatus:
+      type: object
+      required: [port, address, configurable, supported, pending]
+      properties:
+        port: { type: integer, minimum: 1, maximum: 65535 }
+        address: { type: string, format: uri }
+        configurable: { type: boolean }
         supported: { type: boolean }
         pending: { type: boolean }
         appliedAt: { type: [string, 'null'], format: date-time }

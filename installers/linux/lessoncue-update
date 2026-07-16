@@ -14,6 +14,22 @@ fi
 
 REQUEST_PATH=/var/lib/lessoncue/config/update-request
 REQUEST="$(head -n 1 "${REQUEST_PATH}" 2>/dev/null || true)"
+format_address() {
+  local hostname="$1" port="$2"
+  if [[ "${port}" == "80" ]]; then printf 'http://%s.local' "${hostname}"; else printf 'http://%s.local:%s' "${hostname}" "${port}"; fi
+}
+set_avahi_port() {
+  local port="$1" service=/etc/avahi/services/lessoncue.service temporary
+  [[ -f "${service}" ]] || return 0
+  temporary="$(mktemp)"
+  sed -E "s#<port>[0-9]+</port>#<port>${port}</port>#; s#<txt-record>port=[0-9]+</txt-record>#<txt-record>port=${port}</txt-record>#" "${service}" > "${temporary}"
+  if ! grep -q '<txt-record>port=' "${temporary}"; then
+    sed -E "s#([[:space:]]*)</service>#\1  <txt-record>port=${port}</txt-record>\n\1</service>#" "${temporary}" > "${temporary}.port"
+    mv "${temporary}.port" "${temporary}"
+  fi
+  install -m 0644 "${temporary}" "${service}"
+  rm -f "${temporary}"
+}
 if [[ "${REQUEST}" == hostname:* ]]; then
   LOCAL_HOSTNAME="${REQUEST#hostname:}"
   if [[ ! "${LOCAL_HOSTNAME}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
@@ -60,12 +76,52 @@ if [[ "${REQUEST}" == hostname:* ]]; then
     }
   ' /etc/avahi/avahi-daemon.conf > "${AVAHI_CONFIG}"
   install -m 0644 "${AVAHI_CONFIG}" /etc/avahi/avahi-daemon.conf
+  HTTP_PORT="$(cat /var/lib/lessoncue/config/http-port 2>/dev/null || printf '8080')"
+  set_avahi_port "${HTTP_PORT}"
   systemctl restart avahi-daemon
   printf '%s\n' "${LOCAL_HOSTNAME}" > /var/lib/lessoncue/config/hostname-result
   chown lessoncue:lessoncue /var/lib/lessoncue/config/hostname-result
   chmod 0600 /var/lib/lessoncue/config/hostname-result
-  echo "LessonCue is available at http://${LOCAL_HOSTNAME}.local:8080"
+  echo "LessonCue is available at $(format_address "${LOCAL_HOSTNAME}" "${HTTP_PORT}")"
   exit 0
+fi
+
+if [[ "${REQUEST}" == port:* ]]; then
+  HTTP_PORT="${REQUEST#port:}"
+  if [[ ! "${HTTP_PORT}" =~ ^[0-9]+$ ]] || (( HTTP_PORT < 1 || HTTP_PORT > 65535 )); then
+    echo "LessonCue rejected an invalid HTTP port."
+    exit 1
+  fi
+
+  # Give the web request time to return before restarting its server.
+  sleep 2
+  PREVIOUS_PORT="$(cat /var/lib/lessoncue/config/http-port.previous 2>/dev/null || printf '8080')"
+  LOCAL_HOSTNAME="$(cat /var/lib/lessoncue/config/local-hostname 2>/dev/null || printf 'lessoncue')"
+  set_avahi_port "${HTTP_PORT}"
+  if command -v ufw >/dev/null 2>&1; then ufw allow "${HTTP_PORT}/tcp" >/dev/null || true; fi
+  systemctl restart avahi-daemon || true
+  systemctl restart lessoncue.service || true
+  for _ in {1..30}; do
+    if curl -fsS "http://127.0.0.1:${HTTP_PORT}/health" >/dev/null; then
+      printf '%s\n' "${HTTP_PORT}" > /var/lib/lessoncue/config/port-result
+      chown lessoncue:lessoncue /var/lib/lessoncue/config/port-result
+      chmod 0600 /var/lib/lessoncue/config/port-result
+      rm -f /var/lib/lessoncue/config/http-port.previous /var/lib/lessoncue/config/port-error
+      echo "LessonCue is available at $(format_address "${LOCAL_HOSTNAME}" "${HTTP_PORT}")"
+      exit 0
+    fi
+    sleep 1
+  done
+
+  printf '%s\n' "${PREVIOUS_PORT}" > /var/lib/lessoncue/config/http-port
+  set_avahi_port "${PREVIOUS_PORT}"
+  printf 'Port %s could not be opened. LessonCue returned to port %s. Another service may already be using the requested port.\n' "${HTTP_PORT}" "${PREVIOUS_PORT}" > /var/lib/lessoncue/config/port-error
+  chown lessoncue:lessoncue /var/lib/lessoncue/config/http-port /var/lib/lessoncue/config/port-error
+  chmod 0600 /var/lib/lessoncue/config/http-port /var/lib/lessoncue/config/port-error
+  systemctl restart avahi-daemon || true
+  systemctl restart lessoncue.service
+  echo "LessonCue could not use port ${HTTP_PORT}; restored port ${PREVIOUS_PORT}."
+  exit 1
 fi
 
 case "$(uname -m)" in
@@ -117,9 +173,10 @@ rm -rf "${PREVIOUS}" "${FAILED}"
 if [[ -d /opt/lessoncue ]]; then mv /opt/lessoncue "${PREVIOUS}"; fi
 mv "${STAGED}" /opt/lessoncue
 
+HTTP_PORT="$(cat /var/lib/lessoncue/config/http-port 2>/dev/null || printf '8080')"
 if systemctl start lessoncue.service; then
   for _ in {1..30}; do
-    if curl -fsS http://127.0.0.1:8080/health >/dev/null; then
+    if curl -fsS "http://127.0.0.1:${HTTP_PORT}/health" >/dev/null; then
       echo "LessonCue ${VERSION} installed successfully."
       exit 0
     fi

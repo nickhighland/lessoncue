@@ -22,7 +22,7 @@ RUN case "$TARGETARCH" in arm64) asset=yt-dlp_linux_aarch64 ;; *) asset=yt-dlp_l
 WORKDIR /app
 COPY --from=build /app/publish .
 ENV LESSONCUE_DATA_PATH=/data \
-    LESSONCUE_HTTP_PORT=8080
-EXPOSE 8080
+    LESSONCUE_HTTP_PORT=80
+EXPOSE 80
 VOLUME ["/data"]
 ENTRYPOINT ["dotnet", "LessonCue.Server.dll"]

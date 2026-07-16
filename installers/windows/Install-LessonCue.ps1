@@ -28,7 +28,7 @@ $Binary = '"{0}"' -f (Join-Path $Target 'LessonCue.Server.exe')
 if (Get-Service LessonCue -ErrorAction SilentlyContinue) { Stop-Service LessonCue; sc.exe delete LessonCue | Out-Null }
 New-Service -Name LessonCue -BinaryPathName $Binary -DisplayName 'LessonCue Server' -StartupType Automatic
 [Environment]::SetEnvironmentVariable('LESSONCUE_DATA_PATH', $Data, 'Machine')
-[Environment]::SetEnvironmentVariable('LESSONCUE_HTTP_PORT', '8080', 'Machine')
-New-NetFirewallRule -DisplayName 'LessonCue Server' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 -ErrorAction SilentlyContinue | Out-Null
+[Environment]::SetEnvironmentVariable('LESSONCUE_HTTP_PORT', '80', 'Machine')
+New-NetFirewallRule -DisplayName 'LessonCue Server' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 80 -ErrorAction SilentlyContinue | Out-Null
 Start-Service LessonCue
-Write-Host 'LessonCue is installed. Open http://localhost:8080'
+Write-Host 'LessonCue is installed. Open http://localhost'

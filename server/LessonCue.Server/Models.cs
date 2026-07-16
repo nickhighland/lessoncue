@@ -244,6 +244,7 @@ public sealed record OrganizationInput(string Name, string SiteName, string Time
     string? NavigationTextColor, string? SelectedTabColor, string WelcomeMessage);
 public sealed record StorageLimitInput(long LimitBytes);
 public sealed record LocalHostnameInput(string Hostname);
+public sealed record HttpPortInput(int Port);
 public sealed record SignageInput(string Name, string Mode, bool Enabled, int Priority, DateTimeOffset? StartsAt,
     DateTimeOffset? EndsAt, string? Message, string? BackgroundColor, string? TextColor, Guid? MediaAssetId, string? TargetTagsCsv);
 public sealed record LinkInput(string Url, string? Title, bool Download = false, bool Persistent = true, Guid? LessonId = null);

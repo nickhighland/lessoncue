@@ -20,13 +20,15 @@ curl -fL "https://github.com/nickhighland/lessoncue/releases/download/${version}
 tar -xzf "${workdir}/lessoncue.tar.gz" -C "${workdir}"
 sudo "${workdir}/install.sh"
 
+http_port="$(sudo cat /var/lib/lessoncue/config/http-port 2>/dev/null || printf '80')"
+if [[ "${http_port}" == "80" ]]; then port_suffix=""; else port_suffix=":${http_port}"; fi
 for attempt in $(seq 1 30); do
-  if curl -fsS http://127.0.0.1:8080/health >/dev/null; then
+  if curl -fsS "http://127.0.0.1:${http_port}/health" >/dev/null; then
     server_ip="$(hostname -I | awk '{print $1}')"
     echo
     echo "LessonCue is ready."
-    echo "Open http://lessoncue.local:8080 in a browser on the same network."
-    echo "Numeric fallback: http://${server_ip}:8080"
+    echo "Open http://lessoncue.local${port_suffix} in a browser on the same network."
+    echo "Numeric fallback: http://${server_ip}${port_suffix}"
     exit 0
   fi
   sleep 1

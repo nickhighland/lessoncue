@@ -27,7 +27,7 @@ struct RootView: View {
 
 private struct ConnectView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var address = "http://lessoncue.local:8080"
+    @State private var address = "http://lessoncue.local"
 
     var body: some View {
         FormPanel(eyebrow: "LESSONCUE", title: "Connect this Apple TV",

@@ -27,7 +27,7 @@ var keyPath = Path.Combine(configPath, "keys");
 Directory.CreateDirectory(keyPath);
 builder.Configuration.AddJsonFile(Path.Combine(configPath, "appsettings.json"), optional: true, reloadOnChange: true);
 
-var port = Environment.GetEnvironmentVariable("LESSONCUE_HTTP_PORT") ?? "8080";
+var port = HttpPortConfiguration.Resolve(dataPath);
 if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
     builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 20L * 1024 * 1024 * 1024);
@@ -43,7 +43,9 @@ builder.Services.AddSingleton(new PairingCodeService(dataPath, builder.Configura
 builder.Services.AddSingleton(new BackupService(dataPath));
 builder.Services.AddSingleton(new MediaStoragePaths(dataPath));
 builder.Services.AddSingleton(new StorageService(dataPath));
-builder.Services.AddSingleton(services => new LocalAddressService(dataPath, services.GetRequiredService<ILogger<LocalAddressService>>()));
+builder.Services.AddSingleton(services => new HttpPortService(dataPath, port, services.GetRequiredService<ILogger<HttpPortService>>()));
+builder.Services.AddHostedService(services => services.GetRequiredService<HttpPortService>());
+builder.Services.AddSingleton(services => new LocalAddressService(dataPath, port, services.GetRequiredService<ILogger<LocalAddressService>>()));
 builder.Services.AddHostedService(services => services.GetRequiredService<LocalAddressService>());
 builder.Services.AddHostedService<MediaProcessingService>();
 builder.Services.AddHostedService<YouTubeImportService>();
@@ -155,6 +157,7 @@ var serverName = Environment.GetEnvironmentVariable("LESSONCUE_SERVER_NAME")
     ?? builder.Configuration["LessonCue:ServerName"] ?? "LessonCue";
 var pairingCodes = app.Services.GetRequiredService<PairingCodeService>();
 var localAddress = app.Services.GetRequiredService<LocalAddressService>();
+var httpPort = app.Services.GetRequiredService<HttpPortService>();
 app.Logger.LogInformation("LessonCue pairing PIN: {PairingPin}", pairingCodes.Current);
 
 app.MapGet("/.well-known/lessoncue", () => new
@@ -162,7 +165,7 @@ app.MapGet("/.well-known/lessoncue", () => new
     product = "LessonCue",
     serverId,
     serverName,
-    localAddress = localAddress.Status.Address,
+    localAddress = httpPort.Status.Address,
     apiVersion = 1,
     pairingEnabled = true
 });

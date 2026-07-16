@@ -250,7 +250,7 @@ fun LessonCueApp() {
 
 @Composable
 private fun ConnectScreen(message: String?, onConnect: (String) -> Unit) {
-    var address by remember { mutableStateOf("http://lessoncue.local:8080") }
+    var address by remember { mutableStateOf("http://lessoncue.local") }
     FormLayout("Connect this TV", "Enter the LessonCue server address shown during installation.") {
         InputBox(address) { address = it }
         message?.let { Text(it, color = Coral, modifier = Modifier.padding(top = 12.dp)) }

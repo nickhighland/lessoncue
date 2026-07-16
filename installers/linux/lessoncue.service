@@ -10,7 +10,10 @@ Group=lessoncue
 WorkingDirectory=/opt/lessoncue
 ExecStart=/opt/lessoncue/LessonCue.Server
 Environment=LESSONCUE_DATA_PATH=/var/lib/lessoncue
+# Kept as an upgrade fallback for pre-0.9 installers; fresh installs persist port 80 in the data directory.
 Environment=LESSONCUE_HTTP_PORT=8080
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

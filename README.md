@@ -36,14 +36,14 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Then open `http://localhost:8080`. Native Linux installations automatically configure the preferred local-network address `http://lessoncue.local:8080`; administrators can change the name in Settings.
+Then open `http://localhost`. Native Linux installations automatically configure the preferred local-network address `http://lessoncue.local`; administrators can change both the name and HTTP port in Settings.
 
 For browser-interface development:
 
 ```bash
 npm ci
 npm run build:admin
-dotnet run --project server/LessonCue.Server
+LESSONCUE_HTTP_PORT=8080 dotnet run --project server/LessonCue.Server
 ```
 
 Open `http://localhost:8080`. For live front-end development, run `npm run dev:admin` in a second terminal and open `http://localhost:5173`.
@@ -69,7 +69,7 @@ Lesson pages and the Media Library also accept webpages and YouTube URLs. Androi
 
 Native Linux installations check for a new LessonCue release once per day. Owners and administrators can check immediately and install an available update from **Settings → Software updates**. The protected updater verifies the published checksum, restarts the server, performs a health check, and restores the previous application version if the new one cannot start. Existing servers must run the current SSH installer once to add this updater; later releases can be installed from the browser.
 
-Native Linux also advertises `http://lessoncue.local:8080` automatically. Owners and administrators can choose a different single-label `.local` name under **Settings → Connection & pairing** without changing the computer's Linux or SSH hostname.
+Native Linux also advertises `http://lessoncue.local` automatically. Owners and administrators can choose a different single-label `.local` name or HTTP port under **Settings → Connection & pairing** without changing the computer's Linux or SSH hostname. Port 80 is the default, so it does not need to appear in the address.
 
 Owners and administrators can choose an explicit LessonCue storage allocation or let it follow safely available disk space. LessonCue preserves a 512 MB operating-system reserve, rejects uploads that exceed the allocation, and shows remaining upload capacity to every user who has upload access.
 
@@ -77,7 +77,7 @@ Owners and administrators can choose an explicit LessonCue storage allocation or
 
 Select **Preview** on any ready item in the Media Library, or use the preview row on a lesson playlist. Video and audio previews reproduce the saved start/end trims, fade-in and fade-out, volume, loop behavior, and notes. Images, PDFs, online webpages, and YouTube embeds preview in the same local interface; presentation files provide a local open action when the browser cannot render the format directly.
 
-On a phone connected to the same trusted network, open `http://lessoncue.local:8080/controller` (or replace the hostname with the server's numeric local IP) and sign in with a LessonCue account. Select a paired screen and lesson, then start the complete sequence or a particular media item. Commands are versioned and stored on the local server, so a short Wi-Fi interruption does not reorder them; TV clients ignore commands issued before their current app session.
+On a phone connected to the same trusted network, open `http://lessoncue.local/controller` (or replace the hostname with the server's numeric local IP) and sign in with a LessonCue account. Select a paired screen and lesson, then start the complete sequence or a particular media item. Commands are versioned and stored on the local server, so a short Wi-Fi interruption does not reorder them; TV clients ignore commands issued before their current app session.
 
 To save it like an app, use **Share → Add to Home Screen** in Safari on iPhone/iPad, or **Add to Home screen** / **Install app** from the Android browser menu. The controller remains a local web interface—there is no separate phone app or hosted dependency.
 

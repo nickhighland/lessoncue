@@ -12,7 +12,7 @@
     <p class="eyebrow">HEADLESS LINUX INSTALLATION</p>
     <h1>Install entirely over SSH.</h1>
     <p class="intro">These commands install LessonCue on a 64-bit Ubuntu or Debian server with no desktop or GUI. Use a non-root SSH account with <code>sudo</code>.</p>
-    <div class="notice">Keep the server on your trusted local network. Do not forward TCP port 8080 from the public internet.</div>
+    <div class="notice">Keep the server on your trusted local network. Do not forward LessonCue's HTTP port from the public internet.</div>
     <section class="steps">
       <article>
         <b>STEP 1</b>
@@ -23,23 +23,23 @@
         <b>STEP 2 · COPY THESE COMMANDS</b>
         <h2>Download and install the latest release</h2>
         <pre>sudo apt-get update&#10;sudo apt-get install -y curl ca-certificates&#10;curl -fsSL https://raw.githubusercontent.com/nickhighland/lessoncue/main/installers/linux/install-latest.sh | bash</pre>
-        <p>The installer waits for the service and prints <code>LessonCue is ready</code> with <code>http://lessoncue.local:8080</code> and a numeric fallback.</p>
+        <p>The installer waits for the service and prints <code>LessonCue is ready</code> with <code>http://lessoncue.local</code> and a numeric fallback.</p>
       </article>
       <article>
         <b>STEP 3</b>
         <h2>Open the local interface</h2>
-        <p>Open <code>http://lessoncue.local:8080</code> from another computer on the same network. Create your local administrator account, then use the random pairing PIN shown on the Dashboard to pair a TV. Administrators can change the <code>.local</code> name in Settings.</p>
+        <p>Open <code>http://lessoncue.local</code> from another computer on the same network. Create your local administrator account, then use the random pairing PIN shown on the Dashboard to pair a TV. Administrators can change the <code>.local</code> name and HTTP port in Settings.</p>
       </article>
       <article>
         <b>STEP 4</b>
         <h2>Verify and find the local address</h2>
-        <pre>sudo systemctl status lessoncue --no-pager&#10;curl -fsS http://127.0.0.1:8080/health &amp;&amp; echo&#10;hostname -I | awk '{print "http://" $1 ":8080"}'</pre>
+        <pre>sudo systemctl status lessoncue --no-pager&#10;curl -fsS http://127.0.0.1/health &amp;&amp; echo&#10;hostname -I | awk '{print "http://" $1}'</pre>
         <p>The complete browser interface, API, database, schedules, and media are served by this local machine. No hosted interface is used.</p>
       </article>
       <article>
         <b>CELLPHONE CONTROLLER</b>
         <h2>Run playback from the room</h2>
-        <pre>http://lessoncue.local:8080/controller&#10;http://SERVER-IP:8080/controller</pre>
+        <pre>http://lessoncue.local/controller&#10;http://SERVER-IP/controller</pre>
         <p>Open the address on the same trusted Wi-Fi, sign in, and choose a screen and lesson. Use Safari's <strong>Add to Home Screen</strong> or the Android browser's <strong>Add to Home screen</strong> / <strong>Install app</strong> action to save it like an app.</p>
       </article>
       <article>

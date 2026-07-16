@@ -20,7 +20,7 @@ sudo apt-get install -y curl ca-certificates
 curl -fsSL https://raw.githubusercontent.com/nickhighland/lessoncue/main/installers/linux/install-latest.sh | bash
 ```
 
-The final message says `LessonCue is ready` and prints `http://lessoncue.local:8080` plus a numeric fallback such as `http://192.168.4.75:8080`. The SSH connection can then be closed; systemd keeps LessonCue running and starts it again after reboot.
+The final message says `LessonCue is ready` and prints `http://lessoncue.local` plus a numeric fallback such as `http://192.168.4.75`. The SSH connection can then be closed; systemd keeps LessonCue running and starts it again after reboot.
 
 ### First browser setup
 
@@ -28,14 +28,14 @@ On a computer connected to the same local network, open the address printed by t
 
 LessonCue creates a private local pairing secret and displays a six-digit PIN that rotates every ten minutes. After signing in, find the current PIN on the Dashboard and Screens pages. An owner or administrator can instead set a persistent six-digit local PIN under **Settings → Connection & pairing**. The same control switches back to automatic rotation at any time; the setting stays entirely on the local server.
 
-Native Linux installation configures `http://lessoncue.local:8080` automatically. An owner or administrator can change `lessoncue` to another single `.local` name under **Settings → Connection & pairing**. LessonCue changes only its Avahi/mDNS network identity; it does not rename the Linux computer or change the SSH hostname. Keep the numeric address as a fallback for networks that block multicast DNS.
+Native Linux installation configures `http://lessoncue.local` on standard HTTP port 80 automatically. An owner or administrator can change either `lessoncue` or the browser port under **Settings → Connection & pairing**. LessonCue applies the change and restarts itself; if a chosen port cannot be opened, it returns to the previous working port. Changing the name does not rename the Linux computer or SSH hostname. Keep the numeric address as a fallback for networks that block multicast DNS.
 
 ### Verify from SSH
 
 ```bash
 sudo systemctl status lessoncue --no-pager
-curl -fsS http://127.0.0.1:8080/health && echo
-curl -fsS http://127.0.0.1:8080/.well-known/lessoncue && echo
+curl -fsS http://127.0.0.1/health && echo
+curl -fsS http://127.0.0.1/.well-known/lessoncue && echo
 sudo journalctl -u lessoncue -n 50 --no-pager
 ```
 
@@ -66,20 +66,20 @@ The web server can remain running during this operation. If the selected account
 Find the server's local address over SSH:
 
 ```bash
-hostname -I | awk '{print "http://" $1 ":8080"}'
+hostname -I | awk '{print "http://" $1}'
 ```
 
-First try `http://lessoncue.local:8080`, then use the printed numeric address if `.local` discovery is unavailable on that network. The complete LessonCue administration interface is served from the local server. It does not load or depend on the hosted prototype.
+First try `http://lessoncue.local`, then use the printed numeric address if `.local` discovery is unavailable on that network. The complete LessonCue administration interface is served from the local server. It does not load or depend on the hosted prototype.
 
-Do not forward port 8080 from the internet. Use a VPN for remote access.
+Do not forward LessonCue's HTTP port from the internet. Use a VPN for remote access.
 
 ### Use the cellphone controller
 
 Connect the phone to the same trusted Wi-Fi as the LessonCue server and TV. Open one of these addresses in Safari or Chrome, replacing `SERVER-IP` when needed:
 
 ```text
-http://lessoncue.local:8080/controller
-http://SERVER-IP:8080/controller
+http://lessoncue.local/controller
+http://SERVER-IP/controller
 ```
 
 Sign in with a local LessonCue account. Choose the paired screen, choose a lesson, and use **Play lesson**, an individual media row, pause/resume, previous/next, stop, or seek. The television app must be open and paired; its status should say **Screen online** in the controller.
@@ -94,9 +94,9 @@ Choose a server with:
 - 4 GB RAM minimum; 8 GB recommended for transcoding.
 - Enough disk space for the original and processed media library.
 - Ethernet when possible and a reserved DHCP address.
-- TCP port 8080 reachable by the trusted television network.
+- TCP port 80, or the administrator-selected port, reachable by the trusted television network.
 
-Install FFmpeg/FFprobe for media inspection and transcoding. Install LibreOffice headlessly only if PowerPoint conversion is required. Do not expose port 8080 directly to the public internet.
+Install FFmpeg/FFprobe for media inspection and transcoding. Install LibreOffice headlessly only if PowerPoint conversion is required. Do not expose LessonCue directly to the public internet.
 
 ## Alternative: Docker
 
@@ -110,7 +110,7 @@ docker compose up -d --build
 docker compose logs -f lessoncue
 ```
 
-Open `http://SERVER-IP:8080`. Data is stored in `./lessoncue-data` unless `LESSONCUE_DATA_PATH` is changed in `.env`.
+Open `http://SERVER-IP`. Data is stored in `./lessoncue-data` unless `LESSONCUE_DATA_PATH` is changed in `.env`. Docker uses the `LESSONCUE_HTTP_PORT` value in `.env` for its host port; recreate the container after changing it.
 
 Docker bridge networking does not reliably publish mDNS. Use the numeric address or install the supplied `docker/avahi-service.xml` on the host. Native installation is friendlier for ordinary deployments.
 
@@ -122,7 +122,7 @@ Download `LessonCue-Server-linux-x64.tar.gz` or `LessonCue-Server-linux-arm64.ta
 sudo ./install.sh
 ```
 
-The installer creates a restricted `lessoncue` account, installs the application at `/opt/lessoncue`, keeps data at `/var/lib/lessoncue`, registers the systemd service, opens port 8080 when UFW is installed, and publishes the Avahi service when available. Running it again upgrades the application while preserving accounts, configuration, media, screen credentials, and backups.
+The installer creates a restricted `lessoncue` account, installs the application at `/opt/lessoncue`, keeps data at `/var/lib/lessoncue`, registers the systemd service, opens port 80 when UFW is installed, and publishes the Avahi service when available. Running it again upgrades the application while preserving accounts, configuration, media, screen credentials, and backups. Upgrading an older installation preserves its current port; an administrator can switch it to port 80 afterward in Settings.
 
 The release includes the architecture-matched `yt-dlp` helper used only when an operator explicitly chooses **Download YouTube locally**. FFmpeg inspects and thumbnails the resulting MP4. No separate Python or downloader installation is required.
 
@@ -147,6 +147,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 The script installs an automatically starting Windows service, adds the firewall rule, and stores data in `C:\ProgramData\LessonCue`. `Uninstall-LessonCue.ps1` removes the service and application but preserves that data directory.
 
+The browser port can be saved under **Settings → Connection & pairing**. On Windows, apply a changed port by opening PowerShell as Administrator, updating the matching Windows Firewall rule if necessary, and running `Restart-Service LessonCue`. Native Linux performs those steps automatically.
+
 For password recovery, open PowerShell as Administrator and run:
 
 ```powershell
@@ -160,11 +162,11 @@ $env:LESSONCUE_DATA_PATH = "$env:ProgramData\LessonCue"
 Open these URLs from another computer on the television network, replacing `SERVER-IP` with the numeric address printed by the installer:
 
 ```text
-http://SERVER-IP:8080/health
-http://SERVER-IP:8080/.well-known/lessoncue
+http://SERVER-IP/health
+http://SERVER-IP/.well-known/lessoncue
 ```
 
-The first response should say `healthy`; the second should report the server identity and API version. The complete browser interface is at `http://SERVER-IP:8080`.
+The first response should say `healthy`; the second should report the server identity and API version. The complete browser interface is at `http://SERVER-IP`.
 
 ## Android TV and Fire TV
 
@@ -172,7 +174,7 @@ Download `LessonCue-AndroidTV-debug.apk` from a workflow artifact or release. En
 
 On first launch:
 
-1. Enter `http://lessoncue.local:8080` or the numeric server address.
+1. Enter `http://lessoncue.local` or the numeric server address. Include `:PORT` only if an administrator selected a non-default port.
 2. Enter the temporary six-digit pairing PIN.
 3. Name and assign the screen in the server.
 4. Leave the app open until its lesson reports ready for offline use.
@@ -195,7 +197,7 @@ Select your development team, choose the Apple TV, and Run. Bonjour and local-ne
 
 ## Network checklist
 
-- Put TVs and the server on the same VLAN, or explicitly route TCP 8080 and mDNS between them.
+- Put TVs and the server on the same VLAN, or explicitly route LessonCue's selected TCP port and mDNS between them.
 - Disable wireless client isolation for the trusted device network.
 - Avoid guest Wi-Fi.
 - Reserve the server IP in DHCP and record its numeric URL.

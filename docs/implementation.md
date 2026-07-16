@@ -36,7 +36,7 @@ dotnet test server/LessonCue.Server.Tests/LessonCue.Server.Tests.csproj
 Configuration uses environment variables in production:
 
 - `LESSONCUE_DATA_PATH` — root of the persistent data tree.
-- `LESSONCUE_HTTP_PORT` — HTTP listener; default 8080.
+- `LESSONCUE_HTTP_PORT` — deployment-time HTTP listener fallback; default 80. A saved administrator choice takes precedence.
 - `LESSONCUE_SERVER_NAME` — discovery display name.
 - `ASPNETCORE_URLS` — optional standard ASP.NET listener override.
 
@@ -56,7 +56,7 @@ Arbitrary webpage links are never fetched by the server. Direct files, YouTube e
 
 `UpdateService` checks the public GitHub latest-release endpoint after startup and once per day. It only discovers versions as the unprivileged, sandboxed `lessoncue` service account. Installation is deliberately separated: the web server writes a typed request into its own config directory, and a root-owned systemd path unit turns that narrow signal into the update job. The web process receives no sudo access or new privileges. The root-owned oneshot updater downloads the fixed LessonCue repository and architecture-specific archive, verifies it against the release `SHA256SUMS`, stages a clean application directory, restarts LessonCue, and restores `/opt/lessoncue.previous` if the health endpoint does not recover. Persistent data under `/var/lib/lessoncue` is never replaced by the updater.
 
-The same protected request channel accepts only a strictly validated single-label local hostname. `LocalAddressService` defaults to `lessoncue`, persists the requested value under the LessonCue data directory, and asks the root-owned helper to update Avahi's `host-name` setting and restart Avahi. This changes the mDNS identity used for `.local` resolution without changing the operating-system hostname or granting the web process general configuration access.
+The same protected request channel accepts a strictly validated single-label local hostname or HTTP port. `LocalAddressService` defaults to `lessoncue`; `HttpPortService` defaults new installations to port 80. Both persist the requested value under the LessonCue data directory and ask the root-owned helper to update Avahi, the firewall, and the listener before restarting the affected service. The systemd unit grants only `CAP_NET_BIND_SERVICE`, which lets the restricted LessonCue account bind port 80 without granting root access. A failed port health check restores the previous port automatically.
 
 ### Local pairing PIN
 

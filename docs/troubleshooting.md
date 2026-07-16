@@ -2,9 +2,11 @@
 
 ## TV cannot find the server
 
-Open `http://SERVER-IP:8080/.well-known/lessoncue` from a phone on the same Wi-Fi. If it fails, check the server service, firewall, VLAN, and client isolation. If the numeric address works but `lessoncue.local` does not, mDNS is blocked or unavailable; use the numeric address and reserve it in DHCP.
+Open `http://SERVER-IP/.well-known/lessoncue` from a phone on the same Wi-Fi. If it fails, check the server service, firewall, VLAN, and client isolation. If the numeric address works but `lessoncue.local` does not, mDNS is blocked or unavailable; use the numeric address and reserve it in DHCP. If an administrator selected a non-default port, add `:PORT` after the hostname or IP address.
 
 Native Linux servers advertise `lessoncue.local` by default. The administrator can change this under **Settings → Connection & pairing**. After changing it, allow several seconds for Avahi and client DNS caches to refresh. If the page reports that the address is still being applied, inspect `sudo journalctl -u lessoncue-update.service -n 50 --no-pager` and `sudo systemctl status avahi-daemon --no-pager`.
+
+If a selected browser port is unavailable, LessonCue returns to the previous working port. Open the previous address and read the message under **Settings → Connection & pairing**, or inspect `sudo journalctl -u lessoncue-update.service -n 50 --no-pager`.
 
 ## Pairing PIN fails
 

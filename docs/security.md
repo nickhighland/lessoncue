@@ -14,6 +14,7 @@ LessonCue is local-network software, not trusted-network software. Treat every r
 - Retain audit logs and test backups and restoration.
 - Keep SSH or equivalent physical administrator access available for account recovery. The recovery command runs as the restricted `lessoncue` account, stores only a new adaptive password hash, audits the reset, and invalidates existing sessions for that account.
 - Owners and administrators can edit local names, usernames, emails, roles, and passwords from **Users**. They can also pause, reactivate, and permanently delete other accounts. Pausing or changing an account invalidates its previous browser sessions immediately.
+- Native Linux port and `.local` name changes use typed files watched by a root-owned helper; the web process receives no sudo access. The service has only the bind capability needed for port 80, and an unhealthy port change rolls back to the last working listener.
 - LessonCue prevents an administrator from pausing or deleting the account they are currently using, rejects duplicate usernames, and always preserves at least one active owner. Use the SSH recovery procedure if every known owner password is lost.
 
 Report security issues privately to the repository owner rather than opening an issue containing exploit details.

@@ -27,6 +27,14 @@ if [[ ! -f "${CONFIG_FILE}" ]]; then
   chmod 0600 "${CONFIG_FILE}"
 fi
 
+PORT_FILE=/var/lib/lessoncue/config/http-port
+if [[ ! -f "${PORT_FILE}" ]]; then
+  printf '80\n' > "${PORT_FILE}"
+  chown lessoncue:lessoncue "${PORT_FILE}"
+  chmod 0600 "${PORT_FILE}"
+fi
+HTTP_PORT="$(cat "${PORT_FILE}")"
+
 install -d /opt/lessoncue
 cp -a "${PAYLOAD_DIR}/." /opt/lessoncue/
 chown -R root:root /opt/lessoncue
@@ -53,10 +61,11 @@ if command -v avahi-daemon >/dev/null 2>&1; then
   fi
 fi
 
-if command -v ufw >/dev/null 2>&1; then ufw allow 8080/tcp >/dev/null || true; fi
+if command -v ufw >/dev/null 2>&1; then ufw allow "${HTTP_PORT}/tcp" >/dev/null || true; fi
 systemctl daemon-reload
 systemctl enable --now lessoncue-update.path
 systemctl enable lessoncue
 systemctl restart lessoncue
-echo "LessonCue is installed. Open http://lessoncue.local:8080"
-echo "Numeric fallback: http://$(hostname -I | awk '{print $1}'):8080"
+if [[ "${HTTP_PORT}" == "80" ]]; then PORT_SUFFIX=""; else PORT_SUFFIX=":${HTTP_PORT}"; fi
+echo "LessonCue is installed. Open http://lessoncue.local${PORT_SUFFIX}"
+echo "Numeric fallback: http://$(hostname -I | awk '{print $1}')${PORT_SUFFIX}"

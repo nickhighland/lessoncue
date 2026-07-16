@@ -15,12 +15,14 @@ public sealed class LocalAddressService : BackgroundService
     private readonly string _hostnamePath;
     private readonly string _resultPath;
     private readonly ILogger<LocalAddressService> _logger;
+    private readonly int _httpPort;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private LocalAddressStatus _status;
 
-    public LocalAddressService(string dataPath, ILogger<LocalAddressService> logger)
+    public LocalAddressService(string dataPath, int httpPort, ILogger<LocalAddressService> logger)
     {
         _logger = logger;
+        _httpPort = httpPort;
         var configPath = Path.Combine(dataPath, "config");
         Directory.CreateDirectory(configPath);
         _hostnamePath = Path.Combine(configPath, "local-hostname");
@@ -109,7 +111,7 @@ public sealed class LocalAddressService : BackgroundService
             : null;
         return new LocalAddressStatus(
             hostname,
-            $"http://{hostname}.local:8080",
+            HttpPortConfiguration.FormatAddress(hostname, _httpPort),
             supported,
             supported && applied != hostname,
             appliedAt,
