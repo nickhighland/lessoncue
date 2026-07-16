@@ -89,6 +89,9 @@ public static class DatabaseUpgrade
             ["MediaAssets.SourceKind"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"SourceKind\" TEXT NOT NULL DEFAULT 'upload'"),
             ["MediaAssets.SourceUrl"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"SourceUrl\" TEXT NULL"),
             ["MediaAssets.LinkKind"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"LinkKind\" TEXT NULL"),
+            ["MediaAssets.StoragePolicy"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"StoragePolicy\" TEXT NOT NULL DEFAULT 'persistent'"),
+            ["MediaAssets.OriginLessonId"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"OriginLessonId\" TEXT NULL"),
+            ["MediaAssets.DeleteAfter"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"DeleteAfter\" TEXT NULL"),
             ["Screens.AppVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"AppVersion\" TEXT NOT NULL DEFAULT 'unknown'"),
             ["Screens.ManifestVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ManifestVersion\" INTEGER NOT NULL DEFAULT 0"),
             ["Screens.TagsCsv"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"TagsCsv\" TEXT NOT NULL DEFAULT ''"),
@@ -102,6 +105,22 @@ public static class DatabaseUpgrade
             if (!await ColumnExistsAsync(connection, addition.Table, column, cancellationToken))
                 await ExecuteAsync(connection, addition.Sql, cancellationToken);
         }
+
+        // Rename only the exact untouched demonstration records shipped in earlier releases.
+        await ExecuteAsync(connection,
+            """
+            UPDATE "Classes" SET "Name" = 'Learning Lab', "Description" = 'A ready-to-use example class for any learning environment.'
+              WHERE "Name" = 'Children''s Sunday School' AND "Description" = 'A ready-to-use example class.';
+            UPDATE "Lessons" SET "Title" = 'Sample Lesson'
+              WHERE "Title" = 'The Good Samaritan' AND "Date" = '2026-07-19'
+                AND "ClassId" IN (SELECT "Id" FROM "Classes" WHERE "Name" = 'Learning Lab');
+            UPDATE "PlaylistItems" SET "Title" = 'Five-Minute Countdown'
+              WHERE "Title" = 'Five Minute Countdown' AND "LessonId" IN
+                (SELECT "Id" FROM "Lessons" WHERE "Title" = 'Sample Lesson' AND "Date" = '2026-07-19');
+            UPDATE "PlaylistItems" SET "Title" = 'Main Presentation'
+              WHERE "Title" = 'Teaching Video' AND "LessonId" IN
+                (SELECT "Id" FROM "Lessons" WHERE "Title" = 'Sample Lesson' AND "Date" = '2026-07-19');
+            """, cancellationToken);
     }
 
     private static async Task<bool> ColumnExistsAsync(System.Data.Common.DbConnection connection, string table, string column, CancellationToken ct)

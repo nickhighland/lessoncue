@@ -36,7 +36,9 @@ builder.Services.AddDataProtection()
 builder.Services.AddScoped<ManifestService>();
 builder.Services.AddSingleton(new PairingCodeService(dataPath, builder.Configuration["LessonCue:PairingPin"]));
 builder.Services.AddSingleton(new BackupService(dataPath));
+builder.Services.AddSingleton(new MediaStoragePaths(dataPath));
 builder.Services.AddHostedService<MediaProcessingService>();
+builder.Services.AddHostedService<MediaRetentionService>();
 builder.Services.AddSingleton<IPasswordHasher<PairingAttempt>, PasswordHasher<PairingAttempt>>();
 builder.Services.AddSingleton<IPasswordHasher<AdminAccount>, PasswordHasher<AdminAccount>>();
 builder.Services.AddSignalR();

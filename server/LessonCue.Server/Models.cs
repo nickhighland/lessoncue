@@ -102,6 +102,9 @@ public sealed class MediaAsset
     [MaxLength(32)] public string SourceKind { get; set; } = "upload";
     [MaxLength(2048)] public string? SourceUrl { get; set; }
     [MaxLength(32)] public string? LinkKind { get; set; }
+    [MaxLength(32)] public string StoragePolicy { get; set; } = "persistent";
+    public Guid? OriginLessonId { get; set; }
+    public DateTimeOffset? DeleteAfter { get; set; }
 }
 
 public sealed class Screen
@@ -214,4 +217,5 @@ public sealed record OrganizationInput(string Name, string SiteName, string Time
 public sealed record SignageInput(string Name, string Mode, bool Enabled, int Priority, DateTimeOffset? StartsAt,
     DateTimeOffset? EndsAt, string? Message, string? BackgroundColor, string? TextColor, Guid? MediaAssetId, string? TargetTagsCsv);
 public sealed record LinkInput(string Url, string? Title);
-public sealed record UploadCompleteInput(string FileName, string ContentType, int TotalChunks, long? DurationMs);
+public sealed record UploadCompleteInput(string FileName, string ContentType, int TotalChunks, long? DurationMs,
+    bool Persistent = false, Guid? LessonId = null);

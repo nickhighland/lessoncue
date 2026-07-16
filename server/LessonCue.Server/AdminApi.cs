@@ -260,6 +260,9 @@ public static class AdminApi
                 copy.Items.Add(clone);
                 if (sourceItem.Id == source.CountdownItemId || sourceItem.Role == "countdown") copy.CountdownItemId = clone.Id;
             }
+            var copiedMediaIds = copy.Items.Where(x => x.MediaAssetId != null).Select(x => x.MediaAssetId!.Value).Distinct().ToList();
+            var copiedMedia = await db.MediaAssets.Where(x => copiedMediaIds.Contains(x.Id) && x.StoragePolicy == MediaRetention.LessonScoped).ToListAsync(ct);
+            foreach (var media in copiedMedia) MediaRetention.KeepForLesson(media, copy);
             db.Lessons.Add(copy); Audit(db, "lesson.duplicate", copy.Id, copy.Title);
             await db.SaveChangesAsync(ct); await InvalidateAsync(hub, copy.Version, ct);
             return Results.Created($"/api/v1/lessons/{copy.Id}", new { copy.Id });
@@ -281,6 +284,13 @@ public static class AdminApi
             var lesson = await db.Lessons.SingleOrDefaultAsync(x => x.Id == lessonId, ct);
             if (lesson is null) return Results.NotFound();
             if (input.VolumePercent is < 0 or > 150) return Results.BadRequest(new { error = "Volume must be from 0 to 150." });
+            if (string.IsNullOrWhiteSpace(input.Title)) return Results.BadRequest(new { error = "A display title is required." });
+            MediaAsset? itemMedia = null;
+            if (input.MediaId is Guid mediaId)
+            {
+                itemMedia = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == mediaId, ct);
+                if (itemMedia is null) return Results.BadRequest(new { error = "The selected media file does not exist." });
+            }
             var role = NormalizeRole(input.Role);
             var item = new PlaylistItem
             {
@@ -307,10 +317,17 @@ public static class AdminApi
                 lesson.CountdownItemId = item.Id;
             }
             if (role == "preRoll") lesson.PreRollEnabled = true;
+            if (itemMedia is not null && itemMedia.StoragePolicy == MediaRetention.LessonScoped)
+                MediaRetention.KeepForLesson(itemMedia, lesson);
             Audit(db, "playlist.item.add", item.Id, item.Title);
             await db.SaveChangesAsync(ct);
             await InvalidateAsync(hub, lesson.Version, ct);
-            return Results.Created($"/api/v1/lessons/{lessonId}/items/{item.Id}", item);
+            return Results.Created($"/api/v1/lessons/{lessonId}/items/{item.Id}", new
+            {
+                item.Id, item.Title, item.Type, item.Role, item.Position, item.MediaAssetId,
+                item.DurationMs, item.StartMs, item.EndMs, item.VolumePercent,
+                item.ImageDurationSeconds, item.EndBehavior, item.AllowSkip
+            });
         });
 
         admin.MapPatch("/playlist-items/{id:guid}", async (Guid id, PlaylistItemUpdateInput input,
@@ -402,6 +419,9 @@ public static class AdminApi
                 x.SourceKind,
                 x.SourceUrl,
                 x.LinkKind,
+                x.StoragePolicy,
+                x.OriginLessonId,
+                x.DeleteAfter,
                 thumbnailUrl = x.ThumbnailPath == null ? null : $"/api/v1/media/{x.Id}/thumbnail",
                 downloadUrl = $"/api/v1/media/{x.Id}/file"
             }).ToListAsync(ct));
@@ -412,6 +432,15 @@ public static class AdminApi
             var form = await request.ReadFormAsync(ct);
             var upload = form.Files.GetFile("file");
             if (upload is null || upload.Length == 0) return Results.BadRequest(new { error = "A non-empty file field is required." });
+            var persistent = bool.TryParse(form["persistent"], out var keep) && keep;
+            Lesson? retentionLesson = null;
+            if (!persistent)
+            {
+                if (!Guid.TryParse(form["lessonId"], out var retentionLessonId))
+                    return Results.BadRequest(new { error = "Choose the lesson this upload belongs to, or choose Keep permanently." });
+                retentionLesson = await db.Lessons.SingleOrDefaultAsync(x => x.Id == retentionLessonId, ct);
+                if (retentionLesson is null) return Results.BadRequest(new { error = "The selected lesson does not exist." });
+            }
             var allowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { ".mp4", ".m4v", ".mov", ".mp3", ".m4a", ".aac", ".wav", ".jpg", ".jpeg", ".png", ".webp", ".pdf", ".pptx" };
             var extension = Path.GetExtension(upload.FileName);
@@ -423,10 +452,13 @@ public static class AdminApi
             await using (var output = File.Create(destination)) await upload.CopyToAsync(output, ct);
             await using var stream = File.OpenRead(destination);
             var sha = Convert.ToHexString(await SHA256.HashDataAsync(stream, ct)).ToLowerInvariant();
-            var existing = await db.MediaAssets.AsNoTracking().FirstOrDefaultAsync(x => x.Sha256 == sha, ct);
+            var existing = await db.MediaAssets.FirstOrDefaultAsync(x => x.Sha256 == sha, ct);
             if (existing is not null)
             {
                 File.Delete(destination);
+                if (persistent) MediaRetention.KeepPermanently(existing);
+                else if (existing.StoragePolicy == MediaRetention.LessonScoped) MediaRetention.KeepForLesson(existing, retentionLesson!);
+                await db.SaveChangesAsync(ct);
                 return Results.Ok(new { duplicate = true, media = existing });
             }
             long? duration = long.TryParse(form["durationMs"], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
@@ -440,6 +472,8 @@ public static class AdminApi
                 SizeBytes = upload.Length,
                 DurationMs = duration
             };
+            if (persistent) MediaRetention.KeepPermanently(media);
+            else MediaRetention.SetNewUploadPolicy(media, retentionLesson!);
             db.MediaAssets.Add(media);
             Audit(db, "media.upload", media.Id, media.FileName);
             await db.SaveChangesAsync(ct);
@@ -502,6 +536,14 @@ public static class AdminApi
                 { ".mp4", ".m4v", ".mov", ".mp3", ".m4a", ".aac", ".wav", ".jpg", ".jpeg", ".png", ".webp", ".pdf", ".pptx" };
             var extension = Path.GetExtension(input.FileName); if (!allowedExtensions.Contains(extension)) return Results.BadRequest(new { error = "Unsupported media type." });
             if (input.TotalChunks is < 1 or > 100000) return Results.BadRequest(new { error = "Invalid chunk count." });
+            Lesson? retentionLesson = null;
+            if (!input.Persistent)
+            {
+                if (input.LessonId is not Guid lessonId)
+                    return Results.BadRequest(new { error = "Choose the lesson this upload belongs to, or choose Keep permanently." });
+                retentionLesson = await db.Lessons.SingleOrDefaultAsync(x => x.Id == lessonId, ct);
+                if (retentionLesson is null) return Results.BadRequest(new { error = "The selected lesson does not exist." });
+            }
             var folder = Path.Combine(dataPath, "media", "temporary", uploadId.ToString("N"));
             for (var i = 0; i < input.TotalChunks; i++) if (!File.Exists(Path.Combine(folder, i.ToString("D8")))) return Results.BadRequest(new { error = $"Upload chunk {i} is missing." });
             var mediaId = Guid.NewGuid(); var storedName = mediaId + extension.ToLowerInvariant(); var destination = Path.Combine(mediaPath, storedName);
@@ -509,10 +551,19 @@ public static class AdminApi
                 for (var i = 0; i < input.TotalChunks; i++) await using (var chunk = File.OpenRead(Path.Combine(folder, i.ToString("D8")))) await chunk.CopyToAsync(output, ct);
             Directory.Delete(folder, true);
             await using var stream = File.OpenRead(destination); var sha = Convert.ToHexString(await SHA256.HashDataAsync(stream, ct)).ToLowerInvariant();
-            var existing = await db.MediaAssets.AsNoTracking().FirstOrDefaultAsync(x => x.Sha256 == sha, ct);
-            if (existing is not null) { File.Delete(destination); return Results.Ok(new { duplicate = true, media = existing }); }
+            var existing = await db.MediaAssets.FirstOrDefaultAsync(x => x.Sha256 == sha, ct);
+            if (existing is not null)
+            {
+                File.Delete(destination);
+                if (input.Persistent) MediaRetention.KeepPermanently(existing);
+                else if (existing.StoragePolicy == MediaRetention.LessonScoped) MediaRetention.KeepForLesson(existing, retentionLesson!);
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(new { duplicate = true, media = existing });
+            }
             var media = new MediaAsset { Id = mediaId, FileName = Path.GetFileName(input.FileName), ContentType = input.ContentType,
                 RelativePath = storedName, Sha256 = sha, SizeBytes = new FileInfo(destination).Length, DurationMs = input.DurationMs };
+            if (input.Persistent) MediaRetention.KeepPermanently(media);
+            else MediaRetention.SetNewUploadPolicy(media, retentionLesson!);
             db.MediaAssets.Add(media); Audit(db, "media.upload.complete", media.Id, media.FileName); await db.SaveChangesAsync(ct);
             return Results.Created($"/api/v1/media/{media.Id}", media);
         });

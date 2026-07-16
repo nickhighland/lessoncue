@@ -1,6 +1,6 @@
 # LessonCue
 
-LessonCue is a self-hosted lesson scheduling and television playback system for churches and schools. Administrators build dated media playlists in a browser; paired Android TV, Fire TV, and Apple TV clients cache their assignments and keep playing when the network is unavailable.
+LessonCue is a self-hosted lesson scheduling and television playback system for schools, churches, training programs, and other learning organizations. Administrators build dated media playlists in a browser; paired Android TV, Fire TV, and Apple TV clients cache their assignments and keep playing when the network is unavailable.
 
 [Installation guide](docs/installation.md) · [Implementation guide](docs/implementation.md) · [Protocol](protocol/openapi.yaml)
 
@@ -13,7 +13,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - A versioned OpenAPI contract and JSON Schema shared by every client.
 - Docker, Windows, and Linux installation assets.
 - Calendar, local role-based users, scheduled/emergency signage, rotating pairing codes, screen tags, audit history, and downloadable full/configuration backups.
-- Resumable large uploads, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, link classification, codec readiness, and range-enabled delivery.
+- Direct lesson uploads, reusable or four-week lesson retention, automatic cleanup, resumable large uploads, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, link classification, codec readiness, and range-enabled delivery.
 - GitHub Actions that build the web app, server, Android APK, tvOS app, release packages, and GitHub Pages documentation.
 
 ## Quick start
@@ -49,6 +49,10 @@ LessonCue publishes two coordinated pre-class modes in every screen manifest:
 2. **Duration-aware countdown** — the chosen countdown video starts exactly one video-duration before the lesson's designated start time, so its final frame lands on the start time.
 
 If the countdown duration is five minutes and class begins at 09:00, the TV transitions from pre-roll to countdown at 08:55. Clients calculate this locally from the manifest, so an already-synchronized screen can make the transition while offline.
+
+## Media retention
+
+Every file upload asks how it should be stored. **For a lesson** is the default and automatically deletes the file four weeks after the latest lesson that uses it. **Keep permanently** places reusable material in the media library until an administrator removes it. Playlist history remains intact when an expired file is cleaned up.
 
 ## Repository map
 

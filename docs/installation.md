@@ -1,6 +1,6 @@
 # Installing LessonCue
 
-LessonCue is a local-network product. Install the server on a computer that remains at the church or school, connect the television devices to the same trusted network, and use a modern browser on another computer for administration.
+LessonCue is a local-network product. Install the server on a computer that remains at your school, church, training site, or other learning facility; connect the television devices to the same trusted network; and use a modern browser on another computer for administration.
 
 ## Recommended: headless Ubuntu or Debian server over SSH
 
@@ -169,7 +169,7 @@ sudo systemctl start lessoncue
 
 To restore, install the same or newer LessonCue version, stop the service, replace `/var/lib/lessoncue` with the saved directory contents, restore ownership with `sudo chown -R lessoncue:lessoncue /var/lib/lessoncue`, and start the service. Test restoration on a separate machine before relying on a backup policy.
 
-For Docker, pull/build the new image and run `docker compose up -d`. For native installations, back up data and repeat the two headless installation commands; the installer replaces the application but preserves `/var/lib/lessoncue`, including the pairing PIN and administrator account. Installers never delete media automatically.
+For Docker, pull/build the new image and run `docker compose up -d`. For native installations, back up data and repeat the two headless installation commands; the installer replaces the application but preserves `/var/lib/lessoncue`, including the pairing PIN and administrator account. Upgrades preserve existing media. Inside LessonCue, uploads marked **For a lesson** are automatically removed four weeks after the latest lesson that uses them; uploads marked **Keep permanently** are not automatically removed.
 
 To remove the headless Linux service while preserving its database and media:
 

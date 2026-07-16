@@ -10,7 +10,7 @@ type Bootstrap = {
 };
 type Organization = { id: string; name: string; siteName: string; timeZone: string; weekStartsOn: string; defaultLessonDurationMinutes: number; defaultRetentionDays: number; primaryColor: string; accentColor: string; welcomeMessage: string };
 type LessonClass = { id: string; name: string; description: string; lessonCount: number; screenCount: number };
-type Media = { id: string; fileName: string; contentType: string; sizeBytes: number; durationMs?: number; downloadUrl: string; thumbnailUrl?: string; processingStatus: string; processingError?: string; videoCodec?: string; audioCodec?: string; width?: number; height?: number; sourceKind: string; sourceUrl?: string; linkKind?: string; offlineEligible: boolean };
+type Media = { id: string; fileName: string; contentType: string; sizeBytes: number; durationMs?: number; downloadUrl: string; thumbnailUrl?: string; processingStatus: string; processingError?: string; videoCodec?: string; audioCodec?: string; width?: number; height?: number; sourceKind: string; sourceUrl?: string; linkKind?: string; offlineEligible: boolean; storagePolicy: "lesson" | "persistent"; originLessonId?: string; deleteAfter?: string };
 type PlaylistItem = {
   id: string; title: string; type: string; role: "lesson" | "preRoll" | "countdown"; position: number;
   mediaAssetId?: string; mediaFileName?: string; durationMs?: number; mediaDurationMs?: number;
@@ -44,6 +44,30 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (response.status === 204) return undefined as T;
   return response.json();
+}
+
+async function uploadMediaFile(file: File, options: { persistent: boolean; lessonId?: string; onProgress?: (percent: number) => void }): Promise<Media> {
+  const duration = await detectDuration(file);
+  let result: Media | { duplicate: true; media: Media };
+  if (file.size > 16 * 1024 * 1024) {
+    const session = await api<{ uploadId: string; chunkSize: number }>(`/api/v1/uploads?fileName=${encodeURIComponent(file.name)}`, { method: "POST", body: "{}" });
+    const totalChunks = Math.ceil(file.size / session.chunkSize);
+    for (let index = 0; index < totalChunks; index++) {
+      const chunk = file.slice(index * session.chunkSize, Math.min(file.size, (index + 1) * session.chunkSize));
+      await api(`/api/v1/uploads/${session.uploadId}/chunks/${index}`, { method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: chunk });
+      options.onProgress?.(Math.round(((index + 1) / totalChunks) * 100));
+    }
+    result = await api(`/api/v1/uploads/${session.uploadId}/complete`, { method: "POST", body: JSON.stringify({ fileName: file.name, contentType: file.type || "application/octet-stream", totalChunks, durationMs: duration || null, persistent: options.persistent, lessonId: options.lessonId || null }) });
+  } else {
+    const data = new FormData();
+    data.append("file", file);
+    data.append("persistent", String(options.persistent));
+    if (options.lessonId) data.append("lessonId", options.lessonId);
+    if (duration) data.append("durationMs", String(duration));
+    result = await api("/api/v1/media", { method: "POST", body: data });
+    options.onProgress?.(100);
+  }
+  return "media" in result ? result.media : result;
 }
 
 function App() {
@@ -140,7 +164,7 @@ function Shell({ view, setView, username, role, onLogout, notice, setNotice }: {
         {view === "dashboard" && bootstrap && <Dashboard bootstrap={bootstrap} lessons={lessons} screens={screens} onNavigate={setView} />}
         {view === "classes" && <ClassesView classes={classes} lessons={lessons} media={media} refresh={refresh} notify={setNotice} />}
         {view === "calendar" && <CalendarView lessons={lessons} />}
-        {view === "media" && <MediaView media={media} refresh={refresh} notify={setNotice} />}
+        {view === "media" && <MediaView media={media} lessons={lessons} refresh={refresh} notify={setNotice} />}
         {view === "screens" && bootstrap && <ScreensView screens={screens} classes={classes} pin={bootstrap.pairingPin} refresh={refresh} notify={setNotice} />}
         {view === "signage" && <SignageView signage={signage} media={media} refresh={refresh} notify={setNotice} />}
         {view === "users" && <UsersView users={users} refresh={refresh} notify={setNotice} canManage={role === "Owner" || role === "Administrator"} />}
@@ -210,6 +234,8 @@ function ClassesView({ classes, lessons, media, refresh, notify }: { classes: Le
 
 function LessonEditor({ lesson, media, onBack, refresh, notify }: { lesson: Lesson; media: Media[]; onBack: () => void; refresh: () => void; notify: (s: string) => void }) {
   const [showAdd, setShowAdd] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const items = [...lesson.items].sort((a, b) => a.position - b.position);
   const countdown = items.find(i => i.role === "countdown");
   const playableMedia = media.filter(item => /^(video|audio|image)\//.test(item.contentType) && item.processingStatus === "ready");
@@ -218,12 +244,30 @@ function LessonEditor({ lesson, media, onBack, refresh, notify }: { lesson: Less
     try { await api(`/api/v1/lessons/${lesson.id}`, { method: "PUT", body: JSON.stringify({ title: values.title, date: values.date, designatedStartAt: values.designatedStartAt ? new Date(String(values.designatedStartAt)).toISOString() : null, clearDesignatedStartAt: !values.designatedStartAt, preRollStartsAt: values.preRollStartsAt ? new Date(String(values.preRollStartsAt)).toISOString() : null, clearPreRollStartsAt: !values.preRollStartsAt, preRollEnabled: values.preRollEnabled === "on", clearCountdown: false }) }); notify("Lesson schedule saved."); refresh(); }
     catch (e) { notify(errorText(e)); }
   }
+  async function addAssetToLesson(asset: Media, role: string, title?: FormDataEntryValue | null) {
+    const type = asset.contentType.startsWith("video") ? "video" : asset.contentType.startsWith("audio") ? "audio" : "image";
+    await api(`/api/v1/lessons/${lesson.id}/items`, { method: "POST", body: JSON.stringify({ title: title || asset.fileName, type, role, position: (items.length + 1) * 1000, mediaId: asset.id, durationMs: asset.durationMs, startMs: 0, endMs: null, volumePercent: 100, imageDurationSeconds: type === "image" ? 10 : null, endBehavior: role === "preRoll" ? "loop" : "advance", allowSkip: true }) });
+  }
   async function addItem(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget)); const asset = playableMedia.find(m => m.id === values.mediaId);
     if (!asset) return;
-    const type = asset.contentType.startsWith("video") ? "video" : asset.contentType.startsWith("audio") ? "audio" : "image";
-    try { await api(`/api/v1/lessons/${lesson.id}/items`, { method: "POST", body: JSON.stringify({ title: values.title || asset.fileName, type, role: values.role, position: (items.length + 1) * 1000, mediaId: asset.id, durationMs: asset.durationMs, startMs: 0, endMs: null, volumePercent: 100, imageDurationSeconds: type === "image" ? 10 : null, endBehavior: values.role === "preRoll" ? "loop" : "advance", allowSkip: true }) }); setShowAdd(false); refresh(); }
+    try { await addAssetToLesson(asset, String(values.role), values.title); setShowAdd(false); refresh(); notify("Media added to the lesson."); }
     catch (e) { notify(errorText(e)); }
+  }
+  async function uploadAndAdd(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const file = form.get("file");
+    if (!(file instanceof File) || !file.size) return;
+    setUploading(true); setUploadProgress(0);
+    try {
+      const persistent = form.get("storagePolicy") === "persistent";
+      const asset = await uploadMediaFile(file, { persistent, lessonId: persistent ? undefined : lesson.id, onProgress: setUploadProgress });
+      await addAssetToLesson(asset, String(form.get("role") || "lesson"), form.get("title"));
+      setShowAdd(false); refresh();
+      notify(persistent ? "Media uploaded permanently and added to the lesson." : `Media added. It will be deleted four weeks after ${formatDate(lesson.date)}.`);
+    } catch (e) { notify(errorText(e)); }
+    finally { setUploading(false); setUploadProgress(0); }
   }
   async function changeItem(item: PlaylistItem, changes: Record<string, unknown>) { try { await api(`/api/v1/playlist-items/${item.id}`, { method: "PATCH", body: JSON.stringify(changes) }); refresh(); notify("Playlist saved."); } catch (e) { notify(errorText(e)); } }
   async function removeItem(id: string) { if (!confirm("Remove this item from the playlist? The media file will remain in your library.")) return; await api(`/api/v1/playlist-items/${id}`, { method: "DELETE" }); refresh(); }
@@ -231,7 +275,7 @@ function LessonEditor({ lesson, media, onBack, refresh, notify }: { lesson: Less
   return <>
     <button className="back-button" onClick={onBack}>← Back to {lesson.className}</button>
     <PageHead eyebrow="LESSON BUILDER" title={lesson.title} detail={`${formatDate(lesson.date)} · Manifest version ${lesson.version}`} action={<button className="button primary" onClick={() => setShowAdd(true)}>Add media</button>} />
-    {showAdd && <Modal title="Add media to the lesson" onClose={() => setShowAdd(false)}>{playableMedia.length ? <form className="stack" onSubmit={addItem}><Field label="Media file"><select name="mediaId" required>{playableMedia.map(m => <option key={m.id} value={m.id}>{m.fileName}</option>)}</select></Field><Field label="Playlist role"><select name="role"><option value="lesson">Main lesson</option><option value="preRoll">Pre-roll loop</option><option value="countdown">Countdown video</option></select></Field><Field label="Display title"><input name="title" placeholder="Use media filename" /></Field><button className="button primary">Add to playlist</button></form> : <Empty title="Your media library is empty" body="Upload a ready video, audio file, or image from Media library first." />}</Modal>}
+    {showAdd && <Modal title="Add media to the lesson" onClose={() => !uploading && setShowAdd(false)}><div className="add-media-options"><section><h3>Upload from this computer</h3><p>Upload and place a new file without leaving this lesson.</p><form className="stack" onSubmit={uploadAndAdd}><Field label="Media file"><input name="file" type="file" accept="video/*,audio/*,image/*" required disabled={uploading} /></Field><RetentionChoices lessonDate={lesson.date} /><div className="two-fields"><Field label="Playlist role"><select name="role"><option value="lesson">Main lesson</option><option value="preRoll">Pre-roll loop</option><option value="countdown">Countdown video</option></select></Field><Field label="Display title"><input name="title" placeholder="Use filename" /></Field></div><button className="button primary" disabled={uploading}>{uploading ? `Uploading ${uploadProgress}%` : "Upload and add"}</button></form></section>{playableMedia.length > 0 && <section className="library-choice"><h3>Choose existing media</h3><form className="stack" onSubmit={addItem}><Field label="Ready media"><select name="mediaId" required>{playableMedia.map(m => <option key={m.id} value={m.id}>{m.fileName}</option>)}</select></Field><div className="two-fields"><Field label="Playlist role"><select name="role"><option value="lesson">Main lesson</option><option value="preRoll">Pre-roll loop</option><option value="countdown">Countdown video</option></select></Field><Field label="Display title"><input name="title" placeholder="Use media filename" /></Field></div><button className="button">Add existing media</button></form></section>}</div></Modal>}
     <div className="editor-grid">
       <section className="panel schedule-panel"><h2>Timing</h2><form className="stack" onSubmit={updateLesson}><Field label="Lesson title"><input name="title" defaultValue={lesson.title} required /></Field><Field label="Lesson date"><input name="date" type="date" defaultValue={lesson.date} required /></Field><Field label="Pre-roll begins" hint="Paired screens automatically start looping pre-roll at this time."><input name="preRollStartsAt" type="datetime-local" defaultValue={toLocalInput(lesson.preRollStartsAt)} /></Field><Field label="Designated class start" hint="The countdown begins exactly one countdown-video duration before this time."><input name="designatedStartAt" type="datetime-local" defaultValue={toLocalInput(lesson.designatedStartAt)} /></Field><label className="switch-row"><input type="checkbox" name="preRollEnabled" defaultChecked={lesson.preRollEnabled} /><span /><div><strong>Enable pre-roll</strong><small>Loop all pre-roll items until the countdown or class begins.</small></div></label><button className="button primary">Save timing</button></form>
         <div className="timing-explain"><span>◷</span><div><strong>{countdown && lesson.designatedStartAt ? `Countdown begins ${formatDuration(countdown.durationMs || countdown.mediaDurationMs)} before class` : "Countdown is optional"}</strong><p>Assign one video as the countdown. Its full duration determines when it starts automatically.</p></div></div>
@@ -243,19 +287,37 @@ function LessonEditor({ lesson, media, onBack, refresh, notify }: { lesson: Less
   </>;
 }
 
-function MediaView({ media, refresh, notify }: { media: Media[]; refresh: () => void; notify: (s: string) => void }) {
+function MediaView({ media, lessons, refresh, notify }: { media: Media[]; lessons: Lesson[]; refresh: () => void; notify: (s: string) => void }) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showLink, setShowLink] = useState(false);
-  async function upload(files: FileList | null) {
-    if (!files?.length) return; setUploading(true);
-    try { let completed = 0; for (const file of [...files]) { const duration = await detectDuration(file); if (file.size > 16 * 1024 * 1024) { const session = await api<{ uploadId: string; chunkSize: number }>(`/api/v1/uploads?fileName=${encodeURIComponent(file.name)}`, { method: "POST", body: "{}" }); const totalChunks = Math.ceil(file.size / session.chunkSize); for (let index = 0; index < totalChunks; index++) { const chunk = file.slice(index * session.chunkSize, Math.min(file.size, (index + 1) * session.chunkSize)); await api(`/api/v1/uploads/${session.uploadId}/chunks/${index}`, { method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: chunk }); setUploadProgress(Math.round(((completed + (index + 1) / totalChunks) / files.length) * 100)); } await api(`/api/v1/uploads/${session.uploadId}/complete`, { method: "POST", body: JSON.stringify({ fileName: file.name, contentType: file.type || "application/octet-stream", totalChunks, durationMs: duration || null }) }); } else { const data = new FormData(); data.append("file", file); if (duration) data.append("durationMs", String(duration)); await api("/api/v1/media", { method: "POST", body: data }); } completed++; setUploadProgress(Math.round(completed / files.length * 100)); } notify(`${files.length} file${files.length === 1 ? "" : "s"} stored on the local server.`); refresh(); }
+  const availableLessons = [...lessons].filter(l => !l.archived).sort((a, b) => a.date.localeCompare(b.date));
+  const firstUpcoming = availableLessons.find(l => new Date(`${l.date}T23:59:59`) >= new Date()) || availableLessons.at(-1);
+  const [showUpload, setShowUpload] = useState(false);
+  const [storagePolicy, setStoragePolicy] = useState<"lesson" | "persistent">(availableLessons.length ? "lesson" : "persistent");
+  async function upload(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const form = new FormData(event.currentTarget);
+    const files = form.getAll("files").filter((item): item is File => item instanceof File && item.size > 0);
+    if (!files.length) return;
+    const persistent = storagePolicy === "persistent";
+    const lessonId = persistent ? undefined : String(form.get("lessonId") || "");
+    setUploading(true); setUploadProgress(0);
+    try {
+      let completed = 0;
+      for (const file of files) {
+        await uploadMediaFile(file, { persistent, lessonId, onProgress: percent => setUploadProgress(Math.round(((completed + percent / 100) / files.length) * 100)) });
+        completed++; setUploadProgress(Math.round(completed / files.length * 100));
+      }
+      notify(persistent ? `${files.length} reusable file${files.length === 1 ? "" : "s"} stored permanently.` : `${files.length} file${files.length === 1 ? "" : "s"} stored until four weeks after the selected lesson.`);
+      setShowUpload(false); refresh();
+    }
     catch (e) { notify(errorText(e)); } finally { setUploading(false); setUploadProgress(0); }
   }
   async function addLink(event: FormEvent<HTMLFormElement>) { event.preventDefault(); try { await api("/api/v1/media/link", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget))) }); setShowLink(false); refresh(); notify("Media link added and classified safely."); } catch (e) { notify(errorText(e)); } }
-  return <><PageHead eyebrow="LOCAL STORAGE" title="Media library" detail="Files stay on this server. Links are classified, never downloaded by the server." action={<div className="head-actions"><button className="button" onClick={() => setShowLink(true)}>Add link</button><label className="button primary file-button">{uploading ? `Uploading ${uploadProgress}%` : "Upload media"}<input type="file" multiple accept="video/*,audio/*,image/*,.pdf,.pptx" disabled={uploading} onChange={e => upload(e.target.files)} /></label></div>} />
+  return <><PageHead eyebrow="LOCAL STORAGE" title="Media library" detail="Files stay on this server. Lesson media expires automatically; reusable media can be kept permanently." action={<div className="head-actions"><button className="button" onClick={() => setShowLink(true)}>Add link</button><button className="button primary" onClick={() => setShowUpload(true)}>Upload media</button></div>} />
+    {showUpload && <Modal title="Upload media" onClose={() => !uploading && setShowUpload(false)}><form className="stack" onSubmit={upload}><Field label="Files"><input name="files" type="file" multiple accept="video/*,audio/*,image/*,.pdf,.pptx" required disabled={uploading} /></Field><fieldset className="retention-options"><legend>How long should LessonCue keep these files?</legend>{availableLessons.length > 0 && <label><input type="radio" name="storagePolicy" value="lesson" checked={storagePolicy === "lesson"} onChange={() => setStoragePolicy("lesson")} /><span><strong>For a lesson (default)</strong><small>Delete automatically four weeks after the lesson date.</small></span></label>}<label><input type="radio" name="storagePolicy" value="persistent" checked={storagePolicy === "persistent"} onChange={() => setStoragePolicy("persistent")} /><span><strong>Keep permanently</strong><small>Store in the reusable media library until someone deletes it.</small></span></label></fieldset>{storagePolicy === "lesson" && <Field label="Lesson" hint="Reusing the file in a later lesson automatically extends its deletion date."><select name="lessonId" defaultValue={firstUpcoming?.id} required>{availableLessons.map(l => <option value={l.id} key={l.id}>{formatDate(l.date)} — {l.title}</option>)}</select></Field>}{!availableLessons.length && <div className="alert">Create a lesson before uploading temporary lesson media. This upload will be kept permanently.</div>}<button className="button primary" disabled={uploading}>{uploading ? `Uploading ${uploadProgress}%` : "Upload to local server"}</button></form></Modal>}
     {showLink && <Modal title="Add a media link" onClose={() => setShowLink(false)}><form className="stack" onSubmit={addLink}><Field label="URL" hint="Direct files may play in-app; embedded or external pages require internet."><input name="url" type="url" required autoFocus placeholder="https://…" /></Field><Field label="Display title"><input name="title" /></Field><button className="button primary">Add link</button></form></Modal>}
-    <section className="panel"><div className="media-table table-head"><span>File</span><span>Type</span><span>Duration</span><span>Size</span><span>Availability</span></div>{media.length ? media.map(m => <div className="media-table" key={m.id}><span className="media-name">{m.thumbnailUrl ? <img src={m.thumbnailUrl} alt="" /> : <b>{m.contentType.startsWith("video") ? "▶" : m.contentType.startsWith("audio") ? "♫" : m.sourceKind === "link" ? "↗" : "▧"}</b>}<span><strong>{m.fileName}</strong><small>{m.processingStatus === "failed" ? m.processingError : [m.videoCodec, m.audioCodec, m.width && m.height ? `${m.width}×${m.height}` : ""].filter(Boolean).join(" · ") || m.id.slice(0, 8)}</small></span></span><span>{m.sourceKind === "link" ? `${m.linkKind} link` : friendlyType(m.contentType)}</span><span>{formatDuration(m.durationMs)}</span><span>{formatBytes(m.sizeBytes)}</span><span className={`availability ${m.offlineEligible ? "" : "internet"}`}><i className="available-dot" /> {m.processingStatus === "pending" || m.processingStatus === "processing" ? "Processing" : m.offlineEligible ? "Offline ready" : "Internet required"}</span></div>) : <Empty title="No media uploaded" body="Upload MP4, MOV, audio, image, PDF, or PowerPoint files." />}</section>
+    <section className="panel"><div className="media-table table-head"><span>File</span><span>Type</span><span>Duration</span><span>Size</span><span>Retention</span><span>Status</span></div>{media.length ? media.map(m => <div className="media-table" key={m.id}><span className="media-name">{m.thumbnailUrl ? <img src={m.thumbnailUrl} alt="" /> : <b>{m.contentType.startsWith("video") ? "▶" : m.contentType.startsWith("audio") ? "♫" : m.sourceKind === "link" ? "↗" : "▧"}</b>}<span><strong>{m.fileName}</strong><small>{m.processingStatus === "failed" ? m.processingError : [m.videoCodec, m.audioCodec, m.width && m.height ? `${m.width}×${m.height}` : ""].filter(Boolean).join(" · ") || m.id.slice(0, 8)}</small></span></span><span>{m.sourceKind === "link" ? `${m.linkKind} link` : friendlyType(m.contentType)}</span><span>{formatDuration(m.durationMs)}</span><span>{formatBytes(m.sizeBytes)}</span><span className={`retention-badge ${m.storagePolicy === "lesson" ? "temporary" : ""}`}>{m.storagePolicy === "lesson" && m.deleteAfter ? `Deletes ${formatShortDate(m.deleteAfter)}` : "Keep permanently"}</span><span className={`availability ${m.offlineEligible ? "" : "internet"}`}><i className="available-dot" /> {m.processingStatus === "pending" || m.processingStatus === "processing" ? "Processing" : m.offlineEligible ? "Offline ready" : "Internet required"}</span></div>) : <Empty title="No media uploaded" body="Upload MP4, MOV, audio, image, PDF, or PowerPoint files." />}</section>
   </>;
 }
 
@@ -305,6 +367,7 @@ function Settings({ bootstrap, backups, audit, refresh, notify, canManage }: { b
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>; }
+function RetentionChoices({ lessonDate }: { lessonDate: string }) { return <fieldset className="retention-options"><legend>How long should LessonCue keep this file?</legend><label><input type="radio" name="storagePolicy" value="lesson" defaultChecked /><span><strong>For this lesson (default)</strong><small>Delete automatically on {formatDateAfterDays(lessonDate, 28)}.</small></span></label><label><input type="radio" name="storagePolicy" value="persistent" /><span><strong>Keep permanently</strong><small>Make it reusable for future lessons.</small></span></label></fieldset>; }
 function Stat({ label, value, sub, mono }: { label: string; value: string | number; sub: string; mono?: boolean }) { return <div className="stat-card"><span>{label}</span><strong className={mono ? "mono" : ""}>{value}</strong><small>{sub}</small></div>; }
 function PanelTitle({ title, action, onClick }: { title: string; action: string; onClick: () => void }) { return <div className="panel-title"><h2>{title}</h2><button onClick={onClick}>{action} →</button></div>; }
 function Empty({ title, body, action }: { title: string; body: string; action?: ReactNode }) { return <div className="empty"><div>◇</div><strong>{title}</strong><p>{body}</p>{action}</div>; }
@@ -316,6 +379,8 @@ function Definition({ label, value, mono }: { label: string; value: string; mono
 
 function dayPart() { const h = new Date().getHours(); return h < 12 ? "morning" : h < 17 ? "afternoon" : "evening"; }
 function formatDate(date: string) { return new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" }); }
+function formatDateAfterDays(date: string, days: number) { const value = new Date(`${date}T12:00:00`); value.setDate(value.getDate() + days); return value.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }); }
+function formatShortDate(value: string) { return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }); }
 function formatDuration(ms?: number) { if (!ms) return "Duration unknown"; const seconds = Math.round(ms / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
 function formatBytes(bytes: number) { if (!bytes) return "—"; const units = ["B", "KB", "MB", "GB", "TB"]; const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1); return `${(bytes / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`; }
 function friendlyType(type: string) { if (type.startsWith("video")) return "Video"; if (type.startsWith("audio")) return "Audio"; if (type.startsWith("image")) return "Image"; if (type.includes("pdf")) return "PDF"; return "Document"; }

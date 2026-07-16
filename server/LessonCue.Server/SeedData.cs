@@ -9,21 +9,23 @@ public static class SeedData
     {
         if (await db.Organizations.AnyAsync()) return;
         var organization = new Organization { Name = "LessonCue Demo" };
-        var lessonClass = new LessonClass { Name = "Children's Sunday School", Description = "A ready-to-use example class." };
+        var lessonClass = new LessonClass { Name = "Learning Lab", Description = "A ready-to-use example class for any learning environment." };
+        var sampleDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7));
+        var designatedStart = new DateTimeOffset(sampleDate.ToDateTime(new TimeOnly(9, 0)), TimeSpan.Zero);
         var lesson = new Lesson
         {
             ClassId = lessonClass.Id,
-            Date = new DateOnly(2026, 7, 19),
-            Title = "The Good Samaritan",
-            AvailableFrom = new DateTimeOffset(2026, 7, 12, 0, 0, 0, TimeSpan.FromHours(-4)),
-            ExpiresAt = new DateTimeOffset(2026, 7, 20, 23, 59, 59, TimeSpan.FromHours(-4)),
-            DesignatedStartAt = new DateTimeOffset(2026, 7, 19, 9, 0, 0, TimeSpan.FromHours(-4)),
-            PreRollStartsAt = new DateTimeOffset(2026, 7, 19, 8, 30, 0, TimeSpan.FromHours(-4)),
+            Date = sampleDate,
+            Title = "Sample Lesson",
+            AvailableFrom = designatedStart.AddDays(-7),
+            ExpiresAt = designatedStart.AddDays(1),
+            DesignatedStartAt = designatedStart,
+            PreRollStartsAt = designatedStart.AddMinutes(-30),
             PreRollEnabled = true
         };
         var preRoll = new PlaylistItem { LessonId = lesson.Id, Title = "Welcome Loop", Type = "video", Role = "preRoll", Position = 1000, DurationMs = 30_000, EndBehavior = "loop" };
-        var countdown = new PlaylistItem { LessonId = lesson.Id, Title = "Five Minute Countdown", Type = "video", Role = "countdown", Position = 2000, DurationMs = 300_000, EndBehavior = "advance" };
-        var teaching = new PlaylistItem { LessonId = lesson.Id, Title = "Teaching Video", Type = "video", Role = "lesson", Position = 3000, DurationMs = 600_000, EndBehavior = "pause" };
+        var countdown = new PlaylistItem { LessonId = lesson.Id, Title = "Five-Minute Countdown", Type = "video", Role = "countdown", Position = 2000, DurationMs = 300_000, EndBehavior = "advance" };
+        var teaching = new PlaylistItem { LessonId = lesson.Id, Title = "Main Presentation", Type = "video", Role = "lesson", Position = 3000, DurationMs = 600_000, EndBehavior = "pause" };
         lesson.CountdownItemId = countdown.Id;
         db.AddRange(organization, lessonClass, lesson, preRoll, countdown, teaching);
         db.AuditEvents.Add(new AuditEvent
