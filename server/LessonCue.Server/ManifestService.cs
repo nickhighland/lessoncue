@@ -86,7 +86,10 @@ public sealed class ManifestService(LessonCueDb db)
         item.Type,
         item.Title,
         downloadUrl = item.MediaAsset is { SourceKind: "link", LinkKind: "direct" } linked ? linked.SourceUrl :
-            item.MediaAssetId is { } mediaId && item.MediaAsset?.SourceKind != "link" ? $"/api/v1/media/{mediaId}/file" : null,
+            item.MediaAssetId is { } mediaId && item.MediaAsset?.SourceKind != "link" && !string.IsNullOrWhiteSpace(item.MediaAsset?.RelativePath)
+                ? $"/api/v1/media/{mediaId}/file" : null,
+        playbackUrl = item.MediaAsset is { SourceKind: "link" } online
+            ? YouTubeMedia.EmbedUrl(online.SourceUrl) ?? online.SourceUrl : null,
         sha256 = item.MediaAsset?.Sha256,
         sizeBytes = item.MediaAsset?.SizeBytes,
         durationMs = item.DurationMs ?? item.MediaAsset?.DurationMs,

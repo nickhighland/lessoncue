@@ -25,6 +25,11 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet publish server/LessonCue.Server/LessonCue.Server.csproj -c Release -r ${{ matrix.runtime }} --self-contained -o package/payload
+      - name: Bundle YouTube importer
+        run: |
+          if [ "${{ matrix.runtime }}" = "linux-arm64" ]; then asset=yt-dlp_linux_aarch64; else asset=yt-dlp_linux; fi
+          curl -fL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${asset}" -o package/payload/yt-dlp
+          chmod 0755 package/payload/yt-dlp
       - run: cp installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue.service installers/linux/lessoncue-update installers/linux/lessoncue-update.service installers/linux/lessoncue-update.path package/
       - run: mkdir -p package/docker
       - run: cp docker/avahi-service.xml package/docker/
@@ -50,6 +55,7 @@ jobs:
       - run: dotnet publish server/LessonCue.Server/LessonCue.Server.csproj -c Release -r win-x64 --self-contained -o package/payload
       - shell: pwsh
         run: |
+          Invoke-WebRequest https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe -OutFile package/payload/yt-dlp.exe
           Copy-Item installers/windows/Install-LessonCue.ps1 package/
           Copy-Item installers/windows/Uninstall-LessonCue.ps1 package/
           Compress-Archive -Path package/* -DestinationPath LessonCue-Server-Windows-x64.zip

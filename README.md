@@ -13,11 +13,12 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - A versioned OpenAPI contract and JSON Schema shared by every client.
 - Docker, Windows, and Linux installation assets.
 - Calendar, local role-based users, scheduled/emergency signage, rotating pairing codes, screen tags, audit history, and downloadable full/configuration backups.
-- Direct lesson uploads, reusable or four-week lesson retention, automatic cleanup, resumable large uploads, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, link classification, codec readiness, and range-enabled delivery.
+- Direct lesson uploads, online webpages, embedded YouTube playback, queued local YouTube imports, reusable or four-week lesson retention, automatic cleanup, resumable large uploads, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, codec readiness, and range-enabled delivery.
 - Daily release checks, administrator alerts, protected one-click Linux updates with health-check rollback, and administrator-controlled storage allocation with uploader-visible capacity.
 - A locally configurable six-digit pairing PIN, with a choice between a persistent administrator-set PIN and automatic ten-minute rotation.
 - Automatic `lessoncue.local` setup on native Linux, with an administrator-configurable `.local` browser name and numeric-IP fallback.
 - Local administrator password recovery over SSH, including username listing, audited resets, and existing-session invalidation.
+- Local interface branding with independent navigation background, navigation text, selected-tab, and accent colors.
 - GitHub Actions that build the web app, server, Android APK, tvOS app, release packages, and GitHub Pages documentation.
 
 ## Quick start
@@ -57,6 +58,8 @@ If the countdown duration is five minutes and class begins at 09:00, the TV tran
 ## Media retention
 
 Every file upload asks how it should be stored. **For a lesson** is the default and automatically deletes the file four weeks after the latest lesson that uses it. **Keep permanently** places reusable material in the media library until an administrator removes it. Playlist history remains intact when an expired file is cleaned up.
+
+Lesson pages and the Media Library also accept webpages and YouTube URLs. Android TV and Fire TV render webpages and the embedded YouTube player while online. A YouTube URL can instead be queued as a local MP4 import and then uses the same four-week or permanent retention policy as an upload; only import video you are authorized to copy. Apple TV plays the downloaded local copy because tvOS does not provide the web-view surface used by the Android client.
 
 ## Updates and storage
 

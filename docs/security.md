@@ -9,7 +9,7 @@ LessonCue is local-network software, not trusted-network software. Treat every r
 - Store PINs, passwords, and device tokens only as adaptive or cryptographic hashes on the server.
 - Validate file signatures as well as extensions before media processing.
 - Run FFmpeg and document converters with resource limits and no network access.
-- Do not fetch arbitrary external URLs. Resolve and block loopback, private, link-local, and metadata addresses unless an administrator explicitly allowlists a local stream.
+- Do not fetch arbitrary external URLs. The optional YouTube importer is a narrow exception: accept exact YouTube hostnames only, pass fixed arguments directly to the bundled downloader without a shell, disable downloader configuration and playlists, and enforce the local storage allocation. Resolve and block loopback, private, link-local, and metadata addresses for any future fetch feature unless an administrator explicitly allowlists a local stream.
 - LessonCue uses role-based browser sessions, same-origin mutation checks, CSP, rate-limited pairing/login, revocable hashed device credentials, and durable local data-protection keys. Uploaded media URLs remain reachable on the trusted television network so native players can stream them; do not expose the service directly to the internet.
 - Retain audit logs and test backups and restoration.
 - Keep SSH or equivalent physical administrator access available for account recovery. The recovery command runs as the restricted `lessoncue` account, stores only a new adaptive password hash, audits the reset, and invalidates existing sessions for that account.

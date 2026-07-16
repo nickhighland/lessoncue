@@ -44,9 +44,9 @@ SQLite is created with `EnsureCreated`; an idempotent appliance upgrader brings 
 
 ### Implemented API path
 
-The server includes local setup and role-based cookie login, same-origin mutation protection, CSP/security headers, classes and lessons, playlist editing/reordering/duplication/archiving, resumable and duplicate-aware uploads, FFprobe/FFmpeg background inspection, safe URL classification, screen tags/assignment/revocation, scheduled and emergency signage, configuration/full backup archives, range-enabled media delivery, rotating rate-limited PIN pairing, hashed device credentials, authenticated screen manifests, status telemetry, audit events, and SignalR invalidation.
+The server includes local setup and role-based cookie login, same-origin mutation protection, CSP/security headers, classes and lessons, playlist editing/reordering/duplication/archiving, resumable and duplicate-aware uploads, FFprobe/FFmpeg background inspection, online media classification, queued YouTube imports, screen tags/assignment/revocation, scheduled and emergency signage, configuration/full backup archives, range-enabled media delivery, rotating rate-limited PIN pairing, hashed device credentials, authenticated screen manifests, status telemetry, audit events, and SignalR invalidation.
 
-Media links are never fetched by the server. Direct file, supported embed, and external destinations are classified from their URL. Uploaded media and clearly identified direct media files can be cached by TVs; embedded and external-service pages remain online-only.
+Arbitrary webpage links are never fetched by the server. Direct files, YouTube embeds, and webpage destinations are classified from their URL. An explicit administrator-selected YouTube import is the sole server-side online fetch: it accepts exact YouTube domains, invokes the bundled `yt-dlp` executable without a shell or user-controlled arguments, disables playlists and configuration files, limits output to the remaining storage allocation, and requests a single MP4. Successful imports pass through the normal FFprobe/FFmpeg pipeline and retention system. Webpages and embedded players remain online-only.
 
 ### Storage enforcement
 

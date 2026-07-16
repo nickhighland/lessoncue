@@ -46,6 +46,7 @@ builder.Services.AddSingleton(new StorageService(dataPath));
 builder.Services.AddSingleton(services => new LocalAddressService(dataPath, services.GetRequiredService<ILogger<LocalAddressService>>()));
 builder.Services.AddHostedService(services => services.GetRequiredService<LocalAddressService>());
 builder.Services.AddHostedService<MediaProcessingService>();
+builder.Services.AddHostedService<YouTubeImportService>();
 builder.Services.AddHostedService<MediaRetentionService>();
 builder.Services.AddHttpClient("updates", client =>
 {

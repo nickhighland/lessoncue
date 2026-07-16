@@ -83,9 +83,10 @@
       "properties": {
         "itemId": { "type": "string" },
         "mediaId": { "type": ["string", "null"] },
-        "type": { "enum": ["video", "audio", "image", "liveStream", "external"] },
+        "type": { "enum": ["video", "audio", "image", "liveStream", "external", "web"] },
         "title": { "type": "string" },
         "downloadUrl": { "type": ["string", "null"] },
+        "playbackUrl": { "type": ["string", "null"] },
         "sha256": { "type": ["string", "null"] },
         "sizeBytes": { "type": ["integer", "null"], "minimum": 0 },
         "durationMs": { "type": ["integer", "null"], "minimum": 0 },

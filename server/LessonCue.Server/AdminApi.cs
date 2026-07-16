@@ -492,10 +492,32 @@ public static class AdminApi
         {
             if (!Uri.TryCreate(input.Url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
                 return Results.BadRequest(new { error = "Enter a complete http or https URL." });
+            Lesson? retentionLesson = null;
+            if (input.Download)
+            {
+                if (!YouTubeMedia.IsYouTubeUrl(uri))
+                    return Results.BadRequest(new { error = "Local download is available only for YouTube URLs." });
+                if (!input.Persistent)
+                {
+                    if (input.LessonId is not Guid lessonId)
+                        return Results.BadRequest(new { error = "Choose the lesson this download belongs to, or choose Keep permanently." });
+                    retentionLesson = await db.Lessons.SingleOrDefaultAsync(x => x.Id == lessonId, ct);
+                    if (retentionLesson is null) return Results.BadRequest(new { error = "The selected lesson does not exist." });
+                }
+                var pendingTitle = string.IsNullOrWhiteSpace(input.Title) ? "YouTube video" : input.Title.Trim();
+                var pending = new MediaAsset { FileName = pendingTitle, ContentType = "video/mp4", RelativePath = "",
+                    SizeBytes = 0, OfflineEligible = false, ProcessingStatus = "downloading", SourceKind = "youtube-download",
+                    SourceUrl = uri.ToString(), LinkKind = "youtube-local" };
+                if (input.Persistent) MediaRetention.KeepPermanently(pending);
+                else MediaRetention.SetNewUploadPolicy(pending, retentionLesson!);
+                db.MediaAssets.Add(pending); Audit(db, "media.youtube.queue", pending.Id, uri.Host); await db.SaveChangesAsync(ct);
+                return Results.Accepted($"/api/v1/media/{pending.Id}", pending);
+            }
             var extension = Path.GetExtension(uri.AbsolutePath).ToLowerInvariant();
             var direct = extension is ".mp4" or ".m4v" or ".mov" or ".mp3" or ".m4a" or ".aac" or ".wav" or ".jpg" or ".jpeg" or ".png" or ".webp";
-            var embedded = uri.Host.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || uri.Host.Contains("youtu.be", StringComparison.OrdinalIgnoreCase) || uri.Host.Contains("vimeo.com", StringComparison.OrdinalIgnoreCase);
-            var kind = direct ? "direct" : embedded ? "embedded" : "external";
+            var youtube = YouTubeMedia.IsYouTubeUrl(uri);
+            var embedded = youtube || uri.Host.Equals("vimeo.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".vimeo.com", StringComparison.OrdinalIgnoreCase);
+            var kind = direct ? "direct" : youtube ? "youtube" : embedded ? "embedded" : "webpage";
             var contentType = extension switch
             {
                 ".mp4" or ".m4v" or ".mov" => "video/mp4",
@@ -659,7 +681,9 @@ public static class AdminApi
                 return Results.BadRequest(new { error = "Organization name and time zone are required." });
             try { _ = TimeZoneInfo.FindSystemTimeZoneById(input.TimeZone); }
             catch { return Results.BadRequest(new { error = "The server does not recognize that IANA time zone." }); }
-            if (!IsColor(input.PrimaryColor) || !IsColor(input.AccentColor))
+            if (!IsColor(input.PrimaryColor) || !IsColor(input.AccentColor) ||
+                input.NavigationTextColor is not null && !IsColor(input.NavigationTextColor) ||
+                input.SelectedTabColor is not null && !IsColor(input.SelectedTabColor))
                 return Results.BadRequest(new { error = "Brand colors must use six-digit hex notation." });
             var organization = await db.Organizations.FirstAsync(ct);
             organization.Name = input.Name.Trim(); organization.SiteName = input.SiteName.Trim();
@@ -667,6 +691,8 @@ public static class AdminApi
             organization.DefaultLessonDurationMinutes = Math.Clamp(input.DefaultLessonDurationMinutes, 5, 480);
             organization.DefaultRetentionDays = Math.Clamp(input.DefaultRetentionDays, 1, 3650);
             organization.PrimaryColor = input.PrimaryColor; organization.AccentColor = input.AccentColor;
+            if (input.NavigationTextColor is not null) organization.NavigationTextColor = input.NavigationTextColor;
+            if (input.SelectedTabColor is not null) organization.SelectedTabColor = input.SelectedTabColor;
             organization.WelcomeMessage = input.WelcomeMessage.Trim();
             Audit(db, "organization.update", organization.Id, organization.Name); await db.SaveChangesAsync(ct);
             return Results.Ok(organization);

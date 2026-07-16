@@ -66,6 +66,8 @@ public static class DatabaseUpgrade
             ["Organizations.StorageLimitBytes"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"StorageLimitBytes\" INTEGER NOT NULL DEFAULT 0"),
             ["Organizations.PrimaryColor"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"PrimaryColor\" TEXT NOT NULL DEFAULT '#25302d'"),
             ["Organizations.AccentColor"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"AccentColor\" TEXT NOT NULL DEFAULT '#d89127'"),
+            ["Organizations.NavigationTextColor"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"NavigationTextColor\" TEXT NOT NULL DEFAULT '#aac0bb'"),
+            ["Organizations.SelectedTabColor"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"SelectedTabColor\" TEXT NOT NULL DEFAULT '#3a4541'"),
             ["Organizations.WelcomeMessage"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"WelcomeMessage\" TEXT NOT NULL DEFAULT 'Welcome'"),
             ["AdminAccounts.DisplayName"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"DisplayName\" TEXT NOT NULL DEFAULT 'Administrator'"),
             ["AdminAccounts.Email"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"Email\" TEXT NULL"),

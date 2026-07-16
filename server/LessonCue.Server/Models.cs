@@ -14,6 +14,8 @@ public sealed class Organization
     public long StorageLimitBytes { get; set; }
     [MaxLength(16)] public string PrimaryColor { get; set; } = "#25302d";
     [MaxLength(16)] public string AccentColor { get; set; } = "#d89127";
+    [MaxLength(16)] public string NavigationTextColor { get; set; } = "#aac0bb";
+    [MaxLength(16)] public string SelectedTabColor { get; set; } = "#3a4541";
     [MaxLength(240)] public string WelcomeMessage { get; set; } = "Welcome";
 }
 
@@ -217,11 +219,11 @@ public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool
 public sealed record UserInput(string Username, string DisplayName, string? Email, string Role, string? Password, bool Disabled = false);
 public sealed record OrganizationInput(string Name, string SiteName, string TimeZone, string WeekStartsOn,
     int DefaultLessonDurationMinutes, int DefaultRetentionDays, string PrimaryColor, string AccentColor,
-    string WelcomeMessage);
+    string? NavigationTextColor, string? SelectedTabColor, string WelcomeMessage);
 public sealed record StorageLimitInput(long LimitBytes);
 public sealed record LocalHostnameInput(string Hostname);
 public sealed record SignageInput(string Name, string Mode, bool Enabled, int Priority, DateTimeOffset? StartsAt,
     DateTimeOffset? EndsAt, string? Message, string? BackgroundColor, string? TextColor, Guid? MediaAssetId, string? TargetTagsCsv);
-public sealed record LinkInput(string Url, string? Title);
+public sealed record LinkInput(string Url, string? Title, bool Download = false, bool Persistent = true, Guid? LessonId = null);
 public sealed record UploadCompleteInput(string FileName, string ContentType, int TotalChunks, long? DurationMs,
     bool Persistent = false, Guid? LessonId = null);

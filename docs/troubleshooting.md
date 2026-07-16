@@ -16,7 +16,9 @@ Use the SSH commands in [Reset a forgotten administrator password](installation.
 
 ## Media says internet required
 
-Only uploaded or approved direct files are offline eligible. YouTube, Vimeo, subscription services, embedded players, and external app launches remain online-only unless the provider offers an authorized download mechanism.
+Webpages, embedded players, Vimeo, and external destinations require internet. On Android TV and Fire TV, YouTube links use an embedded web player. For offline playback—or any YouTube item assigned to Apple TV—open **Add media**, choose **Download YouTube locally**, and wait for the Media Library status to change from Downloading/Processing to Offline ready. Only import media you are authorized to copy.
+
+If a local YouTube import fails, read its processing error in the Media Library, confirm the server can reach YouTube, check available LessonCue storage, and inspect `sudo journalctl -u lessoncue -n 100 --no-pager`. Re-run the latest installer or install the latest release if the error says `yt-dlp` was not found.
 
 ## Countdown starts at the wrong time
 

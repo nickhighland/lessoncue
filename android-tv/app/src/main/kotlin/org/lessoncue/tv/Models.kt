@@ -9,6 +9,8 @@ data class CueItem(
     val title: String,
     val type: String,
     val url: String?,
+    val playbackUrl: String? = null,
+    val linkKind: String? = null,
     val sha256: String? = null,
     val sizeBytes: Long? = null,
     val durationMs: Long? = null,

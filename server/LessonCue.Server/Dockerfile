@@ -15,6 +15,10 @@ RUN dotnet publish server/LessonCue.Server/LessonCue.Server.csproj -c Release -o
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates curl && rm -rf /var/lib/apt/lists/*
+ARG TARGETARCH
+RUN case "$TARGETARCH" in arm64) asset=yt-dlp_linux_aarch64 ;; *) asset=yt-dlp_linux ;; esac \
+    && curl -fL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${asset}" -o /usr/local/bin/yt-dlp \
+    && chmod 0755 /usr/local/bin/yt-dlp
 WORKDIR /app
 COPY --from=build /app/publish .
 ENV LESSONCUE_DATA_PATH=/data \

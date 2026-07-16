@@ -1,7 +1,11 @@
 package org.lessoncue.tv
 
+import android.annotation.SuppressLint
 import android.os.Build
 import android.os.Bundle
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -266,6 +270,10 @@ private fun LibraryScreen(manifest: ScreenManifest, onStart: (LessonPlaylist) ->
 @Composable
 private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: Int, seekMs: Long, onExit: () -> Unit, onNext: (Int) -> Unit) {
     val item = items.getOrNull(index)
+    if (item?.playbackUrl != null && item.linkKind in setOf("youtube", "embedded", "webpage", "external")) {
+        OnlineMediaScreen(item, onExit)
+        return
+    }
     if (item?.url == null) {
         FormLayout(item?.title ?: "Nothing to play", "This item is not available on the server.") {
             Button(onClick = onExit) { Text("Back to lesson") }
@@ -338,6 +346,34 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         }
         if (item.notes.isNotBlank()) Text(item.notes, color = Cream, fontSize = 20.sp,
             modifier = Modifier.align(Alignment.BottomStart).padding(28.dp).background(Navy.copy(alpha = .9f)).padding(16.dp))
+        Button(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd).padding(28.dp)) { Text("Exit") }
+    }
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+private fun OnlineMediaScreen(item: CueItem, onExit: () -> Unit) {
+    val context = LocalContext.current
+    val webView = remember(item.id) {
+        WebView(context).apply {
+            settings.javaScriptEnabled = item.linkKind != "webpage"
+            settings.domStorageEnabled = true
+            settings.mediaPlaybackRequiresUserGesture = false
+            settings.setSupportZoom(false)
+            webViewClient = WebViewClient()
+            webChromeClient = WebChromeClient()
+            setBackgroundColor(android.graphics.Color.BLACK)
+            loadUrl(item.playbackUrl!!)
+        }
+    }
+    DisposableEffect(webView) { onDispose { webView.stopLoading(); webView.destroy() } }
+    Box(Modifier.fillMaxSize().background(Color.Black).focusable()) {
+        AndroidView(factory = { webView }, modifier = Modifier.fillMaxSize())
+        Row(Modifier.align(Alignment.TopStart).padding(28.dp).background(Navy.copy(alpha = .82f)).padding(16.dp)) {
+            Text(item.title, color = Cream)
+            Spacer(Modifier.width(18.dp))
+            Text(if (item.linkKind == "youtube") "YouTube · online" else "Webpage · online", color = Muted)
+        }
         Button(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd).padding(28.dp)) { Text("Exit") }
     }
 }
