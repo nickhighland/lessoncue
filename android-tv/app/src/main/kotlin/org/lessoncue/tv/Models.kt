@@ -51,6 +51,16 @@ data class ControlCommand(
     val positionMs: Long? = null
 )
 
+data class PlaybackTelemetry(
+    val state: String = "idle",
+    val lessonId: String? = null,
+    val itemId: String? = null,
+    val positionMs: Long = 0,
+    val durationMs: Long? = null,
+    val volumePercent: Int = 100,
+    val error: String? = null
+)
+
 sealed interface PlaybackPhase {
     data object Idle : PlaybackPhase
     data class PreRoll(val itemIndex: Int) : PlaybackPhase

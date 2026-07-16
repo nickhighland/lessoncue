@@ -2,22 +2,29 @@
 
 This is a comprehensive candidate list, not a promise that every item will be built. LessonCue should remain local-first, dependable during live playback, understandable to occasional operators, usable by schools and churches alike, and installable without a cloud account. Features that weaken those principles should be optional.
 
+## Implemented roadmap milestones
+
+- [x] **Playback acknowledgement and live state (v0.10.0)** — Android TV and Apple TV report the command version actually received, current lesson and cue, state, elapsed time, duration, volume, cache readiness, device details, and playback errors. The phone controller receives local SignalR updates with polling fallback, and the Screens page exposes the same self-hosted diagnostics.
+
 ## Recommended next priorities
 
-1. **Playback acknowledgement and live state** — show which cue is actually playing, progress, volume, cache readiness, and whether each controller command reached the screen.
-2. **Automated browser and hardware playback tests** — exercise uploads, lesson editing, pre-roll, countdown transitions, controller commands, offline recovery, and upgrades on real TV devices.
-3. **Restore workflow in Settings** — upload and validate a backup, preview its contents, restore it safely, and automatically preserve the pre-restore state.
-4. **Media organization and versioning** — build on the existing bulk deletion and retention controls with tags, folders, replacement versions, reprocessing, and impact previews.
-5. **Visual timeline editor** — waveform and filmstrip-based trim, fade, chapter, and cue editing with frame-accurate preview.
-6. **Presentation conversion** — convert PowerPoint, Keynote-exported PDF, and common document formats into screen-ready slide sequences.
-7. **Reusable templates and recurring schedules** — create a standard lesson structure, generate dated instances, and handle holiday exceptions.
-8. **Granular permissions** — separately control planning, uploads, playback, screen administration, user administration, settings, backups, and updates.
-9. **Screen diagnostics** — expose cache inventory, download queue, codec capabilities, recent errors, clock drift, network quality, and a privacy-conscious screenshot request.
-10. **Guided update and rollback history** — update rings, release notes, compatibility checks, visible progress, and one-click rollback to the last healthy version.
+1. [ ] **Visual timeline editor** — waveform and filmstrip-based trim, fade, chapter, and cue editing with frame-accurate preview.
+2. [x] **Playback acknowledgement and live state (v0.10.0)** — show which cue is actually playing, progress, volume, cache readiness, and whether each controller command reached the screen.
+3. [ ] **Automated browser and hardware playback tests** — exercise uploads, lesson editing, pre-roll, countdown transitions, controller commands, offline recovery, and upgrades on real TV devices.
+4. [ ] **Restore workflow in Settings** — upload and validate a backup, preview its contents, restore it safely, and automatically preserve the pre-restore state.
+5. [ ] **Media organization and versioning** — build on the existing bulk deletion and retention controls with tags, folders, replacement versions, reprocessing, and impact previews.
+6. [ ] **Presentation conversion** — convert PowerPoint, Keynote-exported PDF, and common document formats into screen-ready slide sequences.
+7. [ ] **Reusable templates and recurring schedules** — create a standard lesson structure, generate dated instances, and handle holiday exceptions.
+8. [ ] **Granular permissions** — separately control planning, uploads, playback, screen administration, user administration, settings, backups, and updates.
+9. [ ] **Screen diagnostics** — expose cache inventory, download queue, codec capabilities, recent errors, clock drift, network quality, and a privacy-conscious screenshot request. _Foundation shipped in v0.10.0: device/OS identity, free space, cache totals, command state, and playback/download errors._
+10. [ ] **Bulk editing** — on lesson plans, media library, etc., bulk upload, bulk delete, bulk select to modify or edit, delete lessons, delete media, rename, etc. _Media-library bulk retention and deletion shipped before v0.10.0; lesson-plan bulk operations remain._
+11. [ ] **Cloudflare integration** — integrate optional Cloudflare Tunnel support so an administrator can make LessonCue available through a dedicated web domain.
+12. [ ] **Dedicated classroom playback landing pages** — allow appropriately authorized administrators to assign a subdomain or path to each classroom, such as `classroom1.lessoncue.com` or `lessoncue.com/classroom1`, which can be saved as a custom app on a teacher's phone.
+
 
 ## Administration and user experience
 
-- Self-service profile editing for a signed-in user's own name, email, username, and password.
+- Self-service profile editing for a signed-in user's own name, email, username, and password with email integration through Resend and Brevo.
 - Invitations with expiring setup links or administrator-generated one-time passwords.
 - Forced password change at first sign-in and administrator-controlled password expiration policies.
 - Granular custom roles and permissions instead of only the four built-in roles.
@@ -26,32 +33,34 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 - Passkeys, TOTP authenticator codes, recovery codes, and optional two-person approval for high-impact actions.
 - Active-session list with device, approximate network address, last activity, and remote sign-out.
 - User CSV import/export and directory synchronization through LDAP or optional OIDC/SAML providers.
-- Avatar or initials customization, preferred language, time format, date format, and notification preferences.
 - In-app change history with undo for common lesson, media, signage, screen, and settings operations.
 - Global command palette, keyboard shortcuts, recently visited items, favorites, and saved filters.
 - Contextual onboarding, sample tours, role-specific dashboards, and a dismissible operator checklist.
 - Configurable home dashboard cards and organization-wide announcement banners.
 - Mobile administration for urgent schedule and account changes, not only playback control.
+- Per user and Per Server storage limits.  Administrators can assign storage limits to teachers to prevent one or two individuals from using excessive storage.
+
 
 ## Lessons, planning, and scheduling
 
 - Lesson templates with placeholder slots, default trims, standard pre-roll, countdown, and outro content.
 - Recurring lesson generation with weekly, monthly, term-based, and custom recurrence rules.
-- Holiday, closure, special-event, and daylight-saving exceptions.
-- Copy or move a complete lesson between classes, dates, campuses, or servers.
+- Copy or move a complete lesson between classes, dates, campuses.
 - Multi-select lesson operations, bulk archive, and batch date shifting.
 - Draft, review, approved, published, completed, and archived workflow states.
 - Approval comments, assignments, due dates, mentions, and a visible readiness checklist.
 - Conflict warnings for overlapping schedules, shared screens, missing files, or insufficient download time.
 - Calendar day, week, month, agenda, and room views.
+- Teacher notes on the mobile interface for each media item.
 - iCalendar import/export and optional two-way synchronization with common calendar services.
 - Substitute-operator notes, printable run sheets, and QR codes that open the correct controller view.
 - Lesson version history, named snapshots, compare, restore, and audit attribution.
 - Conditional cues and simple branching for different audience choices or time remaining.
 - Cue groups that can advance together, remain manual, or repeat until explicitly released.
-- Estimated total duration, overrun warnings, flexible-time markers, and automatic compression suggestions.
+- Estimated total duration, remaining duration, overrun warnings, flexible-time markers, and automatic compression suggestions.
 - Rehearsal mode that never changes the production schedule or screen assignment.
 - An always-visible “safe to start” report covering media, screens, schedules, and storage.
+- Pre-roll can play a livestream (locally streamed or youtube). In churches, this would allow users to monitor the service for children's dismissals.
 
 ## Media library and content lifecycle
 
@@ -59,13 +68,13 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 - Full-text search across filenames, titles, notes, captions, transcripts, and lesson usage.
 - Bulk upload, drag-and-drop folders, background transfers, pause/resume, retry, and resumable browser sessions.
 - Watch folders and optional imports from local NAS, SMB, NFS, SFTP, or removable storage.
+- Organized folder structure, such as campus/classroom/date/title/ with content labeled with a number indicating order, such as 01 - media.mp4, 02 - image.png, 03 - slidedeck.ppt, etc., so that media can be loaded directly to the watched folder and imported as a completed presentation.
 - Duplicate and near-duplicate detection with safe consolidation of lesson references.
 - File versioning that preserves an asset's identity while allowing replacement and rollback.
 - Media usage graph showing every lesson, template, signage item, and screen cache that depends on a file.
 - Retention preview, expiration alerts, legal hold, archive tiers, recycle bin, and configurable recovery window.
 - Storage forecast, growth trends, largest-file report, stale cache report, and cleanup recommendations.
 - Administrator-defined upload limits by role, user, class, file size, codec, and daily quota.
-- Antivirus or content-scanning hooks and isolated processing with strict CPU, memory, time, and disk limits.
 - Rights-holder, source, license, release, allowed dates, attribution, and usage-restriction metadata.
 - Automatic thumbnails, contact sheets, waveform previews, scene detection, and poster-frame selection.
 - Automatic proxy generation for browser preview while retaining a higher-quality playback master.
@@ -79,8 +88,6 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 - Filmstrip and waveform timeline with frame-accurate in/out points and keyboard nudging.
 - Editable fade curves, crossfades, audio-only fades, normalization, ducking, and loudness targets.
 - Crop, rotate, aspect-ratio fit/fill, safe-area guides, image pan/zoom, and background color or blur.
-- Caption upload, editing, styling, translation tracks, forced captions, and per-room defaults.
-- Chapter markers, operator cue points, playback regions, and named seek targets.
 - Per-item and per-lesson volume, mute, playback speed, repeat count, and end behavior.
 - Gapless playback and prebuffering for seamless transitions.
 - Layered playback for a background loop, foreground content, lower thirds, clock, logo, or emergency crawl.
@@ -94,7 +101,7 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 - Playback recording or operator event log for post-event review where local policy permits it.
 - Offline webpage packaging for explicitly supported HTML content, with sandboxing and asset validation.
 - PDF and presentation conversion into high-resolution, remote-navigable slide sequences.
-- Integration outputs for NDI, OBS, ProPresenter, Bitfocus Companion, Stream Deck, MIDI, OSC, or GPIO where useful.
+- Priority on user-friendliness.  "Simple" and "Advanced" toggles to keep more complicated features (like crossfades, cropping, etc.) hidden from beginners.
 
 ## Cellphone controller
 
@@ -210,12 +217,14 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 - Capacity forecasts for storage, bandwidth, device fleet, and upcoming scheduled content.
 - Operator activity and audit summaries with permission-aware detail.
 - No external telemetry by default; any diagnostics sharing should be explicit, reviewable, and revocable.
+- Administrators can access detailed reports of user patterns.
 
 ## Installation, updates, and distribution
 
 - Signed native packages for Debian/Ubuntu, RPM-based Linux, Windows, macOS development, and common ARM systems.
 - Fully offline installer bundle containing server, TV packages, checksums, and documentation.
 - Docker and Podman images with pinned versions, health checks, backup examples, and upgrade guidance.
+- Unraid setup guide.
 - Guided first-run checks for port conflicts, mDNS, time synchronization, FFmpeg, storage permissions, and firewall rules.
 - Update channels for stable, preview, and development releases, with per-server maintenance windows.
 - Compatibility matrix covering server, Android/Fire TV, tvOS, database, and protocol versions.

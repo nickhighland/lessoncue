@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -261,22 +262,20 @@ api.MapGet("/screens/{screenId:guid}/control", async (Guid screenId, int? after,
         issuedAt = command?.IssuedAt, state = screen.PlaybackState });
 });
 
-api.MapPost("/tv/status", async (TvStatusInput input, HttpRequest request, LessonCueDb db, CancellationToken ct) =>
+api.MapPost("/tv/status", async (TvStatusInput input, HttpRequest request, LessonCueDb db,
+    IHubContext<SyncHub> hub, CancellationToken ct) =>
 {
     if (!await HasDeviceAccess(request, db, input.ScreenId, ct)) return Results.Unauthorized();
     var screen = await db.Screens.SingleOrDefaultAsync(x => x.Id == input.ScreenId, ct);
     if (screen is null) return Results.NotFound();
-    screen.LastSeenAt = DateTimeOffset.UtcNow;
-    screen.AppVersion = input.AppVersion;
-    screen.ManifestVersion = input.ManifestVersion;
-    screen.LastIpAddress = request.HttpContext.Connection.RemoteIpAddress?.ToString();
-    screen.FreeBytes = input.FreeBytes;
-    screen.FailedDownloads = input.FailedDownloads;
+    ScreenTelemetry.Apply(screen, input, DateTimeOffset.UtcNow,
+        request.HttpContext.Connection.RemoteIpAddress?.ToString());
     await db.SaveChangesAsync(ct);
+    await hub.Clients.Group("admins").SendAsync("ScreenStatusChanged", new { screen.Id }, ct);
     return Results.Accepted();
 });
 
-app.MapHub<SyncHub>("/hubs/sync");
+app.MapHub<SyncHub>("/hubs/sync").RequireAuthorization();
 app.MapFallbackToFile("index.html");
 app.Run();
 

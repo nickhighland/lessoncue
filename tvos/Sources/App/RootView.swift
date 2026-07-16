@@ -166,11 +166,23 @@ private struct PlaybackView: View {
     }
 
     private func prepare() async {
-        guard let item, let url = await model.mediaURL(for: item) else { unavailable = true; return }
+        guard let item, let url = await model.mediaURL(for: item) else {
+            unavailable = true
+            model.updatePlayback(PlaybackTelemetry(state: "error", lessonId: playlist.id,
+                itemId: item?.id, error: "Media is unavailable on this screen."))
+            return
+        }
         unavailable = false
         if item.type == "image" {
             player?.pause(); player = nil; imageURL = url
-            try? await Task.sleep(nanoseconds: UInt64(max(1, item.imageDurationSeconds ?? 10)) * 1_000_000_000)
+            let seconds = max(1, item.imageDurationSeconds ?? 10)
+            for elapsed in 0..<seconds {
+                model.updatePlayback(PlaybackTelemetry(state: "playing", lessonId: playlist.id,
+                    itemId: item.id, positionMs: Int64(elapsed * 1000),
+                    durationMs: Int64(seconds * 1000), volumePercent: item.volumePercent))
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+            }
             guard !Task.isCancelled else { return }
             if item.endBehavior == "advance" || playlist.preRoll?.items.contains(item) == true { advance() }
             return
@@ -179,6 +191,9 @@ private struct PlaybackView: View {
         let next = AVPlayer(url: url)
         let targetVolume = min(1.5, Float(item.volumePercent) / 100)
         next.volume = (item.fadeInMs ?? 0) > 0 ? 0 : targetVolume
+        model.updatePlayback(PlaybackTelemetry(state: "loading", lessonId: playlist.id,
+            itemId: item.id, positionMs: max(0, seekMs), durationMs: item.durationMs,
+            volumePercent: item.volumePercent))
         await next.seek(to: CMTime(value: item.startMs + max(0, seekMs), timescale: 1000))
         player = next
         next.play()
@@ -188,6 +203,14 @@ private struct PlaybackView: View {
             let end = item.endMs ?? (next.currentItem?.duration.seconds.isFinite == true ? Int64(next.currentItem!.duration.seconds * 1000) : nil)
             let fadeOut = (item.fadeOutMs ?? 0) > 0 && end != nil ? min(1, max(0, Float(end! - position) / Float(item.fadeOutMs!))) : 1
             next.volume = targetVolume * min(fadeIn, fadeOut)
+            let duration = next.currentItem?.duration.seconds
+            let state = next.timeControlStatus == .playing ? "playing" :
+                (next.timeControlStatus == .waitingToPlayAtSpecifiedRate ? "buffering" : "paused")
+            model.updatePlayback(PlaybackTelemetry(state: state, lessonId: playlist.id,
+                itemId: item.id, positionMs: max(0, position),
+                durationMs: duration?.isFinite == true ? Int64(duration! * 1000) : item.durationMs,
+                volumePercent: item.volumePercent,
+                error: next.currentItem?.error?.localizedDescription))
             if let end = item.endMs, position >= end { await handleCompletion(); return }
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
@@ -197,7 +220,12 @@ private struct PlaybackView: View {
         guard let item, let player else { return }
         if item.endBehavior == "loop" { await player.seek(to: .zero); player.play() }
         else if item.endBehavior == "advance" || playlist.preRoll?.items.contains(item) == true { advance() }
-        else { player.pause() }
+        else {
+            player.pause()
+            model.updatePlayback(PlaybackTelemetry(state: "completed", lessonId: playlist.id,
+                itemId: item.id, positionMs: item.endMs ?? item.durationMs ?? 0,
+                durationMs: item.endMs ?? item.durationMs, volumePercent: item.volumePercent))
+        }
     }
 
     private func advance() {

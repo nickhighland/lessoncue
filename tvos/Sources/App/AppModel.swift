@@ -15,6 +15,8 @@ final class AppModel: ObservableObject {
     @Published var manifest: ScreenManifest?
     @Published var errorMessage: String?
     @Published var playbackCommand: ControlCommand?
+    @Published var playbackTelemetry = PlaybackTelemetry()
+    @Published var acknowledgedControlVersion = 0
     let discovery = BonjourDiscovery()
     private(set) var identity: DeviceIdentity?
     private var scheduleTask: Task<Void, Never>?
@@ -89,10 +91,12 @@ final class AppModel: ObservableObject {
         let next = index + 1
         if next < items.count { route = .playback(playlist: playlist, items: items, index: next, seekMs: 0) }
         else if loops && !items.isEmpty { route = .playback(playlist: playlist, items: items, index: 0, seekMs: 0) }
-        else { route = .library }
+        else { playbackTelemetry = PlaybackTelemetry(); route = .library }
     }
 
-    func leavePlayback() { route = .library }
+    func leavePlayback() { playbackTelemetry = PlaybackTelemetry(); route = .library }
+
+    func updatePlayback(_ telemetry: PlaybackTelemetry) { playbackTelemetry = telemetry }
 
     private func beginScheduleMonitor() {
         scheduleTask?.cancel()
@@ -136,8 +140,12 @@ final class AppModel: ObservableObject {
                       let api = try? LessonCueAPI(address: identity.serverURL.absoluteString) else { return }
                 let attributes = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory())
                 let freeBytes = (attributes?[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
-                try? await api.reportStatus(identity: identity, manifestVersion: manifest.manifestVersion, freeBytes: freeBytes)
-                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                let cachedItems = await OfflineCache.shared.cachedItemCount()
+                try? await api.reportStatus(identity: identity, manifestVersion: manifest.manifestVersion,
+                    freeBytes: freeBytes, acknowledgedControlVersion: self.acknowledgedControlVersion,
+                    playback: self.playbackTelemetry, cachedItems: cachedItems,
+                    totalItems: manifest.allItems.count)
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }
     }
@@ -184,6 +192,18 @@ final class AppModel: ObservableObject {
         case "pause", "resume": break
         default: break
         }
+        acknowledgedControlVersion = command.version
+        await reportStatusNow(api: api, identity: identity)
+    }
+
+    private func reportStatusNow(api: LessonCueAPI, identity: DeviceIdentity) async {
+        guard let manifest else { return }
+        let attributes = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory())
+        let freeBytes = (attributes?[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
+        let cachedItems = await OfflineCache.shared.cachedItemCount()
+        try? await api.reportStatus(identity: identity, manifestVersion: manifest.manifestVersion,
+            freeBytes: freeBytes, acknowledgedControlVersion: acknowledgedControlVersion,
+            playback: playbackTelemetry, cachedItems: cachedItems, totalItems: manifest.allItems.count)
     }
 
     func mediaURL(for item: CueItem) async -> URL? {
@@ -204,6 +224,16 @@ final class AppModel: ObservableObject {
             guard let path = item.downloadUrl, let url = api.absoluteMediaURL(path) else { continue }
             try? await OfflineCache.shared.cache(item, from: url,
                 token: url.host == identity.serverURL.host ? identity.deviceToken : nil)
+        }
+    }
+}
+
+private extension ScreenManifest {
+    var allItems: [CueItem] {
+        playlists.flatMap { playlist in
+            playlist.items + (playlist.preRoll?.items ?? []) + [playlist.countdown?.item].compactMap { $0 }
+        }.reduce(into: [CueItem]()) { items, item in
+            if !items.contains(where: { $0.id == item.id }) { items.append(item) }
         }
     }
 }

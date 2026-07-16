@@ -21,7 +21,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         val body = JSONObject()
             .put("deviceName", deviceName)
             .put("platform", "android-tv")
-            .put("appVersion", "0.9.0")
+            .put("appVersion", "0.10.0")
         JSONObject(request("/api/v1/pairing/request", "POST", body.toString())).getString("requestId")
     }
 
@@ -37,14 +37,28 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         parseManifest(JSONObject(raw))
     }
 
-    suspend fun reportStatus(identity: DeviceIdentity, manifestVersion: Int, freeBytes: Long, failedDownloads: Int = 0) = withContext(Dispatchers.IO) {
+    suspend fun reportStatus(identity: DeviceIdentity, manifestVersion: Int, freeBytes: Long, failedDownloads: Int = 0,
+        acknowledgedControlVersion: Int = 0, playback: PlaybackTelemetry = PlaybackTelemetry(),
+        cachedItems: Int = 0, totalItems: Int = 0) = withContext(Dispatchers.IO) {
         val body = JSONObject()
             .put("screenId", identity.screenId)
-            .put("appVersion", "0.9.0")
+            .put("appVersion", "0.10.0")
             .put("online", true)
             .put("freeBytes", freeBytes)
             .put("manifestVersion", manifestVersion)
             .put("failedDownloads", failedDownloads)
+            .put("acknowledgedControlVersion", acknowledgedControlVersion)
+            .put("playbackState", playback.state)
+            .put("lessonId", playback.lessonId)
+            .put("itemId", playback.itemId)
+            .put("positionMs", playback.positionMs)
+            .put("durationMs", playback.durationMs)
+            .put("volumePercent", playback.volumePercent)
+            .put("playbackError", playback.error)
+            .put("cachedItems", cachedItems)
+            .put("totalItems", totalItems)
+            .put("deviceModel", android.os.Build.MODEL)
+            .put("osVersion", "Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
         request("/api/v1/tv/status", "POST", body.toString(), identity.token)
         Unit
     }

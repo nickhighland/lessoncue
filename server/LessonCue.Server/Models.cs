@@ -134,7 +134,19 @@ public sealed class Screen
     public Guid? ControlItemId { get; set; }
     public long? ControlPositionMs { get; set; }
     public DateTimeOffset? ControlIssuedAt { get; set; }
+    public int AcknowledgedControlVersion { get; set; }
     [MaxLength(24)] public string PlaybackState { get; set; } = "idle";
+    public Guid? PlaybackLessonId { get; set; }
+    public Guid? PlaybackItemId { get; set; }
+    public long PlaybackPositionMs { get; set; }
+    public long? PlaybackDurationMs { get; set; }
+    public int PlaybackVolumePercent { get; set; } = 100;
+    public DateTimeOffset? PlaybackUpdatedAt { get; set; }
+    [MaxLength(1000)] public string? PlaybackError { get; set; }
+    public int CachedItems { get; set; }
+    public int TotalItems { get; set; }
+    [MaxLength(160)] public string? DeviceModel { get; set; }
+    [MaxLength(80)] public string? OsVersion { get; set; }
 }
 
 public sealed class PlaybackCommandRecord
@@ -221,7 +233,11 @@ public sealed record PairingRequestInput(string DeviceName, string Platform, str
 public sealed record PairingConfirmInput(Guid RequestId, string Pin);
 public sealed record PairingPinInput(string? Pin, bool Automatic = false);
 public sealed record TvStatusInput(Guid ScreenId, string AppVersion, bool Online, long FreeBytes,
-    int ManifestVersion, int FailedDownloads);
+    int ManifestVersion, int FailedDownloads, int? AcknowledgedControlVersion = null,
+    string? PlaybackState = null, Guid? LessonId = null, Guid? ItemId = null,
+    long? PositionMs = null, long? DurationMs = null, int? VolumePercent = null,
+    string? PlaybackError = null, int? CachedItems = null, int? TotalItems = null,
+    string? DeviceModel = null, string? OsVersion = null);
 public sealed record AdminSetupInput(string OrganizationName, string Username, string Password,
     string? DisplayName = null, string? TimeZone = null, string? Email = null,
     string? SiteName = null, string? WeekStartsOn = null);

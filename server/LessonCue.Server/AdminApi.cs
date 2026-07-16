@@ -684,7 +684,19 @@ public static class AdminApi
                 x.ControlItemId,
                 x.ControlPositionMs,
                 x.ControlIssuedAt,
-                x.PlaybackState
+                x.AcknowledgedControlVersion,
+                x.PlaybackState,
+                x.PlaybackLessonId,
+                x.PlaybackItemId,
+                x.PlaybackPositionMs,
+                x.PlaybackDurationMs,
+                x.PlaybackVolumePercent,
+                x.PlaybackUpdatedAt,
+                x.PlaybackError,
+                x.CachedItems,
+                x.TotalItems,
+                x.DeviceModel,
+                x.OsVersion
             }).ToListAsync(ct);
         });
 
@@ -712,7 +724,6 @@ public static class AdminApi
             screen.ControlItemId = input.ItemId;
             screen.ControlPositionMs = input.PositionMs is null ? null : Math.Max(0, input.PositionMs.Value);
             screen.ControlIssuedAt = DateTimeOffset.UtcNow;
-            screen.PlaybackState = action switch { "play" or "resume" => "playing", "pause" => "paused", "stop" => "idle", _ => screen.PlaybackState };
             db.PlaybackCommands.Add(new PlaybackCommandRecord
             {
                 ScreenId = screen.Id,

@@ -31,5 +31,10 @@ actor OfflineCache {
         try FileManager.default.moveItem(at: temporary, to: destination)
     }
 
+    func cachedItemCount() -> Int {
+        (try? FileManager.default.contentsOfDirectory(at: directory,
+            includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]).count) ?? 0
+    }
+
     enum CacheError: Error { case downloadFailed }
 }

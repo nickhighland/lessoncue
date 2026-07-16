@@ -86,6 +86,9 @@ fun LessonCueApp() {
     var activeIdentity by remember { mutableStateOf<DeviceIdentity?>(null) }
     var activeManifestVersion by remember { mutableStateOf(0) }
     var playbackControl by remember { mutableStateOf<ControlCommand?>(null) }
+    var acknowledgedControlVersion by remember { mutableStateOf(0) }
+    var playbackTelemetry by remember { mutableStateOf(PlaybackTelemetry()) }
+    var totalManifestItems by remember { mutableStateOf(0) }
 
     LaunchedEffect(Unit) {
         val identity = store.load()
@@ -95,10 +98,22 @@ fun LessonCueApp() {
             runCatching {
                 val manifest = api.manifest(identity)
                 activeManifestVersion = manifest.version
-                runCatching { api.reportStatus(identity, manifest.version, context.filesDir.usableSpace) }
+                totalManifestItems = manifest.itemCount()
                 AppScreen.Library(identity, manifest)
             }
                 .getOrElse { api.cachedManifest()?.let { activeManifestVersion = it.version; AppScreen.Library(identity, it) } ?: AppScreen.Connect("Saved server unavailable. Enter its address to reconnect.") }
+        }
+    }
+
+    LaunchedEffect(activeIdentity?.screenId) {
+        val identity = activeIdentity ?: return@LaunchedEffect
+        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
+        while (true) {
+            val cachedItems = context.filesDir.resolve("media").listFiles()?.size ?: 0
+            runCatching { api.reportStatus(identity, activeManifestVersion, context.filesDir.usableSpace,
+                acknowledgedControlVersion = acknowledgedControlVersion, playback = playbackTelemetry,
+                cachedItems = cachedItems, totalItems = totalManifestItems) }
+            kotlinx.coroutines.delay(if (playbackTelemetry.state in setOf("playing", "loading", "buffering")) 2_000 else 30_000)
         }
     }
 
@@ -114,6 +129,7 @@ fun LessonCueApp() {
                     when (command.action) {
                         "play" -> runCatching { api.manifest(identity) }.getOrNull()?.let { manifest ->
                             activeManifestVersion = manifest.version
+                            totalManifestItems = manifest.itemCount()
                             val playlist = manifest.playlists.firstOrNull { it.id == command.lessonId }
                             if (playlist != null) {
                                 val allItems = playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) + playlist.items
@@ -132,6 +148,7 @@ fun LessonCueApp() {
                         "seek" -> (screen as? AppScreen.Player)?.let { current -> screen = current.copy(seekMs = command.positionMs ?: 0) }
                         "pause", "resume" -> Unit
                     }
+                    acknowledgedControlVersion = command.version
                 } else controlVersion = maxOf(controlVersion, command.version)
             }
             kotlinx.coroutines.delay(750)
@@ -160,20 +177,14 @@ fun LessonCueApp() {
                             val manifest = current.api.manifest(identity)
                             activeIdentity = identity
                             activeManifestVersion = manifest.version
-                            runCatching { current.api.reportStatus(identity, manifest.version, context.filesDir.usableSpace) }
+                            totalManifestItems = manifest.itemCount()
                             screen = AppScreen.Library(identity, manifest)
                         }.onFailure { screen = AppScreen.Connect(it.message) }
                     }
                 }
                 is AppScreen.Library -> {
+                    LaunchedEffect(current.manifest.version) { playbackTelemetry = PlaybackTelemetry() }
                     LaunchedEffect(current.manifest.version) { scheduleMediaCaches(context, current.identity, current.manifest) }
-                    LaunchedEffect(current.identity.screenId, current.manifest.version) {
-                        val api = LessonCueApi(current.identity.serverUrl, context.filesDir.resolve("manifest.json"))
-                        while (true) {
-                            runCatching { api.reportStatus(current.identity, current.manifest.version, context.filesDir.usableSpace) }
-                            kotlinx.coroutines.delay(60_000)
-                        }
-                    }
                     LaunchedEffect(current.manifest.version, current.manifest.playlists.size) {
                         while (true) {
                             val scheduled = current.manifest.playlists.map { it to ScheduleCoordinator.phase(it, Instant.now()) }
@@ -210,14 +221,6 @@ fun LessonCueApp() {
                     }
                 }
                 is AppScreen.Player -> {
-                    LaunchedEffect(activeIdentity?.screenId, activeManifestVersion) {
-                        val identity = activeIdentity ?: return@LaunchedEffect
-                        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
-                        while (true) {
-                            runCatching { api.reportStatus(identity, activeManifestVersion, context.filesDir.usableSpace) }
-                            kotlinx.coroutines.delay(60_000)
-                        }
-                    }
                     LaunchedEffect(current.playlist.id, current.items.map { it.id }) {
                         val preRollIds = current.playlist.preRoll?.items.orEmpty().map { it.id }
                         val countdownId = current.playlist.countdown?.item?.id
@@ -240,6 +243,7 @@ fun LessonCueApp() {
                         }
                     }
                     PlayerScreen(current.playlist, current.items, current.itemIndex, current.seekMs, playbackControl,
+                    onTelemetry = { playbackTelemetry = it },
                     onExit = { scope.launch { store.load()?.let { identity -> val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json")); screen = runCatching { AppScreen.Library(identity, api.manifest(identity)) }.getOrElse { AppScreen.Library(identity, api.cachedManifest() ?: current.playlist.let { playlist -> ScreenManifest(1, "LessonCue", emptyList(), listOf(playlist)) }) } } } },
                     onNext = { next -> screen = current.copy(itemIndex = next, seekMs = 0) })
                 }
@@ -305,13 +309,16 @@ private fun LibraryScreen(manifest: ScreenManifest, onStart: (LessonPlaylist) ->
 }
 
 @Composable
-private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: Int, seekMs: Long, control: ControlCommand?, onExit: () -> Unit, onNext: (Int) -> Unit) {
+private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: Int, seekMs: Long,
+    control: ControlCommand?, onTelemetry: (PlaybackTelemetry) -> Unit, onExit: () -> Unit, onNext: (Int) -> Unit) {
     val item = items.getOrNull(index)
     if (item?.playbackUrl != null && item.linkKind in setOf("youtube", "embedded", "webpage", "external")) {
-        OnlineMediaScreen(item, control, onExit)
+        OnlineMediaScreen(playlist.id, item, control, onTelemetry, onExit)
         return
     }
     if (item?.url == null) {
+        LaunchedEffect(item?.id) { onTelemetry(PlaybackTelemetry("error", playlist.id, item?.id,
+            error = "This item is not available on the server.")) }
         FormLayout(item?.title ?: "Nothing to play", "This item is not available on the server.") {
             Button(onClick = onExit) { Text("Back to lesson") }
         }
@@ -321,7 +328,14 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
     val cached = context.filesDir.resolve("media").resolve("${item.id}.bin").takeIf { it.exists() }
     if (item.type == "image") {
         LaunchedEffect(item.id) {
-            kotlinx.coroutines.delay((item.imageDurationSeconds ?: 10).coerceAtLeast(1) * 1_000L)
+            val duration = (item.imageDurationSeconds ?: 10).coerceAtLeast(1) * 1_000L
+            var position = 0L
+            while (position < duration) {
+                onTelemetry(PlaybackTelemetry("playing", playlist.id, item.id, position, duration,
+                    item.volumePercent))
+                kotlinx.coroutines.delay(1_000)
+                position += 1_000
+            }
             if (item.endBehavior == "advance" && index + 1 < items.size) onNext(index + 1)
             else if (item.endBehavior == "playlistLoop") onNext(0)
         }
@@ -355,7 +369,17 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
             val fadeOut = if (item.fadeOutMs > 0 && duration != C.TIME_UNSET)
                 ((duration - position).toFloat() / item.fadeOutMs).coerceIn(0f, 1f) else 1f
             player.volume = targetVolume * minOf(fadeIn, fadeOut)
-            kotlinx.coroutines.delay(100)
+            val state = when {
+                player.playerError != null -> "error"
+                player.playbackState == Player.STATE_BUFFERING -> "buffering"
+                player.playbackState == Player.STATE_ENDED -> "completed"
+                player.isPlaying -> "playing"
+                player.playbackState == Player.STATE_READY -> "paused"
+                else -> "loading"
+            }
+            onTelemetry(PlaybackTelemetry(state, playlist.id, item.id, position,
+                duration.takeUnless { it == C.TIME_UNSET }, item.volumePercent, player.playerError?.message))
+            kotlinx.coroutines.delay(500)
         }
     }
     LaunchedEffect(control?.version) {
@@ -395,7 +419,8 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun OnlineMediaScreen(item: CueItem, control: ControlCommand?, onExit: () -> Unit) {
+private fun OnlineMediaScreen(lessonId: String, item: CueItem, control: ControlCommand?,
+    onTelemetry: (PlaybackTelemetry) -> Unit, onExit: () -> Unit) {
     val context = LocalContext.current
     val webView = remember(item.id) {
         WebView(context).apply {
@@ -415,6 +440,10 @@ private fun OnlineMediaScreen(item: CueItem, control: ControlCommand?, onExit: (
             "resume" -> webView.onResume()
         }
     }
+    LaunchedEffect(item.id, control?.version) {
+        onTelemetry(PlaybackTelemetry(if (control?.action == "pause") "paused" else "playing",
+            lessonId, item.id, volumePercent = item.volumePercent))
+    }
     DisposableEffect(webView) { onDispose { webView.stopLoading(); webView.destroy() } }
     Box(Modifier.fillMaxSize().background(Color.Black).focusable()) {
         AndroidView(factory = { webView }, modifier = Modifier.fillMaxSize())
@@ -430,6 +459,10 @@ private fun OnlineMediaScreen(item: CueItem, control: ControlCommand?, onExit: (
 private fun loopingPreRoll(items: List<CueItem>) = items.mapIndexed { index, item ->
     item.copy(endBehavior = if (index == items.lastIndex) "playlistLoop" else "advance")
 }
+
+private fun ScreenManifest.itemCount() = playlists.flatMap { playlist ->
+    playlist.items + playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item)
+}.distinctBy { it.id }.size
 
 @Composable
 private fun FormLayout(title: String, subtitle: String, content: @Composable ColumnScope.() -> Unit) {

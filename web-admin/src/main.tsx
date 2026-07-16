@@ -1,5 +1,6 @@
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
 import "./styles.css";
 
 type Session = { setupRequired: boolean; authenticated: boolean; username?: string; displayName?: string; role?: string };
@@ -29,7 +30,9 @@ type Lesson = {
 type Screen = {
   id: string; name: string; platform: string; assignedClassId?: string; assignedClassName?: string;
   volunteerMode: boolean; lastSeenAt?: string; online: boolean; freeBytes: number; failedDownloads: number; revoked: boolean; appVersion: string; manifestVersion: number; tagsCsv: string; site: string;
-  controlVersion: number; controlAction: string; controlLessonId?: string; controlItemId?: string; controlPositionMs?: number; controlIssuedAt?: string; playbackState: string;
+  lastIpAddress?: string; controlVersion: number; controlAction: string; controlLessonId?: string; controlItemId?: string; controlPositionMs?: number; controlIssuedAt?: string;
+  acknowledgedControlVersion: number; playbackState: string; playbackLessonId?: string; playbackItemId?: string; playbackPositionMs: number; playbackDurationMs?: number;
+  playbackVolumePercent: number; playbackUpdatedAt?: string; playbackError?: string; cachedItems: number; totalItems: number; deviceModel?: string; osVersion?: string;
 };
 type User = { id: string; username: string; displayName: string; email?: string; role: string; disabled: boolean; createdAt: string; lastLoginAt?: string };
 type Signage = { id: string; name: string; mode: string; enabled: boolean; priority: number; startsAt?: string; endsAt?: string; message: string; backgroundColor: string; textColor: string; mediaAssetId?: string; mediaFileName?: string; targetTagsCsv: string };
@@ -165,6 +168,18 @@ function Shell({ view, setView, username, currentUsername, role, onLogout, notic
     const initial = window.setTimeout(poll, 20_000);
     const interval = window.setInterval(poll, 60 * 60 * 1000);
     return () => { window.clearTimeout(initial); window.clearInterval(interval); };
+  }, []);
+  useEffect(() => {
+    const connection = new HubConnectionBuilder().withUrl("/hubs/sync")
+      .withAutomaticReconnect([0, 1_000, 3_000, 10_000]).configureLogging(LogLevel.Warning).build();
+    const refreshScreens = () => api<Screen[]>("/api/v1/screens").then(setScreens).catch(() => undefined);
+    connection.on("ScreenStatusChanged", refreshScreens);
+    connection.start().then(() => connection.invoke("JoinAdmins")).catch(() => undefined);
+    return () => { connection.off("ScreenStatusChanged", refreshScreens); void connection.stop(); };
+  }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => api<Screen[]>("/api/v1/screens").then(setScreens).catch(() => undefined), 2_500);
+    return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
     const path = view === "controller" ? "/controller" : "/";
@@ -407,7 +422,7 @@ function MediaView({ media, lessons, refresh, notify, canUpload, storage }: { me
 }
 
 function ControllerView({ screens, lessons, refresh, notify }: { screens: Screen[]; lessons: Lesson[]; refresh: () => void; notify: (s: string) => void }) {
-  const [liveScreens, setLiveScreens] = useState(screens.filter(screen => !screen.revoked));
+  const liveScreens = screens.filter(screen => !screen.revoked);
   const [screenId, setScreenId] = useState(screens.find(screen => screen.online && !screen.revoked)?.id || screens.find(screen => !screen.revoked)?.id || "");
   const selectedScreen = liveScreens.find(screen => screen.id === screenId);
   const availableLessons = lessons.filter(lesson => !lesson.archived && (!selectedScreen?.assignedClassId || lesson.classId === selectedScreen.assignedClassId));
@@ -417,19 +432,21 @@ function ControllerView({ screens, lessons, refresh, notify }: { screens: Screen
   const [selectedItemId, setSelectedItemId] = useState("");
   const selectedItem = orderedItems.find(item => item.id === selectedItemId);
   const [seekSeconds, setSeekSeconds] = useState(0);
-  useEffect(() => { const timer = window.setInterval(() => api<Screen[]>("/api/v1/screens").then(data => setLiveScreens(data.filter(screen => !screen.revoked))).catch(() => undefined), 2500); return () => window.clearInterval(timer); }, []);
   async function command(action: string, extras: Record<string, unknown> = {}) {
     if (!screenId) return notify("Choose a paired screen first.");
     try {
       await api(`/api/v1/screens/${screenId}/control`, { method: "POST", body: JSON.stringify({ action, ...extras }) });
-      setLiveScreens(current => current.map(screen => screen.id === screenId ? { ...screen, playbackState: action === "pause" ? "paused" : action === "stop" ? "idle" : action === "play" || action === "resume" ? "playing" : screen.playbackState, controlAction: action, controlIssuedAt: new Date().toISOString() } : screen));
       notify(`${action[0].toUpperCase()}${action.slice(1)} sent to ${selectedScreen?.name || "screen"}.`); refresh();
     } catch (e) { notify(errorText(e)); }
   }
   const play = (itemId?: string) => lesson && command("play", { lessonId: lesson.id, itemId: itemId || null });
   const durationSeconds = Math.max(1, Math.round(((selectedItem?.endMs ? selectedItem.endMs - selectedItem.startMs : selectedItem?.durationMs || selectedItem?.mediaDurationMs) || 600_000) / 1000));
+  const reportedLesson = lessons.find(item => item.id === selectedScreen?.playbackLessonId);
+  const reportedItem = reportedLesson?.items.find(item => item.id === selectedScreen?.playbackItemId);
+  const commandPending = !!selectedScreen && selectedScreen.controlVersion > selectedScreen.acknowledgedControlVersion;
+  const progress = selectedScreen?.playbackDurationMs ? Math.min(100, (selectedScreen.playbackPositionMs / selectedScreen.playbackDurationMs) * 100) : 0;
   return <div className="controller-page"><PageHead eyebrow="LIVE CONTROL" title="Cellphone controller" detail="Choose a paired screen, then run the lesson from any phone on this local network." action={<span className={`controller-connection ${selectedScreen?.online ? "online" : ""}`}><i />{selectedScreen?.online ? "Screen online" : "Screen offline"}</span>} />
-    <div className="controller-grid"><section className="panel controller-target"><Field label="Control this screen"><select value={screenId} onChange={e => { setScreenId(e.target.value); setLessonId(""); setSelectedItemId(""); }}>{liveScreens.map(screen => <option value={screen.id} key={screen.id}>{screen.name} · {screen.online ? "online" : "offline"}</option>)}</select></Field><div className="now-playing"><span>SCREEN STATE</span><strong>{selectedScreen?.playbackState === "playing" ? "Playing" : selectedScreen?.playbackState === "paused" ? "Paused" : "Ready"}</strong><small>{selectedScreen?.controlIssuedAt ? `Last command ${timeAgo(selectedScreen.controlIssuedAt)}` : "Waiting for a command"}</small></div><div className="transport" aria-label="Playback controls"><button onClick={() => command("previous")} aria-label="Previous media">‹‹</button><button className="transport-main" onClick={() => command(selectedScreen?.playbackState === "paused" ? "resume" : "pause")} aria-label={selectedScreen?.playbackState === "paused" ? "Resume" : "Pause"}>{selectedScreen?.playbackState === "paused" ? "▶" : "Ⅱ"}</button><button onClick={() => command("next")} aria-label="Next media">››</button></div><button className="button stop-button" onClick={() => command("stop")}>■ Stop playback</button></section>
+    <div className="controller-grid"><section className="panel controller-target"><Field label="Control this screen"><select value={screenId} onChange={e => { setScreenId(e.target.value); setLessonId(""); setSelectedItemId(""); }}>{liveScreens.map(screen => <option value={screen.id} key={screen.id}>{screen.name} · {screen.online ? "online" : "offline"}</option>)}</select></Field><div className="now-playing"><span>ACTUAL SCREEN STATE</span><strong>{friendlyPlaybackState(selectedScreen?.playbackState)}</strong><small>{reportedItem?.title || reportedLesson?.title || (selectedScreen?.playbackState === "idle" ? "Nothing playing" : "Waiting for item details")}</small>{selectedScreen?.playbackDurationMs ? <><div className="playback-progress"><i style={{ width: `${progress}%` }} /></div><small>{formatDuration(selectedScreen.playbackPositionMs)} / {formatDuration(selectedScreen.playbackDurationMs)}</small></> : null}<span className={`command-ack ${commandPending ? "pending" : ""}`}>{commandPending ? `Sending ${selectedScreen?.controlAction}…` : selectedScreen?.controlVersion ? `Command ${selectedScreen.acknowledgedControlVersion} received` : "Ready for a command"}</span>{selectedScreen?.playbackError && <div className="playback-error">{selectedScreen.playbackError}</div>}</div><div className="transport" aria-label="Playback controls"><button onClick={() => command("previous")} aria-label="Previous media">‹‹</button><button className="transport-main" onClick={() => command(selectedScreen?.playbackState === "paused" ? "resume" : "pause")} aria-label={selectedScreen?.playbackState === "paused" ? "Resume" : "Pause"}>{selectedScreen?.playbackState === "paused" ? "▶" : "Ⅱ"}</button><button onClick={() => command("next")} aria-label="Next media">››</button></div><button className="button stop-button" onClick={() => command("stop")}>■ Stop playback</button></section>
       <section className="panel controller-media"><Field label="Lesson"><select value={lesson?.id || ""} onChange={e => { setLessonId(e.target.value); setSelectedItemId(""); }}><option value="">Choose a lesson</option>{availableLessons.map(item => <option key={item.id} value={item.id}>{formatDate(item.date)} — {item.title}</option>)}</select></Field>{lesson ? <><button className="button primary wide controller-play-all" onClick={() => play()}>▶ Play lesson from the beginning</button><div className="controller-list"><span>SELECT MEDIA</span>{orderedItems.map((item, index) => <button key={item.id} className={selectedItemId === item.id ? "selected" : ""} onClick={() => { setSelectedItemId(item.id); play(item.id); }}><b>{index + 1}</b><span><strong>{item.title}</strong><small>{roleName(item.role)} · {formatDuration(item.durationMs || item.mediaDurationMs)}</small></span><i>▶</i></button>)}</div>{selectedItem && <div className="controller-seek"><label><span>Seek within {selectedItem.title}</span><strong>{formatDuration(seekSeconds * 1000)}</strong></label><input type="range" min="0" max={durationSeconds} value={seekSeconds} onChange={e => setSeekSeconds(Number(e.target.value))} /><button className="button" onClick={() => command("seek", { positionMs: seekSeconds * 1000 })}>Go to position</button></div>}</> : <Empty title="No lesson selected" body="Assign a class to this screen or choose a lesson to begin." />}</section>
     </div><section className="controller-install"><div className="brand-mark">LC</div><div><strong>Save this controller as an app</strong><p>On iPhone or iPad, use Share → Add to Home Screen. On Android, open the browser menu and choose Install app or Add to Home screen.</p><small>{location.origin}/controller</small></div></section>
   </div>;
@@ -440,7 +457,7 @@ function ScreensView({ screens, classes, pin, refresh, notify }: { screens: Scre
   async function change(screen: Screen, changes: object) { try { await api(`/api/v1/screens/${screen.id}`, { method: "PATCH", body: JSON.stringify(changes) }); refresh(); } catch (e) { notify(errorText(e)); } }
   async function revoke(screen: Screen) { if (!confirm(`Revoke ${screen.name}? It will need to be paired again.`)) return; await api(`/api/v1/screens/${screen.id}`, { method: "DELETE" }); refresh(); }
   return <><PageHead eyebrow="PLAYBACK DEVICES" title="Screens" detail="Pair TVs, assign a class, and check whether each player is ready." action={<div className="pin-card"><span>PAIRING PIN</span><strong>{pin}</strong></div>} />
-    <section className="panel"><div className="screen-grid">{active.length ? active.map(s => <article className="screen-card" key={s.id}><div className="screen-card-top"><span className={`screen-icon large ${isOnline(s) ? "online" : ""}`}>▣</span><Status online={isOnline(s)} /></div><input aria-label="Screen name" className="screen-name-input" defaultValue={s.name} onBlur={e => e.target.value !== s.name && change(s, { name: e.target.value })} /><small>{s.platform} {s.appVersion} · {s.lastSeenAt ? `Last seen ${timeAgo(s.lastSeenAt)}` : "Waiting for first check-in"}</small><Field label="Assigned class"><select value={s.assignedClassId || ""} onChange={e => change(s, e.target.value ? { assignedClassId: e.target.value } : { clearAssignment: true })}><option value="">Not assigned</option>{classes.map(c => <option value={c.id} key={c.id}>{c.name}</option>)}</select></Field><div className="two-fields"><Field label="Site"><input defaultValue={s.site} onBlur={e => change(s, { site: e.target.value })} /></Field><Field label="Tags"><input defaultValue={s.tagsCsv} placeholder="lobby, elementary" onBlur={e => change(s, { tagsCsv: e.target.value })} /></Field></div><label className="switch-row compact"><input type="checkbox" checked={s.volunteerMode} onChange={e => change(s, { volunteerMode: e.target.checked })} /><span /><div><strong>Volunteer mode</strong></div></label><div className="screen-meta"><span>{formatBytes(s.freeBytes)} free</span><span>Manifest {s.manifestVersion} · {s.failedDownloads} errors</span></div><button className="text-danger" onClick={() => revoke(s)}>Revoke pairing</button></article>) : <Empty title="No screens paired" body={`Install LessonCue TV, choose Pair, and enter ${pin}.`} />}</div></section>
+    <section className="panel"><div className="screen-grid">{active.length ? active.map(s => <article className="screen-card" key={s.id}><div className="screen-card-top"><span className={`screen-icon large ${isOnline(s) ? "online" : ""}`}>▣</span><Status online={isOnline(s)} /></div><input aria-label="Screen name" className="screen-name-input" defaultValue={s.name} onBlur={e => e.target.value !== s.name && change(s, { name: e.target.value })} /><small>{s.deviceModel || s.platform} · {s.osVersion || s.appVersion} · {s.lastSeenAt ? `Last seen ${timeAgo(s.lastSeenAt)}` : "Waiting for first check-in"}</small><div className="screen-diagnostics"><span><b>{friendlyPlaybackState(s.playbackState)}</b> playback</span><span><b>{s.acknowledgedControlVersion}/{s.controlVersion}</b> command</span><span><b>{s.cachedItems}/{s.totalItems}</b> cached</span><span><b>{s.failedDownloads}</b> errors</span></div>{s.playbackError && <div className="playback-error">{s.playbackError}</div>}<Field label="Assigned class"><select value={s.assignedClassId || ""} onChange={e => change(s, e.target.value ? { assignedClassId: e.target.value } : { clearAssignment: true })}><option value="">Not assigned</option>{classes.map(c => <option value={c.id} key={c.id}>{c.name}</option>)}</select></Field><div className="two-fields"><Field label="Site"><input defaultValue={s.site} onBlur={e => change(s, { site: e.target.value })} /></Field><Field label="Tags"><input defaultValue={s.tagsCsv} placeholder="lobby, elementary" onBlur={e => change(s, { tagsCsv: e.target.value })} /></Field></div><label className="switch-row compact"><input type="checkbox" checked={s.volunteerMode} onChange={e => change(s, { volunteerMode: e.target.checked })} /><span /><div><strong>Volunteer mode</strong></div></label><div className="screen-meta"><span>{formatBytes(s.freeBytes)} device free</span><span>Manifest {s.manifestVersion} · {s.lastIpAddress || "IP pending"}</span></div><button className="text-danger" onClick={() => revoke(s)}>Revoke pairing</button></article>) : <Empty title="No screens paired" body={`Install LessonCue TV, choose Pair, and enter ${pin}.`} />}</div></section>
   </>;
 }
 
@@ -580,6 +597,7 @@ function dateInputValue(value?: string, addDays = 0) { if (value) return value.s
 function formatDuration(ms?: number) { if (ms === undefined || ms === null) return "Duration unknown"; const seconds = Math.round(ms / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
 function formatBytes(bytes: number) { if (bytes === 0) return "0 B"; if (!Number.isFinite(bytes) || bytes < 0) return "—"; const units = ["B", "KB", "MB", "GB", "TB"]; const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1); return `${(bytes / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`; }
 function friendlyType(type: string) { if (type.startsWith("video")) return "Video"; if (type.startsWith("audio")) return "Audio"; if (type.startsWith("image")) return "Image"; if (type.includes("pdf")) return "PDF"; return "Document"; }
+function friendlyPlaybackState(state?: string) { return ({ idle: "Ready", loading: "Loading", buffering: "Buffering", playing: "Playing", paused: "Paused", completed: "Completed", error: "Error" } as Record<string, string>)[state || "idle"] || "Unknown"; }
 function youtubeEmbedUrl(value?: string) {
   if (!value) return undefined;
   try {

@@ -121,7 +121,19 @@ public static class DatabaseUpgrade
             ["Screens.ControlItemId"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ControlItemId\" TEXT NULL"),
             ["Screens.ControlPositionMs"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ControlPositionMs\" INTEGER NULL"),
             ["Screens.ControlIssuedAt"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ControlIssuedAt\" TEXT NULL"),
-            ["Screens.PlaybackState"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"PlaybackState\" TEXT NOT NULL DEFAULT 'idle'")
+            ["Screens.PlaybackState"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"PlaybackState\" TEXT NOT NULL DEFAULT 'idle'"),
+            ["Screens.AcknowledgedControlVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"AcknowledgedControlVersion\" INTEGER NOT NULL DEFAULT 0"),
+            ["Screens.PlaybackLessonId"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"PlaybackLessonId\" TEXT NULL"),
+            ["Screens.PlaybackItemId"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"PlaybackItemId\" TEXT NULL"),
+            ["Screens.PlaybackPositionMs"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"PlaybackPositionMs\" INTEGER NOT NULL DEFAULT 0"),
+            ["Screens.PlaybackDurationMs"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"PlaybackDurationMs\" INTEGER NULL"),
+            ["Screens.PlaybackVolumePercent"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"PlaybackVolumePercent\" INTEGER NOT NULL DEFAULT 100"),
+            ["Screens.PlaybackUpdatedAt"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"PlaybackUpdatedAt\" TEXT NULL"),
+            ["Screens.PlaybackError"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"PlaybackError\" TEXT NULL"),
+            ["Screens.CachedItems"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"CachedItems\" INTEGER NOT NULL DEFAULT 0"),
+            ["Screens.TotalItems"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"TotalItems\" INTEGER NOT NULL DEFAULT 0"),
+            ["Screens.DeviceModel"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"DeviceModel\" TEXT NULL"),
+            ["Screens.OsVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"OsVersion\" TEXT NULL")
         };
 
         foreach (var (key, addition) in additions)

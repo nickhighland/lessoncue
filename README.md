@@ -22,7 +22,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - Administrator user management with editable names, usernames, email addresses, roles, and passwords, plus pause/reactivate and protected account deletion.
 - Local interface branding with independent navigation background, navigation text, selected-tab, and accent colors.
 - Browser previews for every ready media item, including playlist trim points, fades, volume, looping, and operator notes.
-- A phone-first local controller for selecting screens, lessons, and individual media, with play, pause, resume, previous, next, stop, and seek controls; it can be saved to an iPhone, iPad, or Android home screen.
+- A phone-first local controller for selecting screens, lessons, and individual media, with play, pause, resume, previous, next, stop, and seek controls; actual playback state, progress, errors, and command acknowledgement arrive live from the TV and the controller can be saved to an iPhone, iPad, or Android home screen.
 - GitHub Actions that build the web app, server, Android APK, tvOS app, release packages, and GitHub Pages documentation.
 
 ## Quick start
@@ -77,7 +77,9 @@ Owners and administrators can choose an explicit LessonCue storage allocation or
 
 Select **Preview** on any ready item in the Media Library, or use the preview row on a lesson playlist. Video and audio previews reproduce the saved start/end trims, fade-in and fade-out, volume, loop behavior, and notes. Images, PDFs, online webpages, and YouTube embeds preview in the same local interface; presentation files provide a local open action when the browser cannot render the format directly.
 
-On a phone connected to the same trusted network, open `http://lessoncue.local/controller` (or replace the hostname with the server's numeric local IP) and sign in with a LessonCue account. Select a paired screen and lesson, then start the complete sequence or a particular media item. Commands are versioned and stored on the local server, so a short Wi-Fi interruption does not reorder them; TV clients ignore commands issued before their current app session.
+On a phone connected to the same trusted network, open `http://lessoncue.local/controller` (or replace the hostname with the server's numeric local IP) and sign in with a LessonCue account. Select a paired screen and lesson, then start the complete sequence or a particular media item. Commands are versioned and stored on the local server, so a short Wi-Fi interruption does not reorder them; the controller distinguishes a command that was sent from one the TV has acknowledged. Actual title, player state, elapsed time, duration, and playback errors update through the local SignalR connection with automatic polling fallback.
+
+The **Screens** page provides the same live operational evidence for administrators: device and operating-system version, last network address, free space, manifest version, command acknowledgement, cached/total item count, and recent download or playback errors. No screen diagnostics are sent outside the self-hosted server.
 
 To save it like an app, use **Share → Add to Home Screen** in Safari on iPhone/iPad, or **Add to Home screen** / **Install app** from the Android browser menu. The controller remains a local web interface—there is no separate phone app or hosted dependency.
 

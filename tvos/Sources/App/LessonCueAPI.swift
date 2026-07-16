@@ -18,6 +18,16 @@ struct ControlCommand: Decodable, Equatable, Sendable {
     let positionMs: Int64?
 }
 
+struct PlaybackTelemetry: Equatable, Sendable {
+    var state = "idle"
+    var lessonId: String?
+    var itemId: String?
+    var positionMs: Int64 = 0
+    var durationMs: Int64?
+    var volumePercent = 100
+    var error: String?
+}
+
 struct LessonCueAPI: Sendable {
     let serverURL: URL
 
@@ -34,7 +44,7 @@ struct LessonCueAPI: Sendable {
 
     func beginPairing(deviceName: String) async throws -> String {
         let body = try JSONSerialization.data(withJSONObject: [
-            "deviceName": deviceName, "platform": "tvos", "appVersion": "0.9.0"
+            "deviceName": deviceName, "platform": "tvos", "appVersion": "0.10.0"
         ])
         let response: PairingRequestResponse = try await request(path: "/api/v1/pairing/request", method: "POST", body: body)
         return response.requestId
@@ -55,14 +65,29 @@ struct LessonCueAPI: Sendable {
         return try await request(path: "/api/v1/screens/\(identity.screenId)/control\(suffix)", token: identity.deviceToken)
     }
 
-    func reportStatus(identity: DeviceIdentity, manifestVersion: Int, freeBytes: Int64, failedDownloads: Int = 0) async throws {
+    func reportStatus(identity: DeviceIdentity, manifestVersion: Int, freeBytes: Int64,
+                      failedDownloads: Int = 0, acknowledgedControlVersion: Int = 0,
+                      playback: PlaybackTelemetry = PlaybackTelemetry(), cachedItems: Int = 0,
+                      totalItems: Int = 0) async throws {
         let body = try JSONSerialization.data(withJSONObject: [
             "screenId": identity.screenId,
-            "appVersion": "0.9.0",
+            "appVersion": "0.10.0",
             "online": true,
             "freeBytes": freeBytes,
             "manifestVersion": manifestVersion,
-            "failedDownloads": failedDownloads
+            "failedDownloads": failedDownloads,
+            "acknowledgedControlVersion": acknowledgedControlVersion,
+            "playbackState": playback.state,
+            "lessonId": jsonValue(playback.lessonId),
+            "itemId": jsonValue(playback.itemId),
+            "positionMs": playback.positionMs,
+            "durationMs": jsonValue(playback.durationMs),
+            "volumePercent": playback.volumePercent,
+            "playbackError": jsonValue(playback.error),
+            "cachedItems": cachedItems,
+            "totalItems": totalItems,
+            "deviceModel": "Apple TV",
+            "osVersion": ProcessInfo.processInfo.operatingSystemVersionString
         ])
         guard let url = URL(string: "/api/v1/tv/status", relativeTo: serverURL)?.absoluteURL else { throw APIError.invalidAddress }
         var request = URLRequest(url: url)
@@ -97,6 +122,10 @@ struct LessonCueAPI: Sendable {
         }
         return try LessonCueJSON.decoder.decode(T.self, from: data)
     }
+}
+
+private func jsonValue<T>(_ value: T?) -> Any {
+    value.map { $0 as Any } ?? NSNull()
 }
 
 enum APIError: LocalizedError {
