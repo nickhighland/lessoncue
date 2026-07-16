@@ -46,6 +46,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -442,22 +443,26 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
     val context = LocalContext.current
     val cached = context.filesDir.resolve("media").resolve(item.cacheFileName()).takeIf { it.exists() }
         ?: context.filesDir.resolve("media").resolve("${item.id}.bin").takeIf { it.exists() }
+    var visualOpacity by remember(item.id) { mutableStateOf(if (item.fadeInMs > 0) 0f else 1f) }
     if (item.type == "image") {
         LaunchedEffect(item.id) {
             val duration = (item.imageDurationSeconds ?: 10).coerceAtLeast(1) * 1_000L
             var position = 0L
-            while (position < duration) {
-                onTelemetry(PlaybackTelemetry("playing", playlist.id, item.id, position, duration,
+            while (position <= duration) {
+                val fadeIn = if (item.fadeInMs > 0) (position.toFloat() / item.fadeInMs).coerceIn(0f, 1f) else 1f
+                val fadeOut = if (item.fadeOutMs > 0) ((duration - position).toFloat() / item.fadeOutMs).coerceIn(0f, 1f) else 1f
+                visualOpacity = minOf(fadeIn, fadeOut)
+                if (position % 1_000L == 0L) onTelemetry(PlaybackTelemetry("playing", playlist.id, item.id, position, duration,
                     item.volumePercent))
-                kotlinx.coroutines.delay(1_000)
-                position += 1_000
+                kotlinx.coroutines.delay(50)
+                position += 50
             }
             if (item.endBehavior == "advance" && index + 1 < items.size) onNext(index + 1)
             else if (item.endBehavior == "playlistLoop") onNext(0)
         }
         Box(Modifier.fillMaxSize().background(Color.Black).focusable()) {
             AsyncImage(model = cached ?: item.url, contentDescription = item.title, contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize())
+                modifier = Modifier.fillMaxSize().graphicsLayer(alpha = visualOpacity))
             if (item.notes.isNotBlank()) Text(item.notes, color = Cream, fontSize = 20.sp,
                 modifier = Modifier.align(Alignment.BottomStart).padding(28.dp).background(Navy.copy(alpha = .9f)).padding(16.dp))
             Button(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd).padding(28.dp)) { Text("Exit") }
@@ -485,7 +490,9 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
             val fadeIn = if (item.fadeInMs > 0) (position.toFloat() / item.fadeInMs).coerceIn(0f, 1f) else 1f
             val fadeOut = if (item.fadeOutMs > 0 && duration != C.TIME_UNSET)
                 ((duration - position).toFloat() / item.fadeOutMs).coerceIn(0f, 1f) else 1f
-            player.volume = targetVolume * minOf(fadeIn, fadeOut)
+            val fade = minOf(fadeIn, fadeOut)
+            player.volume = targetVolume * fade
+            visualOpacity = fade
             val state = when {
                 player.playerError != null -> "error"
                 player.playbackState == Player.STATE_BUFFERING -> "buffering"
@@ -522,7 +529,8 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         onDispose { player.removeListener(listener); player.release() }
     }
     Box(Modifier.fillMaxSize().background(Color.Black).focusable()) {
-        AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = true } }, modifier = Modifier.fillMaxSize())
+        AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = true } },
+            modifier = Modifier.fillMaxSize().graphicsLayer(alpha = visualOpacity))
         Row(Modifier.align(Alignment.TopStart).padding(28.dp).background(Navy.copy(alpha = .82f)).padding(16.dp)) {
             Text(item.title, color = Cream)
             Spacer(Modifier.width(28.dp))

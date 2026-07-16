@@ -90,7 +90,7 @@ The web manifest starts at `/universalremote` in standalone mode. Class settings
 
 ### Browser preview semantics
 
-The Media Library exposes every ready asset through the server's normal range-enabled URL. Lesson previews layer playlist behavior on top of the raw source: the browser seeks to `startMs`, pauses or loops at `endMs`, updates volume through the fade-in/fade-out windows, applies the stored volume ceiling, and overlays operator notes. Online YouTube URLs are converted only to standard embed URLs in the browser; arbitrary webpage previews remain client-side iframe navigation and are never fetched by the LessonCue server.
+The Media Library exposes every ready asset through the server's normal range-enabled URL. Lesson previews layer playlist behavior on top of the raw source: the browser seeks to `startMs`, pauses or loops at `endMs`, updates volume through the fade-in/fade-out windows, and applies the same envelope to a black overlay so video fades visually from and to black. Android TV fades the PlayerView/image layer over a black Compose stage; tvOS applies the same opacity to VideoPlayer/AsyncImage over a black SwiftUI stage. Operator controls and notes remain visible. Online YouTube URLs are converted only to standard embed URLs in the browser; arbitrary webpage previews remain client-side iframe navigation and are never fetched by the LessonCue server.
 
 ### Recycling and permanent purge
 

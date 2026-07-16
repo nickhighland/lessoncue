@@ -176,7 +176,7 @@ input:focus,select:focus,textarea:focus { border-color:var(--gold); box-shadow:0
 .preview-stage video,.preview-stage img,.preview-stage iframe,.preview-stage object { display:block; width:100%; height:min(58vh,460px); border:0; object-fit:contain; }
 .preview-stage audio { width:min(430px,calc(100% - 36px)); }
 .audio-preview { width:100%; display:grid; justify-items:center; gap:22px; padding:55px 18px; }.audio-preview>div { font-size:64px; color:#d4b36e; }
-.preview-notes { position:absolute; right:16px; bottom:16px; left:16px; padding:10px 13px; border-radius:7px; background:#071211d9; color:#fff; font-size:12px; line-height:1.45; }
+.visual-fade-overlay { position:absolute; z-index:2; inset:0; pointer-events:none; background:#000; transition:opacity 80ms linear; }.timeline-player { position:relative; background:#000; }.preview-notes { position:absolute; z-index:3; right:16px; bottom:16px; left:16px; padding:10px 13px; border-radius:7px; background:#071211d9; color:#fff; font-size:12px; line-height:1.45; }
 .preview-readout { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; overflow:hidden; border:1px solid var(--line); border-radius:8px; background:var(--line); }
 .preview-readout span { padding:9px; background:#fff; color:var(--muted); font-size:9px; }.preview-readout strong { display:block; margin-top:3px; color:var(--ink); font-size:10px; }
 .preview-open { justify-self:end; color:var(--green); font-size:11px; font-weight:700; }

@@ -131,6 +131,13 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByRole("heading", { name: "Visual timeline & fades: Browser Compatibility Video" })).toBeVisible();
   await page.getByLabel("Fade in · 0.0s").fill("0.4");
   await page.getByLabel("Fade out · 0.0s").fill("0.4");
+  const visualFade = page.locator(".timeline-player .visual-fade-overlay");
+  await expect(visualFade).toBeAttached();
+  await page.locator(".timeline-player video").evaluate((video: HTMLVideoElement) => { video.currentTime = 0; video.dispatchEvent(new Event("timeupdate")); });
+  await expect.poll(() => visualFade.evaluate(element => Number((element as HTMLElement).style.opacity))).toBeGreaterThan(.95);
+  await page.locator(".timeline-player video").evaluate((video: HTMLVideoElement) => { video.currentTime = .2; video.dispatchEvent(new Event("timeupdate")); });
+  await expect.poll(() => visualFade.evaluate(element => Number((element as HTMLElement).style.opacity))).toBeGreaterThan(.35);
+  await expect.poll(() => visualFade.evaluate(element => Number((element as HTMLElement).style.opacity))).toBeLessThan(.65);
   await page.getByRole("button", { name: "Save timeline and markers" }).click();
   await expect(page.getByText("Playlist saved.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Close dialog" }).click();

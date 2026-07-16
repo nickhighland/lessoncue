@@ -26,7 +26,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - Administrator user management with editable names, usernames, email addresses, roles, and passwords, plus pause/reactivate and protected account deletion.
 - Granular per-user permissions for lesson planning, media uploads, live playback, screen administration, user administration, server settings, backups, and software updates. Built-in roles supply safe defaults, while owners can grant an exact custom combination.
 - Local interface branding with independent navigation background, navigation text, selected-tab, and accent colors.
-- Browser previews for every ready media item, including playlist trim points, fades, volume, looping, and operator notes.
+- Browser previews for every ready media item, including playlist trim points, synchronized audio-and-picture fades to/from black, volume, looping, and operator notes.
 - A prominent **Edit visual timeline, trims & fades** action on every lesson cue, with locally generated video filmstrips and audio waveforms, visible fade regions, 0.04-second trim nudging, selection preview, and numeric controls as a fallback.
 - A remote-friendly media browser in both native TV apps: choose a lesson, scroll through pre-roll, countdown, and lesson cues with the directional pad, and start any item without returning to the local browser.
 - Actionable screen diagnostics with per-file cache and queue detail, decoder capabilities, download and playback errors, local-network latency, clock drift, and freshness. Optional screenshots are disabled per screen by default, visibly announced on the TV, valid for one request and 60 seconds, restricted to screen administrators, and deleted automatically after 24 hours.
@@ -99,7 +99,7 @@ Permission checks run on the local server, not only in the browser. Restricted n
 
 ## Preview and cellphone control
 
-Select **Preview** on any ready item in the Media Library, or use the preview row on a lesson playlist. Video and audio previews reproduce the saved start/end trims, fade-in and fade-out, volume, loop behavior, and notes. Images, PDFs, online webpages, and YouTube embeds preview in the same local interface; presentation files provide a local open action when the browser cannot render the format directly.
+Select **Preview** on any ready item in the Media Library, or use the preview row on a lesson playlist. Video previews reproduce the saved start/end trims and fade both picture and audio from/to black; audio previews apply the same volume envelope. Loop behavior and notes are also preserved. Images, PDFs, online webpages, and YouTube embeds preview in the same local interface; presentation files provide a local open action when the browser cannot render the format directly.
 
 On a lesson page, choose **Edit visual timeline, trims & fades** beneath a cue. The visual editor is part of the cue row rather than a separate application or settings page. It displays the filmstrip or waveform, current selection, and fade-in/fade-out regions and saves those values into the TV manifest.
 

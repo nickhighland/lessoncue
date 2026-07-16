@@ -186,19 +186,21 @@ private struct PlaybackView: View {
     @State private var player: AVPlayer?
     @State private var imageURL: URL?
     @State private var unavailable = false
+    @State private var visualOpacity = 1.0
 
     private var item: CueItem? { items.indices.contains(index) ? items[index] : nil }
 
     var body: some View {
         ZStack(alignment: .top) {
+            Color.black.ignoresSafeArea()
             if item?.type == "image", let imageURL {
                 AsyncImage(url: imageURL) { phase in
                     if let image = phase.image { image.resizable().scaledToFit() }
                     else if phase.error != nil { ContentUnavailableView("Image unavailable", systemImage: "photo") }
                     else { ProgressView() }
-                }.ignoresSafeArea()
+                }.ignoresSafeArea().opacity(visualOpacity)
             }
-            else if let player { VideoPlayer(player: player).ignoresSafeArea() }
+            else if let player { VideoPlayer(player: player).ignoresSafeArea().opacity(visualOpacity) }
             else if unavailable { ContentUnavailableView("Media unavailable", systemImage: "wifi.slash", description: Text("Reconnect to the server or download this lesson before going offline.")) }
             HStack {
                 VStack(alignment: .leading) {
@@ -242,11 +244,18 @@ private struct PlaybackView: View {
         if item.type == "image" {
             player?.pause(); player = nil; imageURL = url
             let seconds = max(1, item.imageDurationSeconds ?? 10)
-            for elapsed in 0..<seconds {
-                model.updatePlayback(PlaybackTelemetry(state: "playing", lessonId: playlist.id,
-                    itemId: item.id, positionMs: Int64(elapsed * 1000),
-                    durationMs: Int64(seconds * 1000), volumePercent: item.volumePercent))
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            let durationMs = Int64(seconds * 1000)
+            var elapsedMs: Int64 = 0
+            while elapsedMs <= durationMs {
+                let fadeIn = (item.fadeInMs ?? 0) > 0 ? min(1, max(0, Double(elapsedMs) / Double(item.fadeInMs!))) : 1
+                let fadeOut = (item.fadeOutMs ?? 0) > 0 ? min(1, max(0, Double(durationMs - elapsedMs) / Double(item.fadeOutMs!))) : 1
+                visualOpacity = min(fadeIn, fadeOut)
+                if elapsedMs % 1000 == 0 {
+                    model.updatePlayback(PlaybackTelemetry(state: "playing", lessonId: playlist.id,
+                        itemId: item.id, positionMs: elapsedMs, durationMs: durationMs, volumePercent: item.volumePercent))
+                }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                elapsedMs += 50
                 guard !Task.isCancelled else { return }
             }
             guard !Task.isCancelled else { return }
@@ -257,6 +266,7 @@ private struct PlaybackView: View {
         let next = AVPlayer(url: url)
         let targetVolume = min(1.5, Float(item.volumePercent) / 100)
         next.volume = (item.fadeInMs ?? 0) > 0 ? 0 : targetVolume
+        visualOpacity = (item.fadeInMs ?? 0) > 0 ? 0 : 1
         model.updatePlayback(PlaybackTelemetry(state: "loading", lessonId: playlist.id,
             itemId: item.id, positionMs: max(0, seekMs), durationMs: item.durationMs,
             volumePercent: item.volumePercent))
@@ -268,7 +278,9 @@ private struct PlaybackView: View {
             let fadeIn = (item.fadeInMs ?? 0) > 0 ? min(1, max(0, Float(position - item.startMs) / Float(item.fadeInMs!))) : 1
             let end = item.endMs ?? (next.currentItem?.duration.seconds.isFinite == true ? Int64(next.currentItem!.duration.seconds * 1000) : nil)
             let fadeOut = (item.fadeOutMs ?? 0) > 0 && end != nil ? min(1, max(0, Float(end! - position) / Float(item.fadeOutMs!))) : 1
-            next.volume = targetVolume * min(fadeIn, fadeOut)
+            let fade = min(fadeIn, fadeOut)
+            next.volume = targetVolume * fade
+            visualOpacity = Double(fade)
             let duration = next.currentItem?.duration.seconds
             let state = next.timeControlStatus == .playing ? "playing" :
                 (next.timeControlStatus == .waitingToPlayAtSpecifiedRate ? "buffering" : "paused")

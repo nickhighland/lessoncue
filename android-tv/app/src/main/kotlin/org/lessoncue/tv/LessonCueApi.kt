@@ -22,7 +22,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         val body = JSONObject()
             .put("deviceName", deviceName)
             .put("platform", "android-tv")
-            .put("appVersion", "0.22.0")
+            .put("appVersion", "0.22.1")
         JSONObject(request("/api/v1/pairing/request", "POST", body.toString())).getString("requestId")
     }
 
@@ -72,7 +72,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         }
         val body = JSONObject()
             .put("screenId", identity.screenId)
-            .put("appVersion", "0.22.0")
+            .put("appVersion", "0.22.1")
             .put("online", true)
             .put("freeBytes", freeBytes)
             .put("manifestVersion", manifestVersion)

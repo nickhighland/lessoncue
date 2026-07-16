@@ -1021,6 +1021,7 @@ function TimelineEditor({ media, item, onSave }: { media?: Media; item: Playlist
   const [markers, setMarkers] = useState<CuePoint[]>(() => cuePoints(item));
   const [markerName, setMarkerName] = useState("");
   const [cursor, setCursor] = useState(Math.min(duration, item.startMs / 1000));
+  const [visualFadeOpacity, setVisualFadeOpacity] = useState(fadeIn > 0 ? 1 : 0);
   const player = useRef<HTMLMediaElement>(null);
   const source = media?.playbackUrl || media?.downloadUrl;
   const startPercent = start / duration * 100;
@@ -1044,6 +1045,7 @@ function TimelineEditor({ media, item, onSave }: { media?: Media; item: Playlist
     const remaining = end - position;
     const fade = Math.min(fadeIn ? intoSelection / fadeIn : 1, fadeOut ? remaining / fadeOut : 1, 1);
     element.volume = Math.max(0, Math.min(1, item.volumePercent / 100 * fade));
+    setVisualFadeOpacity(1 - Math.max(0, Math.min(1, fade)));
   }
   function jumpToMarker(marker: CuePoint) {
     const position = Math.max(start, Math.min(end, marker.positionMs / 1000));
@@ -1058,13 +1060,13 @@ function TimelineEditor({ media, item, onSave }: { media?: Media; item: Playlist
   }
   if (!media || !source || (!media.contentType.startsWith("video/") && !media.contentType.startsWith("audio/"))) return <MediaPreview media={media} item={item} />;
   return <section className="timeline-editor">
-    <div className="timeline-player">{media.contentType.startsWith("video/") ? <video ref={player as React.RefObject<HTMLVideoElement>} src={source} controls playsInline onLoadedMetadata={e => { e.currentTarget.currentTime = start; }} onTimeUpdate={e => updatePreview(e.currentTarget)} /> : <audio ref={player as React.RefObject<HTMLAudioElement>} src={source} controls onLoadedMetadata={e => { e.currentTarget.currentTime = start; }} onTimeUpdate={e => updatePreview(e.currentTarget)} />}</div>
+    <div className="timeline-player">{media.contentType.startsWith("video/") ? <><video ref={player as React.RefObject<HTMLVideoElement>} src={source} controls playsInline onLoadedMetadata={e => { e.currentTarget.currentTime = start; updatePreview(e.currentTarget); }} onTimeUpdate={e => updatePreview(e.currentTarget)} /><span className="visual-fade-overlay" style={{ opacity: visualFadeOpacity }} /></> : <audio ref={player as React.RefObject<HTMLAudioElement>} src={source} controls onLoadedMetadata={e => { e.currentTarget.currentTime = start; }} onTimeUpdate={e => updatePreview(e.currentTarget)} />}</div>
     <div className="timeline-art" aria-label="Media filmstrip, waveform, selected playback area, fade regions, and cue markers">{media.filmstripUrl && <img src={media.filmstripUrl} alt="Video filmstrip" />}{media.waveformUrl && <img className="waveform" src={media.waveformUrl} alt="Audio waveform" />}<i className="trim-before" style={{ width: `${startPercent}%` }} /><i className="trim-after" style={{ left: `${endPercent}%` }} /><span className="selection" style={{ left: `${startPercent}%`, width: `${Math.max(0, endPercent - startPercent)}%` }} />{fadeIn > 0 && <span className="fade-zone fade-in" style={{ left: `${startPercent}%`, width: `${fadeIn / duration * 100}%` }}>FADE IN</span>}{fadeOut > 0 && <span className="fade-zone fade-out" style={{ left: `${Math.max(startPercent, endPercent - fadeOut / duration * 100)}%`, width: `${fadeOut / duration * 100}%` }}>FADE OUT</span>}{markers.map((marker, index) => <button type="button" className="timeline-marker" style={{ left: `${Math.min(100, marker.positionMs / 1000 / duration * 100)}%` }} title={`${marker.name} · ${formatPreciseTime(marker.positionMs / 1000)}`} aria-label={`Jump preview to ${marker.name}`} onClick={() => jumpToMarker(marker)} key={`${marker.positionMs}-${index}`}><span /></button>)}</div>
     <div className="timeline-rulers"><label>In <strong>{formatPreciseTime(start)}</strong><input type="range" min="0" max={duration} step="0.04" value={start} onChange={e => seek(Number(e.target.value), "start")} /></label><label>Out <strong>{formatPreciseTime(end)}</strong><input type="range" min="0.04" max={duration} step="0.04" value={end} onChange={e => seek(Number(e.target.value), "end")} /></label></div>
     <div className="timeline-fades"><Field label={`Fade in · ${fadeIn.toFixed(1)}s`}><input type="range" min="0" max={Math.min(30, end - start)} step="0.1" value={fadeIn} onChange={e => setFadeIn(Number(e.target.value))} /></Field><Field label={`Fade out · ${fadeOut.toFixed(1)}s`}><input type="range" min="0" max={Math.min(30, end - start)} step="0.1" value={fadeOut} onChange={e => setFadeOut(Number(e.target.value))} /></Field></div>
     <section className="marker-editor"><div><Field label={`New marker at ${formatPreciseTime(cursor)}`}><input value={markerName} maxLength={80} placeholder={`Marker ${markers.length + 1}`} onChange={e => setMarkerName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addMarker(); } }} /></Field><button type="button" className="button" onClick={addMarker} disabled={markers.length >= 50}>＋ Add at playhead</button></div>{markers.length ? <div className="marker-list" aria-label="Named cue markers">{markers.map((marker, index) => <div key={`${marker.positionMs}-${index}`}><button type="button" className="marker-time" onClick={() => jumpToMarker(marker)} aria-label={`Preview ${marker.name}`}>{formatPreciseTime(marker.positionMs / 1000)}</button><input value={marker.name} maxLength={80} aria-label={`Name for marker at ${formatPreciseTime(marker.positionMs / 1000)}`} onChange={e => setMarkers(current => current.map((value, position) => position === index ? { ...value, name: e.target.value } : value))} /><button type="button" className="marker-delete" aria-label={`Delete ${marker.name || "marker"}`} onClick={() => setMarkers(current => current.filter((_, position) => position !== index))}>×</button></div>)}</div> : <small>No named markers yet. Play or scrub to a useful moment, then add one.</small>}</section>
     <div className="timeline-actions"><button className="button" onClick={() => { if (player.current) { player.current.currentTime = start; setCursor(start); void player.current.play(); } }}>▶ Preview selection</button><button className="button primary" onClick={() => onSave({ startMs: Math.round(start * 1000), endMs: Math.round(end * 1000), fadeInMs: Math.round(fadeIn * 1000), fadeOutMs: Math.round(fadeOut * 1000), cuePoints: markers.map(marker => ({ name: marker.name.trim(), positionMs: marker.positionMs })).filter(marker => marker.name) })}>Save timeline and markers</button></div>
-    <small>Drag the In/Out and Fade sliders while watching the filmstrip or waveform. Arrow keys nudge a focused trim handle by one 0.04-second frame step. Dark shading will not play; gold regions show the audible fade.</small>
+    <small>Drag the In/Out and Fade sliders while watching the filmstrip or waveform. Arrow keys nudge a focused trim handle by one 0.04-second frame step. Dark shading will not play; gold regions fade both audio and picture to or from black.</small>
   </section>;
 }
 
@@ -1075,6 +1077,7 @@ function MediaPreview({ media, item }: { media?: Media; item?: PlaylistItem }) {
   const requestedEnd = item?.endMs;
   const fadeInMs = item?.fadeInMs || 0;
   const fadeOutMs = item?.fadeOutMs || 0;
+  const [visualFadeOpacity, setVisualFadeOpacity] = useState(fadeInMs > 0 ? 1 : 0);
   const targetVolume = Math.min(1, (item?.volumePercent ?? 100) / 100);
   const source = media?.sourceKind === "link" ? media.sourceUrl : media?.playbackUrl || media?.downloadUrl;
   const online = media?.linkKind === "youtube" || media?.linkKind === "embedded" || media?.linkKind === "webpage";
@@ -1086,7 +1089,9 @@ function MediaPreview({ media, item }: { media?: Media; item?: PlaylistItem }) {
       const actualEnd = requestedEnd || (Number.isFinite(element.duration) ? element.duration * 1000 : undefined);
       const fadeIn = fadeInMs ? Math.min(1, Math.max(0, (current - startMs) / fadeInMs)) : 1;
       const fadeOut = fadeOutMs && actualEnd ? Math.min(1, Math.max(0, (actualEnd - current) / fadeOutMs)) : 1;
-      element.volume = targetVolume * Math.min(fadeIn, fadeOut);
+      const fade = Math.min(fadeIn, fadeOut);
+      element.volume = targetVolume * fade;
+      setVisualFadeOpacity(1 - fade);
       if (requestedEnd && current >= requestedEnd) {
         if (item?.endBehavior === "loop") { element.currentTime = startMs / 1000; void element.play(); }
         else element.pause();
@@ -1104,7 +1109,7 @@ function MediaPreview({ media, item }: { media?: Media; item?: PlaylistItem }) {
     : media.contentType.includes("presentation") || /\.(pptx|odp|docx)$/i.test(media.fileName) ? <div className="document-preview"><span>▤</span><strong>{media.fileName}</strong><p>Convertible document · {formatBytes(media.sizeBytes)}</p><a className="button" href={source} target="_blank" rel="noreferrer">Open document</a></div>
     : online ? <iframe src={frameSource} title={media.fileName} allow="autoplay; fullscreen" />
     : <iframe src={source} title={media.fileName} />;
-  return <div className="media-preview"><div className="preview-stage">{mediaElement}{item?.notes && <div className="preview-notes">{item.notes}</div>}</div>{item && <div className="preview-readout"><span>Position <strong>{formatDuration(positionMs)}</strong></span><span>Trim <strong>{formatDuration(startMs)} → {requestedEnd ? formatDuration(requestedEnd) : "media end"}</strong></span><span>Fades <strong>{(fadeInMs / 1000).toFixed(1)}s in · {(fadeOutMs / 1000).toFixed(1)}s out</strong></span><span>Volume <strong>{item.volumePercent}%</strong></span></div>}{online && <a className="preview-open" href={source} target="_blank" rel="noreferrer">Open original page ↗</a>}</div>;
+  return <div className="media-preview"><div className="preview-stage">{mediaElement}{media.contentType.startsWith("video") && item && <span className="visual-fade-overlay" style={{ opacity: visualFadeOpacity }} />}{item?.notes && <div className="preview-notes">{item.notes}</div>}</div>{item && <div className="preview-readout"><span>Position <strong>{formatDuration(positionMs)}</strong></span><span>Trim <strong>{formatDuration(startMs)} → {requestedEnd ? formatDuration(requestedEnd) : "media end"}</strong></span><span>Fades <strong>{(fadeInMs / 1000).toFixed(1)}s in · {(fadeOutMs / 1000).toFixed(1)}s out</strong></span><span>Volume <strong>{item.volumePercent}%</strong></span></div>}{online && <a className="preview-open" href={source} target="_blank" rel="noreferrer">Open original page ↗</a>}</div>;
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>; }
