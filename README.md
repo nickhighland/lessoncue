@@ -14,6 +14,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - Docker, Windows, and Linux installation assets.
 - Calendar, local role-based users, scheduled/emergency signage, rotating pairing codes, screen tags, audit history, and downloadable full/configuration backups.
 - Direct lesson uploads, reusable or four-week lesson retention, automatic cleanup, resumable large uploads, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, link classification, codec readiness, and range-enabled delivery.
+- Daily release checks, administrator alerts, protected one-click Linux updates with health-check rollback, and administrator-controlled storage allocation with uploader-visible capacity.
 - GitHub Actions that build the web app, server, Android APK, tvOS app, release packages, and GitHub Pages documentation.
 
 ## Quick start
@@ -53,6 +54,12 @@ If the countdown duration is five minutes and class begins at 09:00, the TV tran
 ## Media retention
 
 Every file upload asks how it should be stored. **For a lesson** is the default and automatically deletes the file four weeks after the latest lesson that uses it. **Keep permanently** places reusable material in the media library until an administrator removes it. Playlist history remains intact when an expired file is cleaned up.
+
+## Updates and storage
+
+Native Linux installations check for a new LessonCue release once per day. Owners and administrators can check immediately and install an available update from **Settings → Software updates**. The protected updater verifies the published checksum, restarts the server, performs a health check, and restores the previous application version if the new one cannot start. Existing servers must run the current SSH installer once to add this updater; later releases can be installed from the browser.
+
+Owners and administrators can choose an explicit LessonCue storage allocation or let it follow safely available disk space. LessonCue preserves a 512 MB operating-system reserve, rejects uploads that exceed the allocation, and shows remaining upload capacity to every user who has upload access.
 
 ## Repository map
 

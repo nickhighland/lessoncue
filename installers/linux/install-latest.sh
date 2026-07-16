@@ -8,7 +8,7 @@ case "$(uname -m)" in
 esac
 
 sudo apt-get update
-sudo apt-get install -y curl ca-certificates ffmpeg avahi-daemon libicu-dev zlib1g openssl
+sudo apt-get install -y curl ca-certificates ffmpeg avahi-daemon libicu-dev zlib1g openssl util-linux
 
 version_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' 'https://github.com/nickhighland/lessoncue/releases/latest')"
 version="${version_url##*/}"

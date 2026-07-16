@@ -75,9 +75,11 @@ public static class AdminApi
 
         var admin = api.MapGroup("").RequireAuthorization();
 
-        admin.MapGet("/admin/bootstrap", async (LessonCueDb db, PairingCodeService pairing, CancellationToken ct) =>
+        admin.MapGet("/admin/bootstrap", async (LessonCueDb db, PairingCodeService pairing, StorageService storage,
+            UpdateService updates, CancellationToken ct) =>
         {
             var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var storageStatus = await storage.GetSnapshotAsync(organization.StorageLimitBytes, ct);
             return Results.Ok(new
             {
                 serverId,
@@ -87,6 +89,8 @@ public static class AdminApi
                 organization.TimeZone,
                 pairingPin = pairing.Current,
                 pairingExpiresAt = pairing.ExpiresAt,
+                storage = storageStatus,
+                update = updates.Status,
                 counts = new
                 {
                     classes = await db.Classes.CountAsync(ct),
@@ -426,7 +430,7 @@ public static class AdminApi
                 downloadUrl = $"/api/v1/media/{x.Id}/file"
             }).ToListAsync(ct));
 
-        admin.MapPost("/media", async (HttpRequest request, LessonCueDb db, CancellationToken ct) =>
+        admin.MapPost("/media", async (HttpRequest request, LessonCueDb db, StorageService storage, CancellationToken ct) =>
         {
             if (!request.HasFormContentType) return Results.BadRequest(new { error = "multipart/form-data is required." });
             var form = await request.ReadFormAsync(ct);
@@ -445,6 +449,8 @@ public static class AdminApi
                 { ".mp4", ".m4v", ".mov", ".mp3", ".m4a", ".aac", ".wav", ".jpg", ".jpeg", ".png", ".webp", ".pdf", ".pptx" };
             var extension = Path.GetExtension(upload.FileName);
             if (!allowedExtensions.Contains(extension)) return Results.BadRequest(new { error = "Unsupported media type." });
+            if (await storage.EnsureAvailableAsync(db, upload.Length, ct) is null)
+                return StorageExceeded(upload.Length);
 
             var id = Guid.NewGuid();
             var storedName = id + extension.ToLowerInvariant();
@@ -506,18 +512,23 @@ public static class AdminApi
             return Results.Created($"/api/v1/media/{media.Id}", media);
         });
 
-        admin.MapPost("/uploads", (string? fileName) => Results.Ok(new
+        admin.MapPost("/uploads", async (string? fileName, long? totalBytes, LessonCueDb db, StorageService storage,
+            CancellationToken ct) =>
         {
-            uploadId = Guid.NewGuid(),
-            fileName = Path.GetFileName(fileName ?? "upload.bin"),
-            chunkSize = 8 * 1024 * 1024
-        }));
+            if (totalBytes is null or <= 0) return Results.BadRequest(new { error = "The total upload size is required." });
+            if (await storage.EnsureAvailableAsync(db, totalBytes.Value, ct) is null) return StorageExceeded(totalBytes.Value);
+            return Results.Ok(new { uploadId = Guid.NewGuid(), fileName = Path.GetFileName(fileName ?? "upload.bin"), chunkSize = 8 * 1024 * 1024 });
+        });
 
-        admin.MapPut("/uploads/{uploadId:guid}/chunks/{index:int}", async (Guid uploadId, int index, HttpRequest request, CancellationToken ct) =>
+        admin.MapPut("/uploads/{uploadId:guid}/chunks/{index:int}", async (Guid uploadId, int index, HttpRequest request,
+            LessonCueDb db, StorageService storage, CancellationToken ct) =>
         {
             if (index < 0 || request.ContentLength is > 8 * 1024 * 1024) return Results.BadRequest(new { error = "Invalid upload chunk." });
             var folder = Path.Combine(dataPath, "media", "temporary", uploadId.ToString("N")); Directory.CreateDirectory(folder);
             var path = Path.Combine(folder, index.ToString("D8"));
+            var previousSize = File.Exists(path) ? new FileInfo(path).Length : 0;
+            var additional = Math.Max(0, (request.ContentLength ?? 8L * 1024 * 1024) - previousSize);
+            if (await storage.EnsureAvailableAsync(db, additional, ct) is null) return StorageExceeded(additional);
             await using var output = File.Create(path);
             var buffer = new byte[64 * 1024]; var total = 0L;
             while (true)
@@ -548,7 +559,14 @@ public static class AdminApi
             for (var i = 0; i < input.TotalChunks; i++) if (!File.Exists(Path.Combine(folder, i.ToString("D8")))) return Results.BadRequest(new { error = $"Upload chunk {i} is missing." });
             var mediaId = Guid.NewGuid(); var storedName = mediaId + extension.ToLowerInvariant(); var destination = Path.Combine(mediaPath, storedName);
             await using (var output = File.Create(destination))
-                for (var i = 0; i < input.TotalChunks; i++) await using (var chunk = File.OpenRead(Path.Combine(folder, i.ToString("D8")))) await chunk.CopyToAsync(output, ct);
+            {
+                for (var i = 0; i < input.TotalChunks; i++)
+                {
+                    var chunkPath = Path.Combine(folder, i.ToString("D8"));
+                    await using (var chunk = File.OpenRead(chunkPath)) await chunk.CopyToAsync(output, ct);
+                    File.Delete(chunkPath);
+                }
+            }
             Directory.Delete(folder, true);
             await using var stream = File.OpenRead(destination); var sha = Convert.ToHexString(await SHA256.HashDataAsync(stream, ct)).ToLowerInvariant();
             var existing = await db.MediaAssets.FirstOrDefaultAsync(x => x.Sha256 == sha, ct);
@@ -650,6 +668,46 @@ public static class AdminApi
             organization.WelcomeMessage = input.WelcomeMessage.Trim();
             Audit(db, "organization.update", organization.Id, organization.Name); await db.SaveChangesAsync(ct);
             return Results.Ok(organization);
+        });
+
+        admin.MapGet("/storage", async (LessonCueDb db, StorageService storage, CancellationToken ct) =>
+            Results.Ok(await storage.GetSnapshotAsync(db, ct)));
+
+        admin.MapPut("/storage", async (StorageLimitInput input, LessonCueDb db, StorageService storage,
+            HttpContext context, CancellationToken ct) =>
+        {
+            if (!IsManager(context.User)) return Results.Forbid();
+            var organization = await db.Organizations.FirstAsync(ct);
+            var snapshot = await storage.GetSnapshotAsync(organization.StorageLimitBytes, ct);
+            if (input.LimitBytes < 0) return Results.BadRequest(new { error = "Storage allocation cannot be negative." });
+            if (input.LimitBytes > 0 && input.LimitBytes < snapshot.UsedBytes)
+                return Results.BadRequest(new { error = $"The app already uses {snapshot.UsedBytes} bytes. The allocation cannot be lower than current usage." });
+            if (input.LimitBytes > snapshot.MaximumAllocationBytes)
+                return Results.BadRequest(new { error = "That allocation is larger than the safely available space on this computer." });
+            organization.StorageLimitBytes = input.LimitBytes;
+            Audit(db, "storage.limit.update", organization.Id, input.LimitBytes == 0 ? "automatic" : input.LimitBytes.ToString());
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(await storage.GetSnapshotAsync(input.LimitBytes, ct));
+        });
+
+        admin.MapGet("/updates", (UpdateService updates) => Results.Ok(updates.Status));
+
+        admin.MapPost("/updates/check", async (UpdateService updates, CancellationToken ct) =>
+            Results.Ok(await updates.CheckAsync(true, ct)));
+
+        admin.MapPost("/updates/install", async (UpdateService updates, LessonCueDb db, HttpContext context,
+            CancellationToken ct) =>
+        {
+            if (!IsManager(context.User)) return Results.Forbid();
+            var status = await updates.CheckAsync(true, ct);
+            if (!status.UpdateAvailable) return Results.Conflict(new { error = "LessonCue is already up to date." });
+            if (!status.AutomaticInstallSupported)
+                return Results.Conflict(new { error = "Automatic installation is not configured on this server. Run the latest Linux installer once to enable it." });
+            Audit(db, "server.update.start", Guid.Empty, $"{status.CurrentVersion} to {status.LatestVersion}");
+            await db.SaveChangesAsync(ct);
+            return await updates.StartInstallAsync(ct)
+                ? Results.Accepted(value: new { message = "The update has started. LessonCue will restart automatically." })
+                : Results.Problem("The server could not start the protected update service.", statusCode: 500);
         });
 
         admin.MapGet("/users", async (LessonCueDb db, CancellationToken ct) =>
@@ -770,4 +828,9 @@ public static class AdminApi
 
     private static Task InvalidateAsync(IHubContext<SyncHub> hub, int version, CancellationToken ct) =>
         hub.Clients.All.SendAsync("ManifestInvalidated", new { type = "MANIFEST_INVALIDATED", manifestVersion = version }, ct);
+
+    private static IResult StorageExceeded(long requestedBytes) => Results.Json(new
+    {
+        error = $"Not enough LessonCue storage is available for this upload ({requestedBytes} bytes requested). Ask an administrator to increase the allocation or remove media."
+    }, statusCode: StatusCodes.Status507InsufficientStorage);
 }

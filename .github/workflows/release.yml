@@ -25,7 +25,7 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet publish server/LessonCue.Server/LessonCue.Server.csproj -c Release -r ${{ matrix.runtime }} --self-contained -o package/payload
-      - run: cp installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue.service package/
+      - run: cp installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue.service installers/linux/lessoncue-update installers/linux/lessoncue-update.service installers/linux/lessoncue-update.path package/
       - run: mkdir -p package/docker
       - run: cp docker/avahi-service.xml package/docker/
       - run: tar -C package -czf LessonCue-Server-${{ matrix.runtime }}.tar.gz .
@@ -84,6 +84,7 @@ jobs:
         with:
           path: release
           merge-multiple: true
+      - run: cd release && sha256sum LessonCue-* > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true

@@ -31,6 +31,9 @@ install -d /opt/lessoncue
 cp -a "${PAYLOAD_DIR}/." /opt/lessoncue/
 chown -R root:root /opt/lessoncue
 install -m 0644 "${SOURCE_DIR}/lessoncue.service" /etc/systemd/system/lessoncue.service
+install -m 0755 "${SOURCE_DIR}/lessoncue-update" /usr/local/sbin/lessoncue-update
+install -m 0644 "${SOURCE_DIR}/lessoncue-update.service" /etc/systemd/system/lessoncue-update.service
+install -m 0644 "${SOURCE_DIR}/lessoncue-update.path" /etc/systemd/system/lessoncue-update.path
 
 if command -v avahi-daemon >/dev/null 2>&1; then
   AVAHI_SOURCE="${SOURCE_DIR}/docker/avahi-service.xml"
@@ -41,6 +44,7 @@ fi
 
 if command -v ufw >/dev/null 2>&1; then ufw allow 8080/tcp >/dev/null || true; fi
 systemctl daemon-reload
+systemctl enable --now lessoncue-update.path
 systemctl enable lessoncue
 systemctl restart lessoncue
 echo "LessonCue is installed. Open http://$(hostname -I | awk '{print $1}'):8080"

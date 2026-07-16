@@ -62,6 +62,7 @@ public static class DatabaseUpgrade
             ["Organizations.WeekStartsOn"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"WeekStartsOn\" TEXT NOT NULL DEFAULT 'Sunday'"),
             ["Organizations.DefaultLessonDurationMinutes"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"DefaultLessonDurationMinutes\" INTEGER NOT NULL DEFAULT 60"),
             ["Organizations.DefaultRetentionDays"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"DefaultRetentionDays\" INTEGER NOT NULL DEFAULT 30"),
+            ["Organizations.StorageLimitBytes"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"StorageLimitBytes\" INTEGER NOT NULL DEFAULT 0"),
             ["Organizations.PrimaryColor"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"PrimaryColor\" TEXT NOT NULL DEFAULT '#25302d'"),
             ["Organizations.AccentColor"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"AccentColor\" TEXT NOT NULL DEFAULT '#d89127'"),
             ["Organizations.WelcomeMessage"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"WelcomeMessage\" TEXT NOT NULL DEFAULT 'Welcome'"),

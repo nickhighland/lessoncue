@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${EUID}" -ne 0 ]]; then
+  echo "LessonCue updater must run as root."
+  exit 1
+fi
+
+exec 9>/run/lessoncue-update.lock
+if ! flock -n 9; then
+  echo "Another LessonCue update is already running."
+  exit 0
+fi
+
+case "$(uname -m)" in
+  x86_64|amd64) RUNTIME=linux-x64 ;;
+  aarch64|arm64) RUNTIME=linux-arm64 ;;
+  *) echo "Unsupported CPU architecture: $(uname -m)"; exit 1 ;;
+esac
+
+REPOSITORY=https://github.com/nickhighland/lessoncue
+VERSION_URL="$(curl -fsSL -o /dev/null -w '%{url_effective}' "${REPOSITORY}/releases/latest")"
+VERSION="${VERSION_URL##*/}"
+ASSET="LessonCue-Server-${RUNTIME}.tar.gz"
+WORKDIR="$(mktemp -d)"
+STAGED=/opt/lessoncue.new
+PREVIOUS=/opt/lessoncue.previous
+FAILED=/opt/lessoncue.failed
+trap 'rm -rf "${WORKDIR}" "${STAGED}"' EXIT
+
+echo "Downloading LessonCue ${VERSION} for ${RUNTIME}..."
+curl -fL "${REPOSITORY}/releases/download/${VERSION}/${ASSET}" -o "${WORKDIR}/${ASSET}"
+curl -fL "${REPOSITORY}/releases/download/${VERSION}/SHA256SUMS" -o "${WORKDIR}/SHA256SUMS"
+if ! grep -F "  ${ASSET}" "${WORKDIR}/SHA256SUMS" > "${WORKDIR}/asset.sha256"; then
+  echo "The release does not contain a checksum for ${ASSET}."
+  exit 1
+fi
+(cd "${WORKDIR}" && sha256sum -c asset.sha256)
+
+mkdir "${WORKDIR}/archive"
+tar -xzf "${WORKDIR}/${ASSET}" -C "${WORKDIR}/archive"
+if [[ ! -x "${WORKDIR}/archive/payload/LessonCue.Server" ]]; then
+  echo "The release archive is missing LessonCue.Server."
+  exit 1
+fi
+
+rm -rf "${STAGED}"
+install -d "${STAGED}"
+cp -a "${WORKDIR}/archive/payload/." "${STAGED}/"
+chown -R root:root "${STAGED}"
+
+# Refresh the updater itself only after the archive has passed verification.
+install -m 0755 "${WORKDIR}/archive/lessoncue-update" /usr/local/sbin/lessoncue-update
+install -m 0644 "${WORKDIR}/archive/lessoncue-update.service" /etc/systemd/system/lessoncue-update.service
+install -m 0644 "${WORKDIR}/archive/lessoncue-update.path" /etc/systemd/system/lessoncue-update.path
+install -m 0644 "${WORKDIR}/archive/lessoncue.service" /etc/systemd/system/lessoncue.service
+systemctl daemon-reload
+
+systemctl stop lessoncue.service
+rm -rf "${PREVIOUS}" "${FAILED}"
+if [[ -d /opt/lessoncue ]]; then mv /opt/lessoncue "${PREVIOUS}"; fi
+mv "${STAGED}" /opt/lessoncue
+
+if systemctl start lessoncue.service; then
+  for _ in {1..30}; do
+    if curl -fsS http://127.0.0.1:8080/health >/dev/null; then
+      echo "LessonCue ${VERSION} installed successfully."
+      exit 0
+    fi
+    sleep 2
+  done
+fi
+
+echo "The updated server did not become healthy. Restoring the previous version."
+systemctl stop lessoncue.service || true
+mv /opt/lessoncue "${FAILED}"
+if [[ -d "${PREVIOUS}" ]]; then
+  mv "${PREVIOUS}" /opt/lessoncue
+  systemctl start lessoncue.service
+fi
+exit 1

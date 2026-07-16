@@ -37,8 +37,18 @@ builder.Services.AddScoped<ManifestService>();
 builder.Services.AddSingleton(new PairingCodeService(dataPath, builder.Configuration["LessonCue:PairingPin"]));
 builder.Services.AddSingleton(new BackupService(dataPath));
 builder.Services.AddSingleton(new MediaStoragePaths(dataPath));
+builder.Services.AddSingleton(new StorageService(dataPath));
 builder.Services.AddHostedService<MediaProcessingService>();
 builder.Services.AddHostedService<MediaRetentionService>();
+builder.Services.AddHttpClient("updates", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(20);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("LessonCue-Server/1.0");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+    client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2026-03-10");
+});
+builder.Services.AddSingleton<UpdateService>();
+builder.Services.AddHostedService(services => services.GetRequiredService<UpdateService>());
 builder.Services.AddSingleton<IPasswordHasher<PairingAttempt>, PasswordHasher<PairingAttempt>>();
 builder.Services.AddSingleton<IPasswordHasher<AdminAccount>, PasswordHasher<AdminAccount>>();
 builder.Services.AddSignalR();

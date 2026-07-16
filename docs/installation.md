@@ -159,7 +159,7 @@ Select your development team, choose the Apple TV, and Run. Bonjour and local-ne
 
 ## Backups and updates
 
-Owners can create and download a consistent configuration backup or a full backup from **Settings → Privacy & storage** while the server is running. For a manual disaster-recovery copy, stop the service first and archive the entire data directory:
+Owners can create and download a consistent configuration backup or a full backup from **Settings → Privacy & backups** while the server is running. For a manual disaster-recovery copy, stop the service first and archive the entire data directory:
 
 ```bash
 sudo systemctl stop lessoncue
@@ -169,13 +169,18 @@ sudo systemctl start lessoncue
 
 To restore, install the same or newer LessonCue version, stop the service, replace `/var/lib/lessoncue` with the saved directory contents, restore ownership with `sudo chown -R lessoncue:lessoncue /var/lib/lessoncue`, and start the service. Test restoration on a separate machine before relying on a backup policy.
 
-For Docker, pull/build the new image and run `docker compose up -d`. For native installations, back up data and repeat the two headless installation commands; the installer replaces the application but preserves `/var/lib/lessoncue`, including the pairing PIN and administrator account. Upgrades preserve existing media. Inside LessonCue, uploads marked **For a lesson** are automatically removed four weeks after the latest lesson that uses them; uploads marked **Keep permanently** are not automatically removed.
+For Docker, pull/build the new image and run `docker compose up -d`. Native Linux installations check for releases daily and alert signed-in users. An owner or administrator can use **Settings → Software updates → Install**; LessonCue verifies the release checksum, restarts, health-checks the new server, and rolls back the application files if that check fails. Run the two headless installation commands once on a server installed before version 0.4.0 to enable this protected updater. Application updates preserve `/var/lib/lessoncue`, including accounts, media, settings, pairing credentials, and backups.
+
+In **Settings → Storage allocation**, an owner or administrator can choose a maximum amount of disk space or leave automatic allocation enabled. The page shows current LessonCue usage, free computer disk space, and the maximum safe allocation. LessonCue keeps a 512 MB safety reserve and refuses uploads that would exceed the allocation. Editors and administrators can always see the remaining upload capacity in the sidebar and Media Library. Uploads marked **For a lesson** are automatically removed four weeks after the latest lesson that uses them; uploads marked **Keep permanently** are not automatically removed.
 
 To remove the headless Linux service while preserving its database and media:
 
 ```bash
 sudo systemctl disable --now lessoncue
-sudo rm -f /etc/systemd/system/lessoncue.service
+sudo systemctl disable --now lessoncue-update.path 2>/dev/null || true
+sudo systemctl stop lessoncue-update 2>/dev/null || true
+sudo rm -f /etc/systemd/system/lessoncue.service /etc/systemd/system/lessoncue-update.service /etc/systemd/system/lessoncue-update.path
+sudo rm -f /usr/local/sbin/lessoncue-update
 sudo rm -f /etc/avahi/services/lessoncue.service
 sudo systemctl daemon-reload
 sudo rm -rf /opt/lessoncue

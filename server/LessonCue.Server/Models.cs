@@ -11,6 +11,7 @@ public sealed class Organization
     [MaxLength(16)] public string WeekStartsOn { get; set; } = "Sunday";
     public int DefaultLessonDurationMinutes { get; set; } = 60;
     public int DefaultRetentionDays { get; set; } = 30;
+    public long StorageLimitBytes { get; set; }
     [MaxLength(16)] public string PrimaryColor { get; set; } = "#25302d";
     [MaxLength(16)] public string AccentColor { get; set; } = "#d89127";
     [MaxLength(240)] public string WelcomeMessage { get; set; } = "Welcome";
@@ -213,7 +214,9 @@ public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool
     bool ClearAssignment = false, string? TagsCsv = null, string? Site = null);
 public sealed record UserInput(string Username, string DisplayName, string? Email, string Role, string? Password, bool Disabled = false);
 public sealed record OrganizationInput(string Name, string SiteName, string TimeZone, string WeekStartsOn,
-    int DefaultLessonDurationMinutes, int DefaultRetentionDays, string PrimaryColor, string AccentColor, string WelcomeMessage);
+    int DefaultLessonDurationMinutes, int DefaultRetentionDays, string PrimaryColor, string AccentColor,
+    string WelcomeMessage);
+public sealed record StorageLimitInput(long LimitBytes);
 public sealed record SignageInput(string Name, string Mode, bool Enabled, int Priority, DateTimeOffset? StartsAt,
     DateTimeOffset? EndsAt, string? Message, string? BackgroundColor, string? TextColor, Guid? MediaAssetId, string? TargetTagsCsv);
 public sealed record LinkInput(string Url, string? Title);

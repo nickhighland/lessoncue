@@ -144,6 +144,52 @@ paths:
         '200': { description: Media file }
         '206': { description: Partial media response }
         '404': { description: Not found }
+  /api/v1/storage:
+    get:
+      operationId: getStorageStatus
+      description: Returns current LessonCue usage, computer free space, allocation, and remaining upload capacity.
+      responses:
+        '200':
+          description: Storage status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StorageStatus' }
+    put:
+      operationId: setStorageAllocation
+      description: Owner or administrator only. Zero enables automatic safe allocation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [limitBytes]
+              properties:
+                limitBytes: { type: integer, format: int64, minimum: 0 }
+      responses:
+        '200': { description: Updated storage status }
+        '400': { description: Allocation exceeds safe disk space or is below current usage }
+  /api/v1/updates:
+    get:
+      operationId: getUpdateStatus
+      responses:
+        '200':
+          description: Installed and latest release status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UpdateStatus' }
+  /api/v1/updates/check:
+    post:
+      operationId: checkForUpdate
+      responses:
+        '200': { description: Refreshed update status }
+  /api/v1/updates/install:
+    post:
+      operationId: installUpdate
+      description: Owner or administrator only. Starts the protected native Linux updater.
+      responses:
+        '202': { description: Update installation started }
+        '409': { description: No update is available or automatic installation is not configured }
 components:
   securitySchemes:
     deviceBearer:
@@ -159,6 +205,28 @@ components:
         serverName: { type: string }
         apiVersion: { const: 1 }
         pairingEnabled: { type: boolean }
+    StorageStatus:
+      type: object
+      required: [usedBytes, diskAvailableBytes, maximumAllocationBytes, allocationBytes, remainingBytes, automaticAllocation]
+      properties:
+        usedBytes: { type: integer, format: int64 }
+        diskAvailableBytes: { type: integer, format: int64 }
+        maximumAllocationBytes: { type: integer, format: int64 }
+        allocationBytes: { type: integer, format: int64 }
+        remainingBytes: { type: integer, format: int64 }
+        automaticAllocation: { type: boolean }
+    UpdateStatus:
+      type: object
+      required: [currentVersion, updateAvailable, automaticInstallSupported, installing]
+      properties:
+        currentVersion: { type: string }
+        latestVersion: { type: [string, 'null'] }
+        updateAvailable: { type: boolean }
+        lastCheckedAt: { type: [string, 'null'], format: date-time }
+        releaseUrl: { type: [string, 'null'], format: uri }
+        error: { type: [string, 'null'] }
+        automaticInstallSupported: { type: boolean }
+        installing: { type: boolean }
     PairingRequest:
       type: object
       required: [deviceName, platform, appVersion]

@@ -48,6 +48,14 @@ The server includes local setup and role-based cookie login, same-origin mutatio
 
 Media links are never fetched by the server. Direct file, supported embed, and external destinations are classified from their URL. Uploaded media and clearly identified direct media files can be cached by TVs; embedded and external-service pages remain online-only.
 
+### Storage enforcement
+
+`StorageService` measures the complete persistent data tree rather than trusting database media sizes, so originals, derivatives, thumbnails, databases, backups, and temporary upload chunks all count toward the allocation. A zero organization limit means automatic allocation: current usage plus disk space safely available after a 512 MB operating-system reserve. Every multipart upload, resumable-upload session, and chunk write performs a server-side capacity check and returns HTTP 507 when the request would exceed the remaining allocation.
+
+### Protected native updates
+
+`UpdateService` checks the public GitHub latest-release endpoint after startup and once per day. It only discovers versions as the unprivileged, sandboxed `lessoncue` service account. Installation is deliberately separated: the web server writes a timestamp into its own config directory, and a root-owned systemd path unit turns that narrow signal into the update job. The web process receives no sudo access or new privileges. The root-owned oneshot updater downloads the fixed LessonCue repository and architecture-specific archive, verifies it against the release `SHA256SUMS`, stages a clean application directory, restarts LessonCue, and restores `/opt/lessoncue.previous` if the health endpoint does not recover. Persistent data under `/var/lib/lessoncue` is never replaced by the updater.
+
 ## Android TV
 
 ```bash
@@ -105,4 +113,4 @@ Test fixtures should cover:
 
 ## Release flow
 
-Every pull request runs web, server, Android, and tvOS builds. Tags matching `v*` create self-contained x64/ARM64 Linux packages, a Windows package, and an Android APK. Store-signed Android and Apple releases intentionally require organization-owned signing credentials and should use protected GitHub environments.
+Every pull request runs web, server, Android, and tvOS builds. Tags matching `v*` create self-contained x64/ARM64 Linux packages, a Windows package, an Android APK, and a release-wide SHA-256 checksum file used by the protected updater. Store-signed Android and Apple releases intentionally require organization-owned signing credentials and should use protected GitHub environments.
