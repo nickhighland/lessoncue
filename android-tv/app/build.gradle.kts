@@ -19,9 +19,26 @@ android {
         applicationId = "org.lessoncue.tv"
         minSdk = 26
         targetSdk = 36
-        versionCode = 29
-        versionName = "0.25.0"
+        versionCode = 30
+        versionName = "0.26.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("boolean", "UPDATE_ENABLED", "false")
+        buildConfigField(
+            "String",
+            "UPDATE_MANIFEST_URL",
+            "\"https://github.com/nickhighland/lessoncue/releases/latest/download/update.json\""
+        )
+        buildConfigField("String", "UPDATE_CHANNEL", "\"stable\"")
+        buildConfigField(
+            "String",
+            "UPDATE_ALLOWED_HOSTS",
+            "\"github.com,objects.githubusercontent.com,release-assets.githubusercontent.com\""
+        )
+        buildConfigField(
+            "String",
+            "UPDATE_SIGNING_CERT_SHA256",
+            "\"E875F8F9F4E80494DF1658D5E59662BE1048D7CD5D53DB2131103051352F64AE\""
+        )
     }
 
     signingConfigs {
@@ -38,11 +55,15 @@ android {
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
+            buildConfigField("boolean", "UPDATE_ENABLED", "true")
             if (releaseSigningConfigured) signingConfig = signingConfigs.getByName("lessoncueRelease")
         }
     }
 
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 
@@ -59,4 +80,8 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.11.1")
     implementation("io.coil-kt:coil-compose:2.7.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250517")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.10.5")
+    debugImplementation("androidx.compose.ui:ui-test-manifest:1.10.5")
 }

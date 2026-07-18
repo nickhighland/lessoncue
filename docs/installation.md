@@ -229,6 +229,8 @@ https://github.com/nickhighland/lessoncue/releases/latest/download/LessonCue-And
 
 Use the debug build only for testing. Enable installation from unknown sources only for the file-manager or deployment tool you use, install the APK, then disable that permission again.
 
+Updater-enabled production builds add **Check for updates** to the TV lesson library and perform a quiet background check at most once every 12 hours after a successful check. The first updater-enabled release must still be installed manually over the existing production app. Later releases can be downloaded and verified inside LessonCue; Android will ask once for **Allow from this source** and will always display its own final installation confirmation. LessonCue cannot and does not silently install updates.
+
 On first launch:
 
 1. Enter `http://lessoncue.local` or the numeric server address. Include `:PORT` only if an administrator selected a non-default port.
