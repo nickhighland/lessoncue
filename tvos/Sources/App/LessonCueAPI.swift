@@ -46,7 +46,7 @@ struct LessonCueAPI: Sendable {
 
     func beginPairing(deviceName: String) async throws -> String {
         let body = try JSONSerialization.data(withJSONObject: [
-            "deviceName": deviceName, "platform": "tvos", "appVersion": "0.30.0"
+            "deviceName": deviceName, "platform": "tvos", "appVersion": "0.30.1"
         ])
         let response: PairingRequestResponse = try await request(path: "/api/v1/pairing/request", method: "POST", body: body)
         return response.requestId
@@ -77,7 +77,7 @@ struct LessonCueAPI: Sendable {
             "area": "playback", "message": playbackError, "itemId": jsonValue(playback.itemId)], at: 0) }
         let body = try JSONSerialization.data(withJSONObject: [
             "screenId": identity.screenId,
-            "appVersion": "0.30.0",
+            "appVersion": "0.30.1",
             "online": true,
             "freeBytes": freeBytes,
             "manifestVersion": manifestVersion,
