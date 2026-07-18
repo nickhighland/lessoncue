@@ -22,6 +22,22 @@ Webpages, embedded players, Vimeo, and external destinations require internet. O
 
 If a local YouTube import fails, read its processing error in the Media Library, confirm the server can reach YouTube, check available LessonCue storage, and inspect `sudo journalctl -u lessoncue -n 100 --no-pager`. Re-run the latest installer or install the latest release if the error says `yt-dlp` was not found.
 
+## Intel Quick Sync device creation fails
+
+Upgrade to LessonCue 0.30.2 or newer. Earlier Linux builds allowed FFmpeg to choose a default adapter, which can fail with `Device creation failed` even when an Intel render node is available. Current builds test every `/dev/dri/renderD*` device through direct QSV and VAAPI-derived initialization and reuse the successful device for conversions.
+
+If the check still fails, run:
+
+```bash
+ls -l /dev/dri
+id lessoncue
+sudo -u lessoncue test -r /dev/dri/renderD128 && echo readable
+sudo -u lessoncue test -w /dev/dri/renderD128 && echo writable
+dpkg -l | grep -E 'intel-media-va-driver|ffmpeg'
+```
+
+Replace `renderD128` with the device shown by `ls` when necessary. The `lessoncue` account must belong to the device's `render` or `video` group, and an Intel media VA driver must be installed. Re-running the latest native installer repairs the normal group membership and driver package without removing LessonCue data. A machine without a supported Intel GPU will remain on the safe software encoder.
+
 ## Countdown starts at the wrong time
 
 Check the server time zone, server clock, and television clock. Confirm the manifest's `designatedStartAt`, `durationMs`, and `startAt`. A trimmed countdown uses `endMs - startMs`, not the original file duration.
