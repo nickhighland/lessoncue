@@ -536,6 +536,16 @@ paths:
         '202': { description: Requested profiles are queued or already available }
         '400': { description: Media is not a processed local video or profile is invalid }
         '404': { description: Media not found }
+  /api/v1/hardware-acceleration/check:
+    post:
+      operationId: checkHardwareAcceleration
+      description: Requires settings.manage. Rechecks FFmpeg and Intel Quick Sync by encoding and validating a small local H.264 MP4 probe.
+      responses:
+        '200':
+          description: Current Intel Quick Sync capability and recent usage/fallback status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HardwareAccelerationStatus' }
   /api/v1/backups/restore/preview:
     post:
       operationId: previewBackupRestore
@@ -1157,6 +1167,18 @@ components:
       type: http
       scheme: bearer
   schemas:
+    HardwareAccelerationStatus:
+      type: object
+      required: [supported, available, engine, message]
+      properties:
+        supported: { type: boolean }
+        available: { type: boolean }
+        engine: { type: string, example: Intel Quick Sync (H.264) }
+        message: { type: string }
+        lastCheckedAt: { type: [string, 'null'], format: date-time }
+        lastHardwareUseAt: { type: [string, 'null'], format: date-time }
+        lastFallbackAt: { type: [string, 'null'], format: date-time }
+        lastError: { type: [string, 'null'] }
     RegistrationInput:
       type: object
       required: [username, displayName, email, password]
