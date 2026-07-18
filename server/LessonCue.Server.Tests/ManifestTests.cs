@@ -45,7 +45,18 @@ public sealed class ManifestTests
         db.AddRange(lessonClass, screen, lesson, media, new SignagePlaylist
         {
             Name = "Lobby notice", Enabled = true, TargetTagsCsv = "elementary",
+            MediaAssetId = media.Id,
             StartsAt = DateTimeOffset.UtcNow.AddHours(-1), EndsAt = DateTimeOffset.UtcNow.AddHours(1)
+        }, new SignagePlaylist
+        {
+            Name = "Idle fallback", Mode = "idle", Enabled = true, Priority = 100
+        }, new SignagePlaylist
+        {
+            Name = "Urgent notice", Mode = "emergency", Enabled = true, Priority = 1
+        }, new SignagePlaylist
+        {
+            Name = "Future notice", Mode = "scheduled", Enabled = true,
+            StartsAt = DateTimeOffset.UtcNow.AddDays(1), EndsAt = DateTimeOffset.UtcNow.AddDays(2)
         });
         await db.SaveChangesAsync(cancellationToken);
 
@@ -59,5 +70,15 @@ public sealed class ManifestTests
         Assert.Contains("\"contentType\":\"video/mp4\"", json);
         Assert.Contains("\"fileExtension\":\"mp4\"", json);
         Assert.Contains("\"sha256\":\"compatible\"", json);
+        Assert.Contains("\"signageSchedule\"", json);
+        var lobbySign = await db.SignagePlaylists.SingleAsync(item => item.Name == "Lobby notice", cancellationToken);
+        Assert.Contains($"signage-{lobbySign.Id}", json);
+        Assert.True(json.IndexOf("Urgent notice", StringComparison.Ordinal) < json.IndexOf("Lobby notice", StringComparison.Ordinal));
+        Assert.True(json.IndexOf("Lobby notice", StringComparison.Ordinal) < json.IndexOf("Idle fallback", StringComparison.Ordinal));
+        using var document = JsonDocument.Parse(json);
+        Assert.DoesNotContain(document.RootElement.GetProperty("signage").EnumerateArray(),
+            item => item.GetProperty("Name").GetString() == "Future notice");
+        Assert.Contains(document.RootElement.GetProperty("signageSchedule").EnumerateArray(),
+            item => item.GetProperty("Name").GetString() == "Future notice");
     }
 }

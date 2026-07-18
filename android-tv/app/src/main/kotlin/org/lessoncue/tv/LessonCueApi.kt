@@ -134,18 +134,25 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
 
     private fun parseManifest(payload: JSONObject): ScreenManifest {
         val screen = payload.getJSONObject("screen")
+        val activeSignage = payload.optJSONArray("signage")?.mapObjects(::parseSignage).orEmpty()
         return ScreenManifest(
             version = payload.getInt("manifestVersion"),
             screenName = screen.getString("name"),
-            signage = payload.optJSONArray("signage")?.mapObjects { item -> SignageCue(
-                id = item.getString("id"), name = item.getString("name"), mode = item.getString("mode"),
-                priority = item.optInt("priority"), message = item.optString("message"),
-                backgroundColor = item.optString("backgroundColor", "#25302d"), textColor = item.optString("textColor", "#ffffff"),
-                mediaUrl = item.optString("mediaUrl").takeIf { it.isNotBlank() && it != "null" }?.let { if (it.startsWith("http")) it else "$baseUrl$it" }
-            ) } ?: emptyList(),
-            playlists = payload.getJSONArray("playlists").mapObjects { lesson -> parsePlaylist(lesson) }
+            signage = activeSignage,
+            playlists = payload.getJSONArray("playlists").mapObjects { lesson -> parsePlaylist(lesson) },
+            signageSchedule = payload.optJSONArray("signageSchedule")?.mapObjects(::parseSignage) ?: activeSignage
         )
     }
+
+    private fun parseSignage(item: JSONObject) = SignageCue(
+        id = item.getString("id"), name = item.getString("name"), mode = item.getString("mode"),
+        priority = item.optInt("priority"), message = item.optString("message"),
+        backgroundColor = item.optString("backgroundColor", "#25302d"),
+        textColor = item.optString("textColor", "#ffffff"),
+        mediaUrl = item.optString("mediaUrl").takeIf { it.isNotBlank() && it != "null" }
+            ?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
+        media = item.optJSONObject("media")?.let(::parseItem)
+    )
 
     private fun parsePlaylist(json: JSONObject): LessonPlaylist {
         val start = json.optString("designatedStartAt").takeIf { it.isNotBlank() && it != "null" }?.let(Instant::parse)
@@ -236,9 +243,9 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
     }
 }
 
-private fun ScreenManifest.allItems(): List<CueItem> = playlists.flatMap {
+private fun ScreenManifest.allItems(): List<CueItem> = (playlists.flatMap {
     it.items + it.preRoll?.items.orEmpty() + listOfNotNull(it.countdown?.item)
-}.distinctBy { it.id }
+} + signageSchedule.mapNotNull { it.media }).distinctBy { it.id }
 
 private fun <T> JSONArray.mapObjects(transform: (JSONObject) -> T): List<T> =
     (0 until length()).map { transform(getJSONObject(it)) }

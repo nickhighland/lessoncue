@@ -35,7 +35,7 @@ fun CueItem.cacheFileName(): String = "$id.${fileExtension?.takeIf { it.matches(
 data class CountdownCue(val itemId: String, val durationMs: Long, val startAt: Instant?, val item: CueItem)
 data class PreRollCue(val items: List<CueItem>)
 data class SignageCue(val id: String, val name: String, val mode: String, val priority: Int, val message: String,
-    val backgroundColor: String, val textColor: String, val mediaUrl: String?)
+    val backgroundColor: String, val textColor: String, val mediaUrl: String?, val media: CueItem? = null)
 
 data class LessonPlaylist(
     val id: String,
@@ -47,7 +47,8 @@ data class LessonPlaylist(
     val items: List<CueItem>
 )
 
-data class ScreenManifest(val version: Int, val screenName: String, val signage: List<SignageCue>, val playlists: List<LessonPlaylist>)
+data class ScreenManifest(val version: Int, val screenName: String, val signage: List<SignageCue>,
+    val playlists: List<LessonPlaylist>, val signageSchedule: List<SignageCue> = signage)
 
 data class ControlCommand(
     val changed: Boolean,
