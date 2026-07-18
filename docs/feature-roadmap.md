@@ -41,18 +41,18 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 14. [x] **Adaptive server-side transcoding (v0.23.0)** — generate reusable 720p and 480p H.264/AAC copies locally, choose a profile per screen from its decoder/network/storage report, prepare assigned lesson media ahead of time, expose queue and failure state, and keep the universal 1080p copy as a safe fallback.
 15. [x] **Administrator-managed media folders and tags (v0.24.0)** — uploaders choose from administrator-approved hierarchical folders and tags in both lesson and library workflows; existing values migrate automatically and the server rejects unapproved organization values.
 16. [ ] **Editing and playback expansion** — focus on the unchecked items in the Editing and playback section, beginning with a simple/advanced editing mode and core crop, fit/fill, volume, playback-speed, repeat, and transition controls.
+17. [ ] **Web version of Android TV app** so it can be accessed by PC and shown on the full screen and controlled by keyboard or presentation remote.  This will allow for better preview and for projectors and screens attached to compete to be used as presentation devices.
+18. [ ] **quickfixes** Make the little pop up confirmation boxes that appear in the top right corner disappear after three seconds. also, the room themes on the remote should change the background color, not button color.
+19. [ ] **Optimize server transcoding of Intel quicksync is available.**
+20. Self-service registration with admin approval or with a registration code to skip admin approval, and profile editing for a signed-in user's own name, email, username, and password with email integration through Resend and Brevo. also password reset through those services. 
 
 ## Administration and user experience
 
-- Self-service profile editing for a signed-in user's own name, email, username, and password with email integration through Resend and Brevo.
 - Invitations with expiring setup links or administrator-generated one-time passwords.
 - Forced password change at first sign-in and administrator-controlled password expiration policies.
 - Granular custom roles and permissions instead of only the four built-in roles.
-- Per-class, campus, folder, or screen-group access restrictions.
 - Temporary, substitute, volunteer, and event-only accounts with automatic expiration.
-- Passkeys, TOTP authenticator codes, recovery codes, and optional two-person approval for high-impact actions.
 - Active-session list with device, approximate network address, last activity, and remote sign-out.
-- User CSV import/export and directory synchronization through LDAP or optional OIDC/SAML providers.
 - In-app change history with undo for common lesson, media, signage, screen, and settings operations.
 - Global command palette, keyboard shortcuts, recently visited items, favorites, and saved filters.
 - Contextual onboarding, sample tours, role-specific dashboards, and a dismissible operator checklist.
@@ -67,41 +67,23 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 - Recurring lesson generation with weekly, monthly, term-based, and custom recurrence rules.
 - Copy or move a complete lesson between classes, dates, campuses.
 - Multi-select lesson operations, bulk archive, and batch date shifting.
-- Draft, review, approved, published, completed, and archived workflow states.
-- Approval comments, assignments, due dates, mentions, and a visible readiness checklist.
 - Conflict warnings for overlapping schedules, shared screens, missing files, or insufficient download time.
 - Calendar day, week, month, agenda, and room views.
 - Teacher notes on the mobile interface for each media item.
 - Substitute-operator notes, printable run sheets, and QR codes that open the correct controller view.
-- Lesson version history, named snapshots, compare, restore, and audit attribution.
-- Conditional cues and simple branching for different audience choices or time remaining.
-- Cue groups that can advance together, remain manual, or repeat until explicitly released.
 - Estimated total duration, remaining duration, overrun warnings, flexible-time markers, and automatic compression suggestions.
-- Rehearsal mode that never changes the production schedule or screen assignment.
-- An always-visible “safe to start” report covering media, screens, schedules, and storage.
-- Pre-roll can play a livestream (locally streamed or youtube). In churches, this would allow users to monitor the service for children's dismissals.
+- Pre-roll can play a livestream (locally streamed rtmp or youtube). In churches, this would allow users to monitor the service for children's dismissals.
 
 ## Media library and content lifecycle
 
 - Folders, tags, collections, favorites.
 - Full-text search across filenames, titles, notes, captions, transcripts, and lesson usage.
 - Bulk upload, drag-and-drop folders, background transfers, pause/resume, retry, and resumable browser sessions.
-- Watch folders and optional imports from local NAS, SMB, NFS, SFTP, or removable storage.
-- Organized folder structure, such as campus/classroom/date/title/ with content labeled with a number indicating order, such as 01 - media.mp4, 02 - image.png, 03 - slidedeck.ppt, etc., so that media can be loaded directly to the watched folder and imported as a completed presentation.
 - Duplicate and near-duplicate detection with safe consolidation of lesson references.
-- File versioning that preserves an asset's identity while allowing replacement and rollback.
-- Media usage graph showing every lesson, template, signage item, and screen cache that depends on a file.
-- Retention preview, expiration alerts, legal hold, archive tiers, recycle bin, and configurable recovery window.
-- Storage forecast, growth trends, largest-file report, stale cache report, and cleanup recommendations.
 - Administrator-defined upload limits by role, user, class, file size, codec, and daily quota.
-- Rights-holder, source, license, release, allowed dates, attribution, and usage-restriction metadata.
 - Automatic thumbnails, contact sheets, waveform previews, scene detection, and poster-frame selection.
-- Automatic proxy generation for browser preview while retaining a higher-quality playback master.
-- Configurable transcoding profiles by screen capability and network bandwidth.
+- Configurable transcoding profiles by screen capability and network bandwidth, determined by administrator on the backend in settings.
 - Background reprocessing when codec policy or target hardware changes.
-- Optional object-storage backends such as S3-compatible local appliances, with local playback cache retained.
-- Import/export packages containing media, metadata, lessons, and checksums for offline server-to-server transfer.
-
 ## Editing and playback
 
 - Filmstrip and waveform timeline with frame-accurate in/out points and keyboard nudging.
@@ -109,35 +91,26 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 - Crop, rotate, aspect-ratio fit/fill, safe-area guides, image pan/zoom, and background color or blur.
 - Per-item and per-lesson volume, mute, playback speed, repeat count, and end behavior.
 - Gapless playback and prebuffering for seamless transitions.
-- Layered playback for a background loop, foreground content, lower thirds, clock, logo, or emergency crawl.
 - Configurable transitions between every supported media type.
 - Still-image and slide duration defaults with per-item overrides.
 - Background audio that continues across images or slides.
-- Multi-angle or alternate-language asset variants selected by room profile.
-- Live-stream support with reconnection policy, latency display, fallback media, and health monitoring.
 - Synchronized playback across multiple screens with clock-drift correction.
 - Blackout, freeze, logo, clear, stop-all, and emergency-override controls.
-- Playback recording or operator event log for post-event review where local policy permits it.
 - Offline webpage packaging for explicitly supported HTML content, with sandboxing and asset validation.
 - PDF and presentation conversion into high-resolution, remote-navigable slide sequences.
 - Priority on user-friendliness.  "Simple" and "Advanced" toggles to keep more complicated features (like crossfades, cropping, etc.) hidden from beginners.
 
 ## Cellphone controller
-
+**all controls run in browser, not app. can be saved on apple and android devices as a web app. 
 - Live “now playing” title, artwork, elapsed time, remaining time, state, volume, and screen acknowledgement.
 - Low-latency push updates through SignalR with polling fallback.
 - Volume, mute, blackout, freeze, logo, restart item, jump-to-cue, and emergency-stop controls.
-- Configurable confirmation for disruptive commands and an undo window when technically safe.
 - Lock mode that prevents accidental taps while preserving the transport display.
 - Haptic, audio, or visual acknowledgement of accepted and completed commands.
 - Favorites and a simplified volunteer layout limited to approved actions.
 - QR-code launch into a particular room, lesson, or restricted temporary controller session.
 - Control of screen groups with clear partial-success reporting.
 - Handoff between operators and visible control ownership to prevent competing commands.
-- Optional PIN-only short session for an already authenticated room device.
-- Wake Lock support, landscape layout, large-touch accessibility mode, and installable PWA updates.
-- Network-loss indicator, queued-command warning, reconnect status, and stale-state protection.
-- Optional hardware media-key and Bluetooth presenter support in compatible browsers.
 
 ## Screens and device fleet
 
@@ -146,19 +119,16 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 - Download queue, item-level cache verification, retry controls, bandwidth, and estimated readiness time.
 - Remote cache purge, re-download, app restart, device reboot, and diagnostics bundle where platform APIs permit.
 - Privacy-controlled current-frame screenshot with an on-screen indicator and audit event.
-- Codec, resolution, HDR, audio-output, and web-content capability reporting.
+- Codec, resolution, audio-output, and web-content capability reporting.
 - Clock synchronization and drift alerts for duration-aware countdowns and multi-screen playback.
 - Scheduled bandwidth windows and rate limits to protect shared networks.
 - Kiosk setup, start-on-boot validation, screen-saver suppression, and HDMI-CEC power scheduling.
 - Device configuration profiles with staged rollout and drift detection.
 - App update rings, minimum supported version, maintenance windows, rollback, and incompatible-version alerts.
-- Spare-device workflow that clones a room assignment without copying a device credential.
 - Screen replacement wizard that transfers assignment and revokes the previous credential.
-- Multi-display players and video-wall layout profiles where target hardware supports them.
 
 ## Signage and communications
 
-- Visual signage editor with templates, preview sizes, safe areas, brand kits, and reusable blocks.
 - Multi-zone layouts containing media, text, clocks, weather from an administrator-approved source, and calendars.
 - Recurring signage schedules, priority rules, exclusions, and campus-specific targeting.
 - Emergency presets with explicit authorization, confirmation, expiration, and all-clear workflow.
@@ -166,7 +136,6 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 - RSS, calendar, menu, or data-driven widgets using allowlisted sources and cached fallback content.
 - Signage proof-of-play history and screen acknowledgement reports.
 - Automatic return to lesson mode with transition and conflict rules.
-- Audience-language and accessibility variants by screen profile.
 
 ## Accessibility and localization
 
@@ -214,23 +183,13 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 
 ## Integrations and extensibility
 
-- Documented service-account API tokens with scopes, expiration, revocation, and audit attribution.
-- Webhooks for lesson publication, screen readiness, playback events, failures, low storage, and updates.
-- LMS connectors for systems such as Canvas or Moodle using optional, separately configured modules.
 - Calendar connectors and standards-based iCalendar feeds.
-- Optional imports from approved cloud file providers without making a cloud account mandatory.
 - OBS, ProPresenter, Bitfocus Companion, Stream Deck, NDI, MIDI, OSC, and GPIO integrations.
-- MQTT integration for local automation and room-status systems.
-- Webhook signing, retry policy, dead-letter visibility, and test-delivery tools.
-- Plugin SDK with versioned capability boundaries and an administrator allowlist.
-- Command-line administration and import/export tools for automated local deployments.
-- Read-only status endpoints suitable for monitoring systems such as Prometheus or Uptime Kuma.
 
 ## Reporting and analytics
 
 - Privacy-preserving local dashboard for lesson readiness, screen uptime, download failures, and storage growth.
 - Playback event history showing what was requested, acknowledged, started, completed, skipped, or failed.
-- Media usage and retention reports with exportable CSV.
 - Screen reliability, app-version, and cache-readiness reports by site and room.
 - Pre-class readiness alerts at configurable intervals.
 - Capacity forecasts for storage, bandwidth, device fleet, and upcoming scheduled content.
@@ -241,33 +200,17 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 ## Installation, updates, and distribution
 
 - Signed native packages for Debian/Ubuntu, RPM-based Linux, Windows, macOS development, and common ARM systems.
-- Fully offline installer bundle containing server, TV packages, checksums, and documentation.
 - Docker and Podman images with pinned versions, health checks, backup examples, and upgrade guidance.
-- Unraid setup guide.
+- Unraid images and setup guide.
 - Guided first-run checks for port conflicts, mDNS, time synchronization, FFmpeg, storage permissions, and firewall rules.
 - Update channels for stable, preview, and development releases, with per-server maintenance windows.
 - Compatibility matrix covering server, Android/Fire TV, tvOS, database, and protocol versions.
 - Visible update progress, automatic rollback detail, release history, and manual rollback from Settings.
-- Configuration-management examples for Ansible and other fleet tools.
-- Optional appliance image for supported mini PCs or single-board computers.
-- In-product diagnostics that produce a copyable support summary without exposing passwords or tokens.
-- Automated migration tests from every supported release and a published support lifecycle.
 
 ## Advanced and future ideas
 
 - Precisely synchronized multi-room or multi-screen playback using measured clock offset and network latency.
 - Audience interaction through local polls, response devices, or QR codes with strict privacy controls.
 - Automatic transcript, chapter, caption, and searchable-content generation through optional local models.
-- Content recommendations based only on an organization's local library and explicit opt-in rules.
 - Rule-based automation such as “when every screen is ready, notify the coordinator.”
-- Multi-server campus federation with selective replication and independent operation during WAN outages.
 - Read-only public schedule or lobby page hosted by the local server.
-- White-label packages and managed configuration profiles for distributors while retaining source transparency.
-
-## Suggested delivery sequence
-
-**Now:** live playback acknowledgement, automated end-to-end tests, restore UI, expanded media organization tools, screen diagnostics, user self-service, and granular permissions.
-
-**Next:** visual timeline, presentation conversion, templates and recurrence, captions, screen groups, update rings, scheduled encrypted backups, and API/webhooks.
-
-**Later:** advanced integrations, synchronized multi-screen playback, high availability, federation, local AI-assisted metadata, and audience interaction.
