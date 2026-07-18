@@ -1,5 +1,11 @@
 # Android TV and Fire TV delivery
 
+## Local server discovery
+
+Version 0.30.1 and newer first tries the saved or manually entered server address, then browses the server's `_lessoncue._tcp` DNS-SD advertisement through Android NSD. The client holds a multicast lock only during the bounded discovery attempt, connects to the resolved numeric address, and saves that working address after pairing or reconnection. This avoids relying on ordinary `.local` hostname lookup, which is inconsistent on some NVIDIA Shield and Google TV firmware.
+
+If automatic discovery cannot cross the network boundary, enter the server's numeric address. The TV and server must be on the same multicast-capable LAN or VLAN unless routing and DNS-SD reflection have been configured deliberately.
+
 ## Screen diagnostics
 
 Version 0.18 and newer reports a bounded inventory of assigned offline media, download progress and failures, available decoders, recent playback errors, measured server latency, and the player clock. View it under **Screens → View diagnostics** in the local browser.

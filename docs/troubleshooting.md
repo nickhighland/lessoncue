@@ -2,7 +2,7 @@
 
 ## TV cannot find the server
 
-Open `http://SERVER-IP/.well-known/lessoncue` from a phone on the same Wi-Fi. If it fails, check the server service, firewall, VLAN, and client isolation. If the numeric address works but `lessoncue.local` does not, mDNS is blocked or unavailable; use the numeric address and reserve it in DHCP. If an administrator selected a non-default port, add `:PORT` after the hostname or IP address.
+Open `http://SERVER-IP/.well-known/lessoncue` from a phone on the same Wi-Fi. If it fails, check the server service, firewall, VLAN, and client isolation. Android TV version 0.30.1 and newer automatically browses `_lessoncue._tcp` and saves the resolved numeric address when ordinary `lessoncue.local` lookup fails. If both automatic discovery and `.local` fail while the numeric address works, enter the numeric address and reserve it in DHCP; multicast DNS is blocked between the TV and server. If an administrator selected a non-default port, add `:PORT` after the hostname or IP address.
 
 Native Linux servers advertise `lessoncue.local` by default. The administrator can change this under **Settings → Connection & pairing**. After changing it, allow several seconds for Avahi and client DNS caches to refresh. If the page reports that the address is still being applied, inspect `sudo journalctl -u lessoncue-update.service -n 50 --no-pager` and `sudo systemctl status avahi-daemon --no-pager`.
 
