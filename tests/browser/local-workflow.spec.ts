@@ -300,6 +300,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await universalPanel.getByLabel("Six-digit PIN").fill("482731");
   await universalPanel.getByRole("button", { name: "Set controller PIN" }).click();
   await expect(page.getByText("Universal controller PIN saved.", { exact: false })).toBeVisible();
+  await expect.poll(async () => page.locator(".toast").count(), { timeout: 5_000 }).toBe(0);
   const controllerSecurity = await page.evaluate(async () => {
     const headers = { "Content-Type": "application/json" };
     const unlock = (pin: string) => fetch("/api/v1/controller/unlock", { method: "POST", headers, body: JSON.stringify({ pin }) });
@@ -328,14 +329,23 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const backupPath = await backupDownload.path();
   expect(backupPath).not.toBeNull();
 
+  await expect.poll(async () => page.locator(".toast").count(), { timeout: 5_000 }).toBe(0);
   await page.getByLabel("Organization", { exact: true }).fill("Changed Organization");
-  await page.getByRole("button", { name: "Save organization & appearance" }).click();
-  await expect(page.getByText("Organization settings saved.", { exact: false })).toBeVisible();
+  await page.getByLabel("Require non-administrator room remotes to use the local .local address").check();
+  const localControllerSave = await page.evaluate(async () => {
+    const bootstrap = await fetch("/api/v1/admin/bootstrap").then(response => response.json());
+    return (await fetch("/api/v1/organization", { method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...bootstrap.settings, name: "Changed Organization", requireLocalRoomControllers: true }) })).status;
+  });
+  expect(localControllerSave).toBe(200);
+  await expect.poll(() => page.evaluate(async () =>
+    (await fetch("/api/v1/admin/bootstrap").then(response => response.json())).settings.requireLocalRoomControllers)).toBe(true);
 
   await page.getByLabel("Restore a LessonCue backup").setInputFiles(backupPath!);
   await page.getByRole("button", { name: "Validate and preview" }).click();
-  await expect(page.getByRole("heading", { name: "Review backup restore" })).toBeVisible();
-  await expect(page.getByText("LessonCue Browser Test", { exact: true })).toBeVisible();
+  const restoreDialog = page.getByRole("dialog", { name: "Review backup restore" });
+  await expect(restoreDialog).toBeVisible();
+  await expect(restoreDialog.getByRole("heading", { name: "LessonCue Browser Test" })).toBeVisible();
   await page.getByLabel("Type RESTORE to continue").fill("RESTORE");
   await page.getByRole("button", { name: "Create safety backup and restore" }).click();
   await expect(page.getByRole("heading", { name: "Restore complete" })).toBeVisible();
@@ -401,6 +411,16 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByText("Cached welcome", { exact: true })).toBeVisible();
   await expect(page.locator(".codec-list > span")).toContainText("H.264 / AVC");
   await expect(page.getByAltText("Diagnostic screenshot from Browser Test TV")).toBeVisible();
+
+  await page.goto("/universalremote");
+  await page.getByLabel("Six-digit controller PIN").fill("482731");
+  await page.getByRole("button", { name: "Open universal remote" }).click();
+  await expect(page.getByText("Needs attention", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Pause" }).click();
+  await expect(page.getByText("Sending pause to Browser Test TV…", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "🔓 Lock controls" }).click();
+  await expect(page.getByText("Controls are locked. Nothing on this remote can change the screen until you unlock it.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Room playback controls" }).getByRole("button", { name: "Pause" })).toBeDisabled();
 
   await page.getByRole("button", { name: /Classes$/ }).click();
   await page.getByRole("button", { name: "Controller link" }).click();

@@ -189,6 +189,7 @@ public static class DatabaseUpgrade
             ["Organizations.MediaFoldersJson"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"MediaFoldersJson\" TEXT NOT NULL DEFAULT '[\"General\",\"Lessons\",\"Signage\"]'"),
             ["Organizations.MediaTagsJson"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"MediaTagsJson\" TEXT NOT NULL DEFAULT '[\"Reusable\",\"Intro\",\"Outro\",\"Reference\"]'"),
             ["Organizations.ControllerPinHash"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"ControllerPinHash\" TEXT NULL"),
+            ["Organizations.RequireLocalRoomControllers"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"RequireLocalRoomControllers\" INTEGER NOT NULL DEFAULT 0"),
             ["Classes.ControllerSlug"] = ("Classes", "ALTER TABLE \"Classes\" ADD COLUMN \"ControllerSlug\" TEXT NOT NULL DEFAULT ''"),
             ["Classes.ControllerColor"] = ("Classes", "ALTER TABLE \"Classes\" ADD COLUMN \"ControllerColor\" TEXT NOT NULL DEFAULT '#2d6a4f'"),
             ["Classes.ControllerHostname"] = ("Classes", "ALTER TABLE \"Classes\" ADD COLUMN \"ControllerHostname\" TEXT NULL"),
