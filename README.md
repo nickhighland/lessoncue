@@ -2,7 +2,7 @@
 
 LessonCue is a self-hosted lesson scheduling and television playback system for schools, churches, training programs, and other learning organizations. Administrators build dated media playlists in a browser; paired Android TV, Fire TV, and Apple TV clients cache their assignments and keep playing when the network is unavailable.
 
-[Installation guide](docs/installation.md) · [Accounts and registration](docs/account-self-service.md) · [Browser player](docs/browser-player.md) · [Implementation guide](docs/implementation.md) · [Feature roadmap](docs/feature-roadmap.md) · [Protocol](protocol/openapi.yaml)
+[Installation guide](docs/installation.md) · [Accounts and registration](docs/account-self-service.md) · [Signage scheduling](docs/signage.md) · [Browser player](docs/browser-player.md) · [Implementation guide](docs/implementation.md) · [Feature roadmap](docs/feature-roadmap.md) · [Protocol](protocol/openapi.yaml)
 
 ## What is included
 

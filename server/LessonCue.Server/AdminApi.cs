@@ -2343,17 +2343,51 @@ public static class AdminApi
         });
 
         admin.MapGet("/signage", async (LessonCueDb db, CancellationToken ct) =>
-            await db.SignagePlaylists.AsNoTracking().OrderByDescending(x => x.Priority).ThenBy(x => x.Name).Select(x => new
-            { x.Id, x.Name, x.Mode, x.Enabled, x.Priority, x.StartsAt, x.EndsAt, x.Message, x.BackgroundColor, x.TextColor,
-                x.MediaAssetId, mediaFileName = x.MediaAsset != null ? x.MediaAsset.FileName : null, x.TargetTagsCsv, x.CreatedAt }).ToListAsync(ct));
+        {
+            var now = DateTimeOffset.UtcNow;
+            var timeZone = await db.Organizations.AsNoTracking().Select(x => x.TimeZone).FirstOrDefaultAsync(ct) ?? "UTC";
+            var screens = await db.Screens.AsNoTracking().Where(x => !x.Revoked).ToListAsync(ct);
+            var screenNames = screens.ToDictionary(x => x.Id, x => x.Name);
+            var items = await db.SignagePlaylists.AsNoTracking().Include(x => x.MediaAsset)
+                .OrderBy(x => x.Mode == "emergency" ? 0 : x.Mode == "scheduled" ? 1 : 2)
+                .ThenByDescending(x => x.Priority).ThenBy(x => x.Name).ToListAsync(ct);
+            return items.Select(item =>
+            {
+                var state = SignageSchedule.Evaluate(item, now, timeZone);
+                var targetScreenIds = SignageSchedule.ParseScreenIds(item.TargetScreenIdsJson);
+                var targetedScreens = screens.Where(screen => SignageSchedule.TargetsScreen(item, screen)).ToArray();
+                var cacheStates = item.MediaAssetId is null
+                    ? targetedScreens.Select(_ => "cached").ToArray()
+                    : targetedScreens.Select(screen => SignageCacheState(screen, item.Id)).ToArray();
+                return new
+                {
+                    item.Id, item.Name, item.Mode, item.Enabled, item.Priority, item.StartsAt, item.EndsAt,
+                    item.Message, item.BackgroundColor, item.TextColor, item.MediaAssetId,
+                    mediaFileName = item.MediaAsset?.FileName, item.TargetTagsCsv,
+                    recurrence = SignageSchedule.NormalizeRecurrence(item.Recurrence),
+                    item.ScheduleStartDate, item.ScheduleEndDate, item.StartMinutes, item.EndMinutes,
+                    daysOfWeek = SignageSchedule.ParseDays(item.DaysOfWeekCsv),
+                    excludedDates = SignageSchedule.ParseDates(item.ExcludedDatesJson),
+                    targetScreenIds,
+                    targetScreenNames = targetScreenIds.Where(screenNames.ContainsKey).Select(id => screenNames[id]).ToArray(),
+                    activeNow = state.Active,
+                    state.NextChangeAt,
+                    readiness = SignageReadiness(item.MediaAsset),
+                    ready = SignageReadiness(item.MediaAsset) == "ready",
+                    targetScreenCount = targetedScreens.Length,
+                    cachedScreenCount = cacheStates.Count(value => value == "cached"),
+                    failedScreenCount = cacheStates.Count(value => value == "failed"),
+                    item.CreatedAt, item.UpdatedAt
+                };
+            }).ToArray();
+        });
 
         planning.MapPost("/signage", async (SignageInput input, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
-            if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Signage name is required." });
-            var item = new SignagePlaylist { Name = input.Name.Trim(), Mode = input.Mode is "emergency" or "idle" ? input.Mode : "scheduled",
-                Enabled = input.Enabled, Priority = Math.Clamp(input.Priority, 0, 100), StartsAt = input.StartsAt, EndsAt = input.EndsAt,
-                Message = input.Message?.Trim() ?? "", BackgroundColor = IsColor(input.BackgroundColor) ? input.BackgroundColor! : "#25302d",
-                TextColor = IsColor(input.TextColor) ? input.TextColor! : "#ffffff", MediaAssetId = input.MediaAssetId, TargetTagsCsv = input.TargetTagsCsv?.Trim() ?? "" };
+            var validation = await ValidateSignageAsync(input, db, ct);
+            if (validation is not null) return Results.BadRequest(new { error = validation });
+            var item = new SignagePlaylist { Name = input.Name.Trim() };
+            ApplySignage(item, input);
             db.SignagePlaylists.Add(item); Audit(db, "signage.create", item.Id, item.Name); await db.SaveChangesAsync(ct);
             await InvalidateAsync(hub, 0, ct); return Results.Created($"/api/v1/signage/{item.Id}", item);
         });
@@ -2361,10 +2395,9 @@ public static class AdminApi
         planning.MapPut("/signage/{id:guid}", async (Guid id, SignageInput input, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var item = await db.SignagePlaylists.FindAsync([id], ct); if (item is null) return Results.NotFound();
-            item.Name = input.Name.Trim(); item.Mode = input.Mode is "emergency" or "idle" ? input.Mode : "scheduled"; item.Enabled = input.Enabled;
-            item.Priority = Math.Clamp(input.Priority, 0, 100); item.StartsAt = input.StartsAt; item.EndsAt = input.EndsAt;
-            item.Message = input.Message?.Trim() ?? ""; item.MediaAssetId = input.MediaAssetId; item.TargetTagsCsv = input.TargetTagsCsv?.Trim() ?? "";
-            if (IsColor(input.BackgroundColor)) item.BackgroundColor = input.BackgroundColor!; if (IsColor(input.TextColor)) item.TextColor = input.TextColor!;
+            var validation = await ValidateSignageAsync(input, db, ct);
+            if (validation is not null) return Results.BadRequest(new { error = validation });
+            ApplySignage(item, input);
             Audit(db, "signage.update", item.Id, item.Name); await db.SaveChangesAsync(ct); await InvalidateAsync(hub, 0, ct); return Results.Ok(item);
         });
 
@@ -2434,6 +2467,91 @@ public static class AdminApi
     private static string NormalizeAdminRole(string role) => role is "Owner" or "Administrator" or "Editor" or "Viewer" ? role : "Viewer";
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static bool IsColor(string? value) => value is { Length: 7 } && value[0] == '#' && value[1..].All(Uri.IsHexDigit);
+
+    private static async Task<string?> ValidateSignageAsync(SignageInput input, LessonCueDb db, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(input.Name)) return "Signage name is required.";
+        if (input.Name.Trim().Length > 160) return "Signage name must be 160 characters or fewer.";
+        if ((input.Message?.Trim().Length ?? 0) > 2000) return "Signage message must be 2,000 characters or fewer.";
+        if ((input.TargetTagsCsv?.Trim().Length ?? 0) > 2000) return "Screen tags must be 2,000 characters or fewer.";
+        if (input.Priority is < 0 or > 100) return "Priority must be from 0 to 100.";
+        if (input.BackgroundColor is not null && !IsColor(input.BackgroundColor) ||
+            input.TextColor is not null && !IsColor(input.TextColor))
+            return "Signage colors must use six-digit hex values.";
+        var recurrence = SignageSchedule.NormalizeRecurrence(input.Recurrence);
+        if (recurrence == "once" && input.StartsAt is { } starts && input.EndsAt is { } ends && ends <= starts)
+            return "The ending time must be after the starting time.";
+        if (recurrence != "once")
+        {
+            if (input.ScheduleEndDate is { } endDate && input.ScheduleStartDate is { } startDate && endDate < startDate)
+                return "The ending date must be on or after the starting date.";
+            if (input.StartMinutes is < 0 or > 1439 || input.EndMinutes is < 1 or > 1440)
+                return "Recurring start and end times are invalid.";
+            if (recurrence == "weekly" && !(input.DaysOfWeek?.Any(day => day is >= 0 and <= 6) ?? false))
+                return "Choose at least one weekday for weekly signage.";
+            if ((input.ExcludedDates?.Count ?? 0) > 366) return "Signage supports at most 366 excluded dates.";
+        }
+        if ((input.TargetScreenIds?.Count ?? 0) > 500) return "Signage supports at most 500 explicitly selected screens.";
+        if (input.MediaAssetId is { } mediaId && !await db.MediaAssets.AnyAsync(x => x.Id == mediaId, ct))
+            return "The selected media no longer exists.";
+        var targetIds = (input.TargetScreenIds ?? []).Where(id => id != Guid.Empty).Distinct().ToArray();
+        if (targetIds.Length > 0 && await db.Screens.CountAsync(x => targetIds.Contains(x.Id), ct) != targetIds.Length)
+            return "One or more selected screens no longer exist.";
+        return null;
+    }
+
+    private static void ApplySignage(SignagePlaylist item, SignageInput input)
+    {
+        var recurrence = SignageSchedule.NormalizeRecurrence(input.Recurrence);
+        item.Name = input.Name.Trim();
+        item.Mode = input.Mode is "emergency" or "idle" ? input.Mode : "scheduled";
+        item.Enabled = input.Enabled;
+        item.Priority = input.Priority;
+        item.Message = input.Message?.Trim() ?? "";
+        item.BackgroundColor = IsColor(input.BackgroundColor) ? input.BackgroundColor! : "#25302d";
+        item.TextColor = IsColor(input.TextColor) ? input.TextColor! : "#ffffff";
+        item.MediaAssetId = input.MediaAssetId;
+        item.TargetTagsCsv = input.TargetTagsCsv?.Trim() ?? "";
+        item.Recurrence = recurrence;
+        item.StartsAt = recurrence == "once" ? input.StartsAt : null;
+        item.EndsAt = recurrence == "once" ? input.EndsAt : null;
+        item.ScheduleStartDate = recurrence == "once" ? null : input.ScheduleStartDate;
+        item.ScheduleEndDate = recurrence == "once" ? null : input.ScheduleEndDate;
+        item.StartMinutes = recurrence == "once" ? null : input.StartMinutes ?? 0;
+        item.EndMinutes = recurrence == "once" ? null : input.EndMinutes ?? 1440;
+        item.DaysOfWeekCsv = recurrence == "weekly" ? SignageSchedule.NormalizeDays(input.DaysOfWeek) : "";
+        item.ExcludedDatesJson = recurrence == "once" ? "[]" : SignageSchedule.StoreDates(input.ExcludedDates);
+        item.TargetScreenIdsJson = SignageSchedule.StoreScreenIds(input.TargetScreenIds);
+        item.UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    private static string SignageReadiness(MediaAsset? media)
+    {
+        if (media is null) return "ready";
+        if (media.ProcessingStatus is "pending" or "processing" || media.CompatibilityStatus is "pending" or "processing")
+            return "preparing";
+        if (media.ProcessingStatus == "failed" || media.CompatibilityStatus == "failed") return "failed";
+        if (media.SourceKind != "link" && string.IsNullOrWhiteSpace(media.RelativePath)) return "missing";
+        return "ready";
+    }
+
+    private static string SignageCacheState(Screen screen, Guid signageId)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(screen.CacheInventoryJson);
+            if (document.RootElement.ValueKind != JsonValueKind.Array) return "unknown";
+            var itemId = $"signage-{signageId}";
+            foreach (var entry in document.RootElement.EnumerateArray())
+            {
+                if (!entry.TryGetProperty("itemId", out var id) || id.GetString() != itemId) continue;
+                return entry.TryGetProperty("state", out var state) ? state.GetString() ?? "unknown" : "unknown";
+            }
+        }
+        catch (JsonException) { }
+        return "unknown";
+    }
+
     private static bool IsEmail(string? value)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > 200) return false;

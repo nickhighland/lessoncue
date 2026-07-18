@@ -256,10 +256,7 @@ final class AppModel: ObservableObject {
     private func cacheAssignedMedia() async {
         guard let identity, let manifest,
               let api = try? LessonCueAPI(address: identity.serverURL.absoluteString) else { return }
-        let allItems = manifest.playlists.flatMap { playlist in
-            playlist.items + (playlist.preRoll?.items ?? []) + [playlist.countdown?.item].compactMap { $0 }
-        }
-        for item in allItems where item.offlineEligible {
+        for item in manifest.allItems where item.offlineEligible {
             if await OfflineCache.shared.localURL(for: item) != nil { continue }
             guard let path = item.downloadUrl, let url = api.absoluteMediaURL(path) else { continue }
             try? await OfflineCache.shared.cache(item, from: url,
@@ -270,9 +267,9 @@ final class AppModel: ObservableObject {
 
 private extension ScreenManifest {
     var allItems: [CueItem] {
-        playlists.flatMap { playlist in
+        (playlists.flatMap { playlist in
             playlist.items + (playlist.preRoll?.items ?? []) + [playlist.countdown?.item].compactMap { $0 }
-        }.reduce(into: [CueItem]()) { items, item in
+        } + (signageSchedule ?? signage).compactMap(\.media)).reduce(into: [CueItem]()) { items, item in
             if !items.contains(where: { $0.id == item.id }) { items.append(item) }
         }
     }

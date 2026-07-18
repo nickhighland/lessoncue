@@ -3,7 +3,7 @@
   "$id": "https://lessoncue.org/protocol/v1/manifest.schema.json",
   "title": "LessonCue screen manifest",
   "type": "object",
-  "required": ["apiVersion", "manifestVersion", "generatedAt", "screen", "signage", "playlists"],
+  "required": ["apiVersion", "manifestVersion", "generatedAt", "screen", "signage", "signageSchedule", "playlists"],
   "properties": {
     "apiVersion": { "const": 1 },
     "manifestVersion": { "type": "integer", "minimum": 1 },
@@ -21,7 +21,8 @@
       "type": "array",
       "items": { "$ref": "#/$defs/playlist" }
     },
-    "signage": { "type": "array", "items": { "$ref": "#/$defs/signage" } }
+    "signage": { "type": "array", "items": { "$ref": "#/$defs/signage" } },
+    "signageSchedule": { "type": "array", "items": { "$ref": "#/$defs/signage" } }
   },
   "$defs": {
     "signage": {
@@ -35,10 +36,15 @@
         "message": { "type": "string" },
         "backgroundColor": { "type": "string" },
         "textColor": { "type": "string" },
-        "mediaId": { "type": ["string", "null"] },
+        "mediaAssetId": { "type": ["string", "null"] },
         "mediaUrl": { "type": ["string", "null"] },
+        "media": { "anyOf": [{ "$ref": "#/$defs/item" }, { "type": "null" }] },
         "startsAt": { "type": ["string", "null"], "format": "date-time" },
-        "endsAt": { "type": ["string", "null"], "format": "date-time" }
+        "endsAt": { "type": ["string", "null"], "format": "date-time" },
+        "recurrence": { "enum": ["once", "daily", "weekly"] },
+        "nextChangeAt": { "type": ["string", "null"], "format": "date-time" },
+        "ready": { "type": "boolean" },
+        "readiness": { "enum": ["ready", "preparing", "failed", "missing"] }
       }
     },
     "playlist": {
