@@ -22,6 +22,10 @@ android-tv/local.properties
 android-tv/**/build/
 *.apk
 *.aab
+*.jks
+*.keystore
+android-tv/keystore.properties
+android-tv/signing.properties
 
 # Xcode / Swift
 .build/
