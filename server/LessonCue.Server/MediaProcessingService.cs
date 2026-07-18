@@ -8,7 +8,8 @@ using Microsoft.EntityFrameworkCore;
 namespace LessonCue.Server;
 
 public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaStoragePaths paths,
-    StorageService storage, ILogger<MediaProcessingService> logger) : BackgroundService
+    StorageService storage, HardwareAccelerationService hardware,
+    ILogger<MediaProcessingService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -103,6 +104,7 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
                     item.CompatibilityStatus = "native";
                     item.CompatibilityError = null;
                     item.CompatibilityTranscodedAt = null;
+                    item.CompatibilityTranscodeEngine = null;
                 }
             }
             else item.CompatibilityStatus = "not-needed";
@@ -165,10 +167,30 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
         var work = Path.Combine(Path.GetTempPath(), $"lessoncue-compat-{Guid.NewGuid():N}.mp4");
         try
         {
-            var mediaArguments = remuxOnly
-                ? "-map 0:v:0 -map 0:a:0? -c copy"
-                : "-map 0:v:0 -map 0:a:0? -vf \"scale=w='min(1920,iw)':h='min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2\" -c:v libx264 -preset medium -crf 20 -profile:v high -level:v 4.1 -pix_fmt yuv420p -tag:v avc1 -c:a aac -b:a 192k -ar 48000 -ac 2";
-            await RunAsync("ffmpeg", $"-nostdin -hide_banner -loglevel error -nostats -y -i \"{Escape(source)}\" {mediaArguments} -sn -dn -movflags +faststart \"{Escape(work)}\"", ct);
+            if (remuxOnly)
+            {
+                await RunAsync("ffmpeg", $"-nostdin -hide_banner -loglevel error -nostats -y -i \"{Escape(source)}\" " +
+                    $"-map 0:v:0 -map 0:a:0? -c copy -sn -dn -movflags +faststart \"{Escape(work)}\"", ct);
+                await HardwareAccelerationService.ValidateMp4Async(work, ct);
+                item.CompatibilityTranscodeEngine = "Remux";
+            }
+            else
+            {
+                const string filter = "scale=w='min(1920,iw)':h='min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2";
+                var ending = $"-c:a aac -b:a 192k -ar 48000 -ac 2 -sn -dn -movflags +faststart \"{Escape(work)}\"";
+                var hardwareArgs = "-nostdin -hide_banner -loglevel error -nostats -y " +
+                    "-init_hw_device qsv=lessoncue -filter_hw_device lessoncue " +
+                    $"-i \"{Escape(source)}\" -map 0:v:0 -map 0:a:0? " +
+                    $"-vf \"{filter},format=nv12,hwupload=extra_hw_frames=64\" " +
+                    $"-c:v h264_qsv -preset medium -global_quality 20 -profile:v high -level:v 4.1 {ending}";
+                var softwareArgs = $"-nostdin -hide_banner -loglevel error -nostats -y -i \"{Escape(source)}\" " +
+                    $"-map 0:v:0 -map 0:a:0? -vf \"{filter}\" -c:v libx264 -preset medium -crf 20 " +
+                    $"-profile:v high -level:v 4.1 -pix_fmt yuv420p -tag:v avc1 {ending}";
+                var accelerationEnabled = await db.Organizations.AsNoTracking()
+                    .Select(x => x.HardwareAccelerationEnabled).FirstAsync(ct);
+                var result = await hardware.RunTranscodeAsync(accelerationEnabled, hardwareArgs, softwareArgs, work, ct);
+                item.CompatibilityTranscodeEngine = result.Engine;
+            }
             var size = new FileInfo(work).Length;
             if (size == 0) throw new InvalidOperationException("FFmpeg created an empty compatibility copy.");
             if (await storage.EnsureAvailableAsync(db, size, ct) is null)

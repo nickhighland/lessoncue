@@ -20,6 +20,7 @@ public sealed class Organization
     [MaxLength(240)] public string WelcomeMessage { get; set; } = "Welcome";
     public bool AdaptiveTranscodingEnabled { get; set; } = true;
     public int TranscodeLeadDays { get; set; } = 7;
+    public bool HardwareAccelerationEnabled { get; set; } = true;
     [MaxLength(12000)] public string MediaFoldersJson { get; set; } = "[\"General\",\"Lessons\",\"Signage\"]";
     [MaxLength(12000)] public string MediaTagsJson { get; set; } = "[\"Reusable\",\"Intro\",\"Outro\",\"Reference\"]";
     [JsonIgnore] public string? ControllerPinHash { get; set; }
@@ -232,6 +233,7 @@ public sealed class MediaAsset
     [MaxLength(24)] public string CompatibilityStatus { get; set; } = "pending";
     [MaxLength(1000)] public string? CompatibilityError { get; set; }
     public DateTimeOffset? CompatibilityTranscodedAt { get; set; }
+    [MaxLength(32)] public string? CompatibilityTranscodeEngine { get; set; }
     [MaxLength(32)] public string SourceKind { get; set; } = "upload";
     [MaxLength(2048)] public string? SourceUrl { get; set; }
     [MaxLength(32)] public string? LinkKind { get; set; }
@@ -266,6 +268,7 @@ public sealed class MediaTranscodeVariant
     public int VideoBitrateKbps { get; set; }
     public int SourceVersion { get; set; }
     [MaxLength(1000)] public string? Error { get; set; }
+    [MaxLength(32)] public string? TranscodeEngine { get; set; }
     public DateTimeOffset QueuedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
@@ -484,7 +487,7 @@ public sealed record OrganizationInput(string Name, string SiteName, string Time
     int DefaultLessonDurationMinutes, int DefaultRetentionDays, string PrimaryColor, string AccentColor,
     string? NavigationTextColor, string? SelectedTabColor, string WelcomeMessage,
     bool? AdaptiveTranscodingEnabled = null, int? TranscodeLeadDays = null,
-    bool? RequireLocalRoomControllers = null);
+    bool? RequireLocalRoomControllers = null, bool? HardwareAccelerationEnabled = null);
 public sealed record StorageLimitInput(long LimitBytes);
 public sealed record LocalHostnameInput(string Hostname);
 public sealed record HttpPortInput(int Port);

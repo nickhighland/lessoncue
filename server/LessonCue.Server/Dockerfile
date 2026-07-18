@@ -14,8 +14,11 @@ COPY --from=web /src/server/LessonCue.Server/wwwroot/ server/LessonCue.Server/ww
 RUN dotnet publish server/LessonCue.Server/LessonCue.Server.csproj -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libreoffice-impress libreoffice-writer poppler-utils ca-certificates curl && rm -rf /var/lib/apt/lists/*
 ARG TARGETARCH
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg libreoffice-impress libreoffice-writer poppler-utils ca-certificates curl \
+    && if [ "$TARGETARCH" = "amd64" ] && apt-cache show intel-media-va-driver >/dev/null 2>&1; then apt-get install -y --no-install-recommends intel-media-va-driver; fi \
+    && rm -rf /var/lib/apt/lists/*
 RUN case "$TARGETARCH" in arm64) asset=yt-dlp_linux_aarch64 ;; *) asset=yt-dlp_linux ;; esac \
     && curl -fL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${asset}" -o /usr/local/bin/yt-dlp \
     && chmod 0755 /usr/local/bin/yt-dlp

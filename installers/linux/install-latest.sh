@@ -9,6 +9,13 @@ esac
 
 sudo apt-get update
 sudo apt-get install -y curl ca-certificates ffmpeg libreoffice-impress libreoffice-writer poppler-utils avahi-daemon libicu-dev zlib1g openssl util-linux
+if [[ "${runtime}" == "linux-x64" ]]; then
+  if apt-cache show intel-media-va-driver >/dev/null 2>&1; then
+    sudo apt-get install -y intel-media-va-driver
+  elif apt-cache show intel-media-va-driver-non-free >/dev/null 2>&1; then
+    sudo apt-get install -y intel-media-va-driver-non-free
+  fi
+fi
 
 version_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' 'https://github.com/nickhighland/lessoncue/releases/latest')"
 version="${version_url##*/}"

@@ -51,7 +51,8 @@ public static class AdaptiveTranscodeProfiles
 }
 
 public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaStoragePaths paths,
-    StorageService storage, IHubContext<SyncHub> hub, ILogger<AdaptiveTranscodeService> logger) : BackgroundService
+    StorageService storage, HardwareAccelerationService hardware, IHubContext<SyncHub> hub,
+    ILogger<AdaptiveTranscodeService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -93,6 +94,7 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
         else if (variant.SourceVersion != media.Version || variant.Status == "failed")
         {
             variant.SourceVersion = media.Version; variant.Status = "pending"; variant.Error = null;
+            variant.TranscodeEngine = null;
             variant.QueuedAt = DateTimeOffset.UtcNow; variant.StartedAt = null; variant.CompletedAt = null;
         }
         return variant;
@@ -139,12 +141,25 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
         var source = Path.GetFullPath(Path.Combine(sourceRoot, useCompatibility ? media.CompatibilityPath! : media.RelativePath));
         var work = Path.Combine(Path.GetTempPath(), $"lessoncue-transcode-{Guid.NewGuid():N}.mp4");
         variant.Status = "converting"; variant.StartedAt = DateTimeOffset.UtcNow; variant.Error = null;
+        variant.TranscodeEngine = null;
         await db.SaveChangesAsync(ct);
         try
         {
             var filter = $"scale=w='min({profile.Width},iw)':h='min({profile.Height},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2";
-            var args = $"-nostdin -hide_banner -loglevel error -nostats -y -i \"{Escape(source)}\" -map 0:v:0 -map 0:a:0? -vf \"{filter}\" -c:v libx264 -preset medium -crf {profile.Crf} -maxrate {profile.VideoBitrateKbps}k -bufsize {profile.VideoBitrateKbps * 2}k -profile:v high -level:v 4.1 -pix_fmt yuv420p -tag:v avc1 -c:a aac -b:a {profile.AudioBitrateKbps}k -ar 48000 -ac 2 -sn -dn -movflags +faststart \"{Escape(work)}\"";
-            await RunAsync("ffmpeg", args, ct);
+            var output = $" -c:a aac -b:a {profile.AudioBitrateKbps}k -ar 48000 -ac 2 -sn -dn -movflags +faststart \"{Escape(work)}\"";
+            var hardwareArgs = "-nostdin -hide_banner -loglevel error -nostats -y " +
+                "-init_hw_device qsv=lessoncue -filter_hw_device lessoncue " +
+                $"-i \"{Escape(source)}\" -map 0:v:0 -map 0:a:0? " +
+                $"-vf \"{filter},format=nv12,hwupload=extra_hw_frames=64\" " +
+                $"-c:v h264_qsv -preset medium -global_quality {profile.Crf} -maxrate {profile.VideoBitrateKbps}k " +
+                $"-bufsize {profile.VideoBitrateKbps * 2}k -profile:v high -level:v 4.1{output}";
+            var softwareArgs = $"-nostdin -hide_banner -loglevel error -nostats -y -i \"{Escape(source)}\" " +
+                $"-map 0:v:0 -map 0:a:0? -vf \"{filter}\" -c:v libx264 -preset medium -crf {profile.Crf} " +
+                $"-maxrate {profile.VideoBitrateKbps}k -bufsize {profile.VideoBitrateKbps * 2}k " +
+                $"-profile:v high -level:v 4.1 -pix_fmt yuv420p -tag:v avc1{output}";
+            var accelerationEnabled = await db.Organizations.AsNoTracking()
+                .Select(x => x.HardwareAccelerationEnabled).FirstAsync(ct);
+            var result = await hardware.RunTranscodeAsync(accelerationEnabled, hardwareArgs, softwareArgs, work, ct);
             var size = new FileInfo(work).Length;
             if (size <= 0) throw new InvalidOperationException("FFmpeg created an empty adaptive transcode.");
             if (await storage.EnsureAvailableAsync(db, size, ct) is null)
@@ -157,6 +172,7 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
             await using var input = File.OpenRead(destination);
             variant.RelativePath = relative; variant.Sha256 = Convert.ToHexString(await SHA256.HashDataAsync(input, ct)).ToLowerInvariant();
             variant.SizeBytes = size; variant.Status = "ready"; variant.Error = null; variant.CompletedAt = DateTimeOffset.UtcNow;
+            variant.TranscodeEngine = result.Engine;
             await db.SaveChangesAsync(ct);
             await hub.Clients.All.SendAsync("ManifestInvalidated", new { type = "MANIFEST_INVALIDATED" }, ct);
         }
@@ -166,15 +182,6 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
             await db.SaveChangesAsync(ct); logger.LogWarning(ex, "Could not create {Profile} for {Media}", variant.Profile, media.FileName);
         }
         finally { TryDelete(work); }
-    }
-
-    private static async Task RunAsync(string fileName, string arguments, CancellationToken ct)
-    {
-        using var process = new Process { StartInfo = new ProcessStartInfo(fileName, arguments)
-        { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true } };
-        process.Start(); var stdout = process.StandardOutput.ReadToEndAsync(ct); var stderr = process.StandardError.ReadToEndAsync(ct);
-        await process.WaitForExitAsync(ct); var errors = await stderr; _ = await stdout;
-        if (process.ExitCode != 0) throw new InvalidOperationException(errors.Trim());
     }
 
     private static string Escape(string value) => value.Replace("\"", "\\\"");

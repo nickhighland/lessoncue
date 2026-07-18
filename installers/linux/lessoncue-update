@@ -11,6 +11,11 @@ if ! flock -n 9; then
   echo "Another LessonCue update is already running."
   exit 0
 fi
+if [[ "$(uname -m)" =~ ^(x86_64|amd64)$ ]] && id lessoncue >/dev/null 2>&1; then
+  for device_group in render video; do
+    if getent group "${device_group}" >/dev/null 2>&1; then usermod -a -G "${device_group}" lessoncue; fi
+  done
+fi
 
 REQUEST_PATH=/var/lib/lessoncue/config/update-request
 REQUEST="$(head -n 1 "${REQUEST_PATH}" 2>/dev/null || true)"
