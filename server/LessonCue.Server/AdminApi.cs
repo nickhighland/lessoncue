@@ -338,7 +338,8 @@ public static class AdminApi
 
         admin.MapGet("/admin/bootstrap", async (LessonCueDb db, PairingCodeService pairing, StorageService storage,
             UpdateService updates, LocalAddressService localAddress, HttpPortService httpPort,
-            CloudflareTunnelService cloudflareTunnel, HttpContext context,
+            CloudflareTunnelService cloudflareTunnel, HardwareAccelerationService hardwareAcceleration,
+            HttpContext context,
             CancellationToken ct) =>
         {
             var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
@@ -362,6 +363,7 @@ public static class AdminApi
                 localAddress = localAddress.Status,
                 httpPort = httpPort.Status,
                 cloudflareTunnel = cloudflareTunnel.Status,
+                hardwareAcceleration = hardwareAcceleration.Status,
                 accountEmail = emailStatus(organization),
                 permissionDefinitions = LessonCuePermissions.All,
                 permissionPresets = new
@@ -2028,10 +2030,14 @@ public static class AdminApi
             organization.WelcomeMessage = input.WelcomeMessage.Trim();
             if (input.AdaptiveTranscodingEnabled is not null) organization.AdaptiveTranscodingEnabled = input.AdaptiveTranscodingEnabled.Value;
             if (input.TranscodeLeadDays is not null) organization.TranscodeLeadDays = Math.Clamp(input.TranscodeLeadDays.Value, 1, 30);
+            if (input.HardwareAccelerationEnabled is not null) organization.HardwareAccelerationEnabled = input.HardwareAccelerationEnabled.Value;
             if (input.RequireLocalRoomControllers is not null) organization.RequireLocalRoomControllers = input.RequireLocalRoomControllers.Value;
             Audit(db, "organization.update", organization.Id, organization.Name); await db.SaveChangesAsync(ct);
             return Results.Ok(organization);
         });
+
+        settings.MapPost("/hardware-acceleration/check", async (HardwareAccelerationService hardware,
+            CancellationToken ct) => Results.Ok(await hardware.RefreshAsync(ct)));
 
         settings.MapPut("/media-taxonomy", async (MediaTaxonomyInput input, LessonCueDb db,
             HttpContext context, CancellationToken ct) =>
@@ -2545,6 +2551,7 @@ public static class AdminApi
         media.CompatibilityStatus = "pending";
         media.CompatibilityError = null;
         media.CompatibilityTranscodedAt = null;
+        media.CompatibilityTranscodeEngine = null;
         if (clearConversion)
         {
             media.ConversionStatus = "none";

@@ -45,6 +45,8 @@ builder.Services.AddSingleton(new PairingCodeService(dataPath, builder.Configura
 builder.Services.AddSingleton(new BackupService(dataPath));
 builder.Services.AddSingleton(new MediaStoragePaths(dataPath));
 builder.Services.AddSingleton(new StorageService(dataPath));
+builder.Services.AddSingleton<HardwareAccelerationService>();
+builder.Services.AddHostedService(services => services.GetRequiredService<HardwareAccelerationService>());
 builder.Services.AddSingleton(services => new HttpPortService(dataPath, port, services.GetRequiredService<ILogger<HttpPortService>>()));
 builder.Services.AddHostedService(services => services.GetRequiredService<HttpPortService>());
 builder.Services.AddSingleton(services => new LocalAddressService(dataPath, port, services.GetRequiredService<ILogger<LocalAddressService>>()));

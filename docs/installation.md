@@ -162,6 +162,8 @@ Choose a server with:
 
 Install FFmpeg/FFprobe for media inspection and transcoding. Install LibreOffice headlessly only if PowerPoint conversion is required. Do not expose LessonCue directly to the public internet.
 
+The Linux installer also installs the distribution's Intel media driver when available. On a server with a supported Intel integrated GPU, keep `/dev/dri` accessible to the `lessoncue` service and open **Settings → Adaptive TV playback → Check hardware**. “Quick Sync ready” means a real test encode passed. If the driver, GPU, or FFmpeg support is absent, LessonCue continues with software conversion automatically.
+
 ## Alternative: Docker
 
 Docker is the quickest evaluation and technical-user installation.
@@ -173,6 +175,17 @@ cp .env.example .env
 docker compose up -d --build
 docker compose logs -f lessoncue
 ```
+
+To opt an Intel Docker host into Quick Sync, add the render devices to the service before starting it:
+
+```yaml
+services:
+  lessoncue:
+    devices:
+      - /dev/dri:/dev/dri
+```
+
+Do not add this mapping on a host without `/dev/dri`; software conversion remains the portable default.
 
 Open `http://SERVER-IP`. Data is stored in `./lessoncue-data` unless `LESSONCUE_DATA_PATH` is changed in `.env`. Docker uses the `LESSONCUE_HTTP_PORT` value in `.env` for its host port; recreate the container after changing it.
 
