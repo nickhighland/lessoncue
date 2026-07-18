@@ -162,7 +162,7 @@ Choose a server with:
 
 Install FFmpeg/FFprobe for media inspection and transcoding. Install LibreOffice headlessly only if PowerPoint conversion is required. Do not expose LessonCue directly to the public internet.
 
-The Linux installer also installs the distribution's Intel media driver when available. On a server with a supported Intel integrated GPU, keep `/dev/dri` accessible to the `lessoncue` service and open **Settings → Adaptive TV playback → Check hardware**. “Quick Sync ready” means a real test encode passed. If the driver, GPU, or FFmpeg support is absent, LessonCue continues with software conversion automatically.
+The Linux installer also installs the distribution's Intel media driver when available and adds the restricted service account to the `render` and `video` groups. On a server with a supported Intel integrated GPU, keep `/dev/dri` accessible to the `lessoncue` service and open **Settings → Adaptive TV playback → Check hardware**. Version 0.30.2 and newer tries every render node with both direct QSV and VAAPI-derived initialization, then displays the verified device. “Quick Sync ready” means a real test encode passed. If the driver, GPU, permissions, or FFmpeg support is absent, LessonCue reports the failed nodes and continues with software conversion automatically.
 
 ## Alternative: Docker
 
