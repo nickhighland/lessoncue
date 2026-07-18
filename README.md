@@ -2,7 +2,7 @@
 
 LessonCue is a self-hosted lesson scheduling and television playback system for schools, churches, training programs, and other learning organizations. Administrators build dated media playlists in a browser; paired Android TV, Fire TV, and Apple TV clients cache their assignments and keep playing when the network is unavailable.
 
-[Installation guide](docs/installation.md) · [Implementation guide](docs/implementation.md) · [Feature roadmap](docs/feature-roadmap.md) · [Protocol](protocol/openapi.yaml)
+[Installation guide](docs/installation.md) · [Browser player](docs/browser-player.md) · [Implementation guide](docs/implementation.md) · [Feature roadmap](docs/feature-roadmap.md) · [Protocol](protocol/openapi.yaml)
 
 ## What is included
 
@@ -10,6 +10,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - An ASP.NET Core 10 API with SQLite, pairing, manifests, health reporting, SignalR invalidation, and range-enabled media hosting.
 - A native Android TV/Fire TV application using Kotlin, Compose for TV, Media3, DataStore, and WorkManager.
 - A native tvOS application using SwiftUI, AVKit, Bonjour discovery declarations, and persistent offline manifests.
+- A paired full-screen browser client for Windows, macOS, Linux, ChromeOS, computers, and projectors, using the same local manifests, controller commands, acknowledgements, heartbeats, scheduling, and diagnostics as the native TV clients.
 - A versioned OpenAPI contract and JSON Schema shared by every client.
 - Docker, Windows, and Linux installation assets.
 - Calendar, local role-based users, scheduled/emergency signage, rotating pairing codes, screen tags, audit history, and downloadable full/configuration backups with validated browser restore and an automatic pre-restore safety backup.
@@ -29,6 +30,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - Browser previews for every ready media item, including playlist trim points, synchronized audio-and-picture fades to/from black, volume, looping, and operator notes.
 - A prominent **Edit visual timeline, trims & fades** action on every lesson cue, with locally generated video filmstrips and audio waveforms, visible fade regions, 0.04-second trim nudging, selection preview, and numeric controls as a fallback.
 - A remote-friendly media browser in both native TV apps: choose a lesson, scroll through pre-roll, countdown, and lesson cues with the directional pad, and start any item without returning to the local browser.
+- A full-screen local browser/projector player at `/player`, with secure TV-style pairing, phone control, scheduled pre-roll and countdown transitions, autoplay guidance, reconnection, next-item prefetching, keyboard and presentation-remote controls, and a kiosk-friendly startup URL.
 - Actionable screen diagnostics with per-file cache and queue detail, decoder capabilities, download and playback errors, local-network latency, clock drift, and freshness. Optional screenshots are disabled per screen by default, visibly announced on the TV, valid for one request and 60 seconds, restricted to screen administrators, and deleted automatically after 24 hours.
 - A phone-first local controller for selecting screens, lessons, and individual media, with play, pause, resume, previous, next, stop, and seek controls; actual playback state, progress, errors, and command acknowledgement arrive live from the TV and the controller can be saved to an iPhone, iPad, or Android home screen.
 - Dedicated classroom controller paths with unique colors and optional public hostnames; locally generated room or lesson QR codes; expiring restricted substitute/event links; and a separately PIN-protected universal remote.
