@@ -76,6 +76,16 @@ The application polls the loopback metrics endpoint to report active HA connecti
 
 `AdminRecoveryCommand` runs before the web host is constructed when the server binary receives `--list-admins` or `--reset-password USERNAME`. It opens only the installed SQLite database, applies the idempotent schema upgrade, and uses the same `PasswordHasher<AdminAccount>` and password policy as browser account management. A successful reset increments the account's session version, invalidating its existing cookies, and records an audit event. Native Linux instructions run the command as the restricted `lessoncue` service account; there is no anonymous password-reset HTTP endpoint.
 
+### Account registration and self-service
+
+`AdminAccount` retains the local role and granular-permission model while adding verified-email state. Self-registration is disabled by default and creates only Viewer accounts. The organization selects `closed`, `code`, or `open`; closed mode rejects supplied codes as well as uncoded attempts. Administrator-created accounts remain a fully local path and are marked verified without requiring an email provider.
+
+`AccountToken` stores only a SHA-256 hash of a 256-bit random token, a strict purpose, expiry, use timestamp, and optional pending email. Verification, recovery, and email-change lookups require an exact unused, unexpired purpose match. Their 24-hour, one-hour, and two-hour lifetimes are enforced server-side. Registration codes use 128 random bits and retain only a hash and four-character hint, with optional expiry and use limits plus explicit rotation and revocation.
+
+`AccountEmailService` supports the documented Resend and Brevo HTTP APIs through a bounded named client. Its write-only provider key is protected by the server's persisted ASP.NET Data Protection key ring and stored in the local config tree with user-only Unix permissions; the provider name is bound to the credential so a key cannot silently carry across providers. Local development data is Git-ignored, and production data remains under `/var/lib/lessoncue`.
+
+Cookie sessions use HttpOnly, strict same-site behavior, secure cookies on HTTPS requests, a twelve-hour sliding lifetime, and database-backed session-version validation. Login and account workflows have separate per-address fixed-window limits. Recovery and resend responses are deliberately generic. Username, password, email, role, permission, disabled-state, and recovery changes increment session versions where applicable.
+
 ### Granular authorization
 
 `LessonCuePermissions` defines eight stable capability identifiers: `planning.manage`, `uploads.manage`, `playback.control`, `screens.manage`, `users.manage`, `settings.manage`, `backups.manage`, and `updates.manage`. A null `AdminAccount.PermissionsCsv` selects the built-in role preset; a non-null empty string is an intentional custom selection with no management capabilities. Owner evaluation always returns all permissions. Existing pre-v0.17 cookies without the permission-version marker temporarily receive their role preset, avoiding an upgrade lockout, while every new login carries explicit permission claims.
