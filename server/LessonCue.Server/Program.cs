@@ -68,6 +68,10 @@ builder.Services.AddHttpClient("updates", client =>
 builder.Services.AddSingleton<UpdateService>();
 builder.Services.AddHostedService(services => services.GetRequiredService<UpdateService>());
 builder.Services.AddHttpClient("cloudflare-tunnel", client => client.Timeout = TimeSpan.FromSeconds(2));
+builder.Services.AddHttpClient("account-email", client => client.Timeout = TimeSpan.FromSeconds(20));
+builder.Services.AddSingleton(services => new AccountEmailService(dataPath,
+    services.GetRequiredService<IDataProtectionProvider>(), services.GetRequiredService<IHttpClientFactory>(),
+    services.GetRequiredService<ILogger<AccountEmailService>>()));
 builder.Services.AddSingleton(services => new CloudflareTunnelService(dataPath,
     services.GetRequiredService<HttpPortService>(), services.GetRequiredService<IHttpClientFactory>(),
     services.GetRequiredService<ILogger<CloudflareTunnelService>>()));
@@ -127,6 +131,14 @@ builder.Services.AddRateLimiter(options =>
         {
             PermitLimit = 10,
             Window = TimeSpan.FromMinutes(5),
+            QueueLimit = 0
+        }));
+    options.AddPolicy("account", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 5,
+            Window = TimeSpan.FromMinutes(15),
             QueueLimit = 0
         }));
 });

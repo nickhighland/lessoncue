@@ -30,6 +30,32 @@ public static class DatabaseUpgrade
                 "SessionVersion" INTEGER NOT NULL DEFAULT 1
             );
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_AdminAccounts_Username" ON "AdminAccounts" ("Username");
+            CREATE INDEX IF NOT EXISTS "IX_AdminAccounts_Email" ON "AdminAccounts" ("Email");
+            CREATE TABLE IF NOT EXISTS "AccountTokens" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_AccountTokens" PRIMARY KEY,
+                "AccountId" TEXT NOT NULL,
+                "Purpose" TEXT NOT NULL,
+                "TokenHash" TEXT NOT NULL,
+                "PendingEmail" TEXT NULL,
+                "ExpiresAt" TEXT NOT NULL,
+                "CreatedAt" TEXT NOT NULL,
+                "UsedAt" TEXT NULL,
+                CONSTRAINT "FK_AccountTokens_AdminAccounts_AccountId" FOREIGN KEY ("AccountId") REFERENCES "AdminAccounts" ("Id") ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_AccountTokens_TokenHash" ON "AccountTokens" ("TokenHash");
+            CREATE INDEX IF NOT EXISTS "IX_AccountTokens_AccountId" ON "AccountTokens" ("AccountId");
+            CREATE TABLE IF NOT EXISTS "RegistrationCodes" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_RegistrationCodes" PRIMARY KEY,
+                "CodeHash" TEXT NOT NULL,
+                "Hint" TEXT NOT NULL,
+                "Label" TEXT NOT NULL DEFAULT '',
+                "CreatedAt" TEXT NOT NULL,
+                "ExpiresAt" TEXT NULL,
+                "RevokedAt" TEXT NULL,
+                "Uses" INTEGER NOT NULL DEFAULT 0,
+                "MaxUses" INTEGER NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_RegistrationCodes_CodeHash" ON "RegistrationCodes" ("CodeHash");
             CREATE INDEX IF NOT EXISTS "IX_MediaAssets_Sha256" ON "MediaAssets" ("Sha256");
             CREATE TABLE IF NOT EXISTS "MediaAssetVersions" (
                 "Id" TEXT NOT NULL CONSTRAINT "PK_MediaAssetVersions" PRIMARY KEY,
@@ -190,6 +216,11 @@ public static class DatabaseUpgrade
             ["Organizations.MediaTagsJson"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"MediaTagsJson\" TEXT NOT NULL DEFAULT '[\"Reusable\",\"Intro\",\"Outro\",\"Reference\"]'"),
             ["Organizations.ControllerPinHash"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"ControllerPinHash\" TEXT NULL"),
             ["Organizations.RequireLocalRoomControllers"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"RequireLocalRoomControllers\" INTEGER NOT NULL DEFAULT 0"),
+            ["Organizations.RegistrationMode"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"RegistrationMode\" TEXT NOT NULL DEFAULT 'closed'"),
+            ["Organizations.PublicBaseUrl"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"PublicBaseUrl\" TEXT NOT NULL DEFAULT ''"),
+            ["Organizations.EmailFromAddress"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"EmailFromAddress\" TEXT NOT NULL DEFAULT ''"),
+            ["Organizations.EmailFromName"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"EmailFromName\" TEXT NOT NULL DEFAULT 'LessonCue'"),
+            ["Organizations.EmailProvider"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"EmailProvider\" TEXT NOT NULL DEFAULT 'none'"),
             ["Classes.ControllerSlug"] = ("Classes", "ALTER TABLE \"Classes\" ADD COLUMN \"ControllerSlug\" TEXT NOT NULL DEFAULT ''"),
             ["Classes.ControllerColor"] = ("Classes", "ALTER TABLE \"Classes\" ADD COLUMN \"ControllerColor\" TEXT NOT NULL DEFAULT '#2d6a4f'"),
             ["Classes.ControllerHostname"] = ("Classes", "ALTER TABLE \"Classes\" ADD COLUMN \"ControllerHostname\" TEXT NULL"),
@@ -201,6 +232,8 @@ public static class DatabaseUpgrade
             ["AdminAccounts.PermissionsCsv"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"PermissionsCsv\" TEXT NULL"),
             ["AdminAccounts.Disabled"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"Disabled\" INTEGER NOT NULL DEFAULT 0"),
             ["AdminAccounts.SessionVersion"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"SessionVersion\" INTEGER NOT NULL DEFAULT 1"),
+            ["AdminAccounts.EmailVerified"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"EmailVerified\" INTEGER NOT NULL DEFAULT 1"),
+            ["AdminAccounts.EmailVerifiedAt"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"EmailVerifiedAt\" TEXT NULL"),
             ["Lessons.Archived"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"Archived\" INTEGER NOT NULL DEFAULT 0"),
             ["Lessons.KeepOffline"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"KeepOffline\" INTEGER NOT NULL DEFAULT 0"),
             ["Lessons.DownloadDaysBefore"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"DownloadDaysBefore\" INTEGER NOT NULL DEFAULT 7"),
