@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img" aria-label="LessonCue">
+  <rect width="320" height="180" fill="#25302d"/>
+  <rect x="22" y="34" width="112" height="112" rx="24" fill="#d89127"/>
+  <path d="M48 65v51h30v-10H61V65H48Zm47 14c-4-4-9-6-15-6-12 0-21 9-21 21s9 22 21 22c6 0 11-2 15-7l-8-7c-2 2-4 3-7 3-5 0-9-4-9-11 0-6 4-10 9-10 3 0 5 1 7 3l8-8Z" fill="#fff"/>
+  <text x="155" y="86" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="29" font-weight="700">Lesson</text>
+  <text x="155" y="116" fill="#d89127" font-family="Arial, Helvetica, sans-serif" font-size="29" font-weight="700">Cue</text>
+</svg>

@@ -646,9 +646,9 @@ private fun loopingPreRoll(items: List<CueItem>) = items.mapIndexed { index, ite
     item.copy(endBehavior = if (index == items.lastIndex) "playlistLoop" else "advance")
 }
 
-private fun ScreenManifest.itemCount() = playlists.flatMap { playlist ->
+private fun ScreenManifest.itemCount() = (playlists.flatMap { playlist ->
     playlist.items + playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item)
-}.distinctBy { it.id }.size
+} + signageSchedule.mapNotNull { it.media }).distinctBy { it.id }.size
 
 @Composable
 private fun FormLayout(title: String, subtitle: String, content: @Composable ColumnScope.() -> Unit) {
@@ -679,14 +679,16 @@ private fun CenterMessage(message: String) = Box(Modifier.fillMaxSize(), content
 
 private fun scheduleMediaCaches(context: android.content.Context, identity: DeviceIdentity, manifest: ScreenManifest) {
     val manager = WorkManager.getInstance(context)
-    val items = manifest.playlists.flatMap { playlist -> playlist.items + playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) }
+    val items = (manifest.playlists.flatMap { playlist -> playlist.items + playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) }
+        + manifest.signageSchedule.mapNotNull { it.media })
         .distinctBy { it.id }.filter { it.offlineEligible && it.url != null }
     items.forEach { item ->
         val request = OneTimeWorkRequestBuilder<MediaCacheWorker>().setInputData(workDataOf(
             "url" to item.url, "fileName" to item.cacheFileName(), "token" to identity.token,
             "serverHost" to java.net.URL(identity.serverUrl).host, "sha256" to item.sha256
         )).build()
-        manager.enqueueUniqueWork("lessoncue-media-${item.id}", ExistingWorkPolicy.KEEP, request)
+        manager.enqueueUniqueWork("lessoncue-media-${item.id}-${item.sha256?.take(12) ?: "current"}",
+            ExistingWorkPolicy.KEEP, request)
     }
 }
 

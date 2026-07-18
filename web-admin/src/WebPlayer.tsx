@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 
-const APP_VERSION = "0.29.0";
+const APP_VERSION = "0.30.0";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -48,11 +48,13 @@ type Signage = {
   backgroundColor: string;
   textColor: string;
   mediaUrl?: string;
+  media?: CueItem;
 };
 type Manifest = {
   manifestVersion: number;
   screen: { id: string; name: string; volunteerMode: boolean; site: string };
   signage: Signage[];
+  signageSchedule?: Signage[];
   playlists: Playlist[];
 };
 type Command = {
@@ -537,10 +539,19 @@ function PairingScreen({ message, onPaired }: { message: string; onPaired: (iden
 
 function PlayerLibrary({ manifest, connection, onPlay }: { manifest?: Manifest; connection: ConnectionState; onPlay: (playlist: Playlist) => void }) {
   const signage = manifest?.signage[0];
+  usePreload(signage?.media);
+  useSignagePreload(manifest?.signageSchedule);
+  const signageMedia = signage?.media;
+  const signageImage = signageMedia?.type === "image" || signageMedia?.contentType?.startsWith("image/");
   return <div className="web-player-library" style={signage ? { backgroundColor: signage.backgroundColor, color: signage.textColor } : undefined}>
     <header><div className="web-player-brand"><b>LC</b><span><strong>{manifest?.screen.name || "LessonCue"}</strong><small>{manifest?.screen.site || "Browser display"}</small></span></div><span className="web-player-eyebrow">READY FOR PLAYBACK</span></header>
     {signage ? <section className="web-player-signage">
-      {signage.mediaUrl && <img src={signage.mediaUrl} alt="" />}
+      {signageMedia?.downloadUrl && (signageImage
+        ? <img src={signageMedia.downloadUrl} alt="" />
+        : signageMedia.type === "video" || signageMedia.contentType?.startsWith("video/")
+          ? <video src={signageMedia.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={signageMedia.title} />
+          : null)}
+      {!signageMedia && signage.mediaUrl && <img src={signage.mediaUrl} alt="" />}
       <div><small>{signage.name}</small><h1>{signage.message}</h1></div>
     </section> : <section className="web-player-ready">
       <span>✓</span><h1>{connection === "online" ? "Ready for a lesson" : "Connecting to LessonCue…"}</h1>
@@ -693,6 +704,32 @@ function usePreload(item?: CueItem) {
   }, [item?.itemId, item?.downloadUrl]);
 }
 
+function useSignagePreload(signage?: Signage[]) {
+  const signature = signage?.map(item => `${item.id}:${item.media?.downloadUrl || ""}`).join("|") || "";
+  useEffect(() => {
+    const elements: Array<HTMLImageElement | HTMLLinkElement> = [];
+    for (const sign of signage || []) {
+      const media = sign.media;
+      if (!media?.downloadUrl) continue;
+      if (media.type === "image" || media.contentType?.startsWith("image/")) {
+        const image = new Image();
+        image.src = media.downloadUrl;
+        elements.push(image);
+      } else {
+        const link = document.createElement("link");
+        link.rel = "prefetch";
+        link.href = media.downloadUrl;
+        link.as = media.type === "audio" ? "audio" : "video";
+        document.head.appendChild(link);
+        elements.push(link);
+      }
+    }
+    return () => elements.forEach(element => element instanceof HTMLLinkElement ? element.remove() : element.src = "");
+    // The signature restarts prefetch only when schedule media URLs change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature]);
+}
+
 function readIdentity(): Identity | null {
   try {
     const value = JSON.parse(localStorage.getItem(IDENTITY_KEY) || "null") as Partial<Identity> | null;
@@ -730,11 +767,13 @@ function statusPosition(media: HTMLMediaElement | null, item: CueItem) {
 }
 
 function manifestItemCount(manifest?: Manifest) {
-  return new Set(manifest?.playlists.flatMap(playlist => [
+  const lessonItems = manifest?.playlists.flatMap(playlist => [
     ...playlist.items,
     ...(playlist.preRoll?.items || []),
     ...(playlist.countdown ? [playlist.countdown.item] : []),
-  ]).map(item => item.itemId) || []).size;
+  ]) || [];
+  const signageItems = manifest?.signageSchedule?.flatMap(sign => sign.media ? [sign.media] : []) || [];
+  return new Set([...lessonItems, ...signageItems].map(item => item.itemId)).size;
 }
 
 function browserName() {
