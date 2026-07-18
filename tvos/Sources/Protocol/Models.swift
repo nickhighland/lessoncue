@@ -104,6 +104,7 @@ public struct SignageCue: Codable, Identifiable, Equatable, Sendable {
     public let backgroundColor: String
     public let textColor: String
     public let mediaUrl: String?
+    public let media: CueItem?
 }
 
 public struct ScreenManifest: Codable, Equatable, Sendable {
@@ -112,6 +113,7 @@ public struct ScreenManifest: Codable, Equatable, Sendable {
     public let generatedAt: Date
     public let screen: ScreenInfo
     public let signage: [SignageCue]
+    public let signageSchedule: [SignageCue]?
     public let playlists: [LessonPlaylist]
 }
 

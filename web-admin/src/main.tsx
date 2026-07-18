@@ -73,7 +73,16 @@ type User = { id: string; username: string; displayName: string; email?: string;
 type AccountProfile = { username: string; displayName: string; email?: string; emailVerified: boolean; role: string };
 type RegistrationSettings = { mode: "closed" | "open" | "code"; publicBaseUrl: string; emailFromAddress: string; emailFromName: string; emailProvider: "none" | "resend" | "brevo"; emailConfigured: boolean };
 type RegistrationCode = { id: string; hint: string; label: string; createdAt: string; expiresAt?: string; revokedAt?: string; uses: number; maxUses?: number; active: boolean };
-type Signage = { id: string; name: string; mode: string; enabled: boolean; priority: number; startsAt?: string; endsAt?: string; message: string; backgroundColor: string; textColor: string; mediaAssetId?: string; mediaFileName?: string; targetTagsCsv: string };
+type Signage = {
+  id: string; name: string; mode: "scheduled" | "idle" | "emergency"; enabled: boolean; priority: number;
+  startsAt?: string; endsAt?: string; message: string; backgroundColor: string; textColor: string;
+  mediaAssetId?: string; mediaFileName?: string; targetTagsCsv: string;
+  recurrence: "once" | "daily" | "weekly"; scheduleStartDate?: string; scheduleEndDate?: string;
+  startMinutes?: number; endMinutes?: number; daysOfWeek: number[]; excludedDates: string[];
+  targetScreenIds: string[]; targetScreenNames: string[]; activeNow: boolean; nextChangeAt?: string;
+  readiness: "ready" | "preparing" | "failed" | "missing"; ready: boolean; createdAt: string; updatedAt: string;
+  targetScreenCount: number; cachedScreenCount: number; failedScreenCount: number;
+};
 type Backup = { id: string; fileName: string; kind: string; sizeBytes: number; createdAt: string; createdBy: string };
 type BackupPreview = { restoreId: string; fileName: string; kind: string; compressedBytes: number; uncompressedBytes: number; fileCount: number; organization: string; users: number; classes: number; lessons: number; mediaRecords: number; mediaFiles: number; includesMedia: boolean; warnings: string[]; expiresAt: string };
 type BackupRestoreResult = { safetyBackupId: string; safetyBackupFileName: string; kind: string; organization: string; mediaRestored: boolean; preservedServerSettings: string[] };
@@ -392,7 +401,7 @@ function Shell({ view, setView, username, currentUsername, role, permissions, on
         {view === "calendar" && <CalendarView lessons={lessons} />}
         {view === "media" && <MediaView media={media} lessons={lessons} taxonomy={bootstrap?.mediaTaxonomy || { folders: [], tags: [] }} refresh={refresh} notify={setNotice} canUpload={canUpload} storage={bootstrap?.storage} />}
         {view === "screens" && bootstrap && <ScreensView screens={screens} classes={classes} pin={bootstrap.pairingPin} refresh={refresh} notify={setNotice} canManage={canManageScreens} />}
-        {view === "signage" && <SignageView signage={signage} media={media} refresh={refresh} notify={setNotice} />}
+        {view === "signage" && <SignageView signage={signage} media={media} screens={screens} timeZone={bootstrap?.timeZone || "UTC"} refresh={refresh} notify={setNotice} />}
         {view === "users" && <UsersView users={users} currentUsername={currentUsername} currentRole={role} refresh={refresh} notify={setNotice} canManage={canManageUsers} />}
         {view === "settings" && bootstrap && <Settings bootstrap={bootstrap} backups={backups} audit={audit} refresh={refresh} notify={setNotice} canSettings={canManageSettings} canBackups={canManageBackups} canUpdates={canManageUpdates} />}
       </>}
@@ -1040,14 +1049,69 @@ function CalendarView({ lessons }: { lessons: Lesson[] }) {
   </>;
 }
 
-function SignageView({ signage, media, refresh, notify }: { signage: Signage[]; media: Media[]; refresh: () => void; notify: (s: string) => void }) {
-  const [showForm, setShowForm] = useState(false);
-  async function create(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget)); try { await api("/api/v1/signage", { method: "POST", body: JSON.stringify({ ...values, enabled: values.enabled === "on", priority: Number(values.priority), startsAt: values.startsAt ? new Date(String(values.startsAt)).toISOString() : null, endsAt: values.endsAt ? new Date(String(values.endsAt)).toISOString() : null, mediaAssetId: values.mediaAssetId || null }) }); setShowForm(false); refresh(); notify("Signage published to matching screens."); } catch (e) { notify(errorText(e)); } }
-  async function remove(item: Signage) { if (!confirm(`Delete ${item.name}?`)) return; await api(`/api/v1/signage/${item.id}`, { method: "DELETE" }); refresh(); }
-  return <><PageHead eyebrow="AMBIENT PLAYBACK" title="Signage" detail="Schedule welcome screens, idle displays, and high-priority emergency messages." action={<button className="button primary" onClick={() => setShowForm(true)}>New signage</button>} />
-    {showForm && <Modal title="Create signage" onClose={() => setShowForm(false)}><form className="stack" onSubmit={create}><Field label="Name"><input name="name" required autoFocus /></Field><div className="two-fields"><Field label="Mode"><select name="mode"><option value="scheduled">Scheduled</option><option value="idle">Idle screen</option><option value="emergency">Emergency override</option></select></Field><Field label="Priority"><input name="priority" type="number" min="0" max="100" defaultValue="10" /></Field></div><Field label="Message"><textarea name="message" rows={3} /></Field><Field label="Optional media"><select name="mediaAssetId"><option value="">Text only</option>{media.filter(m => m.sourceKind !== "link").map(m => <option key={m.id} value={m.id}>{m.fileName}</option>)}</select></Field><div className="two-fields"><Field label="Starts"><input name="startsAt" type="datetime-local" /></Field><Field label="Ends"><input name="endsAt" type="datetime-local" /></Field></div><Field label="Target screen tags" hint="Comma-separated. Leave blank for every screen."><input name="targetTagsCsv" placeholder="lobby, campus-a" /></Field><input type="hidden" name="backgroundColor" value="#25302d" /><input type="hidden" name="textColor" value="#ffffff" /><label className="check-row"><input type="checkbox" name="enabled" defaultChecked /> Publish immediately</label><button className="button primary">Create signage</button></form></Modal>}
-    <div className="signage-grid">{signage.length ? signage.map(item => <article className={`signage-card ${item.mode}`} key={item.id} style={{ background: item.backgroundColor, color: item.textColor }}><div className="signage-top"><span>{item.mode.toUpperCase()}</span><span>{item.enabled ? "ACTIVE" : "PAUSED"}</span></div><h2>{item.message || item.name}</h2><p>{item.name}{item.mediaFileName ? ` · ${item.mediaFileName}` : ""}</p><div className="signage-foot"><span>Priority {item.priority}{item.targetTagsCsv ? ` · ${item.targetTagsCsv}` : " · all screens"}</span><button onClick={() => remove(item)}>Delete</button></div></article>) : <section className="panel"><Empty title="No signage yet" body="Create an idle welcome screen or a scheduled announcement." /></section>}</div>
+function SignageView({ signage, media, screens, timeZone, refresh, notify }: {
+  signage: Signage[]; media: Media[]; screens: Screen[]; timeZone: string; refresh: () => void; notify: (s: string) => void;
+}) {
+  const [editing, setEditing] = useState<Signage | "new">();
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const current = editing;
+    if (!current) return;
+    try {
+      await api(current === "new" ? "/api/v1/signage" : `/api/v1/signage/${current.id}`, {
+        method: current === "new" ? "POST" : "PUT",
+        body: JSON.stringify(signageFormPayload(new FormData(event.currentTarget))),
+      });
+      setEditing(undefined); refresh(); notify(current === "new" ? "Signage schedule created." : "Signage schedule updated.");
+    } catch (error) { notify(errorText(error)); }
+  }
+  async function setEnabled(item: Signage, enabled: boolean) {
+    try {
+      await api(`/api/v1/signage/${item.id}`, { method: "PUT", body: JSON.stringify(signagePayload(item, enabled)) });
+      refresh(); notify(`${item.name} ${enabled ? "resumed" : "paused"}.`);
+    } catch (error) { notify(errorText(error)); }
+  }
+  async function remove(item: Signage) {
+    if (!confirm(`Delete ${item.name}?`)) return;
+    try { await api(`/api/v1/signage/${item.id}`, { method: "DELETE" }); refresh(); notify("Signage deleted."); }
+    catch (error) { notify(errorText(error)); }
+  }
+  return <><PageHead eyebrow="AMBIENT PLAYBACK" title="Signage" detail={`Recurring welcome screens, announcements, and emergency overrides · ${timeZone}`} action={<button className="button primary" onClick={() => setEditing("new")}>New signage</button>} />
+    <section className="signage-priority panel"><strong>Conflict order</strong><span>Emergency override</span><b>›</b><span>Scheduled signage</span><b>›</b><span>Idle fallback</span><small>Within each level, the highest priority wins. Lesson playback remains in control and signage returns automatically afterward.</small></section>
+    {editing && <SignageEditor item={editing === "new" ? undefined : editing} media={media} screens={screens} timeZone={timeZone} onSave={save} onClose={() => setEditing(undefined)} />}
+    <div className="signage-grid">{signage.length ? signage.map(item => <article className={`signage-card ${item.mode} ${!item.enabled ? "paused" : ""}`} key={item.id} style={{ background: item.backgroundColor, color: item.textColor }}>
+      <div className="signage-top"><span>{item.mode.toUpperCase()}</span><span>{!item.enabled ? "PAUSED" : item.activeNow ? "SHOWING NOW" : "SCHEDULED"}</span></div>
+      <h2>{item.message || item.name}</h2>
+      <p>{item.name}{item.mediaFileName ? ` · ${item.mediaFileName}` : ""}</p>
+      <div className="signage-meta"><span>{signageScheduleSummary(item)}</span><span>{signageTargets(item)}</span><span className={`signage-ready ${item.readiness}`}>{item.readiness === "ready" ? "✓ Server media ready" : item.readiness === "preparing" ? "◷ Server media preparing" : `! Server media ${item.readiness}`}</span>{item.mediaAssetId && <span className={`signage-ready ${item.failedScreenCount ? "failed" : item.cachedScreenCount === item.targetScreenCount && item.targetScreenCount ? "ready" : "preparing"}`}>{item.targetScreenCount === 0 ? "No paired target displays" : item.failedScreenCount ? `! ${item.failedScreenCount} display cache failed` : item.cachedScreenCount === item.targetScreenCount ? `✓ Cached on ${item.targetScreenCount} display${item.targetScreenCount === 1 ? "" : "s"}` : `◷ Cached on ${item.cachedScreenCount} of ${item.targetScreenCount} displays`}</span>}</div>
+      <div className="signage-foot"><span>Priority {item.priority}</span><div><button onClick={() => setEditing(item)}>Edit</button><button onClick={() => setEnabled(item, !item.enabled)}>{item.enabled ? "Pause" : "Resume"}</button><button onClick={() => remove(item)}>Delete</button></div></div>
+    </article>) : <section className="panel"><Empty title="No signage yet" body="Create an idle welcome screen or a recurring scheduled announcement." /></section>}</div>
   </>;
+}
+
+function SignageEditor({ item, media, screens, timeZone, onSave, onClose }: {
+  item?: Signage; media: Media[]; screens: Screen[]; timeZone: string;
+  onSave: (event: FormEvent<HTMLFormElement>) => void; onClose: () => void;
+}) {
+  const [recurrence, setRecurrence] = useState<Signage["recurrence"]>(item?.recurrence || "once");
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  return <Modal title={item ? `Edit ${item.name}` : "Create signage"} onClose={onClose}><form className="stack" onSubmit={onSave}>
+    <Field label="Name"><input name="name" required maxLength={160} autoFocus defaultValue={item?.name} /></Field>
+    <div className="two-fields"><Field label="Mode"><select name="mode" defaultValue={item?.mode || "scheduled"}><option value="scheduled">Scheduled</option><option value="idle">Idle fallback</option><option value="emergency">Emergency override</option></select></Field><Field label="Priority"><input name="priority" type="number" min="0" max="100" defaultValue={item?.priority ?? 10} /></Field></div>
+    <Field label="Message"><textarea name="message" rows={3} maxLength={2000} defaultValue={item?.message} /></Field>
+    <div className="two-fields"><Field label="Optional image or video"><select name="mediaAssetId" defaultValue={item?.mediaAssetId || ""}><option value="">Text only</option>{media.filter(value => value.sourceKind !== "link" && (value.contentType.startsWith("image/") || value.contentType.startsWith("video/"))).map(value => <option key={value.id} value={value.id}>{value.fileName}</option>)}</select></Field><Field label="Repeats"><select name="recurrence" value={recurrence} onChange={event => setRecurrence(event.target.value as Signage["recurrence"])}><option value="once">One time</option><option value="daily">Every day</option><option value="weekly">Selected weekdays</option></select></Field></div>
+    {recurrence === "once" ? <div className="two-fields"><Field label="Starts" hint="Leave blank to start immediately."><input name="startsAt" type="datetime-local" defaultValue={toLocalInput(item?.startsAt)} /></Field><Field label="Ends" hint="Leave blank to continue until paused."><input name="endsAt" type="datetime-local" defaultValue={toLocalInput(item?.endsAt)} /></Field></div> : <>
+      <div className="two-fields"><Field label="First date"><input name="scheduleStartDate" type="date" defaultValue={item?.scheduleStartDate || dateInputValue(undefined)} /></Field><Field label="Last date" hint="Optional"><input name="scheduleEndDate" type="date" defaultValue={item?.scheduleEndDate || ""} /></Field></div>
+      <div className="two-fields"><Field label="Daily start"><input name="startTime" type="time" required defaultValue={signageTime(item?.startMinutes, "08:00")} /></Field><Field label="Daily end"><input name="endTime" type="time" required defaultValue={signageTime(item?.endMinutes, "17:00")} /></Field></div>
+      {recurrence === "weekly" && <fieldset className="signage-weekdays"><legend>Show on</legend>{days.map((day, index) => <label key={day}><input type="checkbox" name="dayOfWeek" value={index} defaultChecked={item ? item.daysOfWeek.includes(index) : index > 0 && index < 6} /> {day.slice(0, 3)}</label>)}</fieldset>}
+      <Field label="Excluded dates" hint={`One YYYY-MM-DD date per line. Times use ${timeZone}.`}><textarea name="excludedDates" rows={3} defaultValue={item?.excludedDates.join("\n")} placeholder={"2026-12-25\n2027-01-01"} /></Field>
+    </>}
+    <fieldset className="signage-targets"><legend>Specific screens</legend><p>Leave every box clear to use tags or target all screens.</p>{screens.filter(screen => !screen.revoked).map(screen => <label key={screen.id}><input type="checkbox" name="targetScreenId" value={screen.id} defaultChecked={item?.targetScreenIds.includes(screen.id)} /><span><strong>{screen.name}</strong><small>{screen.site}{screen.tagsCsv ? ` · ${screen.tagsCsv}` : ""}</small></span></label>)}</fieldset>
+    <Field label="Target screen tags" hint="A selected screen or a screen with any matching tag receives this sign. Leave both blank for every screen."><input name="targetTagsCsv" maxLength={2000} defaultValue={item?.targetTagsCsv} placeholder="lobby, campus-a" /></Field>
+    <div className="two-fields"><Field label="Background color"><input name="backgroundColor" type="color" defaultValue={item?.backgroundColor || "#25302d"} /></Field><Field label="Text color"><input name="textColor" type="color" defaultValue={item?.textColor || "#ffffff"} /></Field></div>
+    <label className="check-row"><input type="checkbox" name="enabled" defaultChecked={item?.enabled ?? true} /> Publish this schedule</label>
+    <div className="modal-actions"><button className="button" type="button" onClick={onClose}>Cancel</button><button className="button primary">{item ? "Save changes" : "Create signage"}</button></div>
+  </form></Modal>;
 }
 
 function UsersView({ users, currentUsername, currentRole, refresh, notify, canManage }: { users: User[]; currentUsername: string; currentRole: string; refresh: () => void; notify: (s: string) => void; canManage: boolean }) {
@@ -1377,6 +1441,56 @@ function parseDateList(value: string) { return [...new Set(value.split(/[\s,;]+/
 function parseStoredDates(value: string) { try { const dates = JSON.parse(value); return Array.isArray(dates) ? dates.filter(item => typeof item === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item)).sort() : []; } catch { return []; } }
 function schedulePayload(schedule: RecurringSchedule, enabled = schedule.enabled) { return { templateId: schedule.templateId, classId: schedule.classId, name: schedule.name, frequency: schedule.frequency, interval: schedule.interval, dayOfWeek: schedule.dayOfWeek ?? null, dayOfMonth: schedule.dayOfMonth ?? null, startDate: schedule.startDate, endDate: schedule.endDate || null, startMinutes: schedule.startMinutes ?? null, titlePattern: schedule.titlePattern, customDates: parseStoredDates(schedule.customDatesJson), excludedDates: parseStoredDates(schedule.excludedDatesJson), enabled, generateDaysAhead: schedule.generateDaysAhead }; }
 function scheduleSummary(schedule: RecurringSchedule) { if (schedule.frequency === "custom") return `${parseStoredDates(schedule.customDatesJson).length} term or custom dates`; if (schedule.frequency === "monthly") return `Every ${schedule.interval === 1 ? "month" : `${schedule.interval} months`} on day ${schedule.dayOfMonth}`; const day = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][schedule.dayOfWeek ?? 0]; return schedule.interval === 1 ? `Every ${day}` : `Every ${schedule.interval} weeks on ${day}`; }
+function signageFormPayload(form: FormData) {
+  const recurrence = String(form.get("recurrence") || "once") as Signage["recurrence"];
+  const startValue = String(form.get("startsAt") || "");
+  const endValue = String(form.get("endsAt") || "");
+  const endTime = String(form.get("endTime") || "");
+  return {
+    name: String(form.get("name") || ""), mode: String(form.get("mode") || "scheduled"),
+    enabled: form.get("enabled") === "on", priority: Number(form.get("priority") || 0),
+    message: String(form.get("message") || ""), mediaAssetId: String(form.get("mediaAssetId") || "") || null,
+    backgroundColor: String(form.get("backgroundColor") || "#25302d"), textColor: String(form.get("textColor") || "#ffffff"),
+    targetTagsCsv: String(form.get("targetTagsCsv") || ""), targetScreenIds: form.getAll("targetScreenId").map(String),
+    recurrence, startsAt: recurrence === "once" && startValue ? new Date(startValue).toISOString() : null,
+    endsAt: recurrence === "once" && endValue ? new Date(endValue).toISOString() : null,
+    scheduleStartDate: recurrence === "once" ? null : String(form.get("scheduleStartDate") || "") || null,
+    scheduleEndDate: recurrence === "once" ? null : String(form.get("scheduleEndDate") || "") || null,
+    startMinutes: recurrence === "once" ? null : minutesFromTime(String(form.get("startTime") || "")),
+    endMinutes: recurrence === "once" ? null : endTime === "00:00" ? 1440 : minutesFromTime(endTime),
+    daysOfWeek: recurrence === "weekly" ? form.getAll("dayOfWeek").map(Number) : [],
+    excludedDates: recurrence === "once" ? [] : parseDateList(String(form.get("excludedDates") || "")),
+  };
+}
+function signagePayload(item: Signage, enabled = item.enabled) {
+  return {
+    name: item.name, mode: item.mode, enabled, priority: item.priority, startsAt: item.startsAt || null,
+    endsAt: item.endsAt || null, message: item.message, backgroundColor: item.backgroundColor, textColor: item.textColor,
+    mediaAssetId: item.mediaAssetId || null, targetTagsCsv: item.targetTagsCsv, recurrence: item.recurrence,
+    scheduleStartDate: item.scheduleStartDate || null, scheduleEndDate: item.scheduleEndDate || null,
+    startMinutes: item.startMinutes ?? null, endMinutes: item.endMinutes ?? null, daysOfWeek: item.daysOfWeek,
+    excludedDates: item.excludedDates, targetScreenIds: item.targetScreenIds,
+  };
+}
+function signageTime(value?: number, fallback = "") { return value === 1440 ? "00:00" : timeFromMinutes(value) || fallback; }
+function signageScheduleSummary(item: Signage) {
+  if (item.recurrence === "once") {
+    if (!item.startsAt && !item.endsAt) return "Always available";
+    const start = item.startsAt ? new Date(item.startsAt).toLocaleString() : "Now";
+    const end = item.endsAt ? new Date(item.endsAt).toLocaleString() : "until paused";
+    return `${start} – ${end}`;
+  }
+  const weekdays = item.recurrence === "weekly"
+    ? item.daysOfWeek.map(day => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ")
+    : "Every day";
+  const dates = item.scheduleEndDate ? `${item.scheduleStartDate || "now"} – ${item.scheduleEndDate}` : `from ${item.scheduleStartDate || "now"}`;
+  return `${weekdays} · ${signageTime(item.startMinutes, "00:00")}–${signageTime(item.endMinutes, "00:00")} · ${dates}${item.excludedDates.length ? ` · ${item.excludedDates.length} excluded` : ""}`;
+}
+function signageTargets(item: Signage) {
+  const targets = [...item.targetScreenNames];
+  if (item.targetTagsCsv) targets.push(`tags: ${item.targetTagsCsv}`);
+  return targets.length ? targets.join(" · ") : "All screens";
+}
 function formatDuration(ms?: number) { if (ms === undefined || ms === null) return "Duration unknown"; const seconds = Math.round(ms / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
 function formatPreciseTime(seconds: number) { return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}.${String(Math.round(seconds % 1 * 100)).padStart(2, "0")}`; }
 function formatBytes(bytes: number) { if (bytes === 0) return "0 B"; if (!Number.isFinite(bytes) || bytes < 0) return "—"; const units = ["B", "KB", "MB", "GB", "TB"]; const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1); return `${(bytes / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`; }

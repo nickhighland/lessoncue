@@ -5,12 +5,14 @@ namespace LessonCue.Server;
 
 public sealed class ManifestService(LessonCueDb db)
 {
-    public async Task<object?> BuildAsync(Guid screenId, CancellationToken cancellationToken)
+    public async Task<object?> BuildAsync(Guid screenId, CancellationToken cancellationToken, DateTimeOffset? generatedAt = null)
     {
         var screen = await db.Screens.AsNoTracking().SingleOrDefaultAsync(x => x.Id == screenId, cancellationToken);
         if (screen is null || screen.Revoked) return null;
 
-        var now = DateTimeOffset.UtcNow;
+        var now = generatedAt ?? DateTimeOffset.UtcNow;
+        var timeZone = await db.Organizations.AsNoTracking().Select(x => x.TimeZone).FirstOrDefaultAsync(cancellationToken)
+            ?? "UTC";
         var lessonsQuery = db.Lessons.AsNoTracking().Include(x => x.Class).Include(x => x.Items)
             .ThenInclude(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants).AsSplitQuery().AsQueryable();
         if (screen.AssignedClassId is { } classId)
@@ -18,19 +20,27 @@ public sealed class ManifestService(LessonCueDb db)
 
         var lessons = (await lessonsQuery.Where(x => !x.Archived).OrderBy(x => x.Date).ToListAsync(cancellationToken))
             .Where(x => (x.AvailableFrom is null || x.AvailableFrom <= now) && (x.ExpiresAt is null || x.ExpiresAt >= now)).ToList();
-        var signage = (await db.SignagePlaylists.AsNoTracking().Where(x => x.Enabled)
-            .OrderByDescending(x => x.Priority).ToListAsync(cancellationToken))
-            .Where(x => (x.StartsAt is null || x.StartsAt <= now) && (x.EndsAt is null || x.EndsAt >= now)).ToList();
-        var matchingSignage = signage.Where(x => TagsMatch(screen.TagsCsv, x.TargetTagsCsv)).ToArray();
-        var version = Math.Max(1, lessons.Sum(x => x.Version) + matchingSignage.Sum(x => x.Priority + 1));
+        var signage = await db.SignagePlaylists.AsNoTracking().Include(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants)
+            .Where(x => x.Enabled).ToListAsync(cancellationToken);
+        var targetedSignage = signage
+            .Select(item => new { Item = item, State = SignageSchedule.Evaluate(item, now, timeZone) })
+            .Where(entry => (entry.State.Active || SignageSchedule.CanOccurAgain(entry.Item, now, timeZone))
+                && SignageSchedule.TargetsScreen(entry.Item, screen))
+            .OrderBy(entry => ModeRank(entry.Item.Mode))
+            .ThenByDescending(entry => entry.Item.Priority)
+            .ThenByDescending(entry => entry.Item.UpdatedAt)
+            .ToArray();
+        var matchingSignage = targetedSignage.Where(entry => entry.State.Active).ToArray();
+        var version = ManifestVersion(lessons, targetedSignage.Select(entry => entry.Item),
+            matchingSignage.Select(entry => entry.Item.Id));
         return new
         {
             apiVersion = 1,
             manifestVersion = version,
             generatedAt = DateTimeOffset.UtcNow,
             screen = new { id = screen.Id, screen.Name, screen.VolunteerMode, screen.Site, tags = SplitTags(screen.TagsCsv) },
-            signage = matchingSignage.Select(x => new { x.Id, x.Name, x.Mode, x.Priority, x.Message, x.BackgroundColor, x.TextColor,
-                x.MediaAssetId, mediaUrl = x.MediaAssetId is { } mediaId ? $"/api/v1/media/{mediaId}/file" : null, x.StartsAt, x.EndsAt }).ToArray(),
+            signage = matchingSignage.Select(entry => MapSignage(entry.Item, entry.State, screen)).ToArray(),
+            signageSchedule = targetedSignage.Select(entry => MapSignage(entry.Item, entry.State, screen)).ToArray(),
             playlists = lessons.Select(x => BuildPlaylist(x, screen)).ToArray()
         };
     }
@@ -131,16 +141,121 @@ public sealed class ManifestService(LessonCueDb db)
         };
     }
 
+    private static (object? Manifest, string? Url) MapSignageMedia(SignagePlaylist signage, Screen screen)
+    {
+        var media = signage.MediaAsset;
+        if (media is null) return (null, null);
+        var compatible = media.CompatibilityStatus == "ready" && !string.IsNullOrWhiteSpace(media.CompatibilityPath);
+        var requestedProfile = media.VideoCodec is not null ? AdaptiveTranscodeProfiles.SelectForScreen(screen, media) : null;
+        var variant = requestedProfile is null ? null : media.TranscodeVariants.FirstOrDefault(x =>
+            x.Profile == requestedProfile && x.Status == "ready" && x.SourceVersion == media.Version && !string.IsNullOrWhiteSpace(x.RelativePath));
+        var useVariant = variant is not null;
+        var useNative = requestedProfile == "native";
+        var url = useVariant ? $"/api/v1/media/{media.Id}/transcodes/{variant!.Profile}" :
+            useNative ? $"/api/v1/media/{media.Id}/file" :
+            compatible ? $"/api/v1/media/{media.Id}/playback" :
+            !string.IsNullOrWhiteSpace(media.RelativePath) ? $"/api/v1/media/{media.Id}/file" : null;
+        var contentType = useVariant || compatible && !useNative ? "video/mp4" : media.ContentType;
+        var extension = useVariant || compatible && !useNative
+            ? "mp4" : Path.GetExtension(media.RelativePath ?? media.FileName).TrimStart('.').ToLowerInvariant();
+        var type = contentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase) ? "video"
+            : contentType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) ? "audio" : "image";
+        var sha256 = useVariant ? variant!.Sha256 : compatible && !useNative ? media.CompatibilitySha256 : media.Sha256;
+        var sizeBytes = useVariant ? variant!.SizeBytes : compatible && !useNative ? media.CompatibilitySizeBytes : media.SizeBytes;
+        var cacheVersion = string.IsNullOrWhiteSpace(sha256) ? media.Version.ToString() : sha256[..Math.Min(12, sha256.Length)];
+        var versionedUrl = url is null ? null : $"{url}?v={Uri.EscapeDataString(cacheVersion)}";
+        var manifest = new
+        {
+            itemId = $"signage-{signage.Id}",
+            mediaId = media.Id,
+            title = signage.Name,
+            type,
+            downloadUrl = versionedUrl,
+            contentType,
+            fileExtension = extension,
+            sha256,
+            sizeBytes,
+            durationMs = media.DurationMs,
+            startMs = 0,
+            endMs = (long?)null,
+            volumePercent = 100,
+            imageDurationSeconds = (int?)null,
+            endBehavior = "loop",
+            allowSkip = false,
+            offlineEligible = media.OfflineEligible
+        };
+        return (manifest, versionedUrl);
+    }
+
+    private static object MapSignage(SignagePlaylist item, SignageScheduleState state, Screen screen)
+    {
+        var signageMedia = MapSignageMedia(item, screen);
+        return new
+        {
+            item.Id,
+            item.Name,
+            item.Mode,
+            item.Priority,
+            item.Message,
+            item.BackgroundColor,
+            item.TextColor,
+            item.MediaAssetId,
+            mediaUrl = signageMedia.Url,
+            media = signageMedia.Manifest,
+            item.StartsAt,
+            item.EndsAt,
+            recurrence = SignageSchedule.NormalizeRecurrence(item.Recurrence),
+            item.ScheduleStartDate,
+            item.ScheduleEndDate,
+            item.StartMinutes,
+            item.EndMinutes,
+            daysOfWeek = SignageSchedule.ParseDays(item.DaysOfWeekCsv),
+            excludedDates = SignageSchedule.ParseDates(item.ExcludedDatesJson),
+            activeNow = state.Active,
+            state.NextChangeAt,
+            ready = SignageReady(item.MediaAsset),
+            readiness = SignageReadiness(item.MediaAsset)
+        };
+    }
+
     private static List<CuePointInput> ParseCuePoints(string json)
     {
         try { return JsonSerializer.Deserialize<List<CuePointInput>>(json) ?? []; }
         catch (JsonException) { return []; }
     }
 
-    private static string[] SplitTags(string tags) => tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-    private static bool TagsMatch(string screenTags, string targetTags)
+    private static string[] SplitTags(string tags) =>
+        tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static int ModeRank(string mode) => mode switch
     {
-        var targets = SplitTags(targetTags); if (targets.Length == 0) return true;
-        var screen = SplitTags(screenTags).ToHashSet(StringComparer.OrdinalIgnoreCase); return targets.Any(screen.Contains);
+        "emergency" => 0,
+        "scheduled" => 1,
+        _ => 2
+    };
+
+    private static bool SignageReady(MediaAsset? media) => media is null || SignageReadiness(media) == "ready";
+
+    private static string SignageReadiness(MediaAsset? media)
+    {
+        if (media is null) return "ready";
+        if (media.ProcessingStatus is "pending" or "processing" || media.CompatibilityStatus is "pending" or "processing")
+            return "preparing";
+        if (media.ProcessingStatus == "failed" || media.CompatibilityStatus == "failed") return "failed";
+        if (media.SourceKind != "link" && string.IsNullOrWhiteSpace(media.RelativePath)) return "missing";
+        return "ready";
+    }
+
+    private static int ManifestVersion(IEnumerable<Lesson> lessons, IEnumerable<SignagePlaylist> signage,
+        IEnumerable<Guid> activeSignageIds)
+    {
+        var hash = 17;
+        foreach (var lesson in lessons.OrderBy(x => x.Id))
+            hash = unchecked(hash * 31 + HashCode.Combine(lesson.Id, lesson.Version));
+        foreach (var item in signage.OrderBy(x => x.Id))
+            hash = unchecked(hash * 31 + HashCode.Combine(item.Id, item.Priority, item.UpdatedAt.UtcTicks));
+        foreach (var id in activeSignageIds.Order())
+            hash = unchecked(hash * 31 + id.GetHashCode());
+        return Math.Max(1, hash & int.MaxValue);
     }
 }

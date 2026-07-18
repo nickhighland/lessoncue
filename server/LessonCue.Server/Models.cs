@@ -373,7 +373,16 @@ public sealed class SignagePlaylist
     public Guid? MediaAssetId { get; set; }
     public MediaAsset? MediaAsset { get; set; }
     [MaxLength(2000)] public string TargetTagsCsv { get; set; } = "";
+    [MaxLength(16)] public string Recurrence { get; set; } = "once";
+    public DateOnly? ScheduleStartDate { get; set; }
+    public DateOnly? ScheduleEndDate { get; set; }
+    public int? StartMinutes { get; set; }
+    public int? EndMinutes { get; set; }
+    [MaxLength(64)] public string DaysOfWeekCsv { get; set; } = "";
+    [MaxLength(12000)] public string ExcludedDatesJson { get; set; } = "[]";
+    [MaxLength(12000)] public string TargetScreenIdsJson { get; set; } = "[]";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
 public sealed class BackupRecord
@@ -494,7 +503,10 @@ public sealed record HttpPortInput(int Port);
 public sealed record CloudflareTunnelInput(bool Enabled, string? PublicHostname, string? Token,
     bool AcknowledgedRemoteExposure = false);
 public sealed record SignageInput(string Name, string Mode, bool Enabled, int Priority, DateTimeOffset? StartsAt,
-    DateTimeOffset? EndsAt, string? Message, string? BackgroundColor, string? TextColor, Guid? MediaAssetId, string? TargetTagsCsv);
+    DateTimeOffset? EndsAt, string? Message, string? BackgroundColor, string? TextColor, Guid? MediaAssetId,
+    string? TargetTagsCsv, string? Recurrence = null, DateOnly? ScheduleStartDate = null, DateOnly? ScheduleEndDate = null,
+    int? StartMinutes = null, int? EndMinutes = null, List<int>? DaysOfWeek = null,
+    List<DateOnly>? ExcludedDates = null, List<Guid>? TargetScreenIds = null);
 public sealed record LinkInput(string Url, string? Title, bool Download = false, bool Persistent = true,
     Guid? LessonId = null, string? Folder = null, string? TagsCsv = null);
 public sealed record UploadCompleteInput(string FileName, string ContentType, int TotalChunks, long? DurationMs,

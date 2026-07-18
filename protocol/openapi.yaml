@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LessonCue Local API
-  version: 3.1.0
+  version: 3.2.0
   description: Versioned contract used by the LessonCue administration UI and native TV clients.
 servers:
   - url: http://lessoncue.local
@@ -289,6 +289,49 @@ paths:
                 excluded: { type: boolean }
       responses:
         '200': { description: Exception list and occurrence updated }
+  /api/v1/signage:
+    get:
+      operationId: listSignage
+      description: Returns signage schedules with current activity, next transition, targeting, and server-media readiness.
+      responses:
+        '200':
+          description: Ordered signage schedules
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Signage' }
+    post:
+      operationId: createSignage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignageInput' }
+      responses:
+        '201': { description: Signage schedule created }
+        '400': { description: Invalid schedule, target, media, or color }
+  /api/v1/signage/{signageId}:
+    put:
+      operationId: updateSignage
+      parameters:
+        - { name: signageId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignageInput' }
+      responses:
+        '200': { description: Signage schedule updated }
+        '400': { description: Invalid schedule, target, media, or color }
+        '404': { description: Signage schedule not found }
+    delete:
+      operationId: deleteSignage
+      parameters:
+        - { name: signageId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Signage schedule deleted }
+        '404': { description: Signage schedule not found }
   /api/v1/playlist-items/{itemId}:
     patch:
       operationId: updatePlaylistItem
@@ -1594,6 +1637,57 @@ components:
           items: { type: string, format: date }
         enabled: { type: boolean, default: true }
         generateDaysAhead: { type: integer, minimum: 1, maximum: 730, default: 90 }
+    SignageInput:
+      type: object
+      required: [name, mode, enabled, priority]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        mode: { enum: [scheduled, idle, emergency] }
+        enabled: { type: boolean }
+        priority: { type: integer, minimum: 0, maximum: 100 }
+        startsAt: { type: [string, 'null'], format: date-time }
+        endsAt: { type: [string, 'null'], format: date-time }
+        message: { type: [string, 'null'], maxLength: 2000 }
+        backgroundColor: { type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$' }
+        textColor: { type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$' }
+        mediaAssetId: { type: [string, 'null'], format: uuid }
+        targetTagsCsv: { type: [string, 'null'], maxLength: 2000 }
+        recurrence: { type: [string, 'null'], enum: [once, daily, weekly, null] }
+        scheduleStartDate: { type: [string, 'null'], format: date }
+        scheduleEndDate: { type: [string, 'null'], format: date }
+        startMinutes: { type: [integer, 'null'], minimum: 0, maximum: 1439 }
+        endMinutes: { type: [integer, 'null'], minimum: 1, maximum: 1440 }
+        daysOfWeek:
+          type: [array, 'null']
+          uniqueItems: true
+          items: { type: integer, minimum: 0, maximum: 6 }
+        excludedDates:
+          type: [array, 'null']
+          maxItems: 366
+          items: { type: string, format: date }
+        targetScreenIds:
+          type: [array, 'null']
+          maxItems: 500
+          uniqueItems: true
+          items: { type: string, format: uuid }
+    Signage:
+      allOf:
+        - $ref: '#/components/schemas/SignageInput'
+        - type: object
+          required: [id, recurrence, daysOfWeek, excludedDates, targetScreenIds, targetScreenNames, activeNow, readiness, ready, targetScreenCount, cachedScreenCount, failedScreenCount, createdAt, updatedAt]
+          properties:
+            id: { type: string, format: uuid }
+            mediaFileName: { type: [string, 'null'] }
+            targetScreenNames: { type: array, items: { type: string } }
+            activeNow: { type: boolean }
+            nextChangeAt: { type: [string, 'null'], format: date-time }
+            readiness: { enum: [ready, preparing, failed, missing] }
+            ready: { type: boolean }
+            targetScreenCount: { type: integer, minimum: 0 }
+            cachedScreenCount: { type: integer, minimum: 0 }
+            failedScreenCount: { type: integer, minimum: 0 }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
     PlaylistItemInput:
       type: object
       required: [title, type]
