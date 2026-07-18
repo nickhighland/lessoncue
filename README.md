@@ -2,7 +2,7 @@
 
 LessonCue is a self-hosted lesson scheduling and television playback system for schools, churches, training programs, and other learning organizations. Administrators build dated media playlists in a browser; paired Android TV, Fire TV, and Apple TV clients cache their assignments and keep playing when the network is unavailable.
 
-[Installation guide](docs/installation.md) · [Browser player](docs/browser-player.md) · [Implementation guide](docs/implementation.md) · [Feature roadmap](docs/feature-roadmap.md) · [Protocol](protocol/openapi.yaml)
+[Installation guide](docs/installation.md) · [Accounts and registration](docs/account-self-service.md) · [Browser player](docs/browser-player.md) · [Implementation guide](docs/implementation.md) · [Feature roadmap](docs/feature-roadmap.md) · [Protocol](protocol/openapi.yaml)
 
 ## What is included
 
@@ -131,7 +131,7 @@ github-pages/        Public project documentation site
 
 ## Project status
 
-The complete self-hosted workflow runs on the local server: setup, accounts and roles, classes, calendar, lesson playlists, resumable media ingestion, signage, pre-roll, duration-aware countdown, rotating PIN pairing, screen assignment/health, branding, audit history, and backups. Android/Fire TV and tvOS clients build from this repository and retain offline manifests and media. Hardware signing, managed-store submission, and final device certification require the deploying organization's accounts and target devices.
+The complete self-hosted workflow runs on the local server: setup, local or verified self-service accounts, roles and permissions, registration codes, password recovery, classes, calendar, lesson playlists, resumable media ingestion, signage, pre-roll, duration-aware countdown, rotating PIN pairing, screen assignment/health, branding, audit history, and backups. Android/Fire TV and tvOS clients build from this repository and retain offline manifests and media. Hardware signing, managed-store submission, and final device certification require the deploying organization's accounts and target devices.
 
 ## License
 

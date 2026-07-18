@@ -84,6 +84,12 @@ sudo journalctl -u lessoncue -n 50 --no-pager
 
 To follow the logs continuously, run `sudo journalctl -u lessoncue -f` and press `Ctrl+C` when finished.
 
+### Enable registration and browser password recovery
+
+The initial owner and accounts created under **Users** do not require email. To permit self-registration or browser password recovery, sign in with **Server settings** permission and open **Settings → Registration & email**. Configure Resend or Brevo, enter the public HTTPS address recipients can reach, and then choose closed, code-required, or open registration.
+
+The provider key is encrypted on this server and is never returned to the browser. Preserve the complete `/var/lib/lessoncue/config` directory in disaster-recovery backups because it contains both the encrypted provider credential and the local encryption keys needed to use it. See [Accounts, registration, and email](account-self-service.md) for code management, expiry behavior, provider setup, and troubleshooting.
+
 ### Reset a forgotten administrator password
 
 Password recovery stays local and requires SSH access to the server. First list the local administrator usernames:

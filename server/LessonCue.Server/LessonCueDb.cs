@@ -6,6 +6,8 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
 {
     public DbSet<Organization> Organizations => Set<Organization>();
     public DbSet<AdminAccount> AdminAccounts => Set<AdminAccount>();
+    public DbSet<AccountToken> AccountTokens => Set<AccountToken>();
+    public DbSet<RegistrationCode> RegistrationCodes => Set<RegistrationCode>();
     public DbSet<LessonClass> Classes => Set<LessonClass>();
     public DbSet<Lesson> Lessons => Set<Lesson>();
     public DbSet<PlaylistItem> PlaylistItems => Set<PlaylistItem>();
@@ -34,6 +36,10 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
         modelBuilder.Entity<MediaTranscodeVariant>().HasQueryFilter(x => x.MediaAsset!.DeletedAt == null);
         modelBuilder.Entity<RecurringLessonSchedule>().HasQueryFilter(x => x.Class!.DeletedAt == null);
         modelBuilder.Entity<AdminAccount>().HasIndex(x => x.Username).IsUnique();
+        modelBuilder.Entity<AdminAccount>().HasIndex(x => x.Email);
+        modelBuilder.Entity<AccountToken>().HasIndex(x => x.TokenHash).IsUnique();
+        modelBuilder.Entity<AccountToken>().HasOne(x => x.Account).WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<RegistrationCode>().HasIndex(x => x.CodeHash).IsUnique();
         modelBuilder.Entity<MediaAsset>().HasIndex(x => x.Sha256);
         modelBuilder.Entity<MediaAssetVersion>().HasIndex(x => new { x.MediaAssetId, x.VersionNumber }).IsUnique();
         modelBuilder.Entity<MediaAssetVersion>().HasOne(x => x.MediaAsset).WithMany(x => x.Versions)

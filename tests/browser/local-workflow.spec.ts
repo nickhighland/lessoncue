@@ -60,6 +60,12 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.locator('input[type="password"]').fill("LessonCueTest42");
   await page.getByRole("button", { name: "Finish setup" }).click();
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)\./ })).toBeVisible();
+  await page.getByRole("button", { name: /Test Administrator.*Manage account/ }).click();
+  const ownAccountDialog = page.getByRole("dialog", { name: "Your account" });
+  await expect(ownAccountDialog.getByText("Email verified")).toBeVisible();
+  await ownAccountDialog.getByLabel("Your name").fill("Test Administrator Updated");
+  await ownAccountDialog.getByRole("button", { name: "Save account" }).click();
+  await expect(page.getByRole("button", { name: /Test Administrator Updated.*Manage account/ })).toBeVisible();
 
   await page.getByRole("button", { name: /Classes$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
@@ -180,6 +186,26 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.locator(".media-table").filter({ hasText: "Online Learning Page" })).toBeVisible();
 
   await page.getByRole("button", { name: /Settings$/ }).click();
+  await expect(page.getByRole("heading", { name: "Registration & email" })).toBeVisible();
+  expect(await page.evaluate(async () => (await fetch("/api/v1/auth/register", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "closed-user", displayName: "Closed User", email: "closed@example.org", password: "ClosedAccount42", code: "even-with-a-code" })
+  })).status)).toBe(403);
+  await page.getByLabel("Label", { exact: true }).fill("Browser test registrations");
+  await page.getByLabel("Maximum uses (optional)").fill("2");
+  await page.getByRole("button", { name: "Create code" }).click();
+  await expect(page.getByText("Copy this code now")).toBeVisible();
+  const registrationCode = await page.locator(".secret-reveal code").textContent();
+  expect(registrationCode).toMatch(/^[a-f0-9]{16}$/);
+  const registrationRow = page.locator(".registration-code-list > div").filter({ hasText: "Browser test registrations" });
+  await registrationRow.getByRole("button", { name: "Edit" }).click();
+  const codeDialog = page.getByRole("dialog", { name: "Edit Browser test registrations" });
+  await codeDialog.getByLabel("Maximum uses (leave blank for unlimited)").fill("3");
+  await codeDialog.getByRole("button", { name: "Save limits" }).click();
+  await expect(registrationRow).toContainText("0 of 3 uses");
+  page.once("dialog", dialog => dialog.accept());
+  await registrationRow.getByRole("button", { name: "Revoke" }).click();
+  await expect(registrationRow).toContainText("Inactive");
   await page.getByLabel("Approved folder paths").fill("General\nLessons\nSignage\nAudio/Classroom");
   await page.getByLabel("Approved tags").fill("Reusable\nIntro\nOutro\nReference\nWelcome");
   await page.getByRole("button", { name: "Save approved folders & tags" }).click();
@@ -525,7 +551,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.27.0" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.28.0" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
@@ -549,10 +575,13 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const volunteerRow = page.locator(".user-row").filter({ hasText: "Playback Volunteer" });
   await expect(volunteerRow).toContainText("1 of 8 permissions · custom");
 
-  await page.getByRole("button", { name: /Test Administrator.*Sign out/ }).click();
-  await page.getByLabel("Username").fill("playback-volunteer");
-  await page.getByLabel("Password").fill("PlaybackOnly42");
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: /Test Administrator Updated.*Manage account/ }).click();
+  await page.getByRole("dialog", { name: "Your account" }).getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("heading", { name: "Sign in to LessonCue" })).toBeVisible();
+  const signInCard = page.locator(".auth-card");
+  await signInCard.getByLabel("Username").fill("playback-volunteer");
+  await signInCard.getByLabel("Password").fill("PlaybackOnly42");
+  await signInCard.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("button", { name: /Controller$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /Classes$/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Users$/ })).toHaveCount(0);

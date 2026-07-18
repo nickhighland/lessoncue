@@ -37,6 +37,7 @@ tvos/LessonCueTV.xcodeproj/
 # Local runtime data
 .env
 lessoncue-data/
+server/LessonCue.Server/data/
 *.db
 *.db-shm
 *.db-wal
