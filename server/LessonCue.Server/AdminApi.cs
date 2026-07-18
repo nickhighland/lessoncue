@@ -1494,6 +1494,18 @@ public static class AdminApi
             var screen = await db.Screens.SingleOrDefaultAsync(x => x.Id == id && !x.Revoked, ct);
             if (screen is null) return Results.NotFound();
             var controllerContext = context.Request.Headers["X-LessonCue-Controller"].ToString();
+            if (controllerContext.StartsWith("room:", StringComparison.OrdinalIgnoreCase) ||
+                controllerContext.StartsWith("session:", StringComparison.OrdinalIgnoreCase))
+            {
+                var requireLocal = await db.Organizations.AsNoTracking()
+                    .Select(x => x.RequireLocalRoomControllers).FirstAsync(ct);
+                if (!ControllerAccessPolicy.CanUseRoomController(requireLocal, context.User, context.Request.Host.Host,
+                    context.Connection.RemoteIpAddress))
+                    return Results.Json(new
+                    {
+                        error = "This room controller is restricted to the campus network. Open it from the server's .local address."
+                    }, statusCode: StatusCodes.Status403Forbidden);
+            }
             if (controllerContext.Equals("universal", StringComparison.OrdinalIgnoreCase))
             {
                 var grant = context.Request.Headers["X-LessonCue-Controller-Grant"].ToString();
@@ -1629,6 +1641,7 @@ public static class AdminApi
             organization.WelcomeMessage = input.WelcomeMessage.Trim();
             if (input.AdaptiveTranscodingEnabled is not null) organization.AdaptiveTranscodingEnabled = input.AdaptiveTranscodingEnabled.Value;
             if (input.TranscodeLeadDays is not null) organization.TranscodeLeadDays = Math.Clamp(input.TranscodeLeadDays.Value, 1, 30);
+            if (input.RequireLocalRoomControllers is not null) organization.RequireLocalRoomControllers = input.RequireLocalRoomControllers.Value;
             Audit(db, "organization.update", organization.Id, organization.Name); await db.SaveChangesAsync(ct);
             return Results.Ok(organization);
         });

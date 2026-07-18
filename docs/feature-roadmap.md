@@ -1,6 +1,78 @@
 # LessonCue feature roadmap
 
-This is a comprehensive candidate list, not a promise that every item will be built. LessonCue should remain local-first, dependable during live playback, understandable to occasional operators, usable by schools and churches alike, and installable without a cloud account. Features that weaken those principles should be optional.
+This roadmap retains the completed milestone log and re-prioritizes remaining development around user experience and practical capability. It is a planning document, not a promise that every remaining item will be built.
+
+The order is based on five product priorities:
+
+1. Prepare lesson media reliably.
+2. Organize lessons by classroom and date.
+3. Ensure media is compatible and ready before use.
+4. Play it reliably on TVs, computers, and projectors.
+5. Let a volunteer control it simply from a phone or presentation remote.
+
+## Recommended next priorities
+
+1. [x] **Operator experience quick fixes and control safety (v0.25.0)**: Dismiss confirmation notifications after approximately three seconds; apply room theme colors to controller backgrounds rather than buttons; add controller lock mode; enlarge the primary transport controls; provide clear ready, downloading, offline, reconnecting, and error states; and ensure every command receives visible acknowledgement. Add an administrator option requiring non-administrator room remotes to be opened from the local `.local` server rather than a public domain, ensuring those users must be connected to the campus network to control presentations. *(Implemented and validated.)*
+- [ ] **Priority 1.5 — newest releases from stable GitHub `latest` URLs, with Android TV debug and production builds together**
+  - [x] Stable `/releases/latest/download/` URLs are documented for the server installer, signed TV APK, and debug TV APK.
+  - [x] The tagged-release workflow now requires production signing material, verifies the signing-certificate fingerprint, and packages the signed `lessoncue-tv.apk` beside `LessonCue-AndroidTV-debug.apk`.
+  - [ ] An organization-owned Android production key must be explicitly authorized, backed up, and configured in GitHub Actions before the first paired production/debug release can be published. The workflow intentionally fails instead of publishing an unsigned or unexpectedly signed production APK.
+2. [ ] **Production-ready self-update system for sideloaded Android TV and Google TV**: Implement the updater directly in the existing LessonCue Android TV repository using its current architecture and conventions. Preserve playback, discovery, pairing, caching, and D-pad navigation, and do not perform an unrelated architecture rewrite. The completed implementation must compile, pass applicable tests, and include the following requirements:
+
+   - **Repository discovery before implementation**: Determine whether the project uses Kotlin or Java; Compose for TV, Jetpack Compose, Leanback, or XML views; current minimum, target, and compile SDK levels; networking library; dependency injection; settings storage; application ID and build variants; GitHub Actions workflows; and release-signing configuration. Use complete, type-safe Kotlin unless the project is Java-only.
+   - **Update manifest**: Check a public HTTPS JSON endpoint using this schema:
+
+     ```json
+     {
+       "schemaVersion": 1,
+       "channel": "stable",
+       "versionCode": 15,
+       "versionName": "1.3.0",
+       "apkUrl": "HTTPS_URL_TO_SIGNED_APK",
+       "sha256": "LOWERCASE_SHA256_OF_APK",
+       "fileSize": 28493752,
+       "mandatory": false,
+       "minimumSupportedVersionCode": 1,
+       "releaseNotes": "Description of the changes in this release."
+     }
+     ```
+
+     Reject unsupported schemas, malformed or incomplete manifests, non-HTTPS URLs, releases for another channel, and redirects outside an explicit trusted-host allowlist. Compare `versionCode`, not `versionName`. Add configurable build values for `UPDATE_MANIFEST_URL`, `UPDATE_CHANNEL`, and `UPDATE_ALLOWED_HOSTS`. Never place tokens, signing secrets, or private credentials in the APK.
+   - **Update-check behavior**: Perform a nonblocking check shortly after normal startup, no more than once every 12 hours after the last successful automatic check. Add a manual **Check for updates** action that always contacts the server and visibly reports update available, app current, or unable to check. Use reasonable connection, read, and download timeouts with lifecycle-safe coroutines and cancellation. Background failures must not interrupt normal app use. Do not use the Google Play In-App Updates API.
+   - **Android TV interface**: Provide a large, remote-friendly update screen showing installed version, available version, release notes, approximate size, **Download and update**, **Later** for optional releases, **Cancel download**, progress, errors, and retry. All controls must have visible focus, intentional default focus, predictable D-pad order, and predictable Back behavior. Persist dismissal of an optional `versionCode`, while still showing that update during a manual check. Block normal use only when the update is mandatory and the installed version is below `minimumSupportedVersionCode`; mandatory screens must still provide usable error and retry paths.
+   - **APK download**: Download into an app-private directory such as `cacheDir/updates/`, stream to a temporary `.part` file, enforce a reasonable maximum size, compare byte count with `fileSize` when supplied, rename only after successful completion, delete partial or invalid files, remove obsolete update APKs, and prevent simultaneous downloads. Handle cancellation, process recreation, redirects, network loss, storage failures, and HTTP errors. Use the project’s existing HTTP client unless there is a documented technical reason not to.
+   - **Independent APK verification**: Before opening the installer, verify the manifest SHA-256; application ID; a greater APK `versionCode`; compatibility with the installed signing certificate, including certificate history where applicable; successful Android package parsing; agreement between actual APK version and manifest; and HTTPS plus trusted-host compliance for both original and final URLs. Use `PackageManager.getPackageArchiveInfo` with modern signing flags and compatibility handling for older supported Android versions. Compare installed and downloaded certificate SHA-256 fingerprints. Never disable these checks in release builds.
+   - **Unknown-app permission**: Include `android.permission.REQUEST_INSTALL_PACKAGES` only where appropriate. Check `packageManager.canRequestPackageInstalls()`, explain why permission is needed, open `Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES` with the app package URI when required, recheck on return, avoid settings loops, and provide device-appropriate manual instructions when the settings activity is unavailable.
+   - **Official system installation flow**: Use `PackageInstaller` full-install sessions as the primary mechanism. Set the package name and expected size, stream the verified APK into the session, call `fsync`, and commit through an explicit correctly scoped callback using the required mutable `PendingIntent`. Handle every relevant status, including `STATUS_PENDING_USER_ACTION`, and launch only the system-provided confirmation intent. Handle success, cancellation, blocked installation, invalid APK, storage failure, generic failure, and abandonment of incomplete sessions. Never bypass Android’s confirmation screen or attempt silent installation on ordinary consumer devices. Preserve app data and settings by updating the same application ID with the same signing identity.
+   - **Distribution variants**: When practical, preserve or create `sideload` and `play` variants. The sideload variant includes external update checks, `REQUEST_INSTALL_PACKAGES`, and APK installation. The Play variant excludes that permission, external APK installation behavior, and prompts directing Play users outside Google Play. Avoid introducing flavors if they would unnecessarily break the current build; otherwise isolate updater configuration so a Play-compatible variant can be added later.
+   - **GitHub Releases publishing**: Add or update a workflow triggered by `v*` tags that builds the signed sideload release APK using GitHub Actions secrets, verifies signing, calculates SHA-256, obtains the actual version code and name from the build, generates `update.json`, and publishes `lessoncue-tv.apk`, `lessoncue-tv.apk.sha256`, and `update.json` for that exact tag. The workflow must fail rather than publish an unsigned, incorrectly signed, or incomplete release. Use GitHub’s built-in token or the existing secure release mechanism. For private source repositories, use a safe public release-only repository, public HTTPS endpoint, LessonCue-server update proxy, or public static release directory without embedding repository credentials in the app.
+   - **Signing safeguards**: Preserve the production application ID and signing identity. Require higher `versionCode` values, reject debug-signed production updates, prevent workflows from silently generating a new key, document required secrets and signing-key backup, mask secrets in logs, and never create, overwrite, rotate, or commit a production signing key without explicit authorization.
+   - **Tests and build validation**: Add unit tests for manifest parsing, schema rejection, version comparison, channel filtering, HTTPS and allowlist enforcement, SHA-256 verification, file-size validation, optional dismissal, mandatory-update logic, and malformed responses. Add practical instrumentation or integration coverage for TV focus, manual checks, permission return, cancellation, and installation callbacks. Run the applicable equivalents of `./gradlew test`, `./gradlew lint`, and `./gradlew assembleDebug`, plus the sideload release build when signing is available. Do not claim completion unless the project compiles, and clearly identify anything untested because a device, signing secret, or published test release was unavailable.
+   - **Acceptance testing and documentation**: Document exact Google TV or Android TV tests for current version, optional postponement, manual checks after dismissal, permission denial and approval, canceled or interrupted downloads, incorrect SHA-256, wrong application ID, wrong signing key, lower or equal version code, successful update with settings retained, canceled system confirmation, restart after installation, and full D-pad-only use. Add updater documentation covering architecture, configuration, manifest schema, release creation, GitHub secrets, signing-key backup, safe testing, rollback, why silent installation is unavailable, and how to disable the updater for a future Play build.
+   - **Completion report**: Review every changed file, remove temporary debug code, confirm no credentials or signing materials were added, run available builds and tests, and report files changed, architecture used, remaining configuration, test results, exact first-release publishing steps, and remaining limitations. Apply changes directly to the repository. If direct editing is unavailable, provide the complete contents of every new or modified file rather than partial patches.
+3. [ ] **Web playback client for computers and projectors**: Build a full-screen browser version of the TV client using the same manifest, acknowledgement, heartbeat, and controller protocols. Support keyboard and presentation-remote control, automatic reconnection, preloading where browser limits permit, kiosk-friendly startup, and clear handling of autoplay restrictions.
+4. [ ] **SaaS registration and account self-service**: Add self-service registration with email verification, profile editing for name, email, username, and password, password recovery, administrator account controls, secure expiring tokens, rate limiting, and configurable Resend and Brevo delivery. Administrators can open registration publicly, close registration completely without requiring or accepting a code, or require a registration code. Administrators can create, replace, rotate, expire, and revoke registration codes to reduce spam or unauthorized signups. Preserve a local administrator-created-account path for installations that do not configure email.
+5. [ ] **Intel Quick Sync transcoding acceleration**: Detect compatible Intel hardware and FFmpeg capabilities automatically; allow administrator enable or disable control; accelerate the existing TV-safe and adaptive transcoding queues; validate generated output; report active hardware acceleration and failures; and fall back safely to software transcoding.
+6. [ ] **Simple and Advanced editing modes with core playback controls**: Keep the default editor focused on common tasks while placing specialized tools behind an Advanced toggle. Add fit, fill, and letterbox behavior; rotate; basic crop; per-item and per-lesson volume and mute; playback speed; repeat count; end behavior; still-image and slide duration; background color; and simple transitions.
+7. [ ] **Signage scheduling and lesson-mode integration**: Add recurring signage schedules, date and time exclusions, priority and conflict rules, screen targeting, proof of readiness, and automatic return to lesson mode. Reuse the existing media library, schedules, screens, caching, and playback acknowledgement wherever practical.
+8. [ ] **Multi-zone signage and approved information widgets**: Support layouts containing media, text, clocks, calendars, weather from administrator-approved sources, menus, RSS, and other allowlisted data widgets with cached fallback content. Keep layout creation understandable to nontechnical administrators.
+9. [ ] **Lesson planning and run-of-show improvements**: Add teacher notes for each item on the mobile controller; substitute notes; printable run sheets; estimated and remaining duration; overrun warnings; flexible-time markers; conflict warnings; improved day, week, month, agenda, and room views; copy or move between classes and dates; and optional livestream monitoring during pre-roll.
+10. [ ] **Media upload and library workflow improvements**: Add resumable uploads, pause and retry, folder drag-and-drop, transfer progress, duplicate and near-duplicate detection, safe reference consolidation, favorites and collections, improved search, and administrator-defined storage and upload limits by server, user, role, class, file size, codec, or daily quota.
+11. [ ] **Operational readiness dashboard and alerts**: Focus reporting on lesson readiness, screen uptime, media cache state, download failures, storage growth, client versions, playback acknowledgements, and pre-class warnings. Exclude behavioral or productivity profiling of individual users.
+12. [ ] **Essential screen management without enterprise fleet management**: Keep screen groups, assignments, tags, saved filters, detailed heartbeat, cache inventory, download retry, remote cache purge, re-download, application restart, diagnostics export, kiosk checks, startup validation, screen-saver suppression, and incompatible-version alerts. Do not expand this into full device-management infrastructure.
+13. [ ] **Mobile administration, onboarding, and simplified volunteer workflows**: Add role-specific dashboards, contextual onboarding, a dismissible setup checklist, favorites, recent items, a simplified volunteer controller, temporary and event-only accounts, urgent mobile schedule and account changes, and clearer separation between planning, administration, and live playback.
+14. [ ] **Optional accessibility and usability modes**: Add user-controlled toggles for high contrast, reduced motion, larger touch targets, simplified controller layouts, low-vision support, limited-motor-control support, and cognitive-simplicity modes so accessibility-oriented interface changes apply only to users who enable them. Maintain baseline keyboard navigation, visible focus, logical headings, screen-reader announcements, and color-safe status indicators for all users.
+15. [ ] **Focused installation and distribution support**: Formally support Windows, Debian or Ubuntu Linux, Docker, and Unraid. Include guided checks for ports, mDNS, time synchronization, FFmpeg, storage permissions, firewall rules, health checks, backup paths, and upgrade compatibility. Treat RPM Linux, native macOS server packages, Podman, and broad ARM packaging as unsupported or community-maintained unless demand changes.
+16. [ ] **Security baseline for SaaS and remote access**: Add secure registration and recovery flows, session management, login rate limits, global session revocation, trusted-proxy controls, HTTPS validation, secret rotation, signed release metadata, dependency and secret scanning, backup encryption where practical, and privacy controls for screenshots, logs, and operational reporting. Enforce the administrator-selected local-only restriction for non-administrator room remotes at the server, not only in the interface. Avoid enterprise identity and governance requirements.
+17. [ ] **Rule-based operational automation**: Add narrowly scoped rules such as notifying a coordinator when all assigned screens are ready, warning when media preparation will miss a scheduled lesson, or triggering an approved signage state. Keep automation local and transparent.
+18. [ ] **Validated backup, restore, migration, and rollback improvements**: At low priority, retain scheduled local backups, backup verification, guided restore tests, database integrity checks, corruption safe mode, server migration, and safe software rollback. Keep the existing validated browser restore workflow as the foundation.
+19. [ ] **Local captions, transcripts, chapters, and searchable content**: At low priority, support optional local models for transcript, caption, chapter, and searchable-content generation, with explicit administrator control and no required cloud processing.
+20. [ ] **Precisely synchronized multi-screen playback**: At low priority, add measured clock offset, latency compensation, drift correction, and readiness checks for installations that require coordinated playback across multiple screens.
+21. [ ] **Audience interaction**: At very low priority, support local polls, response devices, or QR response collection with strict privacy controls, limited retention, moderation safeguards, and clear separation from the core playback workflow.
+22. [ ] **Advanced editing and playback tools**: At very low priority, consider editable fade curves, sophisticated crossfades, loudness normalization, audio ducking, background audio across multiple items, pan and zoom animation, gapless playback across media types, and supported offline webpage packaging. These should remain hidden behind Advanced mode and should not delay core reliability or operator usability.
+## Scope boundary
+
+LessonCue remains centered on preparing media, organizing lessons, confirming readiness, playing reliably across common display hardware, and making live control simple for volunteers. SaaS onboarding, budget-hardware optimization, and signage remain intentional product capabilities within that boundary.
 
 ## Implemented roadmap milestones
 
@@ -22,195 +94,3 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 - [x] **Validated browser backup restore (v0.13.0)** — staged ZIP and SQLite validation, record and media preview, explicit confirmation, disk-space protection, serialized restore mode, automatic full safety backup, database rollback on failure, optional media replacement, and preservation of server-local identity and connection settings.
 - [x] **Visual timeline editor (v0.12.0)** — local filmstrip and waveform generation, visual in/out and fade controls, 0.04-second keyboard nudging, selection preview, validated named cue markers, TV manifest delivery, and jump-to-cue controls on the cellphone controller.
 - [x] **Playback acknowledgement and live state (v0.10.0)** — Android TV and Apple TV report the command version actually received, current lesson and cue, state, elapsed time, duration, volume, cache readiness, device details, and playback errors. The phone controller receives local SignalR updates with polling fallback, and the Screens page exposes the same self-hosted diagnostics.
-
-## Recommended next priorities
-
-1. [x] **Visual timeline editor (v0.12.0)** — waveform and filmstrip-based trim, fade, chapter, and cue editing with frame-accurate preview.
-2. [x] **Playback acknowledgement and live state (v0.10.0)** — show which cue is actually playing, progress, volume, cache readiness, and whether each controller command reached the screen.
-3. [ ] **Automated browser and hardware playback tests** — exercise uploads, lesson editing, pre-roll, countdown transitions, controller commands, offline recovery, and upgrades on real TV devices. _The headless browser suite now configures a fresh local server, uploads an intentionally mislabeled AVI/MPEG-4/MP3 video through a lesson, waits for its H.264/AAC TV derivative, validates MP4 range delivery, edits and saves visual fades, exercises templates/schedules, verifies backup restore, and proves a custom playback-only account receives HTTP 403 for planning and user administration while retaining controller authority. Native state-machine and compile tests cover countdown scheduling and remote media navigation; physical Android TV and Apple TV, offline recovery, controller, and upgrade matrices remain._
-4. [x] **Restore workflow in Settings (v0.13.0)** — upload and validate a backup, preview its contents, restore it safely, and automatically preserve the pre-restore state.
-5. [x] **Media organization and versioning (v0.14.0)** — build on the existing bulk deletion and retention controls with tags, folders, replacement versions, reprocessing, and impact previews.
-6. [x] **Presentation conversion (v0.15.0)** — convert PowerPoint, Keynote-exported PDF, and common document formats into screen-ready slide sequences.
-7. [x] **Reusable templates and recurring schedules (v0.16.0)** — create a standard lesson structure, generate dated instances, and handle holiday exceptions.
-8. [x] **Granular permissions (v0.17.0)** — separately control planning, uploads, playback, screen administration, user administration, settings, backups, and updates.
-9. [x] **Screen diagnostics (v0.18.0)** — cache inventory, download queue, decoder capabilities, recent errors, clock drift, network quality, and privacy-gated one-time screenshots with visible TV notice and automatic expiry.
-10. [x] **Bulk editing (v0.19.0)** — multi-file uploads from lessons and the library; multi-select lesson archive, restore, move, date/time shift, rename, and delete; playlist role, volume, ending, skip, rename, and removal; and media rename, folder/tag, retention, and deletion actions.
-11. [x] **Cloudflare integration (v0.20.0)** — optional administrator-controlled Cloudflare Tunnel installation, credential rotation/removal, dedicated public hostname guidance, edge-connection status, and Cloudflare Access warning while local-only operation remains the default.
-12. [x] **Dedicated classroom playback landing pages (v0.21.0)** — administrator-assigned `/room/...` paths and optional Cloudflare hostnames, per-class themes, classroom- or lesson-targeted local QR generation, phone Home Screen support, server-enforced room scope, a Settings-managed PIN for `/universalremote`, and expiring class/lesson-restricted temporary controller sessions.
-13. [x] **Editable classrooms and administrator recycling bin (v0.22.0)** — classrooms can be edited, themed, addressed, and removed; lessons and media retain their existing create/edit/rename/remove workflows; deletions move classes, lessons, and media into an administrator-only 30-day recycling bin with restore and purge-all controls; scheduled cleanup permanently removes expired records and files.
-14. [x] **Adaptive server-side transcoding (v0.23.0)** — generate reusable 720p and 480p H.264/AAC copies locally, choose a profile per screen from its decoder/network/storage report, prepare assigned lesson media ahead of time, expose queue and failure state, and keep the universal 1080p copy as a safe fallback.
-15. [x] **Administrator-managed media folders and tags (v0.24.0)** — uploaders choose from administrator-approved hierarchical folders and tags in both lesson and library workflows; existing values migrate automatically and the server rejects unapproved organization values.
-16. [ ] **Editing and playback expansion** — focus on the unchecked items in the Editing and playback section, beginning with a simple/advanced editing mode and core crop, fit/fill, volume, playback-speed, repeat, and transition controls.
-17. [ ] **Web version of Android TV app** so it can be accessed by PC and shown on the full screen and controlled by keyboard or presentation remote.  This will allow for better preview and for projectors and screens attached to compete to be used as presentation devices.
-18. [ ] **quickfixes** Make the little pop up confirmation boxes that appear in the top right corner disappear after three seconds. also, the room themes on the remote should change the background color, not button color.
-19. [ ] **Optimize server transcoding of Intel quicksync is available.**
-20. [ ] **Self-service registration** with admin approval or with a registration code to skip admin approval, and profile editing for a signed-in user's own name, email, username, and password with email integration through Resend and Brevo. also password reset through those services. 
-
-## Administration and user experience
-
-- Invitations with expiring setup links or administrator-generated one-time passwords.
-- Forced password change at first sign-in and administrator-controlled password expiration policies.
-- Granular custom roles and permissions instead of only the four built-in roles.
-- Temporary, substitute, volunteer, and event-only accounts with automatic expiration.
-- Active-session list with device, approximate network address, last activity, and remote sign-out.
-- In-app change history with undo for common lesson, media, signage, screen, and settings operations.
-- Global command palette, keyboard shortcuts, recently visited items, favorites, and saved filters.
-- Contextual onboarding, sample tours, role-specific dashboards, and a dismissible operator checklist.
-- Configurable home dashboard cards and organization-wide announcement banners.
-- Mobile administration for urgent schedule and account changes, not only playback control.
-- Per user and Per Server storage limits.  Administrators can assign storage limits to teachers to prevent one or two individuals from using excessive storage.
-
-
-## Lessons, planning, and scheduling
-
-- Lesson templates with placeholder slots, default trims, standard pre-roll, countdown, and outro content.
-- Recurring lesson generation with weekly, monthly, term-based, and custom recurrence rules.
-- Copy or move a complete lesson between classes, dates, campuses.
-- Multi-select lesson operations, bulk archive, and batch date shifting.
-- Conflict warnings for overlapping schedules, shared screens, missing files, or insufficient download time.
-- Calendar day, week, month, agenda, and room views.
-- Teacher notes on the mobile interface for each media item.
-- Substitute-operator notes, printable run sheets, and QR codes that open the correct controller view.
-- Estimated total duration, remaining duration, overrun warnings, flexible-time markers, and automatic compression suggestions.
-- Pre-roll can play a livestream (locally streamed rtmp or youtube). In churches, this would allow users to monitor the service for children's dismissals.
-
-## Media library and content lifecycle
-
-- Folders, tags, collections, favorites.
-- Full-text search across filenames, titles, notes, captions, transcripts, and lesson usage.
-- Bulk upload, drag-and-drop folders, background transfers, pause/resume, retry, and resumable browser sessions.
-- Duplicate and near-duplicate detection with safe consolidation of lesson references.
-- Administrator-defined upload limits by role, user, class, file size, codec, and daily quota.
-- Automatic thumbnails, contact sheets, waveform previews, scene detection, and poster-frame selection.
-- Configurable transcoding profiles by screen capability and network bandwidth, determined by administrator on the backend in settings.
-- Background reprocessing when codec policy or target hardware changes.
-## Editing and playback
-
-- Filmstrip and waveform timeline with frame-accurate in/out points and keyboard nudging.
-- Editable fade curves, crossfades, audio-only fades, normalization, ducking, and loudness targets.
-- Crop, rotate, aspect-ratio fit/fill, safe-area guides, image pan/zoom, and background color or blur.
-- Per-item and per-lesson volume, mute, playback speed, repeat count, and end behavior.
-- Gapless playback and prebuffering for seamless transitions.
-- Configurable transitions between every supported media type.
-- Still-image and slide duration defaults with per-item overrides.
-- Background audio that continues across images or slides.
-- Synchronized playback across multiple screens with clock-drift correction.
-- Blackout, freeze, logo, clear, stop-all, and emergency-override controls.
-- Offline webpage packaging for explicitly supported HTML content, with sandboxing and asset validation.
-- PDF and presentation conversion into high-resolution, remote-navigable slide sequences.
-- Priority on user-friendliness.  "Simple" and "Advanced" toggles to keep more complicated features (like crossfades, cropping, etc.) hidden from beginners.
-
-## Cellphone controller
-**all controls run in browser, not app. can be saved on apple and android devices as a web app. 
-- Live “now playing” title, artwork, elapsed time, remaining time, state, volume, and screen acknowledgement.
-- Low-latency push updates through SignalR with polling fallback.
-- Volume, mute, blackout, freeze, logo, restart item, jump-to-cue, and emergency-stop controls.
-- Lock mode that prevents accidental taps while preserving the transport display.
-- Haptic, audio, or visual acknowledgement of accepted and completed commands.
-- Favorites and a simplified volunteer layout limited to approved actions.
-- QR-code launch into a particular room, lesson, or restricted temporary controller session.
-- Control of screen groups with clear partial-success reporting.
-- Handoff between operators and visible control ownership to prevent competing commands.
-
-## Screens and device fleet
-
-- Screen groups, room profiles, site hierarchy, tags, saved filters, and bulk assignments.
-- Detailed heartbeat with app version, OS version, device model, display mode, uptime, free space, and temperature where available.
-- Download queue, item-level cache verification, retry controls, bandwidth, and estimated readiness time.
-- Remote cache purge, re-download, app restart, device reboot, and diagnostics bundle where platform APIs permit.
-- Privacy-controlled current-frame screenshot with an on-screen indicator and audit event.
-- Codec, resolution, audio-output, and web-content capability reporting.
-- Clock synchronization and drift alerts for duration-aware countdowns and multi-screen playback.
-- Scheduled bandwidth windows and rate limits to protect shared networks.
-- Kiosk setup, start-on-boot validation, screen-saver suppression, and HDMI-CEC power scheduling.
-- Device configuration profiles with staged rollout and drift detection.
-- App update rings, minimum supported version, maintenance windows, rollback, and incompatible-version alerts.
-- Screen replacement wizard that transfers assignment and revokes the previous credential.
-
-## Signage and communications
-
-- Multi-zone layouts containing media, text, clocks, weather from an administrator-approved source, and calendars.
-- Recurring signage schedules, priority rules, exclusions, and campus-specific targeting.
-- Emergency presets with explicit authorization, confirmation, expiration, and all-clear workflow.
-- CAP or other standards-based emergency feed integration when locally required.
-- RSS, calendar, menu, or data-driven widgets using allowlisted sources and cached fallback content.
-- Signage proof-of-play history and screen acknowledgement reports.
-- Automatic return to lesson mode with transition and conflict rules.
-
-## Accessibility and localization
-
-- WCAG 2.2 AA review of every browser workflow and automated accessibility checks in CI.
-- Complete keyboard navigation, visible focus, skip links, logical headings, and screen-reader announcements.
-- High-contrast themes, contrast validation for custom branding, color-blind-safe statuses, and reduced motion.
-- Larger text and touch targets, compact and comfortable density settings, and dyslexia-friendly font option.
-- Captions, transcripts, audio descriptions, sign-language video variants, and accessible media warnings.
-- Interface translation framework with organization and per-user language selection.
-- Locale-aware dates, times, time zones, week starts, number formats, and right-to-left layouts.
-- Controller modes designed for low vision, motor accessibility, and cognitive simplicity.
-- Automated detection of missing captions, insufficient contrast, flashing content, and unreadable slide text where feasible.
-
-## Reliability, backup, and recovery
-
-- Restore from the browser with validation, preview, automatic safety snapshot, progress, and health check.
-- Scheduled encrypted backups with retention and destinations on local disk, NAS, SFTP, or administrator-chosen storage.
-- Backup verification jobs and periodic guided restore drills.
-- Point-in-time database recovery and media checksum reconciliation.
-- Exportable disaster-recovery bundle containing configuration, credentials recovery guidance, package version, and checksums.
-- Database integrity checks, repair guidance, and read-only safe mode after corruption is detected.
-- Power-loss-safe media ingestion and transactional manifest publishing.
-- Clear degraded-mode UI when thumbnailing, transcoding, updates, backups, or storage are unhealthy.
-- End-to-end synthetic readiness check that follows the same manifest and file paths as a real TV.
-- High-availability options for larger installations, while retaining a simple single-server default.
-- Server migration wizard that preserves server identity intentionally or establishes a clean new identity.
-- Configurable log retention, structured diagnostics export, and automatic redaction of secrets.
-- UPS status integration and graceful shutdown hooks on supported local infrastructure.
-
-## Security and governance
-
-- Passkeys, TOTP, recovery codes, optional LDAP/OIDC/SAML, and organization-enforced authentication policy.
-- Granular permissions, separation of duties, approval for destructive operations, and emergency-access accounts.
-- HTTPS setup guidance and validation for reverse proxies, local certificate authorities, and managed devices.
-- Signed release metadata, package signature verification, software bill of materials, and published provenance attestations.
-- Configurable session lifetime, idle timeout, remembered-device policy, and global session revocation.
-- IP or subnet allowlists, trusted-proxy configuration, login alerting, and local rate-limit controls.
-- Audit search, filtering, retention, tamper-evident export, and forwarding to a local SIEM or syslog receiver.
-- Encryption options for backups and selected sensitive configuration with documented key recovery.
-- Secret rotation for device credentials, API tokens, signing keys, and update credentials.
-- Privacy controls for screenshots, analytics, logs, media metadata, and user activity retention.
-- Data export and deletion tools that support organizational governance requirements.
-- Security headers and content sandbox profiles tailored separately for admin pages, previews, and allowed web media.
-- Vulnerability scanning, dependency review, secret scanning, and routine threat-model updates in CI.
-
-## Integrations and extensibility
-
-- Calendar connectors and standards-based iCalendar feeds.
-- OBS, ProPresenter, Bitfocus Companion, Stream Deck, NDI, MIDI, OSC, and GPIO integrations.
-
-## Reporting and analytics
-
-- Privacy-preserving local dashboard for lesson readiness, screen uptime, download failures, and storage growth.
-- Playback event history showing what was requested, acknowledged, started, completed, skipped, or failed.
-- Screen reliability, app-version, and cache-readiness reports by site and room.
-- Pre-class readiness alerts at configurable intervals.
-- Capacity forecasts for storage, bandwidth, device fleet, and upcoming scheduled content.
-- Operator activity and audit summaries with permission-aware detail.
-- No external telemetry by default; any diagnostics sharing should be explicit, reviewable, and revocable.
-- Administrators can access detailed reports of user patterns.
-
-## Installation, updates, and distribution
-
-- Signed native packages for Debian/Ubuntu, RPM-based Linux, Windows, macOS development, and common ARM systems.
-- Docker and Podman images with pinned versions, health checks, backup examples, and upgrade guidance.
-- Unraid images and setup guide.
-- Guided first-run checks for port conflicts, mDNS, time synchronization, FFmpeg, storage permissions, and firewall rules.
-- Update channels for stable, preview, and development releases, with per-server maintenance windows.
-- Compatibility matrix covering server, Android/Fire TV, tvOS, database, and protocol versions.
-- Visible update progress, automatic rollback detail, release history, and manual rollback from Settings.
-
-## Advanced and future ideas
-
-- Precisely synchronized multi-room or multi-screen playback using measured clock offset and network latency.
-- Audience interaction through local polls, response devices, or QR codes with strict privacy controls.
-- Automatic transcript, chapter, caption, and searchable-content generation through optional local models.
-- Rule-based automation such as “when every screen is ready, notify the coordinator.”
-- Read-only public schedule or lobby page hosted by the local server.

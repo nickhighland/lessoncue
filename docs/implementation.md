@@ -144,7 +144,19 @@ gradle -p android-tv :app:testDebugUnitTest :app:assembleDebug
 
 The app uses a LEANBACK launcher, Compose focusable surfaces, Media3/ExoPlayer, DataStore credentials, and WorkManager caching. The API client implements discovery, pairing, manifest parsing, and authenticated downloads. Its lesson-detail route combines pre-roll, countdown, and normal cues in one D-pad focus list; focus changes explicitly bring rows into view so a remote can scroll beyond the visible screen before starting any cue.
 
-Before managed-store distribution, provision an organization-owned signing key, exercise Fire OS background behavior on each supported model, and complete accessibility/device certification. The included worker persists manifests and media, validates hashes, and reports download health; Media3 `DownloadService` remains an optional scale upgrade for very large fleets.
+Tagged GitHub releases require an organization-owned Android signing key and deliberately fail instead of publishing an unsigned or unexpectedly signed production APK. Configure these GitHub Actions secrets:
+
+- `ANDROID_SIGNING_KEY_BASE64`: the existing JKS or PKCS12 keystore, base64 encoded as one line.
+- `ANDROID_SIGNING_KEYSTORE_PASSWORD`
+- `ANDROID_SIGNING_KEY_ALIAS`
+- `ANDROID_SIGNING_KEY_PASSWORD`
+- `ANDROID_SIGNING_CERT_SHA256`: the signing certificate SHA-256 fingerprint. Colons and letter case are ignored.
+
+Keep an offline backup of the keystore and passwords. Losing or replacing the key prevents installed TVs from accepting future in-place updates. Never commit the keystore or passwords. The workflow publishes the signed `lessoncue-tv.apk` and `LessonCue-AndroidTV-debug.apk` together; both have stable URLs beneath `/releases/latest/download/`.
+
+The production identity established for `org.lessoncue.tv` has signing-certificate SHA-256 fingerprint `E875F8F9F4E80494DF1658D5E59662BE1048D7CD5D53DB2131103051352F64AE`. Treat any production APK with a different fingerprint as invalid.
+
+Before managed-store distribution, exercise Fire OS background behavior on each supported model and complete accessibility/device certification. The included worker persists manifests and media, validates hashes, and reports download health; Media3 `DownloadService` remains an optional scale upgrade for very large fleets.
 
 ## Apple TV
 

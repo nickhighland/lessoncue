@@ -215,7 +215,19 @@ The first response should say `healthy`; the second should report the server ide
 
 ## Android TV and Fire TV
 
-Download `LessonCue-AndroidTV-debug.apk` from a workflow artifact or release. Enable installation from unknown sources only for the file-manager or deployment tool you use, install the APK, then disable that permission again. For managed or store distribution, build a signed release APK/AAB with your own keystore.
+For ordinary sideloading, download the production-signed APK from the same stable latest-release address:
+
+```text
+https://github.com/nickhighland/lessoncue/releases/latest/download/lessoncue-tv.apk
+```
+
+The matching test build remains available alongside it:
+
+```text
+https://github.com/nickhighland/lessoncue/releases/latest/download/LessonCue-AndroidTV-debug.apk
+```
+
+Use the debug build only for testing. Enable installation from unknown sources only for the file-manager or deployment tool you use, install the APK, then disable that permission again.
 
 On first launch:
 
