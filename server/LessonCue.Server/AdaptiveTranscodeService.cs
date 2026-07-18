@@ -148,7 +148,7 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
             var filter = $"scale=w='min({profile.Width},iw)':h='min({profile.Height},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2";
             var output = $" -c:a aac -b:a {profile.AudioBitrateKbps}k -ar 48000 -ac 2 -sn -dn -movflags +faststart \"{Escape(work)}\"";
             var hardwareArgs = "-nostdin -hide_banner -loglevel error -nostats -y " +
-                "-init_hw_device qsv=lessoncue -filter_hw_device lessoncue " +
+                $"{hardware.DeviceArguments} " +
                 $"-i \"{Escape(source)}\" -map 0:v:0 -map 0:a:0? " +
                 $"-vf \"{filter},format=nv12,hwupload=extra_hw_frames=64\" " +
                 $"-c:v h264_qsv -preset medium -global_quality {profile.Crf} -maxrate {profile.VideoBitrateKbps}k " +
