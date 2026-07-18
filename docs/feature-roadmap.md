@@ -44,7 +44,7 @@ This is a comprehensive candidate list, not a promise that every item will be bu
 17. [ ] **Web version of Android TV app** so it can be accessed by PC and shown on the full screen and controlled by keyboard or presentation remote.  This will allow for better preview and for projectors and screens attached to compete to be used as presentation devices.
 18. [ ] **quickfixes** Make the little pop up confirmation boxes that appear in the top right corner disappear after three seconds. also, the room themes on the remote should change the background color, not button color.
 19. [ ] **Optimize server transcoding of Intel quicksync is available.**
-20. Self-service registration with admin approval or with a registration code to skip admin approval, and profile editing for a signed-in user's own name, email, username, and password with email integration through Resend and Brevo. also password reset through those services. 
+20. [ ] **Self-service registration** with admin approval or with a registration code to skip admin approval, and profile editing for a signed-in user's own name, email, username, and password with email integration through Resend and Brevo. also password reset through those services. 
 
 ## Administration and user experience
 
