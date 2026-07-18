@@ -2,6 +2,7 @@ import { CSSProperties, FormEvent, ReactNode, useEffect, useRef, useState } from
 import { createRoot } from "react-dom/client";
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
 import QRCode from "qrcode";
+import { WebPlayerApp } from "./WebPlayer";
 import "./styles.css";
 
 type Permission = "planning.manage" | "uploads.manage" | "playback.control" | "screens.manage" | "users.manage" | "settings.manage" | "backups.manage" | "updates.manage";
@@ -126,6 +127,11 @@ async function uploadMediaFile(file: File, options: { persistent: boolean; lesso
 }
 
 function App() {
+  if (isWebPlayerPath(location.pathname)) return <WebPlayerApp />;
+  return <AdminApp />;
+}
+
+function AdminApp() {
   const [session, setSession] = useState<Session>();
   const [view, setView] = useState<View>(isControllerPath(location.pathname) ? "controller" : "dashboard");
   const [notice, setNotice] = useState("");
@@ -135,6 +141,10 @@ function App() {
   if (!session.authenticated) return <Auth session={session} onAuthenticated={() => api<Session>("/api/v1/auth/session").then(setSession)} />;
   return <Shell view={view} setView={setView} username={session.displayName || session.username || "admin"} currentUsername={session.username || ""} role={session.role || "Viewer"} permissions={session.permissions || []} notice={notice} setNotice={setNotice}
     onLogout={async () => { await api<void>("/api/v1/auth/logout", { method: "POST", body: "{}" }); setSession({ ...session, authenticated: false, setupRequired: false }); }} />;
+}
+
+function isWebPlayerPath(path: string) {
+  return path === "/player" || path === "/display";
 }
 
 function Splash() {
@@ -798,6 +808,7 @@ function ScreensView({ screens, classes, pin, refresh, notify, canManage }: { sc
   async function requestScreenshot(screen: Screen) { setBusy(screen.id); try { await api(`/api/v1/screens/${screen.id}/diagnostics/screenshot-request`, { method: "POST", body: "{}" }); notify("One-time screenshot requested. The TV will show a visible notice before capture."); setTimeout(() => { setScreenshotNonce(Date.now()); refresh(); }, 4_000); refresh(); } catch (e) { notify(errorText(e)); } finally { setBusy(undefined); } }
   async function deleteScreenshot(screen: Screen) { setBusy(screen.id); try { await api(`/api/v1/screens/${screen.id}/diagnostics/screenshot`, { method: "DELETE" }); refresh(); notify("Diagnostic screenshot deleted."); } catch (e) { notify(errorText(e)); } finally { setBusy(undefined); } }
   return <><PageHead eyebrow="PLAYBACK DEVICES" title="Screens" detail="Pair TVs, assign a class, and inspect cache, downloads, codecs, timing, network quality, and recent errors." action={canManage && pin ? <div className="pin-card"><span>PAIRING PIN</span><strong>{pin}</strong></div> : undefined} />
+    <section className="panel browser-player-intro"><div><span className="eyebrow">COMPUTERS &amp; PROJECTORS</span><h2>Use this server as a full-screen display</h2><p>Open the browser player on the presentation computer, pair it with the PIN above, and control it exactly like a TV. Add <code>?kiosk=1</code> for a clean startup view.</p><small>{location.origin}/player</small></div><div className="card-actions"><a className="button primary" href="/player" target="_blank" rel="noreferrer">Open browser player ↗</a><a className="button" href="/player?kiosk=1" target="_blank" rel="noreferrer">Open kiosk player ↗</a></div></section>
     <section className="panel"><div className="screen-grid">{active.length ? active.map(s => {
       const cache = parseDiagnosticJson<CacheDiagnostic>(s.cacheInventoryJson);
       const downloads = parseDiagnosticJson<DownloadDiagnostic>(s.downloadQueueJson);
