@@ -406,6 +406,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     requestedProfile: "h264-480", selectedProfile: "h264-480" });
 
   await page.getByRole("button", { name: /Screens$/ }).click();
+  await expect(page.getByRole("link", { name: "Open browser player ↗" })).toHaveAttribute("href", "/player");
+  await expect(page.getByRole("link", { name: "Open kiosk player ↗" })).toHaveAttribute("href", "/player?kiosk=1");
   await expect(page.locator('input.screen-name-input[value="Browser Test TV"]')).toBeVisible();
   await page.getByRole("button", { name: "View diagnostics" }).click();
   await expect(page.getByText("Cached welcome", { exact: true })).toBeVisible();
@@ -492,6 +494,46 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   });
   expect(lessonBulkApi).toEqual({ statuses: [200, 200, 200, 200, 200], moved: true, shifted: true });
 
+  const browserPlayerPin = await page.evaluate(async () =>
+    (await fetch("/api/v1/admin/bootstrap").then(response => response.json())).pairingPin as string);
+  await page.goto("/player");
+  await expect(page.getByRole("heading", { name: "Pair this computer or projector" })).toBeVisible();
+  await page.getByLabel("Display name").fill("Browser Test Projector");
+  await page.getByRole("button", { name: "Start pairing" }).click();
+  await page.getByLabel("Six-digit pairing PIN").fill(browserPlayerPin);
+  await page.getByRole("button", { name: "Pair this display" }).click();
+  await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+
+  const browserPlayback = await page.evaluate(async () => {
+    const identity = JSON.parse(localStorage.getItem("lessoncue.web-player.identity.v1") || "{}");
+    const lessons = await fetch("/api/v1/lessons").then(response => response.json());
+    const lesson = lessons.find((entry: { items: { title: string }[] }) => entry.items.some(item => item.title === "Browser Test Audio"));
+    const item = lesson.items.find((entry: { title: string }) => entry.title === "Browser Test Audio");
+    const response = await fetch(`/api/v1/screens/${identity.screenId}/control`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "play", lessonId: lesson.id, itemId: item.id }),
+    });
+    const command = await response.json();
+    return { screenId: identity.screenId, lessonId: lesson.id, itemId: item.id, version: command.version, status: response.status };
+  });
+  expect(browserPlayback.status).toBe(202);
+  await expect(page.getByText("Browser Test Audio", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Start browser playback/ })).toBeVisible();
+  await expect.poll(() => page.evaluate(async ({ screenId, version }) => {
+    const screens = await fetch("/api/v1/screens").then(response => response.json());
+    const screen = screens.find((entry: { id: string }) => entry.id === screenId);
+    return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.27.0" });
+  await page.getByRole("button", { name: /Start browser playback/ }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
+  await expect(page.getByText("Browser Test Audio", { exact: true })).toHaveCount(0);
+
+  await page.goto("/");
   await page.getByRole("button", { name: /Users$/ }).click();
   await page.getByRole("button", { name: "Add user" }).click();
   const userDialog = page.getByRole("dialog", { name: "Add a local user" });

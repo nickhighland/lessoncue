@@ -131,6 +131,19 @@ The native Android TV, Fire TV, and Apple TV interfaces also let an operator cho
 
 On iPhone or iPad, tap **Share**, then **Add to Home Screen**. On Android, open the browser menu and tap **Add to Home screen** or **Install app** when offered. This saves the local browser controller as an app-like icon; it does not install a separate LessonCue phone binary or connect to a hosted service.
 
+### Use a computer or projector as a playback screen
+
+Open **Screens** and select **Open browser player**, or browse directly to:
+
+```text
+http://lessoncue.local/player
+http://SERVER-IP/player
+```
+
+Name the display, start pairing, and enter the six-digit PIN from **Screens**. The paired browser receives the same assigned manifests, phone-controller commands, acknowledgements, heartbeats, pre-roll, countdown, trims, fades, signage, and online media as a native TV client. Use `/player?kiosk=1` for the clean kiosk startup view. Select **Enter full screen**, then approve **Start browser playback** when the browser requests the first user gesture for audible media.
+
+See the [browser playback client guide](browser-player.md) for keyboard and presentation-remote controls, kiosk startup, diagnostics, autoplay behavior, and recovery.
+
 ## Before you begin
 
 Choose a server with:
