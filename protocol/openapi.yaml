@@ -1002,12 +1002,212 @@ paths:
         '204': { description: User deleted }
         '400': { description: Self-deletion or final active owner protection }
         '404': { description: User not found }
+  /api/v1/auth/register:
+    post:
+      operationId: registerAccount
+      description: Creates an unverified Viewer when the administrator-selected registration mode permits it. Closed mode rejects codes as well as uncoded requests.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegistrationInput' }
+      responses:
+        '202': { description: Account created and verification message requested }
+        '400': { description: Invalid account details or registration code }
+        '403': { description: Registration is closed }
+        '409': { description: Account already exists or email is unavailable }
+        '429': { description: Account request limit reached }
+  /api/v1/auth/verify:
+    post:
+      operationId: verifyAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TokenInput' }
+      responses:
+        '200': { description: Email verified }
+        '400': { description: Token is invalid, used, or expired }
+        '429': { description: Account request limit reached }
+  /api/v1/auth/verification/resend:
+    post:
+      operationId: resendAccountVerification
+      description: Always returns a generic accepted response to reduce account discovery.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmailInput' }
+      responses:
+        '202': { description: Generic verification response }
+        '429': { description: Account request limit reached }
+  /api/v1/auth/password/forgot:
+    post:
+      operationId: requestPasswordRecovery
+      description: Always returns a generic accepted response to reduce account discovery.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmailInput' }
+      responses:
+        '202': { description: Generic recovery response }
+        '429': { description: Account request limit reached }
+  /api/v1/auth/password/reset:
+    post:
+      operationId: resetPasswordWithToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordResetInput' }
+      responses:
+        '200': { description: Password changed and prior sessions invalidated }
+        '400': { description: Invalid password or token }
+        '429': { description: Account request limit reached }
+  /api/v1/auth/profile:
+    get:
+      operationId: getOwnProfile
+      responses:
+        '200': { description: Current account profile }
+        '401': { description: Sign-in required }
+    put:
+      operationId: updateOwnProfile
+      description: Changing username, email, or password requires the current password. A changed email remains pending until verified.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileUpdateInput' }
+      responses:
+        '200': { description: Profile saved }
+        '400': { description: Invalid update or current password }
+        '401': { description: Sign-in required }
+        '409': { description: Username or email already exists, or email delivery is unavailable }
+        '429': { description: Account request limit reached }
+  /api/v1/registration/settings:
+    get:
+      operationId: getRegistrationSettings
+      description: Requires settings.manage. Never returns an email API key.
+      responses:
+        '200': { description: Registration and provider status }
+    put:
+      operationId: updateRegistrationSettings
+      description: Requires settings.manage. The optional API key is write-only and protected in the local data directory.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegistrationSettingsInput' }
+      responses:
+        '200': { description: Settings saved }
+        '400': { description: Invalid mode, provider, sender, address, or provider configuration }
+  /api/v1/registration/codes:
+    get:
+      operationId: listRegistrationCodes
+      description: Requires settings.manage. Returns only a short hint, never the full code.
+      responses:
+        '200': { description: Registration code metadata }
+    post:
+      operationId: createRegistrationCode
+      description: Requires settings.manage. Returns the generated full code once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegistrationCodeInput' }
+      responses:
+        '201': { description: Registration code and hint }
+        '400': { description: Invalid expiration or use limit }
+  /api/v1/registration/codes/{codeId}:
+    parameters:
+      - name: codeId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      operationId: updateRegistrationCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegistrationCodeInput' }
+      responses:
+        '204': { description: Limits saved }
+        '404': { description: Code not found }
+    delete:
+      operationId: revokeRegistrationCode
+      responses:
+        '204': { description: Code revoked }
+        '404': { description: Code not found }
+  /api/v1/registration/codes/{codeId}/rotate:
+    post:
+      operationId: rotateRegistrationCode
+      parameters:
+        - name: codeId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Existing code revoked and replacement full code returned once }
+        '404': { description: Code not found }
 components:
   securitySchemes:
     deviceBearer:
       type: http
       scheme: bearer
   schemas:
+    RegistrationInput:
+      type: object
+      required: [username, displayName, email, password]
+      properties:
+        username: { type: string, minLength: 3, maxLength: 80 }
+        displayName: { type: string, minLength: 1, maxLength: 120 }
+        email: { type: string, format: email, maxLength: 200 }
+        password: { type: string, minLength: 10, writeOnly: true }
+        code: { type: [string, 'null'], writeOnly: true }
+    TokenInput:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, minLength: 64, maxLength: 64, writeOnly: true }
+    EmailInput:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email, maxLength: 200 }
+    PasswordResetInput:
+      type: object
+      required: [token, password]
+      properties:
+        token: { type: string, minLength: 64, maxLength: 64, writeOnly: true }
+        password: { type: string, minLength: 10, writeOnly: true }
+    ProfileUpdateInput:
+      type: object
+      required: [displayName, username, email]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 120 }
+        username: { type: string, minLength: 3, maxLength: 80 }
+        email: { type: string, format: email, maxLength: 200, description: May be empty for a local-only account. }
+        currentPassword: { type: [string, 'null'], writeOnly: true }
+        newPassword: { type: [string, 'null'], minLength: 10, writeOnly: true }
+    RegistrationSettingsInput:
+      type: object
+      required: [mode, publicBaseUrl, emailProvider, emailFromAddress, emailFromName]
+      properties:
+        mode: { enum: [closed, code, open] }
+        publicBaseUrl: { type: string, maxLength: 253, description: Must be HTTPS except for loopback development. }
+        emailProvider: { enum: [none, resend, brevo] }
+        emailFromAddress: { type: string, format: email, maxLength: 200 }
+        emailFromName: { type: string, maxLength: 120 }
+        apiKey: { type: [string, 'null'], writeOnly: true }
+    RegistrationCodeInput:
+      type: object
+      required: [label]
+      properties:
+        label: { type: string, maxLength: 120 }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        maxUses: { type: [integer, 'null'], minimum: 1, maximum: 100000 }
     BackupPreview:
       type: object
       required: [restoreId, fileName, kind, compressedBytes, uncompressedBytes, fileCount, organization, users, classes, lessons, mediaRecords, mediaFiles, includesMedia, warnings, expiresAt]

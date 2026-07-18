@@ -24,6 +24,11 @@ public sealed class Organization
     [MaxLength(12000)] public string MediaTagsJson { get; set; } = "[\"Reusable\",\"Intro\",\"Outro\",\"Reference\"]";
     [JsonIgnore] public string? ControllerPinHash { get; set; }
     public bool RequireLocalRoomControllers { get; set; }
+    [MaxLength(16)] public string RegistrationMode { get; set; } = "closed";
+    [MaxLength(253)] public string PublicBaseUrl { get; set; } = "";
+    [MaxLength(200)] public string EmailFromAddress { get; set; } = "";
+    [MaxLength(120)] public string EmailFromName { get; set; } = "LessonCue";
+    [MaxLength(16)] public string EmailProvider { get; set; } = "none";
 }
 
 public sealed class AdminAccount
@@ -39,6 +44,34 @@ public sealed class AdminAccount
     public int SessionVersion { get; set; } = 1;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? LastLoginAt { get; set; }
+    public bool EmailVerified { get; set; } = true;
+    public DateTimeOffset? EmailVerifiedAt { get; set; }
+}
+
+public sealed class AccountToken
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid AccountId { get; set; }
+    public AdminAccount? Account { get; set; }
+    [MaxLength(32)] public required string Purpose { get; set; }
+    [MaxLength(64)] public required string TokenHash { get; set; }
+    [MaxLength(200)] public string? PendingEmail { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? UsedAt { get; set; }
+}
+
+public sealed class RegistrationCode
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    [MaxLength(64)] public required string CodeHash { get; set; }
+    [MaxLength(16)] public required string Hint { get; set; }
+    [MaxLength(120)] public string Label { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? ExpiresAt { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+    public int Uses { get; set; }
+    public int? MaxUses { get; set; }
 }
 
 public sealed class LessonClass
@@ -417,6 +450,15 @@ public sealed record AdminSetupInput(string OrganizationName, string Username, s
     string? DisplayName = null, string? TimeZone = null, string? Email = null,
     string? SiteName = null, string? WeekStartsOn = null);
 public sealed record AdminLoginInput(string Username, string Password);
+public sealed record RegistrationInput(string Username, string DisplayName, string Email, string Password, string? Code);
+public sealed record VerifyAccountInput(string Token);
+public sealed record PasswordRecoveryInput(string Email);
+public sealed record PasswordResetInput(string Token, string Password);
+public sealed record ProfileUpdateInput(string DisplayName, string Username, string Email, string? CurrentPassword,
+    string? NewPassword);
+public sealed record RegistrationSettingsInput(string Mode, string PublicBaseUrl, string EmailProvider,
+    string EmailFromAddress, string EmailFromName, string? ApiKey);
+public sealed record RegistrationCodeInput(string Label, DateTimeOffset? ExpiresAt, int? MaxUses);
 public sealed record LessonUpdateInput(string? Title, DateOnly? Date, DateTimeOffset? AvailableFrom,
     DateTimeOffset? ExpiresAt, DateTimeOffset? DesignatedStartAt, bool? PreRollEnabled, Guid? CountdownItemId,
     bool ClearCountdown = false, bool ClearAvailableFrom = false, bool ClearExpiresAt = false,

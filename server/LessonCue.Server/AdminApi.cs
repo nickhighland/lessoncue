@@ -18,14 +18,22 @@ public static class AdminApi
         var api = routes.MapGroup("/api/v1");
         var auth = api.MapGroup("/auth");
 
-        auth.MapGet("/session", async (HttpContext context, LessonCueDb db, CancellationToken ct) => new
+        auth.MapGet("/session", async (HttpContext context, LessonCueDb db, AccountEmailService email,
+            CancellationToken ct) =>
         {
-            setupRequired = !await db.AdminAccounts.AnyAsync(ct),
-            authenticated = context.User.Identity?.IsAuthenticated == true,
-            username = context.User.Identity?.Name,
-            displayName = context.User.FindFirstValue("display_name"),
-            role = context.User.FindFirstValue(ClaimTypes.Role),
-            permissions = LessonCuePermissions.Effective(context.User)
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            return new
+            {
+                setupRequired = !await db.AdminAccounts.AnyAsync(ct),
+                authenticated = context.User.Identity?.IsAuthenticated == true,
+                username = context.User.Identity?.Name,
+                displayName = context.User.FindFirstValue("display_name"),
+                role = context.User.FindFirstValue(ClaimTypes.Role),
+                permissions = LessonCuePermissions.Effective(context.User),
+                registrationMode = organization.RegistrationMode,
+                registrationAvailable = organization.RegistrationMode is "open" or "code" && email.Status(organization.EmailProvider).Configured,
+                emailConfigured = email.Status(organization.EmailProvider).Configured
+            };
         });
 
         auth.MapPost("/setup", async (AdminSetupInput input, HttpContext context, LessonCueDb db,
@@ -34,10 +42,14 @@ public static class AdminApi
             if (await db.AdminAccounts.AnyAsync(ct)) return Results.Conflict(new { error = "Administrator setup is already complete." });
             var validation = ValidateCredentials(input.Username, input.Password);
             if (validation is not null) return Results.BadRequest(new { error = validation });
+            var setupEmail = NullIfBlank(input.Email)?.ToLowerInvariant();
+            if (setupEmail is not null && !IsEmail(setupEmail))
+                return Results.BadRequest(new { error = "Enter a valid email address." });
 
             var account = new AdminAccount { Username = input.Username.Trim().ToLowerInvariant(), PasswordHash = "pending",
                 DisplayName = string.IsNullOrWhiteSpace(input.DisplayName) ? "Administrator" : input.DisplayName.Trim(),
-                Email = input.Email?.Trim(), Role = "Owner" };
+                Email = setupEmail, EmailVerified = true, EmailVerifiedAt = setupEmail is null ? null : DateTimeOffset.UtcNow,
+                Role = "Owner" };
             account.PasswordHash = hasher.HashPassword(account, input.Password);
             db.AdminAccounts.Add(account);
             var organization = await db.Organizations.FirstAsync(ct);
@@ -56,7 +68,8 @@ public static class AdminApi
         {
             var username = input.Username.Trim().ToLowerInvariant();
             var account = await db.AdminAccounts.SingleOrDefaultAsync(x => x.Username == username, ct);
-            if (account is null || account.Disabled || hasher.VerifyHashedPassword(account, account.PasswordHash, input.Password) == PasswordVerificationResult.Failed)
+            if (account is null || account.Disabled || !account.EmailVerified ||
+                hasher.VerifyHashedPassword(account, account.PasswordHash, input.Password) == PasswordVerificationResult.Failed)
             {
                 db.AuditEvents.Add(new AuditEvent { Actor = username, Action = "admin.login", Object = "session", Result = "failed" });
                 await db.SaveChangesAsync(ct);
@@ -69,11 +82,252 @@ public static class AdminApi
             return Results.Ok(new { account.Username });
         }).RequireRateLimiting("login");
 
+        auth.MapPost("/register", async (RegistrationInput input, HttpRequest request, LessonCueDb db,
+            AccountEmailService email, IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.FirstAsync(ct);
+            if (organization.RegistrationMode is not ("open" or "code"))
+                return Results.Json(new { error = "Registration is closed. Ask an administrator to create your account." }, statusCode: 403);
+            if (!email.Status(organization.EmailProvider).Configured)
+                return Results.Conflict(new { error = "Registration requires administrator-configured email delivery." });
+            var validation = ValidateCredentials(input.Username, input.Password);
+            if (validation is not null) return Results.BadRequest(new { error = validation });
+            if (string.IsNullOrWhiteSpace(input.DisplayName) || input.DisplayName.Trim().Length > 120 || !IsEmail(input.Email))
+                return Results.BadRequest(new { error = "A name and valid email address are required." });
+            var username = input.Username.Trim().ToLowerInvariant();
+            var address = input.Email.Trim().ToLowerInvariant();
+            if (await db.AdminAccounts.AnyAsync(x => x.Username == username || x.Email == address, ct))
+                return Results.Conflict(new { error = "That username or email address is already registered." });
+            RegistrationCode? registrationCode = null;
+            if (organization.RegistrationMode == "code")
+            {
+                var hash = AccountEmailService.Hash(input.Code ?? "");
+                var now = DateTimeOffset.UtcNow;
+                registrationCode = await db.RegistrationCodes.SingleOrDefaultAsync(x => x.CodeHash == hash && x.RevokedAt == null, ct);
+                if (registrationCode is null || registrationCode.ExpiresAt <= now ||
+                    registrationCode.MaxUses is int maximum && registrationCode.Uses >= maximum)
+                    return Results.BadRequest(new { error = "The registration code is invalid or expired." });
+            }
+            var account = new AdminAccount
+            {
+                Username = username, DisplayName = input.DisplayName.Trim(), Email = address, Role = "Viewer",
+                PasswordHash = "pending", EmailVerified = false
+            };
+            account.PasswordHash = hasher.HashPassword(account, input.Password);
+            db.AdminAccounts.Add(account);
+            var raw = AccountEmailService.NewToken();
+            db.AccountTokens.Add(NewAccountToken(account.Id, "verify", raw, TimeSpan.FromHours(24)));
+            db.AuditEvents.Add(new AuditEvent { Actor = username, Action = "account.register", Object = account.Id.ToString() });
+            await using var registrationTransaction = registrationCode is null
+                ? null
+                : await db.Database.BeginTransactionAsync(ct);
+            if (registrationCode is not null)
+            {
+                var consumed = await db.RegistrationCodes.Where(x => x.Id == registrationCode.Id && x.RevokedAt == null &&
+                    (x.MaxUses == null || x.Uses < x.MaxUses)).ExecuteUpdateAsync(update =>
+                    update.SetProperty(x => x.Uses, x => x.Uses + 1), ct);
+                if (consumed != 1) return Results.BadRequest(new { error = "The registration code is invalid or expired." });
+            }
+            await db.SaveChangesAsync(ct);
+            if (registrationTransaction is not null) await registrationTransaction.CommitAsync(ct);
+            try
+            {
+                await SendAccountLinkAsync(email, organization, address, "Verify your LessonCue account",
+                    "Verify account", AccountUrl(organization, request, "/verify", raw), ct);
+            }
+            catch (Exception error)
+            {
+                return Results.Problem($"The account was created, but verification email could not be sent: {error.Message}",
+                    statusCode: 503);
+            }
+            return Results.Accepted(value: new { message = "Check your email to verify the account." });
+        }).RequireRateLimiting("account");
+
+        auth.MapPost("/verify", async (VerifyAccountInput input, LessonCueDb db, CancellationToken ct) =>
+        {
+            var token = await FindTokenAsync(db, input.Token, "verify", ct);
+            if (token?.Account is null) return Results.BadRequest(new { error = "This verification link is invalid or expired." });
+            token.UsedAt = DateTimeOffset.UtcNow;
+            token.Account.EmailVerified = true;
+            token.Account.EmailVerifiedAt = DateTimeOffset.UtcNow;
+            token.Account.SessionVersion++;
+            db.AuditEvents.Add(new AuditEvent { Actor = token.Account.Username, Action = "account.verify", Object = token.AccountId.ToString() });
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { message = "Email verified. You can now sign in." });
+        }).RequireRateLimiting("account");
+
+        auth.MapPost("/verification/resend", async (PasswordRecoveryInput input, HttpRequest request, LessonCueDb db,
+            AccountEmailService email, CancellationToken ct) =>
+        {
+            var address = input.Email.Trim().ToLowerInvariant();
+            var account = await db.AdminAccounts.SingleOrDefaultAsync(x => x.Email == address && !x.EmailVerified && !x.Disabled, ct);
+            var organization = await db.Organizations.FirstAsync(ct);
+            if (account is not null && email.Status(organization.EmailProvider).Configured)
+            {
+                await InvalidateTokensAsync(db, account.Id, "verify", ct);
+                var raw = AccountEmailService.NewToken();
+                db.AccountTokens.Add(NewAccountToken(account.Id, "verify", raw, TimeSpan.FromHours(24)));
+                await db.SaveChangesAsync(ct);
+                try
+                {
+                    await SendAccountLinkAsync(email, organization, address, "Verify your LessonCue account",
+                        "Verify account", AccountUrl(organization, request, "/verify", raw), ct);
+                }
+                catch
+                {
+                    db.AuditEvents.Add(new AuditEvent { Actor = "system", Action = "account.verification.delivery", Object = account.Id.ToString(), Result = "failed" });
+                    await db.SaveChangesAsync(ct);
+                }
+            }
+            return Results.Accepted(value: new { message = "If that unverified account exists, a new link has been sent." });
+        }).RequireRateLimiting("account");
+
+        auth.MapPost("/password/forgot", async (PasswordRecoveryInput input, HttpRequest request, LessonCueDb db,
+            AccountEmailService email, CancellationToken ct) =>
+        {
+            var address = input.Email.Trim().ToLowerInvariant();
+            var account = await db.AdminAccounts.SingleOrDefaultAsync(x => x.Email == address && x.EmailVerified && !x.Disabled, ct);
+            var organization = await db.Organizations.FirstAsync(ct);
+            if (account is not null && email.Status(organization.EmailProvider).Configured)
+            {
+                await InvalidateTokensAsync(db, account.Id, "reset", ct);
+                var raw = AccountEmailService.NewToken();
+                db.AccountTokens.Add(NewAccountToken(account.Id, "reset", raw, TimeSpan.FromHours(1)));
+                await db.SaveChangesAsync(ct);
+                try
+                {
+                    await SendAccountLinkAsync(email, organization, address, "Reset your LessonCue password",
+                        "Reset password", AccountUrl(organization, request, "/reset-password", raw), ct);
+                }
+                catch
+                {
+                    db.AuditEvents.Add(new AuditEvent { Actor = "system", Action = "account.recovery.delivery", Object = account.Id.ToString(), Result = "failed" });
+                    await db.SaveChangesAsync(ct);
+                }
+            }
+            return Results.Accepted(value: new { message = "If that verified account exists, a reset link has been sent." });
+        }).RequireRateLimiting("account");
+
+        auth.MapPost("/password/reset", async (PasswordResetInput input, LessonCueDb db,
+            IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
+        {
+            var token = await FindTokenAsync(db, input.Token, "reset", ct);
+            if (token?.Account is null) return Results.BadRequest(new { error = "This reset link is invalid or expired." });
+            var validation = AdminCredentialPolicy.Validate(token.Account.Username, input.Password);
+            if (validation is not null) return Results.BadRequest(new { error = validation });
+            token.Account.PasswordHash = hasher.HashPassword(token.Account, input.Password);
+            token.Account.SessionVersion++;
+            token.UsedAt = DateTimeOffset.UtcNow;
+            db.AuditEvents.Add(new AuditEvent { Actor = token.Account.Username, Action = "account.password.reset", Object = token.AccountId.ToString() });
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { message = "Password changed. Sign in with the new password." });
+        }).RequireRateLimiting("account");
+
         auth.MapPost("/logout", async (HttpContext context) =>
         {
             await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return Results.NoContent();
         }).RequireAuthorization();
+
+        auth.MapGet("/profile", async (HttpContext context, LessonCueDb db, CancellationToken ct) =>
+        {
+            var account = await CurrentAccountAsync(context, db, ct);
+            return account is null ? Results.Unauthorized() : Results.Ok(new
+            {
+                account.Username, account.DisplayName, account.Email, account.EmailVerified, account.Role
+            });
+        }).RequireAuthorization();
+
+        auth.MapPut("/profile", async (ProfileUpdateInput input, HttpContext context, HttpRequest request,
+            LessonCueDb db, AccountEmailService email, IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
+        {
+            var account = await CurrentAccountAsync(context, db, ct);
+            if (account is null) return Results.Unauthorized();
+            if (string.IsNullOrWhiteSpace(input.DisplayName) || input.DisplayName.Trim().Length > 120)
+                return Results.BadRequest(new { error = "Name is required and cannot exceed 120 characters." });
+            var usernameValidation = AdminCredentialPolicy.ValidateUsername(input.Username);
+            if (usernameValidation is not null) return Results.BadRequest(new { error = usernameValidation });
+            var username = input.Username.Trim().ToLowerInvariant();
+            var address = NullIfBlank(input.Email)?.ToLowerInvariant();
+            var sensitive = username != account.Username || address != account.Email || !string.IsNullOrWhiteSpace(input.NewPassword);
+            if (sensitive && (string.IsNullOrWhiteSpace(input.CurrentPassword) ||
+                hasher.VerifyHashedPassword(account, account.PasswordHash, input.CurrentPassword) == PasswordVerificationResult.Failed))
+                return Results.BadRequest(new { error = "Enter your current password to change sign-in details." });
+            if (await db.AdminAccounts.AnyAsync(x => x.Id != account.Id && x.Username == username, ct))
+                return Results.Conflict(new { error = "That username already exists." });
+            account.DisplayName = input.DisplayName.Trim();
+            account.Username = username;
+            if (!string.IsNullOrWhiteSpace(input.NewPassword))
+            {
+                var passwordValidation = AdminCredentialPolicy.Validate(username, input.NewPassword);
+                if (passwordValidation is not null) return Results.BadRequest(new { error = passwordValidation });
+                account.PasswordHash = hasher.HashPassword(account, input.NewPassword);
+            }
+            var message = "Profile saved.";
+            Organization? pendingEmailOrganization = null;
+            string? pendingEmailAddress = null;
+            string? pendingEmailToken = null;
+            if (address != account.Email && address is null)
+            {
+                account.Email = null;
+                account.EmailVerified = true;
+                account.EmailVerifiedAt = null;
+                await InvalidateTokensAsync(db, account.Id, "email", ct);
+            }
+            else if (address is not null && address != account.Email)
+            {
+                if (!IsEmail(address)) return Results.BadRequest(new { error = "Enter a valid email address." });
+                if (await db.AdminAccounts.AnyAsync(x => x.Id != account.Id && x.Email == address, ct))
+                    return Results.Conflict(new { error = "That email address is already registered." });
+                var organization = await db.Organizations.FirstAsync(ct);
+                if (!email.Status(organization.EmailProvider).Configured)
+                    return Results.Conflict(new { error = "An administrator must configure email before changing your address." });
+                await InvalidateTokensAsync(db, account.Id, "email", ct);
+                var raw = AccountEmailService.NewToken();
+                db.AccountTokens.Add(NewAccountToken(account.Id, "email", raw, TimeSpan.FromHours(2), address));
+                pendingEmailOrganization = organization;
+                pendingEmailAddress = address;
+                pendingEmailToken = raw;
+                message = "Profile saved. Confirm the link sent to your new email address.";
+            }
+            account.SessionVersion++;
+            db.AuditEvents.Add(new AuditEvent { Actor = account.Username, Action = "account.profile.update", Object = account.Id.ToString() });
+            await db.SaveChangesAsync(ct);
+            await SignInAsync(context, account);
+            if (pendingEmailOrganization is not null && pendingEmailAddress is not null && pendingEmailToken is not null)
+            {
+                try
+                {
+                    await SendAccountLinkAsync(email, pendingEmailOrganization, pendingEmailAddress,
+                        "Confirm your new LessonCue email", "Confirm email",
+                        AccountUrl(pendingEmailOrganization, request, "/verify-email", pendingEmailToken), ct);
+                }
+                catch
+                {
+                    return Results.Problem("The profile was saved, but the confirmation email could not be sent. Retry the email change after the provider is fixed.",
+                        statusCode: 503);
+                }
+            }
+            return Results.Ok(new { message });
+        }).RequireAuthorization().RequireRateLimiting("account");
+
+        auth.MapPost("/email/verify", async (VerifyAccountInput input, HttpContext context, LessonCueDb db,
+            CancellationToken ct) =>
+        {
+            var token = await FindTokenAsync(db, input.Token, "email", ct);
+            if (token?.Account is null || string.IsNullOrWhiteSpace(token.PendingEmail))
+                return Results.BadRequest(new { error = "This email confirmation link is invalid or expired." });
+            if (await db.AdminAccounts.AnyAsync(x => x.Id != token.AccountId && x.Email == token.PendingEmail, ct))
+                return Results.Conflict(new { error = "That email address is no longer available." });
+            token.Account.Email = token.PendingEmail;
+            token.Account.EmailVerified = true;
+            token.Account.EmailVerifiedAt = DateTimeOffset.UtcNow;
+            token.Account.SessionVersion++;
+            token.UsedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(ct);
+            if (context.User.Identity?.IsAuthenticated == true) await SignInAsync(context, token.Account);
+            return Results.Ok(new { message = "Email address confirmed." });
+        }).RequireRateLimiting("account");
 
         var admin = api.MapGroup("").RequireAuthorization();
         var planning = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Planning);
@@ -108,6 +362,7 @@ public static class AdminApi
                 localAddress = localAddress.Status,
                 httpPort = httpPort.Status,
                 cloudflareTunnel = cloudflareTunnel.Status,
+                accountEmail = emailStatus(organization),
                 permissionDefinitions = LessonCuePermissions.All,
                 permissionPresets = new
                 {
@@ -124,6 +379,12 @@ public static class AdminApi
                     screens = await db.Screens.CountAsync(x => !x.Revoked, ct)
                 }
             });
+            object emailStatus(Organization value)
+            {
+                var accountEmail = context.RequestServices.GetRequiredService<AccountEmailService>();
+                var status = accountEmail.Status(value.EmailProvider);
+                return new { status.Configured, status.Provider };
+            }
         });
 
         admin.MapGet("/classes", async (LessonCueDb db, CancellationToken ct) =>
@@ -1620,6 +1881,132 @@ public static class AdminApi
         settings.MapGet("/organization", async (LessonCueDb db, CancellationToken ct) =>
             await db.Organizations.AsNoTracking().FirstAsync(ct));
 
+        settings.MapGet("/registration/settings", async (LessonCueDb db, AccountEmailService email,
+            CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            return Results.Ok(new
+            {
+                mode = organization.RegistrationMode,
+                organization.PublicBaseUrl,
+                organization.EmailProvider,
+                organization.EmailFromAddress,
+                organization.EmailFromName,
+                emailConfigured = email.Status(organization.EmailProvider).Configured
+            });
+        });
+
+        settings.MapPut("/registration/settings", async (RegistrationSettingsInput input, LessonCueDb db,
+            AccountEmailService email, CancellationToken ct) =>
+        {
+            var mode = input.Mode.Trim().ToLowerInvariant();
+            var provider = input.EmailProvider.Trim().ToLowerInvariant();
+            if (mode is not ("closed" or "open" or "code"))
+                return Results.BadRequest(new { error = "Registration mode must be closed, open, or code." });
+            if (provider is not ("none" or "resend" or "brevo"))
+                return Results.BadRequest(new { error = "Email provider must be none, Resend, or Brevo." });
+            if (mode != "closed" && provider == "none")
+                return Results.BadRequest(new { error = "Open or code registration requires Resend or Brevo email delivery." });
+            if (provider != "none" && (!IsEmail(input.EmailFromAddress) ||
+                string.IsNullOrWhiteSpace(input.EmailFromName) || input.EmailFromName.Trim().Length > 120))
+                return Results.BadRequest(new { error = "A valid sender address and name are required." });
+            if (input.PublicBaseUrl.Trim().Length > 253 || input.ApiKey?.Length > 2048)
+                return Results.BadRequest(new { error = "The public address or provider key is too long." });
+            if (!string.IsNullOrWhiteSpace(input.PublicBaseUrl) &&
+                (!Uri.TryCreate(input.PublicBaseUrl.Trim(), UriKind.Absolute, out var publicUrl) ||
+                 publicUrl.Scheme != Uri.UriSchemeHttps && !publicUrl.IsLoopback))
+                return Results.BadRequest(new { error = "Public account URL must use HTTPS, except for a loopback development address." });
+            try { await email.ConfigureAsync(provider, input.ApiKey, ct); }
+            catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
+            if (mode != "closed" && !email.Status(provider).Configured)
+                return Results.BadRequest(new { error = "Configure the email provider API key before enabling registration." });
+            var organization = await db.Organizations.FirstAsync(ct);
+            organization.RegistrationMode = mode;
+            organization.PublicBaseUrl = input.PublicBaseUrl.Trim().TrimEnd('/');
+            organization.EmailProvider = provider;
+            organization.EmailFromAddress = input.EmailFromAddress.Trim().ToLowerInvariant();
+            organization.EmailFromName = input.EmailFromName.Trim();
+            Audit(db, "registration.settings.update", organization.Id, $"{mode}:{provider}");
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { emailConfigured = email.Status(provider).Configured });
+        });
+
+        settings.MapGet("/registration/codes", async (LessonCueDb db, CancellationToken ct) =>
+        {
+            var now = DateTimeOffset.UtcNow;
+            var codes = await db.RegistrationCodes.AsNoTracking().ToListAsync(ct);
+            return Results.Ok(codes.OrderByDescending(x => x.CreatedAt).Select(x => new
+            {
+                x.Id, x.Label, x.Hint, x.CreatedAt, x.ExpiresAt, x.RevokedAt, x.Uses, x.MaxUses,
+                active = x.RevokedAt == null && (x.ExpiresAt == null || x.ExpiresAt > now) &&
+                    (x.MaxUses == null || x.Uses < x.MaxUses)
+            }));
+        });
+
+        settings.MapPost("/registration/codes", async (RegistrationCodeInput input, LessonCueDb db,
+            CancellationToken ct) =>
+        {
+            if (input.Label.Trim().Length > 120) return Results.BadRequest(new { error = "Label cannot exceed 120 characters." });
+            if (input.ExpiresAt <= DateTimeOffset.UtcNow) return Results.BadRequest(new { error = "Expiration must be in the future." });
+            if (input.MaxUses is <= 0 or > 100000) return Results.BadRequest(new { error = "Maximum uses must be between 1 and 100,000." });
+            var raw = AccountEmailService.NewRegistrationCode();
+            var code = new RegistrationCode
+            {
+                CodeHash = AccountEmailService.Hash(raw), Hint = raw[^4..],
+                Label = string.IsNullOrWhiteSpace(input.Label) ? "Registration code" : input.Label.Trim(),
+                ExpiresAt = input.ExpiresAt, MaxUses = input.MaxUses
+            };
+            db.RegistrationCodes.Add(code);
+            Audit(db, "registration.code.create", code.Id, code.Label);
+            await db.SaveChangesAsync(ct);
+            return Results.Created($"/api/v1/registration/codes/{code.Id}", new { code.Id, code = raw, code.Hint });
+        });
+
+        settings.MapPut("/registration/codes/{id:guid}", async (Guid id, RegistrationCodeInput input,
+            LessonCueDb db, CancellationToken ct) =>
+        {
+            var code = await db.RegistrationCodes.FindAsync([id], ct);
+            if (code is null) return Results.NotFound();
+            if (input.Label.Trim().Length > 120) return Results.BadRequest(new { error = "Label cannot exceed 120 characters." });
+            if (input.ExpiresAt <= DateTimeOffset.UtcNow) return Results.BadRequest(new { error = "Expiration must be in the future." });
+            if (input.MaxUses is <= 0 or > 100000) return Results.BadRequest(new { error = "Maximum uses must be between 1 and 100,000." });
+            code.Label = string.IsNullOrWhiteSpace(input.Label) ? code.Label : input.Label.Trim();
+            code.ExpiresAt = input.ExpiresAt;
+            code.MaxUses = input.MaxUses;
+            Audit(db, "registration.code.update", code.Id, code.Label);
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        });
+
+        settings.MapPost("/registration/codes/{id:guid}/rotate", async (Guid id, LessonCueDb db,
+            CancellationToken ct) =>
+        {
+            var existing = await db.RegistrationCodes.FindAsync([id], ct);
+            if (existing is null) return Results.NotFound();
+            existing.RevokedAt = DateTimeOffset.UtcNow;
+            var raw = AccountEmailService.NewRegistrationCode();
+            var replacement = new RegistrationCode
+            {
+                CodeHash = AccountEmailService.Hash(raw), Hint = raw[^4..], Label = existing.Label,
+                ExpiresAt = existing.ExpiresAt, MaxUses = existing.MaxUses
+            };
+            db.RegistrationCodes.Add(replacement);
+            Audit(db, "registration.code.rotate", existing.Id, replacement.Id.ToString());
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { replacement.Id, code = raw, replacement.Hint });
+        });
+
+        settings.MapDelete("/registration/codes/{id:guid}", async (Guid id, LessonCueDb db,
+            CancellationToken ct) =>
+        {
+            var code = await db.RegistrationCodes.FindAsync([id], ct);
+            if (code is null) return Results.NotFound();
+            code.RevokedAt = DateTimeOffset.UtcNow;
+            Audit(db, "registration.code.revoke", code.Id, code.Label);
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        });
+
         settings.MapPut("/organization", async (OrganizationInput input, LessonCueDb db, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(input.Name) || string.IsNullOrWhiteSpace(input.TimeZone))
@@ -1853,7 +2240,7 @@ public static class AdminApi
             var accounts = await db.AdminAccounts.AsNoTracking().OrderBy(x => x.DisplayName).ToListAsync(ct);
             return Results.Ok(accounts.Select(x => new
             {
-                x.Id, x.Username, x.DisplayName, x.Email, x.Role, x.Disabled, x.CreatedAt, x.LastLoginAt,
+                x.Id, x.Username, x.DisplayName, x.Email, x.EmailVerified, x.Role, x.Disabled, x.CreatedAt, x.LastLoginAt,
                 permissions = LessonCuePermissions.Effective(x),
                 customPermissions = x.PermissionsCsv is null ? null : LessonCuePermissions.Parse(x.PermissionsCsv)
             }));
@@ -1866,10 +2253,15 @@ public static class AdminApi
             if (validation is not null) return Results.BadRequest(new { error = validation });
             if (string.IsNullOrWhiteSpace(input.DisplayName)) return Results.BadRequest(new { error = "Name is required." });
             var username = input.Username.Trim().ToLowerInvariant();
+            var address = NullIfBlank(input.Email)?.ToLowerInvariant();
+            if (address is not null && !IsEmail(address)) return Results.BadRequest(new { error = "Enter a valid email address." });
             if (await db.AdminAccounts.AnyAsync(x => x.Username == username, ct)) return Results.Conflict(new { error = "That username already exists." });
+            if (address is not null && await db.AdminAccounts.AnyAsync(x => x.Email == address, ct))
+                return Results.Conflict(new { error = "That email address is already registered." });
             var role = NormalizeAdminRole(input.Role);
             if (role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
-            var account = new AdminAccount { Username = username, DisplayName = input.DisplayName.Trim(), Email = NullIfBlank(input.Email),
+            var account = new AdminAccount { Username = username, DisplayName = input.DisplayName.Trim(), Email = address,
+                EmailVerified = true, EmailVerifiedAt = address is null ? null : DateTimeOffset.UtcNow,
                 Role = role, PermissionsCsv = LessonCuePermissions.NormalizeCustom(input.Permissions, role),
                 Disabled = input.Disabled, PasswordHash = "pending" };
             if (!context.User.IsInRole("Owner") && LessonCuePermissions.Effective(account)
@@ -1891,8 +2283,12 @@ public static class AdminApi
             if (usernameValidation is not null) return Results.BadRequest(new { error = usernameValidation });
             if (string.IsNullOrWhiteSpace(input.DisplayName)) return Results.BadRequest(new { error = "Name is required." });
             var username = input.Username.Trim().ToLowerInvariant();
+            var address = NullIfBlank(input.Email)?.ToLowerInvariant();
+            if (address is not null && !IsEmail(address)) return Results.BadRequest(new { error = "Enter a valid email address." });
             if (await db.AdminAccounts.AnyAsync(x => x.Username == username && x.Id != id, ct))
                 return Results.Conflict(new { error = "That username already exists." });
+            if (address is not null && await db.AdminAccounts.AnyAsync(x => x.Email == address && x.Id != id, ct))
+                return Results.Conflict(new { error = "That email address is already registered." });
             var role = NormalizeAdminRole(input.Role);
             if (role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
             if (account.Role == "Owner" && (role != "Owner" || input.Disabled) && await db.AdminAccounts.CountAsync(x => x.Role == "Owner" && !x.Disabled, ct) <= 1)
@@ -1907,9 +2303,11 @@ public static class AdminApi
             if (!context.User.IsInRole("Owner") && LessonCuePermissions.Effective(requestedAccess)
                 .Except(LessonCuePermissions.Effective(context.User)).Any()) return Results.Forbid();
             var identityChanged = account.Username != username || account.DisplayName != input.DisplayName.Trim() ||
-                account.Email != NullIfBlank(input.Email) || account.Role != role || account.PermissionsCsv != permissionsCsv ||
+                account.Email != address || account.Role != role || account.PermissionsCsv != permissionsCsv ||
                 account.Disabled != input.Disabled;
-            account.Username = username; account.DisplayName = input.DisplayName.Trim(); account.Email = NullIfBlank(input.Email);
+            var emailChanged = account.Email != address;
+            account.Username = username; account.DisplayName = input.DisplayName.Trim(); account.Email = address;
+            if (emailChanged) { account.EmailVerified = true; account.EmailVerifiedAt = address is null ? null : DateTimeOffset.UtcNow; }
             account.Role = role; account.PermissionsCsv = permissionsCsv; account.Disabled = input.Disabled;
             if (!string.IsNullOrWhiteSpace(input.Password))
             {
@@ -2030,6 +2428,58 @@ public static class AdminApi
     private static string NormalizeAdminRole(string role) => role is "Owner" or "Administrator" or "Editor" or "Viewer" ? role : "Viewer";
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static bool IsColor(string? value) => value is { Length: 7 } && value[0] == '#' && value[1..].All(Uri.IsHexDigit);
+    private static bool IsEmail(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 200) return false;
+        try { return new System.Net.Mail.MailAddress(value.Trim()).Address.Equals(value.Trim(), StringComparison.OrdinalIgnoreCase); }
+        catch { return false; }
+    }
+
+    private static AccountToken NewAccountToken(Guid accountId, string purpose, string raw, TimeSpan lifetime,
+        string? pendingEmail = null) => new()
+    {
+        AccountId = accountId, Purpose = purpose, TokenHash = AccountEmailService.Hash(raw),
+        PendingEmail = pendingEmail, ExpiresAt = DateTimeOffset.UtcNow.Add(lifetime)
+    };
+
+    private static Task<AdminAccount?> CurrentAccountAsync(HttpContext context, LessonCueDb db, CancellationToken ct) =>
+        Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var id)
+            ? db.AdminAccounts.SingleOrDefaultAsync(x => x.Id == id, ct)
+            : Task.FromResult<AdminAccount?>(null);
+
+    private static Task<AccountToken?> FindTokenAsync(LessonCueDb db, string raw, string purpose, CancellationToken ct)
+    {
+        var hash = AccountEmailService.Hash(raw);
+        var now = DateTimeOffset.UtcNow;
+        return db.AccountTokens.Include(x => x.Account).SingleOrDefaultAsync(x =>
+            x.TokenHash == hash && x.Purpose == purpose && x.UsedAt == null && x.ExpiresAt > now, ct);
+    }
+
+    private static async Task InvalidateTokensAsync(LessonCueDb db, Guid accountId, string purpose, CancellationToken ct)
+    {
+        var tokens = await db.AccountTokens.Where(x => x.AccountId == accountId && x.Purpose == purpose && x.UsedAt == null)
+            .ToListAsync(ct);
+        foreach (var token in tokens) token.UsedAt = DateTimeOffset.UtcNow;
+    }
+
+    private static string AccountUrl(Organization organization, HttpRequest request, string path, string token)
+    {
+        var origin = string.IsNullOrWhiteSpace(organization.PublicBaseUrl)
+            ? $"{request.Scheme}://{request.Host}"
+            : organization.PublicBaseUrl;
+        return $"{origin.TrimEnd('/')}{path}?token={Uri.EscapeDataString(token)}";
+    }
+
+    private static Task SendAccountLinkAsync(AccountEmailService email, Organization organization,
+        string recipient, string subject, string action, string url, CancellationToken ct)
+    {
+        var safeUrl = System.Net.WebUtility.HtmlEncode(url);
+        var safeAction = System.Net.WebUtility.HtmlEncode(action);
+        return email.SendAsync(organization, recipient, subject,
+            $"<p>{System.Net.WebUtility.HtmlEncode(organization.Name)} received an account request.</p>" +
+            $"<p><a href=\"{safeUrl}\">{safeAction}</a></p>" +
+            "<p>If you did not request this, ignore this message.</p>", ct);
+    }
 
     private static bool IsSupportedMediaExtension(string extension) => extension.ToLowerInvariant() is
         ".mp4" or ".m4v" or ".mov" or ".mkv" or ".webm" or ".avi" or ".wmv" or ".asf" or

@@ -6,16 +6,17 @@ import { WebPlayerApp } from "./WebPlayer";
 import "./styles.css";
 
 type Permission = "planning.manage" | "uploads.manage" | "playback.control" | "screens.manage" | "users.manage" | "settings.manage" | "backups.manage" | "updates.manage";
-type Session = { setupRequired: boolean; authenticated: boolean; username?: string; displayName?: string; role?: string; permissions?: Permission[] };
+type Session = { setupRequired: boolean; authenticated: boolean; username?: string; displayName?: string; role?: string; permissions?: Permission[]; registrationMode?: "closed" | "open" | "code"; registrationAvailable?: boolean; emailConfigured?: boolean };
 type Bootstrap = {
   serverId: string; serverName: string; organization: string; timeZone: string; pairingPin?: string;
   pairingExpiresAt?: string; pairingFixed: boolean; controllerPinConfigured: boolean; settings: Organization;
   storage: StorageStatus; mediaTaxonomy: MediaTaxonomy; update: UpdateStatus; localAddress: LocalAddressStatus; httpPort: HttpPortStatus; cloudflareTunnel: CloudflareTunnelStatus;
+  accountEmail: { configured: boolean; provider: string };
   counts: { classes: number; lessons: number; media: number; screens: number };
   permissionDefinitions: Permission[]; permissionPresets: Record<string, Permission[]>;
 };
 type MediaTaxonomy = { folders: string[]; tags: string[] };
-type Organization = { id: string; name: string; siteName: string; timeZone: string; weekStartsOn: string; defaultLessonDurationMinutes: number; defaultRetentionDays: number; primaryColor: string; accentColor: string; navigationTextColor: string; selectedTabColor: string; welcomeMessage: string; storageLimitBytes: number; adaptiveTranscodingEnabled: boolean; transcodeLeadDays: number; requireLocalRoomControllers: boolean };
+type Organization = { id: string; name: string; siteName: string; timeZone: string; weekStartsOn: string; defaultLessonDurationMinutes: number; defaultRetentionDays: number; primaryColor: string; accentColor: string; navigationTextColor: string; selectedTabColor: string; welcomeMessage: string; storageLimitBytes: number; adaptiveTranscodingEnabled: boolean; transcodeLeadDays: number; requireLocalRoomControllers: boolean; registrationMode: "closed" | "open" | "code"; publicBaseUrl: string; emailFromAddress: string; emailFromName: string; emailProvider: "none" | "resend" | "brevo" };
 type StorageStatus = { usedBytes: number; diskAvailableBytes: number; maximumAllocationBytes: number; allocationBytes: number; remainingBytes: number; automaticAllocation: boolean };
 type UpdateStatus = { currentVersion: string; latestVersion?: string; updateAvailable: boolean; lastCheckedAt?: string; releaseUrl?: string; error?: string; automaticInstallSupported: boolean; installing: boolean };
 type LocalAddressStatus = { hostname: string; address: string; supported: boolean; pending: boolean; appliedAt?: string; error?: string };
@@ -66,7 +67,10 @@ type CacheDiagnostic = { itemId?: string; title?: string; state?: string; sizeBy
 type DownloadDiagnostic = { itemId?: string; title?: string; state?: string; bytesDownloaded?: number; expectedBytes?: number; error?: string };
 type CodecDiagnostic = { kind?: string; codec?: string; supported?: boolean; detail?: string };
 type ErrorDiagnostic = { timestamp?: string; area?: string; message?: string; itemId?: string };
-type User = { id: string; username: string; displayName: string; email?: string; role: string; disabled: boolean; createdAt: string; lastLoginAt?: string; permissions: Permission[]; customPermissions?: Permission[] | null };
+type User = { id: string; username: string; displayName: string; email?: string; emailVerified: boolean; role: string; disabled: boolean; createdAt: string; lastLoginAt?: string; permissions: Permission[]; customPermissions?: Permission[] | null };
+type AccountProfile = { username: string; displayName: string; email?: string; emailVerified: boolean; role: string };
+type RegistrationSettings = { mode: "closed" | "open" | "code"; publicBaseUrl: string; emailFromAddress: string; emailFromName: string; emailProvider: "none" | "resend" | "brevo"; emailConfigured: boolean };
+type RegistrationCode = { id: string; hint: string; label: string; createdAt: string; expiresAt?: string; revokedAt?: string; uses: number; maxUses?: number; active: boolean };
 type Signage = { id: string; name: string; mode: string; enabled: boolean; priority: number; startsAt?: string; endsAt?: string; message: string; backgroundColor: string; textColor: string; mediaAssetId?: string; mediaFileName?: string; targetTagsCsv: string };
 type Backup = { id: string; fileName: string; kind: string; sizeBytes: number; createdAt: string; createdBy: string };
 type BackupPreview = { restoreId: string; fileName: string; kind: string; compressedBytes: number; uncompressedBytes: number; fileCount: number; organization: string; users: number; classes: number; lessons: number; mediaRecords: number; mediaFiles: number; includesMedia: boolean; warnings: string[]; expiresAt: string };
@@ -138,13 +142,17 @@ function AdminApp() {
 
   useEffect(() => { api<Session>("/api/v1/auth/session").then(setSession).catch(() => setSession({ setupRequired: false, authenticated: false })); }, []);
   if (!session) return <Splash />;
-  if (!session.authenticated) return <Auth session={session} onAuthenticated={() => api<Session>("/api/v1/auth/session").then(setSession)} />;
+  if (!session.authenticated || isAccountLinkPath(location.pathname)) return <Auth session={session} onAuthenticated={() => api<Session>("/api/v1/auth/session").then(setSession)} />;
   return <Shell view={view} setView={setView} username={session.displayName || session.username || "admin"} currentUsername={session.username || ""} role={session.role || "Viewer"} permissions={session.permissions || []} notice={notice} setNotice={setNotice}
     onLogout={async () => { await api<void>("/api/v1/auth/logout", { method: "POST", body: "{}" }); setSession({ ...session, authenticated: false, setupRequired: false }); }} />;
 }
 
 function isWebPlayerPath(path: string) {
   return path === "/player" || path === "/display";
+}
+
+function isAccountLinkPath(path: string) {
+  return path === "/verify" || path === "/verify-email" || path === "/reset-password" || path === "/register" || path === "/forgot-password";
 }
 
 function Splash() {
@@ -189,6 +197,20 @@ function Auth({ session, onAuthenticated }: { session: Session; onAuthenticated:
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [mode, setMode] = useState<"login" | "register" | "forgot" | "resend">(
+    location.pathname === "/register" && session.registrationAvailable ? "register" :
+      location.pathname === "/forgot-password" && session.emailConfigured ? "forgot" : "login"
+  );
+  const token = new URLSearchParams(location.search).get("token") || "";
+  const verificationPath = location.pathname === "/verify" || location.pathname === "/verify-email";
+  const resetPath = location.pathname === "/reset-password";
+  const [linkResult, setLinkResult] = useState("");
+  useEffect(() => {
+    if (!verificationPath || !token) return;
+    const endpoint = location.pathname === "/verify-email" ? "/api/v1/auth/email/verify" : "/api/v1/auth/verify";
+    api<{ message: string }>(endpoint, { method: "POST", body: JSON.stringify({ token }) })
+      .then(result => setLinkResult(result.message)).catch(cause => setError(errorText(cause)));
+  }, [token, verificationPath]);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError("");
     const values = Object.fromEntries(new FormData(event.currentTarget));
@@ -198,15 +220,54 @@ function Auth({ session, onAuthenticated }: { session: Session; onAuthenticated:
     } catch (e) { setError(e instanceof Error && e.message !== "SESSION_EXPIRED" ? e.message : "The username or password was not accepted."); }
     finally { setBusy(false); }
   }
+  async function register(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError("");
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    try { const result = await api<{ message: string }>("/api/v1/auth/register", { method: "POST", body: JSON.stringify(values) }); setLinkResult(result.message); }
+    catch (cause) { setError(errorText(cause)); } finally { setBusy(false); }
+  }
+  async function forgot(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError("");
+    try { const result = await api<{ message: string }>("/api/v1/auth/password/forgot", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget))) }); setLinkResult(result.message); }
+    catch (cause) { setError(errorText(cause)); } finally { setBusy(false); }
+  }
+  async function resend(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError("");
+    try { const result = await api<{ message: string }>("/api/v1/auth/verification/resend", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget))) }); setLinkResult(result.message); }
+    catch (cause) { setError(errorText(cause)); } finally { setBusy(false); }
+  }
+  async function resetPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError("");
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    if (values.password !== values.confirmPassword) { setError("Passwords do not match."); setBusy(false); return; }
+    try { const result = await api<{ message: string }>("/api/v1/auth/password/reset", { method: "POST", body: JSON.stringify({ token, password: values.password }) }); setLinkResult(result.message); }
+    catch (cause) { setError(errorText(cause)); } finally { setBusy(false); }
+  }
   return <main className="auth-page">
     <section className="auth-card">
       <div className="brand-lockup"><div className="brand-mark">LC</div><div><strong>LessonCue</strong><span>Local classroom media control</span></div></div>
       <div className="auth-copy">
         <span className="eyebrow">{session.setupRequired ? "FIRST-RUN SETUP" : "WELCOME BACK"}</span>
-        <h1>{session.setupRequired ? "Create your local administrator" : "Sign in to LessonCue"}</h1>
-        <p>{session.setupRequired ? "This account stays on this server. Nothing is sent to a hosted service." : "Manage classes, playlists, and screens on your local network."}</p>
+        <h1>{session.setupRequired ? "Create your local administrator" : resetPath ? "Choose a new password" : verificationPath ? "Verify your account" : mode === "register" ? "Create your account" : mode === "forgot" ? "Reset your password" : mode === "resend" ? "Resend verification" : "Sign in to LessonCue"}</h1>
+        <p>{session.setupRequired ? "This account stays on this server. Nothing is sent to a hosted service." : resetPath || verificationPath ? "This secure link can be used only once and expires automatically." : mode === "register" ? "Your administrator controls who may register on this server." : mode === "forgot" ? "We will send a one-time link if the address belongs to a verified account." : mode === "resend" ? "We will replace the previous link if the address belongs to an unverified account." : "Manage classes, playlists, and screens on your local network."}</p>
       </div>
-      <form onSubmit={submit} className="stack">
+      {linkResult ? <div className="account-result"><strong>{linkResult}</strong><button className="button primary wide" onClick={() => location.assign("/")}>Continue to LessonCue</button></div> : resetPath ? <form onSubmit={resetPassword} className="stack">
+        <Field label="New password" hint="10+ characters with uppercase, lowercase, and a number"><input name="password" type="password" required minLength={10} autoComplete="new-password" /></Field>
+        <Field label="Confirm new password"><input name="confirmPassword" type="password" required minLength={10} autoComplete="new-password" /></Field>
+        {error && <div className="alert error">{error}</div>}<button className="button primary wide" disabled={busy}>{busy ? "Saving…" : "Change password"}</button>
+      </form> : verificationPath ? <div className="account-result">{error ? <div className="alert error">{error}</div> : <p>Checking this one-time link…</p>}</div> : mode === "register" ? <form onSubmit={register} className="stack">
+        <Field label="Your name"><input name="displayName" required autoComplete="name" autoFocus /></Field>
+        <div className="two-fields"><Field label="Username"><input name="username" required minLength={3} autoComplete="username" /></Field><Field label="Email"><input name="email" type="email" required autoComplete="email" /></Field></div>
+        {session.registrationMode === "code" && <Field label="Registration code"><input name="code" required autoComplete="off" /></Field>}
+        <Field label="Password" hint="10+ characters with uppercase, lowercase, and a number"><input name="password" type="password" required minLength={10} autoComplete="new-password" /></Field>
+        {error && <div className="alert error">{error}</div>}<button className="button primary wide" disabled={busy}>{busy ? "Creating…" : "Create account"}</button><button className="text-button" type="button" onClick={() => { setMode("login"); setError(""); }}>Back to sign in</button>
+      </form> : mode === "forgot" ? <form onSubmit={forgot} className="stack">
+        <Field label="Email"><input name="email" type="email" required autoComplete="email" autoFocus /></Field>
+        {error && <div className="alert error">{error}</div>}<button className="button primary wide" disabled={busy}>{busy ? "Sending…" : "Send reset link"}</button><button className="text-button" type="button" onClick={() => { setMode("login"); setError(""); }}>Back to sign in</button>
+      </form> : mode === "resend" ? <form onSubmit={resend} className="stack">
+        <Field label="Email"><input name="email" type="email" required autoComplete="email" autoFocus /></Field>
+        {error && <div className="alert error">{error}</div>}<button className="button primary wide" disabled={busy}>{busy ? "Sending…" : "Resend verification link"}</button><button className="text-button" type="button" onClick={() => { setMode("login"); setError(""); }}>Back to sign in</button>
+      </form> : <form onSubmit={submit} className="stack">
         {session.setupRequired && <><div className="two-fields"><Field label="Organization name"><input name="organizationName" required defaultValue="My Organization" /></Field><Field label="Site or campus"><input name="siteName" required defaultValue="Main Campus" /></Field></div><div className="two-fields"><Field label="Your name"><input name="displayName" required autoComplete="name" /></Field><Field label="Email (optional)"><input name="email" type="email" autoComplete="email" /></Field></div><div className="two-fields"><Field label="Time zone"><select name="timeZone" defaultValue={Intl.DateTimeFormat().resolvedOptions().timeZone}><option>{Intl.DateTimeFormat().resolvedOptions().timeZone}</option><option>America/New_York</option><option>America/Chicago</option><option>America/Denver</option><option>America/Los_Angeles</option><option>UTC</option></select></Field><Field label="Week starts"><select name="weekStartsOn"><option>Sunday</option><option>Monday</option></select></Field></div></>}
         <Field label="Username"><input name="username" required minLength={3} autoComplete="username" autoFocus={!session.setupRequired} /></Field>
         <Field label="Password" hint={session.setupRequired ? "10+ characters with uppercase, lowercase, and a number" : undefined}>
@@ -214,8 +275,8 @@ function Auth({ session, onAuthenticated }: { session: Session; onAuthenticated:
         </Field>
         {error && <div className="alert error">{error}</div>}
         <button className="button primary wide" disabled={busy}>{busy ? "Please wait…" : session.setupRequired ? "Finish setup" : "Sign in"}</button>
-      </form>
-      {!session.setupRequired && <a className="recovery-link" href="https://github.com/nickhighland/lessoncue/blob/main/docs/installation.md#reset-a-forgotten-administrator-password" target="_blank" rel="noreferrer">Forgot your password? View local recovery instructions ↗</a>}
+      </form>}
+      {!session.setupRequired && <div className="auth-links">{session.emailConfigured && <button className="text-button" onClick={() => setMode("forgot")}>Forgot password?</button>}{session.emailConfigured && <button className="text-button" onClick={() => setMode("resend")}>Resend verification</button>}{session.registrationAvailable && <button className="text-button" onClick={() => setMode("register")}>Create account</button>}<a className="recovery-link" href="https://github.com/nickhighland/lessoncue/blob/main/docs/installation.md#reset-a-forgotten-administrator-password" target="_blank" rel="noreferrer">SSH recovery ↗</a></div>}
       <div className="local-note"><span className="status-dot" /> Local server · {location.host}</div>
     </section>
   </main>;
@@ -245,6 +306,7 @@ function Shell({ view, setView, username, currentUsername, role, permissions, on
   const [users, setUsers] = useState<User[]>([]);
   const [backups, setBackups] = useState<Backup[]>([]);
   const [audit, setAudit] = useState<Audit[]>([]);
+  const [showProfile, setShowProfile] = useState(false);
   const [loading, setLoading] = useState(true);
   const refresh = () => setDataVersion(v => v + 1);
   useEffect(() => {
@@ -315,7 +377,7 @@ function Shell({ view, setView, username, currentUsername, role, permissions, on
     <aside className="sidebar">
       <div className="brand-lockup inverse"><div className="brand-mark">LC</div><div><strong>LessonCue</strong><span>{bootstrap?.organization || "Local server"}</span></div></div>
       <nav>{nav.map(([key, icon, label]) => <button key={key} className={view === key ? "active" : ""} onClick={() => setView(key)}><span>{icon}</span>{label}</button>)}</nav>
-      <div className="sidebar-foot">{canUpload && bootstrap && <div className="storage-mini"><span>Upload space</span><strong>{formatBytes(bootstrap.storage.remainingBytes)} free</strong><StorageMeter storage={bootstrap.storage} /></div>}<div className="server-online"><span className="status-dot" /><div><strong>Server online</strong><small>{location.host}</small></div></div><button className="account-button" onClick={onLogout}>{username}<span>{role} · Sign out</span></button></div>
+      <div className="sidebar-foot">{canUpload && bootstrap && <div className="storage-mini"><span>Upload space</span><strong>{formatBytes(bootstrap.storage.remainingBytes)} free</strong><StorageMeter storage={bootstrap.storage} /></div>}<div className="server-online"><span className="status-dot" /><div><strong>Server online</strong><small>{location.host}</small></div></div><button className="account-button" onClick={() => setShowProfile(true)}>{username}<span>{role} · Manage account</span></button></div>
     </aside>
     <main className="content" id="main-content" tabIndex={-1}>
       {notice && <div className="toast" key={notice} role="status" aria-live="polite" onClick={() => setNotice("")}>{notice}<span>×</span></div>}
@@ -333,7 +395,41 @@ function Shell({ view, setView, username, currentUsername, role, permissions, on
         {view === "settings" && bootstrap && <Settings bootstrap={bootstrap} backups={backups} audit={audit} refresh={refresh} notify={setNotice} canSettings={canManageSettings} canBackups={canManageBackups} canUpdates={canManageUpdates} />}
       </>}
     </main>
-  </div></>;
+  </div>{showProfile && <ProfileModal onClose={() => setShowProfile(false)} onLogout={onLogout} notify={setNotice} />}</>;
+}
+
+function ProfileModal({ onClose, onLogout, notify }: { onClose: () => void; onLogout: () => void; notify: (message: string) => void }) {
+  const [profile, setProfile] = useState<AccountProfile>();
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api<AccountProfile>("/api/v1/auth/profile").then(setProfile).catch(cause => setError(errorText(cause))); }, []);
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError("");
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    if (values.newPassword && values.newPassword !== values.confirmPassword) {
+      setError("New passwords do not match."); setBusy(false); return;
+    }
+    try {
+      const result = await api<{ message: string }>("/api/v1/auth/profile", {
+        method: "PUT",
+        body: JSON.stringify({ displayName: values.displayName, username: values.username, email: values.email, currentPassword: values.currentPassword || "", newPassword: values.newPassword || "" }),
+      });
+      notify(result.message);
+      onClose();
+      window.setTimeout(() => location.reload(), 350);
+    } catch (cause) { setError(errorText(cause)); } finally { setBusy(false); }
+  }
+  return <Modal title="Your account" onClose={onClose}>
+    {!profile ? error ? <div className="alert error">{error}</div> : <p className="muted">Loading your account…</p> : <form className="stack" onSubmit={save}>
+      <div className="account-profile-summary"><span>{profile.role}</span><strong>{profile.emailVerified ? "Email verified" : "Email verification pending"}</strong></div>
+      <Field label="Your name"><input name="displayName" defaultValue={profile.displayName} required autoComplete="name" /></Field>
+      <div className="two-fields"><Field label="Username"><input name="username" defaultValue={profile.username} required minLength={3} autoComplete="username" /></Field><Field label="Email (optional for local accounts)"><input name="email" type="email" defaultValue={profile.email || ""} autoComplete="email" /></Field></div>
+      <Field label="Current password" hint="Required only when changing username, email, or password."><input name="currentPassword" type="password" autoComplete="current-password" /></Field>
+      <div className="two-fields"><Field label="New password" hint="Leave blank to keep it unchanged."><input name="newPassword" type="password" minLength={10} autoComplete="new-password" /></Field><Field label="Confirm new password"><input name="confirmPassword" type="password" minLength={10} autoComplete="new-password" /></Field></div>
+      {error && <div className="alert error">{error}</div>}
+      <div className="modal-actions split-actions"><button className="button danger" type="button" onClick={onLogout}>Sign out</button><span /><button className="button" type="button" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? "Saving…" : "Save account"}</button></div>
+    </form>}
+  </Modal>;
 }
 
 function PageHead({ eyebrow, title, detail, action }: { eyebrow: string; title: string; detail: string; action?: ReactNode }) {
@@ -989,6 +1085,89 @@ function PermissionEditor({ customPermissions }: { customPermissions?: Permissio
   return <fieldset className="permission-editor"><legend>Permissions</legend><label className="check-row"><input type="checkbox" name="customPermissions" checked={custom} onChange={event => setCustom(event.target.checked)} /><span>Customize this role</span></label><p>{custom ? "Choose each capability independently. Changes sign the user out of existing sessions." : "Use the selected role's safe defaults. Owners always retain every permission."}</p>{custom && <><div className="permission-grid">{permissionOptions.map(permission => { const active = selected.includes(permission.id); return <button type="button" aria-pressed={active} key={permission.id} onClick={() => setSelected(current => active ? current.filter(value => value !== permission.id) : [...current, permission.id])}><i>{active ? "✓" : ""}</i><span><strong>{permission.label}</strong><small>{permission.detail}</small></span></button>; })}</div>{selected.map(permission => <input type="hidden" name="permission" value={permission} key={permission} />)}</>}</fieldset>;
 }
 
+function RegistrationSettingsPanel({ bootstrap, notify, refresh }: { bootstrap: Bootstrap; notify: (message: string) => void; refresh: () => void }) {
+  const [settings, setSettings] = useState<RegistrationSettings>({
+    mode: bootstrap.settings.registrationMode,
+    publicBaseUrl: bootstrap.settings.publicBaseUrl,
+    emailFromAddress: bootstrap.settings.emailFromAddress,
+    emailFromName: bootstrap.settings.emailFromName,
+    emailProvider: bootstrap.settings.emailProvider,
+    emailConfigured: bootstrap.accountEmail.configured,
+  });
+  const [apiKey, setApiKey] = useState("");
+  const [codes, setCodes] = useState<RegistrationCode[]>([]);
+  const [revealedCode, setRevealedCode] = useState("");
+  const [editingCode, setEditingCode] = useState<RegistrationCode>();
+  const [busy, setBusy] = useState(false);
+  const loadCodes = () => api<RegistrationCode[]>("/api/v1/registration/codes").then(setCodes).catch(cause => notify(errorText(cause)));
+  useEffect(() => { void api<RegistrationCode[]>("/api/v1/registration/codes").then(setCodes).catch(cause => notify(errorText(cause))); }, [notify]);
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true);
+    try {
+      const result = await api<{ emailConfigured: boolean }>("/api/v1/registration/settings", {
+        method: "PUT",
+        body: JSON.stringify({ ...settings, apiKey }),
+      });
+      setSettings(current => ({ ...current, emailConfigured: result.emailConfigured }));
+      setApiKey(""); refresh(); notify("Registration and account email settings saved.");
+    } catch (cause) { notify(errorText(cause)); } finally { setBusy(false); }
+  }
+  async function createCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    try {
+      const result = await api<{ code: string }>("/api/v1/registration/codes", {
+        method: "POST",
+        body: JSON.stringify({ label: values.label, expiresAt: values.expiresAt ? new Date(String(values.expiresAt)).toISOString() : null, maxUses: values.maxUses ? Number(values.maxUses) : null }),
+      });
+      setRevealedCode(result.code); form.reset(); await loadCodes(); notify("Registration code created. Copy it now.");
+    } catch (cause) { notify(errorText(cause)); }
+  }
+  async function rotateCode(item: RegistrationCode) {
+    if (!confirm(`Replace “${item.label}”? The current code will stop working immediately.`)) return;
+    try {
+      const result = await api<{ code: string }>(`/api/v1/registration/codes/${item.id}/rotate`, { method: "POST", body: "{}" });
+      setRevealedCode(result.code); await loadCodes(); notify("Registration code replaced. Copy the new code now.");
+    } catch (cause) { notify(errorText(cause)); }
+  }
+  async function updateCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingCode) return;
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    try {
+      await api(`/api/v1/registration/codes/${editingCode.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ label: values.label, expiresAt: values.expiresAt ? new Date(String(values.expiresAt)).toISOString() : null, maxUses: values.maxUses ? Number(values.maxUses) : null }),
+      });
+      setEditingCode(undefined); await loadCodes(); notify("Registration code limits saved.");
+    } catch (cause) { notify(errorText(cause)); }
+  }
+  async function revokeCode(item: RegistrationCode) {
+    if (!confirm(`Revoke “${item.label}”?`)) return;
+    try { await api(`/api/v1/registration/codes/${item.id}`, { method: "DELETE" }); await loadCodes(); notify("Registration code revoked."); }
+    catch (cause) { notify(errorText(cause)); }
+  }
+  return <section className="panel wide-settings account-settings">
+    {editingCode && <Modal title={`Edit ${editingCode.label}`} onClose={() => setEditingCode(undefined)}><form className="stack" onSubmit={updateCode}><Field label="Label"><input name="label" required maxLength={120} defaultValue={editingCode.label} /></Field><Field label="Expires (leave blank for no expiration)"><input name="expiresAt" type="datetime-local" defaultValue={editingCode.expiresAt ? localDateTimeValue(editingCode.expiresAt) : ""} /></Field><Field label="Maximum uses (leave blank for unlimited)"><input name="maxUses" type="number" min="1" max="100000" defaultValue={editingCode.maxUses || ""} /></Field><div className="modal-actions"><button className="button" type="button" onClick={() => setEditingCode(undefined)}>Cancel</button><button className="button primary">Save limits</button></div></form></Modal>}
+    <div className="settings-heading"><div><span className="settings-kicker">ACCOUNTS</span><h2>Registration & email</h2><p className="settings-copy">Keep registration closed, open it to anyone with a verified email, or require a code. Local administrator-created accounts always remain available.</p></div><span className={`update-state ${settings.mode === "closed" ? "current" : "available"}`}>{settings.mode === "closed" ? "Registration closed" : settings.mode === "code" ? "Code required" : "Registration open"}</span></div>
+    <form className="stack" onSubmit={save}>
+      <Field label="Registration mode"><select value={settings.mode} onChange={event => setSettings(current => ({ ...current, mode: event.target.value as RegistrationSettings["mode"] }))}><option value="closed">Closed — do not accept registrations or codes</option><option value="code">Require an active registration code</option><option value="open">Open to anyone with a verified email</option></select></Field>
+      <div className="two-fields"><Field label="Account email provider"><select value={settings.emailProvider} onChange={event => setSettings(current => ({ ...current, emailProvider: event.target.value as RegistrationSettings["emailProvider"] }))}><option value="none">None — local accounts only</option><option value="resend">Resend</option><option value="brevo">Brevo</option></select></Field><Field label={settings.emailConfigured ? "Replace API key (optional)" : "Email API key"} hint="The key is encrypted on this server and is never returned to a browser."><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} required={settings.emailProvider !== "none" && !settings.emailConfigured} disabled={settings.emailProvider === "none"} autoComplete="new-password" /></Field></div>
+      <div className="two-fields"><Field label="Sender name"><input value={settings.emailFromName} onChange={event => setSettings(current => ({ ...current, emailFromName: event.target.value }))} required={settings.emailProvider !== "none"} disabled={settings.emailProvider === "none"} /></Field><Field label="Verified sender address"><input type="email" value={settings.emailFromAddress} onChange={event => setSettings(current => ({ ...current, emailFromAddress: event.target.value }))} required={settings.emailProvider !== "none"} disabled={settings.emailProvider === "none"} /></Field></div>
+      <Field label="Public account-link address" hint="Use the HTTPS Cloudflare or reverse-proxy address users can reach from email. Leave blank to use the address from the current request."><input type="url" value={settings.publicBaseUrl} onChange={event => setSettings(current => ({ ...current, publicBaseUrl: event.target.value }))} placeholder="https://lesson.example.org" /></Field>
+      {settings.mode !== "closed" && settings.emailProvider === "none" && <div className="alert error">Self-service registration needs Resend or Brevo so LessonCue can verify email addresses.</div>}
+      <button className="button primary" disabled={busy}>{busy ? "Saving…" : "Save account settings"}</button>
+    </form>
+    <div className="settings-subsection registration-codes">
+      <div className="settings-heading"><div><h3>Registration codes</h3><p>Codes are stored as one-way hashes. LessonCue shows each full code only when it is created or replaced.</p></div></div>
+      {revealedCode && <div className="secret-reveal"><span>Copy this code now</span><code>{revealedCode}</code><button className="button" type="button" onClick={() => { void navigator.clipboard.writeText(revealedCode); notify("Registration code copied."); }}>Copy</button><button className="text-button" type="button" onClick={() => setRevealedCode("")}>Hide</button></div>}
+      <form className="registration-code-form" onSubmit={createCode}><Field label="Label"><input name="label" required maxLength={120} placeholder="Fall semester staff" /></Field><Field label="Expires (optional)"><input name="expiresAt" type="datetime-local" /></Field><Field label="Maximum uses (optional)"><input name="maxUses" type="number" min="1" max="100000" /></Field><button className="button">Create code</button></form>
+      {codes.length ? <div className="registration-code-list">{codes.map(item => <div key={item.id} className={!item.active ? "inactive" : ""}><span><strong>{item.label}</strong><small>Ends in …{item.hint} · {item.uses}{item.maxUses ? ` of ${item.maxUses}` : ""} uses · {item.expiresAt ? `expires ${new Date(item.expiresAt).toLocaleString()}` : "no expiration"}</small></span><span className="row-actions">{item.active && <button className="button" type="button" onClick={() => setEditingCode(item)}>Edit</button>}{item.active && <button className="button" type="button" onClick={() => rotateCode(item)}>Replace</button>}{item.active && <button className="button danger" type="button" onClick={() => revokeCode(item)}>Revoke</button>}{!item.active && <small>Inactive</small>}</span></div>)}</div> : <Empty title="No registration codes" body="Create a code when registration is set to require one." />}
+    </div>
+  </section>;
+}
+
 function Settings({ bootstrap, backups, audit, refresh, notify, canSettings, canBackups, canUpdates }: { bootstrap: Bootstrap; backups: Backup[]; audit: Audit[]; refresh: () => void; notify: (s: string) => void; canSettings: boolean; canBackups: boolean; canUpdates: boolean }) {
   const canManage = canSettings;
   const [automaticStorage, setAutomaticStorage] = useState(bootstrap.storage.automaticAllocation);
@@ -1047,6 +1226,7 @@ function Settings({ bootstrap, backups, audit, refresh, notify, canSettings, can
   async function purgeRecycleBin() { if (!confirm("Permanently purge every item in the recycling bin? Files and records cannot be recovered after this.")) return; try { const result = await api<{ purged: number }>("/api/v1/recycle-bin", { method: "DELETE" }); await loadRecycleBin(); refresh(); notify(`${result.purged} recycled item${result.purged === 1 ? "" : "s"} permanently purged.`); } catch (error) { notify(errorText(error)); } }
   const o = bootstrap.settings;
   return <><PageHead eyebrow="SERVER" title="Settings" detail="Updates, appearance, storage, connectivity, recovery, and local server operations." />
+    {canSettings && <div className="settings-grid account-settings-grid"><RegistrationSettingsPanel bootstrap={bootstrap} notify={notify} refresh={refresh} /></div>}
     {restorePreview && <Modal title={restoreResult ? "Restore complete" : "Review backup restore"} onClose={() => !restoreBusy && setRestorePreview(undefined)}>{restoreResult ? <div className="restore-complete"><div className="success-mark">✓</div><h3>{restoreResult.organization} was restored</h3><p>A full safety backup was created first and remains available on this server.</p><Definition label="Safety backup" value={restoreResult.safetyBackupFileName} /><Definition label="Media" value={restoreResult.mediaRestored ? "Restored from the archive" : "Existing server media preserved"} /><p className="settings-copy">This server kept its {restoreResult.preservedServerSettings.join(", ")}.</p><button className="button primary wide" onClick={() => location.reload()}>Reload restored LessonCue</button></div> : <div className="restore-review"><div className="restore-heading"><div><span>{restorePreview.kind.toUpperCase()} BACKUP</span><h3>{restorePreview.organization}</h3><p>{restorePreview.fileName}</p></div><strong>{formatBytes(restorePreview.compressedBytes)}</strong></div><div className="restore-counts"><Definition label="Users" value={String(restorePreview.users)} /><Definition label="Classes" value={String(restorePreview.classes)} /><Definition label="Lessons" value={String(restorePreview.lessons)} /><Definition label="Media records" value={String(restorePreview.mediaRecords)} /></div>{restorePreview.warnings.map(warning => <div className="alert" key={warning}>{warning}</div>)}<div className="danger-callout"><strong>This replaces current LessonCue data.</strong><p>LessonCue creates a full safety backup before changing anything. The receiving server's identity, keys, network address, port, and pairing secrets remain unchanged.</p></div><Field label="Type RESTORE to continue"><input value={restoreConfirmation} onChange={e => setRestoreConfirmation(e.target.value)} autoComplete="off" /></Field><button className="button danger wide" onClick={restoreBackup} disabled={restoreBusy || restoreConfirmation !== "RESTORE"}>{restoreBusy ? "Restoring…" : "Create safety backup and restore"}</button></div>}</Modal>}
     <div className="settings-grid"><section className="panel wide-settings update-settings"><div className="settings-heading"><div><span className="settings-kicker">SYSTEM MAINTENANCE</span><h2>Software updates</h2><p className="settings-copy">LessonCue checks once each day and alerts administrators when a newer release is available.</p></div><span className={`update-state ${bootstrap.update.updateAvailable ? "available" : "current"}`}>{bootstrap.update.updateAvailable ? "Update available" : "Up to date"}</span></div><div className="storage-facts"><Definition label="Installed version" value={bootstrap.update.currentVersion} /><Definition label="Latest version" value={bootstrap.update.latestVersion || "Not checked yet"} /><Definition label="Last checked" value={bootstrap.update.lastCheckedAt ? timeAgo(bootstrap.update.lastCheckedAt) : "Not checked yet"} /></div>{bootstrap.update.error && <div className="alert error">{bootstrap.update.error}</div>}<div className="head-actions"><button className="button" onClick={checkUpdates} disabled={!canUpdates || checking}>{checking ? "Checking…" : "Check now"}</button>{canUpdates && bootstrap.update.updateAvailable && bootstrap.update.automaticInstallSupported && <button className="button primary" onClick={installUpdate} disabled={installing}>{installing ? "Installing…" : `Install ${bootstrap.update.latestVersion}`}</button>}{bootstrap.update.releaseUrl && <a className="button" href={bootstrap.update.releaseUrl} target="_blank" rel="noreferrer">Release notes</a>}</div>{!canUpdates && <p className="settings-copy">An account with software-update permission controls update checks and installation.</p>}{!bootstrap.update.automaticInstallSupported && <p className="settings-copy">Run the current release installer once from SSH to enable automatic updates on this server.</p>}</section>
       <section className="panel wide-settings"><h2>Organization & appearance</h2><p className="settings-copy">Manage organization defaults, controller access, and every interface color together.</p><form className="stack" onSubmit={saveOrganization}><div className="two-fields"><Field label="Organization"><input name="name" defaultValue={o.name} disabled={!canManage} required /></Field><Field label="Site"><input name="siteName" defaultValue={o.siteName} disabled={!canManage} required /></Field></div><div className="two-fields"><Field label="Time zone"><input name="timeZone" defaultValue={o.timeZone} disabled={!canManage} required /></Field><Field label="Week starts"><select name="weekStartsOn" defaultValue={o.weekStartsOn} disabled={!canManage}><option>Sunday</option><option>Monday</option></select></Field></div><Field label="Welcome message"><input name="welcomeMessage" defaultValue={o.welcomeMessage} disabled={!canManage} /></Field><div className="two-fields"><Field label="Default lesson minutes"><input name="defaultLessonDurationMinutes" type="number" min="5" max="480" defaultValue={o.defaultLessonDurationMinutes} disabled={!canManage} /></Field><Field label="Archive retention days"><input name="defaultRetentionDays" type="number" min="1" max="3650" defaultValue={o.defaultRetentionDays} disabled={!canManage} /></Field></div><div className="settings-subsection"><h3>Room controller access</h3><label className="check-row"><input name="requireLocalRoomControllers" type="checkbox" defaultChecked={o.requireLocalRoomControllers} disabled={!canManage} /> Require non-administrator room remotes to use the local .local address</label><p>When enabled, room and temporary controllers used by Editors or Viewers are rejected on public hostnames. Owners and Administrators can still troubleshoot remotely.</p></div><div className="settings-subsection"><h3>Interface colors</h3><p>Choose the navigation background, general accent, navigation text, and selected-tab colors in one place.</p><div className="color-fields"><Field label="Navigation background"><input name="primaryColor" type="color" defaultValue={o.primaryColor} disabled={!canManage} /></Field><Field label="Accent color"><input name="accentColor" type="color" defaultValue={o.accentColor} disabled={!canManage} /></Field><Field label="Navigation text"><input name="navigationTextColor" type="color" defaultValue={o.navigationTextColor} disabled={!canManage} /></Field><Field label="Selected navigation tab"><input name="selectedTabColor" type="color" defaultValue={o.selectedTabColor} disabled={!canManage} /></Field></div></div>{canManage && <button className="button primary">Save organization & appearance</button>}</form></section>
@@ -1226,6 +1406,7 @@ function isOnline(screen: Screen) { return screen.online; }
 function timeAgo(value: string) { const seconds = Math.max(1, Math.round((Date.now() - new Date(value).getTime()) / 1000)); if (seconds < 60) return `${seconds}s ago`; if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`; if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`; return `${Math.floor(seconds / 86400)}d ago`; }
 function roleName(role: PlaylistItem["role"]) { return role === "preRoll" ? "PRE-ROLL" : role === "countdown" ? "COUNTDOWN" : "LESSON"; }
 function toLocalInput(value?: string) { if (!value) return ""; const d = new Date(value); const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000); return local.toISOString().slice(0, 16); }
+function localDateTimeValue(value?: string) { return toLocalInput(value); }
 function errorText(error: unknown) { return error instanceof Error ? error.message : "Something went wrong."; }
 function initials(name: string) { return name.split(/\s+/).slice(0, 2).map(part => part[0]?.toUpperCase()).join("") || "LC"; }
 async function waitForVersion(version?: string) { await new Promise(resolve => setTimeout(resolve, 4000)); for (let attempt = 0; attempt < 60; attempt++) { try { const status = await api<UpdateStatus>("/api/v1/updates"); if (!version || status.currentVersion === version) return; } catch { /* The server is restarting. */ } await new Promise(resolve => setTimeout(resolve, 2000)); } throw new Error("The update is taking longer than expected. Refresh this page in a minute."); }
