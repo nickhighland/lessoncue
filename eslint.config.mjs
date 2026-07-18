@@ -5,7 +5,15 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default defineConfig([
-  globalIgnores(["node_modules/**", "server/LessonCue.Server/wwwroot/**"]),
+  globalIgnores([
+    "node_modules/**",
+    "server/LessonCue.Server/wwwroot/**",
+    "android-tv/**/build/**",
+    "android-tv/.gradle/**",
+    "tvos/.build/**",
+    "**/bin/**",
+    "**/obj/**",
+  ]),
   {
     files: ["web-admin/**/*.{ts,tsx}"],
     extends: [js.configs.recommended, ...tseslint.configs.recommended, reactHooks.configs.flat.recommended],

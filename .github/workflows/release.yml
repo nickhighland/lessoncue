@@ -102,16 +102,52 @@ jobs:
           apksigner="$(find "${ANDROID_HOME}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -x "${apksigner}" || { echo "::error::Android apksigner was not found"; exit 1; }
           "${apksigner}" verify --verbose --print-certs "${release_apk}"
-          actual_fingerprint="$("${apksigner}" verify --print-certs "${release_apk}" | awk -F': ' '/certificate SHA-256 digest/ { print toupper($NF); exit }' | tr -d ':')"
+          actual_fingerprint="$("${apksigner}" verify --print-certs "${release_apk}" | awk -F': ' '/certificate SHA-256 digest/ && !found { print toupper($NF); found=1 }' | tr -d ':')"
           expected_fingerprint="$(printf '%s' "${LESSONCUE_ANDROID_SIGNING_CERT_SHA256}" | tr '[:lower:]' '[:upper:]' | tr -d ':')"
           test "${actual_fingerprint}" = "${expected_fingerprint}" || { echo "::error::Release APK signing certificate does not match ANDROID_SIGNING_CERT_SHA256"; exit 1; }
           cp "${release_apk}" lessoncue-tv.apk
+      - name: Generate signed update metadata
+        run: |
+          aapt2="$(find "${ANDROID_HOME}/build-tools" -type f -name aapt2 | sort -V | tail -n 1)"
+          test -x "${aapt2}" || { echo "::error::Android aapt2 was not found"; exit 1; }
+          package_line="$("${aapt2}" dump badging lessoncue-tv.apk | sed -n '1p')"
+          version_code="$(printf '%s' "${package_line}" | sed -n "s/.*versionCode='\\([^']*\\)'.*/\\1/p")"
+          version_name="$(printf '%s' "${package_line}" | sed -n "s/.*versionName='\\([^']*\\)'.*/\\1/p")"
+          test -n "${version_code}" || { echo "::error::Unable to read the APK version code"; exit 1; }
+          test -n "${version_name}" || { echo "::error::Unable to read the APK version name"; exit 1; }
+          apk_sha256="$(sha256sum lessoncue-tv.apk | awk '{print $1}')"
+          apk_size="$(stat -c '%s' lessoncue-tv.apk)"
+          apk_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/lessoncue-tv.apk"
+          release_notes="$(git log -1 --pretty=%s)"
+          jq -n \
+            --arg channel "stable" \
+            --arg versionName "${version_name}" \
+            --arg apkUrl "${apk_url}" \
+            --arg sha256 "${apk_sha256}" \
+            --arg releaseNotes "${release_notes}" \
+            --argjson versionCode "${version_code}" \
+            --argjson fileSize "${apk_size}" \
+            '{
+              schemaVersion: 1,
+              channel: $channel,
+              versionCode: $versionCode,
+              versionName: $versionName,
+              apkUrl: $apkUrl,
+              sha256: $sha256,
+              fileSize: $fileSize,
+              mandatory: false,
+              minimumSupportedVersionCode: 1,
+              releaseNotes: $releaseNotes
+            }' > update.json
+          printf '%s  %s\n' "${apk_sha256}" "lessoncue-tv.apk" > lessoncue-tv.apk.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: LessonCue-AndroidTV
           path: |
             LessonCue-AndroidTV-debug.apk
             lessoncue-tv.apk
+            lessoncue-tv.apk.sha256
+            update.json
 
   publish:
     needs: [server-linux, server-windows, android]
@@ -121,7 +157,7 @@ jobs:
         with:
           path: release
           merge-multiple: true
-      - run: cd release && sha256sum LessonCue-* lessoncue-* > SHA256SUMS
+      - run: cd release && sha256sum LessonCue-* lessoncue-tv.apk update.json > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true

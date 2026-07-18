@@ -1,6 +1,7 @@
 package org.lessoncue.tv
 
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -11,6 +12,8 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -34,6 +37,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -97,6 +101,13 @@ fun LessonCueApp() {
     val context = LocalContext.current
     val store = remember { IdentityStore(context) }
     val scope = rememberCoroutineScope()
+    val updateManager = remember(context, scope) { UpdateManager(context, scope) }
+    val updateState by updateManager.state.collectAsState()
+    val updatePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        updateManager.onPermissionSettingsReturned()
+    }
     var screen by remember { mutableStateOf<AppScreen>(AppScreen.Loading) }
     var activeIdentity by remember { mutableStateOf<DeviceIdentity?>(null) }
     var activeManifestVersion by remember { mutableStateOf(0) }
@@ -106,6 +117,14 @@ fun LessonCueApp() {
     var totalManifestItems by remember { mutableStateOf(0) }
     var diagnosticCaptureVisible by remember { mutableStateOf(false) }
     var handledScreenshotRequest by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(updateManager) {
+        onDispose { updateManager.close() }
+    }
+
+    LaunchedEffect(Unit) {
+        if (BuildConfig.UPDATE_ENABLED) updateManager.startAutomaticCheck()
+    }
 
     LaunchedEffect(Unit) {
         val identity = store.load()
@@ -232,7 +251,11 @@ fun LessonCueApp() {
                             kotlinx.coroutines.delay(1_000)
                         }
                     }
-                    LibraryScreen(current.manifest) { playlist -> screen = AppScreen.LessonDetail(current.identity, current.manifest, playlist) }
+                    LibraryScreen(
+                        current.manifest,
+                        onStart = { playlist -> screen = AppScreen.LessonDetail(current.identity, current.manifest, playlist) },
+                        onCheckForUpdates = (updateManager::checkManually).takeIf { BuildConfig.UPDATE_ENABLED }
+                    )
                 }
                 is AppScreen.LessonDetail -> {
                     LaunchedEffect(current.playlist.id) {
@@ -292,6 +315,35 @@ fun LessonCueApp() {
             }
             if (diagnosticCaptureVisible) Text("DIAGNOSTIC SCREENSHOT · ADMIN REQUEST",
                 color = Cream, fontSize = 18.sp, modifier = Modifier.align(Alignment.TopEnd).background(Coral).padding(14.dp))
+            val passiveUpdate = (updateState as? UpdateUiState.Available)
+                ?.takeIf { !it.blocking && !it.manualPresentation }
+            if (passiveUpdate != null) {
+                Box(Modifier.align(Alignment.TopCenter)) {
+                    UpdateAvailableBanner(
+                        passiveUpdate,
+                        onReview = updateManager::reviewAvailableUpdate,
+                        onLater = updateManager::dismiss
+                    )
+                }
+            } else if (updateState !is UpdateUiState.Idle) {
+                UpdateScreen(
+                    state = updateState,
+                    onDownload = updateManager::downloadAndInstall,
+                    onLater = updateManager::dismiss,
+                    onCancelDownload = updateManager::cancelDownload,
+                    onRetry = updateManager::retry,
+                    onClose = updateManager::closeMessage,
+                    onOpenPermissionSettings = {
+                        try {
+                            updatePermissionLauncher.launch(updateManager.permissionIntent())
+                        } catch (_: ActivityNotFoundException) {
+                            updateManager.onPermissionSettingsUnavailable()
+                        } catch (_: SecurityException) {
+                            updateManager.onPermissionSettingsUnavailable()
+                        }
+                    }
+                )
+            }
           }
         }
     }
@@ -334,7 +386,11 @@ private fun PinScreen(serverName: String, onConfirm: (String) -> Unit) {
 }
 
 @Composable
-private fun LibraryScreen(manifest: ScreenManifest, onStart: (LessonPlaylist) -> Unit) {
+private fun LibraryScreen(
+    manifest: ScreenManifest,
+    onStart: (LessonPlaylist) -> Unit,
+    onCheckForUpdates: (() -> Unit)?
+) {
     val signage = manifest.signage.firstOrNull { it.mode == "emergency" } ?: manifest.signage.firstOrNull()
     val firstFocus = remember { FocusRequester() }
     LaunchedEffect(manifest.version, manifest.playlists.size) {
@@ -346,6 +402,7 @@ private fun LibraryScreen(manifest: ScreenManifest, onStart: (LessonPlaylist) ->
             Spacer(Modifier.height(20.dp))
             Text(manifest.screenName, fontSize = 34.sp, color = Cream)
             Text("Offline manifest ${manifest.version}", color = Muted, modifier = Modifier.padding(top = 8.dp))
+            Text("LessonCue ${BuildConfig.VERSION_NAME}", color = Muted, modifier = Modifier.padding(top = 4.dp))
             signage?.let {
                 Spacer(Modifier.height(24.dp))
                 Text(if (it.mode == "emergency") "EMERGENCY" else it.name.uppercase(), color = if (it.mode == "emergency") Coral else Gold, letterSpacing = 2.sp)
@@ -354,6 +411,10 @@ private fun LibraryScreen(manifest: ScreenManifest, onStart: (LessonPlaylist) ->
             Spacer(Modifier.height(42.dp))
             Text("Today’s Lesson", fontSize = 20.sp, color = Muted)
             Text("Select a lesson and press Start.", color = Cream, modifier = Modifier.padding(top = 8.dp))
+            onCheckForUpdates?.let {
+                Spacer(Modifier.height(24.dp))
+                Button(onClick = it) { Text("Check for updates") }
+            }
         }
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             itemsIndexed(manifest.playlists, key = { _, playlist -> playlist.id }) { index, playlist ->

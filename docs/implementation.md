@@ -139,7 +139,11 @@ Exception dates are stored explicitly on the schedule. Adding an exception remov
 TV players post backward-compatible structured diagnostics with the existing `/api/v1/tv/status` heartbeat: cache inventory, pending/failed downloads, decoder capabilities, recent errors, client wall-clock time, and measured request latency. The server bounds every collection and string before storing it. Screen administrators can opt an individual player into screenshot diagnostics; a one-time request is delivered through the device command poll and expires after 60 seconds. Native clients visibly announce the capture, upload a validated image over their paired-device bearer credential, and the server cleanup service removes it after 24 hours.
 
 ```bash
-gradle -p android-tv :app:testDebugUnitTest :app:assembleDebug
+gradle -p android-tv \
+  :app:testDebugUnitTest \
+  :app:lintDebug \
+  :app:assembleDebug \
+  :app:assembleDebugAndroidTest
 ```
 
 The app uses a LEANBACK launcher, Compose focusable surfaces, Media3/ExoPlayer, DataStore credentials, and WorkManager caching. The API client implements discovery, pairing, manifest parsing, and authenticated downloads. Its lesson-detail route combines pre-roll, countdown, and normal cues in one D-pad focus list; focus changes explicitly bring rows into view so a remote can scroll beyond the visible screen before starting any cue.
@@ -155,6 +159,8 @@ Tagged GitHub releases require an organization-owned Android signing key and del
 Keep an offline backup of the keystore and passwords. Losing or replacing the key prevents installed TVs from accepting future in-place updates. Never commit the keystore or passwords. The workflow publishes the signed `lessoncue-tv.apk` and `LessonCue-AndroidTV-debug.apk` together; both have stable URLs beneath `/releases/latest/download/`.
 
 The production identity established for `org.lessoncue.tv` has signing-certificate SHA-256 fingerprint `E875F8F9F4E80494DF1658D5E59662BE1048D7CD5D53DB2131103051352F64AE`. Treat any production APK with a different fingerprint as invalid.
+
+The sideload build checks the public release manifest after startup, exposes a manual remote-friendly check in the lesson library, downloads into app-private cache, independently validates the manifest hash, package ID, higher version code, and compatible signing history, and commits only a verified APK through Android's official `PackageInstaller`. See [android-tv-updater.md](android-tv-updater.md) for configuration, schema, release operations, permission handling, rollback, and the physical-device acceptance matrix.
 
 Before managed-store distribution, exercise Fire OS background behavior on each supported model and complete accessibility/device certification. The included worker persists manifests and media, validates hashes, and reports download health; Media3 `DownloadService` remains an optional scale upgrade for very large fleets.
 
