@@ -52,6 +52,8 @@ LessonCue remains centered on preparing media, organizing lessons, confirming re
 
 ## Implemented roadmap milestones
 
+- [x] **Android TV automatic local discovery (v0.30.1)** — use Android DNS-SD/NSD with a multicast lock to resolve the server-advertised `_lessoncue._tcp` service directly to its numeric address when `.local` hostname lookup fails, and persist the working address after pairing or reconnection.
+
 - [x] **Android TV launcher artwork compatibility (v0.30.0)** — replace vector-only launcher artwork with density-specific raster icons and a branded 16:9 TV banner so Google TV, Android TV, and NVIDIA Shield launchers can consistently render LessonCue.
 
 5. [x] **Intel Quick Sync transcoding acceleration (v0.29.0)**: Detect compatible Intel hardware and FFmpeg capabilities automatically; allow administrator enable or disable control; accelerate the existing TV-safe and adaptive transcoding queues; validate generated output; report active hardware acceleration and failures; and fall back safely to software transcoding. *(Implemented and validated.)*

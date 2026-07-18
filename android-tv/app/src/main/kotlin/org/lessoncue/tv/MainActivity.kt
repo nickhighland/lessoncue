@@ -129,15 +129,23 @@ fun LessonCueApp() {
     LaunchedEffect(Unit) {
         val identity = store.load()
         screen = if (identity == null) AppScreen.Connect() else {
-            activeIdentity = identity
-            val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
             runCatching {
-                val manifest = api.manifest(identity)
+                val (resolvedIdentity, manifest) = reconnectSavedServer(
+                    context, identity, context.filesDir.resolve("manifest.json")
+                )
+                if (resolvedIdentity.serverUrl != identity.serverUrl) store.save(resolvedIdentity)
+                activeIdentity = resolvedIdentity
                 activeManifestVersion = manifest.version
                 totalManifestItems = manifest.itemCount()
-                AppScreen.Library(identity, manifest)
+                AppScreen.Library(resolvedIdentity, manifest)
             }
-                .getOrElse { api.cachedManifest()?.let { activeManifestVersion = it.version; AppScreen.Library(identity, it) } ?: AppScreen.Connect("Saved server unavailable. Enter its address to reconnect.") }
+                .getOrElse {
+                    LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json")).cachedManifest()?.let { cached ->
+                        activeIdentity = identity
+                        activeManifestVersion = cached.version
+                        AppScreen.Library(identity, cached)
+                    } ?: AppScreen.Connect("Saved server unavailable. Automatic discovery could not reconnect. Enter the server's numeric IP address.")
+                }
         }
     }
 
@@ -209,8 +217,9 @@ fun LessonCueApp() {
                 is AppScreen.Connect -> ConnectScreen(current.message) { address ->
                     scope.launch {
                         runCatching {
-                            val api = LessonCueApi(address, context.filesDir.resolve("manifest.json"))
-                            val name = api.discover()
+                            val (api, name) = findLessonCueServer(
+                                context, address, context.filesDir.resolve("manifest.json")
+                            )
                             val request = api.requestPairing(Build.MODEL)
                             screen = AppScreen.EnterPin(api, request, name)
                         }.onFailure { screen = AppScreen.Connect(it.message) }
@@ -367,12 +376,35 @@ private suspend fun captureDiagnosticScreenshot(activity: ComponentActivity): By
 @Composable
 private fun ConnectScreen(message: String?, onConnect: (String) -> Unit) {
     var address by remember { mutableStateOf("http://lessoncue.local") }
-    FormLayout("Connect this TV", "Enter the LessonCue server address shown during installation.") {
+    FormLayout("Connect this TV", "LessonCue will try this address, then search the local network automatically.") {
         InputBox(address) { address = it }
         message?.let { Text(it, color = Coral, modifier = Modifier.padding(top = 12.dp)) }
         Spacer(Modifier.height(20.dp))
         Button(onClick = { onConnect(address) }) { Text("Find server") }
     }
+}
+
+private suspend fun findLessonCueServer(context: android.content.Context, address: String, manifestCache: java.io.File):
+    Pair<LessonCueApi, String> {
+    val preferred = LessonCueApi(address, manifestCache)
+    runCatching { preferred.discover() }.getOrNull()?.let { return preferred to it }
+
+    val discoveredAddress = LessonCueDiscovery(context).findServer()
+        ?: error("Could not reach $address or find LessonCue automatically. Enter the numeric server address, such as http://192.168.1.25.")
+    val discovered = LessonCueApi(discoveredAddress, manifestCache)
+    return discovered to discovered.discover()
+}
+
+private suspend fun reconnectSavedServer(context: android.content.Context, identity: DeviceIdentity, manifestCache: java.io.File):
+    Pair<DeviceIdentity, ScreenManifest> {
+    val preferred = LessonCueApi(identity.serverUrl, manifestCache)
+    runCatching { preferred.manifest(identity) }.getOrNull()?.let { return identity to it }
+
+    val discoveredAddress = LessonCueDiscovery(context).findServer()
+        ?: error("Automatic LessonCue discovery did not find a server.")
+    val discoveredIdentity = identity.copy(serverUrl = discoveredAddress)
+    val manifest = LessonCueApi(discoveredAddress, manifestCache).manifest(discoveredIdentity)
+    return discoveredIdentity to manifest
 }
 
 @Composable
