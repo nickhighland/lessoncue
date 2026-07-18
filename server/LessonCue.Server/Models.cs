@@ -23,6 +23,7 @@ public sealed class Organization
     [MaxLength(12000)] public string MediaFoldersJson { get; set; } = "[\"General\",\"Lessons\",\"Signage\"]";
     [MaxLength(12000)] public string MediaTagsJson { get; set; } = "[\"Reusable\",\"Intro\",\"Outro\",\"Reference\"]";
     [JsonIgnore] public string? ControllerPinHash { get; set; }
+    public bool RequireLocalRoomControllers { get; set; }
 }
 
 public sealed class AdminAccount
@@ -440,7 +441,8 @@ public sealed record UserInput(string Username, string DisplayName, string? Emai
 public sealed record OrganizationInput(string Name, string SiteName, string TimeZone, string WeekStartsOn,
     int DefaultLessonDurationMinutes, int DefaultRetentionDays, string PrimaryColor, string AccentColor,
     string? NavigationTextColor, string? SelectedTabColor, string WelcomeMessage,
-    bool? AdaptiveTranscodingEnabled = null, int? TranscodeLeadDays = null);
+    bool? AdaptiveTranscodingEnabled = null, int? TranscodeLeadDays = null,
+    bool? RequireLocalRoomControllers = null);
 public sealed record StorageLimitInput(long LimitBytes);
 public sealed record LocalHostnameInput(string Hostname);
 public sealed record HttpPortInput(int Port);
