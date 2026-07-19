@@ -77,14 +77,20 @@ private struct PairingView: View {
 
 private struct LibraryView: View {
     @EnvironmentObject private var model: AppModel
+    private var signage: SignageCue? {
+        model.manifest?.signage.first(where: { $0.mode == "emergency" }) ?? model.manifest?.signage.first
+    }
 
     var body: some View {
+      ZStack {
+        Color(hex: signage?.backgroundColor ?? "#08111f").ignoresSafeArea()
+        if let media = signage?.media { SignageBackdrop(item: media) }
         HStack(alignment: .top, spacing: 80) {
             VStack(alignment: .leading, spacing: 18) {
                 Text("LESSONCUE").font(.headline).tracking(5).foregroundStyle(Color.lessonGold)
                 Text(model.manifest?.screen.name ?? "Apple TV").font(.system(size: 48, weight: .bold))
                 Text("Offline manifest \(model.manifest?.manifestVersion ?? 0)").foregroundStyle(.secondary)
-                if let signage = model.manifest?.signage.first(where: { $0.mode == "emergency" }) ?? model.manifest?.signage.first {
+                if let signage {
                     Text(signage.mode == "emergency" ? "EMERGENCY" : signage.name.uppercased())
                         .font(.headline).tracking(3).foregroundStyle(signage.mode == "emergency" ? Color.lessonCoral : Color.lessonGold).padding(.top, 16)
                     Text(signage.message).font(.title2.bold())
@@ -95,26 +101,74 @@ private struct LibraryView: View {
             }
             .frame(width: 420, alignment: .leading)
 
-            ScrollView {
-                LazyVStack(spacing: 22) {
-                    ForEach(model.manifest?.playlists ?? []) { playlist in
-                        Button { model.browse(playlist) } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Text(playlist.title).font(.title2.bold())
-                                    Label("Offline schedule ready", systemImage: "checkmark.circle.fill")
-                                        .font(.callout).foregroundStyle(Color.lessonMint)
-                                }
-                                Spacer()
-                                Text("VIEW MEDIA  ›").font(.headline).foregroundStyle(Color.lessonGold)
-                            }.padding(28)
+            if signage?.mode == "emergency" {
+                ContentUnavailableView("Emergency override active", systemImage: "exclamationmark.triangle.fill",
+                    description: Text("Lesson playback resumes automatically when the override ends."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 22) {
+                        ForEach(model.manifest?.playlists ?? []) { playlist in
+                            Button { model.browse(playlist) } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        Text(playlist.title).font(.title2.bold())
+                                        Label("Offline schedule ready", systemImage: "checkmark.circle.fill")
+                                            .font(.callout).foregroundStyle(Color.lessonMint)
+                                    }
+                                    Spacer()
+                                    Text("VIEW MEDIA  ›").font(.headline).foregroundStyle(Color.lessonGold)
+                                }.padding(28)
+                            }
+                            .buttonStyle(.card)
                         }
-                        .buttonStyle(.card)
                     }
                 }
             }
         }
         .padding(70)
+      }
+    }
+}
+
+private struct SignageBackdrop: View {
+    @EnvironmentObject private var model: AppModel
+    let item: CueItem
+    @State private var imageURL: URL?
+    @State private var videoPlayer: AVQueuePlayer?
+    @State private var videoLooper: AVPlayerLooper?
+
+    var body: some View {
+        Group {
+            if item.type == "image", let imageURL {
+                AsyncImage(url: imageURL) { phase in
+                    if let image = phase.image { image.resizable().scaledToFill() }
+                    else { Color.clear }
+                }
+            } else if let videoPlayer {
+                VideoPlayer(player: videoPlayer)
+            }
+        }
+        .ignoresSafeArea()
+        .opacity(0.38)
+        .allowsHitTesting(false)
+        .task(id: item.id) {
+            guard let url = await model.mediaURL(for: item) else { return }
+            if item.type == "image" {
+                imageURL = url
+            } else if item.type == "video" {
+                let player = AVQueuePlayer()
+                player.isMuted = true
+                videoLooper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
+                videoPlayer = player
+                player.play()
+            }
+        }
+        .onDisappear {
+            videoPlayer?.pause()
+            videoPlayer = nil
+            videoLooper = nil
+        }
     }
 }
 
@@ -342,4 +396,12 @@ private extension Color {
     static let lessonGold = Color(red: 1, green: 182/255, blue: 100/255)
     static let lessonCoral = Color(red: 1, green: 122/255, blue: 110/255)
     static let lessonMint = Color(red: 88/255, green: 214/255, blue: 169/255)
+
+    init(hex: String) {
+        let value = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        let number = UInt64(value, radix: 16) ?? 0x08111f
+        self.init(red: Double((number >> 16) & 0xff) / 255,
+                  green: Double((number >> 8) & 0xff) / 255,
+                  blue: Double(number & 0xff) / 255)
+    }
 }

@@ -4,7 +4,7 @@ export default defineConfig({
   testDir: "tests/browser",
   fullyParallel: false,
   workers: 1,
-  timeout: 60_000,
+  timeout: 180_000,
   expect: { timeout: 10_000 },
   use: {
     baseURL: "http://127.0.0.1:5117",

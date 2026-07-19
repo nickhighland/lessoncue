@@ -10,7 +10,28 @@ namespace LessonCue.Server;
 public static class PresentationConversion
 {
     public static bool IsConvertible(string fileName) => Path.GetExtension(fileName).ToLowerInvariant() is
-        ".pdf" or ".pptx" or ".odp" or ".docx";
+        ".pdf" or ".ppt" or ".pptx" or ".pps" or ".ppsx" or ".pot" or ".potx" or
+        ".odp" or ".key" or ".doc" or ".docx";
+
+    public static bool TryGoogleSlidesExport(Uri source, out Uri export)
+    {
+        export = source;
+        if (!source.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+            !source.Host.Equals("docs.google.com", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var segments = source.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var presentation = Array.FindIndex(segments, value =>
+            value.Equals("presentation", StringComparison.OrdinalIgnoreCase));
+        if (presentation < 0 || presentation + 2 >= segments.Length ||
+            !segments[presentation + 1].Equals("d", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var id = segments[presentation + 2];
+        if (id.Length is < 8 or > 180 || id.Any(character =>
+            !char.IsLetterOrDigit(character) && character is not '-' and not '_'))
+            return false;
+        export = new Uri($"https://docs.google.com/presentation/d/{id}/export/pdf");
+        return true;
+    }
 
     public static List<Guid> SlideIds(MediaAsset source)
     {
@@ -96,7 +117,7 @@ public sealed class PresentationConversionService(
                 ?? throw new InvalidOperationException("The local presentation source file is missing.");
             var extension = Path.GetExtension(source.RelativePath).ToLowerInvariant();
             if (!PresentationConversion.IsConvertible(source.RelativePath))
-                throw new InvalidOperationException("Convert supports PDF, PowerPoint (.pptx), OpenDocument Presentation (.odp), and Word (.docx) files.");
+                throw new InvalidOperationException("Convert supports PDF, PowerPoint, OpenDocument Presentation, Keynote, and Word files.");
             var pdftoppm = FindExecutable("LESSONCUE_PDFTOPPM_PATH", "pdftoppm",
                 @"C:\Program Files\poppler\Library\bin\pdftoppm.exe")
                 ?? throw new InvalidOperationException("PDF rendering is unavailable. Install poppler-utils (pdftoppm) on the LessonCue server.");
@@ -182,6 +203,29 @@ public sealed class PresentationConversionService(
                 Summary = $"Converted {source.FileName} into {slideIds.Count} slides." });
             await db.SaveChangesAsync(ct);
             installed.Clear();
+            if (source.ConversionLessonId is Guid targetLessonId)
+            {
+                source.ConversionLessonId = null;
+                try
+                {
+                    var lesson = await db.Lessons.SingleOrDefaultAsync(x => x.Id == targetLessonId && !x.Archived, ct)
+                        ?? throw new InvalidOperationException("The target lesson no longer exists.");
+                    await PresentationConversion.AddToLessonAsync(db, source, lesson,
+                        source.ConversionSlideDurationSeconds, "system", ct);
+                }
+                catch (Exception addError)
+                {
+                    source.ConversionError = $"Slides were converted, but could not be added automatically: {addError.Message}";
+                    db.AuditEvents.Add(new AuditEvent
+                    {
+                        Actor = "system", Action = "presentation.add-to-lesson", Object = targetLessonId.ToString(),
+                        Result = "failed", Summary = source.ConversionError
+                    });
+                    await db.SaveChangesAsync(ct);
+                    logger.LogWarning(addError, "Converted presentation {Presentation} could not be added to lesson {Lesson}",
+                        source.FileName, targetLessonId);
+                }
+            }
             try { await hub.Clients.All.SendAsync("ManifestInvalidated", new { type = "MANIFEST_INVALIDATED" }, ct); }
             catch (Exception ex) { logger.LogDebug(ex, "Could not signal completed presentation conversion"); }
         }

@@ -1206,7 +1206,7 @@ public static class AdminApi
             var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
             if (media is null) return Results.NotFound();
             if (!PresentationConversion.IsConvertible(media.RelativePath) || media.SourceKind == "link" || string.IsNullOrWhiteSpace(media.RelativePath))
-                return Results.BadRequest(new { error = "Local conversion supports PDF, PowerPoint (.pptx), OpenDocument Presentation (.odp), and Word (.docx) files." });
+                return Results.BadRequest(new { error = "Local conversion supports PDF, PowerPoint, OpenDocument Presentation, Keynote, and Word files." });
             if (media.ConversionStatus is "pending" or "converting")
                 return Results.Conflict(new { error = "This presentation is already being converted." });
             media.ConversionStatus = "pending";
@@ -1216,6 +1216,41 @@ public static class AdminApi
             await db.SaveChangesAsync(ct);
             return Results.Accepted($"/api/v1/media/{id}/impact", new { media.Id, media.ConversionStatus });
         });
+
+        uploads.MapPost("/media/{id:guid}/convert-and-add-to-lesson", async (Guid id,
+            PresentationLessonInput input, LessonCueDb db, HttpContext context, CancellationToken ct) =>
+        {
+            var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
+            var lesson = await db.Lessons.SingleOrDefaultAsync(x => x.Id == input.LessonId && !x.Archived, ct);
+            if (media is null || lesson is null) return Results.NotFound();
+            if (!PresentationConversion.IsConvertible(media.RelativePath) || media.SourceKind == "link" ||
+                string.IsNullOrWhiteSpace(media.RelativePath))
+                return Results.BadRequest(new { error = "Choose a locally stored PDF, PowerPoint, OpenDocument Presentation, Keynote, or Word file." });
+            media.ConversionLessonId = lesson.Id;
+            media.ConversionSlideDurationSeconds = Math.Clamp(input.ImageDurationSeconds, 1, 3600);
+            if (media.ConversionStatus == "ready" && PresentationConversion.SlideIds(media).Count > 0)
+            {
+                var count = await PresentationConversion.AddToLessonAsync(db, media, lesson,
+                    media.ConversionSlideDurationSeconds, context.User.Identity?.Name ?? "admin", ct);
+                media.ConversionLessonId = null;
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(new { added = count, lesson.Id, lesson.Version });
+            }
+            media.ConversionStatus = "pending";
+            media.ConversionError = null;
+            db.AuditEvents.Add(new AuditEvent
+            {
+                Actor = context.User.Identity?.Name ?? "admin", Action = "presentation.convert-and-add.queue",
+                Object = media.Id.ToString(), Summary = $"{media.FileName} -> {lesson.Title}"
+            });
+            await db.SaveChangesAsync(ct);
+            return Results.Accepted($"/api/v1/media/{id}/impact", new
+            {
+                mediaId = media.Id,
+                media.ConversionStatus,
+                lessonId = lesson.Id
+            });
+        }).RequireAuthorization(LessonCuePermissions.Planning);
 
         uploads.MapPost("/media/{id:guid}/conversion/add-to-lesson", async (Guid id, PresentationLessonInput input,
             LessonCueDb db, IHubContext<SyncHub> hub, HttpContext context, CancellationToken ct) =>
@@ -1511,7 +1546,8 @@ public static class AdminApi
             return Results.Created($"/api/v1/media/{media.Id}", media);
         }).DisableAntiforgery();
 
-        uploads.MapPost("/media/link", async (LinkInput input, LessonCueDb db, CancellationToken ct) =>
+        uploads.MapPost("/media/link", async (LinkInput input, LessonCueDb db, StorageService storage,
+            IHttpClientFactory clients, HttpContext context, CancellationToken ct) =>
         {
             if (!Uri.TryCreate(input.Url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
                 return Results.BadRequest(new { error = "Enter a complete http or https URL." });
@@ -1519,6 +1555,94 @@ public static class AdminApi
             var selection = MediaTaxonomy.Validate(organization, input.Folder, input.TagsCsv);
             if (selection.Error is not null) return Results.BadRequest(new { error = selection.Error });
             Lesson? retentionLesson = null;
+            if (input.ImportPresentation)
+            {
+                if (!PresentationConversion.TryGoogleSlidesExport(uri, out var exportUri))
+                    return Results.BadRequest(new { error = "Google Slides import requires a docs.google.com/presentation link shared so this server can view it." });
+                if (!input.Persistent)
+                {
+                    if (input.LessonId is not Guid lessonId)
+                        return Results.BadRequest(new { error = "Choose the lesson this presentation belongs to, or choose Keep permanently." });
+                    retentionLesson = await db.Lessons.SingleOrDefaultAsync(x => x.Id == lessonId, ct);
+                    if (retentionLesson is null) return Results.BadRequest(new { error = "The selected lesson does not exist." });
+                }
+                const long maximumImportBytes = 100L * 1024 * 1024;
+                var temporaryRoot = Path.Combine(dataPath, "media", "temporary");
+                Directory.CreateDirectory(temporaryRoot);
+                var temporary = Path.Combine(temporaryRoot, $"google-slides-{Guid.NewGuid():N}.pdf");
+                try
+                {
+                    using var response = await clients.CreateClient("presentation-import")
+                        .GetAsync(exportUri, HttpCompletionOption.ResponseHeadersRead, ct);
+                    if (!response.IsSuccessStatusCode)
+                        return Results.BadRequest(new { error = $"Google Slides export was not available ({(int)response.StatusCode}). Confirm that anyone with the link can view the presentation." });
+                    if (response.Content.Headers.ContentLength is > maximumImportBytes)
+                        return Results.BadRequest(new { error = "Google Slides imports are limited to 100 MB." });
+                    if (response.Content.Headers.ContentLength is long expected &&
+                        await storage.EnsureAvailableAsync(db, expected, ct) is null)
+                        return StorageExceeded(expected);
+                    await using (var source = await response.Content.ReadAsStreamAsync(ct))
+                    await using (var destination = File.Create(temporary))
+                    {
+                        var buffer = new byte[64 * 1024];
+                        long total = 0;
+                        while (true)
+                        {
+                            var read = await source.ReadAsync(buffer, ct);
+                            if (read == 0) break;
+                            total += read;
+                            if (total > maximumImportBytes)
+                                return Results.BadRequest(new { error = "Google Slides imports are limited to 100 MB." });
+                            await destination.WriteAsync(buffer.AsMemory(0, read), ct);
+                        }
+                    }
+                    var signature = new byte[5];
+                    await using (var check = File.OpenRead(temporary))
+                        if (await check.ReadAsync(signature, ct) != signature.Length ||
+                            !signature.SequenceEqual("%PDF-"u8.ToArray()))
+                            return Results.BadRequest(new { error = "Google returned a webpage instead of a presentation export. Share the deck so anyone with the link can view it, then try again." });
+                    var size = new FileInfo(temporary).Length;
+                    if (await storage.EnsureAvailableAsync(db, size, ct) is null) return StorageExceeded(size);
+                    string sha;
+                    await using (var source = File.OpenRead(temporary))
+                        sha = Convert.ToHexString(await SHA256.HashDataAsync(source, ct)).ToLowerInvariant();
+                    var existing = await db.MediaAssets.FirstOrDefaultAsync(x => x.Sha256 == sha, ct);
+                    if (existing is not null)
+                    {
+                        if (input.Persistent) MediaRetention.KeepPermanently(existing);
+                        else if (existing.StoragePolicy == MediaRetention.LessonScoped)
+                            MediaRetention.KeepForLesson(existing, retentionLesson!);
+                        await db.SaveChangesAsync(ct);
+                        return Results.Ok(new { duplicate = true, media = existing });
+                    }
+                    var id = Guid.NewGuid();
+                    var storedName = $"{id:N}.pdf";
+                    File.Move(temporary, Path.Combine(mediaPath, storedName));
+                    var importedTitle = string.IsNullOrWhiteSpace(input.Title) ? "Google Slides presentation" : input.Title.Trim();
+                    importedTitle = Path.GetFileNameWithoutExtension(importedTitle);
+                    if (importedTitle.Length > 235) importedTitle = importedTitle[..235];
+                    importedTitle += ".pdf";
+                    var importedMedia = new MediaAsset
+                    {
+                        Id = id, FileName = Path.GetFileName(importedTitle), ContentType = "application/pdf",
+                        RelativePath = storedName, Sha256 = sha, SizeBytes = size, OfflineEligible = true,
+                        ProcessingStatus = "pending", SourceKind = "google-slides", SourceUrl = uri.ToString(),
+                        LinkKind = "google-slides-import", Folder = selection.Folder, TagsCsv = selection.TagsCsv,
+                        ConversionStatus = "pending"
+                    };
+                    if (input.Persistent) MediaRetention.KeepPermanently(importedMedia);
+                    else MediaRetention.SetNewUploadPolicy(importedMedia, retentionLesson!);
+                    db.MediaAssets.Add(importedMedia);
+                    db.AuditEvents.Add(new AuditEvent
+                    {
+                        Actor = context.User.Identity?.Name ?? "admin", Action = "presentation.google-slides.import",
+                        Object = importedMedia.Id.ToString(), Summary = uri.Host
+                    });
+                    await db.SaveChangesAsync(ct);
+                    return Results.Accepted($"/api/v1/media/{importedMedia.Id}", importedMedia);
+                }
+                finally { TryDeleteFile(temporary); }
+            }
             if (input.Download)
             {
                 if (!YouTubeMedia.IsYouTubeUrl(uri))
@@ -1931,6 +2055,40 @@ public static class AdminApi
             Audit(db, "registration.settings.update", organization.Id, $"{mode}:{provider}");
             await db.SaveChangesAsync(ct);
             return Results.Ok(new { emailConfigured = email.Status(provider).Configured });
+        });
+
+        settings.MapPost("/registration/email/test", async (TestAccountEmailInput input, LessonCueDb db,
+            AccountEmailService email, HttpContext context, CancellationToken ct) =>
+        {
+            var recipient = input.Recipient?.Trim().ToLowerInvariant() ?? "";
+            if (recipient.Length > 200 || !IsEmail(recipient))
+                return Results.BadRequest(new { error = "Enter a valid recipient email address." });
+            var organization = await db.Organizations.FirstAsync(ct);
+            if (!email.Status(organization.EmailProvider).Configured)
+                return Results.Conflict(new { error = "Save a configured Resend or Brevo provider before sending a test." });
+            try
+            {
+                await email.SendAsync(organization, recipient, "LessonCue email test",
+                    $"<p>Email delivery for <strong>{System.Net.WebUtility.HtmlEncode(organization.Name)}</strong> is working.</p>" +
+                    "<p>This test was sent from the local LessonCue server settings.</p>", ct);
+                db.AuditEvents.Add(new AuditEvent
+                {
+                    Actor = context.User.Identity?.Name ?? "admin", Action = "registration.email.test",
+                    Object = organization.Id.ToString(), Summary = $"Delivered through {organization.EmailProvider}."
+                });
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(new { message = $"Test email sent to {recipient}." });
+            }
+            catch (Exception error)
+            {
+                db.AuditEvents.Add(new AuditEvent
+                {
+                    Actor = context.User.Identity?.Name ?? "admin", Action = "registration.email.test",
+                    Object = organization.Id.ToString(), Result = "failed", Summary = organization.EmailProvider
+                });
+                await db.SaveChangesAsync(ct);
+                return Results.Json(new { error = $"The provider could not deliver the test: {error.Message}" }, statusCode: 502);
+            }
         });
 
         settings.MapGet("/registration/codes", async (LessonCueDb db, CancellationToken ct) =>
@@ -2609,7 +2767,9 @@ public static class AdminApi
         ".mp4" or ".m4v" or ".mov" or ".mkv" or ".webm" or ".avi" or ".wmv" or ".asf" or
         ".mpeg" or ".mpg" or ".mpe" or ".ts" or ".mts" or ".m2ts" or ".flv" or ".f4v" or
         ".ogv" or ".3gp" or ".3g2" or ".vob" or ".mp3" or ".m4a" or ".aac" or ".wav" or
-        ".jpg" or ".jpeg" or ".png" or ".webp" or ".pdf" or ".pptx" or ".odp" or ".docx";
+        ".jpg" or ".jpeg" or ".png" or ".webp" or ".pdf" or
+        ".ppt" or ".pptx" or ".pps" or ".ppsx" or ".pot" or ".potx" or ".odp" or ".key" or
+        ".doc" or ".docx";
 
     private static string NormalizeContentType(string fileName, string? provided)
     {
@@ -2624,8 +2784,13 @@ public static class AdminApi
             ".3gp" or ".3g2" => "video/3gpp", ".mp3" => "audio/mpeg", ".m4a" or ".aac" => "audio/aac",
             ".wav" => "audio/wav", ".jpg" or ".jpeg" => "image/jpeg", ".png" => "image/png",
             ".webp" => "image/webp", ".pdf" => "application/pdf",
+            ".ppt" or ".pps" or ".pot" => "application/vnd.ms-powerpoint",
             ".pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ".ppsx" => "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
+            ".potx" => "application/vnd.openxmlformats-officedocument.presentationml.template",
             ".odp" => "application/vnd.oasis.opendocument.presentation",
+            ".key" => "application/vnd.apple.keynote",
+            ".doc" => "application/msword",
             ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             _ => "application/octet-stream"
         };
@@ -2676,6 +2841,7 @@ public static class AdminApi
             media.ConversionError = null;
             media.ConvertedSlidesJson = "[]";
             media.ConvertedAt = null;
+            media.ConversionLessonId = null;
         }
         return derivatives;
     }

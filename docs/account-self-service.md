@@ -18,7 +18,9 @@ Sign in with **Server settings** permission and open **Settings → Registration
 2. Enter a sender name and a sender address that the provider permits.
 3. Paste the provider API key. LessonCue accepts it as a write-only value.
 4. Enter the public HTTPS address that recipients can reach, such as `https://lesson.example.org`. This should be the protected Cloudflare or reverse-proxy address for this LessonCue server.
-5. Save the settings before opening registration.
+5. Save the settings.
+6. Enter a real recipient under **Test email delivery** and select **Send test email**. LessonCue sends through the saved provider and sender, reports provider rejection without exposing the key, and records the outcome in the audit log.
+7. Open registration only after the test message arrives.
 
 LessonCue encrypts the API key with ASP.NET Data Protection and stores it at:
 
@@ -57,7 +59,7 @@ Only a short ending hint is retained for identification. The full value is store
 
 Verification links expire after 24 hours. Password-reset links expire after one hour. New-email confirmation links expire after two hours. All links are random, stored only as hashes, single-use, and invalid after expiration.
 
-The sign-in page provides **Resend verification** and **Forgot password**. Those endpoints return the same response whether an account exists or not, limiting account discovery. Registration, verification, resend, recovery, reset, and profile mutations are rate-limited per source address. Password changes and identity changes increment the account session version, invalidating older browser sessions.
+The root page is the sign-in page. It shows **Create an account** only in open mode, **Register with a code** only in code mode, and no registration link in closed mode. It also provides **Resend verification** and **Forgot password**. Those endpoints return the same response whether an account exists or not, limiting account discovery. Registration, verification, resend, recovery, reset, and profile mutations are rate-limited per source address. Password changes and identity changes increment the account session version, invalidating older browser sessions.
 
 For remote access, put authentication behind HTTPS and strongly consider Cloudflare Access or an equivalent outer access policy. Do not publish the local HTTP origin directly to the internet.
 

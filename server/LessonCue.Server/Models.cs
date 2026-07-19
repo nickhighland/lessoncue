@@ -249,6 +249,8 @@ public sealed class MediaAsset
     [MaxLength(1000)] public string? ConversionError { get; set; }
     [MaxLength(24000)] public string ConvertedSlidesJson { get; set; } = "[]";
     public DateTimeOffset? ConvertedAt { get; set; }
+    public Guid? ConversionLessonId { get; set; }
+    public int ConversionSlideDurationSeconds { get; set; } = 10;
     public List<MediaAssetVersion> Versions { get; set; } = [];
     public List<MediaTranscodeVariant> TranscodeVariants { get; set; } = [];
 }
@@ -470,6 +472,7 @@ public sealed record ProfileUpdateInput(string DisplayName, string Username, str
     string? NewPassword);
 public sealed record RegistrationSettingsInput(string Mode, string PublicBaseUrl, string EmailProvider,
     string EmailFromAddress, string EmailFromName, string? ApiKey);
+public sealed record TestAccountEmailInput(string Recipient);
 public sealed record RegistrationCodeInput(string Label, DateTimeOffset? ExpiresAt, int? MaxUses);
 public sealed record LessonUpdateInput(string? Title, DateOnly? Date, DateTimeOffset? AvailableFrom,
     DateTimeOffset? ExpiresAt, DateTimeOffset? DesignatedStartAt, bool? PreRollEnabled, Guid? CountdownItemId,
@@ -508,7 +511,7 @@ public sealed record SignageInput(string Name, string Mode, bool Enabled, int Pr
     int? StartMinutes = null, int? EndMinutes = null, List<int>? DaysOfWeek = null,
     List<DateOnly>? ExcludedDates = null, List<Guid>? TargetScreenIds = null);
 public sealed record LinkInput(string Url, string? Title, bool Download = false, bool Persistent = true,
-    Guid? LessonId = null, string? Folder = null, string? TagsCsv = null);
+    Guid? LessonId = null, string? Folder = null, string? TagsCsv = null, bool ImportPresentation = false);
 public sealed record UploadCompleteInput(string FileName, string ContentType, int TotalChunks, long? DurationMs,
     bool Persistent = false, Guid? LessonId = null, string? Folder = null, string? TagsCsv = null);
 public sealed record MediaBulkInput(List<Guid> MediaIds, string? Action, DateOnly? DeleteOn = null,

@@ -16,8 +16,9 @@ function silentWav(marker = 0) {
   return buffer;
 }
 
-function onePagePdf() {
-  const content = "BT /F1 24 Tf 72 700 Td (LessonCue PDF slide) Tj ET\n";
+function onePagePdf(label = "LessonCue PDF slide") {
+  const safeLabel = label.replace(/[()\\]/g, "");
+  const content = `BT /F1 24 Tf 72 700 Td (${safeLabel}) Tj ET\n`;
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -186,6 +187,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.locator(".media-table").filter({ hasText: "Online Learning Page" })).toBeVisible();
 
   await page.getByRole("button", { name: /Settings$/ }).click();
+  await expect(page.getByRole("navigation", { name: "Settings sections" })).toBeVisible();
+  await page.getByRole("button", { name: /Organization & accounts/ }).click();
   await expect(page.getByRole("heading", { name: "Registration & email" })).toBeVisible();
   expect(await page.evaluate(async () => (await fetch("/api/v1/auth/register", {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -206,6 +209,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   page.once("dialog", dialog => dialog.accept());
   await registrationRow.getByRole("button", { name: "Revoke" }).click();
   await expect(registrationRow).toContainText("Inactive");
+  await expect(page.getByRole("button", { name: "Save provider first" })).toBeDisabled();
+  await page.getByRole("button", { name: /Media & storage/ }).click();
   await page.getByLabel("Approved folder paths").fill("General\nLessons\nSignage\nAudio/Classroom");
   await page.getByLabel("Approved tags").fill("Reusable\nIntro\nOutro\nReference\nWelcome");
   await page.getByRole("button", { name: "Save approved folders & tags" }).click();
@@ -313,6 +318,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(scheduleCard.locator(".schedule-count")).toContainText("1");
 
   await page.getByRole("button", { name: /Settings$/ }).click();
+  await page.getByRole("button", { name: /Connections/ }).click();
   await expect(page.getByRole("heading", { name: "Optional remote access" })).toBeVisible();
   await expect(page.getByText("Not configured", { exact: true })).toBeVisible();
   const unsupportedTunnel = await page.evaluate(async () => {
@@ -345,6 +351,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   });
   expect(controllerSecurity).toMatchObject({ denied: 403, accepted: 200, updated: 200, created: 201, resolved: 200,
     path: expect.stringMatching(/^\/session\/[0-9a-f]{48}$/), scope: { lessonId: expect.any(String) } });
+  await page.getByRole("button", { name: /Data & recovery/ }).click();
   await page.getByRole("button", { name: "Full backup" }).click();
   await expect(page.getByText("Full backup created.", { exact: false })).toBeVisible();
   const fullBackupLink = page.locator("a.backup-row").filter({ hasText: "full" });
@@ -356,6 +363,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   expect(backupPath).not.toBeNull();
 
   await expect.poll(async () => page.locator(".toast").count(), { timeout: 5_000 }).toBe(0);
+  await page.getByRole("button", { name: /Organization & accounts/ }).click();
   await page.getByLabel("Organization", { exact: true }).fill("Changed Organization");
   await page.getByLabel("Require non-administrator room remotes to use the local .local address").check();
   const localControllerSave = await page.evaluate(async () => {
@@ -367,6 +375,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect.poll(() => page.evaluate(async () =>
     (await fetch("/api/v1/admin/bootstrap").then(response => response.json())).settings.requireLocalRoomControllers)).toBe(true);
 
+  await page.getByRole("button", { name: /Data & recovery/ }).click();
   await page.getByLabel("Restore a LessonCue backup").setInputFiles(backupPath!);
   await page.getByRole("button", { name: "Validate and preview" }).click();
   const restoreDialog = page.getByRole("dialog", { name: "Review backup restore" });
@@ -388,6 +397,23 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: /Classes$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
   await expect(page.getByText("one-page-handout — Slide 1", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Add media" }).click();
+  const lessonMediaDialog = page.getByRole("dialog", { name: "Add media to the lesson" });
+  await lessonMediaDialog.getByLabel("Media files").setInputFiles({
+    name: "lesson-direct-deck.pdf", mimeType: "application/pdf", buffer: onePagePdf("Direct lesson presentation"),
+  });
+  await lessonMediaDialog.getByLabel("Seconds per imported slide").fill("7");
+  await lessonMediaDialog.getByRole("button", { name: "Upload and add" }).click();
+  await expect(page.getByText("queued for local slide conversion", { exact: false })).toBeVisible();
+  await expect.poll(async () => page.evaluate(async () => {
+    const lessons = await fetch("/api/v1/lessons").then(response => response.json());
+    return lessons.some((entry: { items: { title: string; durationMs?: number }[] }) =>
+      entry.items.some(item => item.title === "lesson-direct-deck — Slide 1" && item.durationMs === 7_000));
+  }), { timeout: 30_000 }).toBe(true);
+  await page.reload();
+  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
+  await expect(page.getByText("lesson-direct-deck — Slide 1", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /Templates$/ }).click();
   await expect(page.locator(".template-card").filter({ hasText: "Reusable Browser Lesson" })).toBeVisible();
   await expect(page.locator(".schedule-card").filter({ hasText: "Browser Test Term" })).toContainText("1");
@@ -553,7 +579,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.30.5" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.31.0" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
@@ -580,6 +606,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: /Test Administrator Updated.*Manage account/ }).click();
   await page.getByRole("dialog", { name: "Your account" }).getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("heading", { name: "Sign in to LessonCue" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Create an account|Register with a code/ })).toHaveCount(0);
   const signInCard = page.locator(".auth-card");
   await signInCard.getByLabel("Username").fill("playback-volunteer");
   await signInCard.getByLabel("Password").fill("PlaybackOnly42");

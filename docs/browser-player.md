@@ -64,7 +64,9 @@ The browser consumes the same paired-screen manifest as Android TV and Apple TV.
 - Countdown playback seeks to the correct position if the browser starts late.
 - At the designated lesson time, the player transitions to the main lesson.
 - Audio and picture share one fade envelope over a true black stage.
-- The next local media item is prefetched where the browser permits it.
+- The next local lesson item is prefetched where the browser permits it.
+- Future signage audio, images, and video are stored in browser Cache Storage, reported to LessonCue, and reused during temporary network loss while the browser retains them.
+- Emergency signage interrupts active playback and resumes the interrupted cue after the override ends; completed lessons return to current signage.
 - Local videos use range-enabled server playback, including the automatically generated H.264/AAC compatibility copy when required.
 - Webpages and YouTube embeds require internet access. Browser security may prevent LessonCue from controlling or inspecting arbitrary third-party webpages.
 
@@ -72,7 +74,7 @@ The player refreshes its manifest, polls the ordered control channel, acknowledg
 
 ## Connection and recovery
 
-The lower-right indicator shows **Connected**, **Connecting**, **Reconnecting**, or **Offline**. The player retries automatically with a bounded delay and keeps its current browser-loaded media running when a temporary server connection is lost. Browser cache behavior is controlled by the browser and is not equivalent to the persistent offline cache in the native TV applications.
+The lower-right indicator shows **Connected**, **Connecting**, **Reconnecting**, or **Offline**. The player retries automatically with a bounded delay and keeps its current browser-loaded media running when a temporary server connection is lost. Signage cache readiness appears in screen diagnostics. Cache Storage is durable across normal browser restarts, but browser and operating-system storage policy can still evict it and is not as controllable as the native TV cache.
 
 If the player reports that it was unpaired:
 

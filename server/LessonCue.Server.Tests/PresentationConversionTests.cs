@@ -43,8 +43,31 @@ public sealed class PresentationConversionTests
 
     [Theory]
     [InlineData("slides.pdf")]
+    [InlineData("legacy.ppt")]
     [InlineData("slides.pptx")]
+    [InlineData("show.ppsx")]
+    [InlineData("template.potx")]
     [InlineData("slides.odp")]
+    [InlineData("keynote.key")]
+    [InlineData("handout.doc")]
     [InlineData("handout.docx")]
     public void SupportedDocumentsAreRecognized(string fileName) => Assert.True(PresentationConversion.IsConvertible(fileName));
+
+    [Theory]
+    [InlineData("https://docs.google.com/presentation/d/1AbCdEfGhIjKlMnOpQrStUvWxYz_123-456/edit",
+        "https://docs.google.com/presentation/d/1AbCdEfGhIjKlMnOpQrStUvWxYz_123-456/export/pdf")]
+    [InlineData("https://docs.google.com/presentation/d/12345678/preview",
+        "https://docs.google.com/presentation/d/12345678/export/pdf")]
+    public void GoogleSlidesLinksBecomeBoundedPdfExports(string source, string expected)
+    {
+        Assert.True(PresentationConversion.TryGoogleSlidesExport(new Uri(source), out var export));
+        Assert.Equal(expected, export.ToString());
+    }
+
+    [Theory]
+    [InlineData("http://docs.google.com/presentation/d/12345678/edit")]
+    [InlineData("https://example.org/presentation/d/12345678/edit")]
+    [InlineData("https://docs.google.com/document/d/12345678/edit")]
+    public void NonGoogleSlidesLinksAreRejected(string source) =>
+        Assert.False(PresentationConversion.TryGoogleSlidesExport(new Uri(source), out _));
 }

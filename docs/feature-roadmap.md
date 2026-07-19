@@ -12,23 +12,6 @@ The order is based on five product priorities:
 
 ## Recommended next priorities
 
-6. [ ] **Signage scheduling and lesson-mode integration**: Add recurring signage schedules, date and time exclusions, priority and conflict rules, screen targeting, proof of readiness, and automatic return to lesson mode. Reuse the existing media library, schedules, screens, caching, and playback acknowledgement wherever practical.
-
-   - [x] Daily and selected-weekday recurrence supports bounded date ranges, organization-local time windows, overnight windows, and explicit excluded dates.
-   - [x] One-time, recurring, and always-available signs can be created, edited, paused, resumed, and deleted from the local browser interface.
-   - [x] Targeting supports explicit paired screens, screen tags, or every screen, with server-side validation and manifest enforcement.
-   - [x] Conflict selection consistently orders emergency overrides, scheduled signs, and idle fallbacks, then uses numeric priority and most recent edit time.
-   - [x] Sign cards report whether they are showing now, scheduled, or paused and whether attached server media is ready, preparing, failed, or missing.
-   - [x] Existing databases upgrade in place; recurrence, exclusions, targeting, ordering, overnight behavior, and a fresh authenticated API workflow have automated coverage.
-   - [ ] Pre-stage signage media on each targeted display and report per-screen cache readiness rather than only server preparation readiness.
-     - [x] The manifest publishes every targeted future sign in a backward-compatible `signageSchedule` collection while keeping only current winners in `signage`.
-     - [x] Android TV and Apple TV pre-cache future signage media with the same checksummed offline cache and include it in existing inventory, queue, failure, and heartbeat diagnostics.
-     - [x] Browser displays prefetch scheduled images, audio, and video through the browser cache; active browser signage renders image or muted looping video backgrounds.
-     - [x] Sign cards report cached, pending, and failed counts across their currently targeted paired displays.
-     - [ ] Add durable browser-display cache storage and verifiable browser cache inventory; browser prefetch remains best-effort under browser storage policy.
-   - [ ] Complete automatic signage-to-lesson handoff, emergency interruption/resume, and return-to-signage behavior across Android TV, Apple TV, and browser displays.
-   - [ ] Complete visual browser QA and physical-device D-pad/Siri Remote acceptance testing.
-
 7. [ ] **Simple and Advanced editing modes with core playback controls**: Keep the default editor focused on common tasks while placing specialized tools behind an Advanced toggle. Add fit, fill, and letterbox behavior; rotate; basic crop; per-item and per-lesson volume and mute; playback speed; repeat count; end behavior; still-image and slide duration; background color; and simple transitions.
 8. [ ] **Multi-zone signage and approved information widgets**: Support layouts containing media, text, clocks, calendars, weather from administrator-approved sources, menus, RSS, and other allowlisted data widgets with cached fallback content. Keep layout creation understandable to nontechnical administrators.
 9. [ ] **Lesson planning and run-of-show improvements**: Add teacher notes for each item on the mobile controller; substitute notes; printable run sheets; estimated and remaining duration; overrun warnings; flexible-time markers; conflict warnings; improved day, week, month, agenda, and room views; copy or move between classes and dates; and optional livestream monitoring during pre-roll.
@@ -45,12 +28,22 @@ The order is based on five product priorities:
 20. [ ] **Precisely synchronized multi-screen playback**: At low priority, add measured clock offset, latency compensation, drift correction, and readiness checks for installations that require coordinated playback across multiple screens.
 21. [ ] **Audience interaction**: At very low priority, support local polls, response devices, or QR response collection with strict privacy controls, limited retention, moderation safeguards, and clear separation from the core playback workflow.
 22. [ ] **Advanced editing and playback tools**: At very low priority, consider editable fade curves, sophisticated crossfades, loudness normalization, audio ducking, background audio across multiple items, pan and zoom animation, gapless playback across media types, and supported offline webpage packaging. These should remain hidden behind Advanced mode and should not delay core reliability or operator usability.
+23. [ ] **Presentation animation and transition preservation**: At the lowest priority, investigate opt-in rendering or capture paths that preserve PowerPoint, Keynote, and Google Slides animations, builds, audio, video, and transitions. Keep the reliable static-slide conversion as the default and do not require proprietary desktop applications on the self-hosted server.
 
 ## Scope boundary
 
 LessonCue remains centered on preparing media, organizing lessons, confirming readiness, playing reliably across common display hardware, and making live control simple for volunteers. SaaS onboarding, budget-hardware optimization, and signage remain intentional product capabilities within that boundary.
 
 ## Implemented roadmap milestones
+
+- [x] **Self-service entry, presentation ingestion, organized settings, and completed signage playback (v0.31.0)** — make sign-in the public landing page with registration-aware account links; add real Resend/Brevo delivery tests; split crowded settings into focused subpages; accept current and legacy PowerPoint, OpenDocument, Keynote, Word, PDF, and shared Google Slides sources from the Media Library or lesson page; convert them to timed PNG cues and insert them automatically; persist browser signage media with reported cache inventory; and complete emergency interruption/resume plus lesson-to-signage handoff across browser, Android TV, and Apple TV displays.
+
+   - [x] Daily, selected-weekday, one-time, and always-available recurrence supports date ranges, local and overnight windows, exclusions, priority conflict rules, pause/resume, and screen or tag targeting.
+   - [x] Manifests publish active and future signs; Android TV, Apple TV, and browser displays pre-stage targeted media and report cache readiness, pending work, and failures.
+   - [x] Browser displays use durable Cache Storage for signage assets and serve cached audio, images, and video through the local service worker when offline.
+   - [x] Emergency signs interrupt and later resume lesson playback; completed lessons return to current signage on all three display clients.
+   - [x] Automated server, browser, web, Android, and Apple client validation covers the software behavior.
+   - [ ] Manual acceptance on representative Android TV and Apple TV hardware remains an operator release check for D-pad, Siri Remote, sleep/wake, and real-network cache behavior.
 
 - [x] **Legacy Intel encoding and reliable Android TV controls/updates (v0.30.5)** — identify Intel DRM nodes, retain modern QSV probes, add a true direct `h264_vaapi` pipeline with automatic legacy `i965` retry, and reuse the verified encoder for universal and adaptive copies. On Android TV, make short Left/Right presses select the previous/next lesson cue, long presses rewind/fast-forward, and media or center buttons control play/pause across local video, stills, and supported online players. Correct signing-certificate inspection on Android 9–12 and retain the production-certificate requirement so Shield TV and similar devices can install verified in-place updates.
 

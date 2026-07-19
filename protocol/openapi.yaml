@@ -705,7 +705,7 @@ paths:
   /api/v1/media/{mediaId}/convert:
     post:
       operationId: convertPresentation
-      description: Queues a fully local LibreOffice/Poppler conversion of a PDF, PPTX, ODP, or DOCX into screen-ready PNG media assets.
+      description: Queues a fully local LibreOffice/Poppler conversion of PDF, PowerPoint, OpenDocument Presentation, Keynote, or Word media into screen-ready PNG assets.
       parameters:
         - name: mediaId
           in: path
@@ -715,6 +715,25 @@ paths:
         '202': { description: Conversion queued }
         '400': { description: Unsupported or online-only source }
         '409': { description: Conversion already queued or running }
+  /api/v1/media/{mediaId}/convert-and-add-to-lesson:
+    post:
+      operationId: convertPresentationAndAddToLesson
+      description: Queues local slide conversion and records a lesson target so generated slides are appended automatically. If current converted slides are ready, appends them immediately.
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PresentationLessonInput' }
+      responses:
+        '200': { description: Existing converted slides appended immediately }
+        '202': { description: Conversion and automatic lesson insertion queued }
+        '400': { description: Unsupported or online-only source }
+        '404': { description: Source or lesson not found }
   /api/v1/media/{mediaId}/conversion/add-to-lesson:
     post:
       operationId: addConvertedSlidesToLesson
@@ -1155,6 +1174,24 @@ paths:
       responses:
         '200': { description: Settings saved }
         '400': { description: Invalid mode, provider, sender, address, or provider configuration }
+  /api/v1/registration/email/test:
+    post:
+      operationId: testAccountEmailDelivery
+      description: Requires settings.manage. Sends a real test through the currently saved Resend or Brevo configuration and audits the result.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recipient]
+              properties:
+                recipient: { type: string, format: email, maxLength: 200 }
+      responses:
+        '200': { description: Test message accepted by the configured provider }
+        '400': { description: Invalid recipient }
+        '409': { description: Email delivery has not been configured }
+        '502': { description: Provider rejected or could not deliver the test }
   /api/v1/registration/codes:
     get:
       operationId: listRegistrationCodes
