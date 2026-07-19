@@ -395,7 +395,9 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const diagnostics = await page.evaluate(async () => {
     const jsonHeaders = { "Content-Type": "application/json" };
     const bootstrap = await fetch("/api/v1/admin/bootstrap").then(response => response.json());
-    const classes = await fetch("/api/v1/classes").then(response => response.json());
+    const lessons = await fetch("/api/v1/lessons").then(response => response.json());
+    const adaptiveLesson = lessons.find((lesson: { items: Array<{ title: string }> }) =>
+      lesson.items.some(item => item.title === "Browser Compatibility Video"));
     const pairing = await fetch("/api/v1/pairing/request", { method: "POST", headers: jsonHeaders,
       body: JSON.stringify({ deviceName: "Browser Test TV", platform: "android-tv", appVersion: "0.18.0" }) }).then(response => response.json());
     const identity = await fetch("/api/v1/pairing/confirm", { method: "POST", headers: jsonHeaders,
@@ -411,7 +413,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
       recentErrors: [{ timestamp: new Date().toISOString(), area: "download", message: "Test retry", itemId: "queued-1" }]
     }) });
     await fetch(`/api/v1/screens/${identity.screenId}`, { method: "PATCH", headers: jsonHeaders,
-      body: JSON.stringify({ assignedClassId: classes[0].id, allowDiagnosticScreenshots: true }) });
+      body: JSON.stringify({ assignedClassId: adaptiveLesson.classId, allowDiagnosticScreenshots: true }) });
     const screenshotRequest = await fetch(`/api/v1/screens/${identity.screenId}/diagnostics/screenshot-request`,
       { method: "POST", headers: jsonHeaders, body: "{}" }).then(response => response.json());
     const control = await fetch(`/api/v1/screens/${identity.screenId}/control`, { headers: { Authorization: `Bearer ${identity.deviceToken}` } }).then(response => response.json());
@@ -551,7 +553,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.30.2" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.30.3" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();

@@ -10,6 +10,19 @@ import java.time.Instant
 import java.io.File
 import android.media.MediaCodecList
 
+private val suspiciousZeroOffset = Regex("""([+-])([0O)])([0O)]):([0O)])([0O)])$""")
+
+internal fun parseOptionalInstant(value: String?): Instant? {
+    val text = value?.trim()?.takeIf { it.isNotEmpty() && it != "null" } ?: return null
+    runCatching { Instant.parse(text) }.getOrNull()?.let { return it }
+
+    val repaired = suspiciousZeroOffset.replace(text) { match ->
+        val digits = match.groupValues.drop(2).joinToString("").replace('O', '0').replace(')', '0')
+        "${match.groupValues[1]}${digits.take(2)}:${digits.drop(2)}"
+    }
+    return repaired.takeIf { it != text }?.let { runCatching { Instant.parse(it) }.getOrNull() }
+}
+
 class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
     val baseUrl = serverUrl.trim().trimEnd('/').let { if (it.startsWith("http")) it else "http://$it" }
 
@@ -110,7 +123,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
             itemId = json.optString("itemId").takeIf { it.isNotBlank() && it != "null" },
             positionMs = json.optLong("positionMs").takeIf { json.has("positionMs") && !json.isNull("positionMs") },
             screenshotRequestId = json.optString("screenshotRequestId").takeIf { it.isNotBlank() && it != "null" },
-            screenshotExpiresAt = json.optString("screenshotExpiresAt").takeIf { it.isNotBlank() && it != "null" }?.let(Instant::parse)
+            screenshotExpiresAt = parseOptionalInstant(json.optString("screenshotExpiresAt"))
         )
     }
 
@@ -155,13 +168,13 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
     )
 
     private fun parsePlaylist(json: JSONObject): LessonPlaylist {
-        val start = json.optString("designatedStartAt").takeIf { it.isNotBlank() && it != "null" }?.let(Instant::parse)
+        val start = parseOptionalInstant(json.optString("designatedStartAt"))
         val countdownJson = json.optJSONObject("countdown")
         val countdown = countdownJson?.let {
             CountdownCue(
                 itemId = it.getString("itemId"),
                 durationMs = it.getLong("durationMs"),
-                startAt = it.optString("startAt").takeIf { value -> value.isNotBlank() && value != "null" }?.let(Instant::parse),
+                startAt = parseOptionalInstant(it.optString("startAt")),
                 item = parseItem(it.getJSONObject("item"))
             )
         }
@@ -170,7 +183,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
             id = json.getString("playlistId"),
             title = json.getString("title"),
             designatedStartAt = start,
-            preRollStartsAt = json.optString("preRollStartsAt").takeIf { it.isNotBlank() && it != "null" }?.let(Instant::parse),
+            preRollStartsAt = parseOptionalInstant(json.optString("preRollStartsAt")),
             countdown = countdown,
             preRoll = preRoll,
             items = json.getJSONArray("items").mapObjects(::parseItem)

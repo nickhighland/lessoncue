@@ -22,6 +22,12 @@ Webpages, embedded players, Vimeo, and external destinations require internet. O
 
 If a local YouTube import fails, read its processing error in the Media Library, confirm the server can reach YouTube, check available LessonCue storage, and inspect `sudo journalctl -u lessoncue -n 100 --no-pager`. Re-run the latest installer or install the latest release if the error says `yt-dlp` was not found.
 
+## Android TV reports that a lesson date could not be parsed
+
+Upgrade the server and Android TV client to LessonCue 0.30.3 or newer. Earlier Android TV clients could reject the complete screen manifest when one optional lesson timestamp contained a damaged numeric offset, showing an error such as `Text '2026-07-25T09:00:00+)):))' could not be parsed at index 19` after connecting by IP address or `.local` name.
+
+Current servers publish screen-manifest schedule timestamps in UTC `Z` form. Current Android TV clients also repair the known corrupted zero-offset form and safely omit an unrecoverable optional schedule time rather than blocking the connection. After updating, open the affected lesson's **Timing** section, confirm its pre-roll and designated-start values, and save it again.
+
 ## Intel Quick Sync device creation fails
 
 Upgrade to LessonCue 0.30.2 or newer. Earlier Linux builds allowed FFmpeg to choose a default adapter, which can fail with `Device creation failed` even when an Intel render node is available. Current builds test every `/dev/dri/renderD*` device through direct QSV and VAAPI-derived initialization and reuse the successful device for conversions.

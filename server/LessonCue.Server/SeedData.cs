@@ -17,7 +17,7 @@ public static class SeedData
             ClassId = lessonClass.Id,
             Date = sampleDate,
             Title = "Sample Lesson",
-            AvailableFrom = designatedStart.AddDays(-7),
+            AvailableFrom = DateTimeOffset.UtcNow.AddMinutes(-1),
             ExpiresAt = designatedStart.AddDays(1),
             DesignatedStartAt = designatedStart,
             PreRollStartsAt = designatedStart.AddMinutes(-30),
