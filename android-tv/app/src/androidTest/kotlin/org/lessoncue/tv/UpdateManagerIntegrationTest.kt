@@ -56,6 +56,25 @@ class UpdateManagerIntegrationTest {
     }
 
     @Test
+    fun automaticCheckRunsOnceOnEveryAppLaunch() = runBlocking {
+        val source = FakeSource(manifest())
+        val store = MemoryUpdateStore()
+        val firstLaunch = manager(source = source, store = store)
+        firstLaunch.startAutomaticCheck()
+        firstLaunch.awaitState<UpdateUiState.Available>()
+        firstLaunch.startAutomaticCheck()
+        delay(50)
+        assertEquals(1, source.checkCount)
+        firstLaunch.close()
+
+        val secondLaunch = manager(source = source, store = store)
+        secondLaunch.startAutomaticCheck()
+        secondLaunch.awaitState<UpdateUiState.Available>()
+
+        assertEquals(2, source.checkCount)
+    }
+
+    @Test
     fun cancelDownloadReturnsToRetryableAvailableState() = runBlocking {
         val source = FakeSource(manifest(), suspendDownload = true)
         val subject = manager(source = source)
@@ -120,15 +139,17 @@ class UpdateManagerIntegrationTest {
 
     private fun manager(
         source: FakeSource = FakeSource(manifest()),
-        installer: FakeInstaller = FakeInstaller(allowed = true)
+        installer: FakeInstaller = FakeInstaller(allowed = true),
+        store: MemoryUpdateStore = MemoryUpdateStore()
     ): UpdateManager {
         return UpdateManager(
             context = context,
             scope = scope,
-            store = MemoryUpdateStore(),
+            store = store,
             client = source,
             verifier = FakeVerifier(),
-            installer = installer
+            installer = installer,
+            automaticStartDelayMillis = 0
         ).also { manager = it }
     }
 
