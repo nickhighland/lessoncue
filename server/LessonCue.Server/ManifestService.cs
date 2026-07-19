@@ -61,16 +61,16 @@ public sealed class ManifestService(LessonCueDb db)
             title = string.IsNullOrWhiteSpace(lesson.Title) ? lesson.Class?.Name ?? "Lesson" : lesson.Title,
             version = lesson.Version,
             lessonDate = lesson.Date,
-            lesson.DesignatedStartAt,
-            lesson.PreRollStartsAt,
-            lesson.AvailableFrom,
-            lesson.ExpiresAt,
+            designatedStartAt = UtcTimestamp(lesson.DesignatedStartAt),
+            preRollStartsAt = UtcTimestamp(lesson.PreRollStartsAt),
+            availableFrom = UtcTimestamp(lesson.AvailableFrom),
+            expiresAt = UtcTimestamp(lesson.ExpiresAt),
             countdown = countdownItem is null || countdownDuration is null ? null : new
             {
                 enabled = true,
                 itemId = countdownItem.Id,
                 durationMs = countdownDuration.Value,
-                startAt = countdownStart,
+                startAt = UtcTimestamp(countdownStart),
                 item = MapItem(countdownItem, screen)
             },
             preRoll = !lesson.PreRollEnabled || preRollItems.Length == 0 ? null : new
@@ -85,6 +85,8 @@ public sealed class ManifestService(LessonCueDb db)
 
     public static DateTimeOffset? CountdownStart(DateTimeOffset? designatedStartAt, long? durationMs) =>
         designatedStartAt is { } start && durationMs is > 0 ? start.AddMilliseconds(-durationMs.Value) : null;
+
+    private static DateTime? UtcTimestamp(DateTimeOffset? value) => value?.UtcDateTime;
 
     private static long? EffectiveDuration(PlaylistItem? item) => item is null
         ? null
