@@ -25,6 +25,8 @@ public sealed class ManifestTests
             ClassId = lessonClass.Id,
             Date = DateOnly.FromDateTime(DateTime.UtcNow),
             Title = "Current lesson",
+            DesignatedStartAt = new DateTimeOffset(2026, 7, 25, 9, 0, 0, TimeSpan.FromHours(-4)),
+            PreRollStartsAt = new DateTimeOffset(2026, 7, 25, 8, 30, 0, TimeSpan.FromHours(-4)),
             AvailableFrom = DateTimeOffset.UtcNow.AddHours(-1),
             ExpiresAt = DateTimeOffset.UtcNow.AddHours(1)
         };
@@ -70,6 +72,8 @@ public sealed class ManifestTests
         Assert.Contains("\"contentType\":\"video/mp4\"", json);
         Assert.Contains("\"fileExtension\":\"mp4\"", json);
         Assert.Contains("\"sha256\":\"compatible\"", json);
+        Assert.Contains("\"designatedStartAt\":\"2026-07-25T13:00:00Z\"", json);
+        Assert.Contains("\"preRollStartsAt\":\"2026-07-25T12:30:00Z\"", json);
         Assert.Contains("\"signageSchedule\"", json);
         var lobbySign = await db.SignagePlaylists.SingleAsync(item => item.Name == "Lobby notice", cancellationToken);
         Assert.Contains($"signage-{lobbySign.Id}", json);
