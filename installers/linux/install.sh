@@ -17,7 +17,7 @@ id lessoncue >/dev/null 2>&1 || useradd --system --home /var/lib/lessoncue --she
 for device_group in render video; do
   if getent group "${device_group}" >/dev/null 2>&1; then usermod -a -G "${device_group}" lessoncue; fi
 done
-install -d -o lessoncue -g lessoncue /var/lib/lessoncue/{database,media/originals,media/versions,media/processed,media/thumbnails,media/temporary,branding,backups,logs,config}
+install -d -o lessoncue -g lessoncue /var/lib/lessoncue/{database,media/originals,media/versions,media/processed,media/thumbnails,media/temporary,branding,backups,logs,config,.cache}
 
 CONFIG_FILE=/var/lib/lessoncue/config/appsettings.json
 if [[ ! -f "${CONFIG_FILE}" ]]; then

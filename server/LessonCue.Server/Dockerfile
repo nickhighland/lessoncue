@@ -18,6 +18,7 @@ ARG TARGETARCH
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libreoffice-impress libreoffice-writer poppler-utils ca-certificates curl \
     && if [ "$TARGETARCH" = "amd64" ] && apt-cache show intel-media-va-driver >/dev/null 2>&1; then apt-get install -y --no-install-recommends intel-media-va-driver; fi \
+    && if [ "$TARGETARCH" = "amd64" ] && apt-cache show i965-va-driver >/dev/null 2>&1; then apt-get install -y --no-install-recommends i965-va-driver; fi \
     && rm -rf /var/lib/apt/lists/*
 RUN case "$TARGETARCH" in arm64) asset=yt-dlp_linux_aarch64 ;; *) asset=yt-dlp_linux ;; esac \
     && curl -fL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${asset}" -o /usr/local/bin/yt-dlp \

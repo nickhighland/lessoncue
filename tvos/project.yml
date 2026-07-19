@@ -17,7 +17,7 @@ targets:
     info:
       path: Sources/App/Info.plist
       properties:
-        CFBundleShortVersionString: "0.30.4"
+        CFBundleShortVersionString: "0.30.5"
         CFBundleVersion: "29"
     settings:
       base:

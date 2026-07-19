@@ -1,6 +1,8 @@
 package org.lessoncue.tv
 
+import android.content.pm.PackageManager
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ApkIdentityPolicyTest {
@@ -57,6 +59,18 @@ class ApkIdentityPolicyTest {
     @Test
     fun rejectsWrongSigningIdentity() {
         assertRejected(ApkIdentity("org.lessoncue.tv", 30, setOf("B".repeat(64))))
+    }
+
+    @Test
+    @Suppress("DEPRECATION")
+    fun androidNineThroughTwelveRequestSigningInfoInsteadOfLegacySignatures() {
+        for (apiLevel in 28..32) {
+            assertEquals(
+                PackageManager.GET_SIGNING_CERTIFICATES,
+                ApkVerifier.signingCertificateFlags(apiLevel)
+            )
+        }
+        assertEquals(PackageManager.GET_SIGNATURES, ApkVerifier.signingCertificateFlags(27))
     }
 
     private fun assertRejected(downloaded: ApkIdentity) {

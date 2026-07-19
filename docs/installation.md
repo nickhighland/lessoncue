@@ -162,7 +162,7 @@ Choose a server with:
 
 Install FFmpeg/FFprobe for media inspection and transcoding. Install LibreOffice headlessly only if PowerPoint conversion is required. Do not expose LessonCue directly to the public internet.
 
-The Linux installer also installs the distribution's Intel media driver when available and adds the restricted service account to the `render` and `video` groups. On a server with a supported Intel integrated GPU, keep `/dev/dri` accessible to the `lessoncue` service and open **Settings → Adaptive TV playback → Check hardware**. Version 0.30.2 and newer tries every render node with both direct QSV and VAAPI-derived initialization, then displays the verified device. “Quick Sync ready” means a real test encode passed. If the driver, GPU, permissions, or FFmpeg support is absent, LessonCue reports the failed nodes and continues with software conversion automatically.
+The Linux installer installs both the current Intel media driver and the legacy `i965` driver when the distribution provides them, grants the restricted service account `render` and `video` access, and creates a writable local shader cache. On a server with a supported Intel integrated GPU, keep `/dev/dri` accessible to the `lessoncue` service and open **Settings → Adaptive TV playback → Check hardware**. Version 0.30.5 and newer tries each Intel render node using direct QSV, VAAPI-derived QSV, direct VAAPI, and direct VAAPI forced through `i965`. The successful initializer and driver environment are reused for real conversions. “Hardware ready” means a real H.264 test encode passed. If the driver, GPU, permissions, or FFmpeg support is absent, LessonCue reports the failed paths and continues with software conversion automatically.
 
 ## Alternative: Docker
 
@@ -261,7 +261,7 @@ https://github.com/nickhighland/lessoncue/releases/latest/download/LessonCue-And
 
 Use the debug build only for testing. Enable installation from unknown sources only for the file-manager or deployment tool you use, install the APK, then disable that permission again.
 
-Updater-enabled production builds add **Check for updates** to the TV lesson library and perform one quiet background check every time the app launches. The first updater-enabled release must still be installed manually over the existing production app. Later releases can be downloaded and verified inside LessonCue; Android will ask once for **Allow from this source** and will always display its own final installation confirmation. LessonCue cannot and does not silently install updates.
+Updater-enabled production builds add **Check for updates** to the TV lesson library and perform one quiet background check every time the app launches. The first updater-enabled release must still be installed manually over the existing production app. Later releases can be downloaded and verified inside LessonCue; Android will ask once for **Allow from this source** and will always display its own final installation confirmation. Version 0.30.5 corrects false incompatible-certificate errors on Android 9–12 devices, including NVIDIA Shield TV, without relaxing production signature verification. LessonCue cannot and does not silently install updates.
 
 On first launch:
 

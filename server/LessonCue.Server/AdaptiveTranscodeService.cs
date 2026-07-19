@@ -183,9 +183,8 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
             var hardwareArgs = "-nostdin -hide_banner -loglevel error -nostats -y " +
                 $"{hardware.DeviceArguments} " +
                 $"-i \"{Escape(source)}\" -map 0:v:0 -map 0:a:0? " +
-                $"-vf \"{filter},format=nv12,hwupload=extra_hw_frames=64\" " +
-                $"-c:v h264_qsv -preset medium -global_quality {profile.Crf} -maxrate {profile.VideoBitrateKbps}k " +
-                $"-bufsize {profile.VideoBitrateKbps * 2}k -profile:v high -level:v 4.1{output}";
+                $"{hardware.BuildHardwareVideoArguments(filter, profile.Crf, profile.VideoBitrateKbps)} " +
+                $"-profile:v high -level:v 4.1{output}";
             var softwareArgs = $"-nostdin -hide_banner -loglevel error -nostats -y -i \"{Escape(source)}\" " +
                 $"-map 0:v:0 -map 0:a:0? -vf \"{filter}\" -c:v libx264 -preset medium -crf {profile.Crf} " +
                 $"-maxrate {profile.VideoBitrateKbps}k -bufsize {profile.VideoBitrateKbps * 2}k " +

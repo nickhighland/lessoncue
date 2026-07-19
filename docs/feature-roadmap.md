@@ -52,6 +52,8 @@ LessonCue remains centered on preparing media, organizing lessons, confirming re
 
 ## Implemented roadmap milestones
 
+- [x] **Legacy Intel encoding and reliable Android TV controls/updates (v0.30.5)** — identify Intel DRM nodes, retain modern QSV probes, add a true direct `h264_vaapi` pipeline with automatic legacy `i965` retry, and reuse the verified encoder for universal and adaptive copies. On Android TV, make short Left/Right presses select the previous/next lesson cue, long presses rewind/fast-forward, and media or center buttons control play/pause across local video, stills, and supported online players. Correct signing-certificate inspection on Android 9–12 and retain the production-certificate requirement so Shield TV and similar devices can install verified in-place updates.
+
 - [x] **Immediate-capacity transcoding and launch update checks (v0.30.4)** — preserve the configurable lesson lead time as a priority guarantee while otherwise-idle capacity starts adaptive copies for the newest ready uploads immediately, and have the Android TV app contact the signed release manifest once on every cold launch without repeated checks during the same process.
 
 - [x] **Resilient Android TV schedule timestamps (v0.30.3)** — normalize server manifest times to UTC, repair corrupted zero-offset characters seen on Android TV, treat unrecoverable optional schedule timestamps as unavailable instead of blocking IP, `.local`, discovery, or cached-manifest connections, and keep fresh-install sample lessons immediately visible across UTC day boundaries.

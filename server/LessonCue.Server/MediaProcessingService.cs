@@ -181,8 +181,8 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
                 var hardwareArgs = "-nostdin -hide_banner -loglevel error -nostats -y " +
                     $"{hardware.DeviceArguments} " +
                     $"-i \"{Escape(source)}\" -map 0:v:0 -map 0:a:0? " +
-                    $"-vf \"{filter},format=nv12,hwupload=extra_hw_frames=64\" " +
-                    $"-c:v h264_qsv -preset medium -global_quality 20 -profile:v high -level:v 4.1 {ending}";
+                    $"{hardware.BuildHardwareVideoArguments(filter, 20)} " +
+                    $"-profile:v high -level:v 4.1 {ending}";
                 var softwareArgs = $"-nostdin -hide_banner -loglevel error -nostats -y -i \"{Escape(source)}\" " +
                     $"-map 0:v:0 -map 0:a:0? -vf \"{filter}\" -c:v libx264 -preset medium -crf 20 " +
                     $"-profile:v high -level:v 4.1 -pix_fmt yuv420p -tag:v avc1 {ending}";
