@@ -52,7 +52,7 @@ LessonCue remains centered on preparing media, organizing lessons, confirming re
 
 ## Implemented roadmap milestones
 
-- [x] **Resilient Android TV schedule timestamps (v0.30.3)** — normalize server manifest times to UTC, repair corrupted zero-offset characters seen on Android TV, and treat unrecoverable optional schedule timestamps as unavailable instead of blocking IP, `.local`, discovery, or cached-manifest connections.
+- [x] **Resilient Android TV schedule timestamps (v0.30.3)** — normalize server manifest times to UTC, repair corrupted zero-offset characters seen on Android TV, treat unrecoverable optional schedule timestamps as unavailable instead of blocking IP, `.local`, discovery, or cached-manifest connections, and keep fresh-install sample lessons immediately visible across UTC day boundaries.
 
 - [x] **Reliable Linux Quick Sync device selection (v0.30.2)** — enumerate every DRM render node, try FFmpeg's explicit QSV child-device and VAAPI-derived initialization paths, reuse the verified device for real conversions, show the selected device, and report actionable driver or service-permission failures.
 
