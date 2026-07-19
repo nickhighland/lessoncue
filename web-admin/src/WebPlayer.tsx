@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 
-const APP_VERSION = "0.30.5";
+const APP_VERSION = "0.31.0";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -28,6 +28,9 @@ type CueItem = {
   fadeInMs: number;
   fadeOutMs: number;
   cuePoints: CuePoint[];
+  sizeBytes?: number;
+  sha256?: string;
+  offlineEligible?: boolean;
 };
 type Playlist = {
   playlistId: string;
@@ -103,6 +106,9 @@ export function WebPlayerApp() {
   const lastInteractionRef = useRef(Date.now());
   const networkLatencyRef = useRef<number | undefined>(undefined);
   const errorsRef = useRef<{ timestamp: string; area: string; message: string; itemId?: string }[]>([]);
+  const signageCacheRef = useRef<{ itemId: string; title: string; state: string; sizeBytes: number; expectedBytes?: number; error?: string }[]>([]);
+  const interruptedRef = useRef<{ playback: ActivePlayback; paused: boolean } | undefined>(undefined);
+  useDurableSignageCache(manifest?.signageSchedule, identity, signageCacheRef, errorsRef);
 
   useEffect(() => { statusRef.current = status; }, [status]);
   useEffect(() => { activeRef.current = active; }, [active]);
@@ -137,9 +143,16 @@ export function WebPlayerApp() {
 
   function startPlayback(playlist: Playlist, items: CueItem[], index = 0, seekMs = 0, mode: ActivePlayback["mode"] = "lesson") {
     if (!items.length) return;
+    const playback = { playlist, items, index: Math.max(0, Math.min(index, items.length - 1)), seekMs: Math.max(0, seekMs), mode };
+    if (manifestRef.current?.signage.some(sign => sign.mode === "emergency")) {
+      interruptedRef.current = { playback, paused: false };
+      setActive(undefined);
+      setStatus(idleStatus);
+      return;
+    }
     setPaused(false);
     setAutoplayBlocked(false);
-    setActive({ playlist, items, index: Math.max(0, Math.min(index, items.length - 1)), seekMs: Math.max(0, seekMs), mode });
+    setActive(playback);
   }
 
   function applyCommand(command: Command, sourceManifest = manifestRef.current) {
@@ -154,6 +167,7 @@ export function WebPlayerApp() {
         break;
       }
       case "stop":
+        interruptedRef.current = undefined;
         setActive(undefined);
         setPaused(false);
         setStatus(idleStatus);
@@ -232,6 +246,26 @@ export function WebPlayerApp() {
   }, [identity]);
 
   useEffect(() => {
+    const emergency = manifest?.signage.some(sign => sign.mode === "emergency") ?? false;
+    const current = activeRef.current;
+    if (emergency && current && !interruptedRef.current) {
+      interruptedRef.current = {
+        playback: { ...current, seekMs: Math.max(current.seekMs, statusRef.current.positionMs) },
+        paused,
+      };
+      setActive(undefined);
+      setStatus(idleStatus);
+      return;
+    }
+    if (!emergency && interruptedRef.current) {
+      const interrupted = interruptedRef.current;
+      interruptedRef.current = undefined;
+      setPaused(interrupted.paused);
+      setActive(interrupted.playback);
+    }
+  }, [manifest?.manifestVersion, manifest?.signage, paused]);
+
+  useEffect(() => {
     if (!identity) return;
     let stopped = false;
     let version: number | undefined;
@@ -300,7 +334,7 @@ export function WebPlayerApp() {
             durationMs: current.durationMs,
             volumePercent: current.volumePercent,
             playbackError: current.error,
-            cachedItems: 0,
+            cachedItems: signageCacheRef.current.filter(item => item.state === "ready").length,
             totalItems: manifestItemCount(manifestRef.current),
             deviceModel: browserName(),
             osVersion: navigator.userAgent.slice(0, 80),
@@ -308,6 +342,7 @@ export function WebPlayerApp() {
             networkLatencyMs: networkLatencyRef.current,
             networkQuality: networkQuality(networkLatencyRef.current, navigator.onLine),
             codecCapabilities: codecCapabilities(),
+            cacheInventory: signageCacheRef.current,
             recentErrors: errorsRef.current,
           }),
         });
@@ -539,6 +574,7 @@ function PairingScreen({ message, onPaired }: { message: string; onPaired: (iden
 
 function PlayerLibrary({ manifest, connection, onPlay }: { manifest?: Manifest; connection: ConnectionState; onPlay: (playlist: Playlist) => void }) {
   const signage = manifest?.signage[0];
+  const emergency = signage?.mode === "emergency";
   usePreload(signage?.media);
   useSignagePreload(manifest?.signageSchedule);
   const signageMedia = signage?.media;
@@ -558,7 +594,7 @@ function PlayerLibrary({ manifest, connection, onPlay }: { manifest?: Manifest; 
       <p>Use the phone controller, select a lesson below, or wait for scheduled pre-roll and countdown media.</p>
     </section>}
     <section className="web-player-lessons" aria-label="Available lessons">
-      {manifest?.playlists.map(playlist => <button key={playlist.playlistId} onClick={() => onPlay(playlist)} disabled={!playlist.items.length}>
+      {emergency ? <p className="web-player-empty">Emergency signage is active. Lesson controls return automatically when the override ends.</p> : manifest?.playlists.map(playlist => <button key={playlist.playlistId} onClick={() => onPlay(playlist)} disabled={!playlist.items.length}>
         <time>{formatLessonDate(playlist.lessonDate)}</time>
         <span><strong>{playlist.title}</strong><small>{playlist.items.length} lesson item{playlist.items.length === 1 ? "" : "s"}{playlist.designatedStartAt ? ` · starts ${new Date(playlist.designatedStartAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}</small></span>
         <b>{playlist.items.length ? "▶" : "—"}</b>
@@ -728,6 +764,60 @@ function useSignagePreload(signage?: Signage[]) {
     // The signature restarts prefetch only when schedule media URLs change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
+}
+
+function useDurableSignageCache(
+  signage: Signage[] | undefined,
+  identity: Identity | null,
+  inventoryRef: { current: { itemId: string; title: string; state: string; sizeBytes: number; expectedBytes?: number; error?: string }[] },
+  errorsRef: { current: { timestamp: string; area: string; message: string; itemId?: string }[] },
+) {
+  const signature = signage?.map(item => `${item.id}:${item.media?.itemId || ""}:${item.media?.downloadUrl || ""}:${item.media?.sha256 || ""}`).join("|") || "";
+  useEffect(() => {
+    if (!identity || !("caches" in window)) {
+      inventoryRef.current = [];
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const cache = await caches.open("lessoncue-signage-v1");
+      const media = [...new Map(
+        (signage || [])
+          .map(sign => sign.media)
+          .filter((item): item is CueItem => Boolean(item?.downloadUrl))
+          .map(item => [item.itemId, item]),
+      ).values()];
+      const desired = new Set(media.map(item => new URL(item.downloadUrl!, location.origin).toString()));
+      for (const request of await cache.keys()) {
+        if (!desired.has(request.url)) await cache.delete(request);
+      }
+      const inventory: typeof inventoryRef.current = [];
+      for (const item of media) {
+        const url = new URL(item.downloadUrl!, location.origin).toString();
+        try {
+          let response = await cache.match(url);
+          if (!response) {
+            inventory.push({ itemId: item.itemId, title: item.title, state: "downloading", sizeBytes: 0, expectedBytes: item.sizeBytes });
+            if (!cancelled) inventoryRef.current = [...inventory];
+            const downloaded = await fetch(url, { headers: { Authorization: `Bearer ${identity.token}` }, cache: "no-store" });
+            if (!downloaded.ok) throw new Error(`Signage cache request failed (${downloaded.status}).`);
+            await cache.put(url, downloaded.clone());
+            response = downloaded;
+          }
+          const bytes = Number(response.headers.get("content-length")) || item.sizeBytes || 0;
+          inventory.push({ itemId: item.itemId, title: item.title, state: "ready", sizeBytes: bytes, expectedBytes: item.sizeBytes });
+        } catch (cause) {
+          const message = errorText(cause);
+          inventory.push({ itemId: item.itemId, title: item.title, state: "failed", sizeBytes: 0, expectedBytes: item.sizeBytes, error: message });
+          errorsRef.current = [{ timestamp: new Date().toISOString(), area: "signage-cache", message, itemId: item.itemId }, ...errorsRef.current].slice(0, 20);
+        }
+        if (!cancelled) inventoryRef.current = [...inventory];
+      }
+    })();
+    return () => { cancelled = true; };
+    // Cache population is keyed to the full future-sign media signature and paired screen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identity?.screenId, signature]);
 }
 
 function readIdentity(): Identity | null {

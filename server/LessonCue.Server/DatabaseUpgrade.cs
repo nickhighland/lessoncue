@@ -232,6 +232,8 @@ public static class DatabaseUpgrade
             ["Organizations.EmailFromAddress"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"EmailFromAddress\" TEXT NOT NULL DEFAULT ''"),
             ["Organizations.EmailFromName"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"EmailFromName\" TEXT NOT NULL DEFAULT 'LessonCue'"),
             ["Organizations.EmailProvider"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"EmailProvider\" TEXT NOT NULL DEFAULT 'none'"),
+            ["MediaAssets.ConversionLessonId"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"ConversionLessonId\" TEXT NULL"),
+            ["MediaAssets.ConversionSlideDurationSeconds"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"ConversionSlideDurationSeconds\" INTEGER NOT NULL DEFAULT 10"),
             ["Classes.ControllerSlug"] = ("Classes", "ALTER TABLE \"Classes\" ADD COLUMN \"ControllerSlug\" TEXT NOT NULL DEFAULT ''"),
             ["Classes.ControllerColor"] = ("Classes", "ALTER TABLE \"Classes\" ADD COLUMN \"ControllerColor\" TEXT NOT NULL DEFAULT '#2d6a4f'"),
             ["Classes.ControllerHostname"] = ("Classes", "ALTER TABLE \"Classes\" ADD COLUMN \"ControllerHostname\" TEXT NULL"),

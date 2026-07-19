@@ -250,10 +250,33 @@ input:focus,select:focus,textarea:focus { border-color:var(--gold); box-shadow:0
 
 .auth-links { display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; margin-top:14px; }
 .auth-links .recovery-link { margin:0; }
+.auth-links .registration-link { color:#fff; background:var(--deep); border-radius:8px; padding:9px 13px; font-size:10px; font-weight:800; text-decoration:none; }
+.auth-links .registration-link:hover,.auth-links .registration-link:focus-visible { background:var(--green); outline:3px solid color-mix(in srgb,var(--gold) 35%,transparent); }
+.email-test-form { grid-template-columns:minmax(180px,1fr) minmax(210px,1fr) auto; align-items:end; }
+.email-test-form>div:first-child p { color:var(--muted); margin:4px 0 0; font-size:9px; line-height:1.45; }
 .account-result { display:grid; gap:18px; padding:18px; border:1px solid #c7d6cc; border-radius:10px; background:#f2f8f4; color:var(--deep); text-align:center; }
 .account-profile-summary { display:flex; justify-content:space-between; gap:12px; border-radius:9px; padding:11px 13px; color:#356446; background:#e8f3eb; font-size:10px; }
 .split-actions { display:grid; grid-template-columns:auto 1fr auto auto; }
 .account-settings-grid { margin-bottom:18px; }
+.settings-tabs { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:9px; margin:-8px 0 22px; }
+.settings-tabs button { min-width:0; color:var(--ink); text-align:left; background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px; display:grid; grid-template-columns:auto 1fr; column-gap:9px; cursor:pointer; }
+.settings-tabs button>span { color:var(--gold); grid-row:1/3; align-self:center; font-size:20px; }
+.settings-tabs strong,.settings-tabs small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.settings-tabs strong { font-size:10px; }
+.settings-tabs small { color:var(--muted); margin-top:3px; font-size:8px; }
+.settings-tabs button.active { border-color:var(--gold); background:#fff8e9; box-shadow:0 0 0 2px color-mix(in srgb,var(--gold) 14%,transparent); }
+.settings-page>.account-settings-grid { display:none; }
+.settings-page[data-section="accounts"]>.account-settings-grid { display:grid; }
+.settings-page>.settings-grid:not(.account-settings-grid)>* { display:none; }
+.settings-page[data-section="system"]>.settings-grid:not(.account-settings-grid)>:nth-child(1),
+.settings-page[data-section="accounts"]>.settings-grid:not(.account-settings-grid)>:nth-child(2),
+.settings-page[data-section="media"]>.settings-grid:not(.account-settings-grid)>:nth-child(3),
+.settings-page[data-section="media"]>.settings-grid:not(.account-settings-grid)>:nth-child(4),
+.settings-page[data-section="media"]>.settings-grid:not(.account-settings-grid)>:nth-child(5),
+.settings-page[data-section="connections"]>.settings-grid:not(.account-settings-grid)>:nth-child(6),
+.settings-page[data-section="connections"]>.settings-grid:not(.account-settings-grid)>:nth-child(7),
+.settings-page[data-section="connections"]>.settings-grid:not(.account-settings-grid)>:nth-child(8),
+.settings-page[data-section="data"]>.settings-grid:not(.account-settings-grid)>:nth-child(n+9) { display:block; }
 .account-settings { border-color:#c7d5ca; background:linear-gradient(135deg,#fff,#f5f9f5); }
 .registration-codes { margin-top:22px; }
 .registration-code-form { display:grid; grid-template-columns:1.2fr 1fr .7fr auto; align-items:end; gap:10px; }
@@ -268,7 +291,10 @@ input:focus,select:focus,textarea:focus { border-color:var(--gold); box-shadow:0
 .registration-code-list .row-actions { display:flex; align-items:center; gap:7px; }
 .registration-code-list .button { padding:7px 9px; font-size:9px; }
 @media (max-width:760px) {
+  .settings-tabs { display:flex; overflow-x:auto; padding-bottom:3px; }
+  .settings-tabs button { flex:0 0 190px; }
   .registration-code-form { grid-template-columns:1fr; }
+  .email-test-form { grid-template-columns:1fr; }
   .secret-reveal { grid-template-columns:1fr 1fr; }
   .secret-reveal code { grid-column:1/-1; }
   .registration-code-list>div { align-items:flex-start; flex-direction:column; }

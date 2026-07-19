@@ -71,6 +71,11 @@ builder.Services.AddSingleton<UpdateService>();
 builder.Services.AddHostedService(services => services.GetRequiredService<UpdateService>());
 builder.Services.AddHttpClient("cloudflare-tunnel", client => client.Timeout = TimeSpan.FromSeconds(2));
 builder.Services.AddHttpClient("account-email", client => client.Timeout = TimeSpan.FromSeconds(20));
+builder.Services.AddHttpClient("presentation-import", client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(3);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("LessonCue-Server/1.0");
+});
 builder.Services.AddSingleton(services => new AccountEmailService(dataPath,
     services.GetRequiredService<IDataProtectionProvider>(), services.GetRequiredService<IHttpClientFactory>(),
     services.GetRequiredService<ILogger<AccountEmailService>>()));

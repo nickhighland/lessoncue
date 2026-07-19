@@ -23,9 +23,11 @@ final class AppModel: ObservableObject {
     let discovery = BonjourDiscovery()
     private(set) var identity: DeviceIdentity?
     private var scheduleTask: Task<Void, Never>?
+    private var manifestTask: Task<Void, Never>?
     private var statusTask: Task<Void, Never>?
     private var controlTask: Task<Void, Never>?
     private var handledScreenshotRequest: String?
+    private var interruptedPlayback: Route?
 
     func start() async {
         discovery.start()
@@ -35,6 +37,7 @@ final class AppModel: ObservableObject {
             manifest = try await LessonCueAPI(address: stored.serverURL.absoluteString).manifest(identity: stored)
             if let manifest { try? ManifestStore.save(manifest) }
             route = .library
+            beginManifestMonitor()
             beginScheduleMonitor()
             beginStatusMonitor()
             beginControlMonitor()
@@ -44,6 +47,7 @@ final class AppModel: ObservableObject {
                 manifest = cached
                 errorMessage = "Using the last downloaded schedule while the server is offline."
                 route = .library
+                beginManifestMonitor()
                 beginScheduleMonitor()
                 beginStatusMonitor()
                 beginControlMonitor()
@@ -72,6 +76,7 @@ final class AppModel: ObservableObject {
             manifest = try await api.manifest(identity: paired)
             if let manifest { try? ManifestStore.save(manifest) }
             route = .library
+            beginManifestMonitor()
             beginScheduleMonitor()
             beginStatusMonitor()
             beginControlMonitor()
@@ -103,7 +108,7 @@ final class AppModel: ObservableObject {
         let next = index + 1
         if next < items.count { route = .playback(playlist: playlist, items: items, index: next, seekMs: 0) }
         else if loops && !items.isEmpty { route = .playback(playlist: playlist, items: items, index: 0, seekMs: 0) }
-        else { playbackTelemetry = PlaybackTelemetry(); route = .lesson(playlist) }
+        else { playbackTelemetry = PlaybackTelemetry(); route = .library }
     }
 
     func leavePlayback() {
@@ -113,6 +118,36 @@ final class AppModel: ObservableObject {
     }
 
     func updatePlayback(_ telemetry: PlaybackTelemetry) { playbackTelemetry = telemetry }
+
+    private func beginManifestMonitor() {
+        manifestTask?.cancel()
+        manifestTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, let identity = self.identity,
+                      let api = try? LessonCueAPI(address: identity.serverURL.absoluteString) else { return }
+                if let latest = try? await api.manifest(identity: identity) {
+                    self.manifest = latest
+                    try? ManifestStore.save(latest)
+                    let emergency = latest.signage.contains(where: { $0.mode == "emergency" })
+                    switch (emergency, self.route) {
+                    case (true, .playback(let playlist, let items, let index, let seek)):
+                        self.interruptedPlayback = .playback(playlist: playlist, items: items, index: index,
+                            seekMs: max(seek, self.playbackTelemetry.positionMs))
+                        self.route = .library
+                    case (false, _):
+                        if let interrupted = self.interruptedPlayback {
+                            self.interruptedPlayback = nil
+                            self.route = interrupted
+                        }
+                    default:
+                        break
+                    }
+                    await self.cacheAssignedMedia()
+                }
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+            }
+        }
+    }
 
     private func beginScheduleMonitor() {
         scheduleTask?.cancel()
@@ -202,10 +237,17 @@ final class AppModel: ObservableObject {
             if let latest = try? await api.manifest(identity: identity) { manifest = latest }
             guard let playlist = manifest?.playlists.first(where: { $0.id == command.lessonId }) else { return }
             let allItems = (playlist.preRoll?.items ?? []) + [playlist.countdown?.item].compactMap { $0 } + playlist.items
+            let requested: Route
             if let itemId = command.itemId, let index = allItems.firstIndex(where: { $0.id == itemId }) {
-                route = .playback(playlist: playlist, items: allItems, index: index, seekMs: 0)
-            } else { route = .playback(playlist: playlist, items: playlist.items, index: 0, seekMs: 0) }
-        case "stop": route = .library
+                requested = .playback(playlist: playlist, items: allItems, index: index, seekMs: 0)
+            } else { requested = .playback(playlist: playlist, items: playlist.items, index: 0, seekMs: 0) }
+            if manifest?.signage.contains(where: { $0.mode == "emergency" }) == true {
+                interruptedPlayback = requested
+                route = .library
+            } else { route = requested }
+        case "stop":
+            interruptedPlayback = nil
+            route = .library
         case "next":
             if case .playback(let playlist, let items, let index, _) = route, index + 1 < items.count {
                 route = .playback(playlist: playlist, items: items, index: index + 1, seekMs: 0)
