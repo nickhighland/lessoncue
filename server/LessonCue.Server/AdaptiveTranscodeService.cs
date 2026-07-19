@@ -66,6 +66,7 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
                 var pending = await db.MediaTranscodeVariants.Include(x => x.MediaAsset)
                     .Where(x => x.Status == "pending").ToListAsync(stoppingToken);
                 var variant = pending.OrderBy(x => x.QueuedAt).FirstOrDefault();
+                variant ??= await QueueNextIdleUploadAsync(db, stoppingToken);
                 if (variant is null) { await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken); continue; }
                 await ProcessAsync(db, variant, stoppingToken);
             }
@@ -98,6 +99,38 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
             variant.QueuedAt = DateTimeOffset.UtcNow; variant.StartedAt = null; variant.CompletedAt = null;
         }
         return variant;
+    }
+
+    public static async Task<MediaTranscodeVariant?> QueueNextIdleUploadAsync(LessonCueDb db,
+        CancellationToken ct = default)
+    {
+        var adaptiveEnabled = await db.Organizations.AsNoTracking()
+            .Select(x => x.AdaptiveTranscodingEnabled).FirstAsync(ct);
+        if (!adaptiveEnabled || await db.MediaTranscodeVariants
+                .AnyAsync(x => x.Status == "pending" || x.Status == "converting", ct))
+            return null;
+
+        var mediaAssets = await db.MediaAssets.Include(x => x.TranscodeVariants)
+            .Where(x => x.ProcessingStatus == "ready" && x.SourceKind != "link" &&
+                x.VideoCodec != null &&
+                (x.CompatibilityStatus == "native" || x.CompatibilityStatus == "ready"))
+            .ToListAsync(ct);
+        foreach (var media in mediaAssets.OrderByDescending(x => x.CreatedAt))
+        foreach (var profile in new[]
+                 {
+                     AdaptiveTranscodeProfiles.Balanced720,
+                     AdaptiveTranscodeProfiles.DataSaver480
+                 })
+        {
+            if (media.TranscodeVariants.Any(x => x.Profile == profile &&
+                x.SourceVersion == media.Version))
+                continue;
+            var variant = await QueueAsync(db, media, profile, ct);
+            variant.MediaAsset = media;
+            await db.SaveChangesAsync(ct);
+            return variant;
+        }
+        return null;
     }
 
     private async Task EnqueueScheduledAsync(LessonCueDb db, CancellationToken ct)
