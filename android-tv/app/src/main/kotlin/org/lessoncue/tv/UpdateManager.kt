@@ -19,7 +19,8 @@ class UpdateManager(
         UpdateManifestParser.parseAllowedHosts(BuildConfig.UPDATE_ALLOWED_HOSTS)
     ),
     private val verifier: UpdateApkVerifier = ApkVerifier(context.applicationContext),
-    private val installer: UpdatePackageInstaller = UpdateInstaller(context.applicationContext)
+    private val installer: UpdatePackageInstaller = UpdateInstaller(context.applicationContext),
+    private val automaticStartDelayMillis: Long = AUTOMATIC_START_DELAY_MILLIS
 ) {
     private val appContext = context.applicationContext
     private val installedVersionCode = BuildConfig.VERSION_CODE.toLong()
@@ -27,6 +28,7 @@ class UpdateManager(
     private val mutableState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle(installedVersionName))
     val state: StateFlow<UpdateUiState> = mutableState.asStateFlow()
     private var checkJob: Job? = null
+    private var automaticCheckStarted = false
     private var downloadJob: Job? = null
     private var installEventJob: Job = scope.launch {
         UpdateInstallEvents.consumePersisted(appContext)?.let(::handleInstallEvent)
@@ -41,12 +43,11 @@ class UpdateManager(
     }
 
     fun startAutomaticCheck() {
-        if (checkJob?.isActive == true) return
+        if (automaticCheckStarted) return
+        automaticCheckStarted = true
         checkJob = scope.launch {
-            delay(AUTOMATIC_START_DELAY_MILLIS)
-            val preferences = store.load()
-            if (UpdatePolicy.shouldRunAutomaticCheck(preferences.lastSuccessfulAutomaticCheckMillis, System.currentTimeMillis()))
-                performCheck(manual = false)
+            delay(automaticStartDelayMillis)
+            performCheck(manual = false)
         }
     }
 
