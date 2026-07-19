@@ -15,6 +15,9 @@ if [[ "${runtime}" == "linux-x64" ]]; then
   elif apt-cache show intel-media-va-driver-non-free >/dev/null 2>&1; then
     sudo apt-get install -y intel-media-va-driver-non-free
   fi
+  if apt-cache show i965-va-driver >/dev/null 2>&1; then
+    sudo apt-get install -y i965-va-driver
+  fi
 fi
 
 version_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' 'https://github.com/nickhighland/lessoncue/releases/latest')"

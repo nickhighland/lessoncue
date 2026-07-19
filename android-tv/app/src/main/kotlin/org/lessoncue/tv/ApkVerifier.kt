@@ -67,7 +67,10 @@ class ApkVerifier(private val context: Context) : UpdateApkVerifier {
             )
         } else {
             @Suppress("DEPRECATION")
-            context.packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
+            context.packageManager.getPackageInfo(
+                packageName,
+                signingCertificateFlags(Build.VERSION.SDK_INT)
+            )
         }
     }.getOrNull()
 
@@ -79,7 +82,10 @@ class ApkVerifier(private val context: Context) : UpdateApkVerifier {
             )
         } else {
             @Suppress("DEPRECATION")
-            context.packageManager.getPackageArchiveInfo(file.absolutePath, PackageManager.GET_SIGNATURES)
+            context.packageManager.getPackageArchiveInfo(
+                file.absolutePath,
+                signingCertificateFlags(Build.VERSION.SDK_INT)
+            )
         }
     }.getOrNull()
 
@@ -95,8 +101,10 @@ class ApkVerifier(private val context: Context) : UpdateApkVerifier {
     private fun PackageInfo.certificateFingerprints(): Set<String> {
         @Suppress("DEPRECATION")
         val certificates = if (Build.VERSION.SDK_INT >= 28) {
-            val details = signingInfo ?: return emptySet()
-            (details.apkContentsSigners.asList() + details.signingCertificateHistory.asList()).distinctBy { it.toCharsString() }
+            signingInfo?.let { details ->
+                (details.apkContentsSigners.asList() + details.signingCertificateHistory.asList())
+                    .distinctBy { it.toCharsString() }
+            } ?: signatures?.asList().orEmpty()
         } else {
             signatures?.asList().orEmpty()
         }
@@ -104,5 +112,12 @@ class ApkVerifier(private val context: Context) : UpdateApkVerifier {
             MessageDigest.getInstance("SHA-256").digest(signature.toByteArray())
                 .joinToString("") { "%02X".format(it) }
         }.toSet()
+    }
+
+    companion object {
+        @Suppress("DEPRECATION")
+        fun signingCertificateFlags(apiLevel: Int): Int =
+            if (apiLevel >= 28) PackageManager.GET_SIGNING_CERTIFICATES
+            else PackageManager.GET_SIGNATURES
     }
 }

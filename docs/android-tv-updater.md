@@ -78,6 +78,8 @@ Downloads use connection and read timeouts, reject untrusted redirects, and stre
 11. compares installed and downloaded signing certificates, including available signing history; and
 12. requires the permanent LessonCue production certificate in production builds.
 
+Android 9 through Android 12 require `GET_SIGNING_CERTIFICATES` through the legacy integer-flags `PackageManager` overload. LessonCue uses that combination and falls back to the legacy signature array for OEMs that omit `signingInfo`. This avoids a false incompatible-certificate result on Shield TV and similar devices while retaining the same package, version, hash, installed-certificate, and permanent-production-certificate checks.
+
 The original and every redirected URL must remain HTTPS and on the explicit host allowlist.
 
 ## Android installation permission and confirmation

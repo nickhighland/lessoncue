@@ -582,10 +582,10 @@ paths:
   /api/v1/hardware-acceleration/check:
     post:
       operationId: checkHardwareAcceleration
-      description: Requires settings.manage. Rechecks FFmpeg and Intel Quick Sync by encoding and validating a small local H.264 MP4 probe.
+      description: Requires settings.manage. Rechecks FFmpeg Intel QSV and Linux VAAPI support by encoding and validating a small local H.264 MP4 probe.
       responses:
         '200':
-          description: Current Intel Quick Sync capability and recent usage/fallback status
+          description: Current Intel hardware encoding capability and recent usage/fallback status
           content:
             application/json:
               schema: { $ref: '#/components/schemas/HardwareAccelerationStatus' }
@@ -1216,7 +1216,7 @@ components:
       properties:
         supported: { type: boolean }
         available: { type: boolean }
-        engine: { type: string, example: Intel Quick Sync (H.264) }
+        engine: { type: string, example: Intel VAAPI (H.264, i965) }
         message: { type: string }
         lastCheckedAt: { type: [string, 'null'], format: date-time }
         lastHardwareUseAt: { type: [string, 'null'], format: date-time }

@@ -39,6 +39,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -51,6 +52,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -517,12 +519,33 @@ private fun remoteListItemModifier(): Modifier {
 }
 
 @Composable
+private fun playbackRemoteModifier(
+    itemId: String,
+    onAction: (PlaybackRemoteAction) -> Unit
+): Modifier {
+    val focusRequester = remember(itemId) { FocusRequester() }
+    val remoteKeys = remember(itemId) { PlaybackRemoteKeyState() }
+    LaunchedEffect(itemId) {
+        runCatching { focusRequester.requestFocus() }
+    }
+    return Modifier
+        .focusRequester(focusRequester)
+        .onPreviewKeyEvent { event ->
+            val native = event.nativeKeyEvent
+            val decision = remoteKeys.handle(native.keyCode, native.action, native.repeatCount)
+            decision.action?.let(onAction)
+            decision.consumed
+        }
+        .focusable()
+}
+
+@Composable
 private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: Int, seekMs: Long,
     control: ControlCommand?, onTelemetry: (PlaybackTelemetry) -> Unit, onExit: () -> Unit, onNext: (Int) -> Unit) {
     val item = items.getOrNull(index)
     BackHandler(onBack = onExit)
     if (item?.playbackUrl != null && item.linkKind in setOf("youtube", "embedded", "webpage", "external")) {
-        OnlineMediaScreen(playlist.id, item, control, onTelemetry, onExit)
+        OnlineMediaScreen(playlist.id, items, index, item, control, onTelemetry, onExit, onNext)
         return
     }
     if (item?.url == null) {
@@ -538,22 +561,40 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         ?: context.filesDir.resolve("media").resolve("${item.id}.bin").takeIf { it.exists() }
     var visualOpacity by remember(item.id) { mutableStateOf(if (item.fadeInMs > 0) 0f else 1f) }
     if (item.type == "image") {
+        val duration = (item.imageDurationSeconds ?: 10).coerceAtLeast(1) * 1_000L
+        var position by remember(item.id, seekMs) { mutableLongStateOf(seekMs.coerceIn(0, duration)) }
+        var playing by remember(item.id) { mutableStateOf(true) }
+        val remoteModifier = playbackRemoteModifier(item.id) { action ->
+            when (action) {
+                PlaybackRemoteAction.Previous -> onNext((index - 1).coerceAtLeast(0))
+                PlaybackRemoteAction.Next -> if (index + 1 < items.size) onNext(index + 1)
+                PlaybackRemoteAction.Rewind ->
+                    position = (position - REMOTE_SEEK_STEP_MS).coerceAtLeast(0)
+                PlaybackRemoteAction.FastForward ->
+                    position = (position + REMOTE_SEEK_STEP_MS).coerceAtMost(duration)
+                PlaybackRemoteAction.TogglePlayPause -> playing = !playing
+                PlaybackRemoteAction.Play -> playing = true
+                PlaybackRemoteAction.Pause -> playing = false
+            }
+        }
         LaunchedEffect(item.id) {
-            val duration = (item.imageDurationSeconds ?: 10).coerceAtLeast(1) * 1_000L
-            var position = 0L
-            while (position <= duration) {
+            var telemetryElapsed = 0L
+            while (position < duration) {
                 val fadeIn = if (item.fadeInMs > 0) (position.toFloat() / item.fadeInMs).coerceIn(0f, 1f) else 1f
                 val fadeOut = if (item.fadeOutMs > 0) ((duration - position).toFloat() / item.fadeOutMs).coerceIn(0f, 1f) else 1f
                 visualOpacity = minOf(fadeIn, fadeOut)
-                if (position % 1_000L == 0L) onTelemetry(PlaybackTelemetry("playing", playlist.id, item.id, position, duration,
-                    item.volumePercent))
+                if (telemetryElapsed == 0L) {
+                    onTelemetry(PlaybackTelemetry(if (playing) "playing" else "paused",
+                        playlist.id, item.id, position, duration, item.volumePercent))
+                }
                 kotlinx.coroutines.delay(50)
-                position += 50
+                if (playing) position = (position + 50).coerceAtMost(duration)
+                telemetryElapsed = (telemetryElapsed + 50) % 1_000
             }
             if (item.endBehavior == "advance" && index + 1 < items.size) onNext(index + 1)
             else if (item.endBehavior == "playlistLoop") onNext(0)
         }
-        Box(Modifier.fillMaxSize().background(Color.Black).focusable()) {
+        Box(Modifier.fillMaxSize().background(Color.Black).then(remoteModifier)) {
             AsyncImage(model = cached ?: item.url, contentDescription = item.title, contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize().graphicsLayer(alpha = visualOpacity))
             if (item.notes.isNotBlank()) Text(item.notes, color = Cream, fontSize = 20.sp,
@@ -573,6 +614,22 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
             seekTo(seekMs.coerceAtLeast(0))
             volume = (item.volumePercent / 100f).coerceIn(0f, 1.5f)
             playWhenReady = true
+        }
+    }
+    val remoteModifier = playbackRemoteModifier(item.id) { action ->
+        when (action) {
+            PlaybackRemoteAction.Previous -> onNext((index - 1).coerceAtLeast(0))
+            PlaybackRemoteAction.Next -> if (index + 1 < items.size) onNext(index + 1)
+            PlaybackRemoteAction.Rewind ->
+                player.seekTo((player.currentPosition - REMOTE_SEEK_STEP_MS).coerceAtLeast(0))
+            PlaybackRemoteAction.FastForward -> {
+                val maximum = player.duration.takeIf { it != C.TIME_UNSET && it >= 0 } ?: Long.MAX_VALUE
+                player.seekTo((player.currentPosition + REMOTE_SEEK_STEP_MS).coerceAtMost(maximum))
+            }
+            PlaybackRemoteAction.TogglePlayPause ->
+                if (player.playWhenReady) player.pause() else player.play()
+            PlaybackRemoteAction.Play -> player.play()
+            PlaybackRemoteAction.Pause -> player.pause()
         }
     }
     LaunchedEffect(player, item.id) {
@@ -621,8 +678,13 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         player.addListener(listener)
         onDispose { player.removeListener(listener); player.release() }
     }
-    Box(Modifier.fillMaxSize().background(Color.Black).focusable()) {
-        AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = true } },
+    Box(Modifier.fillMaxSize().background(Color.Black).then(remoteModifier)) {
+        AndroidView(factory = { PlayerView(it).apply {
+                this.player = player
+                useController = false
+                isFocusable = false
+                isFocusableInTouchMode = false
+            } },
             modifier = Modifier.fillMaxSize().graphicsLayer(alpha = visualOpacity))
         Row(Modifier.align(Alignment.TopStart).padding(28.dp).background(Navy.copy(alpha = .82f)).padding(16.dp)) {
             Text(item.title, color = Cream)
@@ -637,9 +699,11 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun OnlineMediaScreen(lessonId: String, item: CueItem, control: ControlCommand?,
-    onTelemetry: (PlaybackTelemetry) -> Unit, onExit: () -> Unit) {
+private fun OnlineMediaScreen(lessonId: String, items: List<CueItem>, index: Int, item: CueItem,
+    control: ControlCommand?, onTelemetry: (PlaybackTelemetry) -> Unit, onExit: () -> Unit,
+    onNext: (Int) -> Unit) {
     val context = LocalContext.current
+    var locallyPaused by remember(item.id) { mutableStateOf(false) }
     val webView = remember(item.id) {
         WebView(context).apply {
             settings.javaScriptEnabled = item.linkKind != "webpage"
@@ -652,19 +716,56 @@ private fun OnlineMediaScreen(lessonId: String, item: CueItem, control: ControlC
             loadUrl(item.playbackUrl!!)
         }
     }
-    LaunchedEffect(control?.version) {
-        when (control?.action) {
-            "pause" -> webView.onPause()
-            "resume" -> webView.onResume()
+    val remoteModifier = playbackRemoteModifier(item.id) { action ->
+        when (action) {
+            PlaybackRemoteAction.Previous -> onNext((index - 1).coerceAtLeast(0))
+            PlaybackRemoteAction.Next -> if (index + 1 < items.size) onNext(index + 1)
+            PlaybackRemoteAction.Rewind -> webView.evaluateMediaScript(
+                "if(v){v.currentTime=Math.max(0,v.currentTime-${REMOTE_SEEK_STEP_MS / 1_000.0});}"
+            )
+            PlaybackRemoteAction.FastForward -> webView.evaluateMediaScript(
+                "if(v){v.currentTime=Math.min(v.duration||Infinity,v.currentTime+${REMOTE_SEEK_STEP_MS / 1_000.0});}"
+            )
+            PlaybackRemoteAction.TogglePlayPause -> {
+                locallyPaused = !locallyPaused
+                webView.evaluateMediaScript("if(v){if(v.paused){v.play();}else{v.pause();}}")
+            }
+            PlaybackRemoteAction.Play -> {
+                locallyPaused = false
+                webView.onResume()
+                webView.evaluateMediaScript("if(v){v.play();}")
+            }
+            PlaybackRemoteAction.Pause -> {
+                locallyPaused = true
+                webView.evaluateMediaScript("if(v){v.pause();}")
+            }
         }
     }
-    LaunchedEffect(item.id, control?.version) {
-        onTelemetry(PlaybackTelemetry(if (control?.action == "pause") "paused" else "playing",
+    LaunchedEffect(control?.version) {
+        when (control?.action) {
+            "pause" -> {
+                locallyPaused = true
+                webView.evaluateMediaScript("if(v){v.pause();}")
+            }
+            "resume" -> {
+                locallyPaused = false
+                webView.onResume()
+                webView.evaluateMediaScript("if(v){v.play();}")
+            }
+        }
+    }
+    LaunchedEffect(item.id, control?.version, locallyPaused) {
+        onTelemetry(PlaybackTelemetry(if (locallyPaused) "paused" else "playing",
             lessonId, item.id, volumePercent = item.volumePercent))
     }
     DisposableEffect(webView) { onDispose { webView.stopLoading(); webView.destroy() } }
-    Box(Modifier.fillMaxSize().background(Color.Black).focusable()) {
-        AndroidView(factory = { webView }, modifier = Modifier.fillMaxSize())
+    Box(Modifier.fillMaxSize().background(Color.Black).then(remoteModifier)) {
+        AndroidView(factory = {
+            webView.apply {
+                isFocusable = false
+                isFocusableInTouchMode = false
+            }
+        }, modifier = Modifier.fillMaxSize())
         Row(Modifier.align(Alignment.TopStart).padding(28.dp).background(Navy.copy(alpha = .82f)).padding(16.dp)) {
             Text(item.title, color = Cream)
             Spacer(Modifier.width(18.dp))
@@ -674,9 +775,18 @@ private fun OnlineMediaScreen(lessonId: String, item: CueItem, control: ControlC
     }
 }
 
+private fun WebView.evaluateMediaScript(body: String) {
+    evaluateJavascript(
+        "(function(){var v=document.querySelector('video');$body})()",
+        null
+    )
+}
+
 private fun loopingPreRoll(items: List<CueItem>) = items.mapIndexed { index, item ->
     item.copy(endBehavior = if (index == items.lastIndex) "playlistLoop" else "advance")
 }
+
+private const val REMOTE_SEEK_STEP_MS = 5_000L
 
 private fun ScreenManifest.itemCount() = (playlists.flatMap { playlist ->
     playlist.items + playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item)
