@@ -8,7 +8,7 @@ The updater follows the existing application conventions:
 
 - Kotlin and Compose for TV on API 26–36.
 - `HttpURLConnection` for HTTPS requests, with explicit timeouts and redirect validation.
-- DataStore for the last successful automatic check and optional-update dismissal.
+- DataStore for the last successful automatic check record and optional-update dismissal.
 - An app-private `cacheDir/updates` directory for temporary and verified APK files.
 - `PackageManager` for archive metadata and signing-certificate inspection.
 - `PackageInstaller` full-install sessions for the system installation flow.
@@ -55,7 +55,7 @@ The client rejects unsupported schemas, missing or incorrectly typed fields, non
 
 ## Check behavior
 
-- LessonCue waits briefly after normal startup, then checks only when at least 12 hours have elapsed since the last successful automatic check.
+- LessonCue waits briefly after normal startup and checks once on every app launch.
 - Automatic failures are silent and never interrupt playback or pairing.
 - **Check for updates** on the lesson library always contacts the release endpoint and reports current, available, or unable to check.
 - Choosing **Later** records that optional `versionCode`. Automatic checks do not show it again, while a manual check always does.

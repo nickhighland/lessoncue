@@ -116,15 +116,8 @@ object UpdateManifestParser {
 }
 
 object UpdatePolicy {
-    const val AUTO_CHECK_INTERVAL_MILLIS = 12L * 60L * 60L * 1_000L
-
     fun isUpdateAvailable(manifest: UpdateManifest, installedVersionCode: Long): Boolean =
         manifest.versionCode > installedVersionCode
-
-    fun shouldRunAutomaticCheck(lastSuccessfulCheckMillis: Long?, nowMillis: Long): Boolean =
-        lastSuccessfulCheckMillis == null ||
-            nowMillis - lastSuccessfulCheckMillis >= AUTO_CHECK_INTERVAL_MILLIS ||
-            nowMillis < lastSuccessfulCheckMillis
 
     fun shouldPresent(
         manifest: UpdateManifest,

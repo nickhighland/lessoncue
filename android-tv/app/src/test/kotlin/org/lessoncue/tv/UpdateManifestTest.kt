@@ -82,15 +82,6 @@ class UpdateManifestTest {
     }
 
     @Test
-    fun automaticChecksAreLimitedToTwelveHoursAfterSuccess() {
-        val now = 1_000_000_000L
-        assertTrue(UpdatePolicy.shouldRunAutomaticCheck(null, now))
-        assertFalse(UpdatePolicy.shouldRunAutomaticCheck(now - UpdatePolicy.AUTO_CHECK_INTERVAL_MILLIS + 1, now))
-        assertTrue(UpdatePolicy.shouldRunAutomaticCheck(now - UpdatePolicy.AUTO_CHECK_INTERVAL_MILLIS, now))
-        assertTrue(UpdatePolicy.shouldRunAutomaticCheck(now + 1, now))
-    }
-
-    @Test
     fun validatesDownloadedSizeAndSha256() {
         val file = temporaryFolder.newFile("update.apk").apply { writeText("LessonCue update") }
         val manifest = parsed().copy(fileSize = file.length(), sha256 = UpdateFileValidation.sha256(file))
