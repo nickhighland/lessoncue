@@ -36,6 +36,16 @@ LessonCue remains centered on preparing media, organizing lessons, confirming re
 
 ## Implemented roadmap milestones
 
+- [x] **Account lifecycle administration and temporary browser displays (v0.31.1)** — keep every landing-page account action independently selectable; add approval-required self-registration; let administrators invite an email address with preselected permissions while the recipient chooses their own name, username, and password; provide explicit account creation, approval, setup-link resend, edit, pause/reactivate, temporary-password reset, and deletion controls; force administrator-issued temporary passwords to be replaced before any other authenticated API can be used; and automatically remove paired browser displays after two hours without a heartbeat while retaining native television pairings.
+
+   - [x] Closed, approval-required, code-required, and open registration modes are enforced by the server and represented accurately on the sign-in page.
+   - [x] Invitation setup links are random, hashed, single-use, purpose-bound, expire after three days, and preserve the administrator-selected role and granular permissions.
+   - [x] Approval requests remain unable to sign in after email verification until an authorized administrator approves them; approval notification is attempted through the configured provider.
+   - [x] Temporary passwords invalidate older sessions, require a first-login replacement, and cannot be used to call unrelated authenticated APIs before replacement.
+   - [x] Browser-player credentials and screen records expire after two hours without a heartbeat; Android TV and Apple TV records are not subject to that automatic deletion.
+   - [x] Existing databases gain explicit pending-approval, pending-setup, and required-password-change columns through the idempotent appliance upgrader.
+   - [x] Server tests cover browser-pair expiration, native-screen preservation, lifecycle schema upgrades, and SSH recovery clearing a temporary-password requirement; the fresh-server browser workflow covers first-login replacement.
+
 - [x] **Self-service entry, presentation ingestion, organized settings, and completed signage playback (v0.31.0)** — make sign-in the public landing page with registration-aware account links; add real Resend/Brevo delivery tests; split crowded settings into focused subpages; accept current and legacy PowerPoint, OpenDocument, Keynote, Word, PDF, and shared Google Slides sources from the Media Library or lesson page; convert them to timed PNG cues and insert them automatically; persist browser signage media with reported cache inventory; and complete emergency interruption/resume plus lesson-to-signage handoff across browser, Android TV, and Apple TV displays.
 
    - [x] Daily, selected-weekday, one-time, and always-available recurrence supports date ranges, local and overnight windows, exclusions, priority conflict rules, pause/resume, and screen or tag targeting.

@@ -47,6 +47,9 @@ public sealed class AdminAccount
     public DateTimeOffset? LastLoginAt { get; set; }
     public bool EmailVerified { get; set; } = true;
     public DateTimeOffset? EmailVerifiedAt { get; set; }
+    public bool PendingApproval { get; set; }
+    public bool PendingSetup { get; set; }
+    public bool MustChangePassword { get; set; }
 }
 
 public sealed class AccountToken
@@ -468,6 +471,8 @@ public sealed record RegistrationInput(string Username, string DisplayName, stri
 public sealed record VerifyAccountInput(string Token);
 public sealed record PasswordRecoveryInput(string Email);
 public sealed record PasswordResetInput(string Token, string Password);
+public sealed record RequiredPasswordChangeInput(string CurrentPassword, string NewPassword);
+public sealed record AccountSetupInput(string Token, string Username, string DisplayName, string Password);
 public sealed record ProfileUpdateInput(string DisplayName, string Username, string Email, string? CurrentPassword,
     string? NewPassword);
 public sealed record RegistrationSettingsInput(string Mode, string PublicBaseUrl, string EmailProvider,
@@ -495,6 +500,9 @@ public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool
 public sealed record ScreenControlInput(string Action, Guid? LessonId = null, Guid? ItemId = null, long? PositionMs = null);
 public sealed record UserInput(string Username, string DisplayName, string? Email, string Role, string? Password,
     bool Disabled = false, List<string>? Permissions = null);
+public sealed record UserInvitationInput(string Email, string Role, List<string>? Permissions = null,
+    string? DisplayName = null);
+public sealed record TemporaryPasswordInput(string Password);
 public sealed record OrganizationInput(string Name, string SiteName, string TimeZone, string WeekStartsOn,
     int DefaultLessonDurationMinutes, int DefaultRetentionDays, string PrimaryColor, string AccentColor,
     string? NavigationTextColor, string? SelectedTabColor, string WelcomeMessage,

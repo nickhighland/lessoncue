@@ -18,7 +18,7 @@ LessonCue includes a full-screen playback client for Windows, macOS, Linux, Chro
 6. Assign the newly paired browser display to a class on **Screens**, if needed.
 7. Select **Enter full screen**. The phone controller can now select and control this display like an Android TV or Apple TV.
 
-Pairing credentials are stored only in that browser's local storage. Clearing site data or choosing **Unpair this browser** requires the display to be paired again. Revoking the screen from the administrator interface invalidates its token immediately.
+Pairing credentials are stored only in that browser's local storage. Clearing site data or choosing **Unpair this browser** requires the display to be paired again. Revoking the screen from the administrator interface invalidates its token immediately. Browser screen pairings automatically delete from the server after two hours without a heartbeat; returning after that inactivity window requires pairing again. Native Android TV and Apple TV pairings do not use this temporary-display expiration.
 
 ## Kiosk-friendly startup
 

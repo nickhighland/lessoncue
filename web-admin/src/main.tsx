@@ -6,7 +6,7 @@ import { WebPlayerApp } from "./WebPlayer";
 import "./styles.css";
 
 type Permission = "planning.manage" | "uploads.manage" | "playback.control" | "screens.manage" | "users.manage" | "settings.manage" | "backups.manage" | "updates.manage";
-type Session = { setupRequired: boolean; authenticated: boolean; username?: string; displayName?: string; role?: string; permissions?: Permission[]; registrationMode?: "closed" | "open" | "code"; registrationAvailable?: boolean; emailConfigured?: boolean };
+type Session = { setupRequired: boolean; authenticated: boolean; username?: string; displayName?: string; role?: string; permissions?: Permission[]; mustChangePassword?: boolean; registrationMode?: "closed" | "approval" | "open" | "code"; registrationAvailable?: boolean; emailConfigured?: boolean };
 type Bootstrap = {
   serverId: string; serverName: string; organization: string; timeZone: string; pairingPin?: string;
   pairingExpiresAt?: string; pairingFixed: boolean; controllerPinConfigured: boolean; settings: Organization;
@@ -69,9 +69,9 @@ type CacheDiagnostic = { itemId?: string; title?: string; state?: string; sizeBy
 type DownloadDiagnostic = { itemId?: string; title?: string; state?: string; bytesDownloaded?: number; expectedBytes?: number; error?: string };
 type CodecDiagnostic = { kind?: string; codec?: string; supported?: boolean; detail?: string };
 type ErrorDiagnostic = { timestamp?: string; area?: string; message?: string; itemId?: string };
-type User = { id: string; username: string; displayName: string; email?: string; emailVerified: boolean; role: string; disabled: boolean; createdAt: string; lastLoginAt?: string; permissions: Permission[]; customPermissions?: Permission[] | null };
+type User = { id: string; username: string; displayName: string; email?: string; emailVerified: boolean; role: string; disabled: boolean; pendingApproval: boolean; pendingSetup: boolean; mustChangePassword: boolean; createdAt: string; lastLoginAt?: string; permissions: Permission[]; customPermissions?: Permission[] | null };
 type AccountProfile = { username: string; displayName: string; email?: string; emailVerified: boolean; role: string };
-type RegistrationSettings = { mode: "closed" | "open" | "code"; publicBaseUrl: string; emailFromAddress: string; emailFromName: string; emailProvider: "none" | "resend" | "brevo"; emailConfigured: boolean };
+type RegistrationSettings = { mode: "closed" | "approval" | "open" | "code"; publicBaseUrl: string; emailFromAddress: string; emailFromName: string; emailProvider: "none" | "resend" | "brevo"; emailConfigured: boolean };
 type RegistrationCode = { id: string; hint: string; label: string; createdAt: string; expiresAt?: string; revokedAt?: string; uses: number; maxUses?: number; active: boolean };
 type Signage = {
   id: string; name: string; mode: "scheduled" | "idle" | "emergency"; enabled: boolean; priority: number;
@@ -154,6 +154,7 @@ function AdminApp() {
   useEffect(() => { api<Session>("/api/v1/auth/session").then(setSession).catch(() => setSession({ setupRequired: false, authenticated: false })); }, []);
   if (!session) return <Splash />;
   if (!session.authenticated || isAccountLinkPath(location.pathname)) return <Auth session={session} onAuthenticated={() => api<Session>("/api/v1/auth/session").then(setSession)} />;
+  if (session.mustChangePassword) return <RequiredPasswordChange onChanged={() => api<Session>("/api/v1/auth/session").then(setSession)} />;
   return <Shell view={view} setView={setView} username={session.displayName || session.username || "admin"} currentUsername={session.username || ""} role={session.role || "Viewer"} permissions={session.permissions || []} notice={notice} setNotice={setNotice}
     onLogout={async () => { await api<void>("/api/v1/auth/logout", { method: "POST", body: "{}" }); setSession({ ...session, authenticated: false, setupRequired: false }); }} />;
 }
@@ -163,11 +164,43 @@ function isWebPlayerPath(path: string) {
 }
 
 function isAccountLinkPath(path: string) {
-  return path === "/verify" || path === "/verify-email" || path === "/reset-password" || path === "/register" || path === "/forgot-password";
+  return path === "/verify" || path === "/verify-email" || path === "/reset-password" ||
+    path === "/setup-account" || path === "/register" || path === "/forgot-password";
 }
 
 function Splash() {
   return <main className="auth-page"><div className="brand-mark large">LC</div><p className="muted">Opening your local LessonCue server…</p></main>;
+}
+
+function RequiredPasswordChange({ onChanged }: { onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError("");
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    if (values.newPassword !== values.confirmPassword) {
+      setError("Passwords do not match."); setBusy(false); return;
+    }
+    try {
+      await api("/api/v1/auth/password/change-required", {
+        method: "POST",
+        body: JSON.stringify({ currentPassword: values.currentPassword, newPassword: values.newPassword }),
+      });
+      onChanged();
+    } catch (cause) { setError(errorText(cause)); }
+    finally { setBusy(false); }
+  }
+  return <main className="auth-page"><section className="auth-card">
+    <div className="brand-lockup"><div className="brand-mark">LC</div><div><strong>LessonCue</strong><span>Secure first sign-in</span></div></div>
+    <div className="auth-copy"><span className="eyebrow">PASSWORD UPDATE REQUIRED</span><h1>Choose your password</h1><p>The administrator-issued password was temporary. Replace it before opening LessonCue.</p></div>
+    <form className="stack" onSubmit={submit}>
+      <Field label="Temporary password"><input name="currentPassword" type="password" required autoComplete="current-password" autoFocus /></Field>
+      <Field label="New password" hint="10+ characters with uppercase, lowercase, and a number"><input name="newPassword" type="password" required minLength={10} autoComplete="new-password" /></Field>
+      <Field label="Confirm new password"><input name="confirmPassword" type="password" required minLength={10} autoComplete="new-password" /></Field>
+      {error && <div className="alert error">{error}</div>}
+      <button className="button primary wide" disabled={busy}>{busy ? "Changing…" : "Change password and continue"}</button>
+    </form>
+  </section></main>;
 }
 
 function isControllerPath(path: string) {
@@ -215,6 +248,7 @@ function Auth({ session, onAuthenticated }: { session: Session; onAuthenticated:
   const token = new URLSearchParams(location.search).get("token") || "";
   const verificationPath = location.pathname === "/verify" || location.pathname === "/verify-email";
   const resetPath = location.pathname === "/reset-password";
+  const setupAccountPath = location.pathname === "/setup-account";
   const [linkResult, setLinkResult] = useState("");
   useEffect(() => {
     if (!verificationPath || !token) return;
@@ -254,15 +288,36 @@ function Auth({ session, onAuthenticated }: { session: Session; onAuthenticated:
     try { const result = await api<{ message: string }>("/api/v1/auth/password/reset", { method: "POST", body: JSON.stringify({ token, password: values.password }) }); setLinkResult(result.message); }
     catch (cause) { setError(errorText(cause)); } finally { setBusy(false); }
   }
+  async function setupAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError("");
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    if (values.password !== values.confirmPassword) {
+      setError("Passwords do not match."); setBusy(false); return;
+    }
+    try {
+      const result = await api<{ message: string }>("/api/v1/auth/setup-account", {
+        method: "POST",
+        body: JSON.stringify({ token, username: values.username, displayName: values.displayName, password: values.password }),
+      });
+      setLinkResult(result.message);
+    } catch (cause) { setError(errorText(cause)); }
+    finally { setBusy(false); }
+  }
   return <main className="auth-page">
     <section className="auth-card">
       <div className="brand-lockup"><div className="brand-mark">LC</div><div><strong>LessonCue</strong><span>Local classroom media control</span></div></div>
       <div className="auth-copy">
         <span className="eyebrow">{session.setupRequired ? "FIRST-RUN SETUP" : "WELCOME BACK"}</span>
-        <h1>{session.setupRequired ? "Create your local administrator" : resetPath ? "Choose a new password" : verificationPath ? "Verify your account" : mode === "register" ? "Create your account" : mode === "forgot" ? "Reset your password" : mode === "resend" ? "Resend verification" : "Sign in to LessonCue"}</h1>
-        <p>{session.setupRequired ? "This account stays on this server. Nothing is sent to a hosted service." : resetPath || verificationPath ? "This secure link can be used only once and expires automatically." : mode === "register" ? "Your administrator controls who may register on this server." : mode === "forgot" ? "We will send a one-time link if the address belongs to a verified account." : mode === "resend" ? "We will replace the previous link if the address belongs to an unverified account." : "Manage classes, playlists, and screens on your local network."}</p>
+        <h1>{session.setupRequired ? "Create your local administrator" : setupAccountPath ? "Set up your account" : resetPath ? "Choose a new password" : verificationPath ? "Verify your account" : mode === "register" ? session.registrationMode === "approval" ? "Request access" : "Create your account" : mode === "forgot" ? "Reset your password" : mode === "resend" ? "Resend verification" : "Sign in to LessonCue"}</h1>
+        <p>{session.setupRequired ? "This account stays on this server. Nothing is sent to a hosted service." : setupAccountPath ? "Choose your own name, username, and password. This invitation can be used only once." : resetPath || verificationPath ? "This secure link can be used only once and expires automatically." : mode === "register" ? session.registrationMode === "approval" ? "Verify your email, then an administrator will review your request before you can sign in." : "Your administrator controls who may register on this server." : mode === "forgot" ? "We will send a one-time link if the address belongs to a verified account." : mode === "resend" ? "We will replace the previous link if the address belongs to an unverified account." : "Manage classes, playlists, and screens on your local network."}</p>
       </div>
-      {linkResult ? <div className="account-result"><strong>{linkResult}</strong><button className="button primary wide" onClick={() => location.assign("/")}>Continue to LessonCue</button></div> : resetPath ? <form onSubmit={resetPassword} className="stack">
+      {linkResult ? <div className="account-result"><strong>{linkResult}</strong><button className="button primary wide" onClick={() => location.assign("/")}>Continue to LessonCue</button></div> : setupAccountPath ? <form onSubmit={setupAccount} className="stack">
+        <Field label="Your name"><input name="displayName" required maxLength={120} autoComplete="name" autoFocus /></Field>
+        <Field label="Username"><input name="username" required minLength={3} maxLength={80} autoComplete="username" /></Field>
+        <Field label="Password" hint="10+ characters with uppercase, lowercase, and a number"><input name="password" type="password" required minLength={10} autoComplete="new-password" /></Field>
+        <Field label="Confirm password"><input name="confirmPassword" type="password" required minLength={10} autoComplete="new-password" /></Field>
+        {error && <div className="alert error">{error}</div>}<button className="button primary wide" disabled={busy}>{busy ? "Saving…" : "Finish account setup"}</button>
+      </form> : resetPath ? <form onSubmit={resetPassword} className="stack">
         <Field label="New password" hint="10+ characters with uppercase, lowercase, and a number"><input name="password" type="password" required minLength={10} autoComplete="new-password" /></Field>
         <Field label="Confirm new password"><input name="confirmPassword" type="password" required minLength={10} autoComplete="new-password" /></Field>
         {error && <div className="alert error">{error}</div>}<button className="button primary wide" disabled={busy}>{busy ? "Saving…" : "Change password"}</button>
@@ -271,7 +326,7 @@ function Auth({ session, onAuthenticated }: { session: Session; onAuthenticated:
         <div className="two-fields"><Field label="Username"><input name="username" required minLength={3} autoComplete="username" /></Field><Field label="Email"><input name="email" type="email" required autoComplete="email" /></Field></div>
         {session.registrationMode === "code" && <Field label="Registration code"><input name="code" required autoComplete="off" /></Field>}
         <Field label="Password" hint="10+ characters with uppercase, lowercase, and a number"><input name="password" type="password" required minLength={10} autoComplete="new-password" /></Field>
-        {error && <div className="alert error">{error}</div>}<button className="button primary wide" disabled={busy}>{busy ? "Creating…" : "Create account"}</button><button className="text-button" type="button" onClick={() => { setMode("login"); setError(""); }}>Back to sign in</button>
+        {error && <div className="alert error">{error}</div>}<button className="button primary wide" disabled={busy}>{busy ? "Creating…" : session.registrationMode === "approval" ? "Submit access request" : "Create account"}</button><button className="text-button" type="button" onClick={() => { setMode("login"); setError(""); }}>Back to sign in</button>
       </form> : mode === "forgot" ? <form onSubmit={forgot} className="stack">
         <Field label="Email"><input name="email" type="email" required autoComplete="email" autoFocus /></Field>
         {error && <div className="alert error">{error}</div>}<button className="button primary wide" disabled={busy}>{busy ? "Sending…" : "Send reset link"}</button><button className="text-button" type="button" onClick={() => { setMode("login"); setError(""); }}>Back to sign in</button>
@@ -287,7 +342,7 @@ function Auth({ session, onAuthenticated }: { session: Session; onAuthenticated:
         {error && <div className="alert error">{error}</div>}
         <button className="button primary wide" disabled={busy}>{busy ? "Please wait…" : session.setupRequired ? "Finish setup" : "Sign in"}</button>
       </form>}
-      {!session.setupRequired && <div className="auth-links">{session.registrationAvailable && <a className="registration-link" href="/register">{session.registrationMode === "code" ? "Register with a code" : "Create an account"}</a>}{session.emailConfigured && <button className="text-button" onClick={() => setMode("forgot")}>Forgot password?</button>}{session.emailConfigured && <button className="text-button" onClick={() => setMode("resend")}>Resend verification</button>}<a className="recovery-link" href="https://github.com/nickhighland/lessoncue/blob/main/docs/installation.md#reset-a-forgotten-administrator-password" target="_blank" rel="noreferrer">SSH recovery ↗</a></div>}
+      {!session.setupRequired && !setupAccountPath && !resetPath && !verificationPath && <div className="auth-links">{session.registrationAvailable && <a className="registration-link" href="/register">{session.registrationMode === "code" ? "Register with a code" : session.registrationMode === "approval" ? "Request access" : "Create an account"}</a>}{session.emailConfigured && <button className="text-button" onClick={() => setMode("forgot")}>Forgot password?</button>}{session.emailConfigured && <button className="text-button" onClick={() => setMode("resend")}>Resend verification</button>}<a className="recovery-link" href="https://github.com/nickhighland/lessoncue/blob/main/docs/installation.md#reset-a-forgotten-administrator-password" target="_blank" rel="noreferrer">SSH recovery ↗</a></div>}
       <div className="local-note"><span className="status-dot" /> Local server · {location.host}</div>
     </section>
   </main>;
@@ -402,7 +457,7 @@ function Shell({ view, setView, username, currentUsername, role, permissions, on
         {view === "media" && <MediaView media={media} lessons={lessons} taxonomy={bootstrap?.mediaTaxonomy || { folders: [], tags: [] }} refresh={refresh} notify={setNotice} canUpload={canUpload} storage={bootstrap?.storage} />}
         {view === "screens" && bootstrap && <ScreensView screens={screens} classes={classes} pin={bootstrap.pairingPin} refresh={refresh} notify={setNotice} canManage={canManageScreens} />}
         {view === "signage" && <SignageView signage={signage} media={media} screens={screens} timeZone={bootstrap?.timeZone || "UTC"} refresh={refresh} notify={setNotice} />}
-        {view === "users" && <UsersView users={users} currentUsername={currentUsername} currentRole={role} refresh={refresh} notify={setNotice} canManage={canManageUsers} />}
+        {view === "users" && <UsersView users={users} currentUsername={currentUsername} currentRole={role} refresh={refresh} notify={setNotice} canManage={canManageUsers} emailConfigured={bootstrap?.accountEmail.configured ?? false} />}
         {view === "settings" && bootstrap && <Settings bootstrap={bootstrap} backups={backups} audit={audit} refresh={refresh} notify={setNotice} canSettings={canManageSettings} canBackups={canManageBackups} canUpdates={canManageUpdates} />}
       </>}
     </main>
@@ -1123,16 +1178,39 @@ function SignageEditor({ item, media, screens, timeZone, onSave, onClose }: {
   </form></Modal>;
 }
 
-function UsersView({ users, currentUsername, currentRole, refresh, notify, canManage }: { users: User[]; currentUsername: string; currentRole: string; refresh: () => void; notify: (s: string) => void; canManage: boolean }) {
+function UsersView({ users, currentUsername, currentRole, refresh, notify, canManage, emailConfigured }: { users: User[]; currentUsername: string; currentRole: string; refresh: () => void; notify: (s: string) => void; canManage: boolean; emailConfigured: boolean }) {
   const [showForm, setShowForm] = useState(false);
+  const [creationMode, setCreationMode] = useState<"invite" | "temporary">("invite");
   const [editingUser, setEditingUser] = useState<User>();
-  async function create(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); const values = Object.fromEntries(form); try { await api("/api/v1/users", { method: "POST", body: JSON.stringify({ ...values, disabled: false, permissions: values.customPermissions === "on" ? form.getAll("permission") : null }) }); setShowForm(false); refresh(); notify("Local user created."); } catch (e) { notify(errorText(e)); } }
+  const [passwordUser, setPasswordUser] = useState<User>();
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const form = new FormData(event.currentTarget); const values = Object.fromEntries(form);
+    try {
+      const permissions = values.customPermissions === "on" ? form.getAll("permission") : null;
+      if (creationMode === "invite") {
+        const result = await api<{ message: string }>("/api/v1/users/invitations", {
+          method: "POST",
+          body: JSON.stringify({ email: values.email, displayName: values.displayName || null, role: values.role, permissions }),
+        });
+        notify(result.message);
+      } else {
+        await api("/api/v1/users", {
+          method: "POST", body: JSON.stringify({ ...values, disabled: false, permissions }),
+        });
+        notify("Local user created with a temporary password.");
+      }
+      setShowForm(false); refresh();
+    } catch (e) { refresh(); notify(errorText(e)); }
+  }
   async function update(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!editingUser) return;
     const form = new FormData(event.currentTarget); const values = Object.fromEntries(form);
     try {
       await api(`/api/v1/users/${editingUser.id}`, { method: "PUT", body: JSON.stringify({ ...values, password: values.password || null, disabled: editingUser.disabled, permissions: values.customPermissions === "on" ? form.getAll("permission") : null }) });
-      setEditingUser(undefined); notify("User details saved.");
+      const invitationAddressChanged = editingUser.pendingSetup &&
+        String(values.email || "").trim().toLowerCase() !== String(editingUser.email || "").trim().toLowerCase();
+      setEditingUser(undefined);
+      notify(invitationAddressChanged ? "User details saved. Send a new setup link to the changed address." : "User details saved.");
       if (editingUser.username === currentUsername) location.reload(); else refresh();
     } catch (e) { notify(errorText(e)); }
   }
@@ -1147,10 +1225,48 @@ function UsersView({ users, currentUsername, currentRole, refresh, notify, canMa
     try { await api(`/api/v1/users/${user.id}`, { method: "DELETE" }); refresh(); notify(`${user.displayName} was deleted.`); }
     catch (e) { notify(errorText(e)); }
   }
-  return <><PageHead eyebrow="ACCESS CONTROL" title="Users" detail="Give staff only the access they need. All accounts remain on this server." action={canManage ? <button className="button primary" onClick={() => setShowForm(true)}>Add user</button> : undefined} />
-    {showForm && <Modal title="Add a local user" onClose={() => setShowForm(false)}><form className="stack" onSubmit={create}><Field label="Name"><input name="displayName" required autoFocus /></Field><div className="two-fields"><Field label="Username"><input name="username" required minLength={3} /></Field><Field label="Email (optional)"><input name="email" type="email" /></Field></div><Field label="Role"><select name="role"><option>Editor</option><option>Viewer</option><option>Administrator</option>{currentRole === "Owner" && <option>Owner</option>}</select></Field><PermissionEditor /><Field label="Temporary password" hint="10+ characters with uppercase, lowercase, and a number"><input name="password" type="password" required minLength={10} /></Field><button className="button primary">Create user</button></form></Modal>}
-    {editingUser && <Modal title={`Edit ${editingUser.displayName}`} onClose={() => setEditingUser(undefined)}><form className="stack" onSubmit={update}><Field label="Name"><input name="displayName" required autoFocus defaultValue={editingUser.displayName} /></Field><div className="two-fields"><Field label="Username"><input name="username" required minLength={3} maxLength={80} defaultValue={editingUser.username} /></Field><Field label="Email (optional)"><input name="email" type="email" defaultValue={editingUser.email || ""} /></Field></div><Field label="Role"><select name="role" defaultValue={editingUser.role}><option>Editor</option><option>Viewer</option><option>Administrator</option>{currentRole === "Owner" && <option>Owner</option>}</select></Field><PermissionEditor customPermissions={editingUser.customPermissions} /><Field label="New password (optional)" hint="Leave blank to keep the current password. A new password needs 10+ characters with uppercase, lowercase, and a number."><input name="password" type="password" minLength={10} autoComplete="new-password" /></Field><button className="button primary">Save user</button></form></Modal>}
-    <section className="panel user-table"><div className="user-row user-head"><span>User</span><span>Role</span><span>Status</span><span>Last sign-in</span><span>Actions</span></div>{users.map(user => { const self = user.username === currentUsername; const protectedOwner = user.role === "Owner" && currentRole !== "Owner"; return <div className={`user-row ${user.disabled ? "paused" : ""}`} key={user.id}><span className="user-name"><b>{initials(user.displayName)}</b><span><strong>{user.displayName}{self ? " (you)" : ""}</strong><small>@{user.username}{user.email ? ` · ${user.email}` : ""}</small><small>{user.permissions.length} of {permissionOptions.length} permissions{user.customPermissions ? " · custom" : " · role defaults"}</small></span></span><span><i className="pill">{user.role}</i></span><span className={`user-status ${user.disabled ? "paused" : ""}`}><i />{user.disabled ? "Paused" : "Active"}</span><span>{user.lastLoginAt ? timeAgo(user.lastLoginAt) : "Never"}</span><span className="user-actions">{canManage && <><button onClick={() => setEditingUser(user)} disabled={protectedOwner}>Edit</button><button onClick={() => togglePaused(user)} disabled={self || protectedOwner} title={self ? "You cannot pause your own account." : undefined}>{user.disabled ? "Reactivate" : "Pause"}</button><button className="danger" onClick={() => remove(user)} disabled={self || protectedOwner} title={self ? "You cannot delete your own account." : undefined}>Delete</button></>}</span></div>; })}</section>
+  async function approve(user: User) {
+    try {
+      const result = await api<{ message: string }>(`/api/v1/users/${user.id}/approve`, { method: "POST", body: "{}" });
+      refresh(); notify(result.message);
+    } catch (cause) { notify(errorText(cause)); }
+  }
+  async function resendInvitation(user: User) {
+    try {
+      const result = await api<{ message: string }>(`/api/v1/users/${user.id}/invitation`, { method: "POST", body: "{}" });
+      notify(result.message);
+    } catch (cause) { notify(errorText(cause)); }
+  }
+  async function setTemporaryPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!passwordUser) return;
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    if (values.password !== values.confirmPassword) { notify("Passwords do not match."); return; }
+    try {
+      const result = await api<{ message: string }>(`/api/v1/users/${passwordUser.id}/temporary-password`, {
+        method: "POST", body: JSON.stringify({ password: values.password }),
+      });
+      setPasswordUser(undefined); refresh(); notify(result.message);
+    } catch (cause) { notify(errorText(cause)); }
+  }
+  function accountStatus(user: User) {
+    if (user.pendingSetup) return { label: "Setup invited", className: "pending" };
+    if (user.disabled) return { label: "Paused", className: "paused" };
+    if (user.pendingApproval) return { label: user.emailVerified ? "Awaiting approval" : "Verify then approve", className: "pending" };
+    if (!user.emailVerified) return { label: "Awaiting email", className: "pending" };
+    if (user.mustChangePassword) return { label: "Temporary password", className: "pending" };
+    return { label: "Active", className: "" };
+  }
+  return <><PageHead eyebrow="ACCESS CONTROL" title="Users" detail="Create accounts, approve requests, send setup invitations, reset passwords, and grant only the permissions each person needs." action={canManage ? <div className="head-actions"><button className="button primary" disabled={!emailConfigured} title={!emailConfigured ? "Configure account email under Settings → Organization & accounts first." : undefined} onClick={() => { setCreationMode("invite"); setShowForm(true); }}>Send setup link</button><button className="button" onClick={() => { setCreationMode("temporary"); setShowForm(true); }}>Create with password</button></div> : undefined} />
+    {canManage && !emailConfigured && <div className="alert user-email-note">Setup invitations and approval notifications require a configured email provider under Settings → Organization & accounts. Local temporary-password accounts remain available.</div>}
+    {showForm && <Modal title={creationMode === "invite" ? "Invite a user" : "Create a local user"} onClose={() => setShowForm(false)}><form className="stack" onSubmit={create}>
+      {creationMode === "invite" ? <><div className="alert">LessonCue emails a one-time setup link. The recipient chooses their name, username, and password; you control their permissions now.</div><Field label="Email"><input name="email" type="email" required autoComplete="email" autoFocus /></Field><Field label="Name (optional)"><input name="displayName" maxLength={120} autoComplete="name" /></Field></> : <><Field label="Name"><input name="displayName" required autoFocus /></Field><div className="two-fields"><Field label="Username"><input name="username" required minLength={3} /></Field><Field label="Email (optional)"><input name="email" type="email" /></Field></div></>}
+      <Field label="Role"><select name="role"><option>Editor</option><option>Viewer</option><option>Administrator</option>{currentRole === "Owner" && <option>Owner</option>}</select></Field><PermissionEditor />
+      {creationMode === "temporary" && <Field label="Temporary password" hint="The user must replace this after their first sign-in. Use 10+ characters with uppercase, lowercase, and a number."><input name="password" type="password" required minLength={10} autoComplete="new-password" /></Field>}
+      <button className="button primary">{creationMode === "invite" ? "Send setup email" : "Create user"}</button>
+    </form></Modal>}
+    {editingUser && <Modal title={`Edit ${editingUser.displayName}`} onClose={() => setEditingUser(undefined)}><form className="stack" onSubmit={update}><Field label="Name"><input name="displayName" required autoFocus defaultValue={editingUser.displayName} /></Field><div className="two-fields"><Field label="Username"><input name="username" required minLength={3} maxLength={80} defaultValue={editingUser.username} disabled={editingUser.pendingSetup} /></Field><Field label="Email (optional)"><input name="email" type="email" defaultValue={editingUser.email || ""} /></Field></div>{editingUser.pendingSetup && <input type="hidden" name="username" value={editingUser.username} />}<Field label="Role"><select name="role" defaultValue={editingUser.role}><option>Editor</option><option>Viewer</option><option>Administrator</option>{currentRole === "Owner" && <option>Owner</option>}</select></Field><PermissionEditor customPermissions={editingUser.customPermissions} /><button className="button primary">Save user</button></form></Modal>}
+    {passwordUser && <Modal title={`Temporary password for ${passwordUser.displayName}`} onClose={() => setPasswordUser(undefined)}><form className="stack" onSubmit={setTemporaryPassword}><div className="alert">Existing sessions will be signed out. The user must replace this temporary password after signing in.</div><Field label="Temporary password" hint="10+ characters with uppercase, lowercase, and a number"><input name="password" type="password" required minLength={10} autoComplete="new-password" autoFocus /></Field><Field label="Confirm temporary password"><input name="confirmPassword" type="password" required minLength={10} autoComplete="new-password" /></Field><button className="button primary">Set temporary password</button></form></Modal>}
+    <section className="panel user-table"><div className="user-row user-head"><span>User</span><span>Role</span><span>Status</span><span>Last sign-in</span><span>Actions</span></div>{users.map(user => { const self = user.username === currentUsername; const protectedOwner = user.role === "Owner" && currentRole !== "Owner"; const status = accountStatus(user); return <div className={`user-row ${user.disabled ? "paused" : ""}`} key={user.id}><span className="user-name"><b>{initials(user.displayName)}</b><span><strong>{user.displayName}{self ? " (you)" : ""}</strong><small>{user.pendingSetup ? "Username chosen during setup" : `@${user.username}`}{user.email ? ` · ${user.email}` : ""}</small><small>{user.permissions.length} of {permissionOptions.length} permissions{user.customPermissions ? " · custom" : " · role defaults"}</small></span></span><span><i className="pill">{user.role}</i></span><span className={`user-status ${status.className}`}><i />{status.label}</span><span>{user.lastLoginAt ? timeAgo(user.lastLoginAt) : "Never"}</span><span className="user-actions">{canManage && <>{user.pendingApproval && <button className="primary-action" onClick={() => approve(user)} disabled={protectedOwner}>Approve</button>}{user.pendingSetup && <button onClick={() => resendInvitation(user)} disabled={protectedOwner}>Resend setup</button>}<button onClick={() => setEditingUser(user)} disabled={protectedOwner}>Edit</button>{!user.pendingSetup && !self && <button onClick={() => setPasswordUser(user)} disabled={protectedOwner}>Reset password</button>}<button onClick={() => togglePaused(user)} disabled={self || protectedOwner || user.pendingSetup} title={self ? "You cannot pause your own account." : undefined}>{user.disabled ? "Reactivate" : "Pause"}</button><button className="danger" onClick={() => remove(user)} disabled={self || protectedOwner} title={self ? "You cannot delete your own account." : undefined}>Delete</button></>}</span></div>; })}</section>
   </>;
 }
 
@@ -1237,9 +1353,9 @@ function RegistrationSettingsPanel({ bootstrap, notify, refresh }: { bootstrap: 
   }
   return <section className="panel wide-settings account-settings">
     {editingCode && <Modal title={`Edit ${editingCode.label}`} onClose={() => setEditingCode(undefined)}><form className="stack" onSubmit={updateCode}><Field label="Label"><input name="label" required maxLength={120} defaultValue={editingCode.label} /></Field><Field label="Expires (leave blank for no expiration)"><input name="expiresAt" type="datetime-local" defaultValue={editingCode.expiresAt ? localDateTimeValue(editingCode.expiresAt) : ""} /></Field><Field label="Maximum uses (leave blank for unlimited)"><input name="maxUses" type="number" min="1" max="100000" defaultValue={editingCode.maxUses || ""} /></Field><div className="modal-actions"><button className="button" type="button" onClick={() => setEditingCode(undefined)}>Cancel</button><button className="button primary">Save limits</button></div></form></Modal>}
-    <div className="settings-heading"><div><span className="settings-kicker">ACCOUNTS</span><h2>Registration & email</h2><p className="settings-copy">Keep registration closed, open it to anyone with a verified email, or require a code. Local administrator-created accounts always remain available.</p></div><span className={`update-state ${settings.mode === "closed" ? "current" : "available"}`}>{settings.mode === "closed" ? "Registration closed" : settings.mode === "code" ? "Code required" : "Registration open"}</span></div>
+    <div className="settings-heading"><div><span className="settings-kicker">ACCOUNTS</span><h2>Registration & email</h2><p className="settings-copy">Keep registration closed, require administrator approval, open it to verified email addresses, or require a code. Administrator invitations remain available in every mode.</p></div><span className={`update-state ${settings.mode === "closed" ? "current" : "available"}`}>{settings.mode === "closed" ? "Registration closed" : settings.mode === "approval" ? "Approval required" : settings.mode === "code" ? "Code required" : "Registration open"}</span></div>
     <form className="stack" onSubmit={save}>
-      <Field label="Registration mode"><select value={settings.mode} onChange={event => setSettings(current => ({ ...current, mode: event.target.value as RegistrationSettings["mode"] }))}><option value="closed">Closed — do not accept registrations or codes</option><option value="code">Require an active registration code</option><option value="open">Open to anyone with a verified email</option></select></Field>
+      <Field label="Registration mode"><select value={settings.mode} onChange={event => setSettings(current => ({ ...current, mode: event.target.value as RegistrationSettings["mode"] }))}><option value="closed">Closed — administrator-created accounts and invitations only</option><option value="approval">Request access — verify email, then wait for administrator approval</option><option value="code">Require an active registration code</option><option value="open">Open to anyone with a verified email</option></select></Field>
       <div className="two-fields"><Field label="Account email provider"><select value={settings.emailProvider} onChange={event => setSettings(current => ({ ...current, emailProvider: event.target.value as RegistrationSettings["emailProvider"] }))}><option value="none">None — local accounts only</option><option value="resend">Resend</option><option value="brevo">Brevo</option></select></Field><Field label={settings.emailConfigured ? "Replace API key (optional)" : "Email API key"} hint="The key is encrypted on this server and is never returned to a browser."><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} required={settings.emailProvider !== "none" && !settings.emailConfigured} disabled={settings.emailProvider === "none"} autoComplete="new-password" /></Field></div>
       <div className="two-fields"><Field label="Sender name"><input value={settings.emailFromName} onChange={event => setSettings(current => ({ ...current, emailFromName: event.target.value }))} required={settings.emailProvider !== "none"} disabled={settings.emailProvider === "none"} /></Field><Field label="Verified sender address"><input type="email" value={settings.emailFromAddress} onChange={event => setSettings(current => ({ ...current, emailFromAddress: event.target.value }))} required={settings.emailProvider !== "none"} disabled={settings.emailProvider === "none"} /></Field></div>
       <Field label="Public account-link address" hint="Use the HTTPS Cloudflare or reverse-proxy address users can reach from email. Leave blank to use the address from the current request."><input type="url" value={settings.publicBaseUrl} onChange={event => setSettings(current => ({ ...current, publicBaseUrl: event.target.value }))} placeholder="https://lesson.example.org" /></Field>

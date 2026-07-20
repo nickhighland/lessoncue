@@ -10,6 +10,20 @@ namespace LessonCue.Server.Tests;
 public sealed class ScreenTelemetryTests
 {
     [Fact]
+    public void BrowserPairExpiresAtTwoHoursWhileNativePairRemainsActive()
+    {
+        var now = new DateTimeOffset(2026, 7, 20, 12, 0, 0, TimeSpan.Zero);
+        Assert.False(ScreenDiagnosticCleanupService.IsBrowserPairExpired(
+            "web-player", now.AddHours(-2).AddSeconds(1), now.AddDays(-1), now));
+        Assert.True(ScreenDiagnosticCleanupService.IsBrowserPairExpired(
+            "web-player", now.AddHours(-2), now.AddDays(-1), now));
+        Assert.True(ScreenDiagnosticCleanupService.IsBrowserPairExpired(
+            "web-player", null, now.AddHours(-2), now));
+        Assert.False(ScreenDiagnosticCleanupService.IsBrowserPairExpired(
+            "android-tv", now.AddDays(-10), now.AddDays(-10), now));
+    }
+
+    [Fact]
     public void StatusAcknowledgesOnlyIssuedCommandsAndNormalizesPlaybackData()
     {
         var screen = new Screen { Name = "Room 101", ControlVersion = 8, AcknowledgedControlVersion = 3 };
@@ -129,6 +143,56 @@ public sealed class ScreenTelemetryTests
             var screen = await scope.ServiceProvider.GetRequiredService<LessonCueDb>().Screens.SingleAsync(cancellationToken);
             Assert.Equal("none", screen.ScreenshotStatus);
             Assert.Null(screen.ScreenshotRelativePath);
+        }
+        Directory.Delete(root, true);
+    }
+
+    [Fact]
+    public async Task BrowserPairsDeleteAfterTwoHoursWithoutAHeartbeatButNativeScreensRemain()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var root = Path.Combine(Path.GetTempPath(), $"lessoncue-browser-pair-cleanup-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var now = new DateTimeOffset(2026, 7, 20, 12, 0, 0, TimeSpan.Zero);
+        var services = new ServiceCollection();
+        services.AddDbContext<LessonCueDb>(options => options.UseSqlite($"Data Source={Path.Combine(root, "test.db")}"));
+        await using var provider = services.BuildServiceProvider();
+        Guid expiredBrowserId;
+        Guid neverConnectedBrowserId;
+        Guid activeBrowserId;
+        Guid nativeId;
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
+            await db.Database.EnsureCreatedAsync(cancellationToken);
+            var expiredBrowser = new Screen { Name = "Old browser", Platform = "web-player", LastSeenAt = now.AddHours(-3) };
+            var neverConnectedBrowser = new Screen { Name = "Unused browser", Platform = "web-player" };
+            var activeBrowser = new Screen { Name = "Active browser", Platform = "web-player", LastSeenAt = now.AddMinutes(-10) };
+            var native = new Screen { Name = "Native TV", Platform = "android-tv", LastSeenAt = now.AddDays(-2) };
+            db.Screens.AddRange(expiredBrowser, neverConnectedBrowser, activeBrowser, native);
+            db.DeviceCredentials.AddRange(
+                new DeviceCredential { ScreenId = expiredBrowser.Id, TokenHash = "expired", CreatedAt = now.AddHours(-3) },
+                new DeviceCredential { ScreenId = neverConnectedBrowser.Id, TokenHash = "unused", CreatedAt = now.AddHours(-3) },
+                new DeviceCredential { ScreenId = activeBrowser.Id, TokenHash = "active", CreatedAt = now.AddHours(-3) },
+                new DeviceCredential { ScreenId = native.Id, TokenHash = "native", CreatedAt = now.AddDays(-2) });
+            await db.SaveChangesAsync(cancellationToken);
+            expiredBrowserId = expiredBrowser.Id;
+            neverConnectedBrowserId = neverConnectedBrowser.Id;
+            activeBrowserId = activeBrowser.Id;
+            nativeId = native.Id;
+        }
+
+        Assert.Equal(2, await ScreenDiagnosticCleanupService.CleanupInactiveBrowserScreensAsync(
+            provider.GetRequiredService<IServiceScopeFactory>(), root, now, cancellationToken));
+
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
+            Assert.False(await db.Screens.AnyAsync(x => x.Id == expiredBrowserId, cancellationToken));
+            Assert.False(await db.Screens.AnyAsync(x => x.Id == neverConnectedBrowserId, cancellationToken));
+            Assert.True(await db.Screens.AnyAsync(x => x.Id == activeBrowserId, cancellationToken));
+            Assert.True(await db.Screens.AnyAsync(x => x.Id == nativeId, cancellationToken));
+            Assert.Equal(2, await db.AuditEvents.CountAsync(x => x.Action == "screen.browser.expire", cancellationToken));
         }
         Directory.Delete(root, true);
     }

@@ -113,7 +113,9 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         var sessionVersionValue = context.Principal?.FindFirst("session_version")?.Value;
         var sessionVersion = int.TryParse(sessionVersionValue, out var parsedVersion) ? parsedVersion : 1;
         var db = context.HttpContext.RequestServices.GetRequiredService<LessonCueDb>();
-        if (!await db.AdminAccounts.AsNoTracking().AnyAsync(x => x.Id == accountId && !x.Disabled && x.SessionVersion == sessionVersion, context.HttpContext.RequestAborted))
+        if (!await db.AdminAccounts.AsNoTracking().AnyAsync(x => x.Id == accountId && !x.Disabled &&
+            !x.PendingApproval && !x.PendingSetup && x.SessionVersion == sessionVersion,
+            context.HttpContext.RequestAborted))
         {
             context.RejectPrincipal();
             await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
@@ -189,6 +191,16 @@ app.Use(async (context, next) =>
         if (!string.IsNullOrEmpty(origin) && (!Uri.TryCreate(origin, UriKind.Absolute, out var uri) ||
             !string.Equals(uri.Authority, context.Request.Host.Value, StringComparison.OrdinalIgnoreCase)))
         { context.Response.StatusCode = StatusCodes.Status403Forbidden; return; }
+    }
+    if (context.User.HasClaim("must_change_password", "true") &&
+        context.Request.Path.StartsWithSegments("/api/v1") &&
+        !context.Request.Path.StartsWithSegments("/api/v1/auth/session") &&
+        !context.Request.Path.StartsWithSegments("/api/v1/auth/password/change-required") &&
+        !context.Request.Path.StartsWithSegments("/api/v1/auth/logout"))
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(new { error = "Change the temporary password before using LessonCue." });
+        return;
     }
     await next();
 });
@@ -436,7 +448,13 @@ static async Task<bool> HasDeviceAccess(HttpRequest request, LessonCueDb db, Gui
     var authorization = request.Headers.Authorization.ToString();
     if (!authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return false;
     var hash = HashToken(authorization[7..].Trim());
-    return await db.DeviceCredentials.AnyAsync(x => x.ScreenId == screenId && x.TokenHash == hash && x.RevokedAt == null, ct);
+    var access = await (from credential in db.DeviceCredentials.AsNoTracking()
+        join screen in db.Screens.AsNoTracking() on credential.ScreenId equals screen.Id
+        where credential.ScreenId == screenId && credential.TokenHash == hash && credential.RevokedAt == null
+        select new { credential.CreatedAt, screen.Platform, screen.LastSeenAt }).SingleOrDefaultAsync(ct);
+    if (access is null) return false;
+    return !ScreenDiagnosticCleanupService.IsBrowserPairExpired(
+        access.Platform, access.LastSeenAt, access.CreatedAt, DateTimeOffset.UtcNow);
 }
 
 public partial class Program;
