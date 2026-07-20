@@ -1074,6 +1074,66 @@ paths:
         '204': { description: User deleted }
         '400': { description: Self-deletion or final active owner protection }
         '404': { description: User not found }
+  /api/v1/users/invitations:
+    post:
+      operationId: inviteUser
+      description: Requires users.manage and configured account email. Reserves the administrator-selected access and sends a three-day one-time setup link.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserInvitationInput' }
+      responses:
+        '201': { description: Pending account created and setup message accepted }
+        '400': { description: Invalid email, name, role, or permissions }
+        '409': { description: Email already belongs to an account or email is not configured }
+        '502': { description: Account reserved but setup message could not be delivered }
+  /api/v1/users/{userId}/invitation:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      operationId: resendUserInvitation
+      description: Requires users.manage. Invalidates the earlier setup token and sends a new three-day link.
+      responses:
+        '200': { description: New setup message accepted }
+        '404': { description: User not found }
+        '409': { description: Account is not pending setup or email is unavailable }
+        '502': { description: Provider could not deliver the setup message }
+  /api/v1/users/{userId}/approve:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      operationId: approveUser
+      description: Requires users.manage. Releases an approval-required registration and attempts an email notification.
+      responses:
+        '200': { description: Account approved }
+        '404': { description: User not found }
+        '409': { description: Account is not awaiting approval }
+  /api/v1/users/{userId}/temporary-password:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      operationId: setTemporaryUserPassword
+      description: Requires users.manage. Invalidates prior sessions and forces password replacement before any other authenticated API use.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TemporaryPasswordInput' }
+      responses:
+        '200': { description: Temporary password set }
+        '400': { description: Invalid password or attempt to reset the current account }
+        '404': { description: User not found }
+        '409': { description: Invited account has not completed setup }
   /api/v1/auth/register:
     post:
       operationId: registerAccount
@@ -1136,6 +1196,34 @@ paths:
       responses:
         '200': { description: Password changed and prior sessions invalidated }
         '400': { description: Invalid password or token }
+        '429': { description: Account request limit reached }
+  /api/v1/auth/password/change-required:
+    post:
+      operationId: changeRequiredPassword
+      description: Replaces an administrator-issued temporary password. While the temporary-password flag is active, other authenticated API routes are denied.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequiredPasswordChangeInput' }
+      responses:
+        '200': { description: Password changed and authenticated session renewed }
+        '400': { description: Temporary password or new password was invalid }
+        '401': { description: Sign-in required }
+        '409': { description: Password change is not required }
+  /api/v1/auth/setup-account:
+    post:
+      operationId: completeInvitedAccount
+      description: Consumes a three-day administrator invitation and lets the recipient choose a display name, username, and password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AccountSetupInput' }
+      responses:
+        '200': { description: Account setup completed }
+        '400': { description: Invalid or expired token, identity, or password }
+        '409': { description: Username already exists }
         '429': { description: Account request limit reached }
   /api/v1/auth/profile:
     get:
@@ -1297,7 +1385,7 @@ components:
       type: object
       required: [mode, publicBaseUrl, emailProvider, emailFromAddress, emailFromName]
       properties:
-        mode: { enum: [closed, code, open] }
+        mode: { enum: [closed, approval, code, open] }
         publicBaseUrl: { type: string, maxLength: 253, description: Must be HTTPS except for loopback development. }
         emailProvider: { enum: [none, resend, brevo] }
         emailFromAddress: { type: string, format: email, maxLength: 200 }
@@ -1500,7 +1588,7 @@ components:
         fixedPin: { type: boolean }
     User:
       type: object
-      required: [id, username, displayName, role, permissions, disabled, createdAt]
+      required: [id, username, displayName, role, permissions, disabled, pendingApproval, pendingSetup, mustChangePassword, createdAt]
       properties:
         id: { type: string, format: uuid }
         username: { type: string, minLength: 3, maxLength: 80 }
@@ -1518,6 +1606,9 @@ components:
           uniqueItems: true
           description: Null uses role defaults; an empty array intentionally grants no management capabilities.
         disabled: { type: boolean }
+        pendingApproval: { type: boolean }
+        pendingSetup: { type: boolean }
+        mustChangePassword: { type: boolean }
         createdAt: { type: string, format: date-time }
         lastLoginAt: { type: [string, 'null'], format: date-time }
     UserInput:
@@ -1538,6 +1629,36 @@ components:
           minLength: 10
           description: Required when creating an account; omit or send null during updates to retain the current password.
         disabled: { type: boolean, default: false }
+    UserInvitationInput:
+      type: object
+      required: [email, role]
+      properties:
+        email: { type: string, format: email, maxLength: 200 }
+        displayName: { type: [string, 'null'], maxLength: 120 }
+        role: { enum: [Viewer, Editor, Administrator, Owner] }
+        permissions:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/Permission' }
+          uniqueItems: true
+    TemporaryPasswordInput:
+      type: object
+      required: [password]
+      properties:
+        password: { type: string, minLength: 10, writeOnly: true }
+    RequiredPasswordChangeInput:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string, writeOnly: true }
+        newPassword: { type: string, minLength: 10, writeOnly: true }
+    AccountSetupInput:
+      type: object
+      required: [token, username, displayName, password]
+      properties:
+        token: { type: string, minLength: 64, maxLength: 64, writeOnly: true }
+        username: { type: string, minLength: 3, maxLength: 80 }
+        displayName: { type: string, minLength: 1, maxLength: 120 }
+        password: { type: string, minLength: 10, writeOnly: true }
     Permission:
       enum: [planning.manage, uploads.manage, playback.control, screens.manage, users.manage, settings.manage, backups.manage, updates.manage]
     Class:

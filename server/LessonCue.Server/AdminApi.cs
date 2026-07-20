@@ -22,16 +22,22 @@ public static class AdminApi
             CancellationToken ct) =>
         {
             var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var authenticated = context.User.Identity?.IsAuthenticated == true;
+            var hasAccountId = Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var accountId);
+            var mustChangePassword = authenticated && hasAccountId &&
+                await db.AdminAccounts.AnyAsync(x => x.Id == accountId && x.MustChangePassword, ct);
             return new
             {
                 setupRequired = !await db.AdminAccounts.AnyAsync(ct),
-                authenticated = context.User.Identity?.IsAuthenticated == true,
+                authenticated,
                 username = context.User.Identity?.Name,
                 displayName = context.User.FindFirstValue("display_name"),
                 role = context.User.FindFirstValue(ClaimTypes.Role),
                 permissions = LessonCuePermissions.Effective(context.User),
+                mustChangePassword,
                 registrationMode = organization.RegistrationMode,
-                registrationAvailable = organization.RegistrationMode is "open" or "code" && email.Status(organization.EmailProvider).Configured,
+                registrationAvailable = organization.RegistrationMode is "open" or "code" or "approval" &&
+                    email.Status(organization.EmailProvider).Configured,
                 emailConfigured = email.Status(organization.EmailProvider).Configured
             };
         });
@@ -68,7 +74,8 @@ public static class AdminApi
         {
             var username = input.Username.Trim().ToLowerInvariant();
             var account = await db.AdminAccounts.SingleOrDefaultAsync(x => x.Username == username, ct);
-            if (account is null || account.Disabled || !account.EmailVerified ||
+            if (account is null || account.Disabled || account.PendingApproval || account.PendingSetup ||
+                !account.EmailVerified ||
                 hasher.VerifyHashedPassword(account, account.PasswordHash, input.Password) == PasswordVerificationResult.Failed)
             {
                 db.AuditEvents.Add(new AuditEvent { Actor = username, Action = "admin.login", Object = "session", Result = "failed" });
@@ -86,7 +93,7 @@ public static class AdminApi
             AccountEmailService email, IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
         {
             var organization = await db.Organizations.FirstAsync(ct);
-            if (organization.RegistrationMode is not ("open" or "code"))
+            if (organization.RegistrationMode is not ("open" or "code" or "approval"))
                 return Results.Json(new { error = "Registration is closed. Ask an administrator to create your account." }, statusCode: 403);
             if (!email.Status(organization.EmailProvider).Configured)
                 return Results.Conflict(new { error = "Registration requires administrator-configured email delivery." });
@@ -111,7 +118,8 @@ public static class AdminApi
             var account = new AdminAccount
             {
                 Username = username, DisplayName = input.DisplayName.Trim(), Email = address, Role = "Viewer",
-                PasswordHash = "pending", EmailVerified = false
+                PasswordHash = "pending", EmailVerified = false,
+                PendingApproval = organization.RegistrationMode == "approval"
             };
             account.PasswordHash = hasher.HashPassword(account, input.Password);
             db.AdminAccounts.Add(account);
@@ -140,7 +148,12 @@ public static class AdminApi
                 return Results.Problem($"The account was created, but verification email could not be sent: {error.Message}",
                     statusCode: 503);
             }
-            return Results.Accepted(value: new { message = "Check your email to verify the account." });
+            return Results.Accepted(value: new
+            {
+                message = account.PendingApproval
+                    ? "Check your email to verify the request. An administrator must approve it before you can sign in."
+                    : "Check your email to verify the account."
+            });
         }).RequireRateLimiting("account");
 
         auth.MapPost("/verify", async (VerifyAccountInput input, LessonCueDb db, CancellationToken ct) =>
@@ -153,7 +166,12 @@ public static class AdminApi
             token.Account.SessionVersion++;
             db.AuditEvents.Add(new AuditEvent { Actor = token.Account.Username, Action = "account.verify", Object = token.AccountId.ToString() });
             await db.SaveChangesAsync(ct);
-            return Results.Ok(new { message = "Email verified. You can now sign in." });
+            return Results.Ok(new
+            {
+                message = token.Account.PendingApproval
+                    ? "Email verified. Your request is waiting for administrator approval."
+                    : "Email verified. You can now sign in."
+            });
         }).RequireRateLimiting("account");
 
         auth.MapPost("/verification/resend", async (PasswordRecoveryInput input, HttpRequest request, LessonCueDb db,
@@ -216,11 +234,64 @@ public static class AdminApi
             var validation = AdminCredentialPolicy.Validate(token.Account.Username, input.Password);
             if (validation is not null) return Results.BadRequest(new { error = validation });
             token.Account.PasswordHash = hasher.HashPassword(token.Account, input.Password);
+            token.Account.MustChangePassword = false;
             token.Account.SessionVersion++;
             token.UsedAt = DateTimeOffset.UtcNow;
             db.AuditEvents.Add(new AuditEvent { Actor = token.Account.Username, Action = "account.password.reset", Object = token.AccountId.ToString() });
             await db.SaveChangesAsync(ct);
             return Results.Ok(new { message = "Password changed. Sign in with the new password." });
+        }).RequireRateLimiting("account");
+
+        auth.MapPost("/password/change-required", async (RequiredPasswordChangeInput input, HttpContext context,
+            LessonCueDb db, IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
+        {
+            var account = await CurrentAccountAsync(context, db, ct);
+            if (account is null) return Results.Unauthorized();
+            if (!account.MustChangePassword) return Results.Conflict(new { error = "This account does not require a password change." });
+            if (hasher.VerifyHashedPassword(account, account.PasswordHash, input.CurrentPassword) == PasswordVerificationResult.Failed)
+                return Results.BadRequest(new { error = "The temporary password was not accepted." });
+            var validation = AdminCredentialPolicy.Validate(account.Username, input.NewPassword);
+            if (validation is not null) return Results.BadRequest(new { error = validation });
+            account.PasswordHash = hasher.HashPassword(account, input.NewPassword);
+            account.MustChangePassword = false;
+            account.SessionVersion++;
+            db.AuditEvents.Add(new AuditEvent
+            {
+                Actor = account.Username, Action = "account.password.required-change", Object = account.Id.ToString()
+            });
+            await db.SaveChangesAsync(ct);
+            await SignInAsync(context, account);
+            return Results.Ok(new { message = "Password changed." });
+        }).RequireAuthorization().RequireRateLimiting("account");
+
+        auth.MapPost("/setup-account", async (AccountSetupInput input, LessonCueDb db,
+            IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
+        {
+            var token = await FindTokenAsync(db, input.Token, "setup", ct);
+            if (token?.Account is null || !token.Account.PendingSetup)
+                return Results.BadRequest(new { error = "This account setup link is invalid or expired." });
+            var validation = ValidateCredentials(input.Username, input.Password);
+            if (validation is not null) return Results.BadRequest(new { error = validation });
+            if (string.IsNullOrWhiteSpace(input.DisplayName) || input.DisplayName.Trim().Length > 120)
+                return Results.BadRequest(new { error = "Name is required and cannot exceed 120 characters." });
+            var username = input.Username.Trim().ToLowerInvariant();
+            if (await db.AdminAccounts.AnyAsync(x => x.Id != token.AccountId && x.Username == username, ct))
+                return Results.Conflict(new { error = "That username already exists." });
+            token.Account.Username = username;
+            token.Account.DisplayName = input.DisplayName.Trim();
+            token.Account.PasswordHash = hasher.HashPassword(token.Account, input.Password);
+            token.Account.EmailVerified = true;
+            token.Account.EmailVerifiedAt = DateTimeOffset.UtcNow;
+            token.Account.PendingSetup = false;
+            token.Account.MustChangePassword = false;
+            token.Account.SessionVersion++;
+            token.UsedAt = DateTimeOffset.UtcNow;
+            db.AuditEvents.Add(new AuditEvent
+            {
+                Actor = token.Account.Username, Action = "account.invitation.accept", Object = token.AccountId.ToString()
+            });
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { message = "Your account is ready. Sign in with the username and password you chose." });
         }).RequireRateLimiting("account");
 
         auth.MapPost("/logout", async (HttpContext context) =>
@@ -262,6 +333,7 @@ public static class AdminApi
                 var passwordValidation = AdminCredentialPolicy.Validate(username, input.NewPassword);
                 if (passwordValidation is not null) return Results.BadRequest(new { error = passwordValidation });
                 account.PasswordHash = hasher.HashPassword(account, input.NewPassword);
+                account.MustChangePassword = false;
             }
             var message = "Profile saved.";
             Organization? pendingEmailOrganization = null;
@@ -2027,12 +2099,12 @@ public static class AdminApi
         {
             var mode = input.Mode.Trim().ToLowerInvariant();
             var provider = input.EmailProvider.Trim().ToLowerInvariant();
-            if (mode is not ("closed" or "open" or "code"))
-                return Results.BadRequest(new { error = "Registration mode must be closed, open, or code." });
+            if (mode is not ("closed" or "open" or "code" or "approval"))
+                return Results.BadRequest(new { error = "Registration mode must be closed, approval, open, or code." });
             if (provider is not ("none" or "resend" or "brevo"))
                 return Results.BadRequest(new { error = "Email provider must be none, Resend, or Brevo." });
             if (mode != "closed" && provider == "none")
-                return Results.BadRequest(new { error = "Open or code registration requires Resend or Brevo email delivery." });
+                return Results.BadRequest(new { error = "Approval, open, or code registration requires Resend or Brevo email delivery." });
             if (provider != "none" && (!IsEmail(input.EmailFromAddress) ||
                 string.IsNullOrWhiteSpace(input.EmailFromName) || input.EmailFromName.Trim().Length > 120))
                 return Results.BadRequest(new { error = "A valid sender address and name are required." });
@@ -2405,6 +2477,7 @@ public static class AdminApi
             return Results.Ok(accounts.Select(x => new
             {
                 x.Id, x.Username, x.DisplayName, x.Email, x.EmailVerified, x.Role, x.Disabled, x.CreatedAt, x.LastLoginAt,
+                x.PendingApproval, x.PendingSetup, x.MustChangePassword,
                 permissions = LessonCuePermissions.Effective(x),
                 customPermissions = x.PermissionsCsv is null ? null : LessonCuePermissions.Parse(x.PermissionsCsv)
             }));
@@ -2427,12 +2500,157 @@ public static class AdminApi
             var account = new AdminAccount { Username = username, DisplayName = input.DisplayName.Trim(), Email = address,
                 EmailVerified = true, EmailVerifiedAt = address is null ? null : DateTimeOffset.UtcNow,
                 Role = role, PermissionsCsv = LessonCuePermissions.NormalizeCustom(input.Permissions, role),
-                Disabled = input.Disabled, PasswordHash = "pending" };
+                Disabled = input.Disabled, PasswordHash = "pending", MustChangePassword = true };
             if (!context.User.IsInRole("Owner") && LessonCuePermissions.Effective(account)
                 .Except(LessonCuePermissions.Effective(context.User)).Any()) return Results.Forbid();
             account.PasswordHash = hasher.HashPassword(account, input.Password!);
             db.AdminAccounts.Add(account); Audit(db, "user.create", account.Id, account.Username); await db.SaveChangesAsync(ct);
             return Results.Created($"/api/v1/users/{account.Id}", new { account.Id });
+        });
+
+        userAdmin.MapPost("/users/invitations", async (UserInvitationInput input, LessonCueDb db,
+            HttpContext context, HttpRequest request, AccountEmailService email,
+            IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
+        {
+            var address = input.Email.Trim().ToLowerInvariant();
+            if (!IsEmail(address)) return Results.BadRequest(new { error = "Enter a valid email address." });
+            if (await db.AdminAccounts.AnyAsync(x => x.Email == address, ct))
+                return Results.Conflict(new { error = "That email address already belongs to an account." });
+            var organization = await db.Organizations.FirstAsync(ct);
+            if (!email.Status(organization.EmailProvider).Configured)
+                return Results.Conflict(new { error = "Configure account email before sending invitations." });
+            var role = NormalizeAdminRole(input.Role);
+            if (role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
+            var account = new AdminAccount
+            {
+                Username = $"invite-{Guid.NewGuid():N}", DisplayName = string.IsNullOrWhiteSpace(input.DisplayName)
+                    ? "Invited user" : input.DisplayName.Trim(), Email = address, EmailVerified = false,
+                Role = role, PermissionsCsv = LessonCuePermissions.NormalizeCustom(input.Permissions, role),
+                PasswordHash = "pending", PendingSetup = true
+            };
+            if (account.DisplayName.Length > 120)
+                return Results.BadRequest(new { error = "Name cannot exceed 120 characters." });
+            if (!context.User.IsInRole("Owner") && LessonCuePermissions.Effective(account)
+                .Except(LessonCuePermissions.Effective(context.User)).Any()) return Results.Forbid();
+            account.PasswordHash = hasher.HashPassword(account,
+                Convert.ToHexString(RandomNumberGenerator.GetBytes(48)));
+            var raw = AccountEmailService.NewToken();
+            db.AdminAccounts.Add(account);
+            db.AccountTokens.Add(NewAccountToken(account.Id, "setup", raw, TimeSpan.FromDays(3)));
+            Audit(db, "user.invite", account.Id, address);
+            await db.SaveChangesAsync(ct);
+            try
+            {
+                await SendAccountLinkAsync(email, organization, address, "Set up your LessonCue account",
+                    "Set up account", AccountUrl(organization, request, "/setup-account", raw), ct);
+            }
+            catch (Exception error)
+            {
+                db.AuditEvents.Add(new AuditEvent
+                {
+                    Actor = context.User.Identity?.Name ?? "admin", Action = "user.invite.delivery",
+                    Object = account.Id.ToString(), Result = "failed", Summary = error.Message
+                });
+                await db.SaveChangesAsync(ct);
+                return Results.Json(new
+                {
+                    error = "The account was reserved, but the setup email could not be delivered. Fix email and use Resend setup."
+                }, statusCode: 502);
+            }
+            return Results.Created($"/api/v1/users/{account.Id}",
+                new { account.Id, message = $"Setup email sent to {address}." });
+        });
+
+        userAdmin.MapPost("/users/{id:guid}/invitation", async (Guid id, LessonCueDb db,
+            HttpContext context, HttpRequest request, AccountEmailService email, CancellationToken ct) =>
+        {
+            var account = await db.AdminAccounts.SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (account is null) return Results.NotFound();
+            if (!account.PendingSetup || string.IsNullOrWhiteSpace(account.Email))
+                return Results.Conflict(new { error = "This account is not waiting for setup." });
+            if (account.Role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
+            var organization = await db.Organizations.FirstAsync(ct);
+            if (!email.Status(organization.EmailProvider).Configured)
+                return Results.Conflict(new { error = "Configure account email before resending invitations." });
+            await InvalidateTokensAsync(db, account.Id, "setup", ct);
+            var raw = AccountEmailService.NewToken();
+            db.AccountTokens.Add(NewAccountToken(account.Id, "setup", raw, TimeSpan.FromDays(3)));
+            Audit(db, "user.invite.resend", account.Id, account.Email);
+            await db.SaveChangesAsync(ct);
+            try
+            {
+                await SendAccountLinkAsync(email, organization, account.Email, "Set up your LessonCue account",
+                    "Set up account", AccountUrl(organization, request, "/setup-account", raw), ct);
+            }
+            catch (Exception error)
+            {
+                return Results.Json(new { error = $"The setup email could not be delivered: {error.Message}" }, statusCode: 502);
+            }
+            return Results.Ok(new { message = $"A new setup link was sent to {account.Email}." });
+        });
+
+        userAdmin.MapPost("/users/{id:guid}/approve", async (Guid id, LessonCueDb db,
+            HttpContext context, HttpRequest request, AccountEmailService email, CancellationToken ct) =>
+        {
+            var account = await db.AdminAccounts.SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (account is null) return Results.NotFound();
+            if (!account.PendingApproval)
+                return Results.Conflict(new { error = "This account is not waiting for approval." });
+            if (account.Role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
+            account.PendingApproval = false;
+            account.SessionVersion++;
+            Audit(db, "user.approve", account.Id, account.Username);
+            await db.SaveChangesAsync(ct);
+            var organization = await db.Organizations.FirstAsync(ct);
+            var delivered = false;
+            if (!string.IsNullOrWhiteSpace(account.Email) && email.Status(organization.EmailProvider).Configured)
+            {
+                try
+                {
+                    var signInUrl = AccountUrl(organization, request, "/", "");
+                    await email.SendAsync(organization, account.Email, "Your LessonCue account was approved",
+                        $"<p>Your account for <strong>{System.Net.WebUtility.HtmlEncode(organization.Name)}</strong> was approved.</p>" +
+                        $"<p><a href=\"{System.Net.WebUtility.HtmlEncode(signInUrl)}\">Sign in to LessonCue</a></p>", ct);
+                    delivered = true;
+                }
+                catch
+                {
+                    db.AuditEvents.Add(new AuditEvent
+                    {
+                        Actor = context.User.Identity?.Name ?? "admin", Action = "user.approval.delivery",
+                        Object = account.Id.ToString(), Result = "failed"
+                    });
+                    await db.SaveChangesAsync(ct);
+                }
+            }
+            return Results.Ok(new
+            {
+                message = delivered ? $"{account.DisplayName} was approved and notified."
+                    : $"{account.DisplayName} was approved."
+            });
+        });
+
+        userAdmin.MapPost("/users/{id:guid}/temporary-password", async (Guid id, TemporaryPasswordInput input,
+            LessonCueDb db, HttpContext context, IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
+        {
+            var account = await db.AdminAccounts.SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (account is null) return Results.NotFound();
+            var currentAccountId = Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentId)
+                ? currentId : Guid.Empty;
+            if (account.Id == currentAccountId)
+                return Results.BadRequest(new { error = "Change your own password from your profile." });
+            if (account.Role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
+            if (account.PendingSetup)
+                return Results.Conflict(new { error = "This invited user must complete account setup first." });
+            var validation = ValidateCredentials(account.Username, input.Password);
+            if (validation is not null) return Results.BadRequest(new { error = validation });
+            account.PasswordHash = hasher.HashPassword(account, input.Password);
+            account.MustChangePassword = true;
+            account.SessionVersion++;
+            await InvalidateTokensAsync(db, account.Id, "reset", ct);
+            Audit(db, "user.password.temporary", account.Id, account.Username);
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { message = $"Temporary password set for {account.DisplayName}. Existing sessions were signed out." });
         });
 
         userAdmin.MapPut("/users/{id:guid}", async (Guid id, UserInput input, LessonCueDb db, HttpContext context,
@@ -2471,12 +2689,18 @@ public static class AdminApi
                 account.Disabled != input.Disabled;
             var emailChanged = account.Email != address;
             account.Username = username; account.DisplayName = input.DisplayName.Trim(); account.Email = address;
-            if (emailChanged) { account.EmailVerified = true; account.EmailVerifiedAt = address is null ? null : DateTimeOffset.UtcNow; }
+            if (emailChanged)
+            {
+                account.EmailVerified = !account.PendingSetup;
+                account.EmailVerifiedAt = address is null || account.PendingSetup ? null : DateTimeOffset.UtcNow;
+                if (account.PendingSetup) await InvalidateTokensAsync(db, account.Id, "setup", ct);
+            }
             account.Role = role; account.PermissionsCsv = permissionsCsv; account.Disabled = input.Disabled;
             if (!string.IsNullOrWhiteSpace(input.Password))
             {
                 var validation = ValidateCredentials(account.Username, input.Password); if (validation is not null) return Results.BadRequest(new { error = validation });
                 account.PasswordHash = hasher.HashPassword(account, input.Password);
+                account.MustChangePassword = account.Id != currentAccountId;
                 identityChanged = true;
             }
             if (identityChanged) account.SessionVersion++;
@@ -2749,7 +2973,9 @@ public static class AdminApi
         var origin = string.IsNullOrWhiteSpace(organization.PublicBaseUrl)
             ? $"{request.Scheme}://{request.Host}"
             : organization.PublicBaseUrl;
-        return $"{origin.TrimEnd('/')}{path}?token={Uri.EscapeDataString(token)}";
+        return string.IsNullOrEmpty(token)
+            ? $"{origin.TrimEnd('/')}{path}"
+            : $"{origin.TrimEnd('/')}{path}?token={Uri.EscapeDataString(token)}";
     }
 
     private static Task SendAccountLinkAsync(AccountEmailService email, Organization organization,
@@ -2758,7 +2984,7 @@ public static class AdminApi
         var safeUrl = System.Net.WebUtility.HtmlEncode(url);
         var safeAction = System.Net.WebUtility.HtmlEncode(action);
         return email.SendAsync(organization, recipient, subject,
-            $"<p>{System.Net.WebUtility.HtmlEncode(organization.Name)} received an account request.</p>" +
+            $"<p>{System.Net.WebUtility.HtmlEncode(organization.Name)} sent you a one-time LessonCue account link.</p>" +
             $"<p><a href=\"{safeUrl}\">{safeAction}</a></p>" +
             "<p>If you did not request this, ignore this message.</p>", ct);
     }
@@ -2963,6 +3189,7 @@ public static class AdminApi
             new Claim("session_version", account.SessionVersion.ToString(CultureInfo.InvariantCulture)),
             new Claim("lessoncue_permissions_version", "1")
         };
+        if (account.MustChangePassword) claims.Add(new Claim("must_change_password", "true"));
         claims.AddRange(LessonCuePermissions.Effective(account).Select(permission =>
             new Claim(LessonCuePermissions.ClaimType, permission)));
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);

@@ -210,6 +210,14 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await registrationRow.getByRole("button", { name: "Revoke" }).click();
   await expect(registrationRow).toContainText("Inactive");
   await expect(page.getByRole("button", { name: "Save provider first" })).toBeDisabled();
+  await page.getByLabel("Registration mode").selectOption("approval");
+  await page.getByLabel("Account email provider").selectOption("resend");
+  await page.getByLabel("Email API key").fill("browser-layout-placeholder-key");
+  await page.getByLabel("Sender name").fill("LessonCue Browser Test");
+  await page.getByLabel("Verified sender address").fill("accounts@example.org");
+  await page.getByLabel("Public account-link address").fill(new URL(page.url()).origin);
+  await page.getByRole("button", { name: "Save account settings" }).click();
+  await expect(page.getByText("Registration and account email settings saved.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: /Media & storage/ }).click();
   await page.getByLabel("Approved folder paths").fill("General\nLessons\nSignage\nAudio/Classroom");
   await page.getByLabel("Approved tags").fill("Reusable\nIntro\nOutro\nReference\nWelcome");
@@ -579,7 +587,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.31.0" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.31.1" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
@@ -589,8 +597,13 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
 
   await page.goto("/");
   await page.getByRole("button", { name: /Users$/ }).click();
-  await page.getByRole("button", { name: "Add user" }).click();
-  const userDialog = page.getByRole("dialog", { name: "Add a local user" });
+  await page.getByRole("button", { name: "Send setup link" }).click();
+  const invitationDialog = page.getByRole("dialog", { name: "Invite a user" });
+  await expect(invitationDialog.getByLabel("Email")).toBeVisible();
+  await expect(invitationDialog.getByText("recipient chooses their name, username, and password", { exact: false })).toBeVisible();
+  await invitationDialog.getByRole("button", { name: "Close dialog" }).click();
+  await page.getByRole("button", { name: "Create with password" }).click();
+  const userDialog = page.getByRole("dialog", { name: "Create a local user" });
   await userDialog.getByLabel("Name", { exact: true }).fill("Playback Volunteer");
   await userDialog.getByLabel("Username").fill("playback-volunteer");
   await userDialog.getByRole("combobox", { name: /Role/ }).selectOption("Viewer");
@@ -599,18 +612,35 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(userDialog.getByRole("button", { name: /Live playback/ })).toHaveAttribute("aria-pressed", "true");
   await userDialog.getByLabel("Temporary password").fill("PlaybackOnly42");
   await userDialog.getByRole("button", { name: "Create user" }).click();
-  await expect(page.getByText("Local user created.", { exact: false })).toBeVisible();
+  await expect(page.getByText("Local user created with a temporary password.", { exact: false })).toBeVisible();
   const volunteerRow = page.locator(".user-row").filter({ hasText: "Playback Volunteer" });
   await expect(volunteerRow).toContainText("1 of 8 permissions · custom");
+  await volunteerRow.getByRole("button", { name: "Reset password" }).click();
+  await expect(page.getByRole("dialog", { name: "Temporary password for Playback Volunteer" })).toBeVisible();
+  await page.getByRole("dialog", { name: "Temporary password for Playback Volunteer" }).getByRole("button", { name: "Close dialog" }).click();
 
   await page.getByRole("button", { name: /Test Administrator Updated.*Manage account/ }).click();
   await page.getByRole("dialog", { name: "Your account" }).getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("heading", { name: "Sign in to LessonCue" })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Create an account|Register with a code/ })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Request access" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Forgot password?" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Resend verification" })).toBeVisible();
+  expect(await page.locator(".auth-links > *").evaluateAll(elements => {
+    const rectangles = elements.map(element => element.getBoundingClientRect());
+    return rectangles.every((rectangle, index) => rectangles.every((other, otherIndex) =>
+      index === otherIndex || rectangle.right <= other.left || other.right <= rectangle.left ||
+      rectangle.bottom <= other.top || other.bottom <= rectangle.top));
+  })).toBe(true);
   const signInCard = page.locator(".auth-card");
   await signInCard.getByLabel("Username").fill("playback-volunteer");
   await signInCard.getByLabel("Password").fill("PlaybackOnly42");
   await signInCard.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("heading", { name: "Choose your password" })).toBeVisible();
+  expect(await page.evaluate(async () => (await fetch("/api/v1/classes")).status)).toBe(403);
+  await page.getByLabel("Temporary password").fill("PlaybackOnly42");
+  await page.locator('input[name="newPassword"]').fill("PlaybackChanged43");
+  await page.locator('input[name="confirmPassword"]').fill("PlaybackChanged43");
+  await page.getByRole("button", { name: "Change password and continue" }).click();
   await expect(page.getByRole("button", { name: /Controller$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /Classes$/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Users$/ })).toHaveCount(0);

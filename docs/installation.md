@@ -30,7 +30,7 @@ LessonCue creates a private local pairing secret and displays a six-digit PIN th
 
 ### Give staff only the access they need
 
-Open **Users** as an owner or an account with **User administration** permission. The built-in defaults are straightforward: Owners and Administrators receive all capabilities; Editors receive lesson planning, media uploads, and live playback; Viewers are read-only. Enable **Customize this role** to independently select lesson planning, media uploads, live playback, screen administration, user administration, server settings, backups and restore, and software updates.
+Open **Users** as an owner or an account with **User administration** permission. Choose **Send setup link** to set an email address and permissions while letting the recipient choose their own name, username, and password, or choose **Create with password** for a fully local account whose temporary password must be replaced at first sign-in. The built-in defaults are straightforward: Owners and Administrators receive all capabilities; Editors receive lesson planning, media uploads, and live playback; Viewers are read-only. Enable **Customize this role** to independently select lesson planning, media uploads, live playback, screen administration, user administration, server settings, backups and restore, and software updates.
 
 Permission enforcement happens on the server even if someone constructs an API request manually. A permission change signs that account out of its earlier browser sessions. Only an owner can grant the Owner role or change another owner; other user administrators cannot grant capabilities they do not hold or change their own access; and the last active owner cannot be paused, demoted, or deleted. Accounts without screen or settings authority cannot see the local pairing PIN.
 
@@ -86,7 +86,7 @@ To follow the logs continuously, run `sudo journalctl -u lessoncue -f` and press
 
 ### Enable registration and browser password recovery
 
-The initial owner and accounts created under **Users** do not require email. To permit self-registration or browser password recovery, sign in with **Server settings** permission and open **Settings → Organization & accounts → Registration & email**. Configure Resend or Brevo, enter the public HTTPS address recipients can reach, save, and send a real test message from the same page before choosing code-required or open registration.
+The initial owner and accounts created under **Users** do not require email. To permit self-registration, account invitations, or browser password recovery, sign in with **Server settings** permission and open **Settings → Organization & accounts → Registration & email**. Configure Resend or Brevo, enter the public HTTPS address recipients can reach, save, and send a real test message from the same page before choosing approval-required, code-required, or open registration. Approval-required registration lets anyone request an account but blocks access until a user administrator approves the request under **Users**.
 
 The provider key is encrypted on this server and is never returned to the browser. Preserve the complete `/var/lib/lessoncue/config` directory in disaster-recovery backups because it contains both the encrypted provider credential and the local encryption keys needed to use it. See [Accounts, registration, and email](account-self-service.md) for code management, expiry behavior, provider setup, and troubleshooting.
 

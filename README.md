@@ -13,7 +13,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - A paired full-screen browser client for Windows, macOS, Linux, ChromeOS, computers, and projectors, using the same local manifests, controller commands, acknowledgements, heartbeats, scheduling, and diagnostics as the native TV clients.
 - A versioned OpenAPI contract and JSON Schema shared by every client.
 - Docker, Windows, and Linux installation assets.
-- Calendar, local role-based users, scheduled/emergency signage, rotating pairing codes, screen tags, audit history, and downloadable full/configuration backups with validated browser restore and an automatic pre-restore safety backup.
+- Calendar, local role-based users, approval-required or verified self-registration, administrator email invitations, first-login temporary passwords, scheduled/emergency signage, rotating pairing codes, screen tags, audit history, and downloadable full/configuration backups with validated browser restore and an automatic pre-restore safety backup.
 - Direct lesson uploads, online webpages, embedded YouTube playback, queued local YouTube imports, reusable or four-week lesson retention, automatic cleanup, resumable large uploads, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, and range-enabled delivery. Uploaded video is audited automatically and, when necessary, converted locally to a TV-safe H.264/AAC MP4 while preserving the original.
 - Multi-file uploads from lessons and the Media Library; bulk lesson archive, restore, class move, date/time shift, rename, and deletion; bulk playlist role, volume, ending, skip, rename, and removal; and Media Library bulk rename, folder/tag organization, retention, and safe deletion. Every retention date can also be edited directly from its table row.
 - Searchable media folders and tags, upload-time and bulk organization, lesson/signage impact previews, local reprocessing, and safe file replacement behind a stable media ID with downloadable and restorable original-version history.
@@ -99,7 +99,7 @@ Owners and administrators can choose an explicit LessonCue storage allocation or
 
 ## Roles and granular permissions
 
-Open **Users**, create or edit an account, and enable **Customize this role** to choose its exact capabilities. Owners and Administrators default to all eight capabilities; Editors default to lesson planning, uploads, and live playback; Viewers default to read-only access. A custom empty selection intentionally grants no management actions. Owners always retain every capability, and only an owner can create, edit, or delete another owner.
+Open **Users** to send a setup invitation, create an account with a first-login temporary password, approve a verified access request, edit or pause an account, reset its password, or delete it. Enable **Customize this role** to choose exact capabilities before the invitation is sent. Owners and Administrators default to all eight capabilities; Editors default to lesson planning, uploads, and live playback; Viewers default to read-only access. A custom empty selection intentionally grants no management actions. Owners always retain every capability, and only an owner can create, edit, or delete another owner.
 
 Permission checks run on the local server, not only in the browser. Restricted navigation and controls are hidden, direct API attempts return HTTP 403, pairing PINs are withheld from accounts without screen or settings authority, and changing identity, role, permissions, status, or password invalidates older sessions.
 

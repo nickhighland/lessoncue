@@ -81,6 +81,7 @@ public static class AdminRecoveryCommand
 
         var hasher = new PasswordHasher<AdminAccount>();
         accountToReset.PasswordHash = hasher.HashPassword(accountToReset, password);
+        accountToReset.MustChangePassword = false;
         accountToReset.SessionVersion++;
         db.AuditEvents.Add(new AuditEvent
         {
@@ -105,6 +106,7 @@ public static class AdminRecoveryCommand
         var account = await db.AdminAccounts.SingleOrDefaultAsync(x => x.Username == normalizedUsername, ct);
         if (account is null) return false;
         account.PasswordHash = new PasswordHasher<AdminAccount>().HashPassword(account, password);
+        account.MustChangePassword = false;
         account.SessionVersion++;
         db.AuditEvents.Add(new AuditEvent { Actor = "ssh-recovery", Action = "user.password.reset", Object = account.Id.ToString(), Summary = account.Username });
         await db.SaveChangesAsync(ct);
