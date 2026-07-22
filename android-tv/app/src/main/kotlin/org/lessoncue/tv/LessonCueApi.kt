@@ -164,7 +164,25 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         textColor = item.optString("textColor", "#ffffff"),
         mediaUrl = item.optString("mediaUrl").takeIf { it.isNotBlank() && it != "null" }
             ?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
-        media = item.optJSONObject("media")?.let(::parseItem)
+        media = item.optJSONObject("media")?.let(::parseItem),
+        layoutPreset = item.optString("layoutPreset", "single"),
+        zones = item.optJSONArray("zones")?.mapObjects(::parseSignageZone).orEmpty(),
+        widgetCacheUpdatedAt = item.optString("widgetCacheUpdatedAt").takeIf { it.isNotBlank() && it != "null" },
+        widgetCacheError = item.optString("widgetCacheError").takeIf { it.isNotBlank() && it != "null" }
+    )
+
+    private fun parseSignageZone(item: JSONObject) = SignageZone(
+        id = item.getString("id"), type = item.optString("type", "text"),
+        title = item.optString("title").takeIf { it.isNotBlank() && it != "null" },
+        content = item.optString("content").takeIf { it.isNotBlank() && it != "null" },
+        x = item.optInt("x"), y = item.optInt("y"), width = item.optInt("width", 100), height = item.optInt("height", 100),
+        backgroundColor = item.optString("backgroundColor", "#17201e"), textColor = item.optString("textColor", "#ffffff"),
+        accentColor = item.optString("accentColor", "#d89127"), media = item.optJSONObject("media")?.let(::parseItem),
+        cached = item.optJSONObject("cached")?.let { cached -> SignageWidgetCache(
+            zoneId = cached.optString("zoneId", item.getString("id")), title = cached.optString("title"),
+            text = cached.optString("text"), items = cached.optJSONArray("items")?.let { array -> (0 until array.length()).map(array::getString) }.orEmpty(),
+            refreshedAt = cached.optString("refreshedAt").takeIf { value -> value.isNotBlank() && value != "null" }
+        ) }
     )
 
     private fun parsePlaylist(json: JSONObject): LessonPlaylist {
@@ -210,6 +228,18 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         imageDurationSeconds = json.optInt("imageDurationSeconds").takeIf { json.has("imageDurationSeconds") && !json.isNull("imageDurationSeconds") },
         fadeInMs = json.optInt("fadeInMs", 0),
         fadeOutMs = json.optInt("fadeOutMs", 0),
+        fitMode = json.optString("fitMode", "fit"),
+        rotationDegrees = json.optInt("rotationDegrees", 0),
+        cropLeftPercent = json.optInt("cropLeftPercent", 0),
+        cropTopPercent = json.optInt("cropTopPercent", 0),
+        cropRightPercent = json.optInt("cropRightPercent", 0),
+        cropBottomPercent = json.optInt("cropBottomPercent", 0),
+        muted = json.optBoolean("muted", false),
+        playbackRatePercent = json.optInt("playbackRatePercent", 100),
+        repeatCount = json.optInt("repeatCount", 1),
+        backgroundColor = json.optString("backgroundColor", "#000000"),
+        transitionStyle = json.optString("transitionStyle", "cut"),
+        transitionDurationMs = json.optInt("transitionDurationMs", 500),
         offlineEligible = json.optBoolean("offlineEligible", false),
         cuePoints = json.optJSONArray("cuePoints")?.mapObjects { cue ->
             CuePoint(cue.getString("name"), cue.getLong("positionMs"))
@@ -258,7 +288,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
 
 private fun ScreenManifest.allItems(): List<CueItem> = (playlists.flatMap {
     it.items + it.preRoll?.items.orEmpty() + listOfNotNull(it.countdown?.item)
-} + signageSchedule.mapNotNull { it.media }).distinctBy { it.id }
+} + signageSchedule.flatMap { sign -> listOfNotNull(sign.media) + sign.zones.mapNotNull { it.media } }).distinctBy { it.id }
 
 private fun <T> JSONArray.mapObjects(transform: (JSONObject) -> T): List<T> =
     (0 until length()).map { transform(getJSONObject(it)) }

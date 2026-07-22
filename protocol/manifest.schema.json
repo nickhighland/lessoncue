@@ -113,6 +113,7 @@
         "sourceUrl": { "type": ["string", "null"] },
         "linkKind": { "type": ["string", "null"] },
         "notes": { "type": "string" },
+        "flexibleTime": { "type": "boolean", "default": false },
         "fadeInMs": { "type": "integer", "minimum": 0 },
         "fadeOutMs": { "type": "integer", "minimum": 0 },
         "normalizeAudio": { "type": "boolean" },

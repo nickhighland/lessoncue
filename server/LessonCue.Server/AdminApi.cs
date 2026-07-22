@@ -582,6 +582,10 @@ public static class AdminApi
                 x.Archived,
                 x.KeepOffline,
                 x.DownloadDaysBefore,
+                x.VolumePercent,
+                x.Muted,
+                x.SubstituteNotes,
+                x.PreRollMonitorUrl,
                 x.GeneratedByScheduleId,
                 items = x.Items.OrderBy(item => item.Position).Select(item => new
                 {
@@ -605,6 +609,19 @@ public static class AdminApi
                     item.FadeOutMs,
                     item.NormalizeAudio,
                     item.CuePointsJson,
+                    item.FitMode,
+                    item.RotationDegrees,
+                    item.CropLeftPercent,
+                    item.CropTopPercent,
+                    item.CropRightPercent,
+                    item.CropBottomPercent,
+                    item.Muted,
+                    item.PlaybackRatePercent,
+                    item.RepeatCount,
+                    item.BackgroundColor,
+                    item.TransitionStyle,
+                    item.TransitionDurationMs,
+                    item.FlexibleTime,
                     offlineEligible = item.MediaAsset != null && item.MediaAsset.OfflineEligible
                 }).ToList()
             }).ToListAsync(ct));
@@ -614,6 +631,9 @@ public static class AdminApi
         {
             if (!await db.Classes.AnyAsync(x => x.Id == input.ClassId, ct)) return Results.BadRequest(new { error = "Class does not exist." });
             if (string.IsNullOrWhiteSpace(input.Title)) return Results.BadRequest(new { error = "Lesson title is required." });
+            if (input.VolumePercent is < 0 or > 150) return Results.BadRequest(new { error = "Lesson volume must be from 0 to 150." });
+            if ((input.SubstituteNotes?.Length ?? 0) > 8000) return Results.BadRequest(new { error = "Substitute notes may contain at most 8,000 characters." });
+            if (!TryMonitorUrl(input.PreRollMonitorUrl, out var monitorUrl)) return Results.BadRequest(new { error = "The pre-roll monitor must be a complete HTTP or HTTPS URL." });
             var lesson = new Lesson
             {
                 ClassId = input.ClassId,
@@ -624,7 +644,11 @@ public static class AdminApi
                 DesignatedStartAt = input.DesignatedStartAt,
                 PreRollStartsAt = input.PreRollStartsAt,
                 PreRollEnabled = input.PreRollEnabled,
-                CountdownItemId = input.CountdownItemId
+                CountdownItemId = input.CountdownItemId,
+                VolumePercent = input.VolumePercent,
+                Muted = input.Muted,
+                SubstituteNotes = input.SubstituteNotes?.Trim() ?? "",
+                PreRollMonitorUrl = monitorUrl
             };
             db.Lessons.Add(lesson);
             Audit(db, "lesson.create", lesson.Id, lesson.Title);
@@ -648,6 +672,23 @@ public static class AdminApi
             if (input.ClearPreRollStartsAt) lesson.PreRollStartsAt = null;
             else if (input.PreRollStartsAt is not null) lesson.PreRollStartsAt = input.PreRollStartsAt;
             if (input.PreRollEnabled is not null) lesson.PreRollEnabled = input.PreRollEnabled.Value;
+            if (input.VolumePercent is not null)
+            {
+                if (input.VolumePercent is < 0 or > 150) return Results.BadRequest(new { error = "Lesson volume must be from 0 to 150." });
+                lesson.VolumePercent = input.VolumePercent.Value;
+            }
+            if (input.Muted is not null) lesson.Muted = input.Muted.Value;
+            if (input.SubstituteNotes is not null)
+            {
+                if (input.SubstituteNotes.Length > 8000) return Results.BadRequest(new { error = "Substitute notes may contain at most 8,000 characters." });
+                lesson.SubstituteNotes = input.SubstituteNotes.Trim();
+            }
+            if (input.ClearPreRollMonitorUrl) lesson.PreRollMonitorUrl = null;
+            else if (input.PreRollMonitorUrl is not null)
+            {
+                if (!TryMonitorUrl(input.PreRollMonitorUrl, out var monitorUrl)) return Results.BadRequest(new { error = "The pre-roll monitor must be a complete HTTP or HTTPS URL." });
+                lesson.PreRollMonitorUrl = monitorUrl;
+            }
             if (input.ClearCountdown) lesson.CountdownItemId = null;
             else if (input.CountdownItemId is not null) lesson.CountdownItemId = input.CountdownItemId;
             lesson.Version++;
@@ -678,7 +719,9 @@ public static class AdminApi
                 AvailableFrom = source.AvailableFrom?.AddDays(7), ExpiresAt = source.ExpiresAt?.AddDays(7),
                 DesignatedStartAt = source.DesignatedStartAt?.AddDays(7), PreRollEnabled = source.PreRollEnabled,
                 PreRollStartsAt = source.PreRollStartsAt?.AddDays(7),
-                KeepOffline = source.KeepOffline, DownloadDaysBefore = source.DownloadDaysBefore
+                KeepOffline = source.KeepOffline, DownloadDaysBefore = source.DownloadDaysBefore,
+                VolumePercent = source.VolumePercent, Muted = source.Muted,
+                SubstituteNotes = source.SubstituteNotes, PreRollMonitorUrl = source.PreRollMonitorUrl
             };
             foreach (var sourceItem in source.Items.OrderBy(x => x.Position))
             {
@@ -690,7 +733,13 @@ public static class AdminApi
                     ImageDurationSeconds = sourceItem.ImageDurationSeconds, EndBehavior = sourceItem.EndBehavior,
                     AllowSkip = sourceItem.AllowSkip, Notes = sourceItem.Notes, FadeInMs = sourceItem.FadeInMs,
                     FadeOutMs = sourceItem.FadeOutMs, NormalizeAudio = sourceItem.NormalizeAudio,
-                    CuePointsJson = sourceItem.CuePointsJson
+                    CuePointsJson = sourceItem.CuePointsJson, FitMode = sourceItem.FitMode,
+                    RotationDegrees = sourceItem.RotationDegrees, CropLeftPercent = sourceItem.CropLeftPercent,
+                    CropTopPercent = sourceItem.CropTopPercent, CropRightPercent = sourceItem.CropRightPercent,
+                    CropBottomPercent = sourceItem.CropBottomPercent, Muted = sourceItem.Muted,
+                    PlaybackRatePercent = sourceItem.PlaybackRatePercent, RepeatCount = sourceItem.RepeatCount,
+                    BackgroundColor = sourceItem.BackgroundColor, TransitionStyle = sourceItem.TransitionStyle,
+                    TransitionDurationMs = sourceItem.TransitionDurationMs, FlexibleTime = sourceItem.FlexibleTime
                 };
                 copy.Items.Add(clone);
                 if (sourceItem.Id == source.CountdownItemId || sourceItem.Role == "countdown") copy.CountdownItemId = clone.Id;
@@ -701,6 +750,56 @@ public static class AdminApi
             db.Lessons.Add(copy); Audit(db, "lesson.duplicate", copy.Id, copy.Title);
             await db.SaveChangesAsync(ct); await InvalidateAsync(hub, copy.Version, ct);
             return Results.Created($"/api/v1/lessons/{copy.Id}", new { copy.Id });
+        });
+
+        planning.MapPost("/lessons/{id:guid}/relocate", async (Guid id, LessonRelocateInput input,
+            LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            var action = input.Action.Trim().ToLowerInvariant();
+            if (action is not ("copy" or "move")) return Results.BadRequest(new { error = "Choose copy or move." });
+            if (!await db.Classes.AnyAsync(x => x.Id == input.ClassId, ct)) return Results.BadRequest(new { error = "Choose an existing destination class." });
+            var source = await db.Lessons.Include(x => x.Items).SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (source is null) return Results.NotFound();
+            var title = string.IsNullOrWhiteSpace(input.Title) ? source.Title : input.Title.Trim();
+            if (title.Length > 160) return Results.BadRequest(new { error = "Lesson title may contain at most 160 characters." });
+            var shiftDays = input.Date.DayNumber - source.Date.DayNumber;
+            if (action == "move")
+            {
+                source.ClassId = input.ClassId; source.Date = input.Date; source.Title = title;
+                source.AvailableFrom = source.AvailableFrom?.AddDays(shiftDays);
+                source.ExpiresAt = source.ExpiresAt?.AddDays(shiftDays);
+                source.DesignatedStartAt = source.DesignatedStartAt?.AddDays(shiftDays);
+                source.PreRollStartsAt = source.PreRollStartsAt?.AddDays(shiftDays);
+                source.GeneratedByScheduleId = null; source.Version++;
+                var mediaIds = source.Items.Where(x => x.MediaAssetId != null).Select(x => x.MediaAssetId!.Value).Distinct().ToList();
+                var media = await db.MediaAssets.Where(x => mediaIds.Contains(x.Id) && x.StoragePolicy == MediaRetention.LessonScoped).ToListAsync(ct);
+                foreach (var asset in media) MediaRetention.KeepForLesson(asset, source);
+                Audit(db, "lesson.move", source.Id, $"{source.Title}:{source.Date:yyyy-MM-dd}");
+                await db.SaveChangesAsync(ct); await InvalidateAsync(hub, source.Version, ct);
+                return Results.Ok(new { source.Id, action });
+            }
+
+            var copy = new Lesson
+            {
+                ClassId = input.ClassId, Date = input.Date, Title = title,
+                AvailableFrom = source.AvailableFrom?.AddDays(shiftDays), ExpiresAt = source.ExpiresAt?.AddDays(shiftDays),
+                DesignatedStartAt = source.DesignatedStartAt?.AddDays(shiftDays), PreRollStartsAt = source.PreRollStartsAt?.AddDays(shiftDays),
+                PreRollEnabled = source.PreRollEnabled, KeepOffline = source.KeepOffline, DownloadDaysBefore = source.DownloadDaysBefore,
+                VolumePercent = source.VolumePercent, Muted = source.Muted, SubstituteNotes = source.SubstituteNotes,
+                PreRollMonitorUrl = source.PreRollMonitorUrl
+            };
+            foreach (var sourceItem in source.Items.OrderBy(x => x.Position))
+            {
+                var clone = ClonePlaylistItem(sourceItem, copy.Id);
+                copy.Items.Add(clone);
+                if (sourceItem.Id == source.CountdownItemId || sourceItem.Role == "countdown") copy.CountdownItemId = clone.Id;
+            }
+            var copyMediaIds = copy.Items.Where(x => x.MediaAssetId != null).Select(x => x.MediaAssetId!.Value).Distinct().ToList();
+            var copyMedia = await db.MediaAssets.Where(x => copyMediaIds.Contains(x.Id) && x.StoragePolicy == MediaRetention.LessonScoped).ToListAsync(ct);
+            foreach (var asset in copyMedia) MediaRetention.KeepForLesson(asset, copy);
+            db.Lessons.Add(copy); Audit(db, "lesson.copy", copy.Id, $"{copy.Title}:{copy.Date:yyyy-MM-dd}");
+            await db.SaveChangesAsync(ct); await InvalidateAsync(hub, copy.Version, ct);
+            return Results.Created($"/api/v1/lessons/{copy.Id}", new { copy.Id, action });
         });
 
         planning.MapPost("/lessons/{id:guid}/archive", async (Guid id, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
@@ -782,7 +881,7 @@ public static class AdminApi
             {
                 x.Id, x.Name, x.Description, x.DefaultTitle, x.DefaultStartMinutes, x.PreRollLeadMinutes,
                 x.AvailableLeadMinutes, x.ExpiresAfterMinutes, x.PreRollEnabled, x.KeepOffline,
-                x.DownloadDaysBefore, x.CreatedAt, x.UpdatedAt,
+                x.DownloadDaysBefore, x.VolumePercent, x.Muted, x.SubstituteNotes, x.CreatedAt, x.UpdatedAt,
                 scheduleCount = x.Schedules.Count,
                 items = x.Items.OrderBy(item => item.Position).Select(item => new
                 {
@@ -790,7 +889,10 @@ public static class AdminApi
                     mediaFileName = item.MediaAsset != null ? item.MediaAsset.FileName : null,
                     item.DurationMs, item.StartMs, item.EndMs, item.VolumePercent, item.ImageDurationSeconds,
                     item.EndBehavior, item.AllowSkip, item.Notes, item.FadeInMs, item.FadeOutMs,
-                    item.NormalizeAudio, item.CuePointsJson
+                    item.NormalizeAudio, item.CuePointsJson, item.FitMode, item.RotationDegrees,
+                    item.CropLeftPercent, item.CropTopPercent, item.CropRightPercent, item.CropBottomPercent,
+                    item.Muted, item.PlaybackRatePercent, item.RepeatCount, item.BackgroundColor,
+                    item.TransitionStyle, item.TransitionDurationMs, item.FlexibleTime
                 })
             }).ToListAsync(ct)));
 
@@ -817,7 +919,14 @@ public static class AdminApi
             template.DefaultTitle = string.IsNullOrWhiteSpace(input.DefaultTitle) ? template.Name : input.DefaultTitle.Trim();
             template.DefaultStartMinutes = input.DefaultStartMinutes; template.PreRollLeadMinutes = input.PreRollLeadMinutes;
             template.PreRollEnabled = input.PreRollEnabled; template.KeepOffline = input.KeepOffline;
-            template.DownloadDaysBefore = input.DownloadDaysBefore; template.UpdatedAt = DateTimeOffset.UtcNow;
+            template.DownloadDaysBefore = input.DownloadDaysBefore;
+            if (input.VolumePercent is not null)
+            {
+                if (input.VolumePercent is < 0 or > 150) return Results.BadRequest(new { error = "Template volume must be from 0 to 150." });
+                template.VolumePercent = input.VolumePercent.Value;
+            }
+            if (input.Muted is not null) template.Muted = input.Muted.Value;
+            template.UpdatedAt = DateTimeOffset.UtcNow;
             Audit(db, "template.update", id, template.Name); await db.SaveChangesAsync(ct);
             return Results.Ok(new { template.Id });
         });
@@ -937,6 +1046,14 @@ public static class AdminApi
             if (lesson is null) return Results.NotFound();
             if (input.VolumePercent is < 0 or > 150) return Results.BadRequest(new { error = "Volume must be from 0 to 150." });
             if (string.IsNullOrWhiteSpace(input.Title)) return Results.BadRequest(new { error = "A display title is required." });
+            var playbackError = ValidatePlaybackSettings(input.FitMode ?? "fit", input.RotationDegrees,
+                input.CropLeftPercent, input.CropTopPercent, input.CropRightPercent, input.CropBottomPercent,
+                input.PlaybackRatePercent, input.RepeatCount, input.BackgroundColor ?? "#000000",
+                input.TransitionStyle ?? "cut", input.TransitionDurationMs);
+            if (playbackError is not null) return Results.BadRequest(new { error = playbackError });
+            var timingError = ValidateCueTiming(input.StartMs, input.EndMs, input.ImageDurationSeconds,
+                input.EndBehavior ?? "advance");
+            if (timingError is not null) return Results.BadRequest(new { error = timingError });
             MediaAsset? itemMedia = null;
             if (input.MediaId is Guid mediaId)
             {
@@ -958,7 +1075,20 @@ public static class AdminApi
                 VolumePercent = input.VolumePercent,
                 ImageDurationSeconds = input.ImageDurationSeconds,
                 EndBehavior = input.EndBehavior ?? "advance",
-                AllowSkip = input.AllowSkip
+                AllowSkip = input.AllowSkip,
+                FitMode = input.FitMode ?? "fit",
+                RotationDegrees = input.RotationDegrees,
+                CropLeftPercent = input.CropLeftPercent,
+                CropTopPercent = input.CropTopPercent,
+                CropRightPercent = input.CropRightPercent,
+                CropBottomPercent = input.CropBottomPercent,
+                Muted = input.Muted,
+                PlaybackRatePercent = input.PlaybackRatePercent,
+                RepeatCount = input.RepeatCount,
+                BackgroundColor = input.BackgroundColor ?? "#000000",
+                TransitionStyle = input.TransitionStyle ?? "cut",
+                TransitionDurationMs = input.TransitionDurationMs,
+                FlexibleTime = false
             };
             db.PlaylistItems.Add(item);
             lesson.Version++;
@@ -978,7 +1108,10 @@ public static class AdminApi
             {
                 item.Id, item.Title, item.Type, item.Role, item.Position, item.MediaAssetId,
                 item.DurationMs, item.StartMs, item.EndMs, item.VolumePercent,
-                item.ImageDurationSeconds, item.EndBehavior, item.AllowSkip
+                item.ImageDurationSeconds, item.EndBehavior, item.AllowSkip, item.FitMode,
+                item.RotationDegrees, item.CropLeftPercent, item.CropTopPercent, item.CropRightPercent,
+                item.CropBottomPercent, item.Muted, item.PlaybackRatePercent, item.RepeatCount,
+                item.BackgroundColor, item.TransitionStyle, item.TransitionDurationMs, item.FlexibleTime
             });
         });
 
@@ -987,6 +1120,18 @@ public static class AdminApi
         {
             var item = await db.PlaylistItems.Include(x => x.Lesson).Include(x => x.MediaAsset).SingleOrDefaultAsync(x => x.Id == id, ct);
             if (item?.Lesson is null) return Results.NotFound();
+            var playbackError = ValidatePlaybackSettings(input.FitMode ?? item.FitMode,
+                input.RotationDegrees ?? item.RotationDegrees, input.CropLeftPercent ?? item.CropLeftPercent,
+                input.CropTopPercent ?? item.CropTopPercent, input.CropRightPercent ?? item.CropRightPercent,
+                input.CropBottomPercent ?? item.CropBottomPercent, input.PlaybackRatePercent ?? item.PlaybackRatePercent,
+                input.RepeatCount ?? item.RepeatCount, input.BackgroundColor ?? item.BackgroundColor,
+                input.TransitionStyle ?? item.TransitionStyle, input.TransitionDurationMs ?? item.TransitionDurationMs);
+            if (playbackError is not null) return Results.BadRequest(new { error = playbackError });
+            var timingError = ValidateCueTiming(input.StartMs ?? item.StartMs,
+                input.ClearEndMs ? null : input.EndMs ?? item.EndMs,
+                input.ImageDurationSeconds ?? item.ImageDurationSeconds,
+                input.EndBehavior ?? item.EndBehavior);
+            if (timingError is not null) return Results.BadRequest(new { error = timingError });
             if (input.Title is not null) item.Title = input.Title.Trim();
             if (input.Type is not null) item.Type = input.Type;
             var wasCountdown = item.Lesson.CountdownItemId == item.Id || item.Role == "countdown";
@@ -1004,6 +1149,19 @@ public static class AdminApi
             if (input.FadeInMs is not null) item.FadeInMs = Math.Clamp(input.FadeInMs.Value, 0, 30_000);
             if (input.FadeOutMs is not null) item.FadeOutMs = Math.Clamp(input.FadeOutMs.Value, 0, 30_000);
             if (input.NormalizeAudio is not null) item.NormalizeAudio = input.NormalizeAudio.Value;
+            if (input.FitMode is not null) item.FitMode = input.FitMode;
+            if (input.RotationDegrees is not null) item.RotationDegrees = input.RotationDegrees.Value;
+            if (input.CropLeftPercent is not null) item.CropLeftPercent = input.CropLeftPercent.Value;
+            if (input.CropTopPercent is not null) item.CropTopPercent = input.CropTopPercent.Value;
+            if (input.CropRightPercent is not null) item.CropRightPercent = input.CropRightPercent.Value;
+            if (input.CropBottomPercent is not null) item.CropBottomPercent = input.CropBottomPercent.Value;
+            if (input.Muted is not null) item.Muted = input.Muted.Value;
+            if (input.PlaybackRatePercent is not null) item.PlaybackRatePercent = input.PlaybackRatePercent.Value;
+            if (input.RepeatCount is not null) item.RepeatCount = input.RepeatCount.Value;
+            if (input.BackgroundColor is not null) item.BackgroundColor = input.BackgroundColor;
+            if (input.TransitionStyle is not null) item.TransitionStyle = input.TransitionStyle;
+            if (input.TransitionDurationMs is not null) item.TransitionDurationMs = input.TransitionDurationMs.Value;
+            if (input.FlexibleTime is not null) item.FlexibleTime = input.FlexibleTime.Value;
             if (input.CuePoints is not null)
             {
                 if (input.CuePoints.Count > 50) return Results.BadRequest(new { error = "A media item can have at most 50 named markers." });
@@ -1207,8 +1365,9 @@ public static class AdminApi
             var lessonItems = await db.PlaylistItems.AsNoTracking().Where(x => x.MediaAssetId == id)
                 .Select(x => new { x.Id, itemTitle = x.Title, x.LessonId, lessonTitle = x.Lesson!.Title, x.Lesson.Date })
                 .OrderBy(x => x.Date).ToListAsync(ct);
-            var signage = await db.SignagePlaylists.AsNoTracking().Where(x => x.MediaAssetId == id)
-                .Select(x => new { x.Id, x.Name, x.Mode, x.Enabled }).OrderBy(x => x.Name).ToListAsync(ct);
+            var signage = (await db.SignagePlaylists.AsNoTracking().ToListAsync(ct))
+                .Where(x => x.MediaAssetId == id || SignageLayout.ParseZones(x.ZonesJson).Any(zone => zone.MediaAssetId == id))
+                .Select(x => new { x.Id, x.Name, x.Mode, x.Enabled }).OrderBy(x => x.Name).ToList();
             var templateItems = await db.LessonTemplateItems.AsNoTracking().Where(x => x.MediaAssetId == id)
                 .Select(x => new { x.Id, itemTitle = x.Title, x.TemplateId, templateName = x.Template!.Name })
                 .OrderBy(x => x.templateName).ToListAsync(ct);
@@ -2249,6 +2408,9 @@ public static class AdminApi
                 input.NavigationTextColor is not null && !IsColor(input.NavigationTextColor) ||
                 input.SelectedTabColor is not null && !IsColor(input.SelectedTabColor))
                 return Results.BadRequest(new { error = "Brand colors must use six-digit hex notation." });
+            if (input.SignageSourceAllowlist is not null &&
+                !SignageLayout.TryNormalizeAllowlist(input.SignageSourceAllowlist, out _, out var allowlistError))
+                return Results.BadRequest(new { error = allowlistError });
             var organization = await db.Organizations.FirstAsync(ct);
             organization.Name = input.Name.Trim(); organization.SiteName = input.SiteName.Trim();
             organization.TimeZone = input.TimeZone.Trim(); organization.WeekStartsOn = input.WeekStartsOn == "Monday" ? "Monday" : "Sunday";
@@ -2262,6 +2424,11 @@ public static class AdminApi
             if (input.TranscodeLeadDays is not null) organization.TranscodeLeadDays = Math.Clamp(input.TranscodeLeadDays.Value, 1, 30);
             if (input.HardwareAccelerationEnabled is not null) organization.HardwareAccelerationEnabled = input.HardwareAccelerationEnabled.Value;
             if (input.RequireLocalRoomControllers is not null) organization.RequireLocalRoomControllers = input.RequireLocalRoomControllers.Value;
+            if (input.SignageSourceAllowlist is not null)
+            {
+                SignageLayout.TryNormalizeAllowlist(input.SignageSourceAllowlist, out var origins, out _);
+                organization.SignageSourceAllowlistJson = JsonSerializer.Serialize(origins);
+            }
             Audit(db, "organization.update", organization.Id, organization.Name); await db.SaveChangesAsync(ct);
             return Results.Ok(organization);
         });
@@ -2733,14 +2900,23 @@ public static class AdminApi
             var items = await db.SignagePlaylists.AsNoTracking().Include(x => x.MediaAsset)
                 .OrderBy(x => x.Mode == "emergency" ? 0 : x.Mode == "scheduled" ? 1 : 2)
                 .ThenByDescending(x => x.Priority).ThenBy(x => x.Name).ToListAsync(ct);
+            var zoneMediaIds = items.SelectMany(item => SignageLayout.ParseZones(item.ZonesJson))
+                .Where(zone => zone.MediaAssetId is not null).Select(zone => zone.MediaAssetId!.Value).Distinct().ToArray();
+            var zoneMediaAssets = await db.MediaAssets.AsNoTracking().Where(media => zoneMediaIds.Contains(media.Id))
+                .ToDictionaryAsync(media => media.Id, ct);
             return items.Select(item =>
             {
                 var state = SignageSchedule.Evaluate(item, now, timeZone);
+                var zones = SignageLayout.ParseZones(item.ZonesJson);
                 var targetScreenIds = SignageSchedule.ParseScreenIds(item.TargetScreenIdsJson);
                 var targetedScreens = screens.Where(screen => SignageSchedule.TargetsScreen(item, screen)).ToArray();
-                var cacheStates = item.MediaAssetId is null
+                var mediaCacheItemIds = zones.Where(zone => zone.MediaAssetId is not null).Select(zone => $"signage-{item.Id}-zone-{zone.Id}")
+                    .Concat(item.MediaAssetId is null ? [] : [$"signage-{item.Id}"]).ToArray();
+                var cacheStates = mediaCacheItemIds.Length == 0
                     ? targetedScreens.Select(_ => "cached").ToArray()
-                    : targetedScreens.Select(screen => SignageCacheState(screen, item.Id)).ToArray();
+                    : targetedScreens.Select(screen => SignageCacheState(screen, mediaCacheItemIds)).ToArray();
+                var referencedMedia = new[] { item.MediaAsset }.Concat(zones.Select(zone => zone.MediaAssetId is { } mediaId && zoneMediaAssets.TryGetValue(mediaId, out var asset) ? asset : null)).ToArray();
+                var readiness = referencedMedia.Select(SignageReadiness).OrderBy(value => value switch { "failed" => 0, "missing" => 1, "preparing" => 2, _ => 3 }).FirstOrDefault() ?? "ready";
                 return new
                 {
                     item.Id, item.Name, item.Mode, item.Enabled, item.Priority, item.StartsAt, item.EndsAt,
@@ -2748,14 +2924,24 @@ public static class AdminApi
                     mediaFileName = item.MediaAsset?.FileName, item.TargetTagsCsv,
                     recurrence = SignageSchedule.NormalizeRecurrence(item.Recurrence),
                     item.ScheduleStartDate, item.ScheduleEndDate, item.StartMinutes, item.EndMinutes,
+                    item.LayoutPreset,
+                    zones = zones.Select(zone => new
+                    {
+                        zone.Id, zone.Type, zone.Title, zone.Content, zone.MediaAssetId, zone.SourceUrl,
+                        zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
+                        zone.RefreshMinutes,
+                        mediaFileName = zone.MediaAssetId is { } mediaId && zoneMediaAssets.TryGetValue(mediaId, out var mediaAsset) ? mediaAsset.FileName : null
+                    }).ToArray(),
+                    widgetCache = SignageLayout.ParseCache(item.WidgetCacheJson),
+                    item.WidgetCacheUpdatedAt, item.WidgetCacheError,
                     daysOfWeek = SignageSchedule.ParseDays(item.DaysOfWeekCsv),
                     excludedDates = SignageSchedule.ParseDates(item.ExcludedDatesJson),
                     targetScreenIds,
                     targetScreenNames = targetScreenIds.Where(screenNames.ContainsKey).Select(id => screenNames[id]).ToArray(),
                     activeNow = state.Active,
                     state.NextChangeAt,
-                    readiness = SignageReadiness(item.MediaAsset),
-                    ready = SignageReadiness(item.MediaAsset) == "ready",
+                    readiness,
+                    ready = readiness == "ready",
                     targetScreenCount = targetedScreens.Length,
                     cachedScreenCount = cacheStates.Count(value => value == "cached"),
                     failedScreenCount = cacheStates.Count(value => value == "failed"),
@@ -2788,6 +2974,14 @@ public static class AdminApi
             var item = await db.SignagePlaylists.FindAsync([id], ct); if (item is null) return Results.NotFound();
             db.SignagePlaylists.Remove(item); Audit(db, "signage.delete", id, item.Name); await db.SaveChangesAsync(ct); await InvalidateAsync(hub, 0, ct);
             return Results.NoContent();
+        });
+
+        planning.MapPost("/signage/{id:guid}/widgets/refresh", async (Guid id, LessonCueDb db,
+            SignageWidgetService widgets, CancellationToken ct) =>
+        {
+            if (!await db.SignagePlaylists.AnyAsync(x => x.Id == id, ct)) return Results.NotFound();
+            var refreshed = await widgets.RefreshAsync(id, true, ct);
+            return Results.Ok(new { refreshed });
         });
 
         backupsAdmin.MapGet("/backups", async (LessonCueDb db, CancellationToken ct) =>
@@ -2876,6 +3070,13 @@ public static class AdminApi
         if ((input.TargetScreenIds?.Count ?? 0) > 500) return "Signage supports at most 500 explicitly selected screens.";
         if (input.MediaAssetId is { } mediaId && !await db.MediaAssets.AnyAsync(x => x.Id == mediaId, ct))
             return "The selected media no longer exists.";
+        var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+        var layoutError = SignageLayout.Validate(input.Zones, SignageLayout.ParseAllowlist(organization.SignageSourceAllowlistJson));
+        if (layoutError is not null) return layoutError;
+        var zoneMediaIds = (input.Zones ?? []).Where(zone => zone.MediaAssetId is not null)
+            .Select(zone => zone.MediaAssetId!.Value).Distinct().ToArray();
+        if (zoneMediaIds.Length > 0 && await db.MediaAssets.CountAsync(x => zoneMediaIds.Contains(x.Id), ct) != zoneMediaIds.Length)
+            return "One or more media items selected for this layout no longer exist.";
         var targetIds = (input.TargetScreenIds ?? []).Where(id => id != Guid.Empty).Distinct().ToArray();
         if (targetIds.Length > 0 && await db.Screens.CountAsync(x => targetIds.Contains(x.Id), ct) != targetIds.Length)
             return "One or more selected screens no longer exist.";
@@ -2904,6 +3105,12 @@ public static class AdminApi
         item.DaysOfWeekCsv = recurrence == "weekly" ? SignageSchedule.NormalizeDays(input.DaysOfWeek) : "";
         item.ExcludedDatesJson = recurrence == "once" ? "[]" : SignageSchedule.StoreDates(input.ExcludedDates);
         item.TargetScreenIdsJson = SignageSchedule.StoreScreenIds(input.TargetScreenIds);
+        item.LayoutPreset = SignageLayout.NormalizePreset(input.LayoutPreset);
+        item.ZonesJson = SignageLayout.StoreZones(input.Zones);
+        var zones = SignageLayout.ParseZones(item.ZonesJson).ToDictionary(zone => zone.Id, StringComparer.OrdinalIgnoreCase);
+        item.WidgetCacheJson = SignageLayout.StoreCache(SignageLayout.ParseCache(item.WidgetCacheJson).Where(entry =>
+            zones.TryGetValue(entry.ZoneId, out var zone) && string.Equals(entry.Source, zone.SourceUrl, StringComparison.OrdinalIgnoreCase)));
+        item.WidgetCacheError = null;
         item.UpdatedAt = DateTimeOffset.UtcNow;
     }
 
@@ -2917,18 +3124,21 @@ public static class AdminApi
         return "ready";
     }
 
-    private static string SignageCacheState(Screen screen, Guid signageId)
+    private static string SignageCacheState(Screen screen, IReadOnlyCollection<string> itemIds)
     {
         try
         {
             using var document = JsonDocument.Parse(screen.CacheInventoryJson);
             if (document.RootElement.ValueKind != JsonValueKind.Array) return "unknown";
-            var itemId = $"signage-{signageId}";
+            var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var entry in document.RootElement.EnumerateArray())
             {
-                if (!entry.TryGetProperty("itemId", out var id) || id.GetString() != itemId) continue;
-                return entry.TryGetProperty("state", out var state) ? state.GetString() ?? "unknown" : "unknown";
+                if (!entry.TryGetProperty("itemId", out var id) || id.GetString() is not { } itemId || !itemIds.Contains(itemId)) continue;
+                var state = entry.TryGetProperty("state", out var stateValue) ? stateValue.GetString() ?? "unknown" : "unknown";
+                if (state == "failed") return "failed";
+                if (state == "ready" || state == "cached") matched.Add(itemId);
             }
+            return matched.Count == itemIds.Count ? "cached" : "unknown";
         }
         catch (JsonException) { }
         return "unknown";
@@ -3116,6 +3326,63 @@ public static class AdminApi
     }
 
     private static string NormalizeRole(string? role) => role is "preRoll" or "countdown" ? role : "lesson";
+
+    private static bool TryMonitorUrl(string? value, out string? normalized)
+    {
+        normalized = null;
+        if (string.IsNullOrWhiteSpace(value)) return true;
+        var clean = value.Trim();
+        if (clean.Length > 2000 || !Uri.TryCreate(clean, UriKind.Absolute, out var uri) ||
+            uri.Scheme is not ("http" or "https") || string.IsNullOrWhiteSpace(uri.Host) ||
+            !string.IsNullOrWhiteSpace(uri.UserInfo)) return false;
+        normalized = uri.ToString();
+        return true;
+    }
+
+    private static PlaylistItem ClonePlaylistItem(PlaylistItem source, Guid lessonId) => new()
+    {
+        LessonId = lessonId, Title = source.Title, Type = source.Type, Role = source.Role,
+        Position = source.Position, MediaAssetId = source.MediaAssetId, DurationMs = source.DurationMs,
+        StartMs = source.StartMs, EndMs = source.EndMs, VolumePercent = source.VolumePercent,
+        ImageDurationSeconds = source.ImageDurationSeconds, EndBehavior = source.EndBehavior,
+        AllowSkip = source.AllowSkip, Notes = source.Notes, FadeInMs = source.FadeInMs,
+        FadeOutMs = source.FadeOutMs, NormalizeAudio = source.NormalizeAudio,
+        CuePointsJson = source.CuePointsJson, FitMode = source.FitMode,
+        RotationDegrees = source.RotationDegrees, CropLeftPercent = source.CropLeftPercent,
+        CropTopPercent = source.CropTopPercent, CropRightPercent = source.CropRightPercent,
+        CropBottomPercent = source.CropBottomPercent, Muted = source.Muted,
+        PlaybackRatePercent = source.PlaybackRatePercent, RepeatCount = source.RepeatCount,
+        BackgroundColor = source.BackgroundColor, TransitionStyle = source.TransitionStyle,
+        TransitionDurationMs = source.TransitionDurationMs, FlexibleTime = source.FlexibleTime
+    };
+
+    private static string? ValidatePlaybackSettings(string fitMode, int rotationDegrees,
+        int cropLeft, int cropTop, int cropRight, int cropBottom, int playbackRatePercent,
+        int repeatCount, string backgroundColor, string transitionStyle, int transitionDurationMs)
+    {
+        if (fitMode is not ("fit" or "fill" or "letterbox")) return "Choose fit, fill, or letterbox display behavior.";
+        if (rotationDegrees is not (0 or 90 or 180 or 270)) return "Rotation must be 0, 90, 180, or 270 degrees.";
+        if (new[] { cropLeft, cropTop, cropRight, cropBottom }.Any(value => value is < 0 or > 45) ||
+            cropLeft + cropRight >= 90 || cropTop + cropBottom >= 90)
+            return "Crop edges must leave at least ten percent of the picture visible in each direction.";
+        if (playbackRatePercent is < 25 or > 400) return "Playback speed must be from 25% to 400%.";
+        if (repeatCount is < 1 or > 99) return "Repeat count must be from 1 to 99.";
+        if (!IsColor(backgroundColor)) return "Background color must be a six-digit hex color.";
+        if (transitionStyle is not ("cut" or "fade-black")) return "Choose a cut or fade-through-black transition.";
+        if (transitionDurationMs is < 0 or > 5_000) return "Transition duration must be from 0 to 5 seconds.";
+        return null;
+    }
+
+    private static string? ValidateCueTiming(long startMs, long? endMs, int? imageDurationSeconds, string endBehavior)
+    {
+        if (startMs < 0) return "Trim start cannot be negative.";
+        if (endMs is not null && endMs <= startMs) return "Trim end must be after trim start.";
+        if (imageDurationSeconds is not null && imageDurationSeconds is < 1 or > 3_600)
+            return "Still and slide duration must be from 1 second to 1 hour.";
+        if (endBehavior is not ("advance" or "loop" or "pause" or "stop" or "menu" or "playlistLoop"))
+            return "Choose a supported end behavior.";
+        return null;
+    }
 
     private static string? ValidateSchedule(RecurringScheduleInput input)
     {

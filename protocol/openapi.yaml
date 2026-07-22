@@ -124,6 +124,22 @@ paths:
         '200': { description: Bulk lesson action completed }
         '400': { description: Invalid selection, action, destination, shift, or title prefix }
         '404': { description: A selected lesson or destination class no longer exists }
+  /api/v1/lessons/{lessonId}/relocate:
+    post:
+      operationId: copyOrMoveLesson
+      description: Copies a complete lesson or moves it to another class/date while preserving notes, cue settings, scheduled-time offsets, and media retention.
+      parameters:
+        - { name: lessonId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LessonRelocateInput' }
+      responses:
+        '200': { description: Lesson moved }
+        '201': { description: Lesson copy created }
+        '400': { description: Invalid action, class, date, or title }
+        '404': { description: Source lesson or destination class not found }
   /api/v1/playlist-items/bulk:
     post:
       operationId: updatePlaylistItemsInBulk
@@ -331,6 +347,15 @@ paths:
         - { name: signageId, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
         '204': { description: Signage schedule deleted }
+        '404': { description: Signage schedule not found }
+  /api/v1/signage/{signageId}/widgets/refresh:
+    post:
+      operationId: refreshSignageWidgets
+      description: Immediately refreshes every approved online source in the selected signage layout while retaining last-known-good cached content on failure.
+      parameters:
+        - { name: signageId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Refresh completed }
         '404': { description: Signage schedule not found }
   /api/v1/playlist-items/{itemId}:
     patch:
@@ -1712,6 +1737,16 @@ components:
         expiresAt: { type: [string, 'null'], format: date-time }
         countdownItemId: { type: [string, 'null'], format: uuid }
         preRollEnabled: { type: boolean, default: false }
+        substituteNotes: { type: [string, 'null'], maxLength: 8000 }
+        preRollMonitorUrl: { type: [string, 'null'], format: uri, maxLength: 2000, description: Private operator-only HTTP/HTTPS monitor; never included in a display manifest. }
+    LessonRelocateInput:
+      type: object
+      required: [action, classId, date]
+      properties:
+        action: { enum: [copy, move] }
+        classId: { type: string, format: uuid }
+        date: { type: string, format: date }
+        title: { type: [string, 'null'], minLength: 1, maxLength: 160 }
     LessonBulkInput:
       type: object
       required: [lessonIds, action]
@@ -1761,6 +1796,7 @@ components:
         name: { type: string }
         description: { type: string }
         defaultTitle: { type: string }
+        substituteNotes: { type: string, maxLength: 8000 }
         defaultStartMinutes: { type: [integer, 'null'], minimum: 0, maximum: 1439 }
         preRollLeadMinutes: { type: [integer, 'null'], minimum: 0 }
         availableLeadMinutes: { type: [integer, 'null'], minimum: 0 }
@@ -1828,6 +1864,39 @@ components:
           maxItems: 500
           uniqueItems: true
           items: { type: string, format: uuid }
+        layoutPreset: { type: [string, 'null'], enum: [single, sidebar, split, header-grid, dashboard, null] }
+        zones:
+          type: [array, 'null']
+          maxItems: 8
+          items: { $ref: '#/components/schemas/SignageZone' }
+    SignageZone:
+      type: object
+      required: [id, type, x, y, width, height]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 64 }
+        type: { enum: [media, text, clock, calendar, weather, menu, rss, data] }
+        title: { type: [string, 'null'], maxLength: 160 }
+        content: { type: [string, 'null'], maxLength: 4000 }
+        mediaAssetId: { type: [string, 'null'], format: uuid }
+        sourceUrl: { type: [string, 'null'], format: uri }
+        x: { type: integer, minimum: 0, maximum: 90 }
+        y: { type: integer, minimum: 0, maximum: 90 }
+        width: { type: integer, minimum: 10, maximum: 100 }
+        height: { type: integer, minimum: 10, maximum: 100 }
+        backgroundColor: { type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$' }
+        textColor: { type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$' }
+        accentColor: { type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$' }
+        refreshMinutes: { type: integer, minimum: 5, maximum: 1440, default: 15 }
+    SignageWidgetCache:
+      type: object
+      required: [zoneId, title, text, items, refreshedAt]
+      properties:
+        zoneId: { type: string }
+        title: { type: string }
+        text: { type: string }
+        items: { type: array, items: { type: string } }
+        refreshedAt: { type: string, format: date-time }
+        source: { type: [string, 'null'], format: uri }
     Signage:
       allOf:
         - $ref: '#/components/schemas/SignageInput'
@@ -1844,6 +1913,9 @@ components:
             targetScreenCount: { type: integer, minimum: 0 }
             cachedScreenCount: { type: integer, minimum: 0 }
             failedScreenCount: { type: integer, minimum: 0 }
+            widgetCache: { type: array, items: { $ref: '#/components/schemas/SignageWidgetCache' } }
+            widgetCacheUpdatedAt: { type: [string, 'null'], format: date-time }
+            widgetCacheError: { type: [string, 'null'] }
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
     PlaylistItemInput:
@@ -1881,6 +1953,8 @@ components:
         endMs: { type: [integer, 'null'], format: int64, minimum: 0 }
         fadeInMs: { type: [integer, 'null'], minimum: 0, maximum: 30000 }
         fadeOutMs: { type: [integer, 'null'], minimum: 0, maximum: 30000 }
+        notes: { type: [string, 'null'], maxLength: 2000 }
+        flexibleTime: { type: [boolean, 'null'] }
         cuePoints:
           type: array
           maxItems: 50

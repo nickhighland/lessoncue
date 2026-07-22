@@ -23,6 +23,7 @@ public sealed class Organization
     public bool HardwareAccelerationEnabled { get; set; } = true;
     [MaxLength(12000)] public string MediaFoldersJson { get; set; } = "[\"General\",\"Lessons\",\"Signage\"]";
     [MaxLength(12000)] public string MediaTagsJson { get; set; } = "[\"Reusable\",\"Intro\",\"Outro\",\"Reference\"]";
+    [MaxLength(12000)] public string SignageSourceAllowlistJson { get; set; } = "[]";
     [JsonIgnore] public string? ControllerPinHash { get; set; }
     public bool RequireLocalRoomControllers { get; set; }
     [MaxLength(16)] public string RegistrationMode { get; set; } = "closed";
@@ -107,6 +108,10 @@ public sealed class Lesson
     public bool Archived { get; set; }
     public bool KeepOffline { get; set; }
     public int DownloadDaysBefore { get; set; } = 7;
+    public int VolumePercent { get; set; } = 100;
+    public bool Muted { get; set; }
+    [MaxLength(8000)] public string SubstituteNotes { get; set; } = "";
+    [MaxLength(2000)] public string? PreRollMonitorUrl { get; set; }
     public Guid? GeneratedByScheduleId { get; set; }
     public DateTimeOffset? DeletedAt { get; set; }
     [MaxLength(80)] public string? DeletedBy { get; set; }
@@ -126,6 +131,9 @@ public sealed class LessonTemplate
     public bool PreRollEnabled { get; set; }
     public bool KeepOffline { get; set; }
     public int DownloadDaysBefore { get; set; } = 7;
+    public int VolumePercent { get; set; } = 100;
+    public bool Muted { get; set; }
+    [MaxLength(8000)] public string SubstituteNotes { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     public List<LessonTemplateItem> Items { get; set; } = [];
@@ -155,6 +163,19 @@ public sealed class LessonTemplateItem
     public int FadeOutMs { get; set; }
     public bool NormalizeAudio { get; set; }
     [MaxLength(8000)] public string CuePointsJson { get; set; } = "[]";
+    [MaxLength(16)] public string FitMode { get; set; } = "fit";
+    public int RotationDegrees { get; set; }
+    public int CropLeftPercent { get; set; }
+    public int CropTopPercent { get; set; }
+    public int CropRightPercent { get; set; }
+    public int CropBottomPercent { get; set; }
+    public bool Muted { get; set; }
+    public int PlaybackRatePercent { get; set; } = 100;
+    public int RepeatCount { get; set; } = 1;
+    [MaxLength(16)] public string BackgroundColor { get; set; } = "#000000";
+    [MaxLength(24)] public string TransitionStyle { get; set; } = "cut";
+    public int TransitionDurationMs { get; set; } = 500;
+    public bool FlexibleTime { get; set; }
 }
 
 public sealed class RecurringLessonSchedule
@@ -205,6 +226,19 @@ public sealed class PlaylistItem
     public int FadeOutMs { get; set; }
     public bool NormalizeAudio { get; set; }
     [MaxLength(8000)] public string CuePointsJson { get; set; } = "[]";
+    [MaxLength(16)] public string FitMode { get; set; } = "fit";
+    public int RotationDegrees { get; set; }
+    public int CropLeftPercent { get; set; }
+    public int CropTopPercent { get; set; }
+    public int CropRightPercent { get; set; }
+    public int CropBottomPercent { get; set; }
+    public bool Muted { get; set; }
+    public int PlaybackRatePercent { get; set; } = 100;
+    public int RepeatCount { get; set; } = 1;
+    [MaxLength(16)] public string BackgroundColor { get; set; } = "#000000";
+    [MaxLength(24)] public string TransitionStyle { get; set; } = "cut";
+    public int TransitionDurationMs { get; set; } = 500;
+    public bool FlexibleTime { get; set; }
 }
 
 public sealed class MediaAsset
@@ -386,6 +420,11 @@ public sealed class SignagePlaylist
     [MaxLength(64)] public string DaysOfWeekCsv { get; set; } = "";
     [MaxLength(12000)] public string ExcludedDatesJson { get; set; } = "[]";
     [MaxLength(12000)] public string TargetScreenIdsJson { get; set; } = "[]";
+    [MaxLength(32)] public string LayoutPreset { get; set; } = "single";
+    [MaxLength(32000)] public string ZonesJson { get; set; } = "[]";
+    [MaxLength(64000)] public string WidgetCacheJson { get; set; } = "[]";
+    public DateTimeOffset? WidgetCacheUpdatedAt { get; set; }
+    [MaxLength(2000)] public string? WidgetCacheError { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
@@ -436,10 +475,15 @@ public sealed record ClassInput(string Name, string? Description, string? Contro
     string? ControllerColor = null, string? ControllerHostname = null);
 public sealed record LessonInput(Guid ClassId, DateOnly Date, string Title, DateTimeOffset? AvailableFrom,
     DateTimeOffset? ExpiresAt, DateTimeOffset? DesignatedStartAt, bool PreRollEnabled, Guid? CountdownItemId,
-    DateTimeOffset? PreRollStartsAt = null);
+    DateTimeOffset? PreRollStartsAt = null, int VolumePercent = 100, bool Muted = false,
+    string? SubstituteNotes = null, string? PreRollMonitorUrl = null);
 public sealed record PlaylistItemInput(string Title, string Type, string? Role, decimal Position,
     Guid? MediaId, long? DurationMs, long StartMs, long? EndMs, int VolumePercent,
-    int? ImageDurationSeconds, string? EndBehavior, bool AllowSkip);
+    int? ImageDurationSeconds, string? EndBehavior, bool AllowSkip, string? FitMode = null,
+    int RotationDegrees = 0, int CropLeftPercent = 0, int CropTopPercent = 0,
+    int CropRightPercent = 0, int CropBottomPercent = 0, bool Muted = false,
+    int PlaybackRatePercent = 100, int RepeatCount = 1, string? BackgroundColor = null,
+    string? TransitionStyle = null, int TransitionDurationMs = 500);
 public sealed record PairingRequestInput(string DeviceName, string Platform, string AppVersion, string? DevicePublicKey);
 public sealed record PairingConfirmInput(Guid RequestId, string Pin);
 public sealed record PairingPinInput(string? Pin, bool Automatic = false);
@@ -482,16 +526,23 @@ public sealed record RegistrationCodeInput(string Label, DateTimeOffset? Expires
 public sealed record LessonUpdateInput(string? Title, DateOnly? Date, DateTimeOffset? AvailableFrom,
     DateTimeOffset? ExpiresAt, DateTimeOffset? DesignatedStartAt, bool? PreRollEnabled, Guid? CountdownItemId,
     bool ClearCountdown = false, bool ClearAvailableFrom = false, bool ClearExpiresAt = false,
-    bool ClearDesignatedStartAt = false, DateTimeOffset? PreRollStartsAt = null, bool ClearPreRollStartsAt = false);
+    bool ClearDesignatedStartAt = false, DateTimeOffset? PreRollStartsAt = null, bool ClearPreRollStartsAt = false,
+    int? VolumePercent = null, bool? Muted = null, string? SubstituteNotes = null,
+    string? PreRollMonitorUrl = null, bool ClearPreRollMonitorUrl = false);
 public sealed record PlaylistItemUpdateInput(string? Title, string? Type, string? Role, Guid? MediaId,
     long? DurationMs, long? StartMs, long? EndMs, int? VolumePercent, int? ImageDurationSeconds,
     string? EndBehavior, bool? AllowSkip, bool ClearEndMs = false, string? Notes = null,
     int? FadeInMs = null, int? FadeOutMs = null, bool? NormalizeAudio = null,
-    List<CuePointInput>? CuePoints = null);
+    List<CuePointInput>? CuePoints = null, string? FitMode = null, int? RotationDegrees = null,
+    int? CropLeftPercent = null, int? CropTopPercent = null, int? CropRightPercent = null,
+    int? CropBottomPercent = null, bool? Muted = null, int? PlaybackRatePercent = null,
+    int? RepeatCount = null, string? BackgroundColor = null, string? TransitionStyle = null,
+    int? TransitionDurationMs = null, bool? FlexibleTime = null);
 public sealed record CuePointInput(string Name, long PositionMs);
 public sealed record PlaylistReorderInput(List<Guid> ItemIds);
 public sealed record LessonBulkInput(List<Guid> LessonIds, string Action, Guid? ClassId = null,
     int? ShiftDays = null, string? TitlePrefix = null);
+public sealed record LessonRelocateInput(string Action, Guid ClassId, DateOnly Date, string? Title = null);
 public sealed record PlaylistItemBulkInput(List<Guid> ItemIds, string Action, string? Role = null,
     int? VolumePercent = null, string? EndBehavior = null, bool? AllowSkip = null, string? TitlePrefix = null);
 public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool? VolunteerMode,
@@ -507,7 +558,8 @@ public sealed record OrganizationInput(string Name, string SiteName, string Time
     int DefaultLessonDurationMinutes, int DefaultRetentionDays, string PrimaryColor, string AccentColor,
     string? NavigationTextColor, string? SelectedTabColor, string WelcomeMessage,
     bool? AdaptiveTranscodingEnabled = null, int? TranscodeLeadDays = null,
-    bool? RequireLocalRoomControllers = null, bool? HardwareAccelerationEnabled = null);
+    bool? RequireLocalRoomControllers = null, bool? HardwareAccelerationEnabled = null,
+    List<string>? SignageSourceAllowlist = null);
 public sealed record StorageLimitInput(long LimitBytes);
 public sealed record LocalHostnameInput(string Hostname);
 public sealed record HttpPortInput(int Port);
@@ -517,7 +569,11 @@ public sealed record SignageInput(string Name, string Mode, bool Enabled, int Pr
     DateTimeOffset? EndsAt, string? Message, string? BackgroundColor, string? TextColor, Guid? MediaAssetId,
     string? TargetTagsCsv, string? Recurrence = null, DateOnly? ScheduleStartDate = null, DateOnly? ScheduleEndDate = null,
     int? StartMinutes = null, int? EndMinutes = null, List<int>? DaysOfWeek = null,
-    List<DateOnly>? ExcludedDates = null, List<Guid>? TargetScreenIds = null);
+    List<DateOnly>? ExcludedDates = null, List<Guid>? TargetScreenIds = null,
+    string? LayoutPreset = null, List<SignageZoneInput>? Zones = null);
+public sealed record SignageZoneInput(string Id, string Type, string? Title = null, string? Content = null,
+    Guid? MediaAssetId = null, string? SourceUrl = null, int X = 0, int Y = 0, int Width = 100, int Height = 100,
+    string? BackgroundColor = null, string? TextColor = null, string? AccentColor = null, int RefreshMinutes = 15);
 public sealed record LinkInput(string Url, string? Title, bool Download = false, bool Persistent = true,
     Guid? LessonId = null, string? Folder = null, string? TagsCsv = null, bool ImportPresentation = false);
 public sealed record UploadCompleteInput(string FileName, string ContentType, int TotalChunks, long? DurationMs,
@@ -530,7 +586,8 @@ public sealed record PresentationLessonInput(Guid LessonId, int ImageDurationSec
 public sealed record LessonTemplateFromLessonInput(Guid LessonId, string Name, string? Description = null);
 public sealed record LessonTemplateReplaceInput(Guid LessonId);
 public sealed record LessonTemplateUpdateInput(string Name, string? Description, string? DefaultTitle,
-    int? DefaultStartMinutes, int? PreRollLeadMinutes, bool PreRollEnabled, bool KeepOffline, int DownloadDaysBefore);
+    int? DefaultStartMinutes, int? PreRollLeadMinutes, bool PreRollEnabled, bool KeepOffline, int DownloadDaysBefore,
+    int? VolumePercent = null, bool? Muted = null);
 public sealed record LessonTemplateInstantiateInput(Guid ClassId, DateOnly Date, string? Title = null, int? StartMinutes = null);
 public sealed record RecurringScheduleInput(Guid TemplateId, Guid ClassId, string Name, string Frequency,
     int Interval, int? DayOfWeek, int? DayOfMonth, DateOnly StartDate, DateOnly? EndDate,

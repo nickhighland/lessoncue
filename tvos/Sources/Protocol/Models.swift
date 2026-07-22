@@ -28,8 +28,21 @@ public struct CueItem: Codable, Identifiable, Equatable, Sendable {
     public let endBehavior: String
     public let allowSkip: Bool
     public let notes: String?
+    public let flexibleTime: Bool?
     public let fadeInMs: Int64?
     public let fadeOutMs: Int64?
+    public let fitMode: String?
+    public let rotationDegrees: Int?
+    public let cropLeftPercent: Int?
+    public let cropTopPercent: Int?
+    public let cropRightPercent: Int?
+    public let cropBottomPercent: Int?
+    public let muted: Bool?
+    public let playbackRatePercent: Int?
+    public let repeatCount: Int?
+    public let backgroundColor: String?
+    public let transitionStyle: String?
+    public let transitionDurationMs: Int?
     public let offlineEligible: Bool
     public let cuePoints: [CuePoint]?
     public var id: String { itemId }
@@ -39,16 +52,28 @@ public struct CueItem: Codable, Identifiable, Equatable, Sendable {
                 sha256: String? = nil, sizeBytes: Int64? = nil,
                 durationMs: Int64? = nil, startMs: Int64 = 0, endMs: Int64? = nil,
                 volumePercent: Int = 100, imageDurationSeconds: Int? = nil,
-                endBehavior: String = "advance", allowSkip: Bool = true, notes: String? = nil,
+                endBehavior: String = "advance", allowSkip: Bool = true, notes: String? = nil, flexibleTime: Bool? = nil,
                 fadeInMs: Int64? = nil, fadeOutMs: Int64? = nil, offlineEligible: Bool = false,
+                fitMode: String? = nil, rotationDegrees: Int? = nil,
+                cropLeftPercent: Int? = nil, cropTopPercent: Int? = nil,
+                cropRightPercent: Int? = nil, cropBottomPercent: Int? = nil,
+                muted: Bool? = nil, playbackRatePercent: Int? = nil, repeatCount: Int? = nil,
+                backgroundColor: String? = nil, transitionStyle: String? = nil,
+                transitionDurationMs: Int? = nil,
                 cuePoints: [CuePoint]? = nil) {
         self.itemId = itemId; self.mediaId = mediaId; self.type = type; self.title = title
         self.downloadUrl = downloadUrl; self.contentType = contentType; self.fileExtension = fileExtension
         self.sha256 = sha256; self.sizeBytes = sizeBytes
         self.durationMs = durationMs; self.startMs = startMs; self.endMs = endMs
         self.volumePercent = volumePercent; self.imageDurationSeconds = imageDurationSeconds
-        self.endBehavior = endBehavior; self.allowSkip = allowSkip; self.notes = notes
+        self.endBehavior = endBehavior; self.allowSkip = allowSkip; self.notes = notes; self.flexibleTime = flexibleTime
         self.fadeInMs = fadeInMs; self.fadeOutMs = fadeOutMs; self.offlineEligible = offlineEligible
+        self.fitMode = fitMode; self.rotationDegrees = rotationDegrees
+        self.cropLeftPercent = cropLeftPercent; self.cropTopPercent = cropTopPercent
+        self.cropRightPercent = cropRightPercent; self.cropBottomPercent = cropBottomPercent
+        self.muted = muted; self.playbackRatePercent = playbackRatePercent; self.repeatCount = repeatCount
+        self.backgroundColor = backgroundColor; self.transitionStyle = transitionStyle
+        self.transitionDurationMs = transitionDurationMs
         self.cuePoints = cuePoints
     }
 }
@@ -105,6 +130,34 @@ public struct SignageCue: Codable, Identifiable, Equatable, Sendable {
     public let textColor: String
     public let mediaUrl: String?
     public let media: CueItem?
+    public let layoutPreset: String?
+    public let zones: [SignageZone]?
+    public let widgetCacheUpdatedAt: String?
+    public let widgetCacheError: String?
+}
+
+public struct SignageWidgetCache: Codable, Equatable, Sendable {
+    public let zoneId: String
+    public let title: String
+    public let text: String
+    public let items: [String]
+    public let refreshedAt: String?
+}
+
+public struct SignageZone: Codable, Identifiable, Equatable, Sendable {
+    public let id: String
+    public let type: String
+    public let title: String?
+    public let content: String?
+    public let x: Int
+    public let y: Int
+    public let width: Int
+    public let height: Int
+    public let backgroundColor: String
+    public let textColor: String
+    public let accentColor: String
+    public let media: CueItem?
+    public let cached: SignageWidgetCache?
 }
 
 public struct ScreenManifest: Codable, Equatable, Sendable {

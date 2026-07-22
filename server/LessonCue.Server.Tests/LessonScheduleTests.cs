@@ -21,13 +21,15 @@ public sealed class LessonScheduleTests
             PreRollStartsAt = new DateTimeOffset(2026, 9, 6, 10, 15, 0, TimeSpan.FromHours(-4)),
             AvailableFrom = new DateTimeOffset(2026, 9, 5, 10, 30, 0, TimeSpan.FromHours(-4)),
             ExpiresAt = new DateTimeOffset(2026, 9, 7, 12, 30, 0, TimeSpan.FromHours(-4)),
-            PreRollEnabled = true, KeepOffline = true, DownloadDaysBefore = 14
+            PreRollEnabled = true, KeepOffline = true, DownloadDaysBefore = 14,
+            SubstituteNotes = "Use the side entrance and begin with the welcome activity."
         };
         source.Items.Add(new PlaylistItem
         {
             LessonId = source.Id, Title = "Welcome loop", Role = "preRoll", Type = "video", Position = 1000,
             MediaAssetId = asset.Id, StartMs = 1250, EndMs = 9125, FadeInMs = 500, FadeOutMs = 750,
-            EndBehavior = "loop", Notes = "Start quietly", CuePointsJson = "[{\"name\":\"Ready\",\"positionMs\":3000}]"
+            EndBehavior = "loop", Notes = "Start quietly", FlexibleTime = true,
+            CuePointsJson = "[{\"name\":\"Ready\",\"positionMs\":3000}]"
         });
         fixture.Db.AddRange(asset, source); await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
@@ -39,6 +41,8 @@ public sealed class LessonScheduleTests
         Assert.Equal(1440, template.AvailableLeadMinutes);
         Assert.Equal(1560, template.ExpiresAfterMinutes);
         Assert.Single(template.Items);
+        Assert.Equal(source.SubstituteNotes, template.SubstituteNotes);
+        Assert.True(template.Items.Single().FlexibleTime);
         Assert.Equal(MediaRetention.Persistent, asset.StoragePolicy);
         Assert.Null(asset.DeleteAfter);
 
@@ -47,6 +51,7 @@ public sealed class LessonScheduleTests
         Assert.NotNull(lesson);
         Assert.Equal("Standard session", lesson.Title);
         Assert.True(lesson.PreRollEnabled);
+        Assert.Equal(source.SubstituteNotes, lesson.SubstituteNotes);
         Assert.Equal(10, lesson.DesignatedStartAt!.Value.Hour);
         Assert.Equal(TimeSpan.FromHours(-5), lesson.DesignatedStartAt.Value.Offset);
         Assert.Equal(15, (lesson.DesignatedStartAt.Value - lesson.PreRollStartsAt!.Value).TotalMinutes);
@@ -54,6 +59,7 @@ public sealed class LessonScheduleTests
         Assert.Equal("preRoll", item.Role);
         Assert.Equal(1250, item.StartMs);
         Assert.Equal(750, item.FadeOutMs);
+        Assert.True(item.FlexibleTime);
         Assert.Equal(asset.Id, item.MediaAssetId);
         Assert.Null(asset.DeleteAfter);
 
@@ -127,7 +133,9 @@ public sealed class LessonScheduleTests
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.Db.Database.ExecuteSqlRawAsync(
-            "DROP TABLE \"RecurringLessonSchedules\"; DROP TABLE \"LessonTemplateItems\"; DROP TABLE \"LessonTemplates\";",
+            "DROP TABLE \"RecurringLessonSchedules\"; DROP TABLE \"LessonTemplateItems\"; DROP TABLE \"LessonTemplates\"; " +
+            "ALTER TABLE \"Lessons\" DROP COLUMN \"SubstituteNotes\"; ALTER TABLE \"Lessons\" DROP COLUMN \"PreRollMonitorUrl\"; " +
+            "ALTER TABLE \"PlaylistItems\" DROP COLUMN \"FlexibleTime\";",
             TestContext.Current.CancellationToken);
 
         await DatabaseUpgrade.ApplyAsync(fixture.Db, TestContext.Current.CancellationToken);
@@ -137,6 +145,12 @@ public sealed class LessonScheduleTests
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('LessonTemplates','LessonTemplateItems','RecurringLessonSchedules')";
         Assert.Equal(3L, (long)(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken))!);
+        command.CommandText = "SELECT " +
+            "(SELECT COUNT(*) FROM pragma_table_info('Lessons') WHERE name IN ('SubstituteNotes','PreRollMonitorUrl')) + " +
+            "(SELECT COUNT(*) FROM pragma_table_info('PlaylistItems') WHERE name='FlexibleTime') + " +
+            "(SELECT COUNT(*) FROM pragma_table_info('LessonTemplates') WHERE name='SubstituteNotes') + " +
+            "(SELECT COUNT(*) FROM pragma_table_info('LessonTemplateItems') WHERE name='FlexibleTime')";
+        Assert.Equal(5L, (long)(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken))!);
     }
 
     private sealed class Fixture : IAsyncDisposable

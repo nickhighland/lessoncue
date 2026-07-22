@@ -1,6 +1,6 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { CSSProperties, FormEvent, useEffect, useRef, useState } from "react";
 
-const APP_VERSION = "0.31.1";
+const APP_VERSION = "0.34.0";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -27,6 +27,18 @@ type CueItem = {
   notes?: string;
   fadeInMs: number;
   fadeOutMs: number;
+  fitMode?: "fit" | "fill" | "letterbox";
+  rotationDegrees?: number;
+  cropLeftPercent?: number;
+  cropTopPercent?: number;
+  cropRightPercent?: number;
+  cropBottomPercent?: number;
+  muted?: boolean;
+  playbackRatePercent?: number;
+  repeatCount?: number;
+  backgroundColor?: string;
+  transitionStyle?: string;
+  transitionDurationMs?: number;
   cuePoints: CuePoint[];
   sizeBytes?: number;
   sha256?: string;
@@ -52,7 +64,13 @@ type Signage = {
   textColor: string;
   mediaUrl?: string;
   media?: CueItem;
+  layoutPreset?: string;
+  zones?: SignageZone[];
+  widgetCacheUpdatedAt?: string;
+  widgetCacheError?: string;
 };
+type SignageWidgetCache = { zoneId: string; title: string; text: string; items: string[]; refreshedAt: string; source?: string };
+type SignageZone = { id: string; type: string; title?: string; content?: string; sourceUrl?: string; x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string; refreshMinutes: number; media?: CueItem; cached?: SignageWidgetCache };
 type Manifest = {
   manifestVersion: number;
   screen: { id: string; name: string; volunteerMode: boolean; site: string };
@@ -108,6 +126,7 @@ export function WebPlayerApp() {
   const errorsRef = useRef<{ timestamp: string; area: string; message: string; itemId?: string }[]>([]);
   const signageCacheRef = useRef<{ itemId: string; title: string; state: string; sizeBytes: number; expectedBytes?: number; error?: string }[]>([]);
   const interruptedRef = useRef<{ playback: ActivePlayback; paused: boolean } | undefined>(undefined);
+  const repeatProgressRef = useRef<{ itemId: string; completed: number }>({ itemId: "", completed: 0 });
   useDurableSignageCache(manifest?.signageSchedule, identity, signageCacheRef, errorsRef);
 
   useEffect(() => { statusRef.current = status; }, [status]);
@@ -208,6 +227,15 @@ export function WebPlayerApp() {
     const current = activeRef.current;
     if (!current) return;
     const item = current.items[current.index];
+    const repeats = Math.max(1, item.repeatCount || 1);
+    if (repeatProgressRef.current.itemId !== item.itemId) repeatProgressRef.current = { itemId: item.itemId, completed: 0 };
+    repeatProgressRef.current.completed += 1;
+    if (item.endBehavior !== "loop" && repeatProgressRef.current.completed < repeats) {
+      setActive({ ...current, seekMs: 0 });
+      setUnlockNonce(value => value + 1);
+      return;
+    }
+    repeatProgressRef.current = { itemId: "", completed: 0 };
     if (item.endBehavior === "loop") {
       setActive({ ...current, seekMs: 0 });
       setUnlockNonce(value => value + 1);
@@ -215,6 +243,9 @@ export function WebPlayerApp() {
       setActive({ ...current, index: 0, seekMs: 0 });
     } else if (item.endBehavior === "advance" && current.index + 1 < current.items.length) {
       moveTo(current.index + 1);
+    } else if (item.endBehavior === "pause") {
+      setPaused(true);
+      setStatus(previous => ({ ...previous, state: "completed" }));
     } else {
       setActive(undefined);
       setStatus(idleStatus);
@@ -581,7 +612,7 @@ function PlayerLibrary({ manifest, connection, onPlay }: { manifest?: Manifest; 
   const signageImage = signageMedia?.type === "image" || signageMedia?.contentType?.startsWith("image/");
   return <div className="web-player-library" style={signage ? { backgroundColor: signage.backgroundColor, color: signage.textColor } : undefined}>
     <header><div className="web-player-brand"><b>LC</b><span><strong>{manifest?.screen.name || "LessonCue"}</strong><small>{manifest?.screen.site || "Browser display"}</small></span></div><span className="web-player-eyebrow">READY FOR PLAYBACK</span></header>
-    {signage ? <section className="web-player-signage">
+    {signage ? signage.zones?.length ? <SignageLayout signage={signage} /> : <section className="web-player-signage">
       {signageMedia?.downloadUrl && (signageImage
         ? <img src={signageMedia.downloadUrl} alt="" />
         : signageMedia.type === "video" || signageMedia.contentType?.startsWith("video/")
@@ -603,6 +634,23 @@ function PlayerLibrary({ manifest, connection, onPlay }: { manifest?: Manifest; 
     </section>
     <footer>Keyboard: Space play/pause · ←/→ previous/next · Esc stop · F full screen</footer>
   </div>;
+}
+
+function SignageLayout({ signage }: { signage: Signage }) {
+  return <section className={`web-player-signage-layout ${signage.layoutPreset || "single"}`} aria-label={`${signage.name} signage layout`}>
+    {signage.zones?.map(zone => <article className={`web-player-signage-zone ${zone.type}`} key={zone.id} style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor }}>
+      {zone.media?.downloadUrl && (zone.media.type === "video" || zone.media.contentType?.startsWith("video/")
+        ? <video src={zone.media.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={zone.media.title} />
+        : <img src={zone.media.downloadUrl} alt={zone.title || ""} />)}
+      <div className="web-player-zone-copy">{zone.title && <small style={{ color: zone.accentColor }}>{zone.title}</small>}{zone.type === "clock" ? <SignageClock /> : <><strong>{zone.cached?.text || zone.content}</strong>{zone.cached?.items?.length ? <ul>{zone.cached.items.map((item, index) => <li key={`${zone.id}-${index}`}>{item}</li>)}</ul> : null}</>}</div>
+    </article>)}
+  </section>;
+}
+
+function SignageClock() {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => { const timer = window.setInterval(() => setNow(new Date()), 1000); return () => window.clearInterval(timer); }, []);
+  return <><b>{now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</b><span>{now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</span></>;
 }
 
 function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, onEnded, onBlocked }: {
@@ -633,7 +681,7 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
       if (!paused) position += now - previous;
       previous = now;
       setImagePosition(position);
-      setOpacity(fadeOpacity(item, position, duration));
+      setOpacity(visualOpacity(item, position, duration));
       onStatus({ state: paused ? "paused" : "playing", lessonId: playlist.playlistId, itemId: item.itemId, positionMs: Math.round(position), durationMs: duration, volumePercent: item.volumePercent });
       if (position >= duration) {
         window.clearInterval(timer);
@@ -647,12 +695,26 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
 
   useEffect(() => {
     if (!online) return;
-    const command = paused ? "pauseVideo" : "playVideo";
-    frameRef.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func: command, args: [] }), "*");
+    configureOnlineFrame(frameRef.current, item, paused);
     onStatus({ state: paused ? "paused" : "playing", lessonId: playlist.playlistId, itemId: item.itemId, positionMs: 0, durationMs: item.durationMs, volumePercent: item.volumePercent });
     // Online telemetry changes only with the selected item or requested playback state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.itemId, online, paused]);
+  }, [item.itemId, item.muted, item.playbackRatePercent, item.volumePercent, online, paused]);
+
+  useEffect(() => {
+    if (!online) return;
+    const receive = (event: MessageEvent) => {
+      if (event.source !== frameRef.current?.contentWindow) return;
+      try {
+        const message = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+        if (message?.event === "onStateChange" && message.info === 0) onEnded();
+      } catch { /* Embedded pages may send unrelated non-JSON messages. */ }
+    };
+    window.addEventListener("message", receive);
+    return () => window.removeEventListener("message", receive);
+    // Completion belongs to this online cue even when the parent callback identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.itemId, online]);
 
   useEffect(() => {
     const media = mediaRef.current;
@@ -669,6 +731,7 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
   function ready() {
     const media = mediaRef.current;
     if (!media) return;
+    media.playbackRate = Math.max(.25, Math.min(4, (item.playbackRatePercent || 100) / 100));
     media.currentTime = Math.max(0, item.startMs + seekMs) / 1_000;
     if (!paused) void media.play().catch(error => {
       if (error?.name === "NotAllowedError") onBlocked();
@@ -681,8 +744,8 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
     const position = Math.max(0, (media.currentTime * 1_000) - item.startMs);
     const resolvedDuration = duration || Math.max(0, media.duration * 1_000 - item.startMs);
     const fade = fadeOpacity(item, position, resolvedDuration);
-    setOpacity(fade);
-    media.volume = Math.min(1, Math.max(0, item.volumePercent / 100) * fade);
+    setOpacity(visualOpacity(item, position, resolvedDuration));
+    media.volume = item.muted ? 0 : Math.min(1, Math.max(0, item.volumePercent / 100) * fade);
     onStatus({ state: media.paused ? "paused" : "playing", lessonId: playlist.playlistId, itemId: item.itemId, positionMs: Math.round(position), durationMs: Math.round(resolvedDuration), volumePercent: item.volumePercent });
     if (item.endMs && media.currentTime * 1_000 >= item.endMs) {
       media.pause();
@@ -695,13 +758,16 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
     onStatus({ state: "error", lessonId: playlist.playlistId, itemId: item.itemId, positionMs: 0, durationMs: duration, volumePercent: item.volumePercent, error: message });
   }
 
-  if (online) return <div className="web-player-stage online">
-    <iframe ref={frameRef} title={item.title} src={youtubeApiUrl(item.playbackUrl!)} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" referrerPolicy="strict-origin-when-cross-origin" />
+  const stageStyle = { backgroundColor: item.fitMode === "letterbox" ? "#000000" : item.backgroundColor || "#000000" };
+  const mediaStyle = cueVisualStyle(item, opacity);
+
+  if (online) return <div className="web-player-stage online" style={stageStyle}>
+    <iframe ref={frameRef} title={item.title} src={youtubeApiUrl(item.playbackUrl!)} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" referrerPolicy="strict-origin-when-cross-origin" style={mediaStyle} onLoad={() => { frameRef.current?.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: item.itemId }), "*"); configureOnlineFrame(frameRef.current, item, paused); }} />
     <div className="web-player-black" style={{ opacity: paused ? .2 : 0 }} />
   </div>;
 
-  if (image) return <div className="web-player-stage">
-    <img src={item.downloadUrl} alt={item.title} style={{ opacity }} onError={() => onStatus({ state: "error", lessonId: playlist.playlistId, itemId: item.itemId, positionMs: imagePosition, durationMs: duration, volumePercent: item.volumePercent, error: "The browser could not load this image." })} />
+  if (image) return <div className="web-player-stage" style={stageStyle}>
+    <img src={item.downloadUrl} alt={item.title} style={mediaStyle} onError={() => onStatus({ state: "error", lessonId: playlist.playlistId, itemId: item.itemId, positionMs: imagePosition, durationMs: duration, volumePercent: item.volumePercent, error: "The browser could not load this image." })} />
   </div>;
 
   const common = {
@@ -714,9 +780,9 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
     onPlaying: progress,
     onEnded,
     onError: failed,
-    style: { opacity },
+    style: mediaStyle,
   };
-  return <div className={`web-player-stage ${audio ? "audio" : ""}`}>
+  return <div className={`web-player-stage ${audio ? "audio" : ""}`} style={stageStyle}>
     {audio ? <><div className="audio-art">♫</div><audio {...common} /></> : <video {...common} playsInline />}
   </div>;
 }
@@ -741,12 +807,11 @@ function usePreload(item?: CueItem) {
 }
 
 function useSignagePreload(signage?: Signage[]) {
-  const signature = signage?.map(item => `${item.id}:${item.media?.downloadUrl || ""}`).join("|") || "";
+  const signature = signage?.flatMap(item => signageMediaItems(item)).map(item => `${item.itemId}:${item.downloadUrl || ""}`).join("|") || "";
   useEffect(() => {
     const elements: Array<HTMLImageElement | HTMLLinkElement> = [];
-    for (const sign of signage || []) {
-      const media = sign.media;
-      if (!media?.downloadUrl) continue;
+    for (const media of (signage || []).flatMap(signageMediaItems)) {
+      if (!media.downloadUrl) continue;
       if (media.type === "image" || media.contentType?.startsWith("image/")) {
         const image = new Image();
         image.src = media.downloadUrl;
@@ -772,7 +837,7 @@ function useDurableSignageCache(
   inventoryRef: { current: { itemId: string; title: string; state: string; sizeBytes: number; expectedBytes?: number; error?: string }[] },
   errorsRef: { current: { timestamp: string; area: string; message: string; itemId?: string }[] },
 ) {
-  const signature = signage?.map(item => `${item.id}:${item.media?.itemId || ""}:${item.media?.downloadUrl || ""}:${item.media?.sha256 || ""}`).join("|") || "";
+  const signature = signage?.flatMap(signageMediaItems).map(item => `${item.itemId}:${item.downloadUrl || ""}:${item.sha256 || ""}`).join("|") || "";
   useEffect(() => {
     if (!identity || !("caches" in window)) {
       inventoryRef.current = [];
@@ -783,7 +848,7 @@ function useDurableSignageCache(
       const cache = await caches.open("lessoncue-signage-v1");
       const media = [...new Map(
         (signage || [])
-          .map(sign => sign.media)
+          .flatMap(signageMediaItems)
           .filter((item): item is CueItem => Boolean(item?.downloadUrl))
           .map(item => [item.itemId, item]),
       ).values()];
@@ -820,6 +885,8 @@ function useDurableSignageCache(
   }, [identity?.screenId, signature]);
 }
 
+function signageMediaItems(signage: Signage) { return [signage.media, ...(signage.zones || []).map(zone => zone.media)].filter((item): item is CueItem => Boolean(item)); }
+
 function readIdentity(): Identity | null {
   try {
     const value = JSON.parse(localStorage.getItem(IDENTITY_KEY) || "null") as Partial<Identity> | null;
@@ -850,6 +917,29 @@ function fadeOpacity(item: CueItem, position: number, duration: number) {
   const fadeIn = item.fadeInMs > 0 ? Math.min(1, Math.max(0, position / item.fadeInMs)) : 1;
   const fadeOut = item.fadeOutMs > 0 ? Math.min(1, Math.max(0, (duration - position) / item.fadeOutMs)) : 1;
   return Math.min(fadeIn, fadeOut);
+}
+
+function visualOpacity(item: CueItem, position: number, duration: number) {
+  const cueFade = fadeOpacity(item, position, duration);
+  if (item.transitionStyle !== "fade-black" || !item.transitionDurationMs) return cueFade;
+  const transition = Math.max(1, item.transitionDurationMs);
+  return Math.min(cueFade, Math.min(1, position / transition), Math.min(1, (duration - position) / transition));
+}
+
+function cueVisualStyle(item: CueItem, opacity: number): CSSProperties {
+  const cropTop = Math.max(0, item.cropTopPercent || 0);
+  const cropRight = Math.max(0, item.cropRightPercent || 0);
+  const cropBottom = Math.max(0, item.cropBottomPercent || 0);
+  const cropLeft = Math.max(0, item.cropLeftPercent || 0);
+  const scaleX = 100 / Math.max(10, 100 - cropLeft - cropRight);
+  const scaleY = 100 / Math.max(10, 100 - cropTop - cropBottom);
+  return {
+    opacity,
+    objectFit: item.fitMode === "fill" ? "cover" : "contain",
+    transform: `translate(${(cropRight - cropLeft) / 2}%, ${(cropBottom - cropTop) / 2}%) scale(${scaleX}, ${scaleY}) rotate(${item.rotationDegrees || 0}deg)`,
+    clipPath: `inset(${cropTop}% ${cropRight}% ${cropBottom}% ${cropLeft}%)`,
+    transition: "opacity 50ms linear",
+  };
 }
 
 function statusPosition(media: HTMLMediaElement | null, item: CueItem) {
@@ -912,6 +1002,15 @@ function youtubeApiUrl(value: string) {
     }
     return url.toString();
   } catch { return value; }
+}
+
+function configureOnlineFrame(frame: HTMLIFrameElement | null, item: CueItem, paused: boolean) {
+  const target = frame?.contentWindow;
+  const command = (func: string, args: unknown[] = []) => target?.postMessage(JSON.stringify({ event: "command", func, args }), "*");
+  command(paused ? "pauseVideo" : "playVideo");
+  command("setPlaybackRate", [Math.max(.25, Math.min(2, (item.playbackRatePercent || 100) / 100))]);
+  command("setVolume", [item.muted ? 0 : Math.max(0, Math.min(100, item.volumePercent))]);
+  command(item.muted ? "mute" : "unMute");
 }
 
 function connectionLabel(connection: ConnectionState) {
