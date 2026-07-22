@@ -23,9 +23,22 @@ data class CueItem(
     val endBehavior: String = "advance",
     val volumePercent: Int = 100,
     val notes: String = "",
+    val flexibleTime: Boolean = false,
     val imageDurationSeconds: Int? = null,
     val fadeInMs: Int = 0,
     val fadeOutMs: Int = 0,
+    val fitMode: String = "fit",
+    val rotationDegrees: Int = 0,
+    val cropLeftPercent: Int = 0,
+    val cropTopPercent: Int = 0,
+    val cropRightPercent: Int = 0,
+    val cropBottomPercent: Int = 0,
+    val muted: Boolean = false,
+    val playbackRatePercent: Int = 100,
+    val repeatCount: Int = 1,
+    val backgroundColor: String = "#000000",
+    val transitionStyle: String = "cut",
+    val transitionDurationMs: Int = 500,
     val offlineEligible: Boolean = false,
     val cuePoints: List<CuePoint> = emptyList()
 )
@@ -35,7 +48,16 @@ fun CueItem.cacheFileName(): String = "$id.${fileExtension?.takeIf { it.matches(
 data class CountdownCue(val itemId: String, val durationMs: Long, val startAt: Instant?, val item: CueItem)
 data class PreRollCue(val items: List<CueItem>)
 data class SignageCue(val id: String, val name: String, val mode: String, val priority: Int, val message: String,
-    val backgroundColor: String, val textColor: String, val mediaUrl: String?, val media: CueItem? = null)
+    val backgroundColor: String, val textColor: String, val mediaUrl: String?, val media: CueItem? = null,
+    val layoutPreset: String = "single", val zones: List<SignageZone> = emptyList(),
+    val widgetCacheUpdatedAt: String? = null, val widgetCacheError: String? = null)
+
+data class SignageWidgetCache(val zoneId: String, val title: String, val text: String,
+    val items: List<String>, val refreshedAt: String? = null)
+data class SignageZone(val id: String, val type: String, val title: String?, val content: String?,
+    val x: Int, val y: Int, val width: Int, val height: Int, val backgroundColor: String,
+    val textColor: String, val accentColor: String, val media: CueItem? = null,
+    val cached: SignageWidgetCache? = null)
 
 data class LessonPlaylist(
     val id: String,

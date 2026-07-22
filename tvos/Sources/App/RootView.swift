@@ -84,7 +84,9 @@ private struct LibraryView: View {
     var body: some View {
       ZStack {
         Color(hex: signage?.backgroundColor ?? "#08111f").ignoresSafeArea()
-        if let media = signage?.media { SignageBackdrop(item: media) }
+        if let signage, !(signage.zones ?? []).isEmpty { SignageZoneLayout(signage: signage) }
+        else if let media = signage?.media { SignageBackdrop(item: media) }
+        if !(signage?.zones ?? []).isEmpty { Color.black.opacity(0.30).ignoresSafeArea() }
         HStack(alignment: .top, spacing: 80) {
             VStack(alignment: .leading, spacing: 18) {
                 Text("LESSONCUE").font(.headline).tracking(5).foregroundStyle(Color.lessonGold)
@@ -128,6 +130,44 @@ private struct LibraryView: View {
         }
         .padding(70)
       }
+    }
+}
+
+private struct SignageZoneLayout: View {
+    let signage: SignageCue
+
+    var body: some View {
+        GeometryReader { proxy in
+            ForEach(signage.zones ?? []) { zone in
+                ZStack {
+                    Color(hex: zone.backgroundColor)
+                    if let media = zone.media { SignageBackdrop(item: media) }
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let title = zone.title { Text(title.uppercased()).font(.headline).tracking(3).foregroundStyle(Color(hex: zone.accentColor)) }
+                        if zone.type == "clock" {
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                Text(context.date, style: .time).font(.system(size: 64, weight: .bold, design: .rounded))
+                                Text(context.date.formatted(.dateTime.weekday(.wide).month(.wide).day())).font(.title3)
+                            }
+                        } else {
+                            let displayText = (zone.cached?.text.isEmpty == false ? zone.cached?.text : nil) ?? zone.content
+                            if let text = displayText {
+                                Text(text).font(.system(size: 32, weight: .semibold, design: .rounded))
+                            }
+                            ForEach(Array((zone.cached?.items ?? []).prefix(8).enumerated()), id: \.offset) { _, item in
+                                Text("•  \(item)").font(.title3).lineLimit(1)
+                            }
+                        }
+                    }
+                    .foregroundStyle(Color(hex: zone.textColor)).padding(28).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                }
+                .clipped()
+                .frame(width: proxy.size.width * CGFloat(zone.width) / 100,
+                       height: proxy.size.height * CGFloat(zone.height) / 100)
+                .position(x: proxy.size.width * (CGFloat(zone.x) + CGFloat(zone.width) / 2) / 100,
+                          y: proxy.size.height * (CGFloat(zone.y) + CGFloat(zone.height) / 2) / 100)
+            }
+        }.ignoresSafeArea()
     }
 }
 
@@ -241,20 +281,30 @@ private struct PlaybackView: View {
     @State private var imageURL: URL?
     @State private var unavailable = false
     @State private var visualOpacity = 1.0
+    @State private var repeatCompleted = 0
 
     private var item: CueItem? { items.indices.contains(index) ? items[index] : nil }
 
     var body: some View {
         ZStack(alignment: .top) {
-            Color.black.ignoresSafeArea()
+            Color(hex: item?.fitMode == "letterbox" ? "#000000" : item?.backgroundColor ?? "#000000").ignoresSafeArea()
             if item?.type == "image", let imageURL {
-                AsyncImage(url: imageURL) { phase in
-                    if let image = phase.image { image.resizable().scaledToFit() }
-                    else if phase.error != nil { ContentUnavailableView("Image unavailable", systemImage: "photo") }
-                    else { ProgressView() }
-                }.ignoresSafeArea().opacity(visualOpacity)
+                GeometryReader { proxy in
+                    AsyncImage(url: imageURL) { phase in
+                        if let image = phase.image {
+                            image.resizable().aspectRatio(contentMode: item?.fitMode == "fill" ? .fill : .fit)
+                                .cueTransform(item, size: proxy.size)
+                        }
+                        else if phase.error != nil { ContentUnavailableView("Image unavailable", systemImage: "photo") }
+                        else { ProgressView() }
+                    }
+                }.ignoresSafeArea().clipped().opacity(visualOpacity)
             }
-            else if let player { VideoPlayer(player: player).ignoresSafeArea().opacity(visualOpacity) }
+            else if let player {
+                GeometryReader { proxy in
+                    VideoPlayer(player: player).cueTransform(item, size: proxy.size)
+                }.ignoresSafeArea().clipped().opacity(visualOpacity)
+            }
             else if unavailable { ContentUnavailableView("Media unavailable", systemImage: "wifi.slash", description: Text("Reconnect to the server or download this lesson before going offline.")) }
             HStack {
                 VStack(alignment: .leading) {
@@ -276,15 +326,21 @@ private struct PlaybackView: View {
             guard let ended = notification.object as? AVPlayerItem, ended === player?.currentItem else { return }
             Task { await handleCompletion() }
         }
-        .onPlayPauseCommand { player?.rate == 0 ? player?.play() : player?.pause() }
+        .onPlayPauseCommand {
+            if player?.rate == 0 { player?.playImmediately(atRate: configuredRate) } else { player?.pause() }
+        }
         .onChange(of: model.playbackCommand?.version) { _, _ in
             if model.playbackCommand?.action == "pause" { player?.pause() }
-            if model.playbackCommand?.action == "resume" { player?.play() }
+            if model.playbackCommand?.action == "resume" { player?.playImmediately(atRate: configuredRate) }
         }
         .onMoveCommand { direction in
             if direction == .right { advance() }
             if direction == .left, index > 0 { model.route = .playback(playlist: playlist, items: items, index: index - 1, seekMs: 0) }
         }
+    }
+
+    private var configuredRate: Float {
+        Float((item?.playbackRatePercent ?? 100).clamped(to: 25...400)) / 100
     }
 
     private func prepare() async {
@@ -300,25 +356,36 @@ private struct PlaybackView: View {
             let seconds = max(1, item.imageDurationSeconds ?? 10)
             let durationMs = Int64(seconds * 1000)
             var elapsedMs: Int64 = 0
-            while elapsedMs <= durationMs {
-                let fadeIn = (item.fadeInMs ?? 0) > 0 ? min(1, max(0, Double(elapsedMs) / Double(item.fadeInMs!))) : 1
-                let fadeOut = (item.fadeOutMs ?? 0) > 0 ? min(1, max(0, Double(durationMs - elapsedMs) / Double(item.fadeOutMs!))) : 1
-                visualOpacity = min(fadeIn, fadeOut)
-                if elapsedMs % 1000 == 0 {
-                    model.updatePlayback(PlaybackTelemetry(state: "playing", lessonId: playlist.id,
-                        itemId: item.id, positionMs: elapsedMs, durationMs: durationMs, volumePercent: item.volumePercent))
+            while true {
+                while elapsedMs <= durationMs {
+                    visualOpacity = cueOpacity(item, positionMs: elapsedMs, durationMs: durationMs)
+                    if elapsedMs % 1000 == 0 {
+                        model.updatePlayback(PlaybackTelemetry(state: "playing", lessonId: playlist.id,
+                            itemId: item.id, positionMs: elapsedMs, durationMs: durationMs, volumePercent: item.volumePercent))
+                    }
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    elapsedMs += Int64(50 * Double((item.playbackRatePercent ?? 100).clamped(to: 25...400)) / 100)
+                    guard !Task.isCancelled else { return }
                 }
-                try? await Task.sleep(nanoseconds: 50_000_000)
-                elapsedMs += 50
-                guard !Task.isCancelled else { return }
+                repeatCompleted += 1
+                if item.endBehavior == "loop" || repeatCompleted < (item.repeatCount ?? 1).clamped(to: 1...99) {
+                    elapsedMs = 0
+                    continue
+                }
+                break
             }
             guard !Task.isCancelled else { return }
             if item.endBehavior == "advance" || playlist.preRoll?.items.contains(item) == true { advance() }
+            else if item.endBehavior == "playlistLoop" { model.playNext(playlist: playlist, items: items, index: items.count - 1, loops: true) }
+            else if item.endBehavior != "pause" {
+                model.updatePlayback(PlaybackTelemetry())
+                model.route = .library
+            }
             return
         }
         imageURL = nil
         let next = AVPlayer(url: url)
-        let targetVolume = min(1.5, Float(item.volumePercent) / 100)
+        let targetVolume = item.muted == true ? 0 : min(1.5, Float(item.volumePercent) / 100)
         next.volume = (item.fadeInMs ?? 0) > 0 ? 0 : targetVolume
         visualOpacity = (item.fadeInMs ?? 0) > 0 ? 0 : 1
         model.updatePlayback(PlaybackTelemetry(state: "loading", lessonId: playlist.id,
@@ -326,7 +393,7 @@ private struct PlaybackView: View {
             volumePercent: item.volumePercent))
         await next.seek(to: CMTime(value: item.startMs + max(0, seekMs), timescale: 1000))
         player = next
-        next.play()
+        next.playImmediately(atRate: Float((item.playbackRatePercent ?? 100).clamped(to: 25...400)) / 100)
         while !Task.isCancelled {
             let position = Int64(next.currentTime().seconds * 1000)
             let fadeIn = (item.fadeInMs ?? 0) > 0 ? min(1, max(0, Float(position - item.startMs) / Float(item.fadeInMs!))) : 1
@@ -334,7 +401,8 @@ private struct PlaybackView: View {
             let fadeOut = (item.fadeOutMs ?? 0) > 0 && end != nil ? min(1, max(0, Float(end! - position) / Float(item.fadeOutMs!))) : 1
             let fade = min(fadeIn, fadeOut)
             next.volume = targetVolume * fade
-            visualOpacity = Double(fade)
+            visualOpacity = min(Double(fade), cueTransitionOpacity(item, positionMs: max(0, position - item.startMs),
+                durationMs: max(0, (end ?? item.durationMs ?? 0) - item.startMs)))
             let duration = next.currentItem?.duration.seconds
             let state = next.timeControlStatus == .playing ? "playing" :
                 (next.timeControlStatus == .waitingToPlayAtSpecifiedRate ? "buffering" : "paused")
@@ -350,13 +418,23 @@ private struct PlaybackView: View {
 
     private func handleCompletion() async {
         guard let item, let player else { return }
-        if item.endBehavior == "loop" { await player.seek(to: .zero); player.play() }
+        repeatCompleted += 1
+        if item.endBehavior == "loop" || repeatCompleted < (item.repeatCount ?? 1).clamped(to: 1...99) {
+            await player.seek(to: CMTime(value: item.startMs, timescale: 1000))
+            player.playImmediately(atRate: Float((item.playbackRatePercent ?? 100).clamped(to: 25...400)) / 100)
+        }
         else if item.endBehavior == "advance" || playlist.preRoll?.items.contains(item) == true { advance() }
-        else {
+        else if item.endBehavior == "playlistLoop" { model.playNext(playlist: playlist, items: items, index: items.count - 1, loops: true) }
+        else if item.endBehavior == "pause" {
             player.pause()
             model.updatePlayback(PlaybackTelemetry(state: "completed", lessonId: playlist.id,
                 itemId: item.id, positionMs: item.endMs ?? item.durationMs ?? 0,
                 durationMs: item.endMs ?? item.durationMs, volumePercent: item.volumePercent))
+        }
+        else {
+            player.pause()
+            model.updatePlayback(PlaybackTelemetry())
+            model.route = .library
         }
     }
 
@@ -388,6 +466,37 @@ private struct FormPanel<Content: View>: View {
 private struct ErrorText: View {
     let message: String?
     var body: some View { if let message { Text(message).foregroundStyle(Color.lessonCoral) } }
+}
+
+private func cueOpacity(_ item: CueItem, positionMs: Int64, durationMs: Int64) -> Double {
+    let fadeIn = (item.fadeInMs ?? 0) > 0 ? min(1, max(0, Double(positionMs) / Double(item.fadeInMs!))) : 1
+    let fadeOut = (item.fadeOutMs ?? 0) > 0 ? min(1, max(0, Double(durationMs - positionMs) / Double(item.fadeOutMs!))) : 1
+    return min(fadeIn, fadeOut, cueTransitionOpacity(item, positionMs: positionMs, durationMs: durationMs))
+}
+
+private func cueTransitionOpacity(_ item: CueItem, positionMs: Int64, durationMs: Int64) -> Double {
+    guard item.transitionStyle == "fade-black", (item.transitionDurationMs ?? 0) > 0, durationMs > 0 else { return 1 }
+    let transition = Double(item.transitionDurationMs!)
+    return min(1, max(0, Double(positionMs) / transition), max(0, Double(durationMs - positionMs) / transition))
+}
+
+private extension View {
+    func cueTransform(_ item: CueItem?, size: CGSize) -> some View {
+        let left = item?.cropLeftPercent ?? 0
+        let right = item?.cropRightPercent ?? 0
+        let top = item?.cropTopPercent ?? 0
+        let bottom = item?.cropBottomPercent ?? 0
+        let scaleX = 100 / CGFloat(max(11, 100 - left - right))
+        let scaleY = 100 / CGFloat(max(11, 100 - top - bottom))
+        return scaleEffect(x: scaleX, y: scaleY)
+            .offset(x: CGFloat(right - left) / 200 * size.width * scaleX,
+                    y: CGFloat(bottom - top) / 200 * size.height * scaleY)
+            .rotationEffect(.degrees(Double(item?.rotationDegrees ?? 0)))
+    }
+}
+
+private extension Comparable {
+    func clamped(to limits: ClosedRange<Self>) -> Self { min(max(self, limits.lowerBound), limits.upperBound) }
 }
 
 private extension Color {

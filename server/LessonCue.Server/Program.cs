@@ -76,6 +76,13 @@ builder.Services.AddHttpClient("presentation-import", client =>
     client.Timeout = TimeSpan.FromMinutes(3);
     client.DefaultRequestHeaders.UserAgent.ParseAdd("LessonCue-Server/1.0");
 });
+builder.Services.AddHttpClient("signage-widgets", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(20);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("LessonCue-Signage/1.0");
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddSingleton<SignageWidgetService>();
+builder.Services.AddHostedService(services => services.GetRequiredService<SignageWidgetService>());
 builder.Services.AddSingleton(services => new AccountEmailService(dataPath,
     services.GetRequiredService<IDataProtectionProvider>(), services.GetRequiredService<IHttpClientFactory>(),
     services.GetRequiredService<ILogger<AccountEmailService>>()));

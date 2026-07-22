@@ -10,4 +10,8 @@ Generate the Xcode project from `tvos/project.yml` so build settings remain revi
 
 The app declares `_lessoncue._tcp` Bonjour discovery and local-network usage. Users must grant local-network access. Device credentials are kept in Keychain; downloaded files are stored in the application cache and may be reclaimed by tvOS, so the client must continuously re-evaluate readiness.
 
+Version 0.32.0 and newer applies the lesson editor's fit/fill/letterbox, rotation, asymmetric crop, background color, whole-lesson and cue volume/mute, playback speed, finite repeat count, still duration, synchronized audiovisual fades, fade-through-black transition, and end behavior through AVFoundation and SwiftUI. Older cached manifests remain decodable because the added protocol fields have optional client defaults.
+
+Version 0.34.0 adds optional flexible-time cue metadata while preserving responsive multi-zone signage with locally rendered clocks, cached information widgets, and independently cached image or muted looping-video zones. New protocol fields remain optional so an older offline manifest still decodes.
+
 tvOS may suspend the app and does not guarantee exact unattended wake. Validate scheduled countdown startup on each Apple TV model and tvOS version before advertising unattended operation.

@@ -58,12 +58,13 @@ The ready screen can also be navigated with Tab/Shift+Tab and activated with Ent
 
 ## Playback behavior
 
-The browser consumes the same paired-screen manifest as Android TV and Apple TV. It therefore receives the assigned lessons, online media, trim points, volume, image duration, end behavior, notes, cue markers, pre-roll loop, duration-aware countdown, and signage.
+The browser consumes the same paired-screen manifest as Android TV and Apple TV. It therefore receives the assigned lessons, online media, trim points, per-cue and per-lesson volume/mute, image duration, end behavior, notes, cue markers, fit/fill/letterbox, rotation, crop, background, playback speed, repeat count, transitions, pre-roll loop, duration-aware countdown, and signage. Multi-zone signs render responsive media, text, local clocks, and the server's last successful cached calendar, weather, menu, RSS, or approved JSON content.
 
 - Pre-roll begins at the configured time and loops until the countdown window.
 - Countdown playback seeks to the correct position if the browser starts late.
 - At the designated lesson time, the player transitions to the main lesson.
 - Audio and picture share one fade envelope over a true black stage.
+- Visual cues honor asymmetric crop, rotation, fit/fill/letterbox, selected background, finite repeats, playback speed, and cut or fade-through-black transitions.
 - The next local lesson item is prefetched where the browser permits it.
 - Future signage audio, images, and video are stored in browser Cache Storage, reported to LessonCue, and reused during temporary network loss while the browser retains them.
 - Emergency signage interrupts active playback and resumes the interrupted cue after the override ends; completed lessons return to current signage.

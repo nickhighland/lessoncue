@@ -22,6 +22,10 @@ public sealed class ManifestService(LessonCueDb db)
             .Where(x => (x.AvailableFrom is null || x.AvailableFrom <= now) && (x.ExpiresAt is null || x.ExpiresAt >= now)).ToList();
         var signage = await db.SignagePlaylists.AsNoTracking().Include(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants)
             .Where(x => x.Enabled).ToListAsync(cancellationToken);
+        var zoneMediaIds = signage.SelectMany(item => SignageLayout.ParseZones(item.ZonesJson))
+            .Where(zone => zone.MediaAssetId is not null).Select(zone => zone.MediaAssetId!.Value).Distinct().ToArray();
+        var zoneMedia = await db.MediaAssets.AsNoTracking().Include(media => media.TranscodeVariants)
+            .Where(media => zoneMediaIds.Contains(media.Id)).ToDictionaryAsync(media => media.Id, cancellationToken);
         var targetedSignage = signage
             .Select(item => new { Item = item, State = SignageSchedule.Evaluate(item, now, timeZone) })
             .Where(entry => (entry.State.Active || SignageSchedule.CanOccurAgain(entry.Item, now, timeZone))
@@ -39,8 +43,8 @@ public sealed class ManifestService(LessonCueDb db)
             manifestVersion = version,
             generatedAt = DateTimeOffset.UtcNow,
             screen = new { id = screen.Id, screen.Name, screen.VolunteerMode, screen.Site, tags = SplitTags(screen.TagsCsv) },
-            signage = matchingSignage.Select(entry => MapSignage(entry.Item, entry.State, screen)).ToArray(),
-            signageSchedule = targetedSignage.Select(entry => MapSignage(entry.Item, entry.State, screen)).ToArray(),
+            signage = matchingSignage.Select(entry => MapSignage(entry.Item, entry.State, screen, zoneMedia)).ToArray(),
+            signageSchedule = targetedSignage.Select(entry => MapSignage(entry.Item, entry.State, screen, zoneMedia)).ToArray(),
             playlists = lessons.Select(x => BuildPlaylist(x, screen)).ToArray()
         };
     }
@@ -53,13 +57,16 @@ public sealed class ManifestService(LessonCueDb db)
         var countdownStart = lesson.DesignatedStartAt is { } start && countdownDuration is { } duration
             ? start.AddMilliseconds(-duration)
             : (DateTimeOffset?)null;
-        var preRollItems = ordered.Where(x => x.Role == "preRoll").Select(x => MapItem(x, screen)).ToArray();
+        var preRollItems = ordered.Where(x => x.Role == "preRoll")
+            .Select(x => MapItem(x, screen, lesson.VolumePercent, lesson.Muted)).ToArray();
 
         return new
         {
             playlistId = lesson.Id,
             title = string.IsNullOrWhiteSpace(lesson.Title) ? lesson.Class?.Name ?? "Lesson" : lesson.Title,
             version = lesson.Version,
+            volumePercent = lesson.VolumePercent,
+            muted = lesson.Muted,
             lessonDate = lesson.Date,
             designatedStartAt = UtcTimestamp(lesson.DesignatedStartAt),
             preRollStartsAt = UtcTimestamp(lesson.PreRollStartsAt),
@@ -71,7 +78,7 @@ public sealed class ManifestService(LessonCueDb db)
                 itemId = countdownItem.Id,
                 durationMs = countdownDuration.Value,
                 startAt = UtcTimestamp(countdownStart),
-                item = MapItem(countdownItem, screen)
+                item = MapItem(countdownItem, screen, lesson.VolumePercent, lesson.Muted)
             },
             preRoll = !lesson.PreRollEnabled || preRollItems.Length == 0 ? null : new
             {
@@ -79,7 +86,8 @@ public sealed class ManifestService(LessonCueDb db)
                 loop = true,
                 items = preRollItems
             },
-            items = ordered.Where(x => x.Role == "lesson").Select(x => MapItem(x, screen)).ToArray()
+            items = ordered.Where(x => x.Role == "lesson")
+                .Select(x => MapItem(x, screen, lesson.VolumePercent, lesson.Muted)).ToArray()
         };
     }
 
@@ -92,7 +100,7 @@ public sealed class ManifestService(LessonCueDb db)
         ? null
         : item.EndMs is { } end ? Math.Max(0, end - item.StartMs) : item.DurationMs ?? item.MediaAsset?.DurationMs;
 
-    private static object MapItem(PlaylistItem item, Screen screen)
+    private static object MapItem(PlaylistItem item, Screen screen, int lessonVolumePercent, bool lessonMuted)
     {
         var media = item.MediaAsset;
         var compatible = media?.CompatibilityStatus == "ready" && !string.IsNullOrWhiteSpace(media.CompatibilityPath);
@@ -127,7 +135,10 @@ public sealed class ManifestService(LessonCueDb db)
             durationMs = item.DurationMs ?? media?.DurationMs,
             item.StartMs,
             item.EndMs,
-            item.VolumePercent,
+            volumePercent = lessonMuted || item.Muted ? 0 : Math.Clamp(
+                (int)Math.Round(item.VolumePercent * lessonVolumePercent / 100d), 0, 150),
+            configuredVolumePercent = item.VolumePercent,
+            item.Muted,
             item.ImageDurationSeconds,
             item.EndBehavior,
             item.AllowSkip,
@@ -139,13 +150,24 @@ public sealed class ManifestService(LessonCueDb db)
             item.FadeInMs,
             item.FadeOutMs,
             item.NormalizeAudio,
+            item.FitMode,
+            item.RotationDegrees,
+            item.CropLeftPercent,
+            item.CropTopPercent,
+            item.CropRightPercent,
+            item.CropBottomPercent,
+            item.PlaybackRatePercent,
+            item.RepeatCount,
+            item.BackgroundColor,
+            item.TransitionStyle,
+            item.TransitionDurationMs,
+            item.FlexibleTime,
             cuePoints = ParseCuePoints(item.CuePointsJson)
         };
     }
 
-    private static (object? Manifest, string? Url) MapSignageMedia(SignagePlaylist signage, Screen screen)
+    private static (object? Manifest, string? Url) MapSignageMedia(MediaAsset? media, string itemId, string title, Screen screen)
     {
-        var media = signage.MediaAsset;
         if (media is null) return (null, null);
         var compatible = media.CompatibilityStatus == "ready" && !string.IsNullOrWhiteSpace(media.CompatibilityPath);
         var requestedProfile = media.VideoCodec is not null ? AdaptiveTranscodeProfiles.SelectForScreen(screen, media) : null;
@@ -168,9 +190,9 @@ public sealed class ManifestService(LessonCueDb db)
         var versionedUrl = url is null ? null : $"{url}?v={Uri.EscapeDataString(cacheVersion)}";
         var manifest = new
         {
-            itemId = $"signage-{signage.Id}",
+            itemId,
             mediaId = media.Id,
-            title = signage.Name,
+            title,
             type,
             downloadUrl = versionedUrl,
             contentType,
@@ -189,9 +211,29 @@ public sealed class ManifestService(LessonCueDb db)
         return (manifest, versionedUrl);
     }
 
-    private static object MapSignage(SignagePlaylist item, SignageScheduleState state, Screen screen)
+    private static object MapSignage(SignagePlaylist item, SignageScheduleState state, Screen screen,
+        IReadOnlyDictionary<Guid, MediaAsset> zoneMedia)
     {
-        var signageMedia = MapSignageMedia(item, screen);
+        var signageMedia = MapSignageMedia(item.MediaAsset, $"signage-{item.Id}", item.Name, screen);
+        var cache = SignageLayout.ParseCache(item.WidgetCacheJson).ToDictionary(entry => entry.ZoneId, StringComparer.OrdinalIgnoreCase);
+        var zones = SignageLayout.ParseZones(item.ZonesJson).Select(zone =>
+        {
+            var media = zone.MediaAssetId is { } mediaId && zoneMedia.TryGetValue(mediaId, out var found) ? found : null;
+            var mappedMedia = MapSignageMedia(media, $"signage-{item.Id}-zone-{zone.Id}", zone.Title ?? item.Name, screen);
+            cache.TryGetValue(zone.Id, out var cached);
+            return new
+            {
+                zone.Id, zone.Type, zone.Title, zone.Content, zone.SourceUrl,
+                zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
+                zone.RefreshMinutes, media = mappedMedia.Manifest, cached
+            };
+        }).ToArray();
+        var referencedMedia = new[] { item.MediaAsset }.Concat(SignageLayout.ParseZones(item.ZonesJson)
+            .Select(zone => zone.MediaAssetId is { } id && zoneMedia.TryGetValue(id, out var media) ? media : null)).ToArray();
+        var readiness = referencedMedia.Select(SignageReadiness).OrderBy(value => value switch
+        {
+            "failed" => 0, "missing" => 1, "preparing" => 2, _ => 3
+        }).FirstOrDefault() ?? "ready";
         return new
         {
             item.Id,
@@ -204,6 +246,10 @@ public sealed class ManifestService(LessonCueDb db)
             item.MediaAssetId,
             mediaUrl = signageMedia.Url,
             media = signageMedia.Manifest,
+            item.LayoutPreset,
+            zones,
+            item.WidgetCacheUpdatedAt,
+            item.WidgetCacheError,
             item.StartsAt,
             item.EndsAt,
             recurrence = SignageSchedule.NormalizeRecurrence(item.Recurrence),
@@ -215,8 +261,8 @@ public sealed class ManifestService(LessonCueDb db)
             excludedDates = SignageSchedule.ParseDates(item.ExcludedDatesJson),
             activeNow = state.Active,
             state.NextChangeAt,
-            ready = SignageReady(item.MediaAsset),
-            readiness = SignageReadiness(item.MediaAsset)
+            ready = readiness == "ready",
+            readiness
         };
     }
 
@@ -255,7 +301,8 @@ public sealed class ManifestService(LessonCueDb db)
         foreach (var lesson in lessons.OrderBy(x => x.Id))
             hash = unchecked(hash * 31 + HashCode.Combine(lesson.Id, lesson.Version));
         foreach (var item in signage.OrderBy(x => x.Id))
-            hash = unchecked(hash * 31 + HashCode.Combine(item.Id, item.Priority, item.UpdatedAt.UtcTicks));
+            hash = unchecked(hash * 31 + HashCode.Combine(item.Id, item.Priority, item.UpdatedAt.UtcTicks,
+                item.WidgetCacheUpdatedAt?.UtcTicks ?? 0));
         foreach (var id in activeSignageIds.Order())
             hash = unchecked(hash * 31 + id.GetHashCode());
         return Math.Max(1, hash & int.MaxValue);

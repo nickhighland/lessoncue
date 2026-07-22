@@ -311,7 +311,9 @@ private extension ScreenManifest {
     var allItems: [CueItem] {
         (playlists.flatMap { playlist in
             playlist.items + (playlist.preRoll?.items ?? []) + [playlist.countdown?.item].compactMap { $0 }
-        } + (signageSchedule ?? signage).compactMap(\.media)).reduce(into: [CueItem]()) { items, item in
+        } + (signageSchedule ?? signage).flatMap { sign in
+            [sign.media].compactMap { $0 } + (sign.zones ?? []).compactMap(\.media)
+        }).reduce(into: [CueItem]()) { items, item in
             if !items.contains(where: { $0.id == item.id }) { items.append(item) }
         }
     }

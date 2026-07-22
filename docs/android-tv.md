@@ -16,6 +16,10 @@ Use JDK 17, Android SDK 36, and the Gradle version pinned in CI. `debug` builds 
 
 During playback, tap Left or Right to move to the previous or next cue in the complete pre-roll/countdown/lesson sequence. Hold Left or Right to rewind or fast-forward the current playable item in five-second steps. The remote's Play, Pause, Play/Pause, center Select, media Previous, media Next, Rewind, and Fast-forward keys are handled directly by LessonCue. Back returns to the lesson plan.
 
+Version 0.32.0 and newer applies the lesson editor's fit/fill/letterbox, rotation, asymmetric crop, background color, whole-lesson and cue volume/mute, playback speed, finite repeat count, still duration, synchronized audiovisual fades, fade-through-black transition, and end behavior on the TV. Older manifests remain readable through safe client defaults.
+
+Version 0.34.0 adds optional flexible-time cue metadata while preserving responsive multi-zone signage. Every zone media item uses the existing checksummed offline cache, while clocks render locally and approved calendar, weather, menu, RSS, and data widgets use the last successful content embedded by the server in the cached manifest.
+
 Validate directional navigation, Back, Play/Pause, rewind, fast-forward, Next, Previous, HDMI wake behavior, background download continuation, free-space cleanup, and scheduled transitions on every supported model. Fire OS is Android-derived but must be treated as its own hardware test matrix.
 
 Before live use, pair a device, download a representative lesson, disable Wi-Fi, relaunch the app, play every item, and verify that countdown and pre-roll transition correctly using the TV's actual clock.

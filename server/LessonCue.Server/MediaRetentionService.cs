@@ -126,8 +126,17 @@ public sealed class MediaRetentionService(
             item.MediaAssetId = null;
             if (item.Lesson is not null) item.Lesson.Version++;
         }
-        var signageItems = await db.SignagePlaylists.Where(x => x.MediaAssetId == media.Id).ToListAsync(ct);
-        foreach (var signage in signageItems) signage.MediaAssetId = null;
+        var signageItems = await db.SignagePlaylists.ToListAsync(ct);
+        foreach (var signage in signageItems)
+        {
+            if (signage.MediaAssetId == media.Id) signage.MediaAssetId = null;
+            var zones = SignageLayout.ParseZones(signage.ZonesJson);
+            if (zones.RemoveAll(zone => zone.MediaAssetId == media.Id) > 0)
+            {
+                signage.ZonesJson = SignageLayout.StoreZones(zones);
+                signage.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+        }
 
         var versions = await db.MediaAssetVersions.IgnoreQueryFilters().Where(x => x.MediaAssetId == media.Id).ToListAsync(ct);
         foreach (var version in versions) DeleteStoredFile(paths.Versions, version.RelativePath);

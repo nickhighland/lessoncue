@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -28,6 +29,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -40,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -49,9 +53,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -62,6 +69,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.tv.material3.Button
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
@@ -76,6 +84,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.ByteArrayOutputStream
 import kotlin.coroutines.resume
 import java.time.Instant
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -480,8 +490,8 @@ private fun LibraryScreen(
         if (manifest.playlists.isNotEmpty()) runCatching { firstFocus.requestFocus() }
     }
     Box(Modifier.fillMaxSize().background(signage?.backgroundColor?.let(::parseDisplayColor) ?: Navy)) {
-      signage?.media?.let { SignageBackdrop(it) }
-      Row(Modifier.fillMaxSize().padding(56.dp), horizontalArrangement = Arrangement.spacedBy(56.dp)) {
+      if (signage?.zones?.isNotEmpty() == true) SignageZoneLayout(signage) else signage?.media?.let { SignageBackdrop(it) }
+      Row(Modifier.fillMaxSize().background(if (signage?.zones?.isNotEmpty() == true) Color(0x52000000) else Color.Transparent).padding(56.dp), horizontalArrangement = Arrangement.spacedBy(56.dp)) {
         Column(Modifier.width(340.dp)) {
             Text("LESSONCUE", color = Gold, letterSpacing = 3.sp)
             Spacer(Modifier.height(20.dp))
@@ -525,6 +535,50 @@ private fun LibraryScreen(
         }
       }
     }
+}
+
+@Composable
+private fun SignageZoneLayout(signage: SignageCue) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        signage.zones.forEach { zone ->
+            val modifier = Modifier.offset(maxWidth * (zone.x / 100f), maxHeight * (zone.y / 100f))
+                .size(maxWidth * (zone.width / 100f), maxHeight * (zone.height / 100f))
+                .background(parseDisplayColor(zone.backgroundColor)).clipToBounds()
+            Box(modifier) {
+                zone.media?.let { SignageZoneMedia(it) }
+                Column(Modifier.fillMaxSize().padding(22.dp), verticalArrangement = Arrangement.Center) {
+                    zone.title?.let { Text(it.uppercase(), color = parseDisplayColor(zone.accentColor), fontSize = 14.sp, letterSpacing = 2.sp) }
+                    if (zone.type == "clock") {
+                        var now by remember { mutableStateOf(ZonedDateTime.now()) }
+                        LaunchedEffect(zone.id) { while (true) { kotlinx.coroutines.delay(1_000); now = ZonedDateTime.now() } }
+                        Text(now.format(DateTimeFormatter.ofPattern("h:mm a")), color = parseDisplayColor(zone.textColor), fontSize = 54.sp)
+                        Text(now.format(DateTimeFormatter.ofPattern("EEEE, MMMM d")), color = parseDisplayColor(zone.textColor), fontSize = 20.sp)
+                    } else {
+                        val body = zone.cached?.text?.ifBlank { null } ?: zone.content
+                        body?.let { Text(it, color = parseDisplayColor(zone.textColor), fontSize = 26.sp) }
+                        zone.cached?.items?.take(8)?.forEach { Text("• $it", color = parseDisplayColor(zone.textColor), fontSize = 18.sp, modifier = Modifier.padding(top = 7.dp)) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SignageZoneMedia(item: CueItem) {
+    val context = LocalContext.current
+    val cached = context.filesDir.resolve("media").resolve(item.cacheFileName()).takeIf { it.exists() }
+    val source = cached?.toURI()?.toString() ?: item.url ?: return
+    if (item.type == "image" || item.contentType?.startsWith("image/") == true) {
+        AsyncImage(model = source, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        return
+    }
+    if (item.type != "video" && item.contentType?.startsWith("video/") != true) return
+    val player = remember(item.id, source) { ExoPlayer.Builder(context).build().apply {
+        setMediaItem(MediaItem.fromUri(source)); repeatMode = Player.REPEAT_MODE_ONE; volume = 0f; prepare(); playWhenReady = true
+    } }
+    DisposableEffect(player) { onDispose { player.release() } }
+    AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = false } }, modifier = Modifier.fillMaxSize())
 }
 
 @Composable
@@ -628,6 +682,7 @@ private fun playbackRemoteModifier(
 }
 
 @Composable
+@SuppressLint("UnsafeOptInUsageError")
 private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: Int, seekMs: Long,
     control: ControlCommand?, onTelemetry: (PlaybackTelemetry) -> Unit, onExit: () -> Unit,
     onFinished: () -> Unit, onNext: (Int) -> Unit) {
@@ -649,6 +704,8 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
     val cached = context.filesDir.resolve("media").resolve(item.cacheFileName()).takeIf { it.exists() }
         ?: context.filesDir.resolve("media").resolve("${item.id}.bin").takeIf { it.exists() }
     var visualOpacity by remember(item.id) { mutableStateOf(if (item.fadeInMs > 0) 0f else 1f) }
+    var visualSize by remember(item.id) { mutableStateOf(IntSize.Zero) }
+    var repeatCompleted by remember(item.id) { mutableIntStateOf(0) }
     if (item.type == "image") {
         val duration = (item.imageDurationSeconds ?: 10).coerceAtLeast(1) * 1_000L
         var position by remember(item.id, seekMs) { mutableLongStateOf(seekMs.coerceIn(0, duration)) }
@@ -668,25 +725,32 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         }
         LaunchedEffect(item.id) {
             var telemetryElapsed = 0L
-            while (position < duration) {
-                val fadeIn = if (item.fadeInMs > 0) (position.toFloat() / item.fadeInMs).coerceIn(0f, 1f) else 1f
-                val fadeOut = if (item.fadeOutMs > 0) ((duration - position).toFloat() / item.fadeOutMs).coerceIn(0f, 1f) else 1f
-                visualOpacity = minOf(fadeIn, fadeOut)
-                if (telemetryElapsed == 0L) {
-                    onTelemetry(PlaybackTelemetry(if (playing) "playing" else "paused",
-                        playlist.id, item.id, position, duration, item.volumePercent))
+            while (true) {
+                while (position < duration) {
+                    visualOpacity = cueOpacity(item, position, duration)
+                    if (telemetryElapsed == 0L) {
+                        onTelemetry(PlaybackTelemetry(if (playing) "playing" else "paused",
+                            playlist.id, item.id, position, duration, item.volumePercent))
+                    }
+                    kotlinx.coroutines.delay(50)
+                    if (playing) position = (position + (50 * (item.playbackRatePercent.coerceIn(25, 400) / 100f)).toLong()).coerceAtMost(duration)
+                    telemetryElapsed = (telemetryElapsed + 50) % 1_000
                 }
-                kotlinx.coroutines.delay(50)
-                if (playing) position = (position + 50).coerceAtMost(duration)
-                telemetryElapsed = (telemetryElapsed + 50) % 1_000
+                repeatCompleted += 1
+                if (item.endBehavior == "loop" || repeatCompleted < item.repeatCount.coerceIn(1, 99)) {
+                    position = 0
+                    continue
+                }
+                break
             }
             if (item.endBehavior == "advance" && index + 1 < items.size) onNext(index + 1)
             else if (item.endBehavior == "playlistLoop") onNext(0)
-            else onFinished()
+            else if (item.endBehavior != "pause") onFinished()
         }
-        Box(Modifier.fillMaxSize().background(Color.Black).then(remoteModifier)) {
-            AsyncImage(model = cached ?: item.url, contentDescription = item.title, contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().graphicsLayer(alpha = visualOpacity))
+        Box(Modifier.fillMaxSize().background(cueBackground(item)).then(remoteModifier)) {
+            AsyncImage(model = cached ?: item.url, contentDescription = item.title,
+                contentScale = if (item.fitMode == "fill") ContentScale.Crop else ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().onSizeChanged { visualSize = it }.cueVisual(item, visualOpacity, visualSize))
             if (item.notes.isNotBlank()) Text(item.notes, color = Cream, fontSize = 20.sp,
                 modifier = Modifier.align(Alignment.BottomStart).padding(28.dp).background(Navy.copy(alpha = .9f)).padding(16.dp))
             Button(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd).padding(28.dp)) { Text("Exit") }
@@ -702,7 +766,8 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
                 .setMimeType(item.contentType).setClippingConfiguration(clipping).build())
             prepare()
             seekTo(seekMs.coerceAtLeast(0))
-            volume = (item.volumePercent / 100f).coerceIn(0f, 1.5f)
+            volume = if (item.muted) 0f else (item.volumePercent / 100f).coerceIn(0f, 1.5f)
+            setPlaybackSpeed(item.playbackRatePercent.coerceIn(25, 400) / 100f)
             playWhenReady = true
         }
     }
@@ -723,7 +788,7 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         }
     }
     LaunchedEffect(player, item.id) {
-        val targetVolume = (item.volumePercent / 100f).coerceIn(0f, 1.5f)
+        val targetVolume = if (item.muted) 0f else (item.volumePercent / 100f).coerceIn(0f, 1.5f)
         while (true) {
             val position = player.currentPosition.coerceAtLeast(0)
             val duration = player.duration
@@ -732,7 +797,7 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
                 ((duration - position).toFloat() / item.fadeOutMs).coerceIn(0f, 1f) else 1f
             val fade = minOf(fadeIn, fadeOut)
             player.volume = targetVolume * fade
-            visualOpacity = fade
+            visualOpacity = minOf(fade, cueTransitionOpacity(item, position, duration.takeUnless { it == C.TIME_UNSET } ?: item.durationMs ?: 0))
             val state = when {
                 player.playerError != null -> "error"
                 player.playbackState == Player.STATE_BUFFERING -> "buffering"
@@ -756,11 +821,16 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) {
+                    repeatCompleted += 1
                     when (item.endBehavior) {
-                        "loop" -> { player.seekTo(item.startMs); player.play() }
+                        "loop" -> { player.seekTo(0); player.play() }
+                        else -> if (repeatCompleted < item.repeatCount.coerceIn(1, 99)) { player.seekTo(0); player.play() }
+                        else when (item.endBehavior) {
                         "advance" -> if (index + 1 < items.size) onNext(index + 1) else onFinished()
                         "playlistLoop" -> onNext(0)
+                        "pause" -> player.pause()
                         else -> onFinished()
+                        }
                     }
                 }
             }
@@ -768,14 +838,15 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         player.addListener(listener)
         onDispose { player.removeListener(listener); player.release() }
     }
-    Box(Modifier.fillMaxSize().background(Color.Black).then(remoteModifier)) {
+    Box(Modifier.fillMaxSize().background(cueBackground(item)).then(remoteModifier)) {
         AndroidView(factory = { PlayerView(it).apply {
                 this.player = player
                 useController = false
                 isFocusable = false
                 isFocusableInTouchMode = false
+                resizeMode = if (item.fitMode == "fill") AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
             } },
-            modifier = Modifier.fillMaxSize().graphicsLayer(alpha = visualOpacity))
+            modifier = Modifier.fillMaxSize().onSizeChanged { visualSize = it }.cueVisual(item, visualOpacity, visualSize))
         Row(Modifier.align(Alignment.TopStart).padding(28.dp).background(Navy.copy(alpha = .82f)).padding(16.dp)) {
             Text(item.title, color = Cream)
             Spacer(Modifier.width(28.dp))
@@ -794,6 +865,7 @@ private fun OnlineMediaScreen(lessonId: String, items: List<CueItem>, index: Int
     onNext: (Int) -> Unit) {
     val context = LocalContext.current
     var locallyPaused by remember(item.id) { mutableStateOf(false) }
+    var visualSize by remember(item.id) { mutableStateOf(IntSize.Zero) }
     val webView = remember(item.id) {
         WebView(context).apply {
             settings.javaScriptEnabled = item.linkKind != "webpage"
@@ -845,17 +917,18 @@ private fun OnlineMediaScreen(lessonId: String, items: List<CueItem>, index: Int
         }
     }
     LaunchedEffect(item.id, control?.version, locallyPaused) {
+        webView.evaluateMediaScript("if(v){v.playbackRate=${item.playbackRatePercent.coerceIn(25, 400) / 100.0};v.muted=${item.muted};v.volume=${(item.volumePercent / 100.0).coerceIn(0.0, 1.0)};}")
         onTelemetry(PlaybackTelemetry(if (locallyPaused) "paused" else "playing",
             lessonId, item.id, volumePercent = item.volumePercent))
     }
     DisposableEffect(webView) { onDispose { webView.stopLoading(); webView.destroy() } }
-    Box(Modifier.fillMaxSize().background(Color.Black).then(remoteModifier)) {
+    Box(Modifier.fillMaxSize().background(cueBackground(item)).then(remoteModifier)) {
         AndroidView(factory = {
             webView.apply {
                 isFocusable = false
                 isFocusableInTouchMode = false
             }
-        }, modifier = Modifier.fillMaxSize())
+        }, modifier = Modifier.fillMaxSize().onSizeChanged { visualSize = it }.cueVisual(item, 1f, visualSize))
         Row(Modifier.align(Alignment.TopStart).padding(28.dp).background(Navy.copy(alpha = .82f)).padding(16.dp)) {
             Text(item.title, color = Cream)
             Spacer(Modifier.width(18.dp))
@@ -880,7 +953,7 @@ private const val REMOTE_SEEK_STEP_MS = 5_000L
 
 private fun ScreenManifest.itemCount() = (playlists.flatMap { playlist ->
     playlist.items + playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item)
-} + signageSchedule.mapNotNull { it.media }).distinctBy { it.id }.size
+} + signageSchedule.flatMap { sign -> listOfNotNull(sign.media) + sign.zones.mapNotNull { it.media } }).distinctBy { it.id }.size
 
 @Composable
 private fun FormLayout(title: String, subtitle: String, content: @Composable ColumnScope.() -> Unit) {
@@ -912,7 +985,7 @@ private fun CenterMessage(message: String) = Box(Modifier.fillMaxSize(), content
 private fun scheduleMediaCaches(context: android.content.Context, identity: DeviceIdentity, manifest: ScreenManifest) {
     val manager = WorkManager.getInstance(context)
     val items = (manifest.playlists.flatMap { playlist -> playlist.items + playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) }
-        + manifest.signageSchedule.mapNotNull { it.media })
+        + manifest.signageSchedule.flatMap { sign -> listOfNotNull(sign.media) + sign.zones.mapNotNull { it.media } })
         .distinctBy { it.id }.filter { it.offlineEligible && it.url != null }
     items.forEach { item ->
         val request = OneTimeWorkRequestBuilder<MediaCacheWorker>().setInputData(workDataOf(
@@ -922,6 +995,39 @@ private fun scheduleMediaCaches(context: android.content.Context, identity: Devi
         manager.enqueueUniqueWork("lessoncue-media-${item.id}-${item.sha256?.take(12) ?: "current"}",
             ExistingWorkPolicy.KEEP, request)
     }
+}
+
+private fun cueOpacity(item: CueItem, positionMs: Long, durationMs: Long): Float {
+    val fadeIn = if (item.fadeInMs > 0) (positionMs.toFloat() / item.fadeInMs).coerceIn(0f, 1f) else 1f
+    val fadeOut = if (item.fadeOutMs > 0) ((durationMs - positionMs).toFloat() / item.fadeOutMs).coerceIn(0f, 1f) else 1f
+    return minOf(fadeIn, fadeOut, cueTransitionOpacity(item, positionMs, durationMs))
+}
+
+private fun cueTransitionOpacity(item: CueItem, positionMs: Long, durationMs: Long): Float {
+    if (item.transitionStyle != "fade-black" || item.transitionDurationMs <= 0 || durationMs <= 0) return 1f
+    val fadeIn = positionMs.toFloat() / item.transitionDurationMs
+    val fadeOut = (durationMs - positionMs).toFloat() / item.transitionDurationMs
+    return minOf(fadeIn, fadeOut, 1f).coerceIn(0f, 1f)
+}
+
+private fun cueBackground(item: CueItem): Color {
+    if (item.fitMode == "letterbox") return Color.Black
+    return runCatching { Color(android.graphics.Color.parseColor(item.backgroundColor)) }.getOrDefault(Color.Black)
+}
+
+private fun Modifier.cueVisual(item: CueItem, opacity: Float, size: IntSize): Modifier {
+    val horizontal = (item.cropLeftPercent + item.cropRightPercent).coerceIn(0, 89)
+    val vertical = (item.cropTopPercent + item.cropBottomPercent).coerceIn(0, 89)
+    val scaleX = 100f / (100 - horizontal)
+    val scaleY = 100f / (100 - vertical)
+    return clipToBounds().graphicsLayer(
+        alpha = opacity,
+        rotationZ = item.rotationDegrees.toFloat(),
+        scaleX = scaleX,
+        scaleY = scaleY,
+        translationX = (item.cropRightPercent - item.cropLeftPercent) / 200f * size.width * scaleX,
+        translationY = (item.cropBottomPercent - item.cropTopPercent) / 200f * size.height * scaleY
+    )
 }
 
 private val Navy = Color(0xFF08111F)

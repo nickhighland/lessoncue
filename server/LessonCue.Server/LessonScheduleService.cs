@@ -23,7 +23,8 @@ public static class LessonScheduleService
             AvailableLeadMinutes = DifferenceMinutes(source.DesignatedStartAt, source.AvailableFrom),
             ExpiresAfterMinutes = DifferenceMinutes(source.ExpiresAt, source.DesignatedStartAt),
             PreRollEnabled = source.PreRollEnabled, KeepOffline = source.KeepOffline,
-            DownloadDaysBefore = source.DownloadDaysBefore
+            DownloadDaysBefore = source.DownloadDaysBefore, VolumePercent = source.VolumePercent,
+            Muted = source.Muted, SubstituteNotes = source.SubstituteNotes
         };
         foreach (var item in source.Items.OrderBy(x => x.Position)) template.Items.Add(CloneItem(item, template.Id));
         await PreserveTemplateMediaAsync(db, source.Items, ct);
@@ -49,6 +50,9 @@ public static class LessonScheduleService
         template.PreRollEnabled = source.PreRollEnabled;
         template.KeepOffline = source.KeepOffline;
         template.DownloadDaysBefore = source.DownloadDaysBefore;
+        template.VolumePercent = source.VolumePercent;
+        template.Muted = source.Muted;
+        template.SubstituteNotes = source.SubstituteNotes;
         template.UpdatedAt = DateTimeOffset.UtcNow;
         foreach (var item in source.Items.OrderBy(x => x.Position))
         {
@@ -183,7 +187,9 @@ public static class LessonScheduleService
             PreRollStartsAt = start is not null && template.PreRollLeadMinutes is int preRoll
                 ? start.Value.AddMinutes(-preRoll) : null,
             PreRollEnabled = template.PreRollEnabled, KeepOffline = template.KeepOffline,
-            DownloadDaysBefore = template.DownloadDaysBefore, GeneratedByScheduleId = scheduleId
+            DownloadDaysBefore = template.DownloadDaysBefore, GeneratedByScheduleId = scheduleId,
+            VolumePercent = template.VolumePercent, Muted = template.Muted,
+            SubstituteNotes = template.SubstituteNotes
         };
         foreach (var source in template.Items.OrderBy(x => x.Position))
         {
@@ -206,7 +212,13 @@ public static class LessonScheduleService
         MediaAssetId = source.MediaAssetId, DurationMs = source.DurationMs, StartMs = source.StartMs, EndMs = source.EndMs,
         VolumePercent = source.VolumePercent, ImageDurationSeconds = source.ImageDurationSeconds, EndBehavior = source.EndBehavior,
         AllowSkip = source.AllowSkip, Notes = source.Notes, FadeInMs = source.FadeInMs, FadeOutMs = source.FadeOutMs,
-        NormalizeAudio = source.NormalizeAudio, CuePointsJson = source.CuePointsJson
+        NormalizeAudio = source.NormalizeAudio, CuePointsJson = source.CuePointsJson, FitMode = source.FitMode,
+        RotationDegrees = source.RotationDegrees, CropLeftPercent = source.CropLeftPercent,
+        CropTopPercent = source.CropTopPercent, CropRightPercent = source.CropRightPercent,
+        CropBottomPercent = source.CropBottomPercent, Muted = source.Muted,
+        PlaybackRatePercent = source.PlaybackRatePercent, RepeatCount = source.RepeatCount,
+        BackgroundColor = source.BackgroundColor, TransitionStyle = source.TransitionStyle,
+        TransitionDurationMs = source.TransitionDurationMs, FlexibleTime = source.FlexibleTime
     };
 
     private static async Task PreserveTemplateMediaAsync(LessonCueDb db, IEnumerable<PlaylistItem> items, CancellationToken ct)
@@ -228,7 +240,13 @@ public static class LessonScheduleService
         MediaAssetId = source.MediaAssetId, DurationMs = source.DurationMs, StartMs = source.StartMs, EndMs = source.EndMs,
         VolumePercent = source.VolumePercent, ImageDurationSeconds = source.ImageDurationSeconds, EndBehavior = source.EndBehavior,
         AllowSkip = source.AllowSkip, Notes = source.Notes, FadeInMs = source.FadeInMs, FadeOutMs = source.FadeOutMs,
-        NormalizeAudio = source.NormalizeAudio, CuePointsJson = source.CuePointsJson
+        NormalizeAudio = source.NormalizeAudio, CuePointsJson = source.CuePointsJson, FitMode = source.FitMode,
+        RotationDegrees = source.RotationDegrees, CropLeftPercent = source.CropLeftPercent,
+        CropTopPercent = source.CropTopPercent, CropRightPercent = source.CropRightPercent,
+        CropBottomPercent = source.CropBottomPercent, Muted = source.Muted,
+        PlaybackRatePercent = source.PlaybackRatePercent, RepeatCount = source.RepeatCount,
+        BackgroundColor = source.BackgroundColor, TransitionStyle = source.TransitionStyle,
+        TransitionDurationMs = source.TransitionDurationMs, FlexibleTime = source.FlexibleTime
     };
 
     private static int? MinutesOfDay(DateTimeOffset? value) => value is null ? null : value.Value.Hour * 60 + value.Value.Minute;

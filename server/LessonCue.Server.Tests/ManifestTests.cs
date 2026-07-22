@@ -28,7 +28,8 @@ public sealed class ManifestTests
             DesignatedStartAt = new DateTimeOffset(2026, 7, 25, 9, 0, 0, TimeSpan.FromHours(-4)),
             PreRollStartsAt = new DateTimeOffset(2026, 7, 25, 8, 30, 0, TimeSpan.FromHours(-4)),
             AvailableFrom = DateTimeOffset.UtcNow.AddHours(-1),
-            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1)
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+            VolumePercent = 80
         };
         var media = new MediaAsset
         {
@@ -42,12 +43,33 @@ public sealed class ManifestTests
             Title = "Guided example",
             Type = "video",
             MediaAssetId = media.Id,
-            CuePointsJson = "[{\"Name\":\"Discussion\",\"PositionMs\":42000}]"
+            CuePointsJson = "[{\"Name\":\"Discussion\",\"PositionMs\":42000}]",
+            VolumePercent = 75,
+            FitMode = "fill",
+            RotationDegrees = 90,
+            CropLeftPercent = 4,
+            CropTopPercent = 5,
+            CropRightPercent = 6,
+            CropBottomPercent = 7,
+            PlaybackRatePercent = 125,
+            RepeatCount = 3,
+            FlexibleTime = true,
+            BackgroundColor = "#123456",
+            TransitionStyle = "fade-black",
+            TransitionDurationMs = 900
         });
         db.AddRange(lessonClass, screen, lesson, media, new SignagePlaylist
         {
             Name = "Lobby notice", Enabled = true, TargetTagsCsv = "elementary",
             MediaAssetId = media.Id,
+            LayoutPreset = "sidebar",
+            ZonesJson = SignageLayout.StoreZones([
+                new SignageZoneInput("welcome", "text", "Welcome", "Today at LessonCue", X: 0, Y: 0, Width: 68, Height: 100),
+                new SignageZoneInput("weather", "weather", "Conditions", "Weather unavailable", SourceUrl: "https://weather.example/current", X: 69, Y: 0, Width: 31, Height: 50),
+                new SignageZoneInput("media", "media", "Highlights", MediaAssetId: media.Id, X: 69, Y: 51, Width: 31, Height: 49)
+            ]),
+            WidgetCacheJson = SignageLayout.StoreCache([new SignageWidgetCacheEntry("weather", "Conditions", "72°", ["Clear"], DateTimeOffset.UtcNow)]),
+            WidgetCacheUpdatedAt = DateTimeOffset.UtcNow,
             StartsAt = DateTimeOffset.UtcNow.AddHours(-1), EndsAt = DateTimeOffset.UtcNow.AddHours(1)
         }, new SignagePlaylist
         {
@@ -76,10 +98,27 @@ public sealed class ManifestTests
         Assert.Contains("\"preRollStartsAt\":\"2026-07-25T12:30:00Z\"", json);
         Assert.Contains("\"signageSchedule\"", json);
         var lobbySign = await db.SignagePlaylists.SingleAsync(item => item.Name == "Lobby notice", cancellationToken);
+        Assert.Contains("\"LayoutPreset\":\"sidebar\"", json);
+        Assert.Contains("Today at LessonCue", json);
+        Assert.Contains($"signage-{lobbySign.Id}-zone-media", json);
         Assert.Contains($"signage-{lobbySign.Id}", json);
         Assert.True(json.IndexOf("Urgent notice", StringComparison.Ordinal) < json.IndexOf("Lobby notice", StringComparison.Ordinal));
         Assert.True(json.IndexOf("Lobby notice", StringComparison.Ordinal) < json.IndexOf("Idle fallback", StringComparison.Ordinal));
         using var document = JsonDocument.Parse(json);
+        var lobby = document.RootElement.GetProperty("signage").EnumerateArray().Single(item => item.GetProperty("Name").GetString() == "Lobby notice");
+        var weather = lobby.GetProperty("zones").EnumerateArray().Single(zone => zone.GetProperty("Type").GetString() == "weather");
+        Assert.Equal("72°", weather.GetProperty("cached").GetProperty("Text").GetString());
+        var cue = document.RootElement.GetProperty("playlists")[0].GetProperty("items")[0];
+        Assert.Equal(60, cue.GetProperty("volumePercent").GetInt32());
+        Assert.Equal("fill", cue.GetProperty("FitMode").GetString());
+        Assert.Equal(90, cue.GetProperty("RotationDegrees").GetInt32());
+        Assert.Equal(4, cue.GetProperty("CropLeftPercent").GetInt32());
+        Assert.Equal(125, cue.GetProperty("PlaybackRatePercent").GetInt32());
+        Assert.Equal(3, cue.GetProperty("RepeatCount").GetInt32());
+        Assert.True(cue.GetProperty("FlexibleTime").GetBoolean());
+        Assert.Equal("#123456", cue.GetProperty("BackgroundColor").GetString());
+        Assert.Equal("fade-black", cue.GetProperty("TransitionStyle").GetString());
+        Assert.Equal(900, cue.GetProperty("TransitionDurationMs").GetInt32());
         Assert.DoesNotContain(document.RootElement.GetProperty("signage").EnumerateArray(),
             item => item.GetProperty("Name").GetString() == "Future notice");
         Assert.Contains(document.RootElement.GetProperty("signageSchedule").EnumerateArray(),

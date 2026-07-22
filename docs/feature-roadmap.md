@@ -12,9 +12,6 @@ The order is based on five product priorities:
 
 ## Recommended next priorities
 
-7. [ ] **Simple and Advanced editing modes with core playback controls**: Keep the default editor focused on common tasks while placing specialized tools behind an Advanced toggle. Add fit, fill, and letterbox behavior; rotate; basic crop; per-item and per-lesson volume and mute; playback speed; repeat count; end behavior; still-image and slide duration; background color; and simple transitions.
-8. [ ] **Multi-zone signage and approved information widgets**: Support layouts containing media, text, clocks, calendars, weather from administrator-approved sources, menus, RSS, and other allowlisted data widgets with cached fallback content. Keep layout creation understandable to nontechnical administrators.
-9. [ ] **Lesson planning and run-of-show improvements**: Add teacher notes for each item on the mobile controller; substitute notes; printable run sheets; estimated and remaining duration; overrun warnings; flexible-time markers; conflict warnings; improved day, week, month, agenda, and room views; copy or move between classes and dates; and optional livestream monitoring during pre-roll.
 10. [ ] **Media upload and library workflow improvements**: Add resumable uploads, pause and retry, folder drag-and-drop, transfer progress, duplicate and near-duplicate detection, safe reference consolidation, favorites and collections, improved search, and administrator-defined storage and upload limits by server, user, role, class, file size, codec, or daily quota.
 11. [ ] **Operational readiness dashboard and alerts**: Focus reporting on lesson readiness, screen uptime, media cache state, download failures, storage growth, client versions, playback acknowledgements, and pre-class warnings. Exclude behavioral or productivity profiling of individual users.
 12. [ ] **Essential screen management without enterprise fleet management**: Keep screen groups, assignments, tags, saved filters, detailed heartbeat, cache inventory, download retry, remote cache purge, re-download, application restart, diagnostics export, kiosk checks, startup validation, screen-saver suppression, and incompatible-version alerts. Do not expand this into full device-management infrastructure.
@@ -35,6 +32,31 @@ The order is based on five product priorities:
 LessonCue remains centered on preparing media, organizing lessons, confirming readiness, playing reliably across common display hardware, and making live control simple for volunteers. SaaS onboarding, budget-hardware optimization, and signage remain intentional product capabilities within that boundary.
 
 ## Implemented roadmap milestones
+
+- [x] **Lesson planning and run-of-show improvements (v0.34.0)** — add always-visible teacher/volunteer notes per cue, whole-lesson substitute instructions, printable run sheets, trim/speed/repeat-aware estimates, live remaining duration and estimated finish, overrun guidance, flexible-time markers, same-room overlap warnings, agenda/day/week/month/room calendar views, complete copy or move across classes and dates, and an optional private pre-roll livestream monitor on the cellphone controller.
+
+   - [x] Notes and the monitor are operator-only; the private monitor URL is never sent to an audience display manifest.
+   - [x] Run sheets include every pre-roll, countdown, and main cue, scheduled times, duration, notes, flexible markers, and estimated finish in a print-specific layout.
+   - [x] Copy/move preserves the complete cue structure and shifts scheduling timestamps safely while extending temporary media retention.
+   - [x] Existing databases gain substitute-note, private-monitor, and flexible-time columns through the idempotent upgrader; templates and generated lessons preserve notes and flexible markers.
+   - [x] Protocol parsing, server manifest/schedule/migration tests, web type/build/lint checks, browser workflow, Android builds/lint/tests, and Swift protocol compilation are part of the release validation.
+
+- [x] **Multi-zone signage and approved information widgets (v0.33.0)** — build signage from approachable single, sidebar, split, header-grid, and dashboard presets containing up to eight independently styled media, text, clock, calendar, weather, menu, RSS, or generic data zones.
+
+   - [x] Administrators approve trusted HTTP/HTTPS source origins centrally; signage validation rejects online sources that are not on that exact origin allowlist.
+   - [x] The server refreshes approved information sources on each zone's configured interval, normalizes RSS, ICS calendar, weather JSON, menu text, and generic JSON into display-safe content, and preserves the last successful persistent cache when a refresh fails.
+   - [x] The zone editor includes a live 16:9 preview, preset geometry, per-zone type/content/media/source/refresh/color controls, optional fine positioning, fallback text, and an explicit refresh action without requiring CSS or template code.
+   - [x] Browser, Android TV, and Apple TV manifests and clients render the same responsive zone geometry, local clocks, cached information, images, and muted looping videos.
+   - [x] Every zone media item participates in native and browser offline caching, readiness telemetry, safe media-impact reporting, and reference cleanup; existing single-message signage remains backward compatible.
+   - [x] Existing databases gain idempotent layout, source-allowlist, and widget-cache columns; server tests cover allowlist enforcement, canvas validation, RSS/weather normalization, manifest zones, cached content, and multiple zone-media payloads.
+
+- [x] **Simple and Advanced editing modes with visual trim/fade editing and core playback controls (v0.32.0)** — keep frequent cue settings in a compact Simple editor while an opt-in, locally remembered Advanced mode exposes fit, fill, letterbox, rotation, asymmetric crop, per-cue and per-lesson volume/mute, playback speed, repeat count, end behavior, still/slide duration, background color, and fade-through-black transitions.
+
+   - [x] The filmstrip/waveform timeline has direct draggable IN and OUT handles plus independently colored fade regions and fade-boundary handles; the preview follows the exact trim edge or fade midpoint being adjusted and every handle remains keyboard-nudgeable.
+   - [x] Numeric sliders and the visual timeline remain synchronized, and previews apply trim, audio-and-picture fades, transition fades, crop, rotation, fit, background, speed, and mute settings before saving.
+   - [x] Browser, Android TV, and Apple TV playback manifests and clients honor the new visual and playback controls, including finite repeat counts and distinct advance, loop, pause-on-final-frame, and stop behavior.
+   - [x] Lesson templates and duplicated or generated lessons preserve whole-lesson settings and every cue-level playback setting; existing appliance databases gain backward-compatible defaults through the idempotent upgrader.
+   - [x] Server manifest tests cover effective lesson/cue volume and the new playback fields; server, web, Android, and Apple protocol builds pass. The full Apple TV target is compiled by release CI because this development host has Command Line Tools rather than the full Xcode toolchain; physical-device acceptance remains an operator release check.
 
 - [x] **Account lifecycle administration and temporary browser displays (v0.31.1)** — keep every landing-page account action independently selectable; add approval-required self-registration; let administrators invite an email address with preselected permissions while the recipient chooses their own name, username, and password; provide explicit account creation, approval, setup-link resend, edit, pause/reactivate, temporary-password reset, and deletion controls; force administrator-issued temporary passwords to be replaced before any other authenticated API can be used; and automatically remove paired browser displays after two hours without a heartbeat while retaining native television pairings.
 
