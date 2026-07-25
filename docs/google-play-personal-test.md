@@ -40,7 +40,7 @@ gradle -p android-tv :personal-test:bundleRelease
 
 Upload `android-tv/personal-test/build/outputs/bundle/release/personal-test-release.aab` to the closed-testing track. The bundle must use the same upload identity configured for the LessonCue Play Console application.
 
-Pushing this branch also runs **Build Google Play personal test** in GitHub Actions. Its `LessonCue-Google-Play-Closed-Test` artifact contains the signed AAB and remains available for 30 days.
+Pushing this branch also runs **Build Google Play personal test** in GitHub Actions. Its `LessonCue-Google-Play-Closed-Test` artifact contains the signed AAB for Play Console upload and a matching signed APK for direct device installation. The artifact remains available for 30 days.
 
 ## Tester disclosure
 

@@ -48,20 +48,31 @@ jobs:
           gradle -p android-tv
           :personal-test:testDebugUnitTest
           :personal-test:lintDebug
+          :personal-test:assembleRelease
           :personal-test:bundleRelease
-      - name: Verify and name bundle
+      - name: Verify and name signed packages
         run: |
           bundle="android-tv/personal-test/build/outputs/bundle/release/personal-test-release.aab"
+          apk="android-tv/personal-test/build/outputs/apk/release/personal-test-release.apk"
           test -f "${bundle}" || { echo "::error::The signed closed-test bundle was not produced"; exit 1; }
+          test -f "${apk}" || { echo "::error::The signed closed-test APK was not produced"; exit 1; }
           jarsigner -verify "${bundle}"
           actual_fingerprint="$(keytool -printcert -jarfile "${bundle}" | awk -F'SHA256: ' '/SHA256:/ { print toupper($2); exit }' | tr -d ':[:space:]')"
           expected_fingerprint="$(printf '%s' "${LESSONCUE_ANDROID_SIGNING_CERT_SHA256}" | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
           test -n "${actual_fingerprint}" || { echo "::error::Unable to read the AAB signing certificate fingerprint"; exit 1; }
           test "${actual_fingerprint}" = "${expected_fingerprint}" || { echo "::error::Closed-test AAB signing certificate does not match ANDROID_SIGNING_CERT_SHA256"; exit 1; }
+          apksigner="$(find "${ANDROID_HOME}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "${apksigner}" || { echo "::error::Android apksigner was not found"; exit 1; }
+          "${apksigner}" verify --verbose --print-certs "${apk}"
+          apk_fingerprint="$("${apksigner}" verify --print-certs "${apk}" | awk -F': ' '/certificate SHA-256 digest/ && !found { print toupper($NF); found=1 }' | tr -d ':[:space:]')"
+          test "${apk_fingerprint}" = "${expected_fingerprint}" || { echo "::error::Closed-test APK signing certificate does not match ANDROID_SIGNING_CERT_SHA256"; exit 1; }
           cp "${bundle}" LessonCue-Google-Play-Closed-Test.aab
+          cp "${apk}" LessonCue-Google-Play-Closed-Test.apk
       - uses: actions/upload-artifact@v4
         with:
           name: LessonCue-Google-Play-Closed-Test
-          path: LessonCue-Google-Play-Closed-Test.aab
+          path: |
+            LessonCue-Google-Play-Closed-Test.aab
+            LessonCue-Google-Play-Closed-Test.apk
           if-no-files-found: error
           retention-days: 30
