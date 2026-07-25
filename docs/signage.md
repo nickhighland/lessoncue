@@ -20,7 +20,11 @@ Use **Edit**, **Pause**, **Resume**, or **Delete** on a sign card. Pausing retai
 
 ## Layouts and information widgets
 
-The visual 16:9 layout builder starts with a preset and lets an administrator assign each zone as media, text, a live clock/date, calendar, weather, menu or schedule, RSS headlines, or generic JSON data. Each zone has its own heading, fallback text, background, text and accent colors. Advanced position fields are available when a preset needs fine adjustment, but no CSS or template code is required.
+The visual 16:9 layout builder starts with a preset and lets an administrator assign each zone as media, a live stream, text, a live clock/date, calendar, weather, menu or schedule, RSS headlines, or generic JSON data. Each zone has its own heading, fallback text, background, text and accent colors.
+
+Select a zone on the canvas and drag it into place. The square corner handle resizes it and the round handle rotates it. Arrow keys nudge by one percent and Shift plus an arrow nudges by five percent. Optional grid snapping, exact coordinates, arbitrary rotation from -180° through 180°, layer order, opacity, fill/fit/stretch, horizontal or vertical flip, duplicate, lock and hide controls are available without CSS or template code.
+
+Live-stream zones accept HLS, direct HTTP video, RTMP, RTMPS, and RTSP. LessonCue keeps the source address on the server and uses FFmpeg to expose a short local HLS stream that browser, Android TV, and Apple TV displays can play. H.264 source video is remuxed without video re-encoding and audio is normalized to AAC. Relays start on demand, retry while the source comes online, and stop after five minutes without a viewer.
 
 Online widget sources must first be approved under **Settings → Organization & appearance → Approved signage information sources**. Enter the origin only, such as `https://weather.example.org`; paths beneath that origin can then be selected by signage editors. LessonCue rejects unapproved origins and URLs with embedded credentials.
 

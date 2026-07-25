@@ -31,6 +31,31 @@ public sealed class SignageLayoutTests
         Assert.Null(SignageLayout.Normalize(zone).SourceUrl);
     }
 
+    [Theory]
+    [InlineData("rtmp://camera.example.org/live/stream-key")]
+    [InlineData("rtmps://camera.example.org/live/stream-key")]
+    [InlineData("rtsp://camera.example.org/channel")]
+    [InlineData("https://camera.example.org/live/index.m3u8")]
+    public void AcceptsSupportedLiveStreamProtocols(string address)
+    {
+        var zone = new SignageZoneInput("live", "stream", "Live", SourceUrl: address);
+        Assert.Null(SignageLayout.Validate([zone], []));
+    }
+
+    [Fact]
+    public void NormalizesAdvancedCanvasProperties()
+    {
+        var zone = SignageLayout.Normalize(new SignageZoneInput("hero", "media", MediaAssetId: Guid.NewGuid(),
+            Rotation: 245, ZIndex: 400, Opacity: -4, Fit: "invalid", Locked: true, Hidden: true, FlipX: true));
+        Assert.Equal(180, zone.Rotation);
+        Assert.Equal(100, zone.ZIndex);
+        Assert.Equal(0, zone.Opacity);
+        Assert.Equal("cover", zone.Fit);
+        Assert.True(zone.Locked);
+        Assert.True(zone.Hidden);
+        Assert.True(zone.FlipX);
+    }
+
     [Fact]
     public void ParsesRssAndWeatherIntoDisplaySafeCacheEntries()
     {

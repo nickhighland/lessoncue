@@ -357,6 +357,22 @@ paths:
       responses:
         '200': { description: Refresh completed }
         '404': { description: Signage schedule not found }
+  /api/v1/signage/{signageId}/zones/{zoneId}/stream/{fileName}:
+    get:
+      operationId: getSignageLiveStream
+      description: Starts or reuses the local FFmpeg relay for a saved live-stream zone and returns its HLS playlist or segment. Source credentials are never returned in the display manifest.
+      parameters:
+        - { name: signageId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: zoneId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 64 } }
+        - { name: fileName, in: path, required: true, schema: { type: string, pattern: '^(index\.m3u8|[0-9]{6}\.ts)$' } }
+      responses:
+        '200':
+          description: HLS playlist or MPEG-TS segment
+          content:
+            application/vnd.apple.mpegurl: {}
+            video/mp2t: {}
+        '404': { description: Signage, stream zone, or segment not found }
+        '503': { description: Stream source has not produced playable output yet }
   /api/v1/playlist-items/{itemId}:
     patch:
       operationId: updatePlaylistItem
@@ -1874,7 +1890,7 @@ components:
       required: [id, type, x, y, width, height]
       properties:
         id: { type: string, minLength: 1, maxLength: 64 }
-        type: { enum: [media, text, clock, calendar, weather, menu, rss, data] }
+        type: { enum: [media, stream, text, clock, calendar, weather, menu, rss, data] }
         title: { type: [string, 'null'], maxLength: 160 }
         content: { type: [string, 'null'], maxLength: 4000 }
         mediaAssetId: { type: [string, 'null'], format: uuid }
@@ -1887,6 +1903,18 @@ components:
         textColor: { type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$' }
         accentColor: { type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$' }
         refreshMinutes: { type: integer, minimum: 5, maximum: 1440, default: 15 }
+        rotation: { type: integer, minimum: -180, maximum: 180, default: 0 }
+        zIndex: { type: integer, minimum: 0, maximum: 100, default: 0 }
+        opacity: { type: integer, minimum: 0, maximum: 100, default: 100 }
+        fit: { type: [string, 'null'], enum: [cover, contain, fill, null], default: cover }
+        locked: { type: boolean, default: false }
+        hidden: { type: boolean, default: false }
+        flipX: { type: boolean, default: false }
+        flipY: { type: boolean, default: false }
+        streamUrl:
+          type: [string, 'null']
+          format: uri-reference
+          readOnly: true
     SignageWidgetCache:
       type: object
       required: [zoneId, title, text, items, refreshedAt]

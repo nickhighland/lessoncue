@@ -43,7 +43,8 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
                 var cache = SignageLayout.ParseCache(sign.WidgetCacheJson).ToDictionary(x => x.ZoneId, StringComparer.OrdinalIgnoreCase);
                 var errors = new List<string>();
                 var signChanged = false;
-                foreach (var zone in zones.Where(x => !string.IsNullOrWhiteSpace(x.SourceUrl)))
+                foreach (var zone in zones.Where(x => x.Type is "calendar" or "weather" or "menu" or "rss" or "data")
+                             .Where(x => !string.IsNullOrWhiteSpace(x.SourceUrl)))
                 {
                     if (!SignageLayout.TryOrigin(zone.SourceUrl!, out var origin) || !allowlist.Contains(origin, StringComparer.OrdinalIgnoreCase))
                     {

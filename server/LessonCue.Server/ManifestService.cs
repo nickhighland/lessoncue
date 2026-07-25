@@ -223,9 +223,15 @@ public sealed class ManifestService(LessonCueDb db)
             cache.TryGetValue(zone.Id, out var cached);
             return new
             {
-                zone.Id, zone.Type, zone.Title, zone.Content, zone.SourceUrl,
+                zone.Id, zone.Type, zone.Title, zone.Content,
+                sourceUrl = zone.Type == "stream" ? null : zone.SourceUrl,
                 zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
-                zone.RefreshMinutes, media = mappedMedia.Manifest, cached
+                zone.RefreshMinutes, zone.Rotation, zone.ZIndex, zone.Opacity, zone.Fit,
+                zone.Locked, zone.Hidden, zone.FlipX, zone.FlipY,
+                streamUrl = zone.Type == "stream"
+                    ? $"/api/v1/signage/{item.Id}/zones/{Uri.EscapeDataString(zone.Id)}/stream/index.m3u8"
+                    : null,
+                media = mappedMedia.Manifest, cached
             };
         }).ToArray();
         var referencedMedia = new[] { item.MediaAsset }.Concat(SignageLayout.ParseZones(item.ZonesJson)

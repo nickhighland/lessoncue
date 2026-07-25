@@ -2929,7 +2929,8 @@ public static class AdminApi
                     {
                         zone.Id, zone.Type, zone.Title, zone.Content, zone.MediaAssetId, zone.SourceUrl,
                         zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
-                        zone.RefreshMinutes,
+                        zone.RefreshMinutes, zone.Rotation, zone.ZIndex, zone.Opacity, zone.Fit,
+                        zone.Locked, zone.Hidden, zone.FlipX, zone.FlipY,
                         mediaFileName = zone.MediaAssetId is { } mediaId && zoneMediaAssets.TryGetValue(mediaId, out var mediaAsset) ? mediaAsset.FileName : null
                     }).ToArray(),
                     widgetCache = SignageLayout.ParseCache(item.WidgetCacheJson),

@@ -58,6 +58,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
@@ -540,12 +541,20 @@ private fun LibraryScreen(
 @Composable
 private fun SignageZoneLayout(signage: SignageCue) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        signage.zones.forEach { zone ->
+        signage.zones.filterNot { it.hidden }.sortedBy { it.zIndex }.forEach { zone ->
             val modifier = Modifier.offset(maxWidth * (zone.x / 100f), maxHeight * (zone.y / 100f))
                 .size(maxWidth * (zone.width / 100f), maxHeight * (zone.height / 100f))
+                .zIndex(zone.zIndex.toFloat())
+                .graphicsLayer {
+                    rotationZ = zone.rotation.toFloat()
+                    alpha = (zone.opacity.coerceIn(0, 100) / 100f)
+                    scaleX = if (zone.flipX) -1f else 1f
+                    scaleY = if (zone.flipY) -1f else 1f
+                }
                 .background(parseDisplayColor(zone.backgroundColor)).clipToBounds()
             Box(modifier) {
-                zone.media?.let { SignageZoneMedia(it) }
+                zone.media?.let { SignageZoneMedia(it, zone.fit) }
+                zone.streamUrl?.takeIf { zone.type == "stream" }?.let { SignageStreamMedia(zone.id, it, zone.fit) }
                 Column(Modifier.fillMaxSize().padding(22.dp), verticalArrangement = Arrangement.Center) {
                     zone.title?.let { Text(it.uppercase(), color = parseDisplayColor(zone.accentColor), fontSize = 14.sp, letterSpacing = 2.sp) }
                     if (zone.type == "clock") {
@@ -565,20 +574,34 @@ private fun SignageZoneLayout(signage: SignageCue) {
 }
 
 @Composable
-private fun SignageZoneMedia(item: CueItem) {
+private fun SignageZoneMedia(item: CueItem, fit: String = "cover") {
     val context = LocalContext.current
     val cached = context.filesDir.resolve("media").resolve(item.cacheFileName()).takeIf { it.exists() }
     val source = cached?.toURI()?.toString() ?: item.url ?: return
     if (item.type == "image" || item.contentType?.startsWith("image/") == true) {
-        AsyncImage(model = source, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        val scale = when (fit) { "contain" -> ContentScale.Fit; "fill" -> ContentScale.FillBounds; else -> ContentScale.Crop }
+        AsyncImage(model = source, contentDescription = null, contentScale = scale, modifier = Modifier.fillMaxSize())
         return
     }
     if (item.type != "video" && item.contentType?.startsWith("video/") != true) return
-    val player = remember(item.id, source) { ExoPlayer.Builder(context).build().apply {
+    SignageVideo(item.id, source, fit)
+}
+
+@Composable
+private fun SignageStreamMedia(id: String, source: String, fit: String) {
+    SignageVideo("stream-$id", source, fit)
+}
+
+@Composable
+@SuppressLint("UnsafeOptInUsageError")
+private fun SignageVideo(id: String, source: String, fit: String) {
+    val context = LocalContext.current
+    val player = remember(id, source) { ExoPlayer.Builder(context).build().apply {
         setMediaItem(MediaItem.fromUri(source)); repeatMode = Player.REPEAT_MODE_ONE; volume = 0f; prepare(); playWhenReady = true
     } }
     DisposableEffect(player) { onDispose { player.release() } }
-    AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = false } }, modifier = Modifier.fillMaxSize())
+    val resizeMode = when (fit) { "contain" -> AspectRatioFrameLayout.RESIZE_MODE_FIT; "fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL; else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM }
+    AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = false; this.resizeMode = resizeMode } }, modifier = Modifier.fillMaxSize())
 }
 
 @Composable

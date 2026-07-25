@@ -56,7 +56,10 @@ data class SignageWidgetCache(val zoneId: String, val title: String, val text: S
     val items: List<String>, val refreshedAt: String? = null)
 data class SignageZone(val id: String, val type: String, val title: String?, val content: String?,
     val x: Int, val y: Int, val width: Int, val height: Int, val backgroundColor: String,
-    val textColor: String, val accentColor: String, val media: CueItem? = null,
+    val textColor: String, val accentColor: String, val streamUrl: String? = null,
+    val rotation: Int = 0, val zIndex: Int = 0, val opacity: Int = 100, val fit: String = "cover",
+    val locked: Boolean = false, val hidden: Boolean = false, val flipX: Boolean = false, val flipY: Boolean = false,
+    val media: CueItem? = null,
     val cached: SignageWidgetCache? = null)
 
 data class LessonPlaylist(

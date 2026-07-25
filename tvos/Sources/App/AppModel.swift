@@ -295,6 +295,11 @@ final class AppModel: ObservableObject {
         return api.absoluteMediaURL(path)
     }
 
+    func signageURL(for path: String) -> URL? {
+        guard let identity, let api = try? LessonCueAPI(address: identity.serverURL.absoluteString) else { return nil }
+        return api.absoluteMediaURL(path)
+    }
+
     private func cacheAssignedMedia() async {
         guard let identity, let manifest,
               let api = try? LessonCueAPI(address: identity.serverURL.absoluteString) else { return }

@@ -66,7 +66,10 @@ public sealed class ManifestTests
             ZonesJson = SignageLayout.StoreZones([
                 new SignageZoneInput("welcome", "text", "Welcome", "Today at LessonCue", X: 0, Y: 0, Width: 68, Height: 100),
                 new SignageZoneInput("weather", "weather", "Conditions", "Weather unavailable", SourceUrl: "https://weather.example/current", X: 69, Y: 0, Width: 31, Height: 50),
-                new SignageZoneInput("media", "media", "Highlights", MediaAssetId: media.Id, X: 69, Y: 51, Width: 31, Height: 49)
+                new SignageZoneInput("media", "media", "Highlights", MediaAssetId: media.Id, X: 69, Y: 51, Width: 31, Height: 49,
+                    Rotation: 17, ZIndex: 4, Opacity: 72, Fit: "contain", FlipX: true),
+                new SignageZoneInput("live", "stream", "Live event", SourceUrl: "rtmp://stream.example/live/private-key",
+                    X: 10, Y: 10, Width: 40, Height: 40)
             ]),
             WidgetCacheJson = SignageLayout.StoreCache([new SignageWidgetCacheEntry("weather", "Conditions", "72°", ["Clear"], DateTimeOffset.UtcNow)]),
             WidgetCacheUpdatedAt = DateTimeOffset.UtcNow,
@@ -108,6 +111,16 @@ public sealed class ManifestTests
         var lobby = document.RootElement.GetProperty("signage").EnumerateArray().Single(item => item.GetProperty("Name").GetString() == "Lobby notice");
         var weather = lobby.GetProperty("zones").EnumerateArray().Single(zone => zone.GetProperty("Type").GetString() == "weather");
         Assert.Equal("72°", weather.GetProperty("cached").GetProperty("Text").GetString());
+        var mediaZone = lobby.GetProperty("zones").EnumerateArray().Single(zone => zone.GetProperty("Type").GetString() == "media");
+        Assert.Equal(17, mediaZone.GetProperty("Rotation").GetInt32());
+        Assert.Equal(4, mediaZone.GetProperty("ZIndex").GetInt32());
+        Assert.Equal(72, mediaZone.GetProperty("Opacity").GetInt32());
+        Assert.Equal("contain", mediaZone.GetProperty("Fit").GetString());
+        Assert.True(mediaZone.GetProperty("FlipX").GetBoolean());
+        var stream = lobby.GetProperty("zones").EnumerateArray().Single(zone => zone.GetProperty("Type").GetString() == "stream");
+        Assert.Equal($"/api/v1/signage/{lobbySign.Id}/zones/live/stream/index.m3u8", stream.GetProperty("streamUrl").GetString());
+        Assert.Equal(JsonValueKind.Null, stream.GetProperty("sourceUrl").ValueKind);
+        Assert.DoesNotContain("private-key", json);
         var cue = document.RootElement.GetProperty("playlists")[0].GetProperty("items")[0];
         Assert.Equal(60, cue.GetProperty("volumePercent").GetInt32());
         Assert.Equal("fill", cue.GetProperty("FitMode").GetString());

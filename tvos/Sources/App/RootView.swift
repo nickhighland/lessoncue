@@ -134,14 +134,18 @@ private struct LibraryView: View {
 }
 
 private struct SignageZoneLayout: View {
+    @EnvironmentObject private var model: AppModel
     let signage: SignageCue
 
     var body: some View {
         GeometryReader { proxy in
-            ForEach(signage.zones ?? []) { zone in
+            ForEach((signage.zones ?? []).filter { $0.hidden != true }.sorted { ($0.zIndex ?? 0) < ($1.zIndex ?? 0) }) { zone in
                 ZStack {
                     Color(hex: zone.backgroundColor)
-                    if let media = zone.media { SignageBackdrop(item: media) }
+                    if let media = zone.media { SignageBackdrop(item: media, fit: zone.fit ?? "cover") }
+                    if zone.type == "stream", let path = zone.streamUrl, let url = model.signageURL(for: path) {
+                        SignageLiveStream(url: url, fit: zone.fit ?? "cover")
+                    }
                     VStack(alignment: .leading, spacing: 12) {
                         if let title = zone.title { Text(title.uppercased()).font(.headline).tracking(3).foregroundStyle(Color(hex: zone.accentColor)) }
                         if zone.type == "clock" {
@@ -164,8 +168,12 @@ private struct SignageZoneLayout: View {
                 .clipped()
                 .frame(width: proxy.size.width * CGFloat(zone.width) / 100,
                        height: proxy.size.height * CGFloat(zone.height) / 100)
+                .opacity(Double(zone.opacity ?? 100) / 100)
+                .rotationEffect(.degrees(Double(zone.rotation ?? 0)))
+                .scaleEffect(x: zone.flipX == true ? -1 : 1, y: zone.flipY == true ? -1 : 1)
                 .position(x: proxy.size.width * (CGFloat(zone.x) + CGFloat(zone.width) / 2) / 100,
                           y: proxy.size.height * (CGFloat(zone.y) + CGFloat(zone.height) / 2) / 100)
+                .zIndex(Double(zone.zIndex ?? 0))
             }
         }.ignoresSafeArea()
     }
@@ -174,6 +182,7 @@ private struct SignageZoneLayout: View {
 private struct SignageBackdrop: View {
     @EnvironmentObject private var model: AppModel
     let item: CueItem
+    var fit = "cover"
     @State private var imageURL: URL?
     @State private var videoPlayer: AVQueuePlayer?
     @State private var videoLooper: AVPlayerLooper?
@@ -182,7 +191,10 @@ private struct SignageBackdrop: View {
         Group {
             if item.type == "image", let imageURL {
                 AsyncImage(url: imageURL) { phase in
-                    if let image = phase.image { image.resizable().scaledToFill() }
+                    if let image = phase.image {
+                        if fit == "contain" { image.resizable().scaledToFit() }
+                        else { image.resizable().scaledToFill() }
+                    }
                     else { Color.clear }
                 }
             } else if let videoPlayer {
@@ -209,6 +221,27 @@ private struct SignageBackdrop: View {
             videoPlayer = nil
             videoLooper = nil
         }
+    }
+}
+
+private struct SignageLiveStream: View {
+    let url: URL
+    var fit = "cover"
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        Group {
+            if let player { VideoPlayer(player: player).aspectRatio(contentMode: fit == "contain" ? .fit : .fill) }
+            else { Color.black }
+        }
+        .allowsHitTesting(false)
+        .task(id: url) {
+            let next = AVPlayer(url: url)
+            next.isMuted = true
+            player = next
+            next.play()
+        }
+        .onDisappear { player?.pause(); player = nil }
     }
 }
 
