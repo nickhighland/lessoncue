@@ -314,12 +314,22 @@ final class AppModel: ObservableObject {
 
 private extension ScreenManifest {
     var allItems: [CueItem] {
-        (playlists.flatMap { playlist in
-            playlist.items + (playlist.preRoll?.items ?? []) + [playlist.countdown?.item].compactMap { $0 }
-        } + (signageSchedule ?? signage).flatMap { sign in
-            [sign.media].compactMap { $0 } + (sign.zones ?? []).compactMap(\.media)
-        }).reduce(into: [CueItem]()) { items, item in
-            if !items.contains(where: { $0.id == item.id }) { items.append(item) }
+        var candidates: [CueItem] = []
+        for playlist in playlists {
+            candidates.append(contentsOf: playlist.items)
+            candidates.append(contentsOf: playlist.preRoll?.items ?? [])
+            if let countdown = playlist.countdown?.item { candidates.append(countdown) }
         }
+        for sign in signageSchedule ?? signage {
+            if let media = sign.media { candidates.append(media) }
+            for zone in sign.zones ?? [] {
+                if let media = zone.media { candidates.append(media) }
+            }
+        }
+        var unique: [CueItem] = []
+        for item in candidates where !unique.contains(where: { $0.id == item.id }) {
+            unique.append(item)
+        }
+        return unique
     }
 }
