@@ -53,7 +53,11 @@ jobs:
         run: |
           bundle="android-tv/personal-test/build/outputs/bundle/release/personal-test-release.aab"
           test -f "${bundle}" || { echo "::error::The signed closed-test bundle was not produced"; exit 1; }
-          jarsigner -verify -strict "${bundle}"
+          jarsigner -verify "${bundle}"
+          actual_fingerprint="$(keytool -printcert -jarfile "${bundle}" | awk -F'SHA256: ' '/SHA256:/ { print toupper($2); exit }' | tr -d ':[:space:]')"
+          expected_fingerprint="$(printf '%s' "${LESSONCUE_ANDROID_SIGNING_CERT_SHA256}" | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test -n "${actual_fingerprint}" || { echo "::error::Unable to read the AAB signing certificate fingerprint"; exit 1; }
+          test "${actual_fingerprint}" = "${expected_fingerprint}" || { echo "::error::Closed-test AAB signing certificate does not match ANDROID_SIGNING_CERT_SHA256"; exit 1; }
           cp "${bundle}" LessonCue-Google-Play-Closed-Test.aab
       - uses: actions/upload-artifact@v4
         with:
