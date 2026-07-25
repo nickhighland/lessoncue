@@ -1,4 +1,4 @@
-import { CSSProperties, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { Component, CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
 import QRCode from "qrcode";
@@ -92,8 +92,8 @@ type Signage = {
   widgetCacheUpdatedAt?: string; widgetCacheError?: string;
 };
 type SignageLayoutPreset = "single" | "sidebar" | "split" | "header-grid" | "dashboard";
-type SignageZoneType = "media" | "text" | "clock" | "calendar" | "weather" | "menu" | "rss" | "data";
-type SignageZone = { id: string; type: SignageZoneType; title?: string; content?: string; mediaAssetId?: string; mediaFileName?: string; sourceUrl?: string; x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string; refreshMinutes: number };
+type SignageZoneType = "media" | "stream" | "text" | "clock" | "calendar" | "weather" | "menu" | "rss" | "data";
+type SignageZone = { id: string; type: SignageZoneType; title?: string; content?: string; mediaAssetId?: string; mediaFileName?: string; sourceUrl?: string; x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string; refreshMinutes: number; rotation: number; zIndex: number; opacity: number; fit: "cover" | "contain" | "fill"; locked: boolean; hidden: boolean; flipX: boolean; flipY: boolean };
 type SignageWidgetCache = { zoneId: string; title: string; text: string; items: string[]; refreshedAt: string; source?: string };
 type Backup = { id: string; fileName: string; kind: string; sizeBytes: number; createdAt: string; createdBy: string };
 type BackupPreview = { restoreId: string; fileName: string; kind: string; compressedBytes: number; uncompressedBytes: number; fileCount: number; organization: string; users: number; classes: number; lessons: number; mediaRecords: number; mediaFiles: number; includesMedia: boolean; warnings: string[]; expiresAt: string };
@@ -1248,7 +1248,7 @@ function SignageView({ signage, media, screens, timeZone, sourceAllowlist, refre
   }
   return <><PageHead eyebrow="AMBIENT PLAYBACK" title="Signage" detail={`Recurring welcome screens, announcements, and emergency overrides · ${timeZone}`} action={<button className="button primary" onClick={() => setEditing("new")}>New signage</button>} />
     <section className="signage-priority panel"><strong>Conflict order</strong><span>Emergency override</span><b>›</b><span>Scheduled signage</span><b>›</b><span>Idle fallback</span><small>Within each level, the highest priority wins. Lesson playback remains in control and signage returns automatically afterward.</small></section>
-    {editing && <SignageEditor item={editing === "new" ? undefined : editing} media={media} screens={screens} timeZone={timeZone} sourceAllowlist={sourceAllowlist} onSave={save} onClose={() => setEditing(undefined)} />}
+    {editing && <SignageEditorErrorBoundary onClose={() => setEditing(undefined)}><SignageEditor item={editing === "new" ? undefined : editing} media={media} screens={screens} timeZone={timeZone} sourceAllowlist={sourceAllowlist} onSave={save} onClose={() => setEditing(undefined)} /></SignageEditorErrorBoundary>}
     <div className="signage-grid">{signage.length ? signage.map(item => <article className={`signage-card ${item.mode} ${!item.enabled ? "paused" : ""}`} key={item.id} style={{ background: item.backgroundColor, color: item.textColor }}>
       <div className="signage-top"><span>{item.mode.toUpperCase()}</span><span>{!item.enabled ? "PAUSED" : item.activeNow ? "SHOWING NOW" : "SCHEDULED"}</span></div>
       <h2>{item.message || item.name}</h2>
@@ -1259,6 +1259,18 @@ function SignageView({ signage, media, screens, timeZone, sourceAllowlist, refre
   </>;
 }
 
+class SignageEditorErrorBoundary extends Component<{ children: ReactNode; onClose: () => void }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error: Error) { console.error("Unable to open the signage editor.", error); }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return <Modal title="Unable to open signage editor" onClose={this.props.onClose}>
+      <div className="stack"><p>The editor encountered an unexpected browser compatibility problem. Close this message and try again after updating LessonCue.</p><div className="modal-actions"><button className="button primary" type="button" onClick={this.props.onClose}>Close</button></div></div>
+    </Modal>;
+  }
+}
+
 function SignageEditor({ item, media, screens, timeZone, sourceAllowlist, onSave, onClose }: {
   item?: Signage; media: Media[]; screens: Screen[]; timeZone: string; sourceAllowlist: string[];
   onSave: (payload: ReturnType<typeof signageFormPayload>) => void; onClose: () => void;
@@ -1266,17 +1278,96 @@ function SignageEditor({ item, media, screens, timeZone, sourceAllowlist, onSave
   const [recurrence, setRecurrence] = useState<Signage["recurrence"]>(item?.recurrence || "once");
   const [preset, setPreset] = useState<SignageLayoutPreset>(item?.layoutPreset || "single");
   const [zones, setZones] = useState<SignageZone[]>(() => item?.zones?.length ? item.zones : applySignagePreset("single", [newSignageZone("text", item?.message || "Welcome")]))
+  const [selectedZoneId, setSelectedZoneId] = useState<string>();
+  const [expandedZoneId, setExpandedZoneId] = useState<string>();
+  const [snapToGrid, setSnapToGrid] = useState(true);
   const formRef = useRef<HTMLFormElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
   const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const cached = new Map(item?.widgetCache?.map(entry => [entry.zoneId, entry]));
   const setZone = (id: string, patch: Partial<SignageZone>) => setZones(current => current.map(zone => zone.id === id ? { ...zone, ...patch } : zone));
+  const selectedZone = zones.find(zone => zone.id === selectedZoneId);
   function selectPreset(value: SignageLayoutPreset) {
     setPreset(value); setZones(current => applySignagePreset(value, current));
   }
   function addZone() {
     if (zones.length >= 8) return;
-    setZones(current => [...current, { ...newSignageZone("text", "New zone"), x: 5 + current.length * 3, y: 5 + current.length * 3, width: 40, height: 35 }]);
+    const zone = { ...newSignageZone("text", "New zone"), x: 5 + zones.length * 3, y: 5 + zones.length * 3, width: 40, height: 35, zIndex: Math.max(0, ...zones.map(value => value.zIndex ?? 0)) + 1 };
+    setZones(current => [...current, zone]);
+    setSelectedZoneId(zone.id);
+    setExpandedZoneId(zone.id);
     setPreset("dashboard");
+  }
+  function duplicateZone(zone: SignageZone) {
+    if (zones.length >= 8) return;
+    const copy = { ...zone, id: localId(), title: `${zone.title || zone.type} copy`, x: Math.min(90, zone.x + 3), y: Math.min(90, zone.y + 3), locked: false, zIndex: Math.max(0, ...zones.map(value => value.zIndex ?? 0)) + 1 };
+    setZones(current => [...current, copy]);
+    setSelectedZoneId(copy.id);
+    setExpandedZoneId(copy.id);
+  }
+  function layerZone(zone: SignageZone, direction: "front" | "back") {
+    setZones(current => {
+      if (direction === "front") {
+        const top = Math.max(0, ...current.filter(value => value.id !== zone.id).map(value => value.zIndex ?? 0));
+        return current.map(value => value.id === zone.id ? { ...value, zIndex: Math.min(100, top + 1) } : value);
+      }
+      return current.map(value => value.id === zone.id
+        ? { ...value, zIndex: 0 }
+        : { ...value, zIndex: Math.min(100, (value.zIndex ?? 0) + 1) });
+    });
+  }
+  function beginZoneGesture(event: ReactPointerEvent, zone: SignageZone, mode: "move" | "resize" | "rotate") {
+    event.preventDefault();
+    event.stopPropagation();
+    try { (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId); } catch { /* document listeners still track the gesture */ }
+    setSelectedZoneId(zone.id);
+    setExpandedZoneId(zone.id);
+    if (zone.locked || !canvasRef.current) return;
+    const canvas = canvasRef.current.getBoundingClientRect();
+    const start = { clientX: event.clientX, clientY: event.clientY, x: zone.x, y: zone.y, width: zone.width, height: zone.height, rotation: zone.rotation ?? 0 };
+    const centerX = canvas.left + (zone.x + zone.width / 2) * canvas.width / 100;
+    const centerY = canvas.top + (zone.y + zone.height / 2) * canvas.height / 100;
+    const startAngle = Math.atan2(event.clientY - centerY, event.clientX - centerX) * 180 / Math.PI;
+    const snap = (value: number, step: number, enabled: boolean) => enabled ? Math.round(value / step) * step : Math.round(value * 10) / 10;
+    const move = (pointer: PointerEvent | MouseEvent) => {
+      if (mode === "rotate") {
+        const angle = Math.atan2(pointer.clientY - centerY, pointer.clientX - centerX) * 180 / Math.PI;
+        let rotation = start.rotation + angle - startAngle;
+        while (rotation > 180) rotation -= 360;
+        while (rotation < -180) rotation += 360;
+        setZone(zone.id, { rotation: Math.round(snap(rotation, 5, snapToGrid && !pointer.shiftKey)) });
+        return;
+      }
+      const dx = (pointer.clientX - start.clientX) / canvas.width * 100;
+      const dy = (pointer.clientY - start.clientY) / canvas.height * 100;
+      if (mode === "move") {
+        setZone(zone.id, {
+          x: Math.max(0, Math.min(100 - start.width, snap(start.x + dx, 1, snapToGrid && !pointer.shiftKey))),
+          y: Math.max(0, Math.min(100 - start.height, snap(start.y + dy, 1, snapToGrid && !pointer.shiftKey)))
+        });
+      } else {
+        setZone(zone.id, {
+          width: Math.max(10, Math.min(100 - start.x, snap(start.width + dx, 1, snapToGrid && !pointer.shiftKey))),
+          height: Math.max(10, Math.min(100 - start.y, snap(start.height + dy, 1, snapToGrid && !pointer.shiftKey)))
+        });
+      }
+    };
+    const finish = () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", finish);
+      document.removeEventListener("pointercancel", finish);
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", finish, { once: true });
+    document.addEventListener("pointercancel", finish, { once: true });
+  }
+  function nudgeZone(event: ReactKeyboardEvent, zone: SignageZone) {
+    const amount = event.shiftKey ? 5 : 1;
+    const movement: Record<string, [number, number]> = { ArrowLeft: [-amount, 0], ArrowRight: [amount, 0], ArrowUp: [0, -amount], ArrowDown: [0, amount] };
+    const delta = movement[event.key];
+    if (!delta || zone.locked) return;
+    event.preventDefault();
+    setZone(zone.id, { x: Math.max(0, Math.min(100 - zone.width, zone.x + delta[0])), y: Math.max(0, Math.min(100 - zone.height, zone.y + delta[1])) });
   }
   function submit() {
     const form = formRef.current;
@@ -1289,17 +1380,41 @@ function SignageEditor({ item, media, screens, timeZone, sourceAllowlist, onSave
     <div className="two-fields"><Field label="Mode"><select name="mode" defaultValue={item?.mode || "scheduled"}><option value="scheduled">Scheduled</option><option value="idle">Idle fallback</option><option value="emergency">Emergency override</option></select></Field><Field label="Priority"><input name="priority" type="number" min="0" max="100" defaultValue={item?.priority ?? 10} /></Field></div>
     <Field label="Message"><textarea name="message" rows={3} maxLength={2000} defaultValue={item?.message} /></Field>
     <section className="signage-layout-builder">
-      <div className="section-heading"><div><span className="eyebrow">SCREEN LAYOUT</span><h3>Build the display from zones</h3><p>Choose a starting layout, then give each area one clear job. Displays use the cached copy of online information if its source becomes unavailable.</p></div><button className="button" type="button" onClick={addZone} disabled={zones.length >= 8}>Add zone</button></div>
+      <div className="section-heading"><div><span className="eyebrow">SCREEN LAYOUT</span><h3>Design directly on the screen</h3><p>Drag zones to move them. Use the square handle to resize and the round handle to rotate. Arrow keys nudge the selected zone; hold Shift for larger steps.</p></div><button className="button" type="button" onClick={addZone} disabled={zones.length >= 8}>Add zone</button></div>
       <div className="signage-presets" role="group" aria-label="Signage layout preset">{(["single", "sidebar", "split", "header-grid", "dashboard"] as SignageLayoutPreset[]).map(value => <button type="button" className={preset === value ? "active" : ""} onClick={() => selectPreset(value)} key={value}><i className={`preset-icon ${value}`} />{value.replace("-", " ")}</button>)}</div>
+      <div className="signage-canvas-toolbar">
+        <label className="check-row"><input type="checkbox" checked={snapToGrid} onChange={event => setSnapToGrid(event.target.checked)} /> Snap to grid</label>
+        {selectedZone ? <div className="signage-selection-tools">
+          <span><b>{selectedZone.title || selectedZone.type}</b> selected</span>
+          <Field label="Angle"><input type="number" min="-180" max="180" value={selectedZone.rotation ?? 0} onChange={event => setZone(selectedZone.id, { rotation: Number(event.target.value) })} /></Field>
+          <Field label="Opacity"><input type="range" min="0" max="100" value={selectedZone.opacity ?? 100} onChange={event => setZone(selectedZone.id, { opacity: Number(event.target.value) })} /></Field>
+          <button type="button" onClick={() => layerZone(selectedZone, "back")}>Send back</button><button type="button" onClick={() => layerZone(selectedZone, "front")}>Bring front</button>
+          <button type="button" onClick={() => duplicateZone(selectedZone)} disabled={zones.length >= 8}>Duplicate</button>
+          <button type="button" className={selectedZone.locked ? "active" : ""} onClick={() => setZone(selectedZone.id, { locked: !selectedZone.locked })}>{selectedZone.locked ? "Unlock" : "Lock"}</button>
+          <button type="button" className={selectedZone.hidden ? "active" : ""} onClick={() => setZone(selectedZone.id, { hidden: !selectedZone.hidden })}>{selectedZone.hidden ? "Show" : "Hide"}</button>
+        </div> : <span className="settings-copy">Select a zone to arrange it.</span>}
+      </div>
       <div className="signage-layout-workspace">
-        <div className="signage-canvas" style={{ background: item?.backgroundColor || "#25302d" }}>{zones.map((zone, index) => { const cache = cached.get(zone.id); return <div className={`signage-zone-preview ${zone.type}`} key={zone.id} style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, background: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor }}><small>{zone.type}</small><strong>{zone.title || zone.type}</strong>{zone.type === "clock" ? <b>{new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</b> : zone.type === "media" ? <span>{zone.mediaFileName || media.find(value => value.id === zone.mediaAssetId)?.fileName || "Choose media"}</span> : <span>{cache?.text || cache?.items?.[0] || zone.content || `Zone ${index + 1}`}</span>}</div>; })}</div>
-        <div className="signage-zone-list">{zones.map((zone, index) => <details className="signage-zone-editor" open={index === 0} key={zone.id}><summary><b>{index + 1}</b><span><strong>{zone.title || zone.type}</strong><small>{zone.type}{zone.sourceUrl ? " · approved online source" : ""}</small></span><button type="button" className="text-danger" onClick={event => { event.preventDefault(); setZones(current => current.filter(value => value.id !== zone.id)); }}>Remove</button></summary><div className="stack">
-          <div className="two-fields"><Field label="Zone type"><select value={zone.type} onChange={event => setZone(zone.id, { type: event.target.value as SignageZoneType, sourceUrl: undefined, mediaAssetId: undefined })}><option value="text">Text</option><option value="media">Image or video</option><option value="clock">Clock and date</option><option value="calendar">Calendar</option><option value="weather">Weather</option><option value="menu">Menu or schedule</option><option value="rss">RSS headlines</option><option value="data">Approved JSON data</option></select></Field><Field label="Heading"><input value={zone.title || ""} maxLength={160} onChange={event => setZone(zone.id, { title: event.target.value })} placeholder="Optional heading" /></Field></div>
-          {zone.type === "media" ? <Field label="Image or video"><select value={zone.mediaAssetId || ""} onChange={event => setZone(zone.id, { mediaAssetId: event.target.value || undefined, mediaFileName: media.find(value => value.id === event.target.value)?.fileName })}><option value="">Choose media…</option>{media.filter(value => value.sourceKind !== "link" && (value.contentType.startsWith("image/") || value.contentType.startsWith("video/"))).map(value => <option value={value.id} key={value.id}>{value.fileName}</option>)}</select></Field> : zone.type !== "clock" && <Field label={zone.type === "text" ? "Text" : "Fallback text"} hint={zone.type === "text" ? undefined : "Shown until the first refresh and whenever no cached items are available."}><textarea rows={2} maxLength={4000} value={zone.content || ""} onChange={event => setZone(zone.id, { content: event.target.value })} /></Field>}
+        <div ref={canvasRef} className={`signage-canvas ${snapToGrid ? "snap-grid" : ""}`} style={{ background: item?.backgroundColor || "#25302d" }} onPointerDown={() => setSelectedZoneId(undefined)}>{zones.map((zone, index) => {
+          const cache = cached.get(zone.id); const mediaItem = media.find(value => value.id === zone.mediaAssetId); const selected = selectedZoneId === zone.id;
+          return <div role="button" tabIndex={0} aria-label={`${zone.title || zone.type} zone`} aria-pressed={selected} className={`signage-zone-preview ${zone.type} ${selected ? "selected" : ""} ${zone.locked ? "locked" : ""} ${zone.hidden ? "hidden" : ""}`} key={zone.id}
+            onPointerDown={event => beginZoneGesture(event, zone, "move")} onKeyDown={event => nudgeZone(event, zone)}
+            style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, background: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, zIndex: zone.zIndex ?? 0, opacity: (zone.opacity ?? 100) / 100, transform: `rotate(${zone.rotation ?? 0}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})` }}>
+            {zone.type === "media" && mediaItem && (mediaItem.contentType.startsWith("image/") ? <img src={mediaItem.thumbnailUrl || mediaItem.downloadUrl} alt="" style={{ objectFit: zone.fit || "cover" }} /> : <div className="signage-video-placeholder">▶ {mediaItem.fileName}</div>)}
+            <small>{zone.type}{zone.locked ? " · locked" : ""}</small><strong>{zone.title || zone.type}</strong>{zone.type === "clock" ? <b>{new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</b> : zone.type === "media" ? <span>{zone.mediaFileName || mediaItem?.fileName || "Choose media"}</span> : zone.type === "stream" ? <span>● LIVE · {zone.sourceUrl?.split(":")[0].toUpperCase() || "Choose stream"}</span> : <span>{cache?.text || cache?.items?.[0] || zone.content || `Zone ${index + 1}`}</span>}
+            {selected && !zone.locked && <><i className="signage-resize-handle" aria-hidden="true" onPointerDown={event => beginZoneGesture(event, zone, "resize")} /><i className="signage-rotate-handle" aria-hidden="true" onPointerDown={event => beginZoneGesture(event, zone, "rotate")} /></>}
+          </div>;
+        })}</div>
+        <div className="signage-zone-list">{zones.map((zone, index) => <section className={`signage-zone-editor ${selectedZoneId === zone.id ? "selected" : ""}`} key={zone.id}><div className="signage-zone-summary"><button type="button" className="signage-zone-toggle" aria-expanded={expandedZoneId === zone.id || (!expandedZoneId && index === 0)} onClick={() => { setSelectedZoneId(zone.id); setExpandedZoneId(current => current === zone.id ? undefined : zone.id); }}><b>{index + 1}</b><span><strong>{zone.title || zone.type}</strong><small>{zone.type}{zone.sourceUrl ? zone.type === "stream" ? " · live source" : " · approved online source" : ""}{zone.rotation ? ` · ${zone.rotation}°` : ""}</small></span></button><button type="button" className="text-danger" onClick={() => { setZones(current => current.filter(value => value.id !== zone.id)); if (selectedZoneId === zone.id) setSelectedZoneId(undefined); if (expandedZoneId === zone.id) setExpandedZoneId(undefined); }}>Remove</button></div>{(expandedZoneId === zone.id || (!expandedZoneId && index === 0)) && <div className="stack">
+          <div className="two-fields"><Field label="Zone type"><select value={zone.type} onChange={event => setZone(zone.id, { type: event.target.value as SignageZoneType, sourceUrl: undefined, mediaAssetId: undefined })}><option value="text">Text</option><option value="media">Image or video</option><option value="stream">Live stream (RTMP, RTSP or HLS)</option><option value="clock">Clock and date</option><option value="calendar">Calendar</option><option value="weather">Weather</option><option value="menu">Menu or schedule</option><option value="rss">RSS headlines</option><option value="data">Approved JSON data</option></select></Field><Field label="Heading"><input value={zone.title || ""} maxLength={160} onChange={event => setZone(zone.id, { title: event.target.value })} placeholder="Optional heading" /></Field></div>
+          {zone.type === "media" ? <Field label="Image or video"><select value={zone.mediaAssetId || ""} onChange={event => setZone(zone.id, { mediaAssetId: event.target.value || undefined, mediaFileName: media.find(value => value.id === event.target.value)?.fileName })}><option value="">Choose media…</option>{media.filter(value => value.sourceKind !== "link" && (value.contentType.startsWith("image/") || value.contentType.startsWith("video/"))).map(value => <option value={value.id} key={value.id}>{value.fileName}</option>)}</select></Field> : zone.type !== "clock" && zone.type !== "stream" && <Field label={zone.type === "text" ? "Text" : "Fallback text"} hint={zone.type === "text" ? undefined : "Shown until the first refresh and whenever no cached items are available."}><textarea rows={2} maxLength={4000} value={zone.content || ""} onChange={event => setZone(zone.id, { content: event.target.value })} /></Field>}
+          {zone.type === "stream" && <Field label="Live stream address" hint="Accepts RTMP, RTMPS, RTSP, HLS (.m3u8), and direct HTTP streams. The server relays it as HLS for every LessonCue display."><input type="url" required value={zone.sourceUrl || ""} onChange={event => setZone(zone.id, { sourceUrl: event.target.value })} placeholder="rtmp://stream.example.org/live/key" /></Field>}
           {(["calendar", "weather", "menu", "rss", "data"] as SignageZoneType[]).includes(zone.type) && <><Field label="Approved source URL" hint={sourceAllowlist.length ? `Allowed: ${sourceAllowlist.join(", ")}` : "An administrator must first approve its origin in Settings → Organization & appearance."}><input type="url" value={zone.sourceUrl || ""} onChange={event => setZone(zone.id, { sourceUrl: event.target.value })} placeholder="https://approved.example/feed" /></Field><Field label="Refresh every"><select value={zone.refreshMinutes} onChange={event => setZone(zone.id, { refreshMinutes: Number(event.target.value) })}><option value="5">5 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="360">6 hours</option><option value="1440">Daily</option></select></Field></>}
           <div className="three-fields signage-zone-colors"><Field label="Background"><input type="color" value={zone.backgroundColor} onChange={event => setZone(zone.id, { backgroundColor: event.target.value })} /></Field><Field label="Text"><input type="color" value={zone.textColor} onChange={event => setZone(zone.id, { textColor: event.target.value })} /></Field><Field label="Accent"><input type="color" value={zone.accentColor} onChange={event => setZone(zone.id, { accentColor: event.target.value })} /></Field></div>
-          <details><summary>Fine-tune zone position</summary><div className="four-fields"><Field label="Left %"><input type="number" min="0" max="90" value={zone.x} onChange={event => setZone(zone.id, { x: Number(event.target.value) })} /></Field><Field label="Top %"><input type="number" min="0" max="90" value={zone.y} onChange={event => setZone(zone.id, { y: Number(event.target.value) })} /></Field><Field label="Width %"><input type="number" min="10" max="100" value={zone.width} onChange={event => setZone(zone.id, { width: Number(event.target.value) })} /></Field><Field label="Height %"><input type="number" min="10" max="100" value={zone.height} onChange={event => setZone(zone.id, { height: Number(event.target.value) })} /></Field></div></details>
-        </div></details>)}</div>
+          <div className="two-fields"><Field label="Media fitting"><select value={zone.fit || "cover"} onChange={event => setZone(zone.id, { fit: event.target.value as SignageZone["fit"] })}><option value="cover">Fill and crop</option><option value="contain">Fit entire item</option><option value="fill">Stretch</option></select></Field><Field label="Opacity"><input type="number" min="0" max="100" value={zone.opacity ?? 100} onChange={event => setZone(zone.id, { opacity: Number(event.target.value) })} /></Field></div>
+          <div className="three-fields"><label className="check-row"><input type="checkbox" checked={zone.flipX || false} onChange={event => setZone(zone.id, { flipX: event.target.checked })} /> Flip horizontal</label><label className="check-row"><input type="checkbox" checked={zone.flipY || false} onChange={event => setZone(zone.id, { flipY: event.target.checked })} /> Flip vertical</label><label className="check-row"><input type="checkbox" checked={zone.locked || false} onChange={event => setZone(zone.id, { locked: event.target.checked })} /> Lock position</label></div>
+          <details><summary>Exact position, rotation, and layer</summary><div className="four-fields"><Field label="Left %"><input type="number" min="0" max="90" value={zone.x} onChange={event => setZone(zone.id, { x: Number(event.target.value) })} /></Field><Field label="Top %"><input type="number" min="0" max="90" value={zone.y} onChange={event => setZone(zone.id, { y: Number(event.target.value) })} /></Field><Field label="Width %"><input type="number" min="10" max="100" value={zone.width} onChange={event => setZone(zone.id, { width: Number(event.target.value) })} /></Field><Field label="Height %"><input type="number" min="10" max="100" value={zone.height} onChange={event => setZone(zone.id, { height: Number(event.target.value) })} /></Field><Field label="Rotation °"><input type="number" min="-180" max="180" value={zone.rotation ?? 0} onChange={event => setZone(zone.id, { rotation: Number(event.target.value) })} /></Field><Field label="Layer"><input type="number" min="0" max="100" value={zone.zIndex ?? 0} onChange={event => setZone(zone.id, { zIndex: Number(event.target.value) })} /></Field></div></details>
+        </div>}</section>)}</div>
       </div>
       {item?.widgetCacheError && <div className="alert error">Last source refresh: {item.widgetCacheError}. The last successful cached content remains available.</div>}
     </section>
@@ -1832,7 +1947,13 @@ function signagePayload(item: Signage, enabled = item.enabled) {
   };
 }
 function parseStringArray(value?: string) { try { const parsed = JSON.parse(value || "[]"); return Array.isArray(parsed) ? parsed.filter(item => typeof item === "string") : []; } catch { return []; } }
-function newSignageZone(type: SignageZoneType, content = ""): SignageZone { return { id: crypto.randomUUID().replaceAll("-", ""), type, title: type === "text" ? "Message" : undefined, content, x: 0, y: 0, width: 100, height: 100, backgroundColor: "#17201e", textColor: "#ffffff", accentColor: "#d89127", refreshMinutes: 15 }; }
+function localId() {
+  const values = new Uint32Array(4);
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(values);
+  else for (let index = 0; index < values.length; index++) values[index] = Math.floor(Math.random() * 0x100000000);
+  return `${Date.now().toString(36)}${Array.from(values, value => value.toString(36).padStart(7, "0")).join("")}`;
+}
+function newSignageZone(type: SignageZoneType, content = ""): SignageZone { return { id: localId(), type, title: type === "text" ? "Message" : undefined, content, x: 0, y: 0, width: 100, height: 100, backgroundColor: "#17201e", textColor: "#ffffff", accentColor: "#d89127", refreshMinutes: 15, rotation: 0, zIndex: 0, opacity: 100, fit: "cover", locked: false, hidden: false, flipX: false, flipY: false }; }
 function applySignagePreset(preset: SignageLayoutPreset, existing: SignageZone[]): SignageZone[] {
   const geometry: Record<SignageLayoutPreset, [number, number, number, number][]> = {
     single: [[0, 0, 100, 100]], sidebar: [[0, 0, 68, 100], [69, 0, 31, 100]], split: [[0, 0, 50, 100], [51, 0, 49, 100]],

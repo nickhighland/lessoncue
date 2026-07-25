@@ -573,7 +573,9 @@ public sealed record SignageInput(string Name, string Mode, bool Enabled, int Pr
     string? LayoutPreset = null, List<SignageZoneInput>? Zones = null);
 public sealed record SignageZoneInput(string Id, string Type, string? Title = null, string? Content = null,
     Guid? MediaAssetId = null, string? SourceUrl = null, int X = 0, int Y = 0, int Width = 100, int Height = 100,
-    string? BackgroundColor = null, string? TextColor = null, string? AccentColor = null, int RefreshMinutes = 15);
+    string? BackgroundColor = null, string? TextColor = null, string? AccentColor = null, int RefreshMinutes = 15,
+    int Rotation = 0, int ZIndex = 0, int Opacity = 100, string? Fit = null,
+    bool Locked = false, bool Hidden = false, bool FlipX = false, bool FlipY = false);
 public sealed record LinkInput(string Url, string? Title, bool Download = false, bool Persistent = true,
     Guid? LessonId = null, string? Folder = null, string? TagsCsv = null, bool ImportPresentation = false);
 public sealed record UploadCompleteInput(string FileName, string ContentType, int TotalChunks, long? DurationMs,

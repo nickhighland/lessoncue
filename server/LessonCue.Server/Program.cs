@@ -83,6 +83,9 @@ builder.Services.AddHttpClient("signage-widgets", client =>
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<SignageWidgetService>();
 builder.Services.AddHostedService(services => services.GetRequiredService<SignageWidgetService>());
+builder.Services.AddSingleton(services => new LiveStreamRelayService(dataPath,
+    services.GetRequiredService<ILogger<LiveStreamRelayService>>()));
+builder.Services.AddHostedService(services => services.GetRequiredService<LiveStreamRelayService>());
 builder.Services.AddSingleton(services => new AccountEmailService(dataPath,
     services.GetRequiredService<IDataProtectionProvider>(), services.GetRequiredService<IHttpClientFactory>(),
     services.GetRequiredService<ILogger<AccountEmailService>>()));
@@ -310,6 +313,27 @@ api.MapGet("/media/{mediaId:guid}/waveform", async (Guid mediaId, LessonCueDb db
     var media = await db.MediaAssets.AsNoTracking().SingleOrDefaultAsync(x => x.Id == mediaId, ct);
     return DerivativeFile(media?.WaveformPath, paths.Thumbnails, "image/png");
 });
+
+api.MapGet("/signage/{signageId:guid}/zones/{zoneId}/stream/{fileName}", async (
+    Guid signageId, string zoneId, string fileName, LessonCueDb db, LiveStreamRelayService streams,
+    CancellationToken ct) =>
+{
+    var signage = await db.SignagePlaylists.AsNoTracking().SingleOrDefaultAsync(x => x.Id == signageId && x.Enabled, ct);
+    var zone = signage is null ? null : SignageLayout.ParseZones(signage.ZonesJson)
+        .FirstOrDefault(value => value.Id.Equals(zoneId, StringComparison.OrdinalIgnoreCase));
+    if (zone?.Type != "stream" || !SignageLayout.TryStreamUrl(zone.SourceUrl, out var sourceUrl))
+        return Results.NotFound();
+    if (fileName.Equals("index.m3u8", StringComparison.OrdinalIgnoreCase))
+    {
+        var prepared = await streams.PreparePlaylistAsync(signageId, zone.Id, sourceUrl, ct);
+        return prepared.Path is null
+            ? Results.Problem(prepared.Error, statusCode: StatusCodes.Status503ServiceUnavailable)
+            : Results.File(prepared.Path, "application/vnd.apple.mpegurl",
+                enableRangeProcessing: false, lastModified: DateTimeOffset.UtcNow);
+    }
+    var segment = streams.ResolveSegment(signageId, zone.Id, fileName);
+    return segment is null ? Results.NotFound() : Results.File(segment, "video/mp2t", enableRangeProcessing: false);
+}).DisableAntiforgery();
 
 api.MapPost("/pairing/request", async (PairingRequestInput input, LessonCueDb db,
     IPasswordHasher<PairingAttempt> hasher, CancellationToken ct) =>

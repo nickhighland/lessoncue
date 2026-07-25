@@ -7,7 +7,7 @@ public sealed record SignageWidgetCacheEntry(string ZoneId, string Title, string
 
 public static class SignageLayout
 {
-    public static readonly string[] ZoneTypes = ["media", "text", "clock", "calendar", "weather", "menu", "rss", "data"];
+    public static readonly string[] ZoneTypes = ["media", "stream", "text", "clock", "calendar", "weather", "menu", "rss", "data"];
     public static readonly string[] Presets = ["single", "sidebar", "split", "header-grid", "dashboard"];
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -47,7 +47,11 @@ public static class SignageLayout
             BackgroundColor = Color(zone.BackgroundColor, "#17201e"),
             TextColor = Color(zone.TextColor, "#ffffff"),
             AccentColor = Color(zone.AccentColor, "#d89127"),
-            RefreshMinutes = Math.Clamp(zone.RefreshMinutes, 5, 1440)
+            RefreshMinutes = Math.Clamp(zone.RefreshMinutes, 5, 1440),
+            Rotation = Math.Clamp(zone.Rotation, -180, 180),
+            ZIndex = Math.Clamp(zone.ZIndex, 0, 100),
+            Opacity = Math.Clamp(zone.Opacity, 0, 100),
+            Fit = zone.Fit is "contain" or "fill" ? zone.Fit : "cover"
         };
     }
 
@@ -64,8 +68,11 @@ public static class SignageLayout
             if (raw.X < 0 || raw.Y < 0 || raw.Width < 10 || raw.Height < 10 || raw.X + raw.Width > 100 || raw.Y + raw.Height > 100)
                 return "Every signage zone must remain within the 100 × 100 layout canvas.";
             if (raw.Type == "media" && raw.MediaAssetId is null) return "Every media zone must select an image or video.";
+            if (raw.Type == "stream" && !TryStreamUrl(raw.SourceUrl, out _))
+                return "Live stream zones require an HTTP, HTTPS, RTMP, RTMPS, or RTSP address without embedded credentials.";
             if (!string.IsNullOrWhiteSpace(raw.SourceUrl))
             {
+                if (raw.Type == "stream") continue;
                 if (raw.Type is not ("calendar" or "weather" or "menu" or "rss" or "data"))
                     return "Only calendar, weather, menu, RSS, and data zones may use an online source.";
                 if (!TryOrigin(raw.SourceUrl, out var origin)) return "Widget sources must be absolute HTTP or HTTPS addresses without embedded credentials.";
@@ -74,6 +81,16 @@ public static class SignageLayout
             }
         }
         return null;
+    }
+
+    public static bool TryStreamUrl(string? value, out string normalized)
+    {
+        normalized = "";
+        if (!Uri.TryCreate(value?.Trim(), UriKind.Absolute, out var uri) ||
+            uri.Scheme is not ("http" or "https" or "rtmp" or "rtmps" or "rtsp") ||
+            string.IsNullOrWhiteSpace(uri.Host) || !string.IsNullOrWhiteSpace(uri.UserInfo)) return false;
+        normalized = uri.AbsoluteUri;
+        return true;
     }
 
     public static string[] ParseAllowlist(string? json)

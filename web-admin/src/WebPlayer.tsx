@@ -70,7 +70,7 @@ type Signage = {
   widgetCacheError?: string;
 };
 type SignageWidgetCache = { zoneId: string; title: string; text: string; items: string[]; refreshedAt: string; source?: string };
-type SignageZone = { id: string; type: string; title?: string; content?: string; sourceUrl?: string; x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string; refreshMinutes: number; media?: CueItem; cached?: SignageWidgetCache };
+type SignageZone = { id: string; type: string; title?: string; content?: string; sourceUrl?: string; streamUrl?: string; x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string; refreshMinutes: number; rotation?: number; zIndex?: number; opacity?: number; fit?: "cover" | "contain" | "fill"; locked?: boolean; hidden?: boolean; flipX?: boolean; flipY?: boolean; media?: CueItem; cached?: SignageWidgetCache };
 type Manifest = {
   manifestVersion: number;
   screen: { id: string; name: string; volunteerMode: boolean; site: string };
@@ -638,13 +638,39 @@ function PlayerLibrary({ manifest, connection, onPlay }: { manifest?: Manifest; 
 
 function SignageLayout({ signage }: { signage: Signage }) {
   return <section className={`web-player-signage-layout ${signage.layoutPreset || "single"}`} aria-label={`${signage.name} signage layout`}>
-    {signage.zones?.map(zone => <article className={`web-player-signage-zone ${zone.type}`} key={zone.id} style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor }}>
+    {signage.zones?.filter(zone => !zone.hidden).map(zone => <article className={`web-player-signage-zone ${zone.type}`} key={zone.id} style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, zIndex: zone.zIndex ?? 0, opacity: (zone.opacity ?? 100) / 100, transform: `rotate(${zone.rotation ?? 0}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})` }}>
       {zone.media?.downloadUrl && (zone.media.type === "video" || zone.media.contentType?.startsWith("video/")
-        ? <video src={zone.media.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={zone.media.title} />
-        : <img src={zone.media.downloadUrl} alt={zone.title || ""} />)}
+        ? <video src={zone.media.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={zone.media.title} style={{ objectFit: zone.fit || "cover" }} />
+        : <img src={zone.media.downloadUrl} alt={zone.title || ""} style={{ objectFit: zone.fit || "cover" }} />)}
+      {zone.type === "stream" && zone.streamUrl && <SignageStream source={zone.streamUrl} title={zone.title || "Live stream"} fit={zone.fit || "cover"} />}
       <div className="web-player-zone-copy">{zone.title && <small style={{ color: zone.accentColor }}>{zone.title}</small>}{zone.type === "clock" ? <SignageClock /> : <><strong>{zone.cached?.text || zone.content}</strong>{zone.cached?.items?.length ? <ul>{zone.cached.items.map((item, index) => <li key={`${zone.id}-${index}`}>{item}</li>)}</ul> : null}</>}</div>
     </article>)}
   </section>;
+}
+
+function SignageStream({ source, title, fit }: { source: string; title: string; fit: "cover" | "contain" | "fill" }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = source;
+      void video.play().catch(() => undefined);
+      return () => { video.pause(); video.removeAttribute("src"); video.load(); };
+    }
+    let disposed = false;
+    let destroy: (() => void) | undefined;
+    void import("hls.js").then(({ default: Hls }) => {
+      if (disposed || !Hls.isSupported()) return;
+      const hls = new Hls({ manifestLoadingMaxRetry: 20, manifestLoadingRetryDelay: 1_000, levelLoadingMaxRetry: 20, fragLoadingMaxRetry: 20, lowLatencyMode: true });
+      destroy = () => hls.destroy();
+      hls.loadSource(source);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => void video.play().catch(() => undefined));
+    });
+    return () => { disposed = true; destroy?.(); };
+  }, [source]);
+  return <video ref={videoRef} autoPlay muted playsInline aria-label={title} style={{ objectFit: fit }} />;
 }
 
 function SignageClock() {

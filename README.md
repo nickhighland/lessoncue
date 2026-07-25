@@ -138,4 +138,6 @@ The complete self-hosted workflow runs on the local server: setup, local or veri
 
 ## License
 
-LessonCue is provided under the [MIT License](LICENSE).
+LessonCue is free to use, modify, and self-host for non-commercial purposes under the [PolyForm Noncommercial License 1.0.0](LICENSE). Commercial use requires a separately purchased commercial license from the LessonCue maintainers. For commercial licensing, contact the maintainers through the [LessonCue repository](https://github.com/nickhighland/lessoncue).
+
+This is not an OSI-approved open-source license. The full license—not this summary—controls.

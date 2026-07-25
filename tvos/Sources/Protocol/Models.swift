@@ -156,6 +156,15 @@ public struct SignageZone: Codable, Identifiable, Equatable, Sendable {
     public let backgroundColor: String
     public let textColor: String
     public let accentColor: String
+    public let streamUrl: String?
+    public let rotation: Int?
+    public let zIndex: Int?
+    public let opacity: Int?
+    public let fit: String?
+    public let locked: Bool?
+    public let hidden: Bool?
+    public let flipX: Bool?
+    public let flipY: Bool?
     public let media: CueItem?
     public let cached: SignageWidgetCache?
 }

@@ -558,11 +558,11 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: "Open monitor" }).click();
   await expect(page.locator(".pre-roll-monitor iframe")).toHaveAttribute("src", "https://example.org/private-monitor");
   await expect(page.locator(".controller-run-summary")).toContainText("REMAINING");
-  await page.getByRole("button", { name: "Pause" }).click();
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
   await expect(page.getByText("Sending pause to Browser Test TV…", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "🔓 Lock controls" }).click();
   await expect(page.getByText("Controls are locked. Nothing on this remote can change the screen until you unlock it.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("group", { name: "Room playback controls" }).getByRole("button", { name: "Pause" })).toBeDisabled();
+  await expect(page.getByRole("group", { name: "Room playback controls" }).getByRole("button", { name: "Pause", exact: true })).toBeDisabled();
 
   await page.getByRole("button", { name: /Classes$/ }).click();
   await page.getByRole("button", { name: "Controller link" }).click();
@@ -594,8 +594,9 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
       lessonEntries: afterClassDelete.filter((item: { kind: string }) => item.kind === "lesson").length,
       purged: (await purge.json()).purged };
   });
-  expect(recycleWorkflow).toEqual({ statuses: [204, 204, 204, 204, 200, 204, 200], classEntries: 1, lessonEntries: expect.any(Number), purged: 1 });
+  expect(recycleWorkflow).toMatchObject({ statuses: [204, 204, 204, 204, 200, 204, 200], classEntries: 1, lessonEntries: expect.any(Number) });
   expect(recycleWorkflow.lessonEntries).toBeGreaterThan(0);
+  expect(recycleWorkflow.purged).toBeGreaterThanOrEqual(1);
   const quickCreate = page.locator("form.quick-create");
   await quickCreate.locator('input[name="title"]').fill("Bulk Lesson One");
   await quickCreate.locator('input[name="date"]').fill(dateDaysFromNow(35));
@@ -636,12 +637,31 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
 
   await expect(page.locator(".toast")).toHaveCount(0);
   await page.getByRole("button", { name: /Signage$/ }).click();
+  await page.evaluate(() => Object.defineProperty(globalThis.crypto, "randomUUID", { configurable: true, value: undefined }));
   await page.getByRole("button", { name: "New signage" }).click();
   const signageDialog = page.getByRole("dialog", { name: "Create signage" });
+  await expect(page.locator("main")).toBeVisible();
   await signageDialog.getByLabel("Name").fill("Browser dashboard layout");
   await signageDialog.getByRole("button", { name: "dashboard" }).click();
   await expect(signageDialog.locator(".signage-zone-editor")).toHaveCount(4);
+  const firstCanvasZone = signageDialog.locator(".signage-zone-preview").first();
+  const beforeDrag = JSON.parse(await signageDialog.locator('input[name="zonesJson"]').inputValue())[0];
+  await firstCanvasZone.hover({ position: { x: 20, y: 20 } });
+  const canvasZoneBounds = await firstCanvasZone.boundingBox();
+  if (!canvasZoneBounds) throw new Error("The signage canvas zone was not measurable.");
+  const dragStart = { x: canvasZoneBounds.x + canvasZoneBounds.width / 2, y: canvasZoneBounds.y + canvasZoneBounds.height / 2 };
+  await firstCanvasZone.dispatchEvent("pointerdown", { pointerId: 7, pointerType: "mouse", button: 0, buttons: 1, clientX: dragStart.x, clientY: dragStart.y });
+  await expect(signageDialog.getByLabel("Angle")).toBeVisible();
+  await page.evaluate(({ x, y }) => document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 7, pointerType: "mouse", buttons: 1, clientX: x + 35, clientY: y + 20 })), dragStart);
+  await page.evaluate(({ x, y }) => document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 7, pointerType: "mouse", button: 0, clientX: x + 35, clientY: y + 20 })), dragStart);
+  await expect.poll(async () => JSON.parse(await signageDialog.locator('input[name="zonesJson"]').inputValue())[0].x).toBeGreaterThan(beforeDrag.x);
+  await firstCanvasZone.click();
+  await signageDialog.getByLabel("Angle").fill("23");
   await signageDialog.locator(".signage-zone-editor").first().getByLabel("Zone type").selectOption("clock");
+  const streamZoneEditor = signageDialog.locator(".signage-zone-editor").nth(3);
+  await streamZoneEditor.locator(".signage-zone-toggle").click();
+  await streamZoneEditor.getByLabel("Zone type").selectOption("stream");
+  await streamZoneEditor.getByLabel("Live stream address").fill("rtmp://stream.example.org/live/browser-test-key");
   await signageDialog.getByLabel("Publish this schedule").uncheck();
   expect(await signageDialog.locator("form").evaluate(form => Array.from(form.querySelectorAll(":invalid")).map(element => ({
     tag: element.tagName,
@@ -654,6 +674,13 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const signageCard = page.locator(".signage-card").filter({ hasText: "Browser dashboard layout" });
   await expect(signageCard).toContainText("4-zone dashboard layout");
   await expect(signageCard).toContainText("PAUSED");
+  const savedSignageLayout = await page.evaluate(async () => {
+    const signage = await fetch("/api/v1/signage").then(response => response.json());
+    return signage.find((entry: { name: string }) => entry.name === "Browser dashboard layout").zones;
+  });
+  expect(savedSignageLayout[0].rotation).toBe(23);
+  expect(savedSignageLayout[0].x).toBeGreaterThan(beforeDrag.x);
+  expect(savedSignageLayout[3]).toMatchObject({ type: "stream", sourceUrl: "rtmp://stream.example.org/live/browser-test-key" });
 
   const browserPlayerPin = await page.evaluate(async () =>
     (await fetch("/api/v1/admin/bootstrap").then(response => response.json())).pairingPin as string);

@@ -177,7 +177,13 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         content = item.optString("content").takeIf { it.isNotBlank() && it != "null" },
         x = item.optInt("x"), y = item.optInt("y"), width = item.optInt("width", 100), height = item.optInt("height", 100),
         backgroundColor = item.optString("backgroundColor", "#17201e"), textColor = item.optString("textColor", "#ffffff"),
-        accentColor = item.optString("accentColor", "#d89127"), media = item.optJSONObject("media")?.let(::parseItem),
+        accentColor = item.optString("accentColor", "#d89127"),
+        streamUrl = item.optString("streamUrl").takeIf { it.isNotBlank() && it != "null" }
+            ?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
+        rotation = item.optInt("rotation"), zIndex = item.optInt("zIndex"), opacity = item.optInt("opacity", 100),
+        fit = item.optString("fit", "cover"), locked = item.optBoolean("locked"), hidden = item.optBoolean("hidden"),
+        flipX = item.optBoolean("flipX"), flipY = item.optBoolean("flipY"),
+        media = item.optJSONObject("media")?.let(::parseItem),
         cached = item.optJSONObject("cached")?.let { cached -> SignageWidgetCache(
             zoneId = cached.optString("zoneId", item.getString("id")), title = cached.optString("title"),
             text = cached.optString("text"), items = cached.optJSONArray("items")?.let { array -> (0 until array.length()).map(array::getString) }.orEmpty(),
