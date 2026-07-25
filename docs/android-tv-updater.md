@@ -1,6 +1,8 @@
 # Android TV self-update system
 
-LessonCue's Android TV build is distributed directly from public GitHub Releases. It does not use the Google Play In-App Updates API and cannot silently update an ordinary consumer Android TV or Google TV device. LessonCue downloads and independently verifies the APK, then hands it to Android's official `PackageInstaller`; Android always owns the final user-confirmation screen.
+LessonCue's **Sideload** Android TV build is distributed directly from public GitHub Releases. It does not use the Google Play In-App Updates API and cannot silently update an ordinary consumer Android TV or Google TV device. LessonCue downloads and independently verifies the APK, then hands it to Android's official `PackageInstaller`; Android always owns the final user-confirmation screen.
+
+The **store** build is produced from the same playback code and application ID but removes `REQUEST_INSTALL_PACKAGES`, disables all GitHub update checks and controls, and relies exclusively on Google Play or the Amazon Appstore for updates.
 
 ## Architecture
 
@@ -22,13 +24,13 @@ The following generated `BuildConfig` values isolate distribution policy from up
 
 | Value | Production setting |
 | --- | --- |
-| `UPDATE_ENABLED` | `true` for signed release builds and `false` for debug builds |
+| `UPDATE_ENABLED` | `true` for the sideload flavor and `false` for the store flavor |
 | `UPDATE_MANIFEST_URL` | `https://github.com/nickhighland/lessoncue/releases/latest/download/update.json` |
 | `UPDATE_CHANNEL` | `stable` |
 | `UPDATE_ALLOWED_HOSTS` | `github.com`, `objects.githubusercontent.com`, and `release-assets.githubusercontent.com` |
 | `UPDATE_SIGNING_CERT_SHA256` | LessonCue's permanent production certificate fingerprint |
 
-LessonCue currently has one sideload distribution. It includes `REQUEST_INSTALL_PACKAGES`, external update checks, and the installer flow. A future Play build must override or omit the manifest URL, remove `REQUEST_INSTALL_PACKAGES`, hide the external updater interface, and direct users only through Google Play. The updater code is isolated so adding that flavor does not require changing playback, discovery, pairing, or caching.
+The sideload flavor includes `REQUEST_INSTALL_PACKAGES`, external update checks, and the installer flow. The store manifest explicitly removes the install-packages permission and installer receiver, while its generated `UPDATE_ENABLED` value removes update checks and controls from the interface. Playback, discovery, pairing, and caching remain shared.
 
 Debug builds keep the updater interface disabled because Android cannot install the production-signed APK over a debug-signed application. To move a test device from debug to production, uninstall the debug build, install the production APK, and pair the device again. Production-to-production updates install in place and retain application data.
 
@@ -109,11 +111,11 @@ The production application ID and signing identity must never change. Before tag
 The release workflow:
 
 - loads the existing keystore only from GitHub Actions secrets;
-- builds debug and production APKs;
+- builds the signed GitHub sideload APK, signed store APK, and signed Google Play Android App Bundle;
 - verifies the production signing-certificate fingerprint;
 - extracts the actual package version from the signed APK;
 - creates `lessoncue-tv.apk.sha256` and `update.json`;
-- publishes both Android builds, both server architectures, Windows, and `SHA256SUMS`; and
+- publishes `lessoncue-tv.apk`, `LessonCue-TV-store.apk`, `LessonCue-TV-Google-Play.aab`, both server architectures, Windows, and `SHA256SUMS`; and
 - fails before publishing if any production signing or metadata check fails.
 
 Required repository secrets remain:

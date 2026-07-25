@@ -9,6 +9,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - A complete, responsive React/TypeScript administration interface served directly by the local server, visually matched to the LessonCue prototype.
 - An ASP.NET Core 10 API with SQLite, pairing, manifests, health reporting, SignalR invalidation, and range-enabled media hosting.
 - A native Android TV/Fire TV application using Kotlin, Compose for TV, Media3, DataStore, and WorkManager.
+- Separate Android distributions: **LessonCue Sideload** with verified GitHub updates, and policy-clean Google Play/Amazon store packages whose updates are managed only by the installed store.
 - A native tvOS application using SwiftUI, AVKit, Bonjour discovery declarations, and persistent offline manifests.
 - A paired full-screen browser client for Windows, macOS, Linux, ChromeOS, computers, and projectors, using the same local manifests, controller commands, acknowledgements, heartbeats, scheduling, and diagnostics as the native TV clients.
 - A versioned OpenAPI contract and JSON Schema shared by every client.

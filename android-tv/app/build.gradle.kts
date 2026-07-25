@@ -19,8 +19,8 @@ android {
         applicationId = "org.lessoncue.tv"
         minSdk = 26
         targetSdk = 36
-        versionCode = 44
-        versionName = "0.34.0"
+        versionCode = 45
+        versionName = "0.35.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "UPDATE_ENABLED", "false")
         buildConfigField(
@@ -52,10 +52,23 @@ android {
         }
     }
 
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("sideload") {
+            dimension = "distribution"
+            resValue("string", "app_name", "LessonCue Sideload")
+            buildConfigField("boolean", "UPDATE_ENABLED", "true")
+        }
+        create("store") {
+            dimension = "distribution"
+            resValue("string", "app_name", "LessonCue")
+            buildConfigField("boolean", "UPDATE_ENABLED", "false")
+        }
+    }
+
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
-            buildConfigField("boolean", "UPDATE_ENABLED", "true")
             if (releaseSigningConfigured) signingConfig = signingConfigs.getByName("lessoncueRelease")
         }
     }
@@ -63,6 +76,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        resValues = true
     }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }

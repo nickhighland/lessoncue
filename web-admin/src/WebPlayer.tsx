@@ -1,6 +1,6 @@
 import { CSSProperties, FormEvent, useEffect, useRef, useState } from "react";
 
-const APP_VERSION = "0.34.0";
+const APP_VERSION = "0.35.0";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
