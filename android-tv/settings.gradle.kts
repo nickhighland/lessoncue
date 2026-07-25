@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "LessonCueTV"
 include(":app")
+include(":personal-test")
