@@ -93,11 +93,16 @@ jobs:
           chmod 0600 "${RUNNER_TEMP}/lessoncue-release.jks"
           echo "LESSONCUE_ANDROID_KEYSTORE_PATH=${RUNNER_TEMP}/lessoncue-release.jks" >> "${GITHUB_ENV}"
           echo "LESSONCUE_ANDROID_SIGNING_CERT_SHA256=${SIGNING_CERT_SHA256}" >> "${GITHUB_ENV}"
-      - run: gradle -p android-tv :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease
-      - run: cp android-tv/app/build/outputs/apk/debug/app-debug.apk LessonCue-AndroidTV-debug.apk
+      - run: >-
+          gradle -p android-tv
+          :app:testSideloadDebugUnitTest :app:testStoreDebugUnitTest
+          :app:lintSideloadDebug :app:lintStoreDebug
+          :app:assembleSideloadDebug
+          :app:assembleSideloadRelease :app:assembleStoreRelease :app:bundleStoreRelease
+      - run: cp android-tv/app/build/outputs/apk/sideload/debug/app-sideload-debug.apk LessonCue-AndroidTV-sideload-debug.apk
       - name: Verify and name signed sideload APK
         run: |
-          release_apk="android-tv/app/build/outputs/apk/release/app-release.apk"
+          release_apk="android-tv/app/build/outputs/apk/sideload/release/app-sideload-release.apk"
           test -f "${release_apk}" || { echo "::error::The signed release APK was not produced"; exit 1; }
           apksigner="$(find "${ANDROID_HOME}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -x "${apksigner}" || { echo "::error::Android apksigner was not found"; exit 1; }
@@ -106,6 +111,17 @@ jobs:
           expected_fingerprint="$(printf '%s' "${LESSONCUE_ANDROID_SIGNING_CERT_SHA256}" | tr '[:lower:]' '[:upper:]' | tr -d ':')"
           test "${actual_fingerprint}" = "${expected_fingerprint}" || { echo "::error::Release APK signing certificate does not match ANDROID_SIGNING_CERT_SHA256"; exit 1; }
           cp "${release_apk}" lessoncue-tv.apk
+      - name: Verify and name store packages
+        run: |
+          store_apk="android-tv/app/build/outputs/apk/store/release/app-store-release.apk"
+          store_aab="android-tv/app/build/outputs/bundle/storeRelease/app-store-release.aab"
+          test -f "${store_apk}" || { echo "::error::The signed store APK was not produced"; exit 1; }
+          test -f "${store_aab}" || { echo "::error::The signed store AAB was not produced"; exit 1; }
+          apksigner="$(find "${ANDROID_HOME}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          "${apksigner}" verify --verbose --print-certs "${store_apk}"
+          jarsigner -verify "${store_aab}"
+          cp "${store_apk}" LessonCue-TV-store.apk
+          cp "${store_aab}" LessonCue-TV-Google-Play.aab
       - name: Generate signed update metadata
         run: |
           aapt2="$(find "${ANDROID_HOME}/build-tools" -type f -name aapt2 | sort -V | tail -n 1)"
@@ -144,10 +160,12 @@ jobs:
         with:
           name: LessonCue-AndroidTV
           path: |
-            LessonCue-AndroidTV-debug.apk
+            LessonCue-AndroidTV-sideload-debug.apk
             lessoncue-tv.apk
             lessoncue-tv.apk.sha256
             update.json
+            LessonCue-TV-store.apk
+            LessonCue-TV-Google-Play.aab
 
   publish:
     needs: [server-linux, server-windows, android]

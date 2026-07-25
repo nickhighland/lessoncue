@@ -71,11 +71,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 9.4.1
-      - run: gradle -p android-tv :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
+      - run: >-
+          gradle -p android-tv
+          :app:testSideloadDebugUnitTest :app:testStoreDebugUnitTest
+          :app:lintSideloadDebug :app:lintStoreDebug
+          :app:assembleSideloadDebug :app:assembleStoreDebug
+          :app:assembleSideloadDebugAndroidTest :app:assembleStoreDebugAndroidTest
       - uses: actions/upload-artifact@v4
         with:
           name: LessonCue-AndroidTV-debug
-          path: android-tv/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            android-tv/app/build/outputs/apk/sideload/debug/app-sideload-debug.apk
+            android-tv/app/build/outputs/apk/store/debug/app-store-debug.apk
 
   tvos:
     runs-on: macos-15

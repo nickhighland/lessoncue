@@ -50,6 +50,8 @@ LessonCue remains centered on preparing media, organizing lessons, confirming re
 
 ## Implemented roadmap milestones
 
+- [x] **Signage Studio foundation, live-stream zones, and Android store distribution (v0.35.0)** — add direct zone dragging, resizing, arbitrary rotation, snapping, keyboard nudging, layers, opacity, fit, flip, duplicate, lock, and hide controls; relay HLS, HTTP, RTMP, RTMPS, and RTSP sources locally for browser, Android TV, and Apple TV displays; adopt PolyForm Noncommercial licensing and a commercial contributor grant; and split Android delivery into a clearly labeled GitHub-updated sideload build plus Google Play/Amazon store packages with external updating removed.
+
 - [x] **Lesson planning and run-of-show improvements (v0.34.0)** — add always-visible teacher/volunteer notes per cue, whole-lesson substitute instructions, printable run sheets, trim/speed/repeat-aware estimates, live remaining duration and estimated finish, overrun guidance, flexible-time markers, same-room overlap warnings, agenda/day/week/month/room calendar views, complete copy or move across classes and dates, and an optional private pre-roll livestream monitor on the cellphone controller.
 
    - [x] Notes and the monitor are operator-only; the private monitor URL is never sent to an audience display manifest.

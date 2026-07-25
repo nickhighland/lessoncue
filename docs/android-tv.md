@@ -12,7 +12,12 @@ Version 0.18 and newer reports a bounded inventory of assigned offline media, do
 
 Diagnostic screenshots are disabled by default for every paired TV. When an administrator explicitly enables them and sends a one-time request, the TV displays a red notice for 2.5 seconds before capturing the current LessonCue window. The request expires after 60 seconds, the server accepts only a valid JPEG/PNG up to 8 MB, and the latest image is removed after 24 hours or immediately when the administrator disables or deletes it.
 
-Use JDK 17, Android SDK 36, and the Gradle version pinned in CI. `debug` builds are suitable only for device testing and intentionally disable production self-updates. Production sideload builds use the permanent organization-owned keystore configured through protected release secrets; never commit the keystore or passwords. See [Android TV self-update system](android-tv-updater.md) for release configuration, verification rules, safe rollout, and the hardware acceptance matrix.
+Use JDK 17, Android SDK 36, and the Gradle version pinned in CI. LessonCue has two production distributions:
+
+- **LessonCue Sideload** is the APK published on GitHub. It checks signed GitHub release metadata and can hand a verified update to Android's installer.
+- **LessonCue** is the store distribution for Google Play and the Amazon Appstore. It does not request package-install permission, contact GitHub for application updates, or display external-update controls. Google Play or the Amazon Appstore owns its update lifecycle.
+
+Debug builds are suitable only for device testing. Production builds use the permanent organization-owned keystore configured through protected release secrets; never commit the keystore or passwords. See [Android TV self-update system](android-tv-updater.md) for release configuration, verification rules, safe rollout, and the hardware acceptance matrix.
 
 During playback, tap Left or Right to move to the previous or next cue in the complete pre-roll/countdown/lesson sequence. Hold Left or Right to rewind or fast-forward the current playable item in five-second steps. The remote's Play, Pause, Play/Pause, center Select, media Previous, media Next, Rewind, and Fast-forward keys are handled directly by LessonCue. Back returns to the lesson plan.
 
