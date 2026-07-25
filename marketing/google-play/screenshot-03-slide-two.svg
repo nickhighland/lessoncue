@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-label="LessonCue sample lesson slide two">
+  <rect width="1920" height="1080" fill="#101614"/>
+  <rect x="140" width="1640" height="948" fill="#fff"/>
+  <text x="260" y="190" fill="#000" font-family="Arial, Helvetica, sans-serif" font-size="49">This demo app shows a sample LessonCue project</text>
+  <text x="260" y="270" fill="#000" font-family="Arial, Helvetica, sans-serif" font-size="49">with three slides. It is a basic demonstration of</text>
+  <text x="260" y="350" fill="#000" font-family="Arial, Helvetica, sans-serif" font-size="49">the touch screen experience. On the TV version,</text>
+  <text x="260" y="430" fill="#000" font-family="Arial, Helvetica, sans-serif" font-size="49">slides are controlled with a television, Google TV,</text>
+  <text x="260" y="510" fill="#000" font-family="Arial, Helvetica, sans-serif" font-size="49">or Fire TV remote.</text>
+  <text x="260" y="630" fill="#000" font-family="Arial, Helvetica, sans-serif" font-size="50">2 of 3</text>
+  <text x="260" y="716" fill="#000" font-family="Arial, Helvetica, sans-serif" font-size="39">Slide left to right to test backward navigation. Then slide right</text>
+  <text x="260" y="770" fill="#000" font-family="Arial, Helvetica, sans-serif" font-size="39">to left twice to advance to the final slide.</text>
+  <rect y="948" width="1920" height="132" fill="#173b36" fill-opacity=".9"/>
+  <rect x="30" y="974" width="148" height="76" rx="18" fill="#3a8b66"/><text x="104" y="1023" text-anchor="middle" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="25">Previous</text>
+  <text x="960" y="1024" text-anchor="middle" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="28">Swipe or use ◀  ▶ on a remote</text>
+  <rect x="1742" y="974" width="148" height="76" rx="18" fill="#3a8b66"/><text x="1816" y="1023" text-anchor="middle" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="25">Next</text>
+</svg>

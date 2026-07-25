@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-label="LessonCue lesson chooser">
+  <rect width="1920" height="1080" fill="#f2f0e8"/>
+  <rect x="600" y="187" width="720" height="706" rx="42" fill="#fff"/>
+  <text x="672" y="302" fill="#3a8b66" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700">LessonCue</text>
+  <text x="672" y="408" fill="#173b36" font-family="Arial, Helvetica, sans-serif" font-size="72" font-weight="700">Choose a lesson</text>
+  <text x="672" y="535" fill="#173b36" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="600">Sample Lesson</text>
+  <text x="672" y="586" fill="#52635e" font-family="Arial, Helvetica, sans-serif" font-size="32">Schools Project • 3 slides</text>
+  <rect x="672" y="695" width="576" height="94" rx="47" fill="#3a8b66"/>
+  <text x="960" y="755" text-anchor="middle" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700">Open Sample Lesson</text>
+</svg>

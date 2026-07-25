@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-label="LessonCue sample lesson slide one">
+  <rect width="1920" height="1080" fill="#101614"/>
+  <rect x="140" width="1640" height="948" fill="#fff"/>
+  <text x="260" y="212" fill="#000" font-family="Arial, Helvetica, sans-serif" font-size="54">LessonCue is a self-hosted remote control</text>
+  <text x="260" y="300" fill="#000" font-family="Arial, Helvetica, sans-serif" font-size="54">slideshow presentation software for schools</text>
+  <text x="260" y="388" fill="#000" font-family="Arial, Helvetica, sans-serif" font-size="54">and education facilities, churches, and</text>
+  <text x="260" y="476" fill="#000" font-family="Arial, Helvetica, sans-serif" font-size="54">public speakers.</text>
+  <text x="260" y="594" fill="#000" font-family="Arial, Helvetica, sans-serif" font-size="50">1 of 3</text>
+  <text x="260" y="682" fill="#000" font-family="Arial, Helvetica, sans-serif" font-size="48">Slide from right to left to continue.</text>
+  <rect y="948" width="1920" height="132" fill="#173b36" fill-opacity=".9"/>
+  <rect x="30" y="974" width="148" height="76" rx="18" fill="#6f817b"/><text x="104" y="1023" text-anchor="middle" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="25">Previous</text>
+  <text x="960" y="1024" text-anchor="middle" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="28">Swipe or use ◀  ▶ on a remote</text>
+  <rect x="1742" y="974" width="148" height="76" rx="18" fill="#3a8b66"/><text x="1816" y="1023" text-anchor="middle" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="25">Next</text>
+</svg>
