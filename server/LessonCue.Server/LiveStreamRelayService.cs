@@ -7,10 +7,12 @@ public sealed class LiveStreamRelayService(string dataPath, ILogger<LiveStreamRe
 {
     private readonly string root = Path.Combine(dataPath, "media", "live-streams");
     private readonly ConcurrentDictionary<string, RelaySession> sessions = new(StringComparer.Ordinal);
+    private string? storageError;
 
     public async Task<(string? Path, string? Error)> PreparePlaylistAsync(
         Guid signageId, string zoneId, string sourceUrl, CancellationToken cancellationToken)
     {
+        if (!EnsureStorageReady()) return (null, storageError);
         var session = sessions.GetOrAdd(Key(signageId, zoneId),
             _ => new RelaySession(Path.Combine(root, signageId.ToString("N"), SafeZoneId(zoneId))));
         session.LastAccess = DateTimeOffset.UtcNow;
@@ -75,7 +77,7 @@ public sealed class LiveStreamRelayService(string dataPath, ILogger<LiveStreamRe
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        Directory.CreateDirectory(root);
+        if (!EnsureStorageReady()) return;
         using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
         try
         {
@@ -158,6 +160,25 @@ public sealed class LiveStreamRelayService(string dataPath, ILogger<LiveStreamRe
     }
 
     private static string Key(Guid signageId, string zoneId) => $"{signageId:N}:{zoneId}";
+
+    private bool EnsureStorageReady()
+    {
+        try
+        {
+            Directory.CreateDirectory(root);
+            storageError = null;
+            return true;
+        }
+        catch (Exception error) when (error is UnauthorizedAccessException or IOException)
+        {
+            const string message = "LessonCue cannot access live-stream storage. An administrator must repair the media-directory permissions.";
+            if (!string.Equals(storageError, message, StringComparison.Ordinal))
+                logger.LogError(error, "Live-stream relay storage is unavailable at {Path}", root);
+            storageError = message;
+            return false;
+        }
+    }
+
     private static string SafeZoneId(string zoneId)
     {
         var safe = new string(zoneId.Where(char.IsAsciiLetterOrDigit).Take(64).ToArray());

@@ -389,6 +389,14 @@ install -m 0644 "${WORKDIR}/archive/lessoncue-update.path" /etc/systemd/system/l
 install -m 0644 "${WORKDIR}/archive/lessoncue.service" /etc/systemd/system/lessoncue.service
 install -m 0644 "${WORKDIR}/archive/lessoncue-cloudflared.service" /etc/systemd/system/lessoncue-cloudflared.service
 systemctl daemon-reload
+
+# Older installations may have a root-owned media parent even though their
+# existing media subdirectories belong to the service account. Repair the
+# parent and provision relay storage before the upgraded server starts.
+install -d -o lessoncue -g lessoncue -m 0750 \
+  /var/lib/lessoncue/media \
+  /var/lib/lessoncue/media/live-streams
+
 if [[ -f /etc/lessoncue/cloudflare-token ]] &&
    grep -Eq '"enabled"[[:space:]]*:[[:space:]]*true' /var/lib/lessoncue/config/cloudflare-tunnel.json 2>/dev/null; then
   # Repair older releases that disabled the connector after a short first
