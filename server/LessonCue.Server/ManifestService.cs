@@ -15,7 +15,9 @@ public sealed class ManifestService(LessonCueDb db)
             ?? "UTC";
         var lessonsQuery = db.Lessons.AsNoTracking().Include(x => x.Class).Include(x => x.Items)
             .ThenInclude(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants).AsSplitQuery().AsQueryable();
-        if (screen.AssignedClassId is { } classId)
+        if (screen.SignageOnly)
+            lessonsQuery = lessonsQuery.Where(_ => false);
+        else if (screen.AssignedClassId is { } classId)
             lessonsQuery = lessonsQuery.Where(x => x.ClassId == classId);
 
         var lessons = (await lessonsQuery.Where(x => !x.Archived).OrderBy(x => x.Date).ToListAsync(cancellationToken))
@@ -262,7 +264,7 @@ public sealed class ManifestService(LessonCueDb db)
                 zone.GroupId, zone.LockMode, zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight,
                 zone.Italic, zone.Underline, zone.LineHeightPercent, zone.TextAlign, zone.Shape,
                 zone.StrokeColor, zone.StrokeWidth, zone.CornerRadius, zone.IconName, zone.QrValue,
-                zone.QrLabelTop, zone.QrLabelBottom, zone.QrLabelLeft, zone.QrLabelRight,
+                zone.QrLabelTop, zone.QrLabelBottom, zone.QrLabelLeft, zone.QrLabelRight, zone.QrPlacement,
                 zone.TickerSpeed, zone.CounterTargetAt, zone.CounterRepeatWeekly,
                 zone.ClockDisplay, zone.ClockTimeFormat, zone.ClockDateFormat, zone.ClockOrder,
                 zone.ClockTimeFontSize, zone.ClockDateFontSize,
@@ -388,7 +390,7 @@ public sealed class ManifestService(LessonCueDb db)
                         zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight, zone.Italic, zone.Underline,
                         zone.LineHeightPercent, zone.TextAlign, zone.Shape, zone.StrokeColor, zone.StrokeWidth,
                         zone.CornerRadius, zone.IconName, zone.QrValue,
-                        zone.QrLabelTop, zone.QrLabelBottom, zone.QrLabelLeft, zone.QrLabelRight,
+                        zone.QrLabelTop, zone.QrLabelBottom, zone.QrLabelLeft, zone.QrLabelRight, zone.QrPlacement,
                         zone.TickerSpeed, zone.CounterTargetAt, zone.CounterRepeatWeekly,
                         zone.ClockDisplay, zone.ClockTimeFormat, zone.ClockDateFormat, zone.ClockOrder,
                         zone.ClockTimeFontSize, zone.ClockDateFontSize,

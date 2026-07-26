@@ -2042,6 +2042,8 @@ public static class AdminApi
                 x.AssignedClassId,
                 assignedClassName = db.Classes.Where(c => c.Id == x.AssignedClassId).Select(c => c.Name).FirstOrDefault(),
                 x.VolunteerMode,
+                x.SignageOnly,
+                x.PermanentPairing,
                 x.LastSeenAt,
                 online = x.LastSeenAt != null && x.LastSeenAt >= onlineCutoff,
                 x.FreeBytes,
@@ -2146,6 +2148,8 @@ public static class AdminApi
             if (!allowed.Contains(action)) return Results.BadRequest(new { error = "Unsupported playback command." });
             var screen = await db.Screens.SingleOrDefaultAsync(x => x.Id == id && !x.Revoked, ct);
             if (screen is null) return Results.NotFound();
+            if (screen.SignageOnly)
+                return Results.Conflict(new { error = "This screen is assigned to signage only and cannot receive lesson playback commands." });
             var controllerContext = context.Request.Headers["X-LessonCue-Controller"].ToString();
             if (controllerContext.StartsWith("room:", StringComparison.OrdinalIgnoreCase) ||
                 controllerContext.StartsWith("session:", StringComparison.OrdinalIgnoreCase))
@@ -2225,6 +2229,12 @@ public static class AdminApi
             if (input.Name is not null) screen.Name = input.Name.Trim();
             if (input.ClearAssignment) screen.AssignedClassId = null;
             else if (input.AssignedClassId is not null) screen.AssignedClassId = input.AssignedClassId;
+            if (input.SignageOnly is bool signageOnly)
+            {
+                screen.SignageOnly = signageOnly;
+                if (signageOnly) screen.AssignedClassId = null;
+            }
+            if (input.PermanentPairing is bool permanentPairing) screen.PermanentPairing = permanentPairing;
             if (input.VolunteerMode is not null) screen.VolunteerMode = input.VolunteerMode.Value;
             if (input.TagsCsv is not null) screen.TagsCsv = input.TagsCsv.Trim();
             if (input.Site is not null) screen.Site = input.Site.Trim();
@@ -2250,6 +2260,19 @@ public static class AdminApi
             await db.SaveChangesAsync(ct);
             await hub.Clients.Group($"screen:{id}").SendAsync("ManifestInvalidated", new { type = "MANIFEST_INVALIDATED" }, ct);
             return Results.Ok(screen);
+        });
+
+        screens.MapPost("/screens/{id:guid}/browser-link", async (Guid id, HttpRequest request, LessonCueDb db,
+            CancellationToken ct) =>
+        {
+            var screen = await db.Screens.SingleOrDefaultAsync(x => x.Id == id && !x.Revoked, ct);
+            if (screen is null) return Results.NotFound();
+            var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+            db.DeviceCredentials.Add(new DeviceCredential { ScreenId = screen.Id, TokenHash = HashDeviceToken(token) });
+            Audit(db, "screen.browser-link", screen.Id, screen.Name);
+            await db.SaveChangesAsync(ct);
+            var origin = $"{request.Scheme}://{request.Host}";
+            return Results.Ok(new { url = $"{origin}/display?screenId={screen.Id}&token={token}&name={Uri.EscapeDataString(screen.Name)}" });
         });
 
         screens.MapDelete("/screens/{id:guid}", async (Guid id, LessonCueDb db, CancellationToken ct) =>
@@ -3011,7 +3034,7 @@ public static class AdminApi
                         zone.GroupId, zone.LockMode, zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight,
                         zone.Italic, zone.Underline, zone.LineHeightPercent, zone.TextAlign, zone.Shape,
                         zone.StrokeColor, zone.StrokeWidth, zone.CornerRadius, zone.IconName, zone.QrValue,
-                        zone.QrLabelTop, zone.QrLabelBottom, zone.QrLabelLeft, zone.QrLabelRight,
+                        zone.QrLabelTop, zone.QrLabelBottom, zone.QrLabelLeft, zone.QrLabelRight, zone.QrPlacement,
                         zone.TickerSpeed, zone.CounterTargetAt, zone.CounterRepeatWeekly,
                         zone.ClockDisplay, zone.ClockTimeFormat, zone.ClockDateFormat, zone.ClockOrder,
                         zone.ClockTimeFontSize, zone.ClockDateFontSize,
@@ -3606,6 +3629,9 @@ public static class AdminApi
         screen.ScreenshotCapturedAt = null;
         screen.ScreenshotRelativePath = null;
     }
+
+    private static string HashDeviceToken(string token) =>
+        Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
 
     private static Task InvalidateAsync(IHubContext<SyncHub> hub, int version, CancellationToken ct) =>
         hub.Clients.All.SendAsync("ManifestInvalidated", new { type = "MANIFEST_INVALIDATED", manifestVersion = version }, ct);

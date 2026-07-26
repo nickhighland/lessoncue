@@ -160,6 +160,7 @@ public sealed class ScreenTelemetryTests
         Guid expiredBrowserId;
         Guid neverConnectedBrowserId;
         Guid activeBrowserId;
+        Guid permanentBrowserId;
         Guid nativeId;
         await using (var scope = provider.CreateAsyncScope())
         {
@@ -168,17 +169,20 @@ public sealed class ScreenTelemetryTests
             var expiredBrowser = new Screen { Name = "Old browser", Platform = "web-player", LastSeenAt = now.AddHours(-3) };
             var neverConnectedBrowser = new Screen { Name = "Unused browser", Platform = "web-player" };
             var activeBrowser = new Screen { Name = "Active browser", Platform = "web-player", LastSeenAt = now.AddMinutes(-10) };
+            var permanentBrowser = new Screen { Name = "Permanent browser", Platform = "web-player", PermanentPairing = true, LastSeenAt = now.AddHours(-3) };
             var native = new Screen { Name = "Native TV", Platform = "android-tv", LastSeenAt = now.AddDays(-2) };
-            db.Screens.AddRange(expiredBrowser, neverConnectedBrowser, activeBrowser, native);
+            db.Screens.AddRange(expiredBrowser, neverConnectedBrowser, activeBrowser, permanentBrowser, native);
             db.DeviceCredentials.AddRange(
                 new DeviceCredential { ScreenId = expiredBrowser.Id, TokenHash = "expired", CreatedAt = now.AddHours(-3) },
                 new DeviceCredential { ScreenId = neverConnectedBrowser.Id, TokenHash = "unused", CreatedAt = now.AddHours(-3) },
                 new DeviceCredential { ScreenId = activeBrowser.Id, TokenHash = "active", CreatedAt = now.AddHours(-3) },
+                new DeviceCredential { ScreenId = permanentBrowser.Id, TokenHash = "permanent", CreatedAt = now.AddHours(-3) },
                 new DeviceCredential { ScreenId = native.Id, TokenHash = "native", CreatedAt = now.AddDays(-2) });
             await db.SaveChangesAsync(cancellationToken);
             expiredBrowserId = expiredBrowser.Id;
             neverConnectedBrowserId = neverConnectedBrowser.Id;
             activeBrowserId = activeBrowser.Id;
+            permanentBrowserId = permanentBrowser.Id;
             nativeId = native.Id;
         }
 
@@ -191,6 +195,7 @@ public sealed class ScreenTelemetryTests
             Assert.False(await db.Screens.AnyAsync(x => x.Id == expiredBrowserId, cancellationToken));
             Assert.False(await db.Screens.AnyAsync(x => x.Id == neverConnectedBrowserId, cancellationToken));
             Assert.True(await db.Screens.AnyAsync(x => x.Id == activeBrowserId, cancellationToken));
+            Assert.True(await db.Screens.AnyAsync(x => x.Id == permanentBrowserId, cancellationToken));
             Assert.True(await db.Screens.AnyAsync(x => x.Id == nativeId, cancellationToken));
             Assert.Equal(2, await db.AuditEvents.CountAsync(x => x.Action == "screen.browser.expire", cancellationToken));
         }

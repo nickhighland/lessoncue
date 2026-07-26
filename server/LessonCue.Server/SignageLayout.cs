@@ -74,6 +74,7 @@ public static class SignageLayout
             QrLabelBottom = Truncate(zone.QrLabelBottom, 160),
             QrLabelLeft = Truncate(zone.QrLabelLeft, 160),
             QrLabelRight = Truncate(zone.QrLabelRight, 160),
+            QrPlacement = zone.QrPlacement is "left" or "right" ? zone.QrPlacement : "center",
             TickerSpeed = Math.Clamp(zone.TickerSpeed, 10, 300),
             CredentialKey = Truncate(zone.CredentialKey, 120),
             ClockDisplay = zone.ClockDisplay is "time" or "date" ? zone.ClockDisplay : "both",

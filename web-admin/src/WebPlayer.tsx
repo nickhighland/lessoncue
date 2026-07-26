@@ -1,7 +1,7 @@
 import { CSSProperties, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 
-const APP_VERSION = "0.37.1";
+const APP_VERSION = "0.37.2";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -85,7 +85,7 @@ type SignageZone = {
   rotation?: number; zIndex?: number; opacity?: number; fit?: "cover" | "contain" | "fill"; locked?: boolean; hidden?: boolean; flipX?: boolean; flipY?: boolean;
   media?: CueItem; cached?: SignageWidgetCache; fontFamily?: string; fontSize?: number; fontWeight?: number; italic?: boolean; underline?: boolean;
   lineHeightPercent?: number; textAlign?: CSSProperties["textAlign"]; strokeColor?: string; strokeWidth?: number; cornerRadius?: number;
-  qrValue?: string; qrLabelTop?: string; qrLabelBottom?: string; qrLabelLeft?: string; qrLabelRight?: string;
+  qrValue?: string; qrLabelTop?: string; qrLabelBottom?: string; qrLabelLeft?: string; qrLabelRight?: string; qrPlacement?: "left" | "center" | "right";
   tickerSpeed?: number; counterTargetAt?: string; counterRepeatWeekly?: boolean; richTextJson?: string;
   clockDisplay?: "time" | "date" | "both"; clockTimeFormat?: "12h" | "12h-seconds" | "24h" | "24h-seconds";
   clockDateFormat?: "short" | "medium" | "long" | "numeric"; clockOrder?: "time-date" | "date-time" | "inline";
@@ -148,6 +148,13 @@ export function WebPlayerApp() {
   const errorsRef = useRef<{ timestamp: string; area: string; message: string; itemId?: string }[]>([]);
   const signageCacheRef = useRef<{ itemId: string; title: string; state: string; sizeBytes: number; expectedBytes?: number; error?: string }[]>([]);
   const interruptedRef = useRef<{ playback: ActivePlayback; paused: boolean } | undefined>(undefined);
+  useEffect(() => {
+    const query = new URLSearchParams(location.search);
+    if (!query.get("screenId") || !query.get("token") || !identity) return;
+    localStorage.setItem(IDENTITY_KEY, JSON.stringify(identity));
+    query.delete("screenId"); query.delete("token"); query.delete("name");
+    history.replaceState(null, "", `${location.pathname}${query.size ? `?${query}` : ""}`);
+  }, [identity]);
   const repeatProgressRef = useRef<{ itemId: string; completed: number }>({ itemId: "", completed: 0 });
   useDurableSignageCache(manifest?.signageSchedule, identity, signageCacheRef, errorsRef);
 
@@ -783,7 +790,7 @@ function SignageRichText({ value, fallback }: { value: string; fallback: string 
 
 function SignageQr({ zone }: { zone: SignageZone }) {
   const value = zone.qrValue || zone.content || "";
-  return value ? <div className="signage-qr-layout">
+  return value ? <div className={`signage-qr-layout placement-${zone.qrPlacement || "center"}`}>
     <span className="signage-qr-label top">{zone.qrLabelTop}</span>
     <span className="signage-qr-label left">{zone.qrLabelLeft}</span>
     <GeneratedSignageQr value={value} />
@@ -1101,6 +1108,9 @@ function signageMediaItems(signage: Signage) { return [signage.media, ...(signag
 
 function readIdentity(): Identity | null {
   try {
+    const query = new URLSearchParams(location.search);
+    const screenId = query.get("screenId"), token = query.get("token");
+    if (screenId && token) return { screenId, token, deviceName: query.get("name") || "Browser display" };
     const value = JSON.parse(localStorage.getItem(IDENTITY_KEY) || "null") as Partial<Identity> | null;
     return value?.screenId && value.token ? { screenId: value.screenId, token: value.token, deviceName: value.deviceName || "Browser display" } : null;
   } catch { return null; }

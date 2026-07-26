@@ -461,10 +461,10 @@ private struct SignageQRCode: View {
             VStack(spacing: 8) {
                 if let label = zone.qrLabelTop { Text(label).lineLimit(2) }
                 HStack(spacing: 8) {
-                    if let label = zone.qrLabelLeft { Text(label).lineLimit(3) }
+                    if zone.qrPlacement != "left", let label = zone.qrLabelLeft { Text(label).lineLimit(3).multilineTextAlignment(.trailing) }
                     Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
                         .background(.white).accessibilityLabel("QR code")
-                    if let label = zone.qrLabelRight { Text(label).lineLimit(3) }
+                    if zone.qrPlacement != "right", let label = zone.qrLabelRight { Text(label).lineLimit(3).multilineTextAlignment(.leading) }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 if let label = zone.qrLabelBottom { Text(label).lineLimit(2) }
             }.frame(maxWidth: .infinity, maxHeight: .infinity).clipped()

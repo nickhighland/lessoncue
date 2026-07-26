@@ -479,6 +479,8 @@ public static class DatabaseUpgrade
             ["Screens.ScreenshotStatus"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ScreenshotStatus\" TEXT NOT NULL DEFAULT 'none'"),
             ["Screens.ScreenshotCapturedAt"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ScreenshotCapturedAt\" TEXT NULL"),
             ["Screens.ScreenshotRelativePath"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ScreenshotRelativePath\" TEXT NULL")
+            , ["Screens.SignageOnly"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"SignageOnly\" INTEGER NOT NULL DEFAULT 0")
+            , ["Screens.PermanentPairing"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"PermanentPairing\" INTEGER NOT NULL DEFAULT 0")
         };
 
         foreach (var (key, addition) in additions)

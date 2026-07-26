@@ -707,9 +707,11 @@ private fun SignageQrCode(value: String, zone: SignageZone) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             zone.qrLabelTop?.let { label -> Text(label, color = parseDisplayColor(zone.textColor), textAlign = TextAlign.Center) }
             Row(Modifier.weight(1f).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                zone.qrLabelLeft?.let { label -> Text(label, color = parseDisplayColor(zone.textColor), modifier = Modifier.padding(end = 8.dp)) }
-                Image(bitmap = it, contentDescription = "QR code", modifier = Modifier.weight(1f).fillMaxSize().aspectRatio(1f))
-                zone.qrLabelRight?.let { label -> Text(label, color = parseDisplayColor(zone.textColor), modifier = Modifier.padding(start = 8.dp)) }
+                val leftAligned = zone.qrPlacement == "left"
+                val rightAligned = zone.qrPlacement == "right"
+                if (!leftAligned) zone.qrLabelLeft?.let { label -> Text(label, color = parseDisplayColor(zone.textColor), modifier = Modifier.padding(end = 8.dp), textAlign = TextAlign.Right) }
+                Image(bitmap = it, contentDescription = "QR code", modifier = Modifier.weight(if (leftAligned || rightAligned) .42f else 1f).fillMaxSize().aspectRatio(1f))
+                if (!rightAligned) zone.qrLabelRight?.let { label -> Text(label, color = parseDisplayColor(zone.textColor), modifier = Modifier.padding(start = 8.dp), textAlign = TextAlign.Left) }
             }
             zone.qrLabelBottom?.let { label -> Text(label, color = parseDisplayColor(zone.textColor), textAlign = TextAlign.Center) }
         }
