@@ -75,7 +75,7 @@ data class SignageZone(val id: String, val type: String, val title: String?, val
     val underline: Boolean = false, val lineHeightPercent: Int = 120, val textAlign: String = "left",
     val strokeColor: String = "#ffffff", val strokeWidth: Int = 0, val cornerRadius: Int = 0,
     val qrValue: String? = null, val qrLabelTop: String? = null, val qrLabelBottom: String? = null,
-    val qrLabelLeft: String? = null, val qrLabelRight: String? = null, val tickerSpeed: Int = 60,
+    val qrLabelLeft: String? = null, val qrLabelRight: String? = null, val qrPlacement: String = "center", val tickerSpeed: Int = 60,
     val counterTargetAt: Instant? = null, val counterRepeatWeekly: Boolean = false,
     val clockDisplay: String = "both", val clockTimeFormat: String = "12h",
     val clockDateFormat: String = "long", val clockOrder: String = "time-date",

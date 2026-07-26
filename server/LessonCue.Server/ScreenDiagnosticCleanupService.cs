@@ -35,7 +35,7 @@ public sealed class ScreenDiagnosticCleanupService(IServiceScopeFactory scopes, 
         var expired = browserScreens.Where(screen =>
         {
             var createdAt = credentialTimes.TryGetValue(screen.Id, out var value) ? value : DateTimeOffset.MinValue;
-            return IsBrowserPairExpired(screen.Platform, screen.LastSeenAt, createdAt, now);
+            return !screen.PermanentPairing && IsBrowserPairExpired(screen.Platform, screen.LastSeenAt, createdAt, now);
         }).ToList();
         if (expired.Count == 0) return 0;
         var expiredIds = expired.Select(x => x.Id).ToArray();

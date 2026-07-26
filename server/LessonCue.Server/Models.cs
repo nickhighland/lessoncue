@@ -343,6 +343,8 @@ public sealed class Screen
     public long FreeBytes { get; set; }
     public int FailedDownloads { get; set; }
     public bool Revoked { get; set; }
+    public bool SignageOnly { get; set; }
+    public bool PermanentPairing { get; set; }
     [MaxLength(32)] public string AppVersion { get; set; } = "unknown";
     public int ManifestVersion { get; set; }
     [MaxLength(500)] public string TagsCsv { get; set; } = "";
@@ -643,7 +645,8 @@ public sealed record PlaylistItemBulkInput(List<Guid> ItemIds, string Action, st
 public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool? VolunteerMode,
     bool ClearAssignment = false, string? TagsCsv = null, string? Site = null,
     bool? AllowDiagnosticScreenshots = null, string? SignageOrientation = null,
-    int? SignageWidth = null, int? SignageHeight = null);
+    int? SignageWidth = null, int? SignageHeight = null, bool? SignageOnly = null,
+    bool? PermanentPairing = null);
 public sealed record ScreenControlInput(string Action, Guid? LessonId = null, Guid? ItemId = null, long? PositionMs = null);
 public sealed record UserInput(string Username, string DisplayName, string? Email, string Role, string? Password,
     bool Disabled = false, List<string>? Permissions = null);
@@ -681,6 +684,7 @@ public sealed record SignageZoneInput(string Id, string Type, string? Title = nu
     string? Shape = null, string? StrokeColor = null, int StrokeWidth = 0, int CornerRadius = 0,
     string? IconName = null, string? QrValue = null, int TickerSpeed = 60,
     string? QrLabelTop = null, string? QrLabelBottom = null, string? QrLabelLeft = null, string? QrLabelRight = null,
+    string? QrPlacement = null,
     DateTimeOffset? CounterTargetAt = null, bool CounterRepeatWeekly = false, string? CredentialKey = null,
     string? ClockDisplay = null, string? ClockTimeFormat = null, string? ClockDateFormat = null,
     string? ClockOrder = null, int ClockTimeFontSize = 64, int ClockDateFontSize = 28,

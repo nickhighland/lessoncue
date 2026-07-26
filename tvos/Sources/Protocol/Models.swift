@@ -217,6 +217,7 @@ public struct SignageZone: Codable, Identifiable, Equatable, Sendable {
     public let qrLabelBottom: String?
     public let qrLabelLeft: String?
     public let qrLabelRight: String?
+    public let qrPlacement: String?
     public let tickerSpeed: Int?
     public let counterTargetAt: Date?
     public let counterRepeatWeekly: Bool?

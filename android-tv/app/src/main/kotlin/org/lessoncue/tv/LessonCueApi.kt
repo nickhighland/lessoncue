@@ -208,6 +208,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         qrLabelBottom = item.optString("qrLabelBottom").takeIf { it.isNotBlank() && it != "null" },
         qrLabelLeft = item.optString("qrLabelLeft").takeIf { it.isNotBlank() && it != "null" },
         qrLabelRight = item.optString("qrLabelRight").takeIf { it.isNotBlank() && it != "null" },
+        qrPlacement = item.optString("qrPlacement", "center"),
         tickerSpeed = item.optInt("tickerSpeed", 60),
         counterTargetAt = parseOptionalInstant(item.optString("counterTargetAt")),
         counterRepeatWeekly = item.optBoolean("counterRepeatWeekly"),

@@ -24,6 +24,7 @@ type Zone = {
   lineHeightPercent?: number; textAlign?: string; shape?: string; strokeColor?: string; strokeWidth?: number;
   cornerRadius?: number; iconName?: string; qrValue?: string; tickerSpeed?: number; counterTargetAt?: string;
   qrLabelTop?: string; qrLabelBottom?: string; qrLabelLeft?: string; qrLabelRight?: string;
+  qrPlacement?: "left" | "center" | "right";
   counterRepeatWeekly?: boolean; credentialKey?: string;
   clockDisplay?: "time" | "date" | "both"; clockTimeFormat?: "12h" | "12h-seconds" | "24h" | "24h-seconds";
   clockDateFormat?: "long" | "medium" | "short" | "numeric"; clockOrder?: "time-date" | "date-time" | "inline";
@@ -263,6 +264,7 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
   const [showBrowserPreview, setShowBrowserPreview] = useState(false);
   const [guides, setGuides] = useState<{ vertical?: number; horizontal?: number }>({});
   const [elementType, setElementType] = useState("text");
+  const [saving, setSaving] = useState<"draft" | "publish" | undefined>();
   const canvas = useRef<HTMLDivElement>(null);
   const current = zones.find(zone => zone.id === selected[0]);
   const commit = (next: Zone[]) => { setHistory(all => [...all.slice(-49), zones]); setZones(next); setFuture([]); };
@@ -440,6 +442,7 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
   function ungroup() { commit(zones.map(zone => selected.includes(zone.id) ? { ...zone, groupId: undefined } : zone)); }
   async function save(publish = false) {
     if (!name.trim()) return notify("Enter a layout name.");
+    setSaving(publish ? "publish" : "draft");
     try {
       const payload = { name, folder, description, isTemplate, backgroundColor: background, canvasWidth: width,
         canvasHeight: height, safeAreaPercent: safeArea, zones, backgroundAudioAssetId: audioId || null, thumbnailDataUrl: null };
@@ -448,7 +451,8 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
       });
       if (publish) await studioApi(`/layouts/${saved.id}/publish`, { method: "POST", body: JSON.stringify({ pushToScreens: true }) });
       notify(publish ? "Layout published and screens notified." : "Layout draft saved."); onSaved();
-    } catch (error) { notify(errorText(error)); }
+    } catch (error) { notify(`Could not ${publish ? "publish" : "save"} layout: ${errorText(error)}`); }
+    finally { setSaving(undefined); }
   }
   async function replaceFrom(templateId: string) {
     if (!layout || !templateId || !confirm("Replace the current draft with this template? The published version remains live until you publish again.")) return;
@@ -539,7 +543,7 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
       {layout && <label>Safely replace draft <select defaultValue="" onChange={event => void replaceFrom(event.target.value)}><option value="">Choose template…</option>{templates.filter(item => item.id !== layout.id).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>}
       <span className="toolbar-spacer" /><button className="button" onClick={() => setShowBrowserPreview(true)}>Browser preview</button>
       <a className="button" href="/display" target="_blank" rel="noreferrer">Open permanent browser display</a>
-      <button className="button" onClick={() => void save(false)}>Save draft</button><button className="button primary" onClick={() => void save(true)}>Publish & push</button>
+      <button className="button" disabled={!!saving} onClick={() => void save(false)}>{saving === "draft" ? "Saving…" : "Save draft"}</button><button className="button primary" disabled={!!saving} onClick={() => void save(true)}>{saving === "publish" ? "Publishing & pushing…" : "Publish & push"}</button>
     </div>
     {showBrowserPreview && <StudioDialog title={`Browser preview · ${name}`} wide onClose={() => setShowBrowserPreview(false)}>
       <div className="browser-signage-preview" style={{ aspectRatio: aspect, background }}>
@@ -596,7 +600,7 @@ function ZoneVisual({ zone, media, playlists }: { zone: Zone; media: StudioMedia
 }
 
 function StudioQr({ zone }: { zone: Zone }) {
-  return <span className="zone-qr-layout">
+  return <span className={`zone-qr-layout placement-${zone.qrPlacement || "center"}`}>
     {zone.qrLabelTop && <small className="qr-label top">{zone.qrLabelTop}</small>}
     {zone.qrLabelLeft && <small className="qr-label left">{zone.qrLabelLeft}</small>}
     <span className="zone-qr">{zone.qrValue ? <GeneratedStudioQr value={zone.qrValue} /> : <small>Enter a QR destination</small>}</span>
@@ -704,7 +708,7 @@ function ZoneInspector({ zone, media, playlists, onPatch, onDelete, onDuplicate 
       <textarea disabled={contentLocked} value={zone.content || ""}
         placeholder={zone.type === "counter" ? "Example: Services start in [countdown]" : zone.type === "customHtml" ? "<main>Custom sign content</main>" : undefined}
         onChange={event => onPatch({ content: event.target.value })} /></label>}
-    {zone.type === "text" && !contentLocked && <RichTextRunsEditor value={zone.richTextJson} onChange={richTextJson => onPatch({ richTextJson })} />}
+    {!['media','presentation','stream','webpage','customHtml'].includes(zone.type) && !contentLocked && <RichTextRunsEditor value={zone.richTextJson} onChange={richTextJson => onPatch({ richTextJson })} />}
     {zone.type === "weather" && <fieldset className="weather-settings"><legend>Weather source and display</legend>
       <label>Provider <select disabled={contentLocked} value={zone.weatherProvider || "open-meteo"} onChange={event => onPatch({ weatherProvider: event.target.value as Zone["weatherProvider"] })}>
         <option value="open-meteo">Open-Meteo · global, no key</option>
@@ -735,7 +739,8 @@ function ZoneInspector({ zone, media, playlists, onPatch, onDelete, onDuplicate 
     {online && (zone.type !== "weather" || zone.weatherProvider === "custom") && <label>Source URL <input disabled={contentLocked}
       type={zone.type === "stream" ? "text" : "url"} value={zone.sourceUrl || ""}
       onChange={event => onPatch({ sourceUrl: event.target.value })}
-      placeholder={zone.type === "stream" ? "rtmp://…, rtsp://…, or https://…" : "https://…"} /></label>}
+      placeholder={zone.type === "stream" ? "rtmp://…, rtsp://…, or https://…" : zone.type === "calendar" ? "https://calendar.example.org/events.ics" : "https://…"} />
+      {zone.type === "calendar" && <small>Paste an approved iCalendar (.ics) feed. LessonCue refreshes upcoming event summaries locally for every display.</small>}</label>}
     {online && zone.type !== "stream" && (zone.type !== "weather" || zone.weatherProvider === "custom") && <label>Server credential key <input disabled={contentLocked} value={zone.credentialKey || ""} onChange={event => onPatch({ credentialKey: event.target.value || undefined })} placeholder="Optional saved key" /></label>}
     {zone.type === "qr" && <label>QR destination<input disabled={contentLocked} value={zone.qrValue || ""} onChange={event => onPatch({ qrValue: event.target.value })} placeholder="https://…" /></label>}
     {zone.type === "wifi" && <fieldset className="weather-settings"><legend>Wi-Fi QR code</legend>
@@ -745,6 +750,7 @@ function ZoneInspector({ zone, media, playlists, onPatch, onDelete, onDuplicate 
       <small>The password is encoded in the QR code and therefore visible to anyone who scans it. Use a guest network.</small>
     </fieldset>}
     {(zone.type === "qr" || zone.type === "wifi") && <fieldset className="weather-settings"><legend>Optional QR labels</legend>
+      <label>QR placement <select disabled={contentLocked} value={zone.qrPlacement || "center"} onChange={event => onPatch({ qrPlacement: event.target.value as Zone["qrPlacement"] })}><option value="center">Centered</option><option value="left">Left aligned</option><option value="right">Right aligned</option></select><small>Left or right placement leaves a normal horizontal label area on the opposite side.</small></label>
       <label>Above<input disabled={contentLocked} value={zone.qrLabelTop || ""} onChange={event => onPatch({ qrLabelTop: event.target.value })} /></label>
       <label>Below<input disabled={contentLocked} value={zone.qrLabelBottom || ""} onChange={event => onPatch({ qrLabelBottom: event.target.value })} /></label>
       <label>Left<input disabled={contentLocked} value={zone.qrLabelLeft || ""} onChange={event => onPatch({ qrLabelLeft: event.target.value })} /></label>
@@ -770,7 +776,7 @@ function ZoneInspector({ zone, media, playlists, onPatch, onDelete, onDuplicate 
     {zone.type === "ticker" && <label>Speed <input disabled={contentLocked} type="range" min="10" max="300" value={zone.tickerSpeed || 60} onChange={event => onPatch({ tickerSpeed: Number(event.target.value) })} /></label>}
     <div className="inspector-grid"><label>X<input disabled={positionLocked} type="number" value={zone.x} onChange={event => onPatch({ x: Number(event.target.value) })} /></label><label>Y<input disabled={positionLocked} type="number" value={zone.y} onChange={event => onPatch({ y: Number(event.target.value) })} /></label><label>W<input disabled={positionLocked} type="number" value={zone.width} onChange={event => onPatch({ width: Number(event.target.value) })} /></label><label>H<input disabled={positionLocked} type="number" value={zone.height} onChange={event => onPatch({ height: Number(event.target.value) })} /></label><label>°<input disabled={positionLocked} type="number" min="-180" max="180" value={zone.rotation} onChange={event => onPatch({ rotation: Number(event.target.value) })} /></label><label>Opacity<input disabled={fullyLocked} type="number" min="0" max="100" value={zone.opacity} onChange={event => onPatch({ opacity: Number(event.target.value) })} /></label></div>
     <div className="inspector-grid"><label>Background<input disabled={fullyLocked} type="color" value={zone.backgroundColor} onChange={event => onPatch({ backgroundColor: event.target.value })} /></label><label>Text<input disabled={fullyLocked} type="color" value={zone.textColor} onChange={event => onPatch({ textColor: event.target.value })} /></label><label>Border<input disabled={fullyLocked} type="color" value={zone.accentColor || "#d89127"} onChange={event => onPatch({ accentColor: event.target.value })} /></label><label>Radius<input disabled={fullyLocked} type="number" min="0" max="100" value={zone.cornerRadius || 0} onChange={event => onPatch({ cornerRadius: Number(event.target.value) })} /></label></div>
-    {["text","ticker","counter","clock"].includes(zone.type) && <><label>Font <select value={zone.fontFamily || "system-ui"} onChange={event => onPatch({ fontFamily: event.target.value })}><option value="system-ui">System</option><option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="monospace">Monospace</option></select></label><div className="inspector-grid"><label>Size<input type="number" min="8" max="300" value={zone.fontSize || 48} onChange={event => onPatch({ fontSize: Number(event.target.value) })} /></label><label>Weight<input type="number" min="100" max="900" step="100" value={zone.fontWeight || 600} onChange={event => onPatch({ fontWeight: Number(event.target.value) })} /></label><label>Align<select value={zone.textAlign || "left"} onChange={event => onPatch({ textAlign: event.target.value })}><option>left</option><option>center</option><option>right</option><option>justify</option></select></label><label>Line %<input type="number" min="80" max="300" value={zone.lineHeightPercent || 120} onChange={event => onPatch({ lineHeightPercent: Number(event.target.value) })} /></label></div><div className="inline-checks"><label><input type="checkbox" checked={zone.italic || false} onChange={event => onPatch({ italic: event.target.checked })} /> Italic</label><label><input type="checkbox" checked={zone.underline || false} onChange={event => onPatch({ underline: event.target.checked })} /> Underline</label></div></>}
+    {!['media','presentation','stream','webpage','customHtml'].includes(zone.type) && <><label>Font <select value={zone.fontFamily || "system-ui"} onChange={event => onPatch({ fontFamily: event.target.value })}><option value="system-ui">System</option><option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="monospace">Monospace</option></select></label><div className="inspector-grid"><label>Size<input type="number" min="8" max="300" value={zone.fontSize || 48} onChange={event => onPatch({ fontSize: Number(event.target.value) })} /></label><label>Weight<input type="number" min="100" max="900" step="100" value={zone.fontWeight || 600} onChange={event => onPatch({ fontWeight: Number(event.target.value) })} /></label><label>Align<select value={zone.textAlign || "left"} onChange={event => onPatch({ textAlign: event.target.value })}><option>left</option><option>center</option><option>right</option><option>justify</option></select></label><label>Line %<input type="number" min="80" max="300" value={zone.lineHeightPercent || 120} onChange={event => onPatch({ lineHeightPercent: Number(event.target.value) })} /></label></div><div className="inline-checks"><label><input type="checkbox" checked={zone.italic || false} onChange={event => onPatch({ italic: event.target.checked })} /> Italic</label><label><input type="checkbox" checked={zone.underline || false} onChange={event => onPatch({ underline: event.target.checked })} /> Underline</label></div></>}
     <label>Lock <select value={zone.lockMode || (zone.locked ? "position" : "none")} onChange={event => onPatch({ lockMode: event.target.value as Zone["lockMode"], locked: false })}><option value="none">Unlocked</option><option value="position">Position and size</option><option value="content">Content</option><option value="full">Everything</option></select></label>
     <div className="inline-checks"><label><input disabled={fullyLocked} type="checkbox" checked={zone.hidden} onChange={event => onPatch({ hidden: event.target.checked })} /> Hidden</label><label><input disabled={positionLocked} type="checkbox" checked={zone.flipX} onChange={event => onPatch({ flipX: event.target.checked })} /> Flip X</label><label><input disabled={positionLocked} type="checkbox" checked={zone.flipY} onChange={event => onPatch({ flipY: event.target.checked })} /> Flip Y</label></div>
     <div className="studio-card-actions"><button disabled={fullyLocked} onClick={onDuplicate}>Duplicate</button><button disabled={fullyLocked} className="danger" onClick={onDelete}>Delete selected</button></div>
