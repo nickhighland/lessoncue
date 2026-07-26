@@ -11,30 +11,37 @@ public static class LessonCuePermissions
     public const string Playback = "playback.control";
     public const string Screens = "screens.manage";
     public const string Users = "users.manage";
+    public const string AppSettings = "app-settings.manage";
     public const string Settings = "settings.manage";
     public const string Backups = "backups.manage";
     public const string Updates = "updates.manage";
 
     public static readonly IReadOnlyList<string> All =
-        [Planning, Uploads, Playback, Screens, Users, Settings, Backups, Updates];
+        [Planning, Uploads, Playback, Screens, Users, AppSettings, Settings, Backups, Updates];
+
+    public static readonly IReadOnlyList<string> AppAdmin =
+        [Planning, Uploads, Playback, Screens, Users, AppSettings, Updates];
+
+    public static readonly IReadOnlyList<string> ServiceOnly = [Settings, Backups];
 
     public static IReadOnlyList<string> Defaults(string? role) => role switch
     {
-        "Owner" or "Administrator" => All,
+        "Service Admin" or "Owner" => All,
+        "App Admin" or "Administrator" => AppAdmin,
         "Editor" => [Planning, Uploads, Playback],
         _ => []
     };
 
     public static IReadOnlyList<string> Effective(AdminAccount account)
     {
-        if (account.Role == "Owner" || account.PermissionsCsv is null) return Defaults(account.Role);
-        return Parse(account.PermissionsCsv);
+        if (IsServiceAdmin(account.Role) || account.PermissionsCsv is null) return Defaults(account.Role);
+        return RestrictToRole(Parse(account.PermissionsCsv), account.Role);
     }
 
     public static string? NormalizeCustom(IEnumerable<string>? permissions, string role)
     {
-        if (role == "Owner" || permissions is null) return null;
-        return string.Join(',', permissions.Where(All.Contains).Distinct().OrderBy(x => x, StringComparer.Ordinal));
+        if (IsServiceAdmin(role) || permissions is null) return null;
+        return string.Join(',', RestrictToRole(permissions, role));
     }
 
     public static IReadOnlyList<string> Parse(string? csv) => string.IsNullOrWhiteSpace(csv)
@@ -43,14 +50,26 @@ public static class LessonCuePermissions
 
     public static bool Has(ClaimsPrincipal user, string permission)
     {
-        if (user.IsInRole("Owner") || user.HasClaim(ClaimType, permission)) return true;
+        var role = user.FindFirstValue(ClaimTypes.Role);
+        if (IsServiceAdmin(role)) return true;
+        if (ServiceOnly.Contains(permission)) return false;
+        if (user.HasClaim(ClaimType, permission)) return true;
         if (user.HasClaim("lessoncue_permissions_version", "1")) return false;
-        return Defaults(user.FindFirstValue(ClaimTypes.Role)).Contains(permission);
+        return Defaults(role).Contains(permission);
     }
 
     public static IReadOnlyList<string> Effective(ClaimsPrincipal user) => user.HasClaim("lessoncue_permissions_version", "1")
-        ? user.FindAll(ClaimType).Select(x => x.Value).Where(All.Contains).Distinct().OrderBy(x => x).ToArray()
+        ? IsServiceAdmin(user.FindFirstValue(ClaimTypes.Role))
+            ? All
+            : RestrictToRole(user.FindAll(ClaimType).Select(x => x.Value), user.FindFirstValue(ClaimTypes.Role))
         : Defaults(user.FindFirstValue(ClaimTypes.Role));
+
+    public static bool IsServiceAdmin(string? role) => role is "Service Admin" or "Owner";
+
+    private static IReadOnlyList<string> RestrictToRole(IEnumerable<string> permissions, string? role) =>
+        permissions.Where(All.Contains)
+            .Where(permission => IsServiceAdmin(role) || !ServiceOnly.Contains(permission))
+            .Distinct().OrderBy(x => x, StringComparer.Ordinal).ToArray();
 
     public static void AddPolicies(AuthorizationOptions options)
     {

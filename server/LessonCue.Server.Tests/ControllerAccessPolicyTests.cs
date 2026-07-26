@@ -25,7 +25,7 @@ public sealed class ControllerAccessPolicyTests
     [Fact]
     public void RequiredLocalAccess_AllowsAdministratorsFromPublicHostname()
     {
-        var user = Principal("Administrator");
+        var user = Principal("App Admin");
         Assert.True(ControllerAccessPolicy.CanUseRoomController(true, user, "lessoncue.example.org",
             IPAddress.Parse("203.0.113.10")));
     }

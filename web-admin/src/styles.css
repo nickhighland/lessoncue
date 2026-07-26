@@ -302,15 +302,11 @@ input:focus,select:focus,textarea:focus { border-color:var(--gold); box-shadow:0
 .settings-page>.account-settings-grid { display:none; }
 .settings-page[data-section="accounts"]>.account-settings-grid { display:grid; }
 .settings-page>.settings-grid:not(.account-settings-grid)>* { display:none; }
-.settings-page[data-section="system"]>.settings-grid:not(.account-settings-grid)>:nth-child(1),
-.settings-page[data-section="accounts"]>.settings-grid:not(.account-settings-grid)>:nth-child(2),
-.settings-page[data-section="media"]>.settings-grid:not(.account-settings-grid)>:nth-child(3),
-.settings-page[data-section="media"]>.settings-grid:not(.account-settings-grid)>:nth-child(4),
-.settings-page[data-section="media"]>.settings-grid:not(.account-settings-grid)>:nth-child(5),
-.settings-page[data-section="connections"]>.settings-grid:not(.account-settings-grid)>:nth-child(6),
-.settings-page[data-section="connections"]>.settings-grid:not(.account-settings-grid)>:nth-child(7),
-.settings-page[data-section="connections"]>.settings-grid:not(.account-settings-grid)>:nth-child(8),
-.settings-page[data-section="data"]>.settings-grid:not(.account-settings-grid)>:nth-child(n+9) { display:block; }
+.settings-page[data-section="system"]>.settings-grid:not(.account-settings-grid)>.settings-system,
+.settings-page[data-section="accounts"]>.settings-grid:not(.account-settings-grid)>.settings-accounts,
+.settings-page[data-section="media"]>.settings-grid:not(.account-settings-grid)>.settings-media,
+.settings-page[data-section="connections"]>.settings-grid:not(.account-settings-grid)>.settings-connections,
+.settings-page[data-section="data"]>.settings-grid:not(.account-settings-grid)>.settings-data { display:block; }
 .account-settings { border-color:#c7d5ca; background:linear-gradient(135deg,#fff,#f5f9f5); }
 .registration-codes { margin-top:22px; }
 .registration-code-form { display:grid; grid-template-columns:1.2fr 1fr .7fr auto; align-items:end; gap:10px; }

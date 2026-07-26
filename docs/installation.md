@@ -26,13 +26,13 @@ The final message says `LessonCue is ready` and prints `http://lessoncue.local` 
 
 On a computer connected to the same local network, open the address printed by the installer. LessonCue will ask you to create the organization name, administrator username, and password. This account, the complete web interface, database, schedules, and media all remain on your local server.
 
-LessonCue creates a private local pairing secret and displays a six-digit PIN that rotates every ten minutes to accounts with screen or settings authority. A user with **Server settings** permission can instead set a persistent six-digit local PIN under **Settings → Connection & pairing**. The same control switches back to automatic rotation at any time; the setting stays entirely on the local server.
+LessonCue creates a private local pairing secret and displays a six-digit PIN that rotates every ten minutes to accounts with screen or app-settings authority. A Service Admin or App Admin can instead set a persistent six-digit local PIN under **Settings → Connections & pairing**. The same control switches back to automatic rotation at any time; the setting stays entirely on the local server.
 
 ### Give staff only the access they need
 
-Open **Users** as an owner or an account with **User administration** permission. Choose **Send setup link** to set an email address and permissions while letting the recipient choose their own name, username, and password, or choose **Create with password** for a fully local account whose temporary password must be replaced at first sign-in. The built-in defaults are straightforward: Owners and Administrators receive all capabilities; Editors receive lesson planning, media uploads, and live playback; Viewers are read-only. Enable **Customize this role** to independently select lesson planning, media uploads, live playback, screen administration, user administration, server settings, backups and restore, and software updates.
+Open **Users** as a Service Admin or an account with **User administration** permission. Choose **Send setup link** to set an email address and permissions while letting the recipient choose their own name, username, and password, or choose **Create with password** for a fully local account whose temporary password must be replaced at first sign-in. The built-in defaults are straightforward: Service Admins receive every capability; App Admins receive every ordinary app capability plus updates and operational app settings; Editors receive lesson planning, media uploads, and live playback; Viewers are read-only. App Admin settings include registration mode/codes, approved media folders/tags, screen pairing PIN/mode, universal-controller PIN, recycling, and recent activity. Account email, storage allocation, adaptive TV playback, network/remote access, privacy/backups, and server commands remain Service Admin-only.
 
-Permission enforcement happens on the server even if someone constructs an API request manually. A permission change signs that account out of its earlier browser sessions. Only an owner can grant the Owner role or change another owner; other user administrators cannot grant capabilities they do not hold or change their own access; and the last active owner cannot be paused, demoted, or deleted. Accounts without screen or settings authority cannot see the local pairing PIN.
+Permission enforcement happens on the server even if someone constructs an API request manually. A permission change signs that account out of its earlier browser sessions. Only a Service Admin can grant that role or change another Service Admin; other user administrators cannot grant capabilities they do not hold or change their own access; and the last active Service Admin cannot be paused, demoted, or deleted. Accounts without screen or app-settings authority cannot see the local pairing PIN.
 
 Native Linux installation configures `http://lessoncue.local` on standard HTTP port 80 automatically. A user with **Server settings** permission can change either `lessoncue` or the browser port under **Settings → Connection & pairing**. LessonCue applies the change and restarts itself; if a chosen port cannot be opened, it returns to the previous working port. Changing the name does not rename the Linux computer or SSH hostname. Keep the numeric address as a fallback for networks that block multicast DNS.
 
@@ -108,7 +108,7 @@ sudo -u lessoncue env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
 
 Enter the new password twice when prompted. Nothing is shown while typing. The password must contain at least ten characters with uppercase, lowercase, and numeric characters. The command writes the normal ASP.NET password hash, records an audit event, and signs out that account's existing browser sessions. It does not display or recover the old password.
 
-The web server can remain running during this operation. If the selected account is marked `disabled`, the password is still reset but another active owner must enable the account before it can sign in.
+The web server can remain running during this operation. If the selected account is marked `disabled`, the password is still reset but another active Service Admin must enable the account before it can sign in.
 
 ### Open LessonCue from another computer
 
@@ -297,7 +297,7 @@ Select your development team, choose the Apple TV, and Run. Bonjour and local-ne
 
 ## Backups and updates
 
-Owners can create and download a consistent configuration backup or a full backup from **Settings → Privacy & backups** while the server is running.
+Service Admins can create and download a consistent configuration backup or a full backup from **Settings → Privacy & backups** while the server is running.
 
 To restore a LessonCue ZIP from the browser, open **Settings → Privacy & backups → Restore a LessonCue backup**. LessonCue validates the archive and database without changing current data, shows the organization and record counts, and warns whether media is included. Type `RESTORE` only after reviewing that preview. LessonCue creates a full safety backup automatically, restores the database, restores media only when the uploaded archive is a full backup, and preserves the receiving server's identity, encryption keys, hostname, port, and pairing secrets. The staged upload expires after 24 hours.
 
