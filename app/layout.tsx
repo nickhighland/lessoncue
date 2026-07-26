@@ -13,7 +13,11 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title,
     description,
-    openGraph: { title, description, type: "website", images: [{ url: image, width: 1730, height: 909, alt: "LessonCue — Media ready when the lesson starts" }] },
+    icons: {
+      icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+      apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    },
+    openGraph: { title, description, type: "website", images: [{ url: image, width: 1600, height: 900, alt: "LessonCue logo on a dark green background" }] },
     twitter: { card: "summary_large_image", title, description, images: [image] },
   };
 }

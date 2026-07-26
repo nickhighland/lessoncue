@@ -1,26 +1,27 @@
 # Signage scheduling
 
-LessonCue signage uses the same local media library, paired screens, screen tags, and authenticated manifests as lesson playback. It does not require the hosted demonstration interface or a cloud scheduling service.
+LessonCue signage uses the same local media library, paired screens, screen tags, and authenticated manifests as lesson playback. It does not require the hosted demonstration interface or a cloud scheduling service. See [Signage Studio](signage-studio.md) for the complete design, playlist, publishing, operations, emergency, and kiosk workflow.
 
 ## Create or edit signage
 
-Open **Signage** in the local administrator interface and choose **New signage**. Each sign has:
+Open **Signage** in the local administrator interface. Use **Layouts** and **Playlists** to create reusable content, then use **Calendar → New schedule** to assign it. Each schedule has:
 
 - a mode: emergency override, scheduled signage, or idle fallback;
 - a priority from 0 through 100;
 - text, colors, and optional Media Library content;
-- a single, sidebar, split, header-grid, or dashboard layout with up to eight zones;
+- an optional reusable layout, independent signage playlist, or backward-compatible inline layout;
+- optional display-power and signage-volume events;
 - a one-time window, daily recurrence, or selected weekdays;
 - optional first and last dates plus excluded `YYYY-MM-DD` dates;
 - explicit paired-screen targets, screen-tag targets, or an all-screen default.
 
-Recurring times use the organization time zone shown at the top of the Signage page. A window such as 10:00 PM–2:00 AM crosses midnight and belongs to the day on which it starts. The ending boundary is exclusive, preventing two adjacent schedules from overlapping for a minute.
+Recurring times use the organization time zone shown at the top of the Signage page. A window such as 10:00 PM–2:00 AM crosses midnight and belongs to the day on which it starts. The ending boundary is exclusive, preventing two adjacent schedules from overlapping for a minute. Clicking a recurring calendar occurrence lets an editor change only that occurrence, split the series from that date forward, or update the entire series.
 
 Use **Edit**, **Pause**, **Resume**, or **Delete** on a sign card. Pausing retains the complete schedule but removes it from display manifests.
 
 ## Layouts and information widgets
 
-The visual 16:9 layout builder starts with a preset and lets an administrator assign each zone as media, a live stream, text, a live clock/date, calendar, weather, menu or schedule, RSS headlines, or generic JSON data. Each zone has its own heading, fallback text, background, text and accent colors.
+Reusable layouts support up to 64 independently positioned elements and keep their draft separate from the published version. The editor includes zoom, hand-tool panning, snapping, live alignment guides, multi-select, grouping, layers, granular locks, rich text, shapes, icons, QR/Wi-Fi codes, counters, tickers, online apps, background audio, safe areas, and standard or custom display sizes.
 
 Select a zone on the canvas and drag it into place. The square corner handle resizes it and the round handle rotates it. Arrow keys nudge by one percent and Shift plus an arrow nudges by five percent. Optional grid snapping, exact coordinates, arbitrary rotation from -180° through 180°, layer order, opacity, fill/fit/stretch, horizontal or vertical flip, duplicate, lock and hide controls are available without CSS or template code.
 

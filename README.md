@@ -1,8 +1,10 @@
+![LessonCue](branding/source/lessoncue-banner.svg)
+
 # LessonCue
 
 LessonCue is a self-hosted lesson scheduling and television playback system for schools, churches, training programs, and other learning organizations. Administrators build dated media playlists in a browser; paired Android TV, Fire TV, and Apple TV clients cache their assignments and keep playing when the network is unavailable.
 
-[Installation guide](docs/installation.md) · [Accounts and registration](docs/account-self-service.md) · [Run-of-show planning](docs/run-of-show.md) · [Signage scheduling](docs/signage.md) · [Browser player](docs/browser-player.md) · [Implementation guide](docs/implementation.md) · [Feature roadmap](docs/feature-roadmap.md) · [Protocol](protocol/openapi.yaml)
+[Installation guide](docs/installation.md) · [Accounts and registration](docs/account-self-service.md) · [Run-of-show planning](docs/run-of-show.md) · [Signage scheduling](docs/signage.md) · [Browser player](docs/browser-player.md) · [Implementation guide](docs/implementation.md) · [Feature roadmap](docs/feature-roadmap.md) · [Brand assets](branding/README.md) · [Protocol](protocol/openapi.yaml)
 
 ## What is included
 
@@ -14,10 +16,11 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - A paired full-screen browser client for Windows, macOS, Linux, ChromeOS, computers, and projectors, using the same local manifests, controller commands, acknowledgements, heartbeats, scheduling, and diagnostics as the native TV clients.
 - A versioned OpenAPI contract and JSON Schema shared by every client.
 - Docker, Windows, and Linux installation assets.
-- Calendar, local role-based users, approval-required or verified self-registration, administrator email invitations, first-login temporary passwords, scheduled/emergency multi-zone signage with allowlisted cached information widgets, rotating pairing codes, screen tags, audit history, and downloadable full/configuration backups with validated browser restore and an automatic pre-restore safety backup.
+- Calendar, local role-based users, approval-required or verified self-registration, administrator email invitations, first-login temporary passwords, and a complete self-hosted Signage Studio with reusable layouts, independent playlists, calendar scheduling, versioned publishing, proof-of-play, operations alerts, emergency broadcasts, and optional browser kiosk interaction.
 - Direct lesson uploads, online webpages, embedded YouTube playback, queued local YouTube imports, reusable or four-week lesson retention, automatic cleanup, resumable large uploads, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, and range-enabled delivery. Uploaded video is audited automatically and, when necessary, converted locally to a TV-safe H.264/AAC MP4 while preserving the original.
 - Multi-file uploads from lessons and the Media Library; bulk lesson archive, restore, class move, date/time shift, rename, and deletion; bulk playlist role, volume, ending, skip, rename, and removal; and Media Library bulk rename, folder/tag organization, retention, and safe deletion. Every retention date can also be edited directly from its table row.
 - Searchable media folders and tags, upload-time and bulk organization, lesson/signage impact previews, local reprocessing, and safe file replacement behind a stable media ID with downloadable and restorable original-version history.
+- A visual signage canvas with zoom/pan, snapping and alignment guides, groups, rich text, QR/Wi-Fi sharing, widgets, background audio, portrait/ultrawide/custom formats, approved server-side data credentials, HLS/HTTP/RTMP/RTMPS/RTSP relays, per-screen delivery progress, and exact manifest preview.
 - PDF, current and legacy PowerPoint, OpenDocument, Keynote, Word, and shared Google Slides ingestion from the Media Library or lesson page, producing ordered screen-ready PNG slide sequences with configurable timing and automatic lesson insertion.
 - Reusable lesson templates that preserve complete playlist and timing structure, one-click dated instantiation, and automatic weekly, biweekly, monthly, term, or custom-date schedules with idempotent generation and reversible holiday exceptions.
 - Teacher and substitute notes, flexible-time cues, printable run sheets, trim/speed/repeat-aware duration estimates, live remaining-time and overrun guidance, same-room conflict warnings, five calendar views, full copy/move between rooms and dates, and private pre-roll livestream monitoring on the phone controller.

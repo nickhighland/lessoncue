@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
 import QRCode from "qrcode";
 import { WebPlayerApp } from "./WebPlayer";
+import { SignageCalendarBoard, SignageStudioPanel, SignageStudioSection } from "./SignageStudio";
 import "./styles.css";
 
 type Permission = "planning.manage" | "uploads.manage" | "playback.control" | "screens.manage" | "users.manage" | "settings.manage" | "backups.manage" | "updates.manage";
@@ -70,6 +71,7 @@ type Screen = {
   clockOffsetMs?: number; networkLatencyMs?: number; networkQuality: string; diagnosticsUpdatedAt?: string;
   allowDiagnosticScreenshots: boolean; screenshotRequestId?: string; screenshotRequestedAt?: string; screenshotExpiresAt?: string;
   screenshotStatus: string; screenshotCapturedAt?: string; screenshotAvailable: boolean;
+  signageOrientation: "auto" | "landscape" | "portrait"; signageWidth?: number; signageHeight?: number;
 };
 type CacheDiagnostic = { itemId?: string; title?: string; state?: string; sizeBytes?: number; expectedBytes?: number; error?: string };
 type DownloadDiagnostic = { itemId?: string; title?: string; state?: string; bytesDownloaded?: number; expectedBytes?: number; error?: string };
@@ -90,10 +92,14 @@ type Signage = {
   targetScreenCount: number; cachedScreenCount: number; failedScreenCount: number;
   layoutPreset: SignageLayoutPreset; zones: SignageZone[]; widgetCache: SignageWidgetCache[];
   widgetCacheUpdatedAt?: string; widgetCacheError?: string;
+  layoutId?: string; contentPlaylistId?: string; volumePercent: number; displayPower: "unchanged" | "on" | "off";
+  version: number; publishedVersion: number; publishState: "draft" | "changes" | "published";
+  publishedAt?: string; lastPushedAt?: string; kioskEnabled: boolean; kioskInteractionUrl?: string;
+  kioskTimeoutSeconds: number; kioskShowCloseButton: boolean; kioskShowTouchIndicator: boolean; kioskVirtualKeyboard: boolean;
 };
 type SignageLayoutPreset = "single" | "sidebar" | "split" | "header-grid" | "dashboard";
-type SignageZoneType = "media" | "stream" | "text" | "clock" | "calendar" | "weather" | "menu" | "rss" | "data";
-type SignageZone = { id: string; type: SignageZoneType; title?: string; content?: string; mediaAssetId?: string; mediaFileName?: string; sourceUrl?: string; x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string; refreshMinutes: number; rotation: number; zIndex: number; opacity: number; fit: "cover" | "contain" | "fill"; locked: boolean; hidden: boolean; flipX: boolean; flipY: boolean };
+type SignageZoneType = "media" | "stream" | "text" | "clock" | "calendar" | "weather" | "menu" | "rss" | "data" | "shape" | "icon" | "qr" | "ticker" | "counter" | "webpage" | "dashboard" | "social" | "traffic" | "wifi" | "customHtml" | "slides";
+type SignageZone = { id: string; type: SignageZoneType; title?: string; content?: string; mediaAssetId?: string; mediaFileName?: string; sourceUrl?: string; x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string; refreshMinutes: number; rotation: number; zIndex: number; opacity: number; fit: "cover" | "contain" | "fill"; locked: boolean; hidden: boolean; flipX: boolean; flipY: boolean; groupId?: string; lockMode?: "none" | "position" | "content" | "full"; richTextJson?: string; fontFamily?: string; fontSize?: number; fontWeight?: number; italic?: boolean; underline?: boolean; lineHeightPercent?: number; textAlign?: "left" | "center" | "right" | "justify"; shape?: "rectangle" | "circle" | "triangle" | "line"; strokeColor?: string; strokeWidth?: number; cornerRadius?: number; iconName?: string; qrValue?: string; tickerSpeed?: number; counterTargetAt?: string };
 type SignageWidgetCache = { zoneId: string; title: string; text: string; items: string[]; refreshedAt: string; source?: string };
 type Backup = { id: string; fileName: string; kind: string; sizeBytes: number; createdAt: string; createdBy: string };
 type BackupPreview = { restoreId: string; fileName: string; kind: string; compressedBytes: number; uncompressedBytes: number; fileCount: number; organization: string; users: number; classes: number; lessons: number; mediaRecords: number; mediaFiles: number; includesMedia: boolean; warnings: string[]; expiresAt: string };
@@ -180,8 +186,12 @@ function isAccountLinkPath(path: string) {
     path === "/setup-account" || path === "/register" || path === "/forgot-password";
 }
 
+function BrandMark({ large = false }: { large?: boolean }) {
+  return <span className={`brand-mark${large ? " large" : ""}`} aria-hidden="true"><img src="/lessoncue-icon.svg" alt="" /></span>;
+}
+
 function Splash() {
-  return <main className="auth-page"><div className="brand-mark large">LC</div><p className="muted">Opening your local LessonCue server…</p></main>;
+  return <main className="auth-page"><BrandMark large /><p className="muted">Opening your local LessonCue server…</p></main>;
 }
 
 function RequiredPasswordChange({ onChanged }: { onChanged: () => void }) {
@@ -203,7 +213,7 @@ function RequiredPasswordChange({ onChanged }: { onChanged: () => void }) {
     finally { setBusy(false); }
   }
   return <main className="auth-page"><section className="auth-card">
-    <div className="brand-lockup"><div className="brand-mark">LC</div><div><strong>LessonCue</strong><span>Secure first sign-in</span></div></div>
+    <div className="brand-lockup"><BrandMark /><div><strong>LessonCue</strong><span>Secure first sign-in</span></div></div>
     <div className="auth-copy"><span className="eyebrow">PASSWORD UPDATE REQUIRED</span><h1>Choose your password</h1><p>The administrator-issued password was temporary. Replace it before opening LessonCue.</p></div>
     <form className="stack" onSubmit={submit}>
       <Field label="Temporary password"><input name="currentPassword" type="password" required autoComplete="current-password" autoFocus /></Field>
@@ -317,7 +327,7 @@ function Auth({ session, onAuthenticated }: { session: Session; onAuthenticated:
   }
   return <main className="auth-page">
     <section className="auth-card">
-      <div className="brand-lockup"><div className="brand-mark">LC</div><div><strong>LessonCue</strong><span>Local classroom media control</span></div></div>
+      <div className="brand-lockup"><BrandMark /><div><strong>LessonCue</strong><span>Local classroom media control</span></div></div>
       <div className="auth-copy">
         <span className="eyebrow">{session.setupRequired ? "FIRST-RUN SETUP" : "WELCOME BACK"}</span>
         <h1>{session.setupRequired ? "Create your local administrator" : setupAccountPath ? "Set up your account" : resetPath ? "Choose a new password" : verificationPath ? "Verify your account" : mode === "register" ? session.registrationMode === "approval" ? "Request access" : "Create your account" : mode === "forgot" ? "Reset your password" : mode === "resend" ? "Resend verification" : "Sign in to LessonCue"}</h1>
@@ -453,7 +463,7 @@ function Shell({ view, setView, username, currentUsername, role, permissions, on
     ...(canManageSettings || canManageBackups || canManageUpdates ? [["settings", "⚙", "Settings"]] as [View, string, string][] : [])];
   return <><a className="skip-link" href="#main-content">Skip to main content</a><div className={`app-shell ${view === "controller" ? "controller-mode" : ""}`}>
     <aside className="sidebar">
-      <div className="brand-lockup inverse"><div className="brand-mark">LC</div><div><strong>LessonCue</strong><span>{bootstrap?.organization || "Local server"}</span></div></div>
+      <div className="brand-lockup inverse"><BrandMark /><div><strong>LessonCue</strong><span>{bootstrap?.organization || "Local server"}</span></div></div>
       <nav>{nav.map(([key, icon, label]) => <button key={key} className={view === key ? "active" : ""} onClick={() => setView(key)}><span>{icon}</span>{label}</button>)}</nav>
       <div className="sidebar-foot">{canUpload && bootstrap && <div className="storage-mini"><span>Upload space</span><strong>{formatBytes(bootstrap.storage.remainingBytes)} free</strong><StorageMeter storage={bootstrap.storage} /></div>}<div className="server-online"><span className="status-dot" /><div><strong>Server online</strong><small>{location.host}</small></div></div><button className="account-button" onClick={() => setShowProfile(true)}>{username}<span>{role} · Manage account</span></button></div>
     </aside>
@@ -1024,8 +1034,8 @@ function ControllerView({ screens, lessons, classes, controllerPinConfigured, re
   const progress = selectedScreen?.playbackDurationMs ? Math.min(100, (selectedScreen.playbackPositionMs / selectedScreen.playbackDurationMs) * 100) : 0;
   if (sessionToken && temporarySession === undefined) return <div className="controller-page"><div className="loading">Validating temporary controller…</div></div>;
   if (sessionToken && temporarySession === null || (routeSlug || sessionToken) && !room) return <div className="controller-page"><PageHead eyebrow="CONTROLLER LINK" title="Controller unavailable" detail="This controller link is invalid, expired, or no longer assigned. Ask an administrator for a current QR code." /></div>;
-  if (localRestrictionBlocked) return <div className="controller-page controller-lock"><section className="panel"><div className="brand-mark large">LC</div><span className="eyebrow">CAMPUS NETWORK REQUIRED</span><h1>Open this controller locally</h1><p>An administrator requires non-administrator room remotes to use the server's .local address. Connect this phone to the campus network, then open the local controller.</p><a className="button primary wide" href={`${localAddress}/room/${controllerSlug(room!)}${location.search}`}>Open on {new URL(localAddress).host}</a></section></div>;
-  if (!room && !sessionToken && !universalUnlocked) return <div className="controller-page controller-lock"><section className="panel"><div className="brand-mark large">LC</div><span className="eyebrow">UNIVERSAL REMOTE</span><h1>{controllerPinConfigured ? "Enter controller PIN" : "Controller PIN required"}</h1><p>{controllerPinConfigured ? "This additional local PIN protects the controller that can operate every classroom." : "An administrator must set the six-digit universal controller PIN in Settings before this remote can be used."}</p>{controllerPinConfigured && <form className="stack" onSubmit={unlockUniversal}><Field label="Six-digit controller PIN"><input value={universalPin} onChange={event => setUniversalPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6} autoComplete="off" required autoFocus /></Field>{unlockError && <div className="alert error">{unlockError}</div>}<button className="button primary wide" disabled={unlocking}>{unlocking ? "Checking…" : "Open universal remote"}</button></form>}</section></div>;
+  if (localRestrictionBlocked) return <div className="controller-page controller-lock"><section className="panel"><BrandMark large /><span className="eyebrow">CAMPUS NETWORK REQUIRED</span><h1>Open this controller locally</h1><p>An administrator requires non-administrator room remotes to use the server's .local address. Connect this phone to the campus network, then open the local controller.</p><a className="button primary wide" href={`${localAddress}/room/${controllerSlug(room!)}${location.search}`}>Open on {new URL(localAddress).host}</a></section></div>;
+  if (!room && !sessionToken && !universalUnlocked) return <div className="controller-page controller-lock"><section className="panel"><BrandMark large /><span className="eyebrow">UNIVERSAL REMOTE</span><h1>{controllerPinConfigured ? "Enter controller PIN" : "Controller PIN required"}</h1><p>{controllerPinConfigured ? "This additional local PIN protects the controller that can operate every classroom." : "An administrator must set the six-digit universal controller PIN in Settings before this remote can be used."}</p>{controllerPinConfigured && <form className="stack" onSubmit={unlockUniversal}><Field label="Six-digit controller PIN"><input value={universalPin} onChange={event => setUniversalPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6} autoComplete="off" required autoFocus /></Field>{unlockError && <div className="alert error">{unlockError}</div>}<button className="button primary wide" disabled={unlocking}>{unlocking ? "Checking…" : "Open universal remote"}</button></form>}</section></div>;
   const controllerStyle = room ? { "--room-color": room.controllerColor } as CSSProperties : undefined;
   const commandAcknowledgement = commandReceipt?.error ? `Command failed: ${commandReceipt.error}` :
     commandPending ? `Sending ${commandReceipt?.action} to ${selectedScreen?.name || "screen"}…` :
@@ -1036,7 +1046,7 @@ function ControllerView({ screens, lessons, classes, controllerPinConfigured, re
     <fieldset className="controller-controls" disabled={controlsLocked} aria-label="Room playback controls">
     <div className="controller-grid"><section className="panel controller-target"><Field label="Control this screen"><select value={screenId} onChange={e => { setScreenId(e.target.value); setLessonId(""); setSelectedItemId(""); setCommandReceipt(undefined); }}>{liveScreens.map(screen => <option value={screen.id} key={screen.id}>{screen.name} · {screen.online ? "online" : "offline"}</option>)}</select></Field><div className="now-playing"><span>ACTUAL SCREEN STATE</span><strong>{friendlyPlaybackState(selectedScreen?.playbackState)}</strong><small>{reportedItem?.title || reportedLesson?.title || (selectedScreen?.playbackState === "idle" ? "Nothing playing" : "Waiting for item details")}</small>{selectedScreen?.playbackDurationMs ? <><div className="playback-progress"><i style={{ width: `${progress}%` }} /></div><small>{formatDuration(selectedScreen.playbackPositionMs)} / {formatDuration(selectedScreen.playbackDurationMs)}</small></> : null}<span className={`command-ack ${commandPending ? "pending" : commandReceipt?.error ? "error" : commandReceipt?.version ? "received" : ""}`} role="status" aria-live="polite">{commandAcknowledgement}</span>{selectedScreen?.playbackError && <div className="playback-error">{selectedScreen.playbackError}</div>}</div>{timingLesson && <div className={`controller-run-summary ${isOverrun ? "overrun" : ""}`}><div><span>REMAINING</span><strong>{formatFriendlyDuration(currentRemainingMs)}</strong></div><div><span>EST. FINISH</span><strong>{estimatedFinish ? estimatedFinish.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—"}</strong></div>{isOverrun && <p role="alert">Running past the planned finish. Flexible cues can be shortened if appropriate.</p>}</div>}{reportedItem?.notes && <aside className="controller-note"><strong>Current cue notes</strong><p>{reportedItem.notes}</p></aside>}<div className="transport" aria-label="Playback controls"><button onClick={() => command("previous")} aria-label="Previous media">‹‹</button><button className="transport-main" onClick={() => command(selectedScreen?.playbackState === "paused" ? "resume" : "pause")} aria-label={selectedScreen?.playbackState === "paused" ? "Resume" : "Pause"}>{selectedScreen?.playbackState === "paused" ? "▶" : "Ⅱ"}</button><button onClick={() => command("next")} aria-label="Next media">››</button></div><button className="button stop-button" onClick={() => command("stop")}>■ Stop playback</button></section>
       <section className="panel controller-media"><Field label="Lesson"><select value={lesson?.id || ""} onChange={e => { setLessonId(e.target.value); setSelectedItemId(""); setMonitorOpen(false); }}><option value="">Choose a lesson</option>{availableLessons.map(item => <option key={item.id} value={item.id}>{formatDate(item.date)} — {item.title}</option>)}</select></Field>{lesson ? <>{lesson.substituteNotes && <aside className="controller-note substitute"><strong>Substitute / teacher instructions</strong><p>{lesson.substituteNotes}</p></aside>}<button className="button primary wide controller-play-all" onClick={() => play()}>▶ Play lesson from the beginning</button><div className="controller-list"><span>SELECT MEDIA</span>{orderedItems.map((item, index) => <button key={item.id} className={selectedItemId === item.id ? "selected" : ""} onClick={() => { setSelectedItemId(item.id); setSeekSeconds(0); play(item.id); }}><b>{index + 1}</b><span><strong>{item.title}{item.flexibleTime ? " · Flexible" : ""}</strong><small>{roleName(item.role)} · {formatDuration(cuePlannedDurationMs(item))}</small>{item.notes && <em>{item.notes}</em>}</span><i>▶</i></button>)}</div>{selectedItem && <div className="controller-seek"><label><span>Seek within {selectedItem.title}</span><strong>{formatDuration(seekSeconds * 1000)}</strong></label><input type="range" min="0" max={durationSeconds} value={seekSeconds} onChange={e => setSeekSeconds(Number(e.target.value))} />{cuePoints(selectedItem).length > 0 && <div className="controller-markers" aria-label="Jump to named cue"><span>JUMP TO CUE</span>{cuePoints(selectedItem).map((marker, index) => { const relativeMs = Math.max(0, marker.positionMs - selectedItem.startMs); return <button type="button" key={`${marker.positionMs}-${index}`} onClick={() => { setSeekSeconds(Math.round(relativeMs / 1000)); void command("seek", { positionMs: relativeMs }); }}><strong>{marker.name}</strong><small>{formatDuration(relativeMs)}</small></button>; })}</div>}<button className="button" onClick={() => command("seek", { positionMs: seekSeconds * 1000 })}>Go to position</button></div>}{lesson.preRollMonitorUrl && <section className="pre-roll-monitor"><div><span>PRIVATE PRE-ROLL MONITOR</span><button type="button" className="button" onClick={() => setMonitorOpen(value => !value)}>{showMonitor ? "Hide monitor" : "Open monitor"}</button></div>{showMonitor && <><iframe title="Pre-roll livestream monitor" src={youtubeEmbedUrl(lesson.preRollMonitorUrl) || lesson.preRollMonitorUrl} allow="autoplay; encrypted-media; picture-in-picture" referrerPolicy="no-referrer" /><a href={lesson.preRollMonitorUrl} target="_blank" rel="noreferrer">Open monitor in a new tab ↗</a></>}</section>}</> : <Empty title="No lesson selected" body="Assign a class to this screen or choose a lesson to begin." />}</section>
-    </div></fieldset><section className="controller-install"><div className="brand-mark">LC</div><div><strong>Save this controller as an app</strong><p>On iPhone or iPad, use Share → Add to Home Screen. On Android, open the browser menu and choose Install app or Add to Home screen.</p><small>{temporarySession ? `${requireLocalRoomControllers ? localAddress : location.origin}/session/${sessionToken}` : room ? classControllerUrl(room, "", requireLocalRoomControllers ? localAddress : location.origin) : `${location.origin}/universalremote`}</small></div></section>
+    </div></fieldset><section className="controller-install"><BrandMark /><div><strong>Save this controller as an app</strong><p>On iPhone or iPad, use Share → Add to Home Screen. On Android, open the browser menu and choose Install app or Add to Home screen.</p><small>{temporarySession ? `${requireLocalRoomControllers ? localAddress : location.origin}/session/${sessionToken}` : room ? classControllerUrl(room, "", requireLocalRoomControllers ? localAddress : location.origin) : `${location.origin}/universalremote`}</small></div></section>
   </div>;
 }
 
@@ -1218,15 +1228,24 @@ function SignageView({ signage, media, screens, timeZone, sourceAllowlist, refre
   signage: Signage[]; media: Media[]; screens: Screen[]; timeZone: string; sourceAllowlist: string[]; refresh: () => void; notify: (s: string) => void;
 }) {
   const [editing, setEditing] = useState<Signage | "new">();
-  async function save(payload: ReturnType<typeof signageFormPayload>) {
+  const [editingOccurrenceDate, setEditingOccurrenceDate] = useState<string>();
+  const [section, setSection] = useState<SignageStudioSection>("schedule");
+  async function save(payload: ReturnType<typeof signageFormPayload>, series?: { scope: "event" | "future" | "series"; effectiveDate: string }) {
     const current = editing;
     if (!current) return;
     try {
-      await api(current === "new" ? "/api/v1/signage" : `/api/v1/signage/${current.id}`, {
-        method: current === "new" ? "POST" : "PUT",
-        body: JSON.stringify(payload),
-      });
-      setEditing(undefined); refresh(); notify(current === "new" ? "Signage schedule created." : "Signage schedule updated.");
+      if (current !== "new" && current.recurrence !== "once" && series) {
+        await api(`/api/v1/signage-studio/schedules/${current.id}/series-edit`, {
+          method: "POST", body: JSON.stringify({ scope: series.scope, effectiveDate: series.effectiveDate, changes: payload })
+        });
+      } else {
+        await api(current === "new" ? "/api/v1/signage" : `/api/v1/signage/${current.id}`, {
+          method: current === "new" ? "POST" : "PUT", body: JSON.stringify(payload),
+        });
+      }
+      setEditing(undefined); setEditingOccurrenceDate(undefined); refresh();
+      notify(current === "new" ? "Signage schedule created." : series?.scope === "event" ? "This occurrence was updated."
+        : series?.scope === "future" ? "This and future occurrences were updated." : "Signage schedule updated.");
     } catch (error) { notify(errorText(error)); }
   }
   async function setEnabled(item: Signage, enabled: boolean) {
@@ -1246,16 +1265,23 @@ function SignageView({ signage, media, screens, timeZone, sourceAllowlist, refre
       refresh(); notify(`Refreshed approved sources for ${item.name}.`);
     } catch (error) { notify(errorText(error)); }
   }
-  return <><PageHead eyebrow="AMBIENT PLAYBACK" title="Signage" detail={`Recurring welcome screens, announcements, and emergency overrides · ${timeZone}`} action={<button className="button primary" onClick={() => setEditing("new")}>New signage</button>} />
+  return <><PageHead eyebrow="SIGNAGE STUDIO" title="Signage" detail={`Layouts, playlists, schedules, publishing, emergency alerts, and screen health · ${timeZone}`} action={section === "schedule" ? <button className="button primary" onClick={() => { setEditingOccurrenceDate(undefined); setEditing("new"); }}>New schedule</button> : undefined} />
+    <nav className="signage-studio-tabs" aria-label="Signage Studio sections">{([
+      ["layouts", "Layouts"], ["playlists", "Playlists"], ["schedule", "Calendar"], ["publishing", "Publishing"],
+      ["operations", "Operations"], ["emergencies", "Emergency"]
+    ] as [SignageStudioSection, string][]).map(([value, label]) => <button key={value} className={section === value ? "active" : ""} onClick={() => setSection(value)}>{label}</button>)}</nav>
+    {section !== "schedule" && <SignageStudioPanel section={section} media={media} screens={screens} signage={signage} timeZone={timeZone} sourceAllowlist={sourceAllowlist} refresh={refresh} notify={notify} />}
+    {section === "schedule" && <>
+    <SignageCalendarBoard signage={signage} timeZone={timeZone} onEdit={(id, occurrenceDate) => { const item = signage.find(value => value.id === id); if (item) { setEditingOccurrenceDate(occurrenceDate); setEditing(item); } }} />
     <section className="signage-priority panel"><strong>Conflict order</strong><span>Emergency override</span><b>›</b><span>Scheduled signage</span><b>›</b><span>Idle fallback</span><small>Within each level, the highest priority wins. Lesson playback remains in control and signage returns automatically afterward.</small></section>
-    {editing && <SignageEditorErrorBoundary onClose={() => setEditing(undefined)}><SignageEditor item={editing === "new" ? undefined : editing} media={media} screens={screens} timeZone={timeZone} sourceAllowlist={sourceAllowlist} onSave={save} onClose={() => setEditing(undefined)} /></SignageEditorErrorBoundary>}
+    {editing && <SignageEditorErrorBoundary onClose={() => setEditing(undefined)}><SignageEditor item={editing === "new" ? undefined : editing} occurrenceDate={editingOccurrenceDate} media={media} screens={screens} timeZone={timeZone} sourceAllowlist={sourceAllowlist} onSave={save} onClose={() => setEditing(undefined)} /></SignageEditorErrorBoundary>}
     <div className="signage-grid">{signage.length ? signage.map(item => <article className={`signage-card ${item.mode} ${!item.enabled ? "paused" : ""}`} key={item.id} style={{ background: item.backgroundColor, color: item.textColor }}>
       <div className="signage-top"><span>{item.mode.toUpperCase()}</span><span>{!item.enabled ? "PAUSED" : item.activeNow ? "SHOWING NOW" : "SCHEDULED"}</span></div>
       <h2>{item.message || item.name}</h2>
       <p>{item.name}{item.mediaFileName ? ` · ${item.mediaFileName}` : ""}{item.zones?.length ? ` · ${item.zones.length}-zone ${item.layoutPreset.replace("-", " ")} layout` : ""}</p>
       <div className="signage-meta"><span>{signageScheduleSummary(item)}</span><span>{signageTargets(item)}</span><span className={`signage-ready ${item.readiness}`}>{item.readiness === "ready" ? "✓ Server media ready" : item.readiness === "preparing" ? "◷ Server media preparing" : `! Server media ${item.readiness}`}</span>{item.mediaAssetId && <span className={`signage-ready ${item.failedScreenCount ? "failed" : item.cachedScreenCount === item.targetScreenCount && item.targetScreenCount ? "ready" : "preparing"}`}>{item.targetScreenCount === 0 ? "No paired target displays" : item.failedScreenCount ? `! ${item.failedScreenCount} display cache failed` : item.cachedScreenCount === item.targetScreenCount ? `✓ Cached on ${item.targetScreenCount} display${item.targetScreenCount === 1 ? "" : "s"}` : `◷ Cached on ${item.cachedScreenCount} of ${item.targetScreenCount} displays`}</span>}</div>
-      <div className="signage-foot"><span>Priority {item.priority}{item.widgetCacheUpdatedAt ? ` · data ${timeAgo(item.widgetCacheUpdatedAt)}` : ""}</span><div>{item.zones?.some(zone => zone.sourceUrl) && <button onClick={() => refreshWidgets(item)}>Refresh data</button>}<button onClick={() => setEditing(item)}>Edit</button><button onClick={() => setEnabled(item, !item.enabled)}>{item.enabled ? "Pause" : "Resume"}</button><button onClick={() => remove(item)}>Delete</button></div></div>
-    </article>) : <section className="panel"><Empty title="No signage yet" body="Create an idle welcome screen or a recurring scheduled announcement." /></section>}</div>
+      <div className="signage-foot"><span>Priority {item.priority}{item.widgetCacheUpdatedAt ? ` · data ${timeAgo(item.widgetCacheUpdatedAt)}` : ""}</span><div>{item.zones?.some(zone => zone.sourceUrl) && <button onClick={() => refreshWidgets(item)}>Refresh data</button>}<button onClick={() => { setEditingOccurrenceDate(undefined); setEditing(item); }}>Edit</button><button onClick={() => setEnabled(item, !item.enabled)}>{item.enabled ? "Pause" : "Resume"}</button><button onClick={() => remove(item)}>Delete</button></div></div>
+    </article>) : <section className="panel"><Empty title="No signage yet" body="Create an idle welcome screen or a recurring scheduled announcement." /></section>}</div></>}
   </>;
 }
 
@@ -1271,9 +1297,11 @@ class SignageEditorErrorBoundary extends Component<{ children: ReactNode; onClos
   }
 }
 
-function SignageEditor({ item, media, screens, timeZone, sourceAllowlist, onSave, onClose }: {
+function SignageEditor({ item, occurrenceDate, media, screens, timeZone, sourceAllowlist, onSave, onClose }: {
   item?: Signage; media: Media[]; screens: Screen[]; timeZone: string; sourceAllowlist: string[];
-  onSave: (payload: ReturnType<typeof signageFormPayload>) => void; onClose: () => void;
+  occurrenceDate?: string;
+  onSave: (payload: ReturnType<typeof signageFormPayload>, series?: { scope: "event" | "future" | "series"; effectiveDate: string }) => void;
+  onClose: () => void;
 }) {
   const [recurrence, setRecurrence] = useState<Signage["recurrence"]>(item?.recurrence || "once");
   const [preset, setPreset] = useState<SignageLayoutPreset>(item?.layoutPreset || "single");
@@ -1281,10 +1309,21 @@ function SignageEditor({ item, media, screens, timeZone, sourceAllowlist, onSave
   const [selectedZoneId, setSelectedZoneId] = useState<string>();
   const [expandedZoneId, setExpandedZoneId] = useState<string>();
   const [snapToGrid, setSnapToGrid] = useState(true);
+  const [studioLayouts, setStudioLayouts] = useState<{ id: string; name: string; publishedVersion: number }[]>([]);
+  const [studioPlaylists, setStudioPlaylists] = useState<{ id: string; name: string; publishedVersion: number }[]>([]);
+  const [kioskEnabled, setKioskEnabled] = useState(item?.kioskEnabled || false);
+  const [seriesScope, setSeriesScope] = useState<"event" | "future" | "series">(occurrenceDate ? "event" : "series");
+  const [seriesEffectiveDate, setSeriesEffectiveDate] = useState(occurrenceDate || item?.scheduleStartDate || dateInputValue());
   const formRef = useRef<HTMLFormElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const cached = new Map(item?.widgetCache?.map(entry => [entry.zoneId, entry]));
+  useEffect(() => {
+    void Promise.all([
+      api<{ id: string; name: string; publishedVersion: number }[]>("/api/v1/signage-studio/layouts"),
+      api<{ id: string; name: string; publishedVersion: number }[]>("/api/v1/signage-studio/playlists")
+    ]).then(([layouts, playlists]) => { setStudioLayouts(layouts); setStudioPlaylists(playlists); }).catch(() => undefined);
+  }, []);
   const setZone = (id: string, patch: Partial<SignageZone>) => setZones(current => current.map(zone => zone.id === id ? { ...zone, ...patch } : zone));
   const selectedZone = zones.find(zone => zone.id === selectedZoneId);
   function selectPreset(value: SignageLayoutPreset) {
@@ -1372,7 +1411,8 @@ function SignageEditor({ item, media, screens, timeZone, sourceAllowlist, onSave
   function submit() {
     const form = formRef.current;
     if (!form || !form.reportValidity()) return;
-    onSave(signageFormPayload(new FormData(form)));
+    onSave(signageFormPayload(new FormData(form)), item?.recurrence !== "once"
+      ? { scope: seriesScope, effectiveDate: seriesEffectiveDate } : undefined);
   }
   return <Modal title={item ? `Edit ${item.name}` : "Create signage"} onClose={onClose}><form ref={formRef} className="stack" onSubmit={event => { event.preventDefault(); submit(); }}>
     <input type="hidden" name="layoutPreset" value={preset} /><input type="hidden" name="zonesJson" value={JSON.stringify(zones)} />
@@ -1418,16 +1458,20 @@ function SignageEditor({ item, media, screens, timeZone, sourceAllowlist, onSave
       </div>
       {item?.widgetCacheError && <div className="alert error">Last source refresh: {item.widgetCacheError}. The last successful cached content remains available.</div>}
     </section>
+    <div className="two-fields"><Field label="Reusable layout"><select name="layoutId" defaultValue={item?.layoutId || ""}><option value="">Use the inline layout above</option>{studioLayouts.filter(value => value.publishedVersion > 0).map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></Field><Field label="Signage playlist"><select name="contentPlaylistId" defaultValue={item?.contentPlaylistId || ""}><option value="">No independent playlist</option>{studioPlaylists.filter(value => value.publishedVersion > 0).map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></Field></div>
     <div className="two-fields"><Field label="Optional image or video"><select name="mediaAssetId" defaultValue={item?.mediaAssetId || ""}><option value="">Text only</option>{media.filter(value => value.sourceKind !== "link" && (value.contentType.startsWith("image/") || value.contentType.startsWith("video/"))).map(value => <option key={value.id} value={value.id}>{value.fileName}</option>)}</select></Field><Field label="Repeats"><select name="recurrence" value={recurrence} onChange={event => setRecurrence(event.target.value as Signage["recurrence"])}><option value="once">One time</option><option value="daily">Every day</option><option value="weekly">Selected weekdays</option></select></Field></div>
+    <div className="two-fields"><Field label="Screen volume"><input name="volumePercent" type="number" min="0" max="150" defaultValue={item?.volumePercent ?? 100} /></Field><Field label="Screen power event"><select name="displayPower" defaultValue={item?.displayPower || "unchanged"}><option value="unchanged">Leave unchanged</option><option value="on">Turn on</option><option value="off">Turn off</option></select></Field></div>
     {recurrence === "once" ? <div className="two-fields"><Field label="Starts" hint="Leave blank to start immediately."><input name="startsAt" type="datetime-local" defaultValue={toLocalInput(item?.startsAt)} /></Field><Field label="Ends" hint="Leave blank to continue until paused."><input name="endsAt" type="datetime-local" defaultValue={toLocalInput(item?.endsAt)} /></Field></div> : <>
       <div className="two-fields"><Field label="First date"><input name="scheduleStartDate" type="date" defaultValue={item?.scheduleStartDate || dateInputValue(undefined)} /></Field><Field label="Last date" hint="Optional"><input name="scheduleEndDate" type="date" defaultValue={item?.scheduleEndDate || ""} /></Field></div>
       <div className="two-fields"><Field label="Daily start"><input name="startTime" type="time" required defaultValue={signageTime(item?.startMinutes, "08:00")} /></Field><Field label="Daily end"><input name="endTime" type="time" required defaultValue={signageTime(item?.endMinutes, "17:00")} /></Field></div>
       {recurrence === "weekly" && <fieldset className="signage-weekdays"><legend>Show on</legend>{days.map((day, index) => <label key={day}><input type="checkbox" name="dayOfWeek" value={index} defaultChecked={item ? item.daysOfWeek.includes(index) : index > 0 && index < 6} /> {day.slice(0, 3)}</label>)}</fieldset>}
       <Field label="Excluded dates" hint={`One YYYY-MM-DD date per line. Times use ${timeZone}.`}><textarea name="excludedDates" rows={3} defaultValue={item?.excludedDates.join("\n")} placeholder={"2026-12-25\n2027-01-01"} /></Field>
+      {item?.recurrence !== "once" && <div className="series-scope panel"><strong>Apply these changes to</strong><div className="two-fields"><Field label="Edit scope"><select value={seriesScope} onChange={event => setSeriesScope(event.target.value as typeof seriesScope)}><option value="event">This event only</option><option value="future">This and future events</option><option value="series">Entire series</option></select></Field><Field label="Occurrence date"><input type="date" required disabled={seriesScope === "series"} value={seriesEffectiveDate} onChange={event => setSeriesEffectiveDate(event.target.value)} /></Field></div><small>{seriesScope === "event" ? "Creates a one-time exception and leaves every other occurrence unchanged." : seriesScope === "future" ? "Ends the current series the day before this date and starts a new series with these changes." : "Updates every occurrence in the existing series."}</small></div>}
     </>}
     <fieldset className="signage-targets"><legend>Specific screens</legend><p>Leave every box clear to use tags or target all screens.</p>{screens.filter(screen => !screen.revoked).map(screen => <label key={screen.id}><input type="checkbox" name="targetScreenId" value={screen.id} defaultChecked={item?.targetScreenIds.includes(screen.id)} /><span><strong>{screen.name}</strong><small>{screen.site}{screen.tagsCsv ? ` · ${screen.tagsCsv}` : ""}</small></span></label>)}</fieldset>
     <Field label="Target screen tags" hint="A selected screen or a screen with any matching tag receives this sign. Leave both blank for every screen."><input name="targetTagsCsv" maxLength={2000} defaultValue={item?.targetTagsCsv} placeholder="lobby, campus-a" /></Field>
     <div className="two-fields"><Field label="Background color"><input name="backgroundColor" type="color" defaultValue={item?.backgroundColor || "#25302d"} /></Field><Field label="Text color"><input name="textColor" type="color" defaultValue={item?.textColor || "#ffffff"} /></Field></div>
+    <details className="settings-block" open={kioskEnabled}><summary>Touch and kiosk behavior</summary><label className="check-row"><input type="checkbox" name="kioskEnabled" checked={kioskEnabled} onChange={event => setKioskEnabled(event.target.checked)} /> Enable interactive kiosk mode</label>{kioskEnabled && <><Field label="Interaction content" hint="A local or approved HTTPS webpage shown after the display is touched. Emergency alerts always override it."><input name="kioskInteractionUrl" type="url" defaultValue={item?.kioskInteractionUrl || ""} placeholder="https://…" /></Field><div className="two-fields"><Field label="Idle timeout (seconds)"><input name="kioskTimeoutSeconds" type="number" min="5" max="86400" defaultValue={item?.kioskTimeoutSeconds || 60} /></Field><div className="stack compact"><label className="check-row"><input type="checkbox" name="kioskShowCloseButton" defaultChecked={item?.kioskShowCloseButton ?? true} /> Show close button</label><label className="check-row"><input type="checkbox" name="kioskShowTouchIndicator" defaultChecked={item?.kioskShowTouchIndicator ?? true} /> Show touch indicator</label><label className="check-row"><input type="checkbox" name="kioskVirtualKeyboard" defaultChecked={item?.kioskVirtualKeyboard ?? false} /> Allow virtual keyboard</label></div></div></>}</details>
     <label className="check-row"><input type="checkbox" name="enabled" defaultChecked={item?.enabled ?? true} /> Publish this schedule</label>
     <div className="modal-actions"><button className="button" type="button" onClick={onClose}>Cancel</button><button className="button primary" type="submit">{item ? "Save changes" : "Create signage"}</button></div>
   </form></Modal>;
@@ -1933,6 +1977,16 @@ function signageFormPayload(form: FormData) {
     daysOfWeek: recurrence === "weekly" ? form.getAll("dayOfWeek").map(Number) : [],
     excludedDates: recurrence === "once" ? [] : parseDateList(String(form.get("excludedDates") || "")),
     layoutPreset: String(form.get("layoutPreset") || "single"), zones,
+    layoutId: String(form.get("layoutId") || "") || null,
+    contentPlaylistId: String(form.get("contentPlaylistId") || "") || null,
+    volumePercent: Number(form.get("volumePercent") || 100),
+    displayPower: String(form.get("displayPower") || "unchanged"),
+    kioskEnabled: form.get("kioskEnabled") === "on",
+    kioskInteractionUrl: String(form.get("kioskInteractionUrl") || "") || null,
+    kioskTimeoutSeconds: Number(form.get("kioskTimeoutSeconds") || 60),
+    kioskShowCloseButton: form.get("kioskShowCloseButton") === "on",
+    kioskShowTouchIndicator: form.get("kioskShowTouchIndicator") === "on",
+    kioskVirtualKeyboard: form.get("kioskVirtualKeyboard") === "on",
   };
 }
 function signagePayload(item: Signage, enabled = item.enabled) {
@@ -1943,7 +1997,12 @@ function signagePayload(item: Signage, enabled = item.enabled) {
     scheduleStartDate: item.scheduleStartDate || null, scheduleEndDate: item.scheduleEndDate || null,
     startMinutes: item.startMinutes ?? null, endMinutes: item.endMinutes ?? null, daysOfWeek: item.daysOfWeek,
     excludedDates: item.excludedDates, targetScreenIds: item.targetScreenIds,
-    layoutPreset: item.layoutPreset, zones: item.zones,
+    layoutPreset: item.layoutPreset, zones: item.zones, layoutId: item.layoutId || null,
+    contentPlaylistId: item.contentPlaylistId || null, volumePercent: item.volumePercent ?? 100,
+    displayPower: item.displayPower || "unchanged", kioskEnabled: item.kioskEnabled || false,
+    kioskInteractionUrl: item.kioskInteractionUrl || null, kioskTimeoutSeconds: item.kioskTimeoutSeconds || 60,
+    kioskShowCloseButton: item.kioskShowCloseButton ?? true,
+    kioskShowTouchIndicator: item.kioskShowTouchIndicator ?? true, kioskVirtualKeyboard: item.kioskVirtualKeyboard || false,
   };
 }
 function parseStringArray(value?: string) { try { const parsed = JSON.parse(value || "[]"); return Array.isArray(parsed) ? parsed.filter(item => typeof item === "string") : []; } catch { return []; } }

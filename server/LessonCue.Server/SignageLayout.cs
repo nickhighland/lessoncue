@@ -7,7 +7,8 @@ public sealed record SignageWidgetCacheEntry(string ZoneId, string Title, string
 
 public static class SignageLayout
 {
-    public static readonly string[] ZoneTypes = ["media", "stream", "text", "clock", "calendar", "weather", "menu", "rss", "data"];
+    public static readonly string[] ZoneTypes = ["media", "stream", "text", "clock", "calendar", "weather", "menu", "rss", "data",
+        "shape", "icon", "qr", "ticker", "counter", "webpage", "dashboard", "social", "traffic", "wifi", "customHtml", "slides"];
     public static readonly string[] Presets = ["single", "sidebar", "split", "header-grid", "dashboard"];
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -42,8 +43,8 @@ public static class SignageLayout
             SourceUrl = string.IsNullOrWhiteSpace(zone.SourceUrl) ? null : zone.SourceUrl.Trim(),
             X = Math.Clamp(zone.X, 0, 90),
             Y = Math.Clamp(zone.Y, 0, 90),
-            Width = Math.Clamp(zone.Width, 10, 100),
-            Height = Math.Clamp(zone.Height, 10, 100),
+            Width = Math.Clamp(zone.Width, 2, 100),
+            Height = Math.Clamp(zone.Height, 2, 100),
             BackgroundColor = Color(zone.BackgroundColor, "#17201e"),
             TextColor = Color(zone.TextColor, "#ffffff"),
             AccentColor = Color(zone.AccentColor, "#d89127"),
@@ -51,21 +52,37 @@ public static class SignageLayout
             Rotation = Math.Clamp(zone.Rotation, -180, 180),
             ZIndex = Math.Clamp(zone.ZIndex, 0, 100),
             Opacity = Math.Clamp(zone.Opacity, 0, 100),
-            Fit = zone.Fit is "contain" or "fill" ? zone.Fit : "cover"
+            Fit = zone.Fit is "contain" or "fill" ? zone.Fit : "cover",
+            GroupId = Truncate(zone.GroupId, 64),
+            LockMode = zone.LockMode is "position" or "content" or "full" ? zone.LockMode : zone.Locked ? "position" : "none",
+            RichTextJson = Truncate(zone.RichTextJson, 12000),
+            FontFamily = Truncate(zone.FontFamily, 80) ?? "system-ui",
+            FontSize = Math.Clamp(zone.FontSize, 8, 300),
+            FontWeight = Math.Clamp(zone.FontWeight, 100, 900),
+            LineHeightPercent = Math.Clamp(zone.LineHeightPercent, 80, 300),
+            TextAlign = zone.TextAlign is "center" or "right" or "justify" ? zone.TextAlign : "left",
+            Shape = zone.Shape is "circle" or "triangle" or "line" ? zone.Shape : "rectangle",
+            StrokeColor = Color(zone.StrokeColor, "#ffffff"),
+            StrokeWidth = Math.Clamp(zone.StrokeWidth, 0, 30),
+            CornerRadius = Math.Clamp(zone.CornerRadius, 0, 100),
+            IconName = Truncate(zone.IconName, 80),
+            QrValue = Truncate(zone.QrValue, 2000),
+            TickerSpeed = Math.Clamp(zone.TickerSpeed, 10, 300),
+            CredentialKey = Truncate(zone.CredentialKey, 120)
         };
     }
 
     public static string? Validate(IReadOnlyCollection<SignageZoneInput>? zones, IReadOnlyCollection<string> allowedOrigins)
     {
         if (zones is null || zones.Count == 0) return null; // Legacy single-message signage remains valid.
-        if (zones.Count > 8) return "A signage layout supports at most eight zones.";
+        if (zones.Count > 64) return "A signage layout supports at most 64 elements.";
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var raw in zones)
         {
             var zone = Normalize(raw);
             if (!ids.Add(zone.Id)) return "Every signage zone must have a unique identifier.";
             if (!ZoneTypes.Contains(raw.Type)) return $"Unsupported signage zone type: {raw.Type}.";
-            if (raw.X < 0 || raw.Y < 0 || raw.Width < 10 || raw.Height < 10 || raw.X + raw.Width > 100 || raw.Y + raw.Height > 100)
+            if (raw.X < 0 || raw.Y < 0 || raw.Width < 2 || raw.Height < 2 || raw.X + raw.Width > 100 || raw.Y + raw.Height > 100)
                 return "Every signage zone must remain within the 100 × 100 layout canvas.";
             if (raw.Type == "media" && raw.MediaAssetId is null) return "Every media zone must select an image or video.";
             if (raw.Type == "stream" && !TryStreamUrl(raw.SourceUrl, out _))
@@ -73,8 +90,8 @@ public static class SignageLayout
             if (!string.IsNullOrWhiteSpace(raw.SourceUrl))
             {
                 if (raw.Type == "stream") continue;
-                if (raw.Type is not ("calendar" or "weather" or "menu" or "rss" or "data"))
-                    return "Only calendar, weather, menu, RSS, and data zones may use an online source.";
+                if (raw.Type is not ("calendar" or "weather" or "menu" or "rss" or "data" or "webpage" or "dashboard" or "social" or "traffic" or "slides" or "customHtml"))
+                    return "That signage element cannot use an online source.";
                 if (!TryOrigin(raw.SourceUrl, out var origin)) return "Widget sources must be absolute HTTP or HTTPS addresses without embedded credentials.";
                 if (!allowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
                     return $"Approve {origin} in Settings before using it as a signage source.";

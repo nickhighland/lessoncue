@@ -12,23 +12,6 @@ The order is based on five product priorities:
 
 ## Recommended next priorities
 
-10. [ ] **Signage Studio and Yodeck-class workflow parity**: Build a complete self-hosted signage design, playlist, scheduling, publishing, and monitoring workflow based on the capability audit in [signage-studio.md](signage-studio.md). Match useful behavior without copying Yodeck branding, templates, artwork, or proprietary tutorial text.
-
-   - [x] Replace form-only positioning with direct pointer drag, resize handles, a rotation handle, arbitrary numeric rotation, keyboard nudging, optional grid snapping, exact geometry controls, layering, opacity, fit/fill/stretch, horizontal and vertical flip, duplicate, lock, hide, and a larger live design canvas.
-   - [x] Persist advanced object transforms in the existing zone JSON without a database migration and render them consistently in browser, Android TV, and Apple TV clients.
-   - [x] Add live-stream zones accepting HLS, HTTP, RTMP, RTMPS, and RTSP; relay supported H.264 streams through local FFmpeg-generated HLS; keep source addresses off display manifests; and clean up inactive relay processes.
-   - [ ] Separate reusable **Layouts** from schedules. Add blank layouts, saved layouts, folders, search, duplicate, save-as-template, reusable branded templates, starter templates, thumbnails, and safe template replacement.
-   - [ ] Add canvas undo/redo, zoom/pan/hand tool, alignment guides, configurable grid size, multi-selection, group movement, bulk alignment/distribution, full layer panel reordering, and granular full/content/position locking.
-   - [ ] Add standard and custom resolutions/aspect ratios, portrait and ultrawide canvases, reusable custom ratios, safe-area overlays, and per-screen orientation mapping.
-   - [ ] Add rich text with font, size, weight, emphasis, line spacing, alignment and mixed-run formatting; shapes, strokes, corners, clipart/icons, QR codes, tickers, counters, and background audio.
-   - [ ] Add reusable signage apps/widgets for clocks, weather, RSS, calendars, menus, slides, webpages, dashboards, social feeds, traffic, Wi-Fi sharing, and approved custom HTML/web apps, with credentials stored server-side where applicable.
-   - [ ] Add independent signage playlists containing media, layouts, apps, web content, hide/transparent intervals, nested playlists, transitions, random playback, tag rules, CSV/cloud-folder sources, region synchronization, duration totals, and full preview.
-   - [ ] Replace the per-sign scheduling form with calendar schedules that can assign layouts, playlists, media, apps, screen on/off, or volume; support filler content, overlap priority, recurrence exceptions, and “this event / this and future / entire series” editing.
-   - [ ] Add explicit draft/save/publish and push-to-screen states, content versioning, preview-as-screen, bulk screen assignment, default versus scheduled content, and visible download/publish progress.
-   - [ ] Add privacy-gated screen screenshots, proof-of-play exports, signage playback errors, live-stream health, stream restart controls, source latency, screen/content status, and operator alerts.
-   - [ ] Expand emergency signage into reusable alert types, immediate broadcast/cancel, duration, prepared offline alert media, screen/tag broadcast groups, and a review step.
-   - [ ] Add optional touch and kiosk experiences with idle content, interaction content, timeout, close control, interaction indicator, virtual keyboard support where practical, and emergency override.
-
 11. [ ] **Media upload and library workflow improvements**: Add resumable uploads, pause and retry, folder drag-and-drop, transfer progress, duplicate and near-duplicate detection, safe reference consolidation, favorites and collections, improved search, and administrator-defined storage and upload limits by server, user, role, class, file size, codec, or daily quota.
 12. [ ] **Operational readiness dashboard and alerts**: Focus reporting on lesson readiness, screen uptime, media cache state, download failures, storage growth, client versions, playback acknowledgements, and pre-class warnings. Exclude behavioral or productivity profiling of individual users.
 13. [ ] **Essential screen management without enterprise fleet management**: Keep screen groups, assignments, tags, saved filters, detailed heartbeat, cache inventory, download retry, remote cache purge, re-download, application restart, diagnostics export, kiosk checks, startup validation, screen-saver suppression, and incompatible-version alerts. Do not expand this into full device-management infrastructure.
@@ -49,6 +32,23 @@ The order is based on five product priorities:
 LessonCue remains centered on preparing media, organizing lessons, confirming readiness, playing reliably across common display hardware, and making live control simple for volunteers. SaaS onboarding, budget-hardware optimization, and signage remain intentional product capabilities within that boundary.
 
 ## Implemented roadmap milestones
+
+- [x] **Signage Studio and Yodeck-class workflow parity (next release)** — complete the independently designed, self-hosted signage design, playlist, scheduling, publishing, monitoring, emergency, and kiosk workflow described in [signage-studio.md](signage-studio.md), without copying third-party branding, templates, artwork, or tutorial text.
+
+   - [x] Replace form-only positioning with direct pointer drag, resize handles, a rotation handle, arbitrary numeric rotation, keyboard nudging, optional grid snapping, exact geometry controls, layering, opacity, fit/fill/stretch, horizontal and vertical flip, duplicate, lock, hide, and a larger live design canvas.
+   - [x] Persist advanced object transforms in zone JSON and render them consistently in browser, Android TV, and Apple TV clients.
+   - [x] Add live-stream zones accepting HLS, HTTP, RTMP, RTMPS, and RTSP; relay supported H.264 streams through local FFmpeg-generated HLS; keep source addresses off display manifests; and clean up inactive relay processes.
+   - [x] Separate reusable **Layouts** from schedules with blank layouts, saved layouts, folders, search, duplicate, save-as-template, reusable branded templates, generic starter templates, thumbnails, and safe draft replacement.
+   - [x] Add canvas undo/redo, zoom, drag-to-pan hand tool, live edge/center alignment guides, configurable grid size, multi-selection, persistent groups and group movement, bulk alignment/distribution, layer reordering, and full/content/position locking.
+   - [x] Add standard and custom resolutions/aspect ratios, portrait and ultrawide canvases, reusable custom-size layouts, safe-area overlays, and per-screen orientation and resolution mapping.
+   - [x] Add rich text with font, size, weight, emphasis, line spacing, alignment, and safe mixed-run formatting; shapes, strokes, corners, icons, scannable QR codes, Wi-Fi QR sharing, animated tickers, live counters, and background audio, with matching browser, Android TV, and Apple TV manifest support.
+   - [x] Add reusable signage apps/widgets for clocks, weather, RSS, calendars, menus, slides, webpages, dashboards, social feeds, traffic, Wi-Fi sharing, and approved custom web apps, with optional credentials encrypted and retained only on the local server.
+   - [x] Add independent signage playlists containing media, layouts, apps, web content, hidden and transparent intervals, nested playlists, transitions, deterministic random playback, tag rules, CSV/cloud sources, region/global synchronization, duration totals, and timed visual preview.
+   - [x] Add calendar scheduling for layouts, playlists, media/apps, screen on/off, volume, idle filler, overlap priority, recurrence exceptions, and scoped recurring edits for one event, this and future events, or the entire series.
+   - [x] Add explicit draft/save/publish and push-to-screen states, content versioning, exact screen-manifest preview, bulk screen assignment, idle/default versus scheduled content, and visible per-screen download/publish progress.
+   - [x] Add privacy-gated screen screenshots, proof-of-play API and CSV exports, signage playback errors, live-stream health, stream restart controls, source latency, screen/content status, and operator alerts.
+   - [x] Expand emergency signage into reusable alert types, reviewed immediate broadcast/cancel, configurable duration, prepared offline alert media, exact-screen and tag broadcast groups, and an explicit pre-broadcast confirmation.
+   - [x] Add optional browser touch/kiosk experiences with idle content, approved interaction content, inactivity timeout, close control, interaction indicator, virtual-keyboard guidance, and automatic emergency override.
 
 - [x] **Signage Studio foundation, live-stream zones, and Android store distribution (v0.35.0)** — add direct zone dragging, resizing, arbitrary rotation, snapping, keyboard nudging, layers, opacity, fit, flip, duplicate, lock, and hide controls; relay HLS, HTTP, RTMP, RTMPS, and RTSP sources locally for browser, Android TV, and Apple TV displays; adopt PolyForm Noncommercial licensing and a commercial contributor grant; and split Android delivery into a clearly labeled GitHub-updated sideload build plus Google Play/Amazon store packages with external updating removed.
 
