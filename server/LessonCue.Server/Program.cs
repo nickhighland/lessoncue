@@ -79,7 +79,7 @@ builder.Services.AddHttpClient("presentation-import", client =>
 builder.Services.AddHttpClient("signage-widgets", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(20);
-    client.DefaultRequestHeaders.UserAgent.ParseAdd("LessonCue-Signage/1.0");
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("LessonCue-Signage/1.0 (+https://github.com/nickhighland/lessoncue)");
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<SignageWidgetService>();
 builder.Services.AddSingleton(services => new SignageCredentialStore(dataPath,

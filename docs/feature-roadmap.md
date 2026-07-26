@@ -34,6 +34,10 @@ LessonCue remains centered on preparing media, organizing lessons, confirming re
 ## Implemented roadmap milestones
 
 - [x] **Signage Studio (next release)** — complete the independently designed, self-hosted signage design, playlist, scheduling, publishing, monitoring, emergency, and kiosk workflow described in [signage-studio.md](signage-studio.md).
+   - [x] Make the layout editor fully opaque and high contrast, replace the competing blue selection outline with one color-changing element border, and add a large, visible lower-right drag handle for resizing.
+   - [x] Add a one-step information-frame builder that preserves a 16:9 presentation area and creates a configurable right sidebar plus one-to-five evenly distributed bottom boxes and one-to-three sidebar boxes.
+   - [x] Add keyless Open-Meteo and U.S. National Weather Service presets, selectable weather fields, condition icons, unit selection, location labels and coordinates, persistent server caching, and a credential-backed custom-provider option.
+   - [x] Add friendly content choices for photos, videos, logos, messages, QR and guest Wi-Fi codes, time/date, calendars, news/RSS, countdowns, live streams, webpages, and data widgets in information-frame slots.
 
    - [x] Replace form-only positioning with direct pointer drag, resize handles, a rotation handle, arbitrary numeric rotation, keyboard nudging, optional grid snapping, exact geometry controls, layering, opacity, fit/fill/stretch, horizontal and vertical flip, duplicate, lock, hide, and a larger live design canvas.
    - [x] Persist advanced object transforms in zone JSON and render them consistently in browser, Android TV, and Apple TV clients.

@@ -130,19 +130,49 @@
   position: fixed;
   z-index: 1000;
   inset: 0;
-  background: #09110fcc;
+  background: rgba(3, 10, 8, 0.92);
   display: grid;
   place-items: center;
   padding: 2vw;
 }
 .studio-dialog {
+  --bg: #f4f7f5;
+  --panel: #ffffff;
+  --line: #c7d0cc;
+  --text: #17201e;
+  --muted: #53615c;
+  --accent: #d89127;
   width: min(680px, 96vw);
   max-height: 94vh;
   overflow: auto;
   border-radius: 20px;
-  background: var(--bg);
+  background: #f4f7f5;
+  color: #17201e;
   box-shadow: 0 30px 80px #0009;
   border: 1px solid var(--line);
+  isolation: isolate;
+}
+.studio-dialog input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
+.studio-dialog textarea,
+.studio-dialog select {
+  color: #17201e;
+  background: #ffffff;
+  border-color: #9daaa4;
+}
+.studio-dialog input::placeholder,
+.studio-dialog textarea::placeholder {
+  color: #66736e;
+}
+.studio-dialog button {
+  color: #17201e;
+  background-color: #ffffff;
+  border-color: #9daaa4;
+}
+.studio-dialog button.primary,
+.studio-dialog .button.primary {
+  color: #17140e;
+  background: #d89127;
+  border-color: #b87612;
 }
 .studio-dialog.wide {
   width: min(1580px, 98vw);
@@ -202,6 +232,38 @@
   position: sticky;
   top: 52px;
   z-index: 19;
+}
+.information-frame-builder {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  padding: 0.8rem;
+  color: #17201e;
+  background: #fff8e9;
+  border-bottom: 1px solid #dfc995;
+}
+.information-frame-builder > div {
+  min-width: 250px;
+  flex: 1;
+}
+.information-frame-builder strong,
+.information-frame-builder small {
+  display: block;
+}
+.information-frame-builder small {
+  color: #53615c;
+  margin-top: 0.15rem;
+}
+.information-frame-builder label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.information-frame-builder input[type="range"] {
+  width: 90px;
 }
 .layout-editor-toolbar button,
 .playlist-addbar button {
@@ -282,8 +344,8 @@
   user-select: none;
 }
 .layout-zone.selected {
-  outline: 3px solid #53b9ff;
-  outline-offset: 2px;
+  border-color: #64f2bd !important;
+  box-shadow: inset 0 0 0 1px #072a20, 0 0 0 2px #64f2bd;
 }
 .layout-zone.hidden {
   opacity: 0.2 !important;
@@ -310,15 +372,28 @@
 .layout-rotate {
   position: absolute;
   z-index: 10;
-  background: #53b9ff;
+  background: #64f2bd;
   border: 2px solid #fff;
 }
 .layout-resize {
-  right: 1px;
-  bottom: 1px;
-  width: 12px;
-  height: 12px;
+  right: 2px;
+  bottom: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px 0 0 0;
+  box-shadow: 0 0 0 1px #072a20;
   cursor: nwse-resize;
+}
+.layout-resize:after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid #072a20;
+  border-bottom: 2px solid #072a20;
+  box-shadow: 3px 3px 0 -1px #64f2bd;
 }
 .layout-rotate {
   top: 2px;
@@ -333,6 +408,34 @@
   display: grid;
   place-items: center;
   font-size: 3em;
+}
+.zone-weather-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45em;
+  padding: 0.25em;
+  width: 100%;
+}
+.zone-weather-preview > i {
+  font-style: normal;
+  font-size: 2.2em;
+}
+.zone-weather-preview > span,
+.zone-weather-preview small,
+.zone-weather-preview strong,
+.zone-weather-preview em {
+  display: block;
+}
+.zone-weather-preview small,
+.zone-weather-preview em {
+  font-size: 0.42em;
+  font-style: normal;
+  opacity: 0.86;
+}
+.zone-weather-preview strong {
+  font-size: 1.55em;
+  line-height: 1;
 }
 .zone-qr {
   width: 100%;
@@ -432,6 +535,42 @@
 }
 .zone-inspector textarea {
   min-height: 72px;
+}
+.weather-settings {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.7rem;
+  border: 1px solid #c5a45d;
+  border-radius: 10px;
+  background: #fff8e9;
+}
+.weather-settings legend {
+  padding: 0 0.25rem;
+  color: #6c4300;
+  font-size: 0.75rem;
+  font-weight: 850;
+}
+.weather-settings > label,
+.weather-field-grid label {
+  display: grid;
+  gap: 0.2rem;
+  color: #17201e;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.weather-field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+.weather-field-grid label {
+  display: flex;
+  align-items: center;
+}
+.weather-settings > small {
+  color: #53615c;
+  line-height: 1.35;
 }
 .inspector-grid {
   display: grid;

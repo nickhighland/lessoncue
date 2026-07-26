@@ -8,9 +8,9 @@ Browser, Android TV, and Apple TV displays consume the same versioned layout fie
 
 | Area | Implemented LessonCue workflow |
 | --- | --- |
-| Canvas | Undo/redo, zoom, hand-tool panning, configurable grid snapping, live edge/center guides, drag/resize/rotate, exact coordinates, multi-select, persistent groups, alignment/distribution, layer reordering, opacity, fit, flip, duplicate, hide, and granular position/content/full locks. |
+| Canvas | Opaque high-contrast editing, undo/redo, zoom, hand-tool panning, configurable grid snapping, live edge/center guides, drag/resize/rotate, a large lower-right resize grip, exact coordinates, multi-select, persistent groups, alignment/distribution, layer reordering, opacity, fit, flip, duplicate, hide, and granular position/content/full locks. |
 | Layout formats | Separate reusable layouts with folders, search, duplicate, starter templates, saved templates, thumbnails, safe replacement, Full HD/4K/portrait/ultrawide/square/custom sizes, safe areas, and per-screen format mapping. |
-| Content | Media, rich and mixed-run text, shapes, strokes, corners, icons, QR/Wi-Fi sharing, tickers, counters, clocks, weather, calendars, menus, RSS, slides, webpages, dashboards, social/traffic data, approved custom web apps, and background audio. |
+| Content | Media and logos, rich and mixed-run text, shapes, strokes, corners, icons, QR/Wi-Fi sharing, tickers, counters, clocks, configurable weather, calendars, menus, RSS, slides, webpages, dashboards, social/traffic data, approved custom web apps, and background audio. |
 | Live video | Server-relayed HLS, HTTP, RTMP, RTMPS, and RTSP zones with source-address isolation, process cleanup, health, HLS readiness, segment latency, errors, restart count, and operator restart controls. |
 | Playlists | Independent signage playlists with layout/media/app/web/nested/tag/CSV/cloud entries, hidden and transparent intervals, transitions, ordered/random/tag/interactive modes, region/global sync, duration totals, and timed visual preview. |
 | Scheduling | Month calendar, one-time/daily/weekday recurrence, exceptions, priorities, idle filler, emergency mode, layout/playlist/media/app content, screen power/volume events, and edit scopes for one event, this-and-future, or an entire series. |
@@ -31,6 +31,24 @@ Use the six Signage tabs in the local administrator interface:
 6. **Emergency** stores reviewed alert types and lets an operator confirm duration plus exact-screen/tag audiences before immediate broadcast. Cancel returns displays to the interrupted lesson or normal signage.
 
 Layout and playlist drafts do not leak into display manifests. A display continues using the last published snapshot until an editor explicitly publishes the replacement.
+
+## Information frames
+
+The layout editor’s **Information frame** action generates a Full HD 16:9 layout with a presentation area that remains exactly 16:9, a right sidebar, and a bottom information strip. Choose one to five equal bottom boxes, one to three equal sidebar boxes, the frame width, and the frame color before applying it. The generated sections remain ordinary editable elements, so each can be changed to a photo, logo, message, QR code, guest Wi-Fi QR, weather, clock/date, calendar, RSS/news, countdown, stream, webpage, or other supported content.
+
+Applying a frame replaces the current draft elements only after confirmation and can be undone. It does not change the live published layout until **Publish & push** is selected.
+
+## Weather
+
+Weather elements include ready-to-use provider presets:
+
+- **Open-Meteo** provides global forecasts without an API key.
+- **National Weather Service** provides U.S. forecasts without an API key.
+- **Custom approved weather API** accepts an administrator-approved HTTPS origin and an optional encrypted server credential.
+
+Enter a location label plus latitude and longitude, then choose Fahrenheit or Celsius and any combination of condition icon, conditions, current temperature, feels-like temperature, daily high, daily low, precipitation chance, humidity, and wind. The server fetches and normalizes the forecast, maps conditions to display-safe weather icons, and persists the last successful result in the signage cache. Displays keep showing that cached result if the internet or provider is temporarily unavailable.
+
+Open-Meteo and National Weather Service requests are made only by the local LessonCue server. Their official endpoints are trusted built-in presets; custom providers still require the normal exact-origin approval.
 
 ## Local credential storage
 

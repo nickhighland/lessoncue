@@ -70,6 +70,56 @@ public sealed class SignageLayoutTests
     }
 
     [Fact]
+    public void BuildsAndParsesKeylessOpenMeteoWeather()
+    {
+        var zone = SignageLayout.Normalize(new SignageZoneInput("weather", "weather", "Weather",
+            WeatherProvider: "open-meteo", WeatherLocation: "Bellingham, WA", WeatherLatitude: 48.7519,
+            WeatherLongitude: -122.4787, WeatherUnits: "fahrenheit",
+            WeatherFields: "icon,conditions,temperature,high,low,precipitation,humidity,wind"));
+        var source = SignageWidgetService.WeatherSource(zone);
+        Assert.StartsWith("https://api.open-meteo.com/v1/forecast?", source);
+        Assert.Contains("latitude=48.7519", source);
+        Assert.Null(SignageLayout.Validate([zone], []));
+
+        const string payload = """
+            {
+              "current": {
+                "temperature_2m": 72,
+                "apparent_temperature": 70,
+                "relative_humidity_2m": 54,
+                "weather_code": 2,
+                "wind_speed_10m": 8
+              },
+              "current_units": { "temperature_2m": "°F", "wind_speed_10m": "mph" },
+              "daily": {
+                "temperature_2m_max": [75],
+                "temperature_2m_min": [59],
+                "precipitation_probability_max": [20],
+                "weather_code": [2]
+              }
+            }
+            """;
+        var weather = SignageWidgetService.Parse(zone, payload, DateTimeOffset.Parse("2026-07-25T12:00:00Z"));
+        Assert.Equal("Bellingham, WA", weather.Title);
+        Assert.Contains("🌤️", weather.Text);
+        Assert.Contains("72°F", weather.Text);
+        Assert.Contains("High 75°F", weather.Items);
+        Assert.Contains("Low 59°F", weather.Items);
+        Assert.Contains("Precipitation 20%", weather.Items);
+    }
+
+    [Fact]
+    public void WeatherPresetsRequireCoordinatesAndCustomSourcesRemainAllowlisted()
+    {
+        var preset = new SignageZoneInput("weather", "weather", WeatherProvider: "open-meteo");
+        Assert.Contains("latitude and longitude", SignageLayout.Validate([preset], []));
+        var custom = new SignageZoneInput("weather", "weather", SourceUrl: "https://weather.example/data",
+            WeatherProvider: "custom");
+        Assert.Contains("Approve https://weather.example", SignageLayout.Validate([custom], []));
+        Assert.Null(SignageLayout.Validate([custom], ["https://weather.example"]));
+    }
+
+    [Fact]
     public async Task ApplianceUpgradeAddsLayoutAllowlistAndPersistentCacheColumnsIdempotently()
     {
         var ct = TestContext.Current.CancellationToken;

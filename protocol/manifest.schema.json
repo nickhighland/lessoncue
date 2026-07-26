@@ -107,7 +107,13 @@
         "iconName": { "type": ["string", "null"] },
         "qrValue": { "type": ["string", "null"] },
         "tickerSpeed": { "type": "integer", "minimum": 10, "maximum": 300 },
-        "counterTargetAt": { "type": ["string", "null"], "format": "date-time" }
+        "counterTargetAt": { "type": ["string", "null"], "format": "date-time" },
+        "weatherProvider": { "enum": ["open-meteo", "nws", "custom", null] },
+        "weatherLocation": { "type": ["string", "null"] },
+        "weatherLatitude": { "type": ["number", "null"], "minimum": -90, "maximum": 90 },
+        "weatherLongitude": { "type": ["number", "null"], "minimum": -180, "maximum": 180 },
+        "weatherUnits": { "enum": ["fahrenheit", "celsius", null] },
+        "weatherFields": { "type": ["string", "null"] }
       }
     },
     "signageContentPlaylist": {

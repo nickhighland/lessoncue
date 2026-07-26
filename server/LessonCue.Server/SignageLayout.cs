@@ -10,6 +10,9 @@ public static class SignageLayout
     public static readonly string[] ZoneTypes = ["media", "stream", "text", "clock", "calendar", "weather", "menu", "rss", "data",
         "shape", "icon", "qr", "ticker", "counter", "webpage", "dashboard", "social", "traffic", "wifi", "customHtml", "slides"];
     public static readonly string[] Presets = ["single", "sidebar", "split", "header-grid", "dashboard"];
+    public static readonly string[] WeatherProviders = ["open-meteo", "nws", "custom"];
+    public static readonly string[] WeatherDisplayFields = ["icon", "conditions", "temperature", "feelsLike", "high", "low",
+        "precipitation", "humidity", "wind"];
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public static List<SignageZoneInput> ParseZones(string? json)
@@ -68,7 +71,16 @@ public static class SignageLayout
             IconName = Truncate(zone.IconName, 80),
             QrValue = Truncate(zone.QrValue, 2000),
             TickerSpeed = Math.Clamp(zone.TickerSpeed, 10, 300),
-            CredentialKey = Truncate(zone.CredentialKey, 120)
+            CredentialKey = Truncate(zone.CredentialKey, 120),
+            WeatherProvider = zone.Type == "weather"
+                ? WeatherProviders.Contains(zone.WeatherProvider) ? zone.WeatherProvider
+                    : string.IsNullOrWhiteSpace(zone.SourceUrl) ? "open-meteo" : "custom"
+                : null,
+            WeatherLocation = type == "weather" ? Truncate(zone.WeatherLocation, 160) : null,
+            WeatherLatitude = type == "weather" && zone.WeatherLatitude is { } latitude ? Math.Clamp(latitude, -90, 90) : null,
+            WeatherLongitude = type == "weather" && zone.WeatherLongitude is { } longitude ? Math.Clamp(longitude, -180, 180) : null,
+            WeatherUnits = type == "weather" ? zone.WeatherUnits == "celsius" ? "celsius" : "fahrenheit" : null,
+            WeatherFields = type == "weather" ? NormalizeWeatherFields(zone.WeatherFields) : null
         };
     }
 
@@ -87,9 +99,22 @@ public static class SignageLayout
             if (raw.Type == "media" && raw.MediaAssetId is null) return "Every media zone must select an image or video.";
             if (raw.Type == "stream" && !TryStreamUrl(raw.SourceUrl, out _))
                 return "Live stream zones require an HTTP, HTTPS, RTMP, RTMPS, or RTSP address without embedded credentials.";
+            if (raw.Type == "weather")
+            {
+                var provider = WeatherProviders.Contains(raw.WeatherProvider) ? raw.WeatherProvider
+                    : string.IsNullOrWhiteSpace(raw.SourceUrl) ? "open-meteo" : "custom";
+                if (provider is "open-meteo" or "nws" &&
+                    (raw.WeatherLatitude is null or < -90 or > 90 || raw.WeatherLongitude is null or < -180 or > 180))
+                    return "Open-Meteo and National Weather Service weather elements require a valid latitude and longitude.";
+                if (provider == "nws" && (raw.WeatherLatitude is < 18 or > 72 || raw.WeatherLongitude is < -180 or > -60))
+                    return "National Weather Service forecasts are available only for United States locations. Use Open-Meteo elsewhere.";
+                if (provider == "custom" && string.IsNullOrWhiteSpace(raw.SourceUrl))
+                    return "A custom weather provider requires an approved source URL.";
+            }
             if (!string.IsNullOrWhiteSpace(raw.SourceUrl))
             {
                 if (raw.Type == "stream") continue;
+                if (raw.Type == "weather" && Normalize(raw).WeatherProvider is "open-meteo" or "nws") continue;
                 if (raw.Type is not ("calendar" or "weather" or "menu" or "rss" or "data" or "webpage" or "dashboard" or "social" or "traffic" or "slides" or "customHtml"))
                     return "That signage element cannot use an online source.";
                 if (!TryOrigin(raw.SourceUrl, out var origin)) return "Widget sources must be absolute HTTP or HTTPS addresses without embedded credentials.";
@@ -147,4 +172,12 @@ public static class SignageLayout
 
     private static string Color(string? value, string fallback) =>
         value is { Length: 7 } && value[0] == '#' && value[1..].All(Uri.IsHexDigit) ? value : fallback;
+
+    private static string NormalizeWeatherFields(string? value)
+    {
+        var selected = (value ?? "icon,conditions,temperature,high,low,precipitation").Split(',',
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(WeatherDisplayFields.Contains).Distinct(StringComparer.Ordinal).ToArray();
+        return string.Join(',', selected.Length == 0 ? ["temperature"] : selected);
+    }
 }
