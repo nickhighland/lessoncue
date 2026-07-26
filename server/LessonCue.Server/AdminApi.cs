@@ -46,7 +46,7 @@ public static class AdminApi
         auth.MapPost("/setup", async (AdminSetupInput input, HttpContext context, LessonCueDb db,
             IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
         {
-            if (await db.AdminAccounts.AnyAsync(ct)) return Results.Conflict(new { error = "Administrator setup is already complete." });
+            if (await db.AdminAccounts.AnyAsync(ct)) return Results.Conflict(new { error = "Service Admin setup is already complete." });
             var validation = ValidateCredentials(input.Username, input.Password);
             if (validation is not null) return Results.BadRequest(new { error = validation });
             var setupEmail = NullIfBlank(input.Email)?.ToLowerInvariant();
@@ -56,7 +56,7 @@ public static class AdminApi
             var account = new AdminAccount { Username = input.Username.Trim().ToLowerInvariant(), PasswordHash = "pending",
                 DisplayName = string.IsNullOrWhiteSpace(input.DisplayName) ? "Administrator" : input.DisplayName.Trim(),
                 Email = setupEmail, EmailVerified = true, EmailVerifiedAt = setupEmail is null ? null : DateTimeOffset.UtcNow,
-                Role = "Owner" };
+                Role = "Service Admin" };
             account.PasswordHash = hasher.HashPassword(account, input.Password);
             db.AdminAccounts.Add(account);
             var organization = await db.Organizations.FirstAsync(ct);
@@ -407,7 +407,7 @@ public static class AdminApi
         var uploads = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Uploads);
         var playback = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Playback);
         var screens = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Screens);
-        var settings = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Settings);
+        var appSettings = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.AppSettings);
 
         admin.MapGet("/admin/bootstrap", async (LessonCueDb db, PairingCodeService pairing, StorageService storage,
             UpdateService updates, LocalAddressService localAddress, HttpPortService httpPort,
@@ -418,31 +418,58 @@ public static class AdminApi
             var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
             var storageStatus = await storage.GetSnapshotAsync(organization.StorageLimitBytes, ct);
             var canPair = LessonCuePermissions.Has(context.User, LessonCuePermissions.Screens) ||
+                LessonCuePermissions.Has(context.User, LessonCuePermissions.AppSettings) ||
                 LessonCuePermissions.Has(context.User, LessonCuePermissions.Settings);
+            var canManageService = LessonCuePermissions.Has(context.User, LessonCuePermissions.Settings);
             return Results.Ok(new
             {
                 serverId,
                 serverName,
                 organization = organization.Name,
-                settings = organization,
+                settings = new
+                {
+                    organization.Id, organization.Name, organization.TimeZone, organization.SiteName,
+                    organization.WeekStartsOn, organization.DefaultLessonDurationMinutes,
+                    organization.DefaultRetentionDays,
+                    StorageLimitBytes = canManageService ? organization.StorageLimitBytes : 0,
+                    organization.PrimaryColor, organization.AccentColor, organization.NavigationTextColor,
+                    organization.SelectedTabColor, organization.WelcomeMessage,
+                    AdaptiveTranscodingEnabled = canManageService && organization.AdaptiveTranscodingEnabled,
+                    TranscodeLeadDays = canManageService ? organization.TranscodeLeadDays : 0,
+                    HardwareAccelerationEnabled = canManageService && organization.HardwareAccelerationEnabled,
+                    organization.MediaFoldersJson,
+                    organization.MediaTagsJson, organization.SignageSourceAllowlistJson,
+                    organization.RequireLocalRoomControllers, organization.RegistrationMode,
+                    PublicBaseUrl = canManageService ? organization.PublicBaseUrl : "",
+                    EmailFromAddress = canManageService ? organization.EmailFromAddress : "",
+                    EmailFromName = canManageService ? organization.EmailFromName : "",
+                    EmailProvider = canManageService ? organization.EmailProvider : "none"
+                },
                 organization.TimeZone,
                 pairingPin = canPair ? pairing.Current : null,
                 pairingExpiresAt = canPair ? (DateTimeOffset?)pairing.ExpiresAt : null,
                 pairingFixed = canPair && pairing.FixedPin is not null,
                 controllerPinConfigured = organization.ControllerPinHash is not null,
-                storage = storageStatus,
+                storage = canManageService ? storageStatus : storageStatus with
+                {
+                    DiskAvailableBytes = 0,
+                    MaximumAllocationBytes = 0
+                },
                 mediaTaxonomy = MediaTaxonomy.Read(organization),
                 update = updates.Status,
                 localAddress = localAddress.Status,
                 httpPort = httpPort.Status,
-                cloudflareTunnel = cloudflareTunnel.Status,
-                hardwareAcceleration = hardwareAcceleration.Status,
+                cloudflareTunnel = canManageService ? cloudflareTunnel.Status : new CloudflareTunnelStatus(
+                    false, null, null, "", false, false, false, false, false, 0,
+                    null, null, null, null, null),
+                hardwareAcceleration = canManageService ? hardwareAcceleration.Status : new HardwareAccelerationStatus(
+                    false, false, "", "", null, null, null, null, null),
                 accountEmail = emailStatus(organization),
                 permissionDefinitions = LessonCuePermissions.All,
                 permissionPresets = new
                 {
-                    owner = LessonCuePermissions.Defaults("Owner"),
-                    administrator = LessonCuePermissions.Defaults("Administrator"),
+                    serviceAdmin = LessonCuePermissions.Defaults("Service Admin"),
+                    appAdmin = LessonCuePermissions.Defaults("App Admin"),
                     editor = LessonCuePermissions.Defaults("Editor"),
                     viewer = LessonCuePermissions.Defaults("Viewer")
                 },
@@ -458,7 +485,11 @@ public static class AdminApi
             {
                 var accountEmail = context.RequestServices.GetRequiredService<AccountEmailService>();
                 var status = accountEmail.Status(value.EmailProvider);
-                return new { status.Configured, status.Provider };
+                return new
+                {
+                    status.Configured,
+                    Provider = canManageService ? status.Provider : "none"
+                };
             }
         });
 
@@ -2233,7 +2264,7 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        settings.MapGet("/audit", async (LessonCueDb db, CancellationToken ct) =>
+        appSettings.MapGet("/audit", async (LessonCueDb db, CancellationToken ct) =>
             (await db.AuditEvents.AsNoTracking().OrderByDescending(x => x.Id).Take(250).ToListAsync(ct)).OrderByDescending(x => x.Timestamp));
 
         MapOperations(admin, dataPath);
@@ -2245,6 +2276,7 @@ public static class AdminApi
         var playback = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Playback);
         var userAdmin = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Users);
         var settings = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Settings);
+        var appSettings = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.AppSettings);
         var backupsAdmin = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Backups);
         var updatesAdmin = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Updates);
 
@@ -2264,6 +2296,32 @@ public static class AdminApi
                 organization.EmailFromName,
                 emailConfigured = email.Status(organization.EmailProvider).Configured
             });
+        });
+
+        appSettings.MapGet("/registration/mode", async (LessonCueDb db, AccountEmailService email,
+            CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            return Results.Ok(new
+            {
+                mode = organization.RegistrationMode,
+                emailConfigured = email.Status(organization.EmailProvider).Configured
+            });
+        });
+
+        appSettings.MapPut("/registration/mode", async (RegistrationModeInput input, LessonCueDb db,
+            AccountEmailService email, CancellationToken ct) =>
+        {
+            var mode = input.Mode.Trim().ToLowerInvariant();
+            if (mode is not ("closed" or "open" or "code" or "approval"))
+                return Results.BadRequest(new { error = "Registration mode must be closed, approval, open, or code." });
+            var organization = await db.Organizations.FirstAsync(ct);
+            if (mode != "closed" && !email.Status(organization.EmailProvider).Configured)
+                return Results.BadRequest(new { error = "A Service Admin must configure account email before self-service registration can be enabled." });
+            organization.RegistrationMode = mode;
+            Audit(db, "registration.mode.update", organization.Id, mode);
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { mode, emailConfigured = email.Status(organization.EmailProvider).Configured });
         });
 
         settings.MapPut("/registration/settings", async (RegistrationSettingsInput input, LessonCueDb db,
@@ -2335,7 +2393,7 @@ public static class AdminApi
             }
         });
 
-        settings.MapGet("/registration/codes", async (LessonCueDb db, CancellationToken ct) =>
+        appSettings.MapGet("/registration/codes", async (LessonCueDb db, CancellationToken ct) =>
         {
             var now = DateTimeOffset.UtcNow;
             var codes = await db.RegistrationCodes.AsNoTracking().ToListAsync(ct);
@@ -2347,7 +2405,7 @@ public static class AdminApi
             }));
         });
 
-        settings.MapPost("/registration/codes", async (RegistrationCodeInput input, LessonCueDb db,
+        appSettings.MapPost("/registration/codes", async (RegistrationCodeInput input, LessonCueDb db,
             CancellationToken ct) =>
         {
             if (input.Label.Trim().Length > 120) return Results.BadRequest(new { error = "Label cannot exceed 120 characters." });
@@ -2366,7 +2424,7 @@ public static class AdminApi
             return Results.Created($"/api/v1/registration/codes/{code.Id}", new { code.Id, code = raw, code.Hint });
         });
 
-        settings.MapPut("/registration/codes/{id:guid}", async (Guid id, RegistrationCodeInput input,
+        appSettings.MapPut("/registration/codes/{id:guid}", async (Guid id, RegistrationCodeInput input,
             LessonCueDb db, CancellationToken ct) =>
         {
             var code = await db.RegistrationCodes.FindAsync([id], ct);
@@ -2382,7 +2440,7 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        settings.MapPost("/registration/codes/{id:guid}/rotate", async (Guid id, LessonCueDb db,
+        appSettings.MapPost("/registration/codes/{id:guid}/rotate", async (Guid id, LessonCueDb db,
             CancellationToken ct) =>
         {
             var existing = await db.RegistrationCodes.FindAsync([id], ct);
@@ -2400,7 +2458,7 @@ public static class AdminApi
             return Results.Ok(new { replacement.Id, code = raw, replacement.Hint });
         });
 
-        settings.MapDelete("/registration/codes/{id:guid}", async (Guid id, LessonCueDb db,
+        appSettings.MapDelete("/registration/codes/{id:guid}", async (Guid id, LessonCueDb db,
             CancellationToken ct) =>
         {
             var code = await db.RegistrationCodes.FindAsync([id], ct);
@@ -2449,7 +2507,7 @@ public static class AdminApi
         settings.MapPost("/hardware-acceleration/check", async (HardwareAccelerationService hardware,
             CancellationToken ct) => Results.Ok(await hardware.RefreshAsync(ct)));
 
-        settings.MapPut("/media-taxonomy", async (MediaTaxonomyInput input, LessonCueDb db,
+        appSettings.MapPut("/media-taxonomy", async (MediaTaxonomyInput input, LessonCueDb db,
             HttpContext context, CancellationToken ct) =>
         {
             if (!MediaTaxonomy.TryCreate(input.Folders, input.Tags, out var taxonomy, out var error))
@@ -2484,7 +2542,7 @@ public static class AdminApi
             return Results.Ok(taxonomy);
         });
 
-        settings.MapPut("/controller-pin", async (ControllerPinInput input, LessonCueDb db,
+        appSettings.MapPut("/controller-pin", async (ControllerPinInput input, LessonCueDb db,
             IPasswordHasher<Organization> hasher, ControllerSessionService controllerSessions, CancellationToken ct) =>
         {
             if (input.Pin.Length != 6 || input.Pin.Any(character => !char.IsAsciiDigit(character)))
@@ -2497,7 +2555,7 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        settings.MapGet("/recycle-bin", async (LessonCueDb db, CancellationToken ct) =>
+        appSettings.MapGet("/recycle-bin", async (LessonCueDb db, CancellationToken ct) =>
         {
             var classes = await db.Classes.IgnoreQueryFilters().AsNoTracking().Where(x => x.DeletedAt != null)
                 .Select(x => new { kind = "class", x.Id, title = x.Name, detail = x.Description, x.DeletedAt, x.DeletedBy }).ToListAsync(ct);
@@ -2514,7 +2572,7 @@ public static class AdminApi
             return Results.Ok(results);
         });
 
-        settings.MapPost("/recycle-bin/{kind}/{id:guid}/restore", async (string kind, Guid id, LessonCueDb db,
+        appSettings.MapPost("/recycle-bin/{kind}/{id:guid}/restore", async (string kind, Guid id, LessonCueDb db,
             HttpContext context, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var actor = context.User.Identity?.Name ?? "admin";
@@ -2547,7 +2605,7 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        settings.MapDelete("/recycle-bin", async (LessonCueDb db, MediaStoragePaths paths, HttpContext context,
+        appSettings.MapDelete("/recycle-bin", async (LessonCueDb db, MediaStoragePaths paths, HttpContext context,
             IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var purged = await RecycleBinService.PurgeAsync(db, paths, DateTimeOffset.MaxValue, context.User.Identity?.Name ?? "admin", ct);
@@ -2659,7 +2717,7 @@ public static class AdminApi
                 x.Id, x.Username, x.DisplayName, x.Email, x.EmailVerified, x.Role, x.Disabled, x.CreatedAt, x.LastLoginAt,
                 x.PendingApproval, x.PendingSetup, x.MustChangePassword,
                 permissions = LessonCuePermissions.Effective(x),
-                customPermissions = x.PermissionsCsv is null ? null : LessonCuePermissions.Parse(x.PermissionsCsv)
+                customPermissions = x.PermissionsCsv is null ? null : LessonCuePermissions.Effective(x)
             }));
         });
 
@@ -2676,12 +2734,12 @@ public static class AdminApi
             if (address is not null && await db.AdminAccounts.AnyAsync(x => x.Email == address, ct))
                 return Results.Conflict(new { error = "That email address is already registered." });
             var role = NormalizeAdminRole(input.Role);
-            if (role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
+            if (LessonCuePermissions.IsServiceAdmin(role) && !IsServiceAdmin(context.User)) return Results.Forbid();
             var account = new AdminAccount { Username = username, DisplayName = input.DisplayName.Trim(), Email = address,
                 EmailVerified = true, EmailVerifiedAt = address is null ? null : DateTimeOffset.UtcNow,
                 Role = role, PermissionsCsv = LessonCuePermissions.NormalizeCustom(input.Permissions, role),
                 Disabled = input.Disabled, PasswordHash = "pending", MustChangePassword = true };
-            if (!context.User.IsInRole("Owner") && LessonCuePermissions.Effective(account)
+            if (!IsServiceAdmin(context.User) && LessonCuePermissions.Effective(account)
                 .Except(LessonCuePermissions.Effective(context.User)).Any()) return Results.Forbid();
             account.PasswordHash = hasher.HashPassword(account, input.Password!);
             db.AdminAccounts.Add(account); Audit(db, "user.create", account.Id, account.Username); await db.SaveChangesAsync(ct);
@@ -2700,7 +2758,7 @@ public static class AdminApi
             if (!email.Status(organization.EmailProvider).Configured)
                 return Results.Conflict(new { error = "Configure account email before sending invitations." });
             var role = NormalizeAdminRole(input.Role);
-            if (role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
+            if (LessonCuePermissions.IsServiceAdmin(role) && !IsServiceAdmin(context.User)) return Results.Forbid();
             var account = new AdminAccount
             {
                 Username = $"invite-{Guid.NewGuid():N}", DisplayName = string.IsNullOrWhiteSpace(input.DisplayName)
@@ -2710,7 +2768,7 @@ public static class AdminApi
             };
             if (account.DisplayName.Length > 120)
                 return Results.BadRequest(new { error = "Name cannot exceed 120 characters." });
-            if (!context.User.IsInRole("Owner") && LessonCuePermissions.Effective(account)
+            if (!IsServiceAdmin(context.User) && LessonCuePermissions.Effective(account)
                 .Except(LessonCuePermissions.Effective(context.User)).Any()) return Results.Forbid();
             account.PasswordHash = hasher.HashPassword(account,
                 Convert.ToHexString(RandomNumberGenerator.GetBytes(48)));
@@ -2748,7 +2806,7 @@ public static class AdminApi
             if (account is null) return Results.NotFound();
             if (!account.PendingSetup || string.IsNullOrWhiteSpace(account.Email))
                 return Results.Conflict(new { error = "This account is not waiting for setup." });
-            if (account.Role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
+            if (LessonCuePermissions.IsServiceAdmin(account.Role) && !IsServiceAdmin(context.User)) return Results.Forbid();
             var organization = await db.Organizations.FirstAsync(ct);
             if (!email.Status(organization.EmailProvider).Configured)
                 return Results.Conflict(new { error = "Configure account email before resending invitations." });
@@ -2776,7 +2834,7 @@ public static class AdminApi
             if (account is null) return Results.NotFound();
             if (!account.PendingApproval)
                 return Results.Conflict(new { error = "This account is not waiting for approval." });
-            if (account.Role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
+            if (LessonCuePermissions.IsServiceAdmin(account.Role) && !IsServiceAdmin(context.User)) return Results.Forbid();
             account.PendingApproval = false;
             account.SessionVersion++;
             Audit(db, "user.approve", account.Id, account.Username);
@@ -2819,7 +2877,7 @@ public static class AdminApi
                 ? currentId : Guid.Empty;
             if (account.Id == currentAccountId)
                 return Results.BadRequest(new { error = "Change your own password from your profile." });
-            if (account.Role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
+            if (LessonCuePermissions.IsServiceAdmin(account.Role) && !IsServiceAdmin(context.User)) return Results.Forbid();
             if (account.PendingSetup)
                 return Results.Conflict(new { error = "This invited user must complete account setup first." });
             var validation = ValidateCredentials(account.Username, input.Password);
@@ -2837,7 +2895,7 @@ public static class AdminApi
             IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
         {
             var account = await db.AdminAccounts.FindAsync([id], ct); if (account is null) return Results.NotFound();
-            if (account.Role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
+            if (LessonCuePermissions.IsServiceAdmin(account.Role) && !IsServiceAdmin(context.User)) return Results.Forbid();
             var currentAccountId = Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentId) ? currentId : Guid.Empty;
             if (account.Id == currentAccountId && input.Disabled)
                 return Results.BadRequest(new { error = "You cannot pause your own account." });
@@ -2852,9 +2910,10 @@ public static class AdminApi
             if (address is not null && await db.AdminAccounts.AnyAsync(x => x.Email == address && x.Id != id, ct))
                 return Results.Conflict(new { error = "That email address is already registered." });
             var role = NormalizeAdminRole(input.Role);
-            if (role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
-            if (account.Role == "Owner" && (role != "Owner" || input.Disabled) && await db.AdminAccounts.CountAsync(x => x.Role == "Owner" && !x.Disabled, ct) <= 1)
-                return Results.BadRequest(new { error = "At least one active owner is required." });
+            if (LessonCuePermissions.IsServiceAdmin(role) && !IsServiceAdmin(context.User)) return Results.Forbid();
+            if (LessonCuePermissions.IsServiceAdmin(account.Role) && (!LessonCuePermissions.IsServiceAdmin(role) || input.Disabled) &&
+                await db.AdminAccounts.CountAsync(x => (x.Role == "Service Admin" || x.Role == "Owner") && !x.Disabled, ct) <= 1)
+                return Results.BadRequest(new { error = "At least one active Service Admin is required." });
             var permissionsCsv = LessonCuePermissions.NormalizeCustom(input.Permissions, role);
             if (account.Id == currentAccountId && (account.Role != role || account.PermissionsCsv != permissionsCsv))
                 return Results.BadRequest(new { error = "Another user administrator must change your role or permissions." });
@@ -2862,7 +2921,7 @@ public static class AdminApi
             {
                 Username = account.Username, PasswordHash = account.PasswordHash, Role = role, PermissionsCsv = permissionsCsv
             };
-            if (!context.User.IsInRole("Owner") && LessonCuePermissions.Effective(requestedAccess)
+            if (!IsServiceAdmin(context.User) && LessonCuePermissions.Effective(requestedAccess)
                 .Except(LessonCuePermissions.Effective(context.User)).Any()) return Results.Forbid();
             var identityChanged = account.Username != username || account.DisplayName != input.DisplayName.Trim() ||
                 account.Email != address || account.Role != role || account.PermissionsCsv != permissionsCsv ||
@@ -2895,9 +2954,10 @@ public static class AdminApi
             var currentAccountId = Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentId) ? currentId : Guid.Empty;
             if (id == currentAccountId) return Results.BadRequest(new { error = "You cannot delete your own account." });
             var account = await db.AdminAccounts.FindAsync([id], ct); if (account is null) return Results.NotFound();
-            if (account.Role == "Owner" && !context.User.IsInRole("Owner")) return Results.Forbid();
-            if (account.Role == "Owner" && !account.Disabled && await db.AdminAccounts.CountAsync(x => x.Role == "Owner" && !x.Disabled, ct) <= 1)
-                return Results.BadRequest(new { error = "At least one active owner is required." });
+            if (LessonCuePermissions.IsServiceAdmin(account.Role) && !IsServiceAdmin(context.User)) return Results.Forbid();
+            if (LessonCuePermissions.IsServiceAdmin(account.Role) && !account.Disabled &&
+                await db.AdminAccounts.CountAsync(x => (x.Role == "Service Admin" || x.Role == "Owner") && !x.Disabled, ct) <= 1)
+                return Results.BadRequest(new { error = "At least one active Service Admin is required." });
             db.AdminAccounts.Remove(account);
             Audit(db, "user.delete", account.Id, account.Username);
             await db.SaveChangesAsync(ct);
@@ -3046,13 +3106,13 @@ public static class AdminApi
             catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
         });
 
-        settings.MapGet("/pairing/status", (PairingCodeService pairing) => Results.Ok(new
+        appSettings.MapGet("/pairing/status", (PairingCodeService pairing) => Results.Ok(new
         {
             pin = pairing.Current,
             expiresAt = pairing.ExpiresAt,
             fixedPin = pairing.FixedPin is not null
         }));
-        settings.MapPut("/pairing/pin", async (PairingPinInput input, PairingCodeService pairing, LessonCueDb db,
+        appSettings.MapPut("/pairing/pin", async (PairingPinInput input, PairingCodeService pairing, LessonCueDb db,
             CancellationToken ct) =>
         {
             try { pairing.SetFixedPin(input.Automatic ? null : input.Pin); }
@@ -3063,7 +3123,15 @@ public static class AdminApi
         });
     }
 
-    private static string NormalizeAdminRole(string role) => role is "Owner" or "Administrator" or "Editor" or "Viewer" ? role : "Viewer";
+    private static string NormalizeAdminRole(string role) => role switch
+    {
+        "Service Admin" or "Owner" => "Service Admin",
+        "App Admin" or "Administrator" => "App Admin",
+        "Editor" => "Editor",
+        _ => "Viewer"
+    };
+    private static bool IsServiceAdmin(ClaimsPrincipal user) =>
+        LessonCuePermissions.IsServiceAdmin(user.FindFirstValue(ClaimTypes.Role));
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static bool IsColor(string? value) => value is { Length: 7 } && value[0] == '#' && value[1..].All(Uri.IsHexDigit);
 

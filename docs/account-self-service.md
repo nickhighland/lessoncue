@@ -4,9 +4,9 @@ LessonCue remains self-hosted. Accounts, password hashes, verification records, 
 
 ## Local-only accounts
 
-No email provider is required for the initial owner or for accounts created under **Users → Create with password**. Administrator-created email addresses are trusted as verified. The password entered by the administrator is temporary: it signs out older sessions and the user must replace it immediately after the next sign-in. Until that replacement is complete, the account cannot use any other authenticated LessonCue API.
+No email provider is required for the initial Service Admin or for accounts created under **Users → Create with password**. Administrator-created email addresses are trusted as verified. The password entered by the administrator is temporary: it signs out older sessions and the user must replace it immediately after the next sign-in. Until that replacement is complete, the account cannot use any other authenticated LessonCue API.
 
-Owners and user administrators can create, edit, pause, reactivate, approve, reset, and delete accounts from **Users**. **Reset password** sets a temporary password without revealing or recovering the old one. Final-owner and privilege-escalation safeguards still apply.
+Service Admins and user administrators can create, edit, pause, reactivate, approve, reset, and delete accounts from **Users**. **Reset password** sets a temporary password without revealing or recovering the old one. Final-Service-Admin and privilege-escalation safeguards still apply.
 
 When account email is configured, **Users → Send setup link** is the preferred onboarding path. The administrator enters the email address and selects the role and exact permissions. LessonCue reserves the account and emails a three-day, single-use link. The recipient chooses their own display name, username, and password. If delivery fails or the link expires, use **Resend setup**; changing the pending email address invalidates the earlier link.
 
@@ -16,7 +16,7 @@ If browser recovery is unavailable, use the [SSH administrator password-reset pr
 
 ## Configure account email
 
-Sign in with **Server settings** permission and open **Settings → Organization & accounts → Registration & email**.
+Sign in as a Service Admin and open **Settings → Organization & accounts → Registration & email**. App Admins can select the registration mode and manage registration codes, but only a Service Admin can configure or test the account-email provider and sender.
 
 1. Choose **Resend** or **Brevo**.
 2. Enter a sender name and a sender address that the provider permits.

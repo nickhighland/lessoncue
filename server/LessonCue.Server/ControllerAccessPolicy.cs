@@ -6,7 +6,8 @@ namespace LessonCue.Server;
 public static class ControllerAccessPolicy
 {
     public static bool IsAdministrator(ClaimsPrincipal user) =>
-        user.IsInRole("Owner") || user.IsInRole("Administrator");
+        LessonCuePermissions.IsServiceAdmin(user.FindFirstValue(ClaimTypes.Role)) ||
+        user.IsInRole("App Admin") || user.IsInRole("Administrator");
 
     public static bool IsLocalHostname(string? hostname)
     {

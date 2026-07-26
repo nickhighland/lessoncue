@@ -39,7 +39,7 @@ public sealed class AdminAccount
     [MaxLength(80)] public required string Username { get; set; }
     [MaxLength(120)] public string DisplayName { get; set; } = "Administrator";
     [MaxLength(200)] public string? Email { get; set; }
-    [MaxLength(32)] public string Role { get; set; } = "Owner";
+    [MaxLength(32)] public string Role { get; set; } = "Service Admin";
     [MaxLength(512)] public string? PermissionsCsv { get; set; }
     public bool Disabled { get; set; }
     public required string PasswordHash { get; set; }
@@ -615,6 +615,7 @@ public sealed record ProfileUpdateInput(string DisplayName, string Username, str
     string? NewPassword);
 public sealed record RegistrationSettingsInput(string Mode, string PublicBaseUrl, string EmailProvider,
     string EmailFromAddress, string EmailFromName, string? ApiKey);
+public sealed record RegistrationModeInput(string Mode);
 public sealed record TestAccountEmailInput(string Recipient);
 public sealed record RegistrationCodeInput(string Label, DateTimeOffset? ExpiresAt, int? MaxUses);
 public sealed record LessonUpdateInput(string? Title, DateOnly? Date, DateTimeOffset? AvailableFrom,

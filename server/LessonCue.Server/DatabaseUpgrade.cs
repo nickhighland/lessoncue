@@ -25,7 +25,7 @@ public static class DatabaseUpgrade
                 "LastLoginAt" TEXT NULL,
                 "DisplayName" TEXT NOT NULL DEFAULT 'Administrator',
                 "Email" TEXT NULL,
-                "Role" TEXT NOT NULL DEFAULT 'Owner',
+                "Role" TEXT NOT NULL DEFAULT 'Service Admin',
                 "Disabled" INTEGER NOT NULL DEFAULT 0,
                 "SessionVersion" INTEGER NOT NULL DEFAULT 1
             );
@@ -318,7 +318,7 @@ public static class DatabaseUpgrade
             ["Classes.DeletedBy"] = ("Classes", "ALTER TABLE \"Classes\" ADD COLUMN \"DeletedBy\" TEXT NULL"),
             ["AdminAccounts.DisplayName"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"DisplayName\" TEXT NOT NULL DEFAULT 'Administrator'"),
             ["AdminAccounts.Email"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"Email\" TEXT NULL"),
-            ["AdminAccounts.Role"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"Role\" TEXT NOT NULL DEFAULT 'Owner'"),
+            ["AdminAccounts.Role"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"Role\" TEXT NOT NULL DEFAULT 'Service Admin'"),
             ["AdminAccounts.PermissionsCsv"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"PermissionsCsv\" TEXT NULL"),
             ["AdminAccounts.Disabled"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"Disabled\" INTEGER NOT NULL DEFAULT 0"),
             ["AdminAccounts.SessionVersion"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"SessionVersion\" INTEGER NOT NULL DEFAULT 1"),
@@ -487,6 +487,29 @@ public static class DatabaseUpgrade
             if (!await ColumnExistsAsync(connection, addition.Table, column, cancellationToken))
                 await ExecuteAsync(connection, addition.Sql, cancellationToken);
         }
+
+        // v0.37 introduces explicit service/app administrator tiers. Invalidate
+        // existing cookies so the renamed role and its new permission ceiling
+        // take effect immediately after the upgrade.
+        await ExecuteAsync(connection,
+            """
+            UPDATE "AdminAccounts"
+               SET "PermissionsCsv" = CASE
+                   WHEN "PermissionsCsv" = '' THEN 'app-settings.manage'
+                   ELSE "PermissionsCsv" || ',app-settings.manage'
+               END
+             WHERE "Role" = 'Administrator'
+               AND "PermissionsCsv" IS NOT NULL
+               AND instr(',' || "PermissionsCsv" || ',', ',settings.manage,') > 0
+               AND instr(',' || "PermissionsCsv" || ',', ',app-settings.manage,') = 0;
+            UPDATE "AdminAccounts"
+               SET "Role" = 'Service Admin', "SessionVersion" = "SessionVersion" + 1
+             WHERE "Role" = 'Owner';
+            UPDATE "AdminAccounts"
+               SET "Role" = 'App Admin', "SessionVersion" = "SessionVersion" + 1
+             WHERE "Role" = 'Administrator';
+            """,
+            cancellationToken);
 
         await ExecuteAsync(connection,
             "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_Lessons_GeneratedByScheduleId_Date\" ON \"Lessons\" (\"GeneratedByScheduleId\", \"Date\");",
