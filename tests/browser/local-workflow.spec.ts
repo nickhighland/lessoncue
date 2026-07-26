@@ -788,7 +788,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.35.0" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.36.0" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
