@@ -1,7 +1,7 @@
 import { CSSProperties, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 
-const APP_VERSION = "0.36.2";
+const APP_VERSION = "0.37.0";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -55,6 +55,7 @@ type Playlist = {
   preRoll?: { enabled: boolean; loop: boolean; items: CueItem[] };
   items: CueItem[];
 };
+type SignageContentPlaylist = { id: string; name: string; playbackMode: string; synchronization: string; version: number; items: SignagePlaylistEntry[] };
 type Signage = {
   id: string;
   version?: number;
@@ -71,14 +72,26 @@ type Signage = {
   zones?: SignageZone[];
   widgetCacheUpdatedAt?: string;
   widgetCacheError?: string;
-  contentPlaylist?: { id: string; name: string; playbackMode: string; synchronization: string; version: number; items: SignagePlaylistEntry[] };
+  contentPlaylist?: SignageContentPlaylist;
   kiosk?: { enabled: boolean; interactionUrl?: string; timeoutSeconds: number; showCloseButton: boolean; showTouchIndicator: boolean; virtualKeyboard: boolean };
   volumePercent?: number;
   displayPower?: string;
   backgroundAudio?: CueItem;
 };
 type SignageWidgetCache = { zoneId: string; title: string; text: string; items: string[]; refreshedAt: string; source?: string };
-type SignageZone = { id: string; type: string; title?: string; content?: string; sourceUrl?: string; streamUrl?: string; x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string; refreshMinutes: number; rotation?: number; zIndex?: number; opacity?: number; fit?: "cover" | "contain" | "fill"; locked?: boolean; hidden?: boolean; flipX?: boolean; flipY?: boolean; media?: CueItem; cached?: SignageWidgetCache; fontFamily?: string; fontSize?: number; fontWeight?: number; italic?: boolean; underline?: boolean; lineHeightPercent?: number; textAlign?: CSSProperties["textAlign"]; shape?: string; strokeColor?: string; strokeWidth?: number; cornerRadius?: number; iconName?: string; qrValue?: string; tickerSpeed?: number; counterTargetAt?: string; richTextJson?: string };
+type SignageZone = {
+  id: string; type: string; title?: string; content?: string; sourceUrl?: string; streamUrl?: string; htmlUrl?: string;
+  x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string; refreshMinutes: number;
+  rotation?: number; zIndex?: number; opacity?: number; fit?: "cover" | "contain" | "fill"; locked?: boolean; hidden?: boolean; flipX?: boolean; flipY?: boolean;
+  media?: CueItem; cached?: SignageWidgetCache; fontFamily?: string; fontSize?: number; fontWeight?: number; italic?: boolean; underline?: boolean;
+  lineHeightPercent?: number; textAlign?: CSSProperties["textAlign"]; strokeColor?: string; strokeWidth?: number; cornerRadius?: number;
+  qrValue?: string; qrLabelTop?: string; qrLabelBottom?: string; qrLabelLeft?: string; qrLabelRight?: string;
+  tickerSpeed?: number; counterTargetAt?: string; counterRepeatWeekly?: boolean; richTextJson?: string;
+  clockDisplay?: "time" | "date" | "both"; clockTimeFormat?: "12h" | "12h-seconds" | "24h" | "24h-seconds";
+  clockDateFormat?: "short" | "medium" | "long" | "numeric"; clockOrder?: "time-date" | "date-time" | "inline";
+  clockTimeFontSize?: number; clockDateFontSize?: number;
+  weatherPostalCode?: string; contentPlaylistId?: string; streamOverrideWhenLive?: boolean; contentPlaylist?: SignageContentPlaylist;
+};
 type SignagePlaylistEntry = { id: string; kind: string; title?: string; durationSeconds: number; transition?: string; hidden?: boolean; transparent?: boolean; sourceUrl?: string; appType?: string; media?: CueItem; layout?: { id: string; name: string; backgroundColor: string; canvasWidth: number; canvasHeight: number; safeAreaPercent: number; zones: SignageZone[]; backgroundAudio?: CueItem } };
 type Manifest = {
   manifestVersion: number;
@@ -714,13 +727,48 @@ function SignageLayout({ signage }: { signage: Signage }) {
         ? <video src={zone.media.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={zone.media.title} style={{ objectFit: zone.fit || "cover" }} />
         : <img src={zone.media.downloadUrl} alt={zone.title || ""} style={{ objectFit: zone.fit || "cover" }} />)}
       {zone.type === "stream" && zone.streamUrl && <SignageStream source={zone.streamUrl} title={zone.title || "Live stream"} fit={zone.fit || "cover"} />}
-      {(zone.type === "webpage" || zone.type === "dashboard" || zone.type === "slides" || zone.type === "customHtml") && zone.sourceUrl && <iframe src={zone.sourceUrl} title={zone.title || zone.type} />}
-      {zone.type === "shape" && <i className={`signage-shape ${zone.shape || "rectangle"}`} style={{ borderColor: zone.strokeColor, borderWidth: zone.strokeWidth }} />}
-      {zone.type === "icon" && <span className="signage-icon">{({star:"★",info:"ⓘ",warning:"⚠",arrow:"➜",check:"✓"} as Record<string,string>)[zone.iconName || ""] || "★"}</span>}
-      {(zone.type === "qr" || zone.type === "wifi") && <SignageQr value={zone.qrValue || zone.content || ""} />}
-      <div className={`web-player-zone-copy ${zone.type === "ticker" ? "ticker" : ""}`} style={zone.type === "ticker" ? { animationDuration: `${Math.max(5, 300 / Math.max(10, zone.tickerSpeed || 60))}s` } : undefined}>{zone.title && <small style={{ color: zone.accentColor }}>{zone.title}</small>}{zone.type === "clock" ? <SignageClock /> : zone.type === "counter" ? <SignageCounter target={zone.counterTargetAt} /> : zone.type === "text" && zone.richTextJson ? <SignageRichText value={zone.richTextJson} fallback={zone.content || ""} /> : !["shape","icon","qr","wifi","webpage","dashboard","slides","customHtml"].includes(zone.type) ? <><strong>{zone.cached?.text || zone.content}</strong>{zone.cached?.items?.length ? <ul>{zone.cached.items.map((item, index) => <li key={`${zone.id}-${index}`}>{item}</li>)}</ul> : null}</> : null}</div>
+      {zone.type === "presentation" && <SignagePresentation zone={zone} signage={signage} />}
+      {zone.type === "webpage" && zone.sourceUrl && <iframe src={zone.sourceUrl} title={zone.title || "Web page"} sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts" />}
+      {zone.type === "customHtml" && (zone.htmlUrl
+        ? <iframe src={zone.htmlUrl} title={zone.title || "Custom HTML"} sandbox="allow-forms allow-modals allow-popups allow-presentation allow-scripts" />
+        : zone.content && <iframe srcDoc={zone.content} title={zone.title || "Custom HTML"} sandbox="allow-forms allow-modals allow-popups allow-presentation allow-scripts" />)}
+      {(zone.type === "qr" || zone.type === "wifi") && <SignageQr zone={zone} />}
+      <div className={`web-player-zone-copy ${zone.type === "ticker" ? "ticker" : ""}`} style={zone.type === "ticker" ? { animationDuration: `${Math.max(5, 300 / Math.max(10, zone.tickerSpeed || 60))}s` } : undefined}>
+        {zone.title && !["qr","wifi","webpage","customHtml","presentation"].includes(zone.type) && <small style={{ color: zone.accentColor }}>{zone.title}</small>}
+        {zone.type === "clock" ? <SignageClock zone={zone} />
+          : zone.type === "counter" ? <SignageCounter zone={zone} />
+          : zone.type === "text" && zone.richTextJson ? <SignageRichText value={zone.richTextJson} fallback={zone.content || ""} />
+          : !["qr","wifi","webpage","customHtml","presentation","stream"].includes(zone.type) ? <><strong>{zone.cached?.text || zone.content}</strong>{zone.cached?.items?.length ? <ul>{zone.cached.items.map((item, index) => <li key={`${zone.id}-${index}`}>{item}</li>)}</ul> : null}</>
+          : null}
+      </div>
     </article>)}
   </section>;
+}
+
+function SignagePresentation({ zone, signage }: { zone: SignageZone; signage: Signage }) {
+  const items = zone.contentPlaylist?.items.filter(item => !item.hidden) || [];
+  const [index, setIndex] = useState(0);
+  const [streamLive, setStreamLive] = useState(false);
+  useEffect(() => { setIndex(0); }, [zone.contentPlaylist?.id, zone.contentPlaylist?.version]);
+  useEffect(() => {
+    if (!items.length || streamLive) return;
+    const current = items[index % items.length];
+    const timer = window.setTimeout(() => setIndex(value => value + 1), Math.max(1, current.durationSeconds || 10) * 1000);
+    return () => window.clearTimeout(timer);
+  }, [items, index, streamLive]);
+  const current = items.length ? items[index % items.length] : undefined;
+  let content: ReactNode = <div className="signage-presentation-empty">Select a published playlist</div>;
+  if (current?.layout) content = <SignageLayout signage={{ ...signage, name: current.layout.name, backgroundColor: current.layout.backgroundColor, zones: current.layout.zones, backgroundAudio: current.layout.backgroundAudio }} />;
+  else if (current?.media?.downloadUrl) content = current.media.type === "video" || current.media.contentType?.startsWith("video/")
+    ? <video src={current.media.downloadUrl} autoPlay muted loop playsInline preload="auto" style={{ objectFit: zone.fit || "contain" }} />
+    : <img src={current.media.downloadUrl} alt={current.title || ""} style={{ objectFit: zone.fit || "contain" }} />;
+  else if (current?.sourceUrl) content = <iframe src={current.sourceUrl} title={current.title || current.kind} sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts" />;
+  return <div className="signage-presentation">
+    <div className="signage-presentation-default" aria-hidden={streamLive}>{content}</div>
+    {zone.streamOverrideWhenLive && zone.streamUrl && <div className={`signage-presentation-stream ${streamLive ? "is-live" : ""}`}>
+      <SignageStream source={zone.streamUrl} title={zone.title || "Live stream"} fit={zone.fit || "cover"} onAvailabilityChange={setStreamLive} />
+    </div>}
+  </div>;
 }
 
 function SignageRichText({ value, fallback }: { value: string; fallback: string }) {
@@ -733,8 +781,15 @@ function SignageRichText({ value, fallback }: { value: string; fallback: string 
   return <strong>{runs.slice(0,50).map((run,index)=><span key={index} style={{fontWeight:run.bold?800:undefined,fontStyle:run.italic?"italic":undefined,textDecoration:run.underline?"underline":undefined,color:/^#[0-9a-f]{6}$/i.test(run.color||"")?run.color:undefined}}>{String(run.text||"")}</span>)}</strong>;
 }
 
-function SignageQr({ value }: { value: string }) {
-  return value ? <GeneratedSignageQr value={value} /> : null;
+function SignageQr({ zone }: { zone: SignageZone }) {
+  const value = zone.qrValue || zone.content || "";
+  return value ? <div className="signage-qr-layout">
+    <span className="signage-qr-label top">{zone.qrLabelTop}</span>
+    <span className="signage-qr-label left">{zone.qrLabelLeft}</span>
+    <GeneratedSignageQr value={value} />
+    <span className="signage-qr-label right">{zone.qrLabelRight}</span>
+    <span className="signage-qr-label bottom">{zone.qrLabelBottom}</span>
+  </div> : null;
 }
 
 function GeneratedSignageQr({ value }: { value: string }) {
@@ -743,28 +798,38 @@ function GeneratedSignageQr({ value }: { value: string }) {
   return source ? <img className="signage-qr" src={source} alt={`QR code for ${value}`} /> : null;
 }
 
-function SignageCounter({ target }: { target?: string }) {
+function SignageCounter({ zone }: { zone: SignageZone }) {
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
     const first = window.requestAnimationFrame(() => setNow(Date.now()));
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => { window.cancelAnimationFrame(first); window.clearInterval(timer); };
   }, []);
-  if (!target || now == null) return <strong>Countdown</strong>;
-  const seconds = Math.max(0, Math.floor((new Date(target).getTime() - now) / 1000));
+  if (!zone.counterTargetAt || now == null) return <strong>{zone.content || "Countdown"}</strong>;
+  const target = nextCounterTarget(zone.counterTargetAt, zone.counterRepeatWeekly, now);
+  const seconds = Math.max(0, Math.floor((target - now) / 1000));
   const days = Math.floor(seconds / 86400), hours = Math.floor(seconds % 86400 / 3600), minutes = Math.floor(seconds % 3600 / 60);
-  return <strong>{days > 0 ? `${days}d ` : ""}{String(hours).padStart(2,"0")}:{String(minutes).padStart(2,"0")}:{String(seconds % 60).padStart(2,"0")}</strong>;
+  const countdown = `${days > 0 ? `${days}d ` : ""}${String(hours).padStart(2,"0")}:${String(minutes).padStart(2,"0")}:${String(seconds % 60).padStart(2,"0")}`;
+  return <strong>{zone.content ? zone.content.replaceAll("[countdown]", countdown) : countdown}</strong>;
 }
 
-function SignageStream({ source, title, fit }: { source: string; title: string; fit: "cover" | "contain" | "fill" }) {
+function nextCounterTarget(target: string, weekly: boolean | undefined, now: number) {
+  const parsed = new Date(target).getTime();
+  if (!weekly || !Number.isFinite(parsed) || parsed > now) return parsed;
+  const week = 7 * 24 * 60 * 60 * 1000;
+  return parsed + Math.max(1, Math.ceil((now - parsed) / week)) * week;
+}
+
+function SignageStream({ source, title, fit, onAvailabilityChange }: { source: string; title: string; fit: "cover" | "contain" | "fill"; onAvailabilityChange?: (available: boolean) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+    onAvailabilityChange?.(false);
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = source;
       void video.play().catch(() => undefined);
-      return () => { video.pause(); video.removeAttribute("src"); video.load(); };
+      return () => { onAvailabilityChange?.(false); video.pause(); video.removeAttribute("src"); video.load(); };
     }
     let disposed = false;
     let destroy: (() => void) | undefined;
@@ -775,16 +840,29 @@ function SignageStream({ source, title, fit }: { source: string; title: string; 
       hls.loadSource(source);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => void video.play().catch(() => undefined));
+      hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) onAvailabilityChange?.(false); });
     });
-    return () => { disposed = true; destroy?.(); };
-  }, [source]);
-  return <video ref={videoRef} autoPlay muted playsInline aria-label={title} style={{ objectFit: fit }} />;
+    return () => { disposed = true; onAvailabilityChange?.(false); destroy?.(); };
+  }, [source, onAvailabilityChange]);
+  return <video ref={videoRef} autoPlay muted playsInline aria-label={title} style={{ objectFit: fit }} onPlaying={() => onAvailabilityChange?.(true)} onCanPlay={() => onAvailabilityChange?.(true)} onError={() => onAvailabilityChange?.(false)} onStalled={() => onAvailabilityChange?.(false)} />;
 }
 
-function SignageClock() {
+function SignageClock({ zone }: { zone: SignageZone }) {
   const [now, setNow] = useState(new Date());
   useEffect(() => { const timer = window.setInterval(() => setNow(new Date()), 1000); return () => window.clearInterval(timer); }, []);
-  return <><b>{now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</b><span>{now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</span></>;
+  const display = zone.clockDisplay || "both";
+  const time = <b className="signage-clock-time" style={{ fontSize: `${zone.clockTimeFontSize || 64}px` }}>{now.toLocaleTimeString([], {
+    hour: "numeric", minute: "2-digit", second: zone.clockTimeFormat?.endsWith("seconds") ? "2-digit" : undefined,
+    hour12: !zone.clockTimeFormat?.startsWith("24h")
+  })}</b>;
+  const dateOptions: Intl.DateTimeFormatOptions = zone.clockDateFormat === "numeric" ? { year: "numeric", month: "2-digit", day: "2-digit" }
+    : zone.clockDateFormat === "short" ? { month: "short", day: "numeric" }
+    : zone.clockDateFormat === "medium" ? { weekday: "short", month: "short", day: "numeric" }
+    : { weekday: "long", month: "long", day: "numeric", year: "numeric" };
+  const date = <span className="signage-clock-date" style={{ fontSize: `${zone.clockDateFontSize || 28}px` }}>{now.toLocaleDateString([], dateOptions)}</span>;
+  if (display === "time") return time;
+  if (display === "date") return date;
+  return <div className={`signage-clock-stack ${zone.clockOrder === "date-time" ? "date-first" : ""} ${zone.clockOrder === "inline" ? "inline" : ""}`}>{time}{date}</div>;
 }
 
 function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, onEnded, onBlocked }: {

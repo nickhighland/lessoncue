@@ -23,10 +23,15 @@ type Zone = {
   fontFamily?: string; fontSize?: number; fontWeight?: number; italic?: boolean; underline?: boolean;
   lineHeightPercent?: number; textAlign?: string; shape?: string; strokeColor?: string; strokeWidth?: number;
   cornerRadius?: number; iconName?: string; qrValue?: string; tickerSpeed?: number; counterTargetAt?: string;
-  credentialKey?: string;
+  qrLabelTop?: string; qrLabelBottom?: string; qrLabelLeft?: string; qrLabelRight?: string;
+  counterRepeatWeekly?: boolean; credentialKey?: string;
+  clockDisplay?: "time" | "date" | "both"; clockTimeFormat?: "12h" | "12h-seconds" | "24h" | "24h-seconds";
+  clockDateFormat?: "long" | "medium" | "short" | "numeric"; clockOrder?: "time-date" | "date-time" | "inline";
+  clockTimeFontSize?: number; clockDateFontSize?: number;
   weatherProvider?: "open-meteo" | "nws" | "custom";
   weatherLocation?: string; weatherLatitude?: number; weatherLongitude?: number;
-  weatherUnits?: "fahrenheit" | "celsius"; weatherFields?: string;
+  weatherPostalCode?: string; weatherUnits?: "fahrenheit" | "celsius"; weatherFields?: string;
+  contentPlaylistId?: string; streamOverrideWhenLive?: boolean;
   richTextJson?: string;
 };
 type Layout = {
@@ -69,11 +74,10 @@ type Props = {
 
 const ZONE_TYPES = [
   ["text", "Text / message"], ["media", "Photo, video, or logo"], ["stream", "Live stream"],
-  ["shape", "Shape"], ["icon", "Icon"], ["qr", "QR code"], ["wifi", "Wi-Fi QR code"],
+  ["presentation", "Presentation area"], ["qr", "QR code"], ["wifi", "Wi-Fi QR code"],
   ["ticker", "Scrolling ticker"], ["counter", "Countdown"], ["clock", "Time and date"],
   ["weather", "Weather"], ["calendar", "Calendar / events"], ["rss", "RSS / news"],
-  ["menu", "Menu / data"], ["slides", "Slides"], ["webpage", "Webpage"], ["dashboard", "Dashboard"],
-  ["social", "Social feed"], ["traffic", "Traffic"], ["customHtml", "Custom HTML"]
+  ["webpage", "Webpage"], ["customHtml", "Custom HTML"]
 ] as const;
 
 const WEATHER_FIELDS = [
@@ -153,11 +157,14 @@ export function SignageCalendarBoard({ signage, timeZone, onEdit }: {
 
 function LayoutsPanel({ media, notify }: Props) {
   const [layouts, setLayouts] = useState<Layout[]>([]);
+  const [playlists, setPlaylists] = useState<StudioPlaylist[]>([]);
   const [editing, setEditing] = useState<Layout | "new">();
   const [credentials, setCredentials] = useState(false);
   const [query, setQuery] = useState("");
   const [folder, setFolder] = useState("");
-  const load = () => studioApi<Layout[]>("/layouts").then(setLayouts).catch(error => notify(errorText(error)));
+  const load = () => Promise.all([studioApi<Layout[]>("/layouts"), studioApi<StudioPlaylist[]>("/playlists")])
+    .then(([nextLayouts, nextPlaylists]) => { setLayouts(nextLayouts); setPlaylists(nextPlaylists); })
+    .catch(error => notify(errorText(error)));
   useEffect(() => { void load(); }, []);
   const folders = [...new Set(layouts.map(item => item.folder).filter(Boolean))].sort();
   const shown = layouts.filter(item => (!folder || item.folder === folder) &&
@@ -167,7 +174,8 @@ function LayoutsPanel({ media, notify }: Props) {
     catch (error) { notify(errorText(error)); }
   }
   async function remove(item: Layout) {
-    if (!confirm(`Delete ${item.name}? Published schedules and playlists are protected from broken references.`)) return;
+    const starterNote = item.isStarter ? " This removes the built-in starter from this server." : "";
+    if (!confirm(`Permanently delete ${item.name}?${starterNote} Layouts used by schedules or playlists remain protected.`)) return;
     try { await studioApi(`/layouts/${item.id}`, { method: "DELETE" }); load(); notify("Layout deleted."); }
     catch (error) { notify(errorText(error)); }
   }
@@ -181,11 +189,12 @@ function LayoutsPanel({ media, notify }: Props) {
       <div className="studio-resource-body"><div><span className={`studio-state ${item.publishState}`}>{item.publishState}</span>{item.isStarter && <span className="pill">Starter</span>}{item.isTemplate && !item.isStarter && <span className="pill">Template</span>}</div>
         <h3>{item.name}</h3><p>{item.folder || "Unfiled"} · {item.canvasWidth}×{item.canvasHeight} · {item.zones.length} elements</p>
         <small>Draft v{item.version}{item.publishedVersion ? ` · published v${item.publishedVersion}` : " · not published"}</small>
-        <div className="studio-card-actions"><button onClick={() => item.isStarter ? duplicate(item) : setEditing(item)}>{item.isStarter ? "Use template" : "Edit"}</button><button onClick={() => duplicate(item)}>Duplicate</button>{!item.isStarter && <button className="danger" onClick={() => remove(item)}>Delete</button>}</div>
+        <div className="studio-card-actions"><button onClick={() => item.isStarter ? duplicate(item) : setEditing(item)}>{item.isStarter ? "Use template" : "Edit"}</button><button onClick={() => duplicate(item)}>Duplicate</button><button className="danger" onClick={() => remove(item)}>Delete</button></div>
       </div></article>)}</div>
     {!shown.length && <div className="panel studio-empty"><h3>No matching layouts</h3><p>Create a blank layout or clear the search filters.</p></div>}
     {editing && <LayoutEditor layout={editing === "new" ? undefined : editing} templates={layouts.filter(item => item.isTemplate)}
-      media={media} onClose={() => setEditing(undefined)} notify={notify} onSaved={() => { setEditing(undefined); load(); }} />}
+      media={media} playlists={playlists} onClose={() => setEditing(undefined)} notify={notify}
+      onSaved={() => { setEditing(undefined); load(); }} />}
     {credentials && <CredentialsDialog notify={notify} onClose={() => setCredentials(false)} />}
   </section>;
 }
@@ -212,11 +221,19 @@ function freshZone(type = "text"): Zone {
     title: "Local weather", weatherProvider: "open-meteo", weatherLocation: "Your location",
     weatherUnits: "fahrenheit", weatherFields: "icon,conditions,temperature,high,low,precipitation"
   });
+  if (type === "clock") Object.assign(zone, {
+    title: "Time and date", clockDisplay: "both", clockTimeFormat: "12h", clockDateFormat: "long",
+    clockOrder: "time-date", clockTimeFontSize: 64, clockDateFontSize: 28
+  });
+  if (type === "presentation") Object.assign(zone, {
+    title: "Presentation area", content: "Select a signage playlist"
+  });
   return zone;
 }
 
-function LayoutEditor({ layout, templates, media, onClose, onSaved, notify }: {
-  layout?: Layout; templates: Layout[]; media: StudioMedia[]; onClose: () => void; onSaved: () => void; notify: (message: string) => void;
+function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, notify }: {
+  layout?: Layout; templates: Layout[]; media: StudioMedia[]; playlists: StudioPlaylist[];
+  onClose: () => void; onSaved: () => void; notify: (message: string) => void;
 }) {
   const [name, setName] = useState(layout?.name || "Untitled layout");
   const [folder, setFolder] = useState(layout?.folder || "");
@@ -227,7 +244,8 @@ function LayoutEditor({ layout, templates, media, onClose, onSaved, notify }: {
   const [safeArea, setSafeArea] = useState(layout?.safeAreaPercent ?? 5);
   const [isTemplate, setIsTemplate] = useState(layout?.isTemplate || false);
   const [audioId, setAudioId] = useState(layout?.backgroundAudioAssetId || "");
-  const [zones, setZones] = useState<Zone[]>(layout?.zones || []);
+  const [zones, setZones] = useState<Zone[]>(() => (layout?.zones || []).map(zone =>
+    ZONE_TYPES.some(([type]) => type === zone.type) ? zone : { ...zone, type: "text" }));
   const [selected, setSelected] = useState<string[]>([]);
   const [history, setHistory] = useState<Zone[][]>([]);
   const [future, setFuture] = useState<Zone[][]>([]);
@@ -241,6 +259,8 @@ function LayoutEditor({ layout, templates, media, onClose, onSaved, notify }: {
   const [sidebarSlots, setSidebarSlots] = useState(1);
   const [framePercent, setFramePercent] = useState(20);
   const [frameColor, setFrameColor] = useState("#063d2b");
+  const [frameAltColor, setFrameAltColor] = useState("#032719");
+  const [showBrowserPreview, setShowBrowserPreview] = useState(false);
   const [guides, setGuides] = useState<{ vertical?: number; horizontal?: number }>({});
   const [elementType, setElementType] = useState("text");
   const canvas = useRef<HTMLDivElement>(null);
@@ -262,34 +282,44 @@ function LayoutEditor({ layout, templates, media, onClose, onSaved, notify }: {
     const zone = { ...freshZone(elementType), x: Math.min(60, 6 + zones.length * 2), y: Math.min(60, 6 + zones.length * 2), zIndex: zones.length + 1 };
     commit([...zones, zone]); setSelected([zone.id]);
   }
-  function applyInformationFrame() {
-    if (zones.length && !confirm("Replace the current draft elements with an information frame? You can undo this change.")) return;
+  function buildInformationFrame(persist: boolean) {
     const mainPercent = 100 - framePercent;
     const framed: Zone[] = [];
-    const main = { ...freshZone("slides"), id: id(), title: "Presentation area",
-      content: "Slides, videos, streams, and scheduled content", x: 0, y: 0, width: mainPercent,
+    const zoneId = (name: string) => persist ? id() : `information-frame-preview-${name}`;
+    const main = { ...freshZone("presentation"), id: zoneId("presentation"), title: "Presentation area",
+      content: "Select a signage playlist; an optional live stream can override it", x: 0, y: 0, width: mainPercent,
       height: mainPercent, backgroundColor: "#171c1b", accentColor: frameColor, fontSize: 30, zIndex: 1 };
     framed.push(main);
+    const farRightBottomColor = (bottomSlots - 1) % 2 ? frameColor : frameAltColor;
+    const bottomSidebarColor = farRightBottomColor === frameColor ? frameAltColor : frameColor;
     for (let index = 0; index < sidebarSlots; index++) {
+      const distanceFromBottom = sidebarSlots - 1 - index;
+      const sidebarColor = distanceFromBottom % 2 ? (bottomSidebarColor === frameColor ? frameAltColor : frameColor) : bottomSidebarColor;
       framed.push({ ...freshZone(index === 0 ? "calendar" : index === 1 ? "clock" : "text"),
-        id: id(), title: index === 0 ? "Upcoming events" : index === 1 ? "Time and date" : "Sidebar message",
+        id: zoneId(`sidebar-${index}`), title: index === 0 ? "Upcoming events" : index === 1 ? "Time and date" : "Sidebar message",
         content: index === 0 ? "Connect a calendar or enter event information" : index === 1 ? "" : "Add a message",
         x: mainPercent, y: index * mainPercent / sidebarSlots, width: framePercent,
-        height: mainPercent / sidebarSlots, backgroundColor: frameColor, accentColor: "#d89127",
+        height: mainPercent / sidebarSlots, backgroundColor: sidebarColor, accentColor: "#d89127",
         fontSize: 26, zIndex: index + 2 });
     }
     const suggestions = ["weather", "wifi", "rss", "text", "qr"];
     for (let index = 0; index < bottomSlots; index++) {
       const type = suggestions[index] || "text";
       const zone = freshZone(type);
-      framed.push({ ...zone, id: id(),
+      framed.push({ ...zone, id: zoneId(`bottom-${index}`),
         title: type === "weather" ? "Local weather" : type === "wifi" ? "Guest Wi-Fi" :
           type === "rss" ? "News" : type === "qr" ? "Learn more" : "Message",
         content: type === "rss" ? "Connect a news source" : type === "text" ? "Add a message" : zone.content,
         x: index * 100 / bottomSlots, y: mainPercent, width: 100 / bottomSlots, height: framePercent,
-        backgroundColor: index % 2 ? frameColor : "#032719", accentColor: "#d89127",
+        backgroundColor: index % 2 ? frameColor : frameAltColor, accentColor: "#d89127",
         fontSize: 28, zIndex: sidebarSlots + index + 2 });
     }
+    return framed;
+  }
+  function applyInformationFrame() {
+    if (zones.length && !confirm("Replace the current draft elements with this information frame? You can undo this change.")) return;
+    const framed = buildInformationFrame(true);
+    const main = framed[0];
     setWidth(1920); setHeight(1080); setBackground(frameColor);
     commit(framed); setSelected([main.id]); setShowFrameBuilder(false);
   }
@@ -426,6 +456,7 @@ function LayoutEditor({ layout, templates, media, onClose, onSaved, notify }: {
     catch (error) { notify(errorText(error)); }
   }
   const aspect = `${width} / ${height}`;
+  const displayZones = showFrameBuilder ? buildInformationFrame(false) : zones;
   return <StudioDialog title={layout ? `Layout · ${layout.name}` : "New reusable layout"} wide onClose={onClose}>
     <div className="layout-editor-meta">
       <input aria-label="Layout name" value={name} onChange={event => setName(event.target.value)} placeholder="Layout name" />
@@ -459,28 +490,30 @@ function LayoutEditor({ layout, templates, media, onClose, onSaved, notify }: {
       <label>Bottom boxes <select value={bottomSlots} onChange={event => setBottomSlots(Number(event.target.value))}>{[1,2,3,4,5].map(value => <option key={value}>{value}</option>)}</select></label>
       <label>Sidebar boxes <select value={sidebarSlots} onChange={event => setSidebarSlots(Number(event.target.value))}>{[1,2,3].map(value => <option key={value}>{value}</option>)}</select></label>
       <label>Frame size <input type="range" min="12" max="28" value={framePercent} onChange={event => setFramePercent(Number(event.target.value))} /><b>{framePercent}%</b></label>
-      <label>Frame color <input type="color" value={frameColor} onChange={event => setFrameColor(event.target.value)} /></label>
+      <label>Primary shade <input aria-label="Primary frame shade" type="color" value={frameColor} onChange={event => setFrameColor(event.target.value)} /></label>
+      <label>Alternating shade <input aria-label="Alternating frame shade" type="color" value={frameAltColor} onChange={event => setFrameAltColor(event.target.value)} /></label>
+      <span className="frame-live-label">Live preview</span>
       <button className="button primary" onClick={applyInformationFrame}>Apply frame</button>
     </section>}
     <div className="layout-editor-workspace">
       <div className="layout-canvas-scroll">
         <div ref={canvas} className={`layout-canvas ${snap ? "show-grid" : ""} ${hand ? "hand" : ""}`}
-          style={{ width: `${zoom}%`, aspectRatio: aspect, background, "--grid": `${grid}%` } as CSSProperties}
+          style={{ width: `${zoom}%`, aspectRatio: aspect, background: showFrameBuilder ? frameColor : background, "--grid": `${grid}%` } as CSSProperties}
           onPointerDown={beginCanvasGesture}>
           {showSafe && safeArea > 0 && <i className="layout-safe-area" style={{ inset: `${safeArea}%` }} />}
           {guides.vertical != null && <i className="layout-guide vertical" style={{ left: `${guides.vertical}%` }} />}
           {guides.horizontal != null && <i className="layout-guide horizontal" style={{ top: `${guides.horizontal}%` }} />}
-          {zones.slice().sort((a, b) => a.zIndex - b.zIndex).map(zone => <div key={zone.id}
-            className={`layout-zone ${zone.type} ${selected.includes(zone.id) ? "selected" : ""} ${zone.hidden ? "hidden" : ""} ${zone.lockMode !== "none" || zone.locked ? "locked" : ""}`}
-            onPointerDown={event => gesture(event, zone, "move")}
+          {displayZones.slice().sort((a, b) => a.zIndex - b.zIndex).map(zone => <div key={zone.id}
+            className={`layout-zone ${zone.type} ${!showFrameBuilder && selected.includes(zone.id) ? "selected" : ""} ${zone.hidden ? "hidden" : ""} ${zone.lockMode !== "none" || zone.locked ? "locked" : ""}`}
+            onPointerDown={event => { if (!showFrameBuilder) gesture(event, zone, "move"); }}
             style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`,
               background: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, opacity: zone.opacity / 100,
               zIndex: zone.zIndex, transform: `rotate(${zone.rotation}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`,
               borderRadius: `${zone.cornerRadius || 0}%`, fontFamily: zone.fontFamily, fontSize: `${Math.max(8, (zone.fontSize || 48) * zoom / 140)}px`,
               fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined,
               textAlign: zone.textAlign as CSSProperties["textAlign"], lineHeight: (zone.lineHeightPercent || 120) / 100 }}>
-            <ZoneVisual zone={zone} media={media} />
-            {selected.includes(zone.id) && zone.lockMode !== "position" && zone.lockMode !== "full" && !zone.locked && <>
+            <ZoneVisual zone={zone} media={media} playlists={playlists} />
+            {!showFrameBuilder && selected.includes(zone.id) && zone.lockMode !== "position" && zone.lockMode !== "full" && !zone.locked && <>
               <i className="layout-resize" onPointerDown={event => gesture(event, zone, "resize")} />
               <i className="layout-rotate" onPointerDown={event => gesture(event, zone, "rotate")} />
             </>}
@@ -493,7 +526,7 @@ function LayoutEditor({ layout, templates, media, onClose, onSaved, notify }: {
           <button onClick={event => setSelected(event.metaKey || event.ctrlKey ? [...new Set([...selected, zone.id])] : [zone.id])}><i>{zone.hidden ? "○" : "●"}</i><span>{zone.title || zone.type}<small>{zone.type} · layer {zone.zIndex}{zone.groupId ? " · grouped" : ""}</small></span></button>
           <button title="Move layer up" onClick={() => reorder(zone.id, 1)}>↑</button><button title="Move layer down" onClick={() => reorder(zone.id, -1)}>↓</button>
         </div>)}</div>
-        {current ? <ZoneInspector zone={current} media={media} onPatch={values => patch(current.id, values)}
+        {current ? <ZoneInspector zone={current} media={media} playlists={playlists} onPatch={values => patch(current.id, values)}
           onDelete={() => { commit(zones.filter(zone => !selected.includes(zone.id))); setSelected([]); }}
           onDuplicate={() => { const copy = { ...current, id: id(), title: `${current.title || current.type} copy`, x: Math.min(95, current.x + 2), y: Math.min(95, current.y + 2), zIndex: zones.length + 1 }; commit([...zones, copy]); setSelected([copy.id]); }} /> :
           <p className="studio-help">Select an element to edit its content, geometry, style, and locks.</p>}
@@ -504,15 +537,32 @@ function LayoutEditor({ layout, templates, media, onClose, onSaved, notify }: {
       <label><input type="checkbox" checked={isTemplate} onChange={event => setIsTemplate(event.target.checked)} /> Save as reusable template</label>
       <label>Background audio <select value={audioId} onChange={event => setAudioId(event.target.value)}><option value="">None</option>{media.filter(item => item.contentType.startsWith("audio/")).map(item => <option value={item.id} key={item.id}>{item.fileName}</option>)}</select></label>
       {layout && <label>Safely replace draft <select defaultValue="" onChange={event => void replaceFrom(event.target.value)}><option value="">Choose template…</option>{templates.filter(item => item.id !== layout.id).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>}
-      <span className="toolbar-spacer" /><button className="button" onClick={() => void save(false)}>Save draft</button><button className="button primary" onClick={() => void save(true)}>Publish & push</button>
+      <span className="toolbar-spacer" /><button className="button" onClick={() => setShowBrowserPreview(true)}>Browser preview</button>
+      <a className="button" href="/display" target="_blank" rel="noreferrer">Open permanent browser display</a>
+      <button className="button" onClick={() => void save(false)}>Save draft</button><button className="button primary" onClick={() => void save(true)}>Publish & push</button>
     </div>
+    {showBrowserPreview && <StudioDialog title={`Browser preview · ${name}`} wide onClose={() => setShowBrowserPreview(false)}>
+      <div className="browser-signage-preview" style={{ aspectRatio: aspect, background }}>
+        {zones.filter(zone => !zone.hidden).sort((a, b) => a.zIndex - b.zIndex).map(zone => <div key={zone.id}
+          className={`layout-zone ${zone.type}`} style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`,
+            height: `${zone.height}%`, background: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor,
+            opacity: zone.opacity / 100, zIndex: zone.zIndex, transform: `rotate(${zone.rotation}deg)`,
+            borderRadius: `${zone.cornerRadius || 0}%`, fontFamily: zone.fontFamily,
+            fontSize: `${Math.max(8, zone.fontSize || 48)}px`, fontWeight: zone.fontWeight,
+            textAlign: zone.textAlign as CSSProperties["textAlign"], lineHeight: (zone.lineHeightPercent || 120) / 100 }}>
+          <ZoneVisual zone={zone} media={media} playlists={playlists} />
+        </div>)}
+      </div>
+      <div className="layout-editor-footer"><span>This preview uses the current unsaved draft.</span><span className="toolbar-spacer" />
+        <a className="button primary" href="/display" target="_blank" rel="noreferrer">Pair a permanent browser display</a></div>
+    </StudioDialog>}
   </StudioDialog>;
 }
 
-function ZoneVisual({ zone, media }: { zone: Zone; media: StudioMedia[] }) {
+function ZoneVisual({ zone, media, playlists }: { zone: Zone; media: StudioMedia[]; playlists: StudioPlaylist[] }) {
   const asset = media.find(item => item.id === zone.mediaAssetId);
   if (zone.type === "media" && asset) return asset.contentType.startsWith("image/") ? <img src={asset.thumbnailUrl || asset.downloadUrl} alt="" style={{ objectFit: zone.fit as CSSProperties["objectFit"] }} /> : <span>▶ {asset.fileName}</span>;
-  if (zone.type === "clock") return <strong>{new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</strong>;
+  if (zone.type === "clock") return <StudioClock zone={zone} />;
   if (zone.type === "weather") {
     const fields = weatherFieldSet(zone);
     return <span className="zone-weather-preview">
@@ -523,18 +573,36 @@ function ZoneVisual({ zone, media }: { zone: Zone; media: StudioMedia[] }) {
       </span>
     </span>;
   }
-  if (zone.type === "qr" || zone.type === "wifi") return <StudioQr value={zone.qrValue || ""} />;
-  if (zone.type === "icon") return <span className="zone-icon">{({ star: "★", info: "ⓘ", warning: "⚠", arrow: "➜", check: "✓" } as Record<string,string>)[zone.iconName || ""] || "★"}</span>;
-  if (zone.type === "counter") return <StudioCounter target={zone.counterTargetAt} fallback={zone.content || "Countdown"} />;
-  if (zone.type === "shape") return <span className={`zone-shape ${zone.shape || "rectangle"}`} style={{ borderColor: zone.strokeColor, borderWidth: zone.strokeWidth }} />;
+  if (zone.type === "qr" || zone.type === "wifi") return <StudioQr zone={zone} />;
+  if (zone.type === "counter") return <StudioCounter target={zone.counterTargetAt}
+    repeatWeekly={zone.counterRepeatWeekly || false} template={zone.content || "[countdown]"} />;
   if (zone.type === "ticker") return <span className="zone-ticker" style={{ animationDuration: `${Math.max(5, 300 / Math.max(10, zone.tickerSpeed || 60))}s` }}>{zone.content || "Ticker message"}</span>;
   if (zone.type === "stream") return <span>● LIVE · {zone.sourceUrl ? new URL(zone.sourceUrl).protocol.replace(":", "").toUpperCase() : "stream"}</span>;
+  if (zone.type === "presentation") {
+    const playlist = playlists.find(item => item.id === zone.contentPlaylistId);
+    return <span className="zone-presentation-preview"><small>PRESENTATION AREA</small>
+      <strong>{playlist?.name || "Choose a signage playlist"}</strong>
+      <em>{zone.streamOverrideWhenLive && zone.sourceUrl ? "Live stream overrides while available" : "Playlist playback"}</em></span>;
+  }
+  if (zone.type === "webpage") return zone.sourceUrl
+    ? <iframe src={zone.sourceUrl} title={zone.title || "Webpage preview"} sandbox="allow-forms allow-same-origin allow-scripts" />
+    : <><small>{zone.title || "Webpage"}</small><strong>Enter a webpage address</strong></>;
+  if (zone.type === "customHtml") return zone.content
+    ? <iframe srcDoc={zone.content} title={zone.title || "Custom HTML preview"}
+      sandbox="allow-forms allow-modals allow-popups allow-scripts" />
+    : <><small>{zone.title || "Custom HTML"}</small><strong>Enter HTML content</strong></>;
   if (zone.type === "text" && zone.richTextJson) return <><small>{zone.title || zone.type}</small><RichTextPreview value={zone.richTextJson} fallback={zone.content || ""} /></>;
   return <><small>{zone.title || zone.type}</small><strong>{zone.content || zone.type}</strong></>;
 }
 
-function StudioQr({ value }: { value: string }) {
-  return value ? <GeneratedStudioQr value={value} /> : <span className="zone-qr"><small>Enter a QR destination</small></span>;
+function StudioQr({ zone }: { zone: Zone }) {
+  return <span className="zone-qr-layout">
+    {zone.qrLabelTop && <small className="qr-label top">{zone.qrLabelTop}</small>}
+    {zone.qrLabelLeft && <small className="qr-label left">{zone.qrLabelLeft}</small>}
+    <span className="zone-qr">{zone.qrValue ? <GeneratedStudioQr value={zone.qrValue} /> : <small>Enter a QR destination</small>}</span>
+    {zone.qrLabelRight && <small className="qr-label right">{zone.qrLabelRight}</small>}
+    {zone.qrLabelBottom && <small className="qr-label bottom">{zone.qrLabelBottom}</small>}
+  </span>;
 }
 
 function GeneratedStudioQr({ value }: { value: string }) {
@@ -545,24 +613,59 @@ function GeneratedStudioQr({ value }: { value: string }) {
       .then(url => { if (current) setSource(url); });
     return () => { current = false; };
   }, [value]);
-  return <span className="zone-qr">{source ? <img src={source} alt="QR preview" /> : null}</span>;
+  return source ? <img src={source} alt="QR preview" /> : null;
 }
 
-function StudioCounter({ target, fallback }: { target?: string; fallback: string }) {
+function StudioCounter({ target, repeatWeekly, template }: { target?: string; repeatWeekly: boolean; template: string }) {
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
     const first = window.requestAnimationFrame(() => setNow(Date.now()));
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => { window.cancelAnimationFrame(first); window.clearInterval(timer); };
   }, []);
-  if (!target || now == null) return <strong>{fallback}</strong>;
-  const total = Math.max(0, Math.floor((new Date(target).getTime() - now) / 1_000));
+  if (!target || now == null) return <strong>{template.replace("[countdown]", "Countdown")}</strong>;
+  const total = Math.max(0, Math.floor((nextCounterTarget(target, repeatWeekly, now) - now) / 1_000));
   const days = Math.floor(total / 86_400);
   const hours = Math.floor(total % 86_400 / 3_600);
   const minutes = Math.floor(total % 3_600 / 60);
   const seconds = total % 60;
   const clock = [hours, minutes, seconds].map(value => String(value).padStart(2, "0")).join(":");
-  return <strong>{days ? `${days} days  ${clock}` : clock}</strong>;
+  const countdown = days ? `${days} days  ${clock}` : clock;
+  return <strong>{template.includes("[countdown]") ? template.replaceAll("[countdown]", countdown) : `${template} ${countdown}`}</strong>;
+}
+
+function nextCounterTarget(target: string, repeatWeekly: boolean, now = Date.now()) {
+  const parsed = new Date(target);
+  if (!repeatWeekly || Number.isNaN(parsed.getTime())) return parsed.getTime();
+  const current = new Date(now);
+  const next = new Date(current);
+  next.setHours(parsed.getHours(), parsed.getMinutes(), parsed.getSeconds(), 0);
+  const days = (parsed.getDay() - current.getDay() + 7) % 7;
+  next.setDate(current.getDate() + days);
+  if (next.getTime() <= now) next.setDate(next.getDate() + 7);
+  return next.getTime();
+}
+
+function StudioClock({ zone }: { zone: Zone }) {
+  const now = new Date();
+  const twentyFour = zone.clockTimeFormat?.startsWith("24h");
+  const seconds = zone.clockTimeFormat?.endsWith("seconds");
+  const time = now.toLocaleTimeString([], {
+    hour: "numeric", minute: "2-digit", second: seconds ? "2-digit" : undefined, hour12: !twentyFour
+  });
+  const dateOptions: Intl.DateTimeFormatOptions = zone.clockDateFormat === "numeric"
+    ? { year: "numeric", month: "2-digit", day: "2-digit" }
+    : zone.clockDateFormat === "short" ? { month: "short", day: "numeric" }
+      : zone.clockDateFormat === "medium" ? { weekday: "short", month: "short", day: "numeric" }
+        : { weekday: "long", month: "long", day: "numeric", year: "numeric" };
+  const date = now.toLocaleDateString([], dateOptions);
+  const parts = [];
+  if (zone.clockDisplay !== "date") parts.push(<b className="clock-time" key="time"
+    style={{ fontSize: `${(zone.clockTimeFontSize || 64) / 48}em` }}>{time}</b>);
+  if (zone.clockDisplay !== "time") parts.push(<span className="clock-date" key="date"
+    style={{ fontSize: `${(zone.clockDateFontSize || 28) / 48}em` }}>{date}</span>);
+  if (zone.clockOrder === "date-time") parts.reverse();
+  return <span className={`zone-clock ${zone.clockOrder === "inline" ? "inline" : ""}`}>{parts}</span>;
 }
 
 function RichTextPreview({ value, fallback }: { value: string; fallback: string }) {
@@ -578,10 +681,11 @@ function RichTextPreview({ value, fallback }: { value: string; fallback: string 
   }}>{run.text || ""}</span>)}</strong>;
 }
 
-function ZoneInspector({ zone, media, onPatch, onDelete, onDuplicate }: {
-  zone: Zone; media: StudioMedia[]; onPatch: (patch: Partial<Zone>) => void; onDelete: () => void; onDuplicate: () => void;
+function ZoneInspector({ zone, media, playlists, onPatch, onDelete, onDuplicate }: {
+  zone: Zone; media: StudioMedia[]; playlists: StudioPlaylist[];
+  onPatch: (patch: Partial<Zone>) => void; onDelete: () => void; onDuplicate: () => void;
 }) {
-  const online = ["stream","weather","calendar","rss","menu","slides","webpage","dashboard","social","traffic","customHtml"].includes(zone.type);
+  const online = ["stream","weather","calendar","rss","webpage"].includes(zone.type);
   const contentLocked = zone.lockMode === "content" || zone.lockMode === "full";
   const positionLocked = zone.lockMode === "position" || zone.lockMode === "full" || zone.locked;
   const fullyLocked = zone.lockMode === "full";
@@ -596,7 +700,10 @@ function ZoneInspector({ zone, media, onPatch, onDelete, onDuplicate }: {
     <label>Type <select disabled={contentLocked} value={zone.type} onChange={event => onPatch({ type: event.target.value })}>{ZONE_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
     <label>Title <input disabled={contentLocked} value={zone.title || ""} onChange={event => onPatch({ title: event.target.value })} /></label>
     {zone.type === "media" && <label>Media <select disabled={contentLocked} value={zone.mediaAssetId || ""} onChange={event => onPatch({ mediaAssetId: event.target.value || undefined })}><option value="">Choose media…</option>{media.filter(item => item.contentType.startsWith("image/") || item.contentType.startsWith("video/")).map(item => <option value={item.id} key={item.id}>{item.fileName}</option>)}</select></label>}
-    {!["media","stream","shape","icon","qr"].includes(zone.type) && <label>Content <textarea disabled={contentLocked} value={zone.content || ""} onChange={event => onPatch({ content: event.target.value })} /></label>}
+    {!["media","stream","presentation","qr","wifi","clock","weather","counter"].includes(zone.type) && <label>{zone.type === "customHtml" ? "HTML" : "Content"}
+      <textarea disabled={contentLocked} value={zone.content || ""}
+        placeholder={zone.type === "counter" ? "Example: Services start in [countdown]" : zone.type === "customHtml" ? "<main>Custom sign content</main>" : undefined}
+        onChange={event => onPatch({ content: event.target.value })} /></label>}
     {zone.type === "text" && !contentLocked && <RichTextRunsEditor value={zone.richTextJson} onChange={richTextJson => onPatch({ richTextJson })} />}
     {zone.type === "weather" && <fieldset className="weather-settings"><legend>Weather source and display</legend>
       <label>Provider <select disabled={contentLocked} value={zone.weatherProvider || "open-meteo"} onChange={event => onPatch({ weatherProvider: event.target.value as Zone["weatherProvider"] })}>
@@ -605,12 +712,30 @@ function ZoneInspector({ zone, media, onPatch, onDelete, onDuplicate }: {
         <option value="custom">Custom approved weather API</option>
       </select></label>
       <label>Location label <input disabled={contentLocked} value={zone.weatherLocation || ""} onChange={event => onPatch({ weatherLocation: event.target.value })} placeholder="Bellingham, WA" /></label>
+      {zone.weatherProvider !== "custom" && <label>Postal code <input disabled={contentLocked}
+        value={zone.weatherPostalCode || ""} onChange={event => onPatch({ weatherPostalCode: event.target.value })}
+        placeholder="98225" /><small>Enter a postal code, or use exact coordinates below.</small></label>}
       <div className="inspector-grid"><label>Latitude<input disabled={contentLocked} type="number" min="-90" max="90" step="0.0001" value={zone.weatherLatitude ?? ""} onChange={event => onPatch({ weatherLatitude: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="48.7519" /></label><label>Longitude<input disabled={contentLocked} type="number" min="-180" max="180" step="0.0001" value={zone.weatherLongitude ?? ""} onChange={event => onPatch({ weatherLongitude: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="-122.4787" /></label></div>
       <label>Units <select disabled={contentLocked} value={zone.weatherUnits || "fahrenheit"} onChange={event => onPatch({ weatherUnits: event.target.value as Zone["weatherUnits"] })}><option value="fahrenheit">Fahrenheit</option><option value="celsius">Celsius</option></select></label>
       <div className="weather-field-grid">{WEATHER_FIELDS.map(([value, label]) => <label key={value}><input disabled={contentLocked} type="checkbox" checked={weatherFields.has(value)} onChange={event => patchWeatherField(value, event.target.checked)} /> {label}</label>)}</div>
       <small>Weather is fetched by the local LessonCue server and cached for displays. No browser or display receives an API credential.</small>
     </fieldset>}
-    {online && (zone.type !== "weather" || zone.weatherProvider === "custom") && <label>Source URL <input disabled={contentLocked} type="url" value={zone.sourceUrl || ""} onChange={event => onPatch({ sourceUrl: event.target.value })} placeholder="https://…" /></label>}
+    {zone.type === "presentation" && <fieldset className="weather-settings"><legend>Presentation playback</legend>
+      <label>Default signage playlist<select disabled={contentLocked} value={zone.contentPlaylistId || ""}
+        onChange={event => onPatch({ contentPlaylistId: event.target.value || undefined })}><option value="">Choose a published playlist…</option>
+        {playlists.filter(item => item.publishedVersion > 0).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+      <label className="check-row"><input disabled={contentLocked} type="checkbox"
+        checked={zone.streamOverrideWhenLive || false}
+        onChange={event => onPatch({ streamOverrideWhenLive: event.target.checked })} /> Override the playlist while a live stream is available</label>
+      {zone.streamOverrideWhenLive && <label>Live stream address<input disabled={contentLocked} type="text"
+        value={zone.sourceUrl || ""} onChange={event => onPatch({ sourceUrl: event.target.value })}
+        placeholder="rtmp://…, rtsp://…, or https://…m3u8" /></label>}
+      <small>The playlist returns automatically whenever the live feed ends or becomes unavailable.</small>
+    </fieldset>}
+    {online && (zone.type !== "weather" || zone.weatherProvider === "custom") && <label>Source URL <input disabled={contentLocked}
+      type={zone.type === "stream" ? "text" : "url"} value={zone.sourceUrl || ""}
+      onChange={event => onPatch({ sourceUrl: event.target.value })}
+      placeholder={zone.type === "stream" ? "rtmp://…, rtsp://…, or https://…" : "https://…"} /></label>}
     {online && zone.type !== "stream" && (zone.type !== "weather" || zone.weatherProvider === "custom") && <label>Server credential key <input disabled={contentLocked} value={zone.credentialKey || ""} onChange={event => onPatch({ credentialKey: event.target.value || undefined })} placeholder="Optional saved key" /></label>}
     {zone.type === "qr" && <label>QR destination<input disabled={contentLocked} value={zone.qrValue || ""} onChange={event => onPatch({ qrValue: event.target.value })} placeholder="https://…" /></label>}
     {zone.type === "wifi" && <fieldset className="weather-settings"><legend>Wi-Fi QR code</legend>
@@ -619,12 +744,32 @@ function ZoneInspector({ zone, media, onPatch, onDelete, onDuplicate }: {
       {wifi.security !== "nopass" && <label>Password<input disabled={contentLocked} type="password" value={wifi.password} onChange={event => onPatch({ qrValue: makeWifiQr(wifi.security, wifi.ssid, event.target.value) })} autoComplete="new-password" /></label>}
       <small>The password is encoded in the QR code and therefore visible to anyone who scans it. Use a guest network.</small>
     </fieldset>}
-    {zone.type === "icon" && <label>Icon <select disabled={contentLocked} value={zone.iconName || "star"} onChange={event => onPatch({ iconName: event.target.value })}><option value="star">Star</option><option value="info">Information</option><option value="warning">Warning</option><option value="arrow">Arrow</option><option value="check">Check</option></select></label>}
-    {zone.type === "shape" && <label>Shape <select disabled={contentLocked} value={zone.shape || "rectangle"} onChange={event => onPatch({ shape: event.target.value })}><option>rectangle</option><option>circle</option><option>triangle</option><option>line</option></select></label>}
-    {zone.type === "counter" && <label>Target time <input disabled={contentLocked} type="datetime-local" value={zone.counterTargetAt?.slice(0,16) || ""} onChange={event => onPatch({ counterTargetAt: event.target.value ? new Date(event.target.value).toISOString() : undefined })} /></label>}
+    {(zone.type === "qr" || zone.type === "wifi") && <fieldset className="weather-settings"><legend>Optional QR labels</legend>
+      <label>Above<input disabled={contentLocked} value={zone.qrLabelTop || ""} onChange={event => onPatch({ qrLabelTop: event.target.value })} /></label>
+      <label>Below<input disabled={contentLocked} value={zone.qrLabelBottom || ""} onChange={event => onPatch({ qrLabelBottom: event.target.value })} /></label>
+      <label>Left<input disabled={contentLocked} value={zone.qrLabelLeft || ""} onChange={event => onPatch({ qrLabelLeft: event.target.value })} /></label>
+      <label>Right<input disabled={contentLocked} value={zone.qrLabelRight || ""} onChange={event => onPatch({ qrLabelRight: event.target.value })} /></label>
+      <small>Use any combination. LessonCue keeps the labels and QR code inside this element’s boundary.</small>
+    </fieldset>}
+    {zone.type === "counter" && <fieldset className="weather-settings"><legend>Countdown schedule</legend>
+      <label>Target time <input disabled={contentLocked} type="datetime-local" value={zone.counterTargetAt?.slice(0,16) || ""} onChange={event => onPatch({ counterTargetAt: event.target.value ? new Date(event.target.value).toISOString() : undefined })} /></label>
+      <label className="check-row"><input disabled={contentLocked} type="checkbox" checked={zone.counterRepeatWeekly || false}
+        onChange={event => onPatch({ counterRepeatWeekly: event.target.checked })} /> Repeat every week on this weekday and time</label>
+      <label>Displayed sentence<textarea disabled={contentLocked} value={zone.content || ""}
+        onChange={event => onPatch({ content: event.target.value })} placeholder="Services start in [countdown]" /></label>
+      <small>Use [countdown] wherever the live timer should appear.</small>
+    </fieldset>}
+    {zone.type === "clock" && <fieldset className="weather-settings"><legend>Time and date</legend>
+      <label>Show<select disabled={contentLocked} value={zone.clockDisplay || "both"} onChange={event => onPatch({ clockDisplay: event.target.value as Zone["clockDisplay"] })}><option value="time">Time only</option><option value="date">Date only</option><option value="both">Time and date</option></select></label>
+      <label>Time format<select disabled={contentLocked} value={zone.clockTimeFormat || "12h"} onChange={event => onPatch({ clockTimeFormat: event.target.value as Zone["clockTimeFormat"] })}><option value="12h">12-hour</option><option value="12h-seconds">12-hour with seconds</option><option value="24h">24-hour</option><option value="24h-seconds">24-hour with seconds</option></select></label>
+      <label>Date format<select disabled={contentLocked} value={zone.clockDateFormat || "long"} onChange={event => onPatch({ clockDateFormat: event.target.value as Zone["clockDateFormat"] })}><option value="long">Long · Saturday, July 25, 2026</option><option value="medium">Medium · Sat, Jul 25</option><option value="short">Short · Jul 25</option><option value="numeric">Numeric · 07/25/2026</option></select></label>
+      <label>Order<select disabled={contentLocked} value={zone.clockOrder || "time-date"} onChange={event => onPatch({ clockOrder: event.target.value as Zone["clockOrder"] })}><option value="time-date">Time above date</option><option value="date-time">Date above time</option><option value="inline">Time and date side by side</option></select></label>
+      <div className="inspector-grid"><label>Time size<input disabled={contentLocked} type="number" min="8" max="300" value={zone.clockTimeFontSize || 64} onChange={event => onPatch({ clockTimeFontSize: Number(event.target.value) })} /></label><label>Date size<input disabled={contentLocked} type="number" min="8" max="300" value={zone.clockDateFontSize || 28} onChange={event => onPatch({ clockDateFontSize: Number(event.target.value) })} /></label></div>
+    </fieldset>}
+    {zone.type === "customHtml" && <small className="credential-note">Custom HTML runs in an isolated frame with scripts, forms, and network requests enabled. Remote requests still follow the destination server’s CORS policy.</small>}
     {zone.type === "ticker" && <label>Speed <input disabled={contentLocked} type="range" min="10" max="300" value={zone.tickerSpeed || 60} onChange={event => onPatch({ tickerSpeed: Number(event.target.value) })} /></label>}
     <div className="inspector-grid"><label>X<input disabled={positionLocked} type="number" value={zone.x} onChange={event => onPatch({ x: Number(event.target.value) })} /></label><label>Y<input disabled={positionLocked} type="number" value={zone.y} onChange={event => onPatch({ y: Number(event.target.value) })} /></label><label>W<input disabled={positionLocked} type="number" value={zone.width} onChange={event => onPatch({ width: Number(event.target.value) })} /></label><label>H<input disabled={positionLocked} type="number" value={zone.height} onChange={event => onPatch({ height: Number(event.target.value) })} /></label><label>°<input disabled={positionLocked} type="number" min="-180" max="180" value={zone.rotation} onChange={event => onPatch({ rotation: Number(event.target.value) })} /></label><label>Opacity<input disabled={fullyLocked} type="number" min="0" max="100" value={zone.opacity} onChange={event => onPatch({ opacity: Number(event.target.value) })} /></label></div>
-    <div className="inspector-grid"><label>Fill<input disabled={fullyLocked} type="color" value={zone.backgroundColor} onChange={event => onPatch({ backgroundColor: event.target.value })} /></label><label>Text<input disabled={fullyLocked} type="color" value={zone.textColor} onChange={event => onPatch({ textColor: event.target.value })} /></label><label>Stroke<input disabled={fullyLocked} type="color" value={zone.strokeColor || "#ffffff"} onChange={event => onPatch({ strokeColor: event.target.value })} /></label><label>Radius<input disabled={fullyLocked} type="number" min="0" max="100" value={zone.cornerRadius || 0} onChange={event => onPatch({ cornerRadius: Number(event.target.value) })} /></label></div>
+    <div className="inspector-grid"><label>Background<input disabled={fullyLocked} type="color" value={zone.backgroundColor} onChange={event => onPatch({ backgroundColor: event.target.value })} /></label><label>Text<input disabled={fullyLocked} type="color" value={zone.textColor} onChange={event => onPatch({ textColor: event.target.value })} /></label><label>Border<input disabled={fullyLocked} type="color" value={zone.accentColor || "#d89127"} onChange={event => onPatch({ accentColor: event.target.value })} /></label><label>Radius<input disabled={fullyLocked} type="number" min="0" max="100" value={zone.cornerRadius || 0} onChange={event => onPatch({ cornerRadius: Number(event.target.value) })} /></label></div>
     {["text","ticker","counter","clock"].includes(zone.type) && <><label>Font <select value={zone.fontFamily || "system-ui"} onChange={event => onPatch({ fontFamily: event.target.value })}><option value="system-ui">System</option><option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="monospace">Monospace</option></select></label><div className="inspector-grid"><label>Size<input type="number" min="8" max="300" value={zone.fontSize || 48} onChange={event => onPatch({ fontSize: Number(event.target.value) })} /></label><label>Weight<input type="number" min="100" max="900" step="100" value={zone.fontWeight || 600} onChange={event => onPatch({ fontWeight: Number(event.target.value) })} /></label><label>Align<select value={zone.textAlign || "left"} onChange={event => onPatch({ textAlign: event.target.value })}><option>left</option><option>center</option><option>right</option><option>justify</option></select></label><label>Line %<input type="number" min="80" max="300" value={zone.lineHeightPercent || 120} onChange={event => onPatch({ lineHeightPercent: Number(event.target.value) })} /></label></div><div className="inline-checks"><label><input type="checkbox" checked={zone.italic || false} onChange={event => onPatch({ italic: event.target.checked })} /> Italic</label><label><input type="checkbox" checked={zone.underline || false} onChange={event => onPatch({ underline: event.target.checked })} /> Underline</label></div></>}
     <label>Lock <select value={zone.lockMode || (zone.locked ? "position" : "none")} onChange={event => onPatch({ lockMode: event.target.value as Zone["lockMode"], locked: false })}><option value="none">Unlocked</option><option value="position">Position and size</option><option value="content">Content</option><option value="full">Everything</option></select></label>
     <div className="inline-checks"><label><input disabled={fullyLocked} type="checkbox" checked={zone.hidden} onChange={event => onPatch({ hidden: event.target.checked })} /> Hidden</label><label><input disabled={positionLocked} type="checkbox" checked={zone.flipX} onChange={event => onPatch({ flipX: event.target.checked })} /> Flip X</label><label><input disabled={positionLocked} type="checkbox" checked={zone.flipY} onChange={event => onPatch({ flipY: event.target.checked })} /> Flip Y</label></div>
@@ -711,7 +856,7 @@ function PlaylistEditor({ playlist, playlists, layouts, media, notify, onClose, 
       {entry.kind==="layout"&&<select value={entry.layoutId||""} onChange={event=>patch(entry.id,{layoutId:event.target.value||undefined})}><option value="">Choose layout…</option>{layouts.filter(item=>item.publishedVersion>0).map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select>}
       {entry.kind==="media"&&<select value={entry.mediaAssetId||""} onChange={event=>patch(entry.id,{mediaAssetId:event.target.value||undefined})}><option value="">Choose media…</option>{media.map(item=><option value={item.id} key={item.id}>{item.fileName}</option>)}</select>}
       {entry.kind==="nested"&&<select value={entry.nestedPlaylistId||""} onChange={event=>patch(entry.id,{nestedPlaylistId:event.target.value||undefined})}><option value="">Choose playlist…</option>{playlists.filter(item=>item.id!==playlist?.id&&item.publishedVersion>0).map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select>}
-      {entry.kind==="app"&&<select value={entry.appType||"clock"} onChange={event=>patch(entry.id,{appType:event.target.value})}><option>clock</option><option>weather</option><option>calendar</option><option>menu</option><option>rss</option><option>social</option><option>traffic</option><option>wifi</option></select>}
+      {entry.kind==="app"&&<select value={entry.appType||"clock"} onChange={event=>patch(entry.id,{appType:event.target.value})}><option>clock</option><option>weather</option><option>calendar</option><option>rss</option><option>wifi</option></select>}
       {["web","cloud","csv"].includes(entry.kind)&&<input type="url" value={entry.sourceUrl||""} placeholder="https://…" onChange={event=>patch(entry.id,{sourceUrl:event.target.value})}/>}
       {entry.kind==="tag"&&<input value={entry.tagsCsv||""} placeholder="media tags" onChange={event=>patch(entry.id,{tagsCsv:event.target.value})}/>}
       <label>Seconds<input type="number" min="1" max="86400" value={entry.durationSeconds} onChange={event=>patch(entry.id,{durationSeconds:Number(event.target.value)})}/></label><select value={entry.transition} onChange={event=>patch(entry.id,{transition:event.target.value as PlaylistEntry["transition"]})}><option>cut</option><option>fade</option><option>slide</option><option>zoom</option></select>

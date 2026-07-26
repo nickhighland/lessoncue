@@ -192,6 +192,7 @@ public struct SignageZone: Codable, Identifiable, Equatable, Sendable {
     public let accentColor: String
     public let sourceUrl: String?
     public let streamUrl: String?
+    public let htmlUrl: String?
     public let rotation: Int?
     public let zIndex: Int?
     public let opacity: Int?
@@ -208,14 +209,27 @@ public struct SignageZone: Codable, Identifiable, Equatable, Sendable {
     public let underline: Bool?
     public let lineHeightPercent: Int?
     public let textAlign: String?
-    public let shape: String?
     public let strokeColor: String?
     public let strokeWidth: Int?
     public let cornerRadius: Int?
-    public let iconName: String?
     public let qrValue: String?
+    public let qrLabelTop: String?
+    public let qrLabelBottom: String?
+    public let qrLabelLeft: String?
+    public let qrLabelRight: String?
     public let tickerSpeed: Int?
     public let counterTargetAt: Date?
+    public let counterRepeatWeekly: Bool?
+    public let clockDisplay: String?
+    public let clockTimeFormat: String?
+    public let clockDateFormat: String?
+    public let clockOrder: String?
+    public let clockTimeFontSize: Int?
+    public let clockDateFontSize: Int?
+    public let weatherPostalCode: String?
+    public let contentPlaylistId: UUID?
+    public let streamOverrideWhenLive: Bool?
+    public let contentPlaylist: SignageContentPlaylist?
     public let media: CueItem?
     public let cached: SignageWidgetCache?
 }

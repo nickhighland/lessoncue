@@ -24,6 +24,10 @@ public static class SignageStudio
     public static string StoreItems(IEnumerable<SignageContentPlaylistItemInput>? items) =>
         JsonSerializer.Serialize((items ?? []).Take(500).Select(NormalizeItem).ToArray(), JsonOptions);
 
+    public static bool ReferencesLayout(string? draftItemsJson, string? publishedItemsJson, Guid layoutId) =>
+        ParseItems(draftItemsJson).Concat(ParseItems(publishedItemsJson))
+            .Any(entry => entry.LayoutId == layoutId);
+
     public static SignageContentPlaylistItemInput NormalizeItem(SignageContentPlaylistItemInput item)
     {
         var kind = item.Kind is "layout" or "media" or "app" or "web" or "nested" or "tag" or "cloud" or "csv"

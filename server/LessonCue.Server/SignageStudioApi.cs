@@ -43,6 +43,8 @@ public static class SignageStudioApi
             var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
             var error = SignageStudio.ValidateLayout(input, SignageLayout.ParseAllowlist(organization.SignageSourceAllowlistJson));
             if (error is not null) return Results.BadRequest(new { error });
+            error = await ValidateLayoutReferencesAsync(input, db, ct);
+            if (error is not null) return Results.BadRequest(new { error });
             if (input.BackgroundAudioAssetId is { } audioId && !await db.MediaAssets.AnyAsync(x => x.Id == audioId, ct))
                 return Results.BadRequest(new { error = "The selected background audio no longer exists." });
             var item = new SignageLayoutResource { Name = input.Name.Trim(), Version = 0 };
@@ -60,6 +62,8 @@ public static class SignageStudioApi
             if (item is null) return Results.NotFound();
             var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
             var error = SignageStudio.ValidateLayout(input, SignageLayout.ParseAllowlist(organization.SignageSourceAllowlistJson));
+            if (error is not null) return Results.BadRequest(new { error });
+            error = await ValidateLayoutReferencesAsync(input, db, ct);
             if (error is not null) return Results.BadRequest(new { error });
             SignageStudio.ApplyLayout(item, input);
             Audit(db, "signage.layout.save-draft", item.Id, $"{item.Name} v{item.Version}");
@@ -122,10 +126,11 @@ public static class SignageStudioApi
         {
             var item = await db.SignageLayouts.FindAsync([id], ct);
             if (item is null) return Results.NotFound();
-            if (item.IsStarter) return Results.BadRequest(new { error = "Built-in starter templates cannot be deleted. Duplicate one and edit the copy." });
+            var playlistItems = await db.SignageContentPlaylists.AsNoTracking()
+                .Select(value => new { value.DraftItemsJson, value.PublishedItemsJson }).ToListAsync(ct);
             if (await db.SignagePlaylists.AnyAsync(x => x.LayoutId == id, ct) ||
-                (await db.SignageContentPlaylists.AsNoTracking().Select(x => x.DraftItemsJson + x.PublishedItemsJson).ToListAsync(ct))
-                .Any(json => SignageStudio.ParseItems(json).Any(entry => entry.LayoutId == id)))
+                playlistItems.Any(value => SignageStudio.ReferencesLayout(
+                    value.DraftItemsJson, value.PublishedItemsJson, id)))
                 return Results.Conflict(new { error = "This layout is assigned to signage or a playlist. Replace those references before deleting it." });
             db.SignageLayouts.Remove(item);
             Audit(db, "signage.layout.delete", item.Id, item.Name);
@@ -543,6 +548,18 @@ public static class SignageStudioApi
         if (currentId is { } id && nestedIds.Contains(id)) return "A playlist cannot contain itself.";
         if (nestedIds.Length > 0 && await db.SignageContentPlaylists.CountAsync(x => nestedIds.Contains(x.Id), ct) != nestedIds.Length)
             return "One or more nested playlists no longer exists.";
+        return null;
+    }
+
+    private static async Task<string?> ValidateLayoutReferencesAsync(SignageLayoutResourceInput input,
+        LessonCueDb db, CancellationToken ct)
+    {
+        var playlistIds = (input.Zones ?? []).Where(zone => zone.Type == "presentation" &&
+                zone.ContentPlaylistId is not null)
+            .Select(zone => zone.ContentPlaylistId!.Value).Distinct().ToArray();
+        if (playlistIds.Length > 0 && await db.SignageContentPlaylists.CountAsync(
+                playlist => playlistIds.Contains(playlist.Id) && playlist.PublishedVersion > 0, ct) != playlistIds.Length)
+            return "Every presentation area must select an existing published signage playlist.";
         return null;
     }
 

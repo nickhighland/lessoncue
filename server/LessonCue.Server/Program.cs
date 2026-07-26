@@ -321,9 +321,27 @@ api.MapGet("/signage/{signageId:guid}/zones/{zoneId}/stream/{fileName}", async (
     CancellationToken ct) =>
 {
     var signage = await db.SignagePlaylists.AsNoTracking().SingleOrDefaultAsync(x => x.Id == signageId && x.Enabled, ct);
-    var zone = signage is null ? null : SignageLayout.ParseZones(signage.ZonesJson)
-        .FirstOrDefault(value => value.Id.Equals(zoneId, StringComparison.OrdinalIgnoreCase));
-    if (zone?.Type != "stream" || !SignageLayout.TryStreamUrl(zone.SourceUrl, out var sourceUrl))
+    SignageZoneInput? zone = null;
+    if (signage is not null)
+    {
+        var zones = SignageLayout.ParseZones(signage.ZonesJson);
+        if (signage.LayoutId is { } layoutId)
+        {
+            var layout = await db.SignageLayouts.AsNoTracking().SingleOrDefaultAsync(
+                value => value.Id == layoutId && value.PublishedVersion > 0, ct);
+            if (layout is not null) zones = SignageLayout.ParseZones(layout.PublishedZonesJson);
+        }
+        zone = zones.FirstOrDefault(value => value.Id.Equals(zoneId, StringComparison.OrdinalIgnoreCase));
+        if (zone is null)
+        {
+            var publishedLayouts = await db.SignageLayouts.AsNoTracking().Where(value => value.PublishedVersion > 0)
+                .Select(value => value.PublishedZonesJson).ToListAsync(ct);
+            zone = publishedLayouts.SelectMany(SignageLayout.ParseZones)
+                .FirstOrDefault(value => value.Id.Equals(zoneId, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+    if (zone?.Type is not ("stream" or "presentation") ||
+        !SignageLayout.TryStreamUrl(zone.SourceUrl, out var sourceUrl))
         return Results.NotFound();
     if (fileName.Equals("index.m3u8", StringComparison.OrdinalIgnoreCase))
     {
@@ -335,6 +353,36 @@ api.MapGet("/signage/{signageId:guid}/zones/{zoneId}/stream/{fileName}", async (
     }
     var segment = streams.ResolveSegment(signageId, zone.Id, fileName);
     return segment is null ? Results.NotFound() : Results.File(segment, "video/mp2t", enableRangeProcessing: false);
+}).DisableAntiforgery();
+
+api.MapGet("/signage/{signageId:guid}/zones/{zoneId}/html", async (
+    Guid signageId, string zoneId, LessonCueDb db, HttpContext context, CancellationToken ct) =>
+{
+    var signage = await db.SignagePlaylists.AsNoTracking().SingleOrDefaultAsync(
+        value => value.Id == signageId && value.Enabled, ct);
+    if (signage is null) return Results.NotFound();
+    var zones = SignageLayout.ParseZones(signage.ZonesJson);
+    if (signage.LayoutId is { } layoutId)
+    {
+        var layout = await db.SignageLayouts.AsNoTracking().SingleOrDefaultAsync(
+            value => value.Id == layoutId && value.PublishedVersion > 0, ct);
+        if (layout is not null) zones = SignageLayout.ParseZones(layout.PublishedZonesJson);
+    }
+    var zone = zones.FirstOrDefault(value => value.Id.Equals(zoneId, StringComparison.OrdinalIgnoreCase));
+    if (zone is null)
+    {
+        var publishedLayouts = await db.SignageLayouts.AsNoTracking().Where(value => value.PublishedVersion > 0)
+            .Select(value => value.PublishedZonesJson).ToListAsync(ct);
+        zone = publishedLayouts.SelectMany(SignageLayout.ParseZones)
+            .FirstOrDefault(value => value.Id.Equals(zoneId, StringComparison.OrdinalIgnoreCase));
+    }
+    if (zone?.Type != "customHtml" || string.IsNullOrWhiteSpace(zone.Content)) return Results.NotFound();
+    context.Response.Headers.ContentSecurityPolicy =
+        "default-src 'none'; img-src data: blob: https: http:; media-src blob: https: http:; " +
+        "style-src 'unsafe-inline' https: http:; script-src 'unsafe-inline' 'unsafe-eval' https: http:; " +
+        "connect-src https: http: ws: wss:; font-src data: https: http:; frame-src https: http:";
+    context.Response.Headers.CacheControl = "no-store";
+    return Results.Content(zone.Content, "text/html; charset=utf-8");
 }).DisableAntiforgery();
 
 api.MapPost("/pairing/request", async (PairingRequestInput input, LessonCueDb db,

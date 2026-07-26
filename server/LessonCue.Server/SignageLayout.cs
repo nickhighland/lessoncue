@@ -7,8 +7,8 @@ public sealed record SignageWidgetCacheEntry(string ZoneId, string Title, string
 
 public static class SignageLayout
 {
-    public static readonly string[] ZoneTypes = ["media", "stream", "text", "clock", "calendar", "weather", "menu", "rss", "data",
-        "shape", "icon", "qr", "ticker", "counter", "webpage", "dashboard", "social", "traffic", "wifi", "customHtml", "slides"];
+    public static readonly string[] ZoneTypes = ["media", "stream", "presentation", "text", "clock", "calendar",
+        "weather", "rss", "qr", "ticker", "counter", "webpage", "wifi", "customHtml"];
     public static readonly string[] Presets = ["single", "sidebar", "split", "header-grid", "dashboard"];
     public static readonly string[] WeatherProviders = ["open-meteo", "nws", "custom"];
     public static readonly string[] WeatherDisplayFields = ["icon", "conditions", "temperature", "feelsLike", "high", "low",
@@ -42,8 +42,8 @@ public static class SignageLayout
             Id = string.IsNullOrWhiteSpace(zone.Id) ? Guid.NewGuid().ToString("N") : zone.Id.Trim()[..Math.Min(64, zone.Id.Trim().Length)],
             Type = type,
             Title = Truncate(zone.Title, 160),
-            Content = Truncate(zone.Content, 4000),
-            SourceUrl = string.IsNullOrWhiteSpace(zone.SourceUrl) ? null : zone.SourceUrl.Trim(),
+            Content = Truncate(zone.Content, zone.Type == "customHtml" ? 50000 : 4000),
+            SourceUrl = Truncate(zone.SourceUrl, 2000),
             X = Math.Clamp(zone.X, 0, 90),
             Y = Math.Clamp(zone.Y, 0, 90),
             Width = Math.Clamp(zone.Width, 2, 100),
@@ -70,8 +70,20 @@ public static class SignageLayout
             CornerRadius = Math.Clamp(zone.CornerRadius, 0, 100),
             IconName = Truncate(zone.IconName, 80),
             QrValue = Truncate(zone.QrValue, 2000),
+            QrLabelTop = Truncate(zone.QrLabelTop, 160),
+            QrLabelBottom = Truncate(zone.QrLabelBottom, 160),
+            QrLabelLeft = Truncate(zone.QrLabelLeft, 160),
+            QrLabelRight = Truncate(zone.QrLabelRight, 160),
             TickerSpeed = Math.Clamp(zone.TickerSpeed, 10, 300),
             CredentialKey = Truncate(zone.CredentialKey, 120),
+            ClockDisplay = zone.ClockDisplay is "time" or "date" ? zone.ClockDisplay : "both",
+            ClockTimeFormat = zone.ClockTimeFormat is "12h-seconds" or "24h" or "24h-seconds"
+                ? zone.ClockTimeFormat : "12h",
+            ClockDateFormat = zone.ClockDateFormat is "short" or "medium" or "numeric"
+                ? zone.ClockDateFormat : "long",
+            ClockOrder = zone.ClockOrder is "date-time" or "inline" ? zone.ClockOrder : "time-date",
+            ClockTimeFontSize = Math.Clamp(zone.ClockTimeFontSize, 8, 300),
+            ClockDateFontSize = Math.Clamp(zone.ClockDateFontSize, 8, 300),
             WeatherProvider = zone.Type == "weather"
                 ? WeatherProviders.Contains(zone.WeatherProvider) ? zone.WeatherProvider
                     : string.IsNullOrWhiteSpace(zone.SourceUrl) ? "open-meteo" : "custom"
@@ -79,8 +91,11 @@ public static class SignageLayout
             WeatherLocation = type == "weather" ? Truncate(zone.WeatherLocation, 160) : null,
             WeatherLatitude = type == "weather" && zone.WeatherLatitude is { } latitude ? Math.Clamp(latitude, -90, 90) : null,
             WeatherLongitude = type == "weather" && zone.WeatherLongitude is { } longitude ? Math.Clamp(longitude, -180, 180) : null,
+            WeatherPostalCode = type == "weather" ? Truncate(zone.WeatherPostalCode, 20) : null,
             WeatherUnits = type == "weather" ? zone.WeatherUnits == "celsius" ? "celsius" : "fahrenheit" : null,
-            WeatherFields = type == "weather" ? NormalizeWeatherFields(zone.WeatherFields) : null
+            WeatherFields = type == "weather" ? NormalizeWeatherFields(zone.WeatherFields) : null,
+            ContentPlaylistId = type == "presentation" ? zone.ContentPlaylistId : null,
+            StreamOverrideWhenLive = type == "presentation" && zone.StreamOverrideWhenLive
         };
     }
 
@@ -99,23 +114,34 @@ public static class SignageLayout
             if (raw.Type == "media" && raw.MediaAssetId is null) return "Every media zone must select an image or video.";
             if (raw.Type == "stream" && !TryStreamUrl(raw.SourceUrl, out _))
                 return "Live stream zones require an HTTP, HTTPS, RTMP, RTMPS, or RTSP address without embedded credentials.";
+            if (raw.Type == "presentation")
+            {
+                if (raw.ContentPlaylistId is null && string.IsNullOrWhiteSpace(raw.SourceUrl))
+                    return "Presentation areas must select a signage playlist or configure a live-stream override.";
+                if (!string.IsNullOrWhiteSpace(raw.SourceUrl) && !TryStreamUrl(raw.SourceUrl, out _))
+                    return "Presentation live overrides require an HTTP, HTTPS, RTMP, RTMPS, or RTSP address without embedded credentials.";
+            }
             if (raw.Type == "weather")
             {
                 var provider = WeatherProviders.Contains(raw.WeatherProvider) ? raw.WeatherProvider
                     : string.IsNullOrWhiteSpace(raw.SourceUrl) ? "open-meteo" : "custom";
-                if (provider is "open-meteo" or "nws" &&
-                    (raw.WeatherLatitude is null or < -90 or > 90 || raw.WeatherLongitude is null or < -180 or > 180))
-                    return "Open-Meteo and National Weather Service weather elements require a valid latitude and longitude.";
-                if (provider == "nws" && (raw.WeatherLatitude is < 18 or > 72 || raw.WeatherLongitude is < -180 or > -60))
+                var coordinatesValid = raw.WeatherLatitude is >= -90 and <= 90 &&
+                    raw.WeatherLongitude is >= -180 and <= 180;
+                var postalCodeValid = !string.IsNullOrWhiteSpace(raw.WeatherPostalCode) &&
+                    raw.WeatherPostalCode.Trim().Length is >= 3 and <= 20;
+                if (provider is "open-meteo" or "nws" && !coordinatesValid && !postalCodeValid)
+                    return "Preset weather elements require either a postal code or valid latitude and longitude.";
+                if (provider == "nws" && coordinatesValid &&
+                    (raw.WeatherLatitude is < 18 or > 72 || raw.WeatherLongitude is < -180 or > -60))
                     return "National Weather Service forecasts are available only for United States locations. Use Open-Meteo elsewhere.";
                 if (provider == "custom" && string.IsNullOrWhiteSpace(raw.SourceUrl))
                     return "A custom weather provider requires an approved source URL.";
             }
             if (!string.IsNullOrWhiteSpace(raw.SourceUrl))
             {
-                if (raw.Type == "stream") continue;
+                if (raw.Type is "stream" or "presentation") continue;
                 if (raw.Type == "weather" && Normalize(raw).WeatherProvider is "open-meteo" or "nws") continue;
-                if (raw.Type is not ("calendar" or "weather" or "menu" or "rss" or "data" or "webpage" or "dashboard" or "social" or "traffic" or "slides" or "customHtml"))
+                if (raw.Type is not ("calendar" or "weather" or "rss" or "webpage" or "customHtml"))
                     return "That signage element cannot use an online source.";
                 if (!TryOrigin(raw.SourceUrl, out var origin)) return "Widget sources must be absolute HTTP or HTTPS addresses without embedded credentials.";
                 if (!allowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
