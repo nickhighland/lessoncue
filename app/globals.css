@@ -6,11 +6,11 @@
   --line: #e6e5df;
   --canvas: #f6f5f0;
   --paper: #ffffff;
-  --amber: #d89127;
+  --amber: #d89028;
   --amber-soft: #fff4df;
   --green: #2d7453;
   --green-soft: #e8f4ed;
-  --nav: #25302d;
+  --nav: #262f2c;
 }
 
 * { box-sizing: border-box; }
@@ -26,6 +26,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .brand-mark { width: 31px; height: 31px; border: 1px solid rgba(255,255,255,.32); border-radius: 9px; display: flex; align-items: end; justify-content: center; gap: 3px; padding: 7px; background: rgba(255,255,255,.05); }
 .brand-mark span { display: block; width: 3px; border-radius: 3px; background: #ebb45f; }
 .brand-mark span:nth-child(1) { height: 9px; }.brand-mark span:nth-child(2) { height: 16px; }.brand-mark span:nth-child(3) { height: 12px; }
+.brand-mark.lessoncue-mark { overflow: hidden; border: 0; padding: 0; background: transparent; }
+.brand-mark.lessoncue-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .brand strong { display: block; color: white; letter-spacing: -.2px; font-size: 15px; }.brand small { display: block; color: #a8b2ad; font-size: 10px; margin-top: 2px; }
 .sidebar nav { display: grid; gap: 4px; }.sidebar nav button, .sidebar-bottom > button { border: 0; background: transparent; color: #b9c2bd; display: flex; align-items: center; width: 100%; height: 42px; padding: 0 12px; border-radius: 8px; cursor: pointer; gap: 11px; text-align: left; font-weight: 550; }
 .sidebar nav button:hover, .sidebar-bottom > button:hover { background: rgba(255,255,255,.055); color: white; }.sidebar nav button.active { background: #3a4541; color: white; box-shadow: inset 2px 0 #e4a748; }

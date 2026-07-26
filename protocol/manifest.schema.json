@@ -39,12 +39,101 @@
         "mediaAssetId": { "type": ["string", "null"] },
         "mediaUrl": { "type": ["string", "null"] },
         "media": { "anyOf": [{ "$ref": "#/$defs/item" }, { "type": "null" }] },
+        "backgroundAudio": { "anyOf": [{ "$ref": "#/$defs/item" }, { "type": "null" }] },
+        "version": { "type": "integer", "minimum": 1 },
+        "publishedVersion": { "type": "integer", "minimum": 0 },
+        "publishState": { "enum": ["draft", "changes", "published"] },
+        "layoutId": { "type": ["string", "null"] },
+        "contentPlaylistId": { "type": ["string", "null"] },
+        "volumePercent": { "type": "integer", "minimum": 0, "maximum": 150 },
+        "displayPower": { "enum": ["unchanged", "on", "off"] },
+        "zones": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/signageZone" } },
+        "contentPlaylist": { "anyOf": [{ "$ref": "#/$defs/signageContentPlaylist" }, { "type": "null" }] },
+        "kiosk": {
+          "type": ["object", "null"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "interactionUrl": { "type": ["string", "null"] },
+            "timeoutSeconds": { "type": "integer", "minimum": 5, "maximum": 86400 },
+            "showCloseButton": { "type": "boolean" },
+            "showTouchIndicator": { "type": "boolean" },
+            "virtualKeyboard": { "type": "boolean" }
+          }
+        },
         "startsAt": { "type": ["string", "null"], "format": "date-time" },
         "endsAt": { "type": ["string", "null"], "format": "date-time" },
         "recurrence": { "enum": ["once", "daily", "weekly"] },
         "nextChangeAt": { "type": ["string", "null"], "format": "date-time" },
         "ready": { "type": "boolean" },
         "readiness": { "enum": ["ready", "preparing", "failed", "missing"] }
+      }
+    },
+    "signageZone": {
+      "type": "object",
+      "required": ["id", "type", "x", "y", "width", "height"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "enum": ["media", "stream", "text", "clock", "calendar", "weather", "menu", "rss", "data", "shape", "icon", "qr", "ticker", "counter", "webpage", "dashboard", "social", "traffic", "wifi", "customHtml", "slides"] },
+        "title": { "type": ["string", "null"] },
+        "content": { "type": ["string", "null"] },
+        "sourceUrl": { "type": ["string", "null"] },
+        "streamUrl": { "type": ["string", "null"] },
+        "x": { "type": "number", "minimum": 0, "maximum": 100 },
+        "y": { "type": "number", "minimum": 0, "maximum": 100 },
+        "width": { "type": "number", "minimum": 2, "maximum": 100 },
+        "height": { "type": "number", "minimum": 2, "maximum": 100 },
+        "rotation": { "type": "integer", "minimum": -180, "maximum": 180 },
+        "zIndex": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "opacity": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "fit": { "enum": ["cover", "contain", "fill"] },
+        "locked": { "type": "boolean" },
+        "hidden": { "type": "boolean" },
+        "flipX": { "type": "boolean" },
+        "flipY": { "type": "boolean" },
+        "media": { "anyOf": [{ "$ref": "#/$defs/item" }, { "type": "null" }] },
+        "cached": { "type": ["object", "null"] },
+        "richTextJson": { "type": ["string", "null"], "maxLength": 12000 },
+        "fontFamily": { "type": ["string", "null"] },
+        "fontSize": { "type": "integer", "minimum": 8, "maximum": 300 },
+        "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+        "italic": { "type": "boolean" },
+        "underline": { "type": "boolean" },
+        "lineHeightPercent": { "type": "integer", "minimum": 80, "maximum": 300 },
+        "textAlign": { "enum": ["left", "center", "right", "justify"] },
+        "shape": { "enum": ["rectangle", "circle", "triangle", "line"] },
+        "strokeColor": { "type": ["string", "null"] },
+        "strokeWidth": { "type": "integer", "minimum": 0, "maximum": 40 },
+        "cornerRadius": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "iconName": { "type": ["string", "null"] },
+        "qrValue": { "type": ["string", "null"] },
+        "tickerSpeed": { "type": "integer", "minimum": 10, "maximum": 300 },
+        "counterTargetAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "signageContentPlaylist": {
+      "type": "object",
+      "required": ["id", "name", "playbackMode", "synchronization", "version", "items"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "playbackMode": { "enum": ["ordered", "random", "tag", "interactive"] },
+        "synchronization": { "enum": ["screen", "region", "global"] },
+        "version": { "type": "integer", "minimum": 1 },
+        "items": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "durationSeconds"],
+            "properties": {
+              "id": { "type": "string" },
+              "kind": { "enum": ["layout", "media", "app", "web", "nested", "tag", "cloud", "csv"] },
+              "durationSeconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+              "transition": { "enum": ["cut", "fade", "slide", "zoom"] },
+              "media": { "anyOf": [{ "$ref": "#/$defs/item" }, { "type": "null" }] }
+            }
+          }
+        }
       }
     },
     "playlist": {

@@ -105,6 +105,77 @@ public static class DatabaseUpgrade
                 "UpdatedAt" TEXT NOT NULL,
                 CONSTRAINT "FK_SignagePlaylists_MediaAssets_MediaAssetId" FOREIGN KEY ("MediaAssetId") REFERENCES "MediaAssets" ("Id")
             );
+            CREATE TABLE IF NOT EXISTS "SignageLayouts" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_SignageLayouts" PRIMARY KEY,
+                "Name" TEXT NOT NULL,
+                "Folder" TEXT NOT NULL DEFAULT '',
+                "Description" TEXT NOT NULL DEFAULT '',
+                "IsTemplate" INTEGER NOT NULL DEFAULT 0,
+                "IsStarter" INTEGER NOT NULL DEFAULT 0,
+                "TemplateKey" TEXT NULL,
+                "BackgroundColor" TEXT NOT NULL DEFAULT '#25302d',
+                "CanvasWidth" INTEGER NOT NULL DEFAULT 1920,
+                "CanvasHeight" INTEGER NOT NULL DEFAULT 1080,
+                "Orientation" TEXT NOT NULL DEFAULT 'landscape',
+                "SafeAreaPercent" INTEGER NOT NULL DEFAULT 5,
+                "DraftZonesJson" TEXT NOT NULL DEFAULT '[]',
+                "PublishedZonesJson" TEXT NOT NULL DEFAULT '[]',
+                "BackgroundAudioAssetId" TEXT NULL,
+                "Version" INTEGER NOT NULL DEFAULT 1,
+                "PublishedVersion" INTEGER NOT NULL DEFAULT 0,
+                "PublishState" TEXT NOT NULL DEFAULT 'draft',
+                "PublishedAt" TEXT NULL,
+                "ThumbnailDataUrl" TEXT NOT NULL DEFAULT '',
+                "CreatedAt" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS "IX_SignageLayouts_Folder_Name" ON "SignageLayouts" ("Folder", "Name");
+            CREATE TABLE IF NOT EXISTS "SignageContentPlaylists" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_SignageContentPlaylists" PRIMARY KEY,
+                "Name" TEXT NOT NULL,
+                "Folder" TEXT NOT NULL DEFAULT '',
+                "PlaybackMode" TEXT NOT NULL DEFAULT 'ordered',
+                "Synchronization" TEXT NOT NULL DEFAULT 'screen',
+                "DraftItemsJson" TEXT NOT NULL DEFAULT '[]',
+                "PublishedItemsJson" TEXT NOT NULL DEFAULT '[]',
+                "Version" INTEGER NOT NULL DEFAULT 1,
+                "PublishedVersion" INTEGER NOT NULL DEFAULT 0,
+                "PublishState" TEXT NOT NULL DEFAULT 'draft',
+                "PublishedAt" TEXT NULL,
+                "CreatedAt" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS "IX_SignageContentPlaylists_Folder_Name" ON "SignageContentPlaylists" ("Folder", "Name");
+            CREATE TABLE IF NOT EXISTS "SignageEmergencyTemplates" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_SignageEmergencyTemplates" PRIMARY KEY,
+                "Name" TEXT NOT NULL,
+                "Severity" TEXT NOT NULL DEFAULT 'urgent',
+                "Message" TEXT NOT NULL DEFAULT '',
+                "BackgroundColor" TEXT NOT NULL DEFAULT '#9b1c1c',
+                "TextColor" TEXT NOT NULL DEFAULT '#ffffff',
+                "MediaAssetId" TEXT NULL,
+                "TargetTagsCsv" TEXT NOT NULL DEFAULT '',
+                "DefaultDurationMinutes" INTEGER NOT NULL DEFAULT 30,
+                "ActiveSignageId" TEXT NULL,
+                "ActivatedAt" TEXT NULL,
+                "ExpiresAt" TEXT NULL,
+                "CreatedAt" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS "SignageProofRecords" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_SignageProofRecords" PRIMARY KEY AUTOINCREMENT,
+                "ScreenId" TEXT NOT NULL,
+                "SignageId" TEXT NOT NULL,
+                "Version" INTEGER NOT NULL DEFAULT 1,
+                "SignageName" TEXT NOT NULL DEFAULT '',
+                "Event" TEXT NOT NULL DEFAULT 'shown',
+                "StartedAt" TEXT NOT NULL,
+                "EndedAt" TEXT NULL,
+                "DurationMs" INTEGER NOT NULL DEFAULT 0,
+                "Error" TEXT NULL
+            );
+            CREATE INDEX IF NOT EXISTS "IX_SignageProofRecords_ScreenId_StartedAt" ON "SignageProofRecords" ("ScreenId", "StartedAt");
+            CREATE INDEX IF NOT EXISTS "IX_SignageProofRecords_SignageId_StartedAt" ON "SignageProofRecords" ("SignageId", "StartedAt");
             CREATE TABLE IF NOT EXISTS "BackupRecords" (
                 "Id" TEXT NOT NULL CONSTRAINT "PK_BackupRecords" PRIMARY KEY,
                 "FileName" TEXT NOT NULL,
@@ -351,10 +422,28 @@ public static class DatabaseUpgrade
             ["SignagePlaylists.WidgetCacheJson"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"WidgetCacheJson\" TEXT NOT NULL DEFAULT '[]'"),
             ["SignagePlaylists.WidgetCacheUpdatedAt"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"WidgetCacheUpdatedAt\" TEXT NULL"),
             ["SignagePlaylists.WidgetCacheError"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"WidgetCacheError\" TEXT NULL"),
+            ["SignagePlaylists.LayoutId"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"LayoutId\" TEXT NULL"),
+            ["SignagePlaylists.ContentPlaylistId"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"ContentPlaylistId\" TEXT NULL"),
+            ["SignagePlaylists.VolumePercent"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"VolumePercent\" INTEGER NOT NULL DEFAULT 100"),
+            ["SignagePlaylists.DisplayPower"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"DisplayPower\" TEXT NOT NULL DEFAULT 'unchanged'"),
+            ["SignagePlaylists.Version"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"Version\" INTEGER NOT NULL DEFAULT 1"),
+            ["SignagePlaylists.PublishedVersion"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"PublishedVersion\" INTEGER NOT NULL DEFAULT 1"),
+            ["SignagePlaylists.PublishState"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"PublishState\" TEXT NOT NULL DEFAULT 'published'"),
+            ["SignagePlaylists.PublishedAt"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"PublishedAt\" TEXT NULL"),
+            ["SignagePlaylists.LastPushedAt"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"LastPushedAt\" TEXT NULL"),
+            ["SignagePlaylists.KioskEnabled"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"KioskEnabled\" INTEGER NOT NULL DEFAULT 0"),
+            ["SignagePlaylists.KioskInteractionUrl"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"KioskInteractionUrl\" TEXT NULL"),
+            ["SignagePlaylists.KioskTimeoutSeconds"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"KioskTimeoutSeconds\" INTEGER NOT NULL DEFAULT 60"),
+            ["SignagePlaylists.KioskShowCloseButton"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"KioskShowCloseButton\" INTEGER NOT NULL DEFAULT 1"),
+            ["SignagePlaylists.KioskShowTouchIndicator"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"KioskShowTouchIndicator\" INTEGER NOT NULL DEFAULT 1"),
+            ["SignagePlaylists.KioskVirtualKeyboard"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"KioskVirtualKeyboard\" INTEGER NOT NULL DEFAULT 0"),
             ["Screens.AppVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"AppVersion\" TEXT NOT NULL DEFAULT 'unknown'"),
             ["Screens.ManifestVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ManifestVersion\" INTEGER NOT NULL DEFAULT 0"),
             ["Screens.TagsCsv"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"TagsCsv\" TEXT NOT NULL DEFAULT ''"),
             ["Screens.Site"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"Site\" TEXT NOT NULL DEFAULT 'Main Site'"),
+            ["Screens.SignageOrientation"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"SignageOrientation\" TEXT NOT NULL DEFAULT 'auto'"),
+            ["Screens.SignageWidth"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"SignageWidth\" INTEGER NULL"),
+            ["Screens.SignageHeight"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"SignageHeight\" INTEGER NULL"),
             ["Screens.LastIpAddress"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"LastIpAddress\" TEXT NULL"),
             ["Screens.ControlVersion"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ControlVersion\" INTEGER NOT NULL DEFAULT 0"),
             ["Screens.ControlAction"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ControlAction\" TEXT NOT NULL DEFAULT 'none'"),

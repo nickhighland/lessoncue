@@ -22,10 +22,26 @@ public sealed class ManifestService(LessonCueDb db)
             .Where(x => (x.AvailableFrom is null || x.AvailableFrom <= now) && (x.ExpiresAt is null || x.ExpiresAt >= now)).ToList();
         var signage = await db.SignagePlaylists.AsNoTracking().Include(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants)
             .Where(x => x.Enabled).ToListAsync(cancellationToken);
-        var zoneMediaIds = signage.SelectMany(item => SignageLayout.ParseZones(item.ZonesJson))
+        var signageLayouts = (await db.SignageLayouts.AsNoTracking().Where(x => x.PublishedVersion > 0).ToListAsync(cancellationToken))
+            .ToDictionary(x => x.Id);
+        var signageContentPlaylists = (await db.SignageContentPlaylists.AsNoTracking().Where(x => x.PublishedVersion > 0)
+            .ToListAsync(cancellationToken)).ToDictionary(x => x.Id);
+        var layoutZones = signageLayouts.Values.SelectMany(item => SignageLayout.ParseZones(item.PublishedZonesJson));
+        var scheduleZones = signage.SelectMany(item => EffectiveZones(item, signageLayouts));
+        var contentItems = signageContentPlaylists.Values.SelectMany(item => SignageStudio.ParseItems(item.PublishedItemsJson)).ToArray();
+        var zoneMediaIds = scheduleZones.Concat(layoutZones)
             .Where(zone => zone.MediaAssetId is not null).Select(zone => zone.MediaAssetId!.Value).Distinct().ToArray();
+        var contentMediaIds = contentItems.Where(item => item.MediaAssetId is not null).Select(item => item.MediaAssetId!.Value);
+        var backgroundAudioIds = signageLayouts.Values.Where(item => item.BackgroundAudioAssetId is not null)
+            .Select(item => item.BackgroundAudioAssetId!.Value);
+        zoneMediaIds = zoneMediaIds.Concat(contentMediaIds).Concat(backgroundAudioIds).Distinct().ToArray();
         var zoneMedia = await db.MediaAssets.AsNoTracking().Include(media => media.TranscodeVariants)
             .Where(media => zoneMediaIds.Contains(media.Id)).ToDictionaryAsync(media => media.Id, cancellationToken);
+        if (contentItems.Any(item => item.Kind == "tag"))
+        {
+            var taggedMedia = await db.MediaAssets.AsNoTracking().Include(media => media.TranscodeVariants).ToListAsync(cancellationToken);
+            foreach (var media in taggedMedia) zoneMedia.TryAdd(media.Id, media);
+        }
         var targetedSignage = signage
             .Select(item => new { Item = item, State = SignageSchedule.Evaluate(item, now, timeZone) })
             .Where(entry => (entry.State.Active || SignageSchedule.CanOccurAgain(entry.Item, now, timeZone))
@@ -42,9 +58,12 @@ public sealed class ManifestService(LessonCueDb db)
             apiVersion = 1,
             manifestVersion = version,
             generatedAt = DateTimeOffset.UtcNow,
-            screen = new { id = screen.Id, screen.Name, screen.VolunteerMode, screen.Site, tags = SplitTags(screen.TagsCsv) },
-            signage = matchingSignage.Select(entry => MapSignage(entry.Item, entry.State, screen, zoneMedia)).ToArray(),
-            signageSchedule = targetedSignage.Select(entry => MapSignage(entry.Item, entry.State, screen, zoneMedia)).ToArray(),
+            screen = new { id = screen.Id, screen.Name, screen.VolunteerMode, screen.Site, tags = SplitTags(screen.TagsCsv),
+                orientation = screen.SignageOrientation, width = screen.SignageWidth, height = screen.SignageHeight },
+            signage = matchingSignage.Select(entry => MapSignage(entry.Item, entry.State, screen, zoneMedia,
+                signageLayouts, signageContentPlaylists)).ToArray(),
+            signageSchedule = targetedSignage.Select(entry => MapSignage(entry.Item, entry.State, screen, zoneMedia,
+                signageLayouts, signageContentPlaylists)).ToArray(),
             playlists = lessons.Select(x => BuildPlaylist(x, screen)).ToArray()
         };
     }
@@ -212,11 +231,17 @@ public sealed class ManifestService(LessonCueDb db)
     }
 
     private static object MapSignage(SignagePlaylist item, SignageScheduleState state, Screen screen,
-        IReadOnlyDictionary<Guid, MediaAsset> zoneMedia)
+        IReadOnlyDictionary<Guid, MediaAsset> zoneMedia, IReadOnlyDictionary<Guid, SignageLayoutResource> layouts,
+        IReadOnlyDictionary<Guid, SignageContentPlaylist> contentPlaylists)
     {
         var signageMedia = MapSignageMedia(item.MediaAsset, $"signage-{item.Id}", item.Name, screen);
         var cache = SignageLayout.ParseCache(item.WidgetCacheJson).ToDictionary(entry => entry.ZoneId, StringComparer.OrdinalIgnoreCase);
-        var zones = SignageLayout.ParseZones(item.ZonesJson).Select(zone =>
+        layouts.TryGetValue(item.LayoutId ?? Guid.Empty, out var layout);
+        contentPlaylists.TryGetValue(item.ContentPlaylistId ?? Guid.Empty, out var contentPlaylist);
+        var effectiveZones = EffectiveZones(item, layouts);
+        var backgroundAudio = layout?.BackgroundAudioAssetId is { } audioId && zoneMedia.TryGetValue(audioId, out var audio)
+            ? MapSignageMedia(audio, $"signage-{item.Id}-background-audio", $"{item.Name} background audio", screen).Manifest : null;
+        var zones = effectiveZones.Select(zone =>
         {
             var media = zone.MediaAssetId is { } mediaId && zoneMedia.TryGetValue(mediaId, out var found) ? found : null;
             var mappedMedia = MapSignageMedia(media, $"signage-{item.Id}-zone-{zone.Id}", zone.Title ?? item.Name, screen);
@@ -228,14 +253,26 @@ public sealed class ManifestService(LessonCueDb db)
                 zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
                 zone.RefreshMinutes, zone.Rotation, zone.ZIndex, zone.Opacity, zone.Fit,
                 zone.Locked, zone.Hidden, zone.FlipX, zone.FlipY,
+                zone.GroupId, zone.LockMode, zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight,
+                zone.Italic, zone.Underline, zone.LineHeightPercent, zone.TextAlign, zone.Shape,
+                zone.StrokeColor, zone.StrokeWidth, zone.CornerRadius, zone.IconName, zone.QrValue,
+                zone.TickerSpeed, zone.CounterTargetAt,
                 streamUrl = zone.Type == "stream"
                     ? $"/api/v1/signage/{item.Id}/zones/{Uri.EscapeDataString(zone.Id)}/stream/index.m3u8"
                     : null,
                 media = mappedMedia.Manifest, cached
             };
         }).ToArray();
-        var referencedMedia = new[] { item.MediaAsset }.Concat(SignageLayout.ParseZones(item.ZonesJson)
-            .Select(zone => zone.MediaAssetId is { } id && zoneMedia.TryGetValue(id, out var media) ? media : null)).ToArray();
+        var resolvedContentItems = contentPlaylist is null ? [] : ResolveContentItems(contentPlaylist, contentPlaylists, zoneMedia.Values, 0).ToArray();
+        if (contentPlaylist?.PlaybackMode == "random")
+            resolvedContentItems = resolvedContentItems.OrderBy(entry => HashCode.Combine(entry.Id,
+                DateOnly.FromDateTime(DateTime.UtcNow).DayNumber)).ToArray();
+        var playlistItems = resolvedContentItems
+            .Select(entry => MapContentPlaylistItem(entry, item, screen, zoneMedia, layouts)).ToArray();
+        var referencedMedia = new[] { item.MediaAsset }.Concat(effectiveZones
+            .Select(zone => zone.MediaAssetId is { } id && zoneMedia.TryGetValue(id, out var media) ? media : null))
+            .Concat(resolvedContentItems
+                .Select(entry => entry.MediaAssetId is { } id && zoneMedia.TryGetValue(id, out var media) ? media : null)).ToArray();
         var readiness = referencedMedia.Select(SignageReadiness).OrderBy(value => value switch
         {
             "failed" => 0, "missing" => 1, "preparing" => 2, _ => 3
@@ -244,6 +281,9 @@ public sealed class ManifestService(LessonCueDb db)
         {
             item.Id,
             item.Name,
+            item.Version,
+            item.PublishedVersion,
+            item.PublishState,
             item.Mode,
             item.Priority,
             item.Message,
@@ -253,7 +293,26 @@ public sealed class ManifestService(LessonCueDb db)
             mediaUrl = signageMedia.Url,
             media = signageMedia.Manifest,
             item.LayoutPreset,
+            item.LayoutId,
+            canvasWidth = layout?.CanvasWidth ?? 1920,
+            canvasHeight = layout?.CanvasHeight ?? 1080,
+            safeAreaPercent = layout?.SafeAreaPercent ?? 0,
             zones,
+            backgroundAudio,
+            contentPlaylist = contentPlaylist is null ? null : new
+            {
+                contentPlaylist.Id, contentPlaylist.Name, contentPlaylist.PlaybackMode, contentPlaylist.Synchronization,
+                version = contentPlaylist.PublishedVersion, items = playlistItems
+            },
+            item.ContentPlaylistId,
+            item.VolumePercent,
+            item.DisplayPower,
+            kiosk = item.KioskEnabled ? new
+            {
+                enabled = true, interactionUrl = item.KioskInteractionUrl, timeoutSeconds = item.KioskTimeoutSeconds,
+                showCloseButton = item.KioskShowCloseButton, showTouchIndicator = item.KioskShowTouchIndicator,
+                virtualKeyboard = item.KioskVirtualKeyboard
+            } : null,
             item.WidgetCacheUpdatedAt,
             item.WidgetCacheError,
             item.StartsAt,
@@ -270,6 +329,73 @@ public sealed class ManifestService(LessonCueDb db)
             ready = readiness == "ready",
             readiness
         };
+    }
+
+    private static List<SignageZoneInput> EffectiveZones(SignagePlaylist item,
+        IReadOnlyDictionary<Guid, SignageLayoutResource> layouts) =>
+        item.LayoutId is { } layoutId && layouts.TryGetValue(layoutId, out var layout)
+            ? SignageLayout.ParseZones(layout.PublishedZonesJson)
+            : SignageLayout.ParseZones(item.ZonesJson);
+
+    private static object MapContentPlaylistItem(SignageContentPlaylistItemInput entry, SignagePlaylist schedule,
+        Screen screen, IReadOnlyDictionary<Guid, MediaAsset> media, IReadOnlyDictionary<Guid, SignageLayoutResource> layouts)
+    {
+        var mappedMedia = entry.MediaAssetId is { } mediaId && media.TryGetValue(mediaId, out var asset)
+            ? MapSignageMedia(asset, $"signage-{schedule.Id}-playlist-{entry.Id}", entry.Title ?? asset.FileName, screen).Manifest : null;
+        object? mappedLayout = null;
+        if (entry.LayoutId is { } layoutId && layouts.TryGetValue(layoutId, out var layout))
+        {
+            mappedLayout = new
+            {
+                layout.Id, layout.Name, layout.BackgroundColor, layout.CanvasWidth, layout.CanvasHeight, layout.SafeAreaPercent,
+                backgroundAudio = layout.BackgroundAudioAssetId is { } audioId && media.TryGetValue(audioId, out var audioAsset)
+                    ? MapSignageMedia(audioAsset, $"signage-{schedule.Id}-playlist-{entry.Id}-background-audio",
+                        $"{layout.Name} background audio", screen).Manifest : null,
+                zones = SignageLayout.ParseZones(layout.PublishedZonesJson).Select(zone => new
+                {
+                    zone.Id, zone.Type, zone.Title, zone.Content, sourceUrl = zone.Type == "stream" ? null : zone.SourceUrl,
+                    zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
+                    zone.RefreshMinutes, zone.Rotation, zone.ZIndex, zone.Opacity, zone.Fit,
+                    zone.Locked, zone.Hidden, zone.FlipX, zone.FlipY, zone.GroupId, zone.LockMode,
+                    zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight, zone.Italic, zone.Underline,
+                    zone.LineHeightPercent, zone.TextAlign, zone.Shape, zone.StrokeColor, zone.StrokeWidth,
+                    zone.CornerRadius, zone.IconName, zone.QrValue, zone.TickerSpeed, zone.CounterTargetAt,
+                    media = zone.MediaAssetId is { } zoneMediaId && media.TryGetValue(zoneMediaId, out var zoneAsset)
+                        ? MapSignageMedia(zoneAsset, $"signage-{schedule.Id}-playlist-{entry.Id}-zone-{zone.Id}",
+                            zone.Title ?? zoneAsset.FileName, screen).Manifest : null
+                }).ToArray()
+            };
+        }
+        return new
+        {
+            entry.Id, entry.Kind, entry.Title, entry.LayoutId, entry.MediaAssetId, entry.NestedPlaylistId,
+            entry.AppType, entry.SourceUrl, entry.DurationSeconds, entry.Transition, entry.Hidden, entry.Transparent,
+            entry.TagsCsv, media = mappedMedia, layout = mappedLayout
+        };
+    }
+
+    private static IEnumerable<SignageContentPlaylistItemInput> ResolveContentItems(SignageContentPlaylist playlist,
+        IReadOnlyDictionary<Guid, SignageContentPlaylist> playlists, IEnumerable<MediaAsset> media, int depth)
+    {
+        foreach (var item in SignageStudio.ParseItems(playlist.PublishedItemsJson))
+        {
+            if (item.Hidden) continue;
+            if (item.Kind == "nested" && depth < 4 && item.NestedPlaylistId is { } nestedId &&
+                playlists.TryGetValue(nestedId, out var nested))
+            {
+                foreach (var child in ResolveContentItems(nested, playlists, media, depth + 1)) yield return child;
+            }
+            else if (item.Kind == "tag")
+            {
+                var tags = (item.TagsCsv ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                foreach (var asset in media.Where(asset => tags.Intersect(
+                    asset.TagsCsv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                    StringComparer.OrdinalIgnoreCase).Any()).OrderBy(asset => asset.FileName))
+                    yield return item with { Id = $"{item.Id}-{asset.Id:N}", Kind = "media", MediaAssetId = asset.Id,
+                        Title = asset.FileName };
+            }
+            else yield return item;
+        }
     }
 
     private static List<CuePointInput> ParseCuePoints(string json)

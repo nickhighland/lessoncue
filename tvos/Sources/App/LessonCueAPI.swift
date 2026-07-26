@@ -71,11 +71,12 @@ struct LessonCueAPI: Sendable {
                       failedDownloads: Int = 0, acknowledgedControlVersion: Int = 0,
                       playback: PlaybackTelemetry = PlaybackTelemetry(), cachedItems: Int = 0,
                       totalItems: Int = 0, cacheInventory: [CacheDiagnostic] = [],
-                      downloadQueue: [DownloadDiagnostic] = [], recentDeviceErrors: [DeviceDiagnosticError] = []) async throws {
+                      downloadQueue: [DownloadDiagnostic] = [], recentDeviceErrors: [DeviceDiagnosticError] = [],
+                      signage: SignageCue? = nil) async throws {
         var recentErrors = recentDeviceErrors.map(\.jsonObject)
         if let playbackError = playback.error { recentErrors.insert(["timestamp": ISO8601DateFormatter().string(from: Date()),
             "area": "playback", "message": playbackError, "itemId": jsonValue(playback.itemId)], at: 0) }
-        let body = try JSONSerialization.data(withJSONObject: [
+        var status: [String: Any] = [
             "screenId": identity.screenId,
             "appVersion": "0.35.0",
             "online": true,
@@ -105,7 +106,14 @@ struct LessonCueAPI: Sendable {
                 ["kind": "audio", "codec": "MP3", "supported": true, "detail": "AVFoundation"]
             ],
             "recentErrors": recentErrors
-        ])
+        ]
+        if let signage {
+            status["signageId"] = signage.id
+            status["signageVersion"] = signage.publishedVersion ?? signage.version ?? 1
+            status["signageName"] = signage.name
+            status["signageError"] = jsonValue(signage.widgetCacheError)
+        }
+        let body = try JSONSerialization.data(withJSONObject: status)
         guard let url = URL(string: "/api/v1/tv/status", relativeTo: serverURL)?.absoluteURL else { throw APIError.invalidAddress }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

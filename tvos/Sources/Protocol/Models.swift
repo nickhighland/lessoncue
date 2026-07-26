@@ -134,6 +134,40 @@ public struct SignageCue: Codable, Identifiable, Equatable, Sendable {
     public let zones: [SignageZone]?
     public let widgetCacheUpdatedAt: String?
     public let widgetCacheError: String?
+    public let version: Int?
+    public let publishedVersion: Int?
+    public let contentPlaylist: SignageContentPlaylist?
+    public let backgroundAudio: CueItem?
+    public let volumePercent: Int?
+    public let displayPower: String?
+}
+
+public struct SignageContentPlaylist: Codable, Equatable, Sendable {
+    public let id: String
+    public let name: String
+    public let playbackMode: String
+    public let synchronization: String
+    public let version: Int
+    public let items: [SignagePlaylistEntry]
+}
+
+public struct SignagePlaylistEntry: Codable, Identifiable, Equatable, Sendable {
+    public let id: String
+    public let kind: String
+    public let title: String?
+    public let durationSeconds: Int
+    public let transition: String?
+    public let sourceUrl: String?
+    public let media: CueItem?
+    public let layout: SignagePlaylistLayout?
+}
+
+public struct SignagePlaylistLayout: Codable, Equatable, Sendable {
+    public let id: String
+    public let name: String
+    public let backgroundColor: String
+    public let zones: [SignageZone]
+    public let backgroundAudio: CueItem?
 }
 
 public struct SignageWidgetCache: Codable, Equatable, Sendable {
@@ -156,6 +190,7 @@ public struct SignageZone: Codable, Identifiable, Equatable, Sendable {
     public let backgroundColor: String
     public let textColor: String
     public let accentColor: String
+    public let sourceUrl: String?
     public let streamUrl: String?
     public let rotation: Int?
     public let zIndex: Int?
@@ -165,6 +200,22 @@ public struct SignageZone: Codable, Identifiable, Equatable, Sendable {
     public let hidden: Bool?
     public let flipX: Bool?
     public let flipY: Bool?
+    public let richTextJson: String?
+    public let fontFamily: String?
+    public let fontSize: Int?
+    public let fontWeight: Int?
+    public let italic: Bool?
+    public let underline: Bool?
+    public let lineHeightPercent: Int?
+    public let textAlign: String?
+    public let shape: String?
+    public let strokeColor: String?
+    public let strokeWidth: Int?
+    public let cornerRadius: Int?
+    public let iconName: String?
+    public let qrValue: String?
+    public let tickerSpeed: Int?
+    public let counterTargetAt: Date?
     public let media: CueItem?
     public let cached: SignageWidgetCache?
 }

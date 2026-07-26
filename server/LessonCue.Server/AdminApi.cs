@@ -15,6 +15,7 @@ public static class AdminApi
     public static void MapLessonCueAdmin(this IEndpointRouteBuilder routes, string mediaPath, string dataPath,
         Guid serverId, string serverName)
     {
+        routes.MapSignageStudio();
         var api = routes.MapGroup("/api/v1");
         var auth = api.MapGroup("/auth");
 
@@ -2019,6 +2020,9 @@ public static class AdminApi
                 x.ManifestVersion,
                 x.TagsCsv,
                 x.Site,
+                x.SignageOrientation,
+                x.SignageWidth,
+                x.SignageHeight,
                 x.LastIpAddress,
                 x.ControlVersion,
                 x.ControlAction,
@@ -2193,6 +2197,15 @@ public static class AdminApi
             if (input.VolunteerMode is not null) screen.VolunteerMode = input.VolunteerMode.Value;
             if (input.TagsCsv is not null) screen.TagsCsv = input.TagsCsv.Trim();
             if (input.Site is not null) screen.Site = input.Site.Trim();
+            if (input.SignageOrientation is not null)
+                screen.SignageOrientation = input.SignageOrientation is "landscape" or "portrait" ? input.SignageOrientation : "auto";
+            if (input.SignageWidth is not null || input.SignageHeight is not null)
+            {
+                if (input.SignageWidth is < 240 or > 7680 || input.SignageHeight is < 240 or > 7680)
+                    return Results.BadRequest(new { error = "Custom signage dimensions must be from 240 to 7,680 pixels." });
+                screen.SignageWidth = input.SignageWidth;
+                screen.SignageHeight = input.SignageHeight;
+            }
             if (input.AllowDiagnosticScreenshots is bool allowScreenshots)
             {
                 screen.AllowDiagnosticScreenshots = allowScreenshots;
@@ -2921,6 +2934,10 @@ public static class AdminApi
                 {
                     item.Id, item.Name, item.Mode, item.Enabled, item.Priority, item.StartsAt, item.EndsAt,
                     item.Message, item.BackgroundColor, item.TextColor, item.MediaAssetId,
+                    item.LayoutId, item.ContentPlaylistId, item.VolumePercent, item.DisplayPower,
+                    item.Version, item.PublishedVersion, item.PublishState, item.PublishedAt, item.LastPushedAt,
+                    item.KioskEnabled, item.KioskInteractionUrl, item.KioskTimeoutSeconds,
+                    item.KioskShowCloseButton, item.KioskShowTouchIndicator, item.KioskVirtualKeyboard,
                     mediaFileName = item.MediaAsset?.FileName, item.TargetTagsCsv,
                     recurrence = SignageSchedule.NormalizeRecurrence(item.Recurrence),
                     item.ScheduleStartDate, item.ScheduleEndDate, item.StartMinutes, item.EndMinutes,
@@ -2931,6 +2948,10 @@ public static class AdminApi
                         zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
                         zone.RefreshMinutes, zone.Rotation, zone.ZIndex, zone.Opacity, zone.Fit,
                         zone.Locked, zone.Hidden, zone.FlipX, zone.FlipY,
+                        zone.GroupId, zone.LockMode, zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight,
+                        zone.Italic, zone.Underline, zone.LineHeightPercent, zone.TextAlign, zone.Shape,
+                        zone.StrokeColor, zone.StrokeWidth, zone.CornerRadius, zone.IconName, zone.QrValue,
+                        zone.TickerSpeed, zone.CounterTargetAt,
                         mediaFileName = zone.MediaAssetId is { } mediaId && zoneMediaAssets.TryGetValue(mediaId, out var mediaAsset) ? mediaAsset.FileName : null
                     }).ToArray(),
                     widgetCache = SignageLayout.ParseCache(item.WidgetCacheJson),
@@ -3045,7 +3066,7 @@ public static class AdminApi
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static bool IsColor(string? value) => value is { Length: 7 } && value[0] == '#' && value[1..].All(Uri.IsHexDigit);
 
-    private static async Task<string?> ValidateSignageAsync(SignageInput input, LessonCueDb db, CancellationToken ct)
+    internal static async Task<string?> ValidateSignageAsync(SignageInput input, LessonCueDb db, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(input.Name)) return "Signage name is required.";
         if (input.Name.Trim().Length > 160) return "Signage name must be 160 characters or fewer.";
@@ -3071,6 +3092,17 @@ public static class AdminApi
         if ((input.TargetScreenIds?.Count ?? 0) > 500) return "Signage supports at most 500 explicitly selected screens.";
         if (input.MediaAssetId is { } mediaId && !await db.MediaAssets.AnyAsync(x => x.Id == mediaId, ct))
             return "The selected media no longer exists.";
+        if (input.LayoutId is { } layoutId && !await db.SignageLayouts.AnyAsync(x => x.Id == layoutId && x.PublishedVersion > 0, ct))
+            return "The selected layout is not published or no longer exists.";
+        if (input.ContentPlaylistId is { } playlistId && !await db.SignageContentPlaylists.AnyAsync(x => x.Id == playlistId && x.PublishedVersion > 0, ct))
+            return "The selected signage playlist is not published or no longer exists.";
+        if (input.VolumePercent is < 0 or > 150) return "Signage volume must be from 0 to 150 percent.";
+        if (input.DisplayPower is not (null or "unchanged" or "on" or "off")) return "Display power must be unchanged, on, or off.";
+        if (input.KioskTimeoutSeconds is < 5 or > 86400) return "Kiosk timeout must be from 5 seconds to 24 hours.";
+        if (!string.IsNullOrWhiteSpace(input.KioskInteractionUrl) &&
+            (!Uri.TryCreate(input.KioskInteractionUrl.Trim(), UriKind.Absolute, out var kioskUri) ||
+             kioskUri.Scheme is not ("http" or "https") || !string.IsNullOrWhiteSpace(kioskUri.UserInfo)))
+            return "Kiosk interaction content must use an absolute HTTP or HTTPS address without embedded credentials.";
         var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
         var layoutError = SignageLayout.Validate(input.Zones, SignageLayout.ParseAllowlist(organization.SignageSourceAllowlistJson));
         if (layoutError is not null) return layoutError;
@@ -3084,7 +3116,7 @@ public static class AdminApi
         return null;
     }
 
-    private static void ApplySignage(SignagePlaylist item, SignageInput input)
+    internal static void ApplySignage(SignagePlaylist item, SignageInput input)
     {
         var recurrence = SignageSchedule.NormalizeRecurrence(input.Recurrence);
         item.Name = input.Name.Trim();
@@ -3108,6 +3140,21 @@ public static class AdminApi
         item.TargetScreenIdsJson = SignageSchedule.StoreScreenIds(input.TargetScreenIds);
         item.LayoutPreset = SignageLayout.NormalizePreset(input.LayoutPreset);
         item.ZonesJson = SignageLayout.StoreZones(input.Zones);
+        item.LayoutId = input.LayoutId;
+        item.ContentPlaylistId = input.ContentPlaylistId;
+        item.VolumePercent = Math.Clamp(input.VolumePercent, 0, 150);
+        item.DisplayPower = input.DisplayPower is "on" or "off" ? input.DisplayPower : "unchanged";
+        item.KioskEnabled = input.KioskEnabled;
+        item.KioskInteractionUrl = NullIfBlank(input.KioskInteractionUrl);
+        item.KioskTimeoutSeconds = Math.Clamp(input.KioskTimeoutSeconds, 5, 86400);
+        item.KioskShowCloseButton = input.KioskShowCloseButton;
+        item.KioskShowTouchIndicator = input.KioskShowTouchIndicator;
+        item.KioskVirtualKeyboard = input.KioskVirtualKeyboard;
+        item.Version++;
+        item.PublishedVersion = item.Version;
+        item.PublishState = "published";
+        item.PublishedAt = DateTimeOffset.UtcNow;
+        item.LastPushedAt = DateTimeOffset.UtcNow;
         var zones = SignageLayout.ParseZones(item.ZonesJson).ToDictionary(zone => zone.Id, StringComparer.OrdinalIgnoreCase);
         item.WidgetCacheJson = SignageLayout.StoreCache(SignageLayout.ParseCache(item.WidgetCacheJson).Where(entry =>
             zones.TryGetValue(entry.ZoneId, out var zone) && string.Equals(entry.Source, zone.SourceUrl, StringComparison.OrdinalIgnoreCase)));

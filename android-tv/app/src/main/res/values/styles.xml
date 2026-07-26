@@ -2,7 +2,10 @@
     <style name="Theme.LessonCue" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowFullscreen">true</item>
-        <item name="android:colorAccent">#FFB664</item>
-        <item name="android:windowBackground">#08111F</item>
+        <item name="android:colorAccent">#D89028</item>
+        <item name="android:colorPrimary">#D89028</item>
+        <item name="android:windowBackground">#262F2C</item>
+        <item name="android:windowAllowReturnTransitionOverlap">true</item>
+        <item name="android:windowAllowEnterTransitionOverlap">true</item>
     </style>
 </resources>
