@@ -198,7 +198,7 @@ final class AppModel: ObservableObject {
                     freeBytes: freeBytes, acknowledgedControlVersion: self.acknowledgedControlVersion,
                     playback: self.playbackTelemetry, cachedItems: cachedItems,
                     totalItems: manifest.allItems.count, cacheInventory: diagnostics.0, downloadQueue: diagnostics.1,
-                    recentDeviceErrors: recentErrors)
+                    recentDeviceErrors: recentErrors, signage: manifest.signage.first)
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }
@@ -277,7 +277,8 @@ final class AppModel: ObservableObject {
         try? await api.reportStatus(identity: identity, manifestVersion: manifest.manifestVersion,
             freeBytes: freeBytes, acknowledgedControlVersion: acknowledgedControlVersion,
             playback: playbackTelemetry, cachedItems: cachedItems, totalItems: manifest.allItems.count,
-            cacheInventory: diagnostics.0, downloadQueue: diagnostics.1, recentDeviceErrors: recentErrors)
+            cacheInventory: diagnostics.0, downloadQueue: diagnostics.1, recentDeviceErrors: recentErrors,
+            signage: manifest.signage.first)
     }
 
     private func captureDiagnosticScreenshot() -> Data? {
@@ -322,8 +323,16 @@ private extension ScreenManifest {
         }
         for sign in signageSchedule ?? signage {
             if let media = sign.media { candidates.append(media) }
+            if let audio = sign.backgroundAudio { candidates.append(audio) }
             for zone in sign.zones ?? [] {
                 if let media = zone.media { candidates.append(media) }
+            }
+            for entry in sign.contentPlaylist?.items ?? [] {
+                if let media = entry.media { candidates.append(media) }
+                if let audio = entry.layout?.backgroundAudio { candidates.append(audio) }
+                for zone in entry.layout?.zones ?? [] {
+                    if let media = zone.media { candidates.append(media) }
+                }
             }
         }
         var unique: [CueItem] = []

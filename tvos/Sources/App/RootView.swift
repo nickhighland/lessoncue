@@ -1,6 +1,8 @@
 import AVKit
 import Combine
+import CoreImage.CIFilterBuiltins
 import SwiftUI
+import UIKit
 
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
@@ -77,16 +79,26 @@ private struct PairingView: View {
 
 private struct LibraryView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var signageEntryIndex = 0
     private var signage: SignageCue? {
         model.manifest?.signage.first(where: { $0.mode == "emergency" }) ?? model.manifest?.signage.first
+    }
+    private var signageEntries: [SignagePlaylistEntry] { signage?.contentPlaylist?.items ?? [] }
+    private var signageEntry: SignagePlaylistEntry? {
+        signageEntries.isEmpty ? nil : signageEntries[signageEntryIndex % signageEntries.count]
     }
 
     var body: some View {
       ZStack {
-        Color(hex: signage?.backgroundColor ?? "#08111f").ignoresSafeArea()
-        if let signage, !(signage.zones ?? []).isEmpty { SignageZoneLayout(signage: signage) }
+        Color(hex: signageEntry?.layout?.backgroundColor ?? signage?.backgroundColor ?? "#08111f").ignoresSafeArea()
+        if let audio = signageEntry?.layout?.backgroundAudio ?? signage?.backgroundAudio {
+            SignageAudio(item: audio, volumePercent: signage?.volumePercent ?? 100)
+        }
+        if let signage, let layout = signageEntry?.layout { SignageZoneLayout(signage: signage, zonesOverride: layout.zones) }
+        else if let signage, !(signage.zones ?? []).isEmpty { SignageZoneLayout(signage: signage) }
+        else if let media = signageEntry?.media { SignageBackdrop(item: media) }
         else if let media = signage?.media { SignageBackdrop(item: media) }
-        if !(signage?.zones ?? []).isEmpty { Color.black.opacity(0.30).ignoresSafeArea() }
+        if signageEntry?.layout != nil || !(signage?.zones ?? []).isEmpty { Color.black.opacity(0.30).ignoresSafeArea() }
         HStack(alignment: .top, spacing: 80) {
             VStack(alignment: .leading, spacing: 18) {
                 Text("LESSONCUE").font(.headline).tracking(5).foregroundStyle(Color.lessonGold)
@@ -129,23 +141,61 @@ private struct LibraryView: View {
             }
         }
         .padding(70)
+        if signage?.displayPower == "off" { Color.black.ignoresSafeArea().zIndex(10_000) }
       }
+      .task(id: signage?.contentPlaylist?.version) {
+          if signage?.contentPlaylist?.synchronization == "screen" || signageEntries.isEmpty {
+              signageEntryIndex = 0
+          } else {
+              let cycle = max(1, signageEntries.reduce(0) { $0 + max(1, $1.durationSeconds) })
+              var offset = Int(Date().timeIntervalSince1970) % cycle
+              signageEntryIndex = signageEntries.firstIndex { entry in
+                  offset -= max(1, entry.durationSeconds)
+                  return offset < 0
+              } ?? 0
+          }
+          while !Task.isCancelled, !signageEntries.isEmpty {
+              let seconds = max(1, signageEntries[signageEntryIndex % signageEntries.count].durationSeconds)
+              try? await Task.sleep(for: .seconds(seconds))
+              signageEntryIndex = (signageEntryIndex + 1) % signageEntries.count
+          }
+      }
+    }
+}
+
+private struct SignageAudio: View {
+    @EnvironmentObject private var model: AppModel
+    let item: CueItem
+    let volumePercent: Int
+    @State private var player: AVQueuePlayer?
+    @State private var looper: AVPlayerLooper?
+    var body: some View {
+        Color.clear.task(id: item.id) {
+            guard let url = await model.mediaURL(for: item) else { return }
+            let audio = AVQueuePlayer()
+            audio.volume = Float(max(0, min(100, volumePercent))) / 100
+            looper = AVPlayerLooper(player: audio, templateItem: AVPlayerItem(url: url))
+            player = audio
+            audio.play()
+        }.onDisappear { player?.pause(); player = nil; looper = nil }
     }
 }
 
 private struct SignageZoneLayout: View {
     @EnvironmentObject private var model: AppModel
     let signage: SignageCue
+    var zonesOverride: [SignageZone]? = nil
 
     var body: some View {
         GeometryReader { proxy in
-            ForEach((signage.zones ?? []).filter { $0.hidden != true }.sorted { ($0.zIndex ?? 0) < ($1.zIndex ?? 0) }) { zone in
+            ForEach((zonesOverride ?? signage.zones ?? []).filter { $0.hidden != true }.sorted { ($0.zIndex ?? 0) < ($1.zIndex ?? 0) }) { zone in
                 ZStack {
                     Color(hex: zone.backgroundColor)
                     if let media = zone.media { SignageBackdrop(item: media, fit: zone.fit ?? "cover") }
                     if zone.type == "stream", let path = zone.streamUrl, let url = model.signageURL(for: path) {
                         SignageLiveStream(url: url, fit: zone.fit ?? "cover")
                     }
+                    if zone.type == "shape" { SignageShapeView(zone: zone).padding(10) }
                     VStack(alignment: .leading, spacing: 12) {
                         if let title = zone.title { Text(title.uppercased()).font(.headline).tracking(3).foregroundStyle(Color(hex: zone.accentColor)) }
                         if zone.type == "clock" {
@@ -153,10 +203,31 @@ private struct SignageZoneLayout: View {
                                 Text(context.date, style: .time).font(.system(size: 64, weight: .bold, design: .rounded))
                                 Text(context.date.formatted(.dateTime.weekday(.wide).month(.wide).day())).font(.title3)
                             }
-                        } else {
+                        } else if zone.type == "icon" {
+                            Text(["star":"★","info":"ⓘ","warning":"⚠","arrow":"➜","check":"✓"][zone.iconName ?? ""] ?? "★")
+                                .font(.system(size: CGFloat(max(72, zone.fontSize ?? 72)), weight: .bold))
+                        } else if zone.type == "qr" || zone.type == "wifi" {
+                            if let value = zone.qrValue { SignageQRCode(value: value) }
+                        } else if zone.type == "counter" {
+                            SignageCounterView(zone: zone)
+                        } else if zone.type != "shape" {
                             let displayText = (zone.cached?.text.isEmpty == false ? zone.cached?.text : nil) ?? zone.content
                             if let text = displayText {
-                                Text(text).font(.system(size: 32, weight: .semibold, design: .rounded))
+                                Group {
+                                    if zone.type == "text", let runs = zone.richTextJson {
+                                        SignageRichText(value: runs, fallback: text)
+                                    } else if zone.type == "ticker" {
+                                        SignageTickerView(text: text, speed: zone.tickerSpeed ?? 60)
+                                    } else {
+                                        Text(text)
+                                    }
+                                }
+                                    .font(signageFont(zone))
+                                    .fontWeight(signageFontWeight(zone.fontWeight))
+                                    .italic(zone.italic == true)
+                                    .underline(zone.underline == true)
+                                    .multilineTextAlignment(signageTextAlignment(zone.textAlign))
+                                    .lineSpacing(signageLineSpacing(zone))
                             }
                             ForEach(Array((zone.cached?.items ?? []).prefix(8).enumerated()), id: \.offset) { _, item in
                                 Text("•  \(item)").font(.title3).lineLimit(1)
@@ -176,6 +247,164 @@ private struct SignageZoneLayout: View {
                 .zIndex(Double(zone.zIndex ?? 0))
             }
         }.ignoresSafeArea()
+    }
+}
+
+private func signageFont(_ zone: SignageZone) -> Font {
+    let size = CGFloat(min(300, max(8, zone.fontSize ?? 32)))
+    switch zone.fontFamily?.lowercased() {
+    case "georgia", "serif": return .custom("Georgia", size: size)
+    case "arial", "sans-serif": return .custom("Arial", size: size)
+    case "monospace": return .system(size: size, design: .monospaced)
+    default: return .system(size: size, design: .rounded)
+    }
+}
+
+private func signageFontWeight(_ value: Int?) -> Font.Weight {
+    switch value ?? 600 {
+    case ..<250: return .ultraLight
+    case ..<350: return .light
+    case ..<450: return .regular
+    case ..<550: return .medium
+    case ..<650: return .semibold
+    case ..<750: return .bold
+    case ..<850: return .heavy
+    default: return .black
+    }
+}
+
+private func signageTextAlignment(_ value: String?) -> TextAlignment {
+    switch value {
+    case "center": return .center
+    case "right": return .trailing
+    default: return .leading
+    }
+}
+
+private func signageLineSpacing(_ zone: SignageZone) -> CGFloat {
+    let size = CGFloat(min(300, max(8, zone.fontSize ?? 32)))
+    return max(0, size * CGFloat((zone.lineHeightPercent ?? 120) - 100) / 100)
+}
+
+private struct SignageRichTextRun: Decodable {
+    let text: String?
+    let bold: Bool?
+    let italic: Bool?
+    let underline: Bool?
+    let color: String?
+}
+
+private struct SignageRichText: View {
+    let value: String
+    let fallback: String
+
+    private var rendered: Text {
+        guard let data = value.data(using: .utf8),
+              let runs = try? JSONDecoder().decode([SignageRichTextRun].self, from: data),
+              !runs.isEmpty else { return Text(fallback) }
+        return runs.prefix(50).reduce(Text("")) { result, run in
+            var part = Text(run.text ?? "")
+            if run.bold == true { part = part.bold() }
+            if run.italic == true { part = part.italic() }
+            if run.underline == true { part = part.underline() }
+            if let color = run.color { part = part.foregroundColor(Color(hex: color)) }
+            return result + part
+        }
+    }
+
+    var body: some View { rendered }
+}
+
+private struct SignageCounterView: View {
+    let zone: SignageZone
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            Text(counterText(at: context.date)).font(signageFont(zone)).fontWeight(signageFontWeight(zone.fontWeight))
+        }
+    }
+
+    private func counterText(at now: Date) -> String {
+        guard let target = zone.counterTargetAt else { return zone.content ?? "Countdown" }
+        let total = max(0, Int(target.timeIntervalSince(now)))
+        let days = total / 86_400
+        let hours = (total % 86_400) / 3_600
+        let minutes = (total % 3_600) / 60
+        let seconds = total % 60
+        let clock = String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+        return days > 0 ? "\(days) days  \(clock)" : clock
+    }
+}
+
+private struct SignageTickerView: View {
+    let text: String
+    let speed: Int
+
+    var body: some View {
+        GeometryReader { proxy in
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                let distance = max(1, proxy.size.width + CGFloat(text.count * 24))
+                let travelled = CGFloat(context.date.timeIntervalSinceReferenceDate) * CGFloat(min(300, max(10, speed)))
+                Text(text).fixedSize().offset(x: proxy.size.width - travelled.truncatingRemainder(dividingBy: distance))
+            }
+        }.clipped()
+    }
+}
+
+private struct SignageTriangle: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct SignageLine: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.midY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        return path
+    }
+}
+
+private struct SignageShapeView: View {
+    let zone: SignageZone
+    private var stroke: Color { Color(hex: zone.strokeColor ?? "#ffffff") }
+    private var lineWidth: CGFloat { CGFloat(max(1, zone.strokeWidth ?? 1)) }
+
+    @ViewBuilder var body: some View {
+        switch zone.shape {
+        case "circle": Circle().stroke(stroke, lineWidth: lineWidth)
+        case "triangle": SignageTriangle().stroke(stroke, lineWidth: lineWidth)
+        case "line": SignageLine().stroke(stroke, lineWidth: lineWidth)
+        default:
+            RoundedRectangle(cornerRadius: CGFloat(zone.cornerRadius ?? 0))
+                .stroke(stroke, lineWidth: lineWidth)
+        }
+    }
+}
+
+private struct SignageQRCode: View {
+    let value: String
+
+    private var image: UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(value.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 12, y: 12)),
+              let cgImage = CIContext().createCGImage(output, from: output.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+
+    var body: some View {
+        if let image {
+            Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
+                .background(.white).accessibilityLabel("QR code")
+        }
     }
 }
 

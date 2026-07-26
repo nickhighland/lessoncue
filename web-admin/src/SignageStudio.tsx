@@ -1,0 +1,675 @@
+import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
+import QRCode from "qrcode";
+import "./signage-studio.css";
+
+export type SignageStudioSection = "layouts" | "playlists" | "schedule" | "publishing" | "operations" | "emergencies";
+type StudioMedia = { id: string; fileName: string; contentType: string; thumbnailUrl?: string; downloadUrl: string; sourceKind: string };
+type StudioScreen = { id: string; name: string; site: string; tagsCsv: string; revoked: boolean; allowDiagnosticScreenshots: boolean;
+  signageOrientation?: "auto" | "landscape" | "portrait"; signageWidth?: number; signageHeight?: number;
+  cachedItems?: number; totalItems?: number; manifestVersion?: number; playbackState?: string; lastSeenAt?: string };
+type StudioSchedule = {
+  id: string; name: string; mode: string; enabled: boolean; activeNow: boolean; priority: number; message: string;
+  targetScreenIds: string[]; targetTagsCsv: string; recurrence: string; startsAt?: string; endsAt?: string;
+  scheduleStartDate?: string; scheduleEndDate?: string; startMinutes?: number; endMinutes?: number;
+  daysOfWeek?: number[]; excludedDates?: string[];
+  version: number; publishedVersion: number; publishState: string; publishedAt?: string; lastPushedAt?: string;
+  layoutId?: string; contentPlaylistId?: string; volumePercent: number; displayPower: string;
+};
+type Zone = {
+  id: string; type: string; title?: string; content?: string; mediaAssetId?: string; sourceUrl?: string;
+  x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string;
+  refreshMinutes: number; rotation: number; zIndex: number; opacity: number; fit: string; locked: boolean; hidden: boolean;
+  flipX: boolean; flipY: boolean; groupId?: string; lockMode?: "none" | "position" | "content" | "full";
+  fontFamily?: string; fontSize?: number; fontWeight?: number; italic?: boolean; underline?: boolean;
+  lineHeightPercent?: number; textAlign?: string; shape?: string; strokeColor?: string; strokeWidth?: number;
+  cornerRadius?: number; iconName?: string; qrValue?: string; tickerSpeed?: number; counterTargetAt?: string;
+  credentialKey?: string;
+  richTextJson?: string;
+};
+type Layout = {
+  id: string; name: string; folder: string; description: string; isTemplate: boolean; isStarter: boolean;
+  backgroundColor: string; canvasWidth: number; canvasHeight: number; orientation: string; safeAreaPercent: number;
+  zones: Zone[]; publishedZones: Zone[]; backgroundAudioAssetId?: string; version: number; publishedVersion: number;
+  publishState: string; publishedAt?: string; thumbnailDataUrl?: string; updatedAt: string;
+};
+type PlaylistEntry = {
+  id: string; kind: "layout" | "media" | "app" | "web" | "nested" | "tag" | "cloud" | "csv"; title?: string;
+  layoutId?: string; mediaAssetId?: string; nestedPlaylistId?: string; appType?: string; sourceUrl?: string;
+  durationSeconds: number; transition: "cut" | "fade" | "slide" | "zoom"; hidden: boolean; transparent: boolean; tagsCsv?: string;
+};
+type StudioPlaylist = {
+  id: string; name: string; folder: string; playbackMode: "ordered" | "random" | "tag" | "interactive";
+  synchronization: "screen" | "region" | "global"; items: PlaylistEntry[]; publishedItems: PlaylistEntry[];
+  version: number; publishedVersion: number; publishState: string; publishedAt?: string; updatedAt: string;
+};
+type Emergency = {
+  id: string; name: string; severity: string; message: string; backgroundColor: string; textColor: string;
+  mediaAssetId?: string; targetTagsCsv: string; defaultDurationMinutes: number; activeSignageId?: string;
+  activatedAt?: string; expiresAt?: string;
+};
+type Operations = {
+  generatedAt: string;
+  screens: { id: string; name: string; site: string; tagsCsv: string; online: boolean; lastSeenAt?: string; appVersion: string;
+    manifestVersion: number; playbackState: string; playbackError?: string; networkQuality: string; networkLatencyMs?: number;
+    cachedItems: number; totalItems: number; screenshotStatus: string; proofCount: number; lastProofAt?: string }[];
+  schedules: { id: string; name: string; enabled: boolean; mode: string; version: number; publishedVersion: number;
+    publishState: string; publishedAt?: string; lastPushedAt?: string; targets: number; widgetCacheError?: string }[];
+  streams: { signageId: string; zoneId: string; running: boolean; startedAt?: string; lastAccess: string; lastSegmentAt?: string;
+    segmentLatencyMs?: number; playlistReady: boolean; restartCount: number; error?: string }[];
+  alerts: { id: string; name: string; severity: string; message: string }[];
+};
+
+type Props = {
+  section: SignageStudioSection; media: StudioMedia[]; screens: StudioScreen[]; signage: StudioSchedule[];
+  timeZone: string; sourceAllowlist: string[]; refresh: () => void; notify: (message: string) => void;
+};
+
+async function studioApi<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`/api/v1/signage-studio${path}`, {
+    credentials: "same-origin", ...init,
+    headers: { "Content-Type": "application/json", ...init?.headers }
+  });
+  if (!response.ok) {
+    const problem = await response.json().catch(() => ({}));
+    throw new Error(problem.error || `Request failed (${response.status})`);
+  }
+  if (response.status === 204) return undefined as T;
+  return response.json();
+}
+const id = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const errorText = (error: unknown) => error instanceof Error ? error.message : "Something went wrong.";
+const timeAgo = (value?: string) => {
+  if (!value) return "never";
+  const seconds = Math.max(0, (Date.now() - new Date(value).getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+};
+
+export function SignageStudioPanel(props: Props) {
+  if (props.section === "layouts") return <LayoutsPanel {...props} />;
+  if (props.section === "playlists") return <PlaylistsPanel {...props} />;
+  if (props.section === "publishing") return <PublishingPanel {...props} />;
+  if (props.section === "operations") return <OperationsPanel {...props} />;
+  if (props.section === "emergencies") return <EmergencyPanel {...props} />;
+  return null;
+}
+
+export function SignageCalendarBoard({ signage, timeZone, onEdit }: {
+  signage: StudioSchedule[]; timeZone: string; onEdit: (id: string, occurrenceDate: string) => void;
+}) {
+  const [focus, setFocus] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12));
+  const first = new Date(focus.getFullYear(), focus.getMonth(), 1, 12);
+  const start = new Date(first); start.setDate(1 - first.getDay());
+  const days = Array.from({ length: 42 }, (_, index) => { const date = new Date(start); date.setDate(start.getDate() + index); return date; });
+  const key = (date: Date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+  const occurs = (item: StudioSchedule, date: Date) => {
+    const dateKey = key(date);
+    if (item.mode === "idle" && !item.startsAt && !item.scheduleStartDate) return false;
+    if (item.recurrence === "once") return item.startsAt?.slice(0,10) === dateKey;
+    if (item.scheduleStartDate && dateKey < item.scheduleStartDate) return false;
+    if (item.scheduleEndDate && dateKey > item.scheduleEndDate) return false;
+    if (item.recurrence === "weekly") {
+      if (!item.daysOfWeek?.includes(date.getDay())) return false;
+      if (item.excludedDates?.includes(dateKey)) return false;
+    }
+    return true;
+  };
+  return <section className="panel signage-calendar-board"><header><div><h2>{focus.toLocaleDateString(undefined,{month:"long",year:"numeric"})}</h2><small>Signage calendar · {timeZone}</small></div><div><button onClick={()=>setFocus(new Date(focus.getFullYear(),focus.getMonth()-1,1,12))}>‹</button><button onClick={()=>setFocus(new Date(new Date().getFullYear(),new Date().getMonth(),1,12))}>Today</button><button onClick={()=>setFocus(new Date(focus.getFullYear(),focus.getMonth()+1,1,12))}>›</button></div></header><div className="signage-calendar-weekdays">{["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(day=><b key={day}>{day}</b>)}</div><div className="signage-calendar-grid">{days.map(date=><div className={`${date.getMonth()!==focus.getMonth()?"outside":""} ${key(date)===key(new Date())?"today":""}`} key={key(date)}><span>{date.getDate()}</span>{signage.filter(item=>item.enabled&&occurs(item,date)).slice(0,4).map(item=><button key={item.id} className={item.mode} onClick={()=>onEdit(item.id,key(date))} title={`${item.name} · click to edit this occurrence or its series`}><i/>{item.name}<small>{item.startMinutes!=null?`${String(Math.floor(item.startMinutes/60)).padStart(2,"0")}:${String(item.startMinutes%60).padStart(2,"0")}`:item.startsAt?new Date(item.startsAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"all day"}</small></button>)}</div>)}</div><footer><span><i className="scheduled"/>Scheduled content</span><span><i className="emergency"/>Emergency priority</span><span><i className="idle"/>Filler / idle</span><small>Recurring items can be changed for one occurrence, this and future occurrences, or the entire series.</small></footer></section>;
+}
+
+function LayoutsPanel({ media, notify }: Props) {
+  const [layouts, setLayouts] = useState<Layout[]>([]);
+  const [editing, setEditing] = useState<Layout | "new">();
+  const [credentials, setCredentials] = useState(false);
+  const [query, setQuery] = useState("");
+  const [folder, setFolder] = useState("");
+  const load = () => studioApi<Layout[]>("/layouts").then(setLayouts).catch(error => notify(errorText(error)));
+  useEffect(() => { void load(); }, []);
+  const folders = [...new Set(layouts.map(item => item.folder).filter(Boolean))].sort();
+  const shown = layouts.filter(item => (!folder || item.folder === folder) &&
+    `${item.name} ${item.folder} ${item.description}`.toLowerCase().includes(query.toLowerCase()));
+  async function duplicate(item: Layout) {
+    try { await studioApi(`/layouts/${item.id}/duplicate`, { method: "POST", body: "{}" }); load(); notify("Layout duplicated as an editable draft."); }
+    catch (error) { notify(errorText(error)); }
+  }
+  async function remove(item: Layout) {
+    if (!confirm(`Delete ${item.name}? Published schedules and playlists are protected from broken references.`)) return;
+    try { await studioApi(`/layouts/${item.id}`, { method: "DELETE" }); load(); notify("Layout deleted."); }
+    catch (error) { notify(errorText(error)); }
+  }
+  return <section className="studio-panel">
+    <div className="studio-toolbar panel"><div><strong>Reusable layouts</strong><small>Build once, then assign the same branded layout to schedules and playlists.</small></div>
+      <input type="search" placeholder="Search layouts" value={query} onChange={event => setQuery(event.target.value)} />
+      <select value={folder} onChange={event => setFolder(event.target.value)}><option value="">All folders</option>{folders.map(value => <option key={value}>{value}</option>)}</select>
+      <button className="button" onClick={() => setCredentials(true)}>Source credentials</button><button className="button primary" onClick={() => setEditing("new")}>Blank layout</button></div>
+    <div className="studio-card-grid">{shown.map(item => <article className="studio-resource-card" key={item.id}>
+      <LayoutThumbnail item={item} />
+      <div className="studio-resource-body"><div><span className={`studio-state ${item.publishState}`}>{item.publishState}</span>{item.isStarter && <span className="pill">Starter</span>}{item.isTemplate && !item.isStarter && <span className="pill">Template</span>}</div>
+        <h3>{item.name}</h3><p>{item.folder || "Unfiled"} · {item.canvasWidth}×{item.canvasHeight} · {item.zones.length} elements</p>
+        <small>Draft v{item.version}{item.publishedVersion ? ` · published v${item.publishedVersion}` : " · not published"}</small>
+        <div className="studio-card-actions"><button onClick={() => item.isStarter ? duplicate(item) : setEditing(item)}>{item.isStarter ? "Use template" : "Edit"}</button><button onClick={() => duplicate(item)}>Duplicate</button>{!item.isStarter && <button className="danger" onClick={() => remove(item)}>Delete</button>}</div>
+      </div></article>)}</div>
+    {!shown.length && <div className="panel studio-empty"><h3>No matching layouts</h3><p>Create a blank layout or clear the search filters.</p></div>}
+    {editing && <LayoutEditor layout={editing === "new" ? undefined : editing} templates={layouts.filter(item => item.isTemplate)}
+      media={media} onClose={() => setEditing(undefined)} notify={notify} onSaved={() => { setEditing(undefined); load(); }} />}
+    {credentials && <CredentialsDialog notify={notify} onClose={() => setCredentials(false)} />}
+  </section>;
+}
+
+function LayoutThumbnail({ item }: { item: Layout }) {
+  return <div className={`studio-layout-thumbnail ${item.orientation}`} style={{ background: item.backgroundColor }}>
+    {item.thumbnailDataUrl ? <img src={item.thumbnailDataUrl} alt="" /> : item.zones.slice().sort((a, b) => a.zIndex - b.zIndex).map(zone =>
+      <i key={zone.id} style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`,
+        background: zone.backgroundColor, borderColor: zone.accentColor, opacity: zone.opacity / 100,
+        transform: `rotate(${zone.rotation}deg)`, borderRadius: `${zone.cornerRadius || 0}%` }} />)}
+  </div>;
+}
+
+function freshZone(type = "text"): Zone {
+  return {
+    id: id(), type, title: type === "text" ? "Text" : type, content: type === "text" ? "New message" : "",
+    x: 10, y: 10, width: 40, height: 30, backgroundColor: "#17201e", textColor: "#ffffff", accentColor: "#d89127",
+    refreshMinutes: 15, rotation: 0, zIndex: 1, opacity: 100, fit: "cover", locked: false, hidden: false,
+    flipX: false, flipY: false, lockMode: "none", fontFamily: "system-ui", fontSize: 48, fontWeight: 600,
+    lineHeightPercent: 120, textAlign: "left", shape: "rectangle", strokeColor: "#ffffff", strokeWidth: 0,
+    cornerRadius: 0, tickerSpeed: 60
+  };
+}
+
+function LayoutEditor({ layout, templates, media, onClose, onSaved, notify }: {
+  layout?: Layout; templates: Layout[]; media: StudioMedia[]; onClose: () => void; onSaved: () => void; notify: (message: string) => void;
+}) {
+  const [name, setName] = useState(layout?.name || "Untitled layout");
+  const [folder, setFolder] = useState(layout?.folder || "");
+  const [description, setDescription] = useState(layout?.description || "");
+  const [background, setBackground] = useState(layout?.backgroundColor || "#25302d");
+  const [width, setWidth] = useState(layout?.canvasWidth || 1920);
+  const [height, setHeight] = useState(layout?.canvasHeight || 1080);
+  const [safeArea, setSafeArea] = useState(layout?.safeAreaPercent ?? 5);
+  const [isTemplate, setIsTemplate] = useState(layout?.isTemplate || false);
+  const [audioId, setAudioId] = useState(layout?.backgroundAudioAssetId || "");
+  const [zones, setZones] = useState<Zone[]>(layout?.zones || []);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [history, setHistory] = useState<Zone[][]>([]);
+  const [future, setFuture] = useState<Zone[][]>([]);
+  const [zoom, setZoom] = useState(75);
+  const [grid, setGrid] = useState(2);
+  const [snap, setSnap] = useState(true);
+  const [hand, setHand] = useState(false);
+  const [showSafe, setShowSafe] = useState(true);
+  const [guides, setGuides] = useState<{ vertical?: number; horizontal?: number }>({});
+  const [elementType, setElementType] = useState("text");
+  const canvas = useRef<HTMLDivElement>(null);
+  const current = zones.find(zone => zone.id === selected[0]);
+  const commit = (next: Zone[]) => { setHistory(all => [...all.slice(-49), zones]); setZones(next); setFuture([]); };
+  const patch = (zoneId: string, values: Partial<Zone>, record = true) => {
+    const next = zones.map(zone => zone.id === zoneId ? { ...zone, ...values } : zone);
+    if (record) commit(next); else setZones(next);
+  };
+  const undo = () => setHistory(all => {
+    const previous = all.at(-1); if (!previous) return all;
+    setFuture(next => [zones, ...next]); setZones(previous); return all.slice(0, -1);
+  });
+  const redo = () => setFuture(all => {
+    const next = all[0]; if (!next) return all;
+    setHistory(previous => [...previous, zones]); setZones(next); return all.slice(1);
+  });
+  function addElement() {
+    const zone = { ...freshZone(elementType), x: Math.min(60, 6 + zones.length * 2), y: Math.min(60, 6 + zones.length * 2), zIndex: zones.length + 1 };
+    commit([...zones, zone]); setSelected([zone.id]);
+  }
+  function selectionFor(zone: Zone, event: ReactPointerEvent) {
+    const groupedIds = zone.groupId ? zones.filter(value => value.groupId === zone.groupId).map(value => value.id) : [zone.id];
+    if (event.metaKey || event.ctrlKey || event.shiftKey)
+      setSelected(all => all.includes(zone.id) ? all.filter(value => !groupedIds.includes(value)) : [...new Set([...all, ...groupedIds])]);
+    else if (!selected.includes(zone.id)) setSelected(groupedIds);
+  }
+  function gesture(event: ReactPointerEvent, zone: Zone, mode: "move" | "resize" | "rotate") {
+    event.preventDefault(); event.stopPropagation(); selectionFor(zone, event);
+    if (hand || zone.lockMode === "full" || zone.lockMode === "position" || zone.locked || !canvas.current) return;
+    const box = canvas.current.getBoundingClientRect();
+    const groupedIds = zone.groupId ? zones.filter(value => value.groupId === zone.groupId).map(value => value.id) : [zone.id];
+    const ids = selected.includes(zone.id) ? selected : groupedIds;
+    const starts = new Map(zones.filter(value => ids.includes(value.id)).map(value => [value.id, { ...value }]));
+    const original = zones;
+    const centerX = box.left + (zone.x + zone.width / 2) * box.width / 100;
+    const centerY = box.top + (zone.y + zone.height / 2) * box.height / 100;
+    const startX = event.clientX, startY = event.clientY;
+    const startAngle = Math.atan2(startY - centerY, startX - centerX) * 180 / Math.PI;
+    const quantize = (value: number, shift: boolean) => snap && !shift ? Math.round(value / grid) * grid : Math.round(value * 10) / 10;
+    const guideCandidates = (axis: "x" | "y") => [
+      0, 50, 100,
+      ...original.filter(value => !ids.includes(value.id)).flatMap(value => axis === "x"
+        ? [value.x, value.x + value.width / 2, value.x + value.width]
+        : [value.y, value.y + value.height / 2, value.y + value.height])
+    ];
+    const alignToGuide = (position: number, size: number, candidates: number[], enabled: boolean) => {
+      if (!enabled) return { position, guide: undefined as number | undefined };
+      const anchors = [position, position + size / 2, position + size];
+      let best: { distance: number; position: number; guide: number } | undefined;
+      for (const candidate of candidates) for (let anchorIndex = 0; anchorIndex < anchors.length; anchorIndex++) {
+        const distance = Math.abs(anchors[anchorIndex] - candidate);
+        if (distance <= 0.8 && (!best || distance < best.distance))
+          best = { distance, position: candidate - (anchorIndex === 0 ? 0 : anchorIndex === 1 ? size / 2 : size), guide: candidate };
+      }
+      return best ? { position: best.position, guide: best.guide } : { position, guide: undefined };
+    };
+    const move = (pointer: PointerEvent) => {
+      const dx = (pointer.clientX - startX) / box.width * 100, dy = (pointer.clientY - startY) / box.height * 100;
+      const nextX = quantize(zone.x + dx, pointer.shiftKey), nextY = quantize(zone.y + dy, pointer.shiftKey);
+      const alignedX = alignToGuide(nextX, zone.width, guideCandidates("x"), snap && !pointer.shiftKey);
+      const alignedY = alignToGuide(nextY, zone.height, guideCandidates("y"), snap && !pointer.shiftKey);
+      if (mode === "move") setGuides({ vertical: alignedX.guide, horizontal: alignedY.guide });
+      setZones(original.map(value => {
+        const start = starts.get(value.id); if (!start) return value;
+        if (mode === "move") return { ...value,
+          x: Math.max(0, Math.min(100 - value.width, start.x + alignedX.position - zone.x)),
+          y: Math.max(0, Math.min(100 - value.height, start.y + alignedY.position - zone.y)) };
+        if (mode === "resize" && value.id === zone.id) return { ...value, width: Math.max(2, Math.min(100 - start.x, quantize(start.width + dx, pointer.shiftKey))),
+          height: Math.max(2, Math.min(100 - start.y, quantize(start.height + dy, pointer.shiftKey))) };
+        if (mode === "rotate" && value.id === zone.id) {
+          const angle = Math.atan2(pointer.clientY - centerY, pointer.clientX - centerX) * 180 / Math.PI;
+          return { ...value, rotation: Math.round(quantize(start.rotation + angle - startAngle, pointer.shiftKey)) };
+        }
+        return value;
+      }));
+    };
+    const finish = () => {
+      setHistory(all => [...all.slice(-49), original]); setFuture([]);
+      setGuides({});
+      document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", finish);
+    };
+    document.addEventListener("pointermove", move); document.addEventListener("pointerup", finish, { once: true });
+  }
+  function beginCanvasGesture(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!hand) { setSelected([]); return; }
+    event.preventDefault();
+    const scroll = canvas.current?.parentElement;
+    if (!scroll) return;
+    const startX = event.clientX, startY = event.clientY;
+    const left = scroll.scrollLeft, top = scroll.scrollTop;
+    const move = (pointer: PointerEvent) => {
+      scroll.scrollLeft = left - (pointer.clientX - startX);
+      scroll.scrollTop = top - (pointer.clientY - startY);
+    };
+    const finish = () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", finish);
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", finish, { once: true });
+  }
+  function align(kind: string) {
+    const picked = zones.filter(zone => selected.includes(zone.id)); if (picked.length < 2) return;
+    const left = Math.min(...picked.map(zone => zone.x)), right = Math.max(...picked.map(zone => zone.x + zone.width));
+    const top = Math.min(...picked.map(zone => zone.y)), bottom = Math.max(...picked.map(zone => zone.y + zone.height));
+    const sorted = [...picked].sort((a, b) => kind === "distribute-v" ? a.y - b.y : a.x - b.x);
+    const next = zones.map(zone => {
+      if (!selected.includes(zone.id) || zone.lockMode === "position" || zone.lockMode === "full") return zone;
+      if (kind === "left") return { ...zone, x: left };
+      if (kind === "right") return { ...zone, x: right - zone.width };
+      if (kind === "center") return { ...zone, x: (left + right - zone.width) / 2 };
+      if (kind === "top") return { ...zone, y: top };
+      if (kind === "bottom") return { ...zone, y: bottom - zone.height };
+      if (kind === "middle") return { ...zone, y: (top + bottom - zone.height) / 2 };
+      const index = sorted.findIndex(value => value.id === zone.id);
+      if (kind === "distribute-h" && sorted.length > 2) return { ...zone, x: left + index * (right - left - zone.width) / (sorted.length - 1) };
+      if (kind === "distribute-v" && sorted.length > 2) return { ...zone, y: top + index * (bottom - top - zone.height) / (sorted.length - 1) };
+      return zone;
+    });
+    commit(next);
+  }
+  function reorder(zoneId: string, delta: number) {
+    const ordered = [...zones].sort((a, b) => a.zIndex - b.zIndex);
+    const index = ordered.findIndex(zone => zone.id === zoneId); const other = ordered[index + delta];
+    if (!other) return;
+    const target = ordered[index];
+    if (target.lockMode === "position" || target.lockMode === "full" || target.locked ||
+        other.lockMode === "position" || other.lockMode === "full" || other.locked) return;
+    commit(zones.map(zone => zone.id === target.id ? { ...zone, zIndex: other.zIndex } : zone.id === other.id ? { ...zone, zIndex: target.zIndex } : zone));
+  }
+  function group() {
+    if (selected.length < 2) return;
+    const groupId = id(); commit(zones.map(zone => selected.includes(zone.id) ? { ...zone, groupId } : zone));
+  }
+  function ungroup() { commit(zones.map(zone => selected.includes(zone.id) ? { ...zone, groupId: undefined } : zone)); }
+  async function save(publish = false) {
+    if (!name.trim()) return notify("Enter a layout name.");
+    try {
+      const payload = { name, folder, description, isTemplate, backgroundColor: background, canvasWidth: width,
+        canvasHeight: height, safeAreaPercent: safeArea, zones, backgroundAudioAssetId: audioId || null, thumbnailDataUrl: null };
+      const saved = await studioApi<Layout>(layout ? `/layouts/${layout.id}` : "/layouts", {
+        method: layout ? "PUT" : "POST", body: JSON.stringify(payload)
+      });
+      if (publish) await studioApi(`/layouts/${saved.id}/publish`, { method: "POST", body: JSON.stringify({ pushToScreens: true }) });
+      notify(publish ? "Layout published and screens notified." : "Layout draft saved."); onSaved();
+    } catch (error) { notify(errorText(error)); }
+  }
+  async function replaceFrom(templateId: string) {
+    if (!layout || !templateId || !confirm("Replace the current draft with this template? The published version remains live until you publish again.")) return;
+    try { await studioApi(`/layouts/${layout.id}/replace-from-template/${templateId}`, { method: "POST", body: "{}" }); notify("Draft replaced safely; the live version was not changed."); onSaved(); }
+    catch (error) { notify(errorText(error)); }
+  }
+  const aspect = `${width} / ${height}`;
+  return <StudioDialog title={layout ? `Layout · ${layout.name}` : "New reusable layout"} wide onClose={onClose}>
+    <div className="layout-editor-meta">
+      <input aria-label="Layout name" value={name} onChange={event => setName(event.target.value)} placeholder="Layout name" />
+      <input aria-label="Folder" value={folder} onChange={event => setFolder(event.target.value)} placeholder="Folder" />
+      <select aria-label="Resolution" value={`${width}x${height}`} onChange={event => {
+        const [nextWidth, nextHeight] = event.target.value.split("x").map(Number); setWidth(nextWidth); setHeight(nextHeight);
+      }}><option value="1920x1080">Full HD · 1920×1080</option><option value="1080x1920">Portrait · 1080×1920</option><option value="3840x2160">4K · 3840×2160</option><option value="2160x3840">4K portrait · 2160×3840</option><option value="2560x1080">Ultrawide · 2560×1080</option><option value="1080x1080">Square · 1080×1080</option><option value={`${width}x${height}`}>Custom · {width}×{height}</option></select>
+      <label>W <input type="number" min="240" max="7680" value={width} onChange={event => setWidth(Number(event.target.value))} /></label>
+      <label>H <input type="number" min="240" max="7680" value={height} onChange={event => setHeight(Number(event.target.value))} /></label>
+      <label>Safe <input type="number" min="0" max="20" value={safeArea} onChange={event => setSafeArea(Number(event.target.value))} />%</label>
+      <label>Canvas <input aria-label="Canvas background" type="color" value={background} onChange={event => setBackground(event.target.value)} /></label>
+    </div>
+    <div className="layout-editor-toolbar">
+      <button onClick={undo} disabled={!history.length}>↶ Undo</button><button onClick={redo} disabled={!future.length}>↷ Redo</button>
+      <button className={hand ? "active" : ""} onClick={() => setHand(value => !value)}>✋ Hand</button>
+      <button onClick={() => setZoom(value => Math.max(25, value - 10))}>−</button><span>{zoom}%</span><button onClick={() => setZoom(value => Math.min(200, value + 10))}>+</button>
+      <label><input type="checkbox" checked={snap} onChange={event => setSnap(event.target.checked)} /> Snap</label>
+      <label>Grid <input type="number" min="1" max="20" value={grid} onChange={event => setGrid(Number(event.target.value))} />%</label>
+      <label><input type="checkbox" checked={showSafe} onChange={event => setShowSafe(event.target.checked)} /> Safe area</label>
+      <select value={elementType} onChange={event => setElementType(event.target.value)}>{["text","media","stream","shape","icon","qr","ticker","counter","clock","weather","calendar","rss","menu","slides","webpage","dashboard","social","traffic","wifi","customHtml"].map(value => <option key={value} value={value}>{value}</option>)}</select>
+      <button onClick={addElement}>+ Element</button>
+      <span className="toolbar-spacer" />
+      <button onClick={() => align("left")} disabled={selected.length < 2}>Left</button><button onClick={() => align("center")} disabled={selected.length < 2}>Center</button><button onClick={() => align("right")} disabled={selected.length < 2}>Right</button>
+      <button onClick={() => align("top")} disabled={selected.length < 2}>Top</button><button onClick={() => align("middle")} disabled={selected.length < 2}>Middle</button><button onClick={() => align("bottom")} disabled={selected.length < 2}>Bottom</button>
+      <button onClick={() => align("distribute-h")} disabled={selected.length < 3}>Distribute ↔</button><button onClick={() => align("distribute-v")} disabled={selected.length < 3}>Distribute ↕</button>
+      <button onClick={group} disabled={selected.length < 2}>Group</button><button onClick={ungroup} disabled={!selected.some(zoneId => zones.find(zone => zone.id === zoneId)?.groupId)}>Ungroup</button>
+    </div>
+    <div className="layout-editor-workspace">
+      <div className="layout-canvas-scroll">
+        <div ref={canvas} className={`layout-canvas ${snap ? "show-grid" : ""} ${hand ? "hand" : ""}`}
+          style={{ width: `${zoom}%`, aspectRatio: aspect, background, "--grid": `${grid}%` } as CSSProperties}
+          onPointerDown={beginCanvasGesture}>
+          {showSafe && safeArea > 0 && <i className="layout-safe-area" style={{ inset: `${safeArea}%` }} />}
+          {guides.vertical != null && <i className="layout-guide vertical" style={{ left: `${guides.vertical}%` }} />}
+          {guides.horizontal != null && <i className="layout-guide horizontal" style={{ top: `${guides.horizontal}%` }} />}
+          {zones.slice().sort((a, b) => a.zIndex - b.zIndex).map(zone => <div key={zone.id}
+            className={`layout-zone ${zone.type} ${selected.includes(zone.id) ? "selected" : ""} ${zone.hidden ? "hidden" : ""} ${zone.lockMode !== "none" || zone.locked ? "locked" : ""}`}
+            onPointerDown={event => gesture(event, zone, "move")}
+            style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`,
+              background: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, opacity: zone.opacity / 100,
+              zIndex: zone.zIndex, transform: `rotate(${zone.rotation}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`,
+              borderRadius: `${zone.cornerRadius || 0}%`, fontFamily: zone.fontFamily, fontSize: `${Math.max(8, (zone.fontSize || 48) * zoom / 140)}px`,
+              fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined,
+              textAlign: zone.textAlign as CSSProperties["textAlign"], lineHeight: (zone.lineHeightPercent || 120) / 100 }}>
+            <ZoneVisual zone={zone} media={media} />
+            {selected.includes(zone.id) && zone.lockMode !== "position" && zone.lockMode !== "full" && !zone.locked && <>
+              <i className="layout-resize" onPointerDown={event => gesture(event, zone, "resize")} />
+              <i className="layout-rotate" onPointerDown={event => gesture(event, zone, "rotate")} />
+            </>}
+          </div>)}
+        </div>
+      </div>
+      <aside className="layout-inspector">
+        <div className="layout-layer-heading"><strong>Layers</strong><span>{selected.length} selected</span></div>
+        <div className="layout-layers">{[...zones].sort((a,b) => b.zIndex-a.zIndex).map(zone => <div className={selected.includes(zone.id) ? "selected" : ""} key={zone.id}>
+          <button onClick={event => setSelected(event.metaKey || event.ctrlKey ? [...new Set([...selected, zone.id])] : [zone.id])}><i>{zone.hidden ? "○" : "●"}</i><span>{zone.title || zone.type}<small>{zone.type} · layer {zone.zIndex}{zone.groupId ? " · grouped" : ""}</small></span></button>
+          <button title="Move layer up" onClick={() => reorder(zone.id, 1)}>↑</button><button title="Move layer down" onClick={() => reorder(zone.id, -1)}>↓</button>
+        </div>)}</div>
+        {current ? <ZoneInspector zone={current} media={media} onPatch={values => patch(current.id, values)}
+          onDelete={() => { commit(zones.filter(zone => !selected.includes(zone.id))); setSelected([]); }}
+          onDuplicate={() => { const copy = { ...current, id: id(), title: `${current.title || current.type} copy`, x: Math.min(95, current.x + 2), y: Math.min(95, current.y + 2), zIndex: zones.length + 1 }; commit([...zones, copy]); setSelected([copy.id]); }} /> :
+          <p className="studio-help">Select an element to edit its content, geometry, style, and locks.</p>}
+      </aside>
+    </div>
+    <div className="layout-editor-footer">
+      <textarea value={description} onChange={event => setDescription(event.target.value)} placeholder="Layout description" />
+      <label><input type="checkbox" checked={isTemplate} onChange={event => setIsTemplate(event.target.checked)} /> Save as reusable template</label>
+      <label>Background audio <select value={audioId} onChange={event => setAudioId(event.target.value)}><option value="">None</option>{media.filter(item => item.contentType.startsWith("audio/")).map(item => <option value={item.id} key={item.id}>{item.fileName}</option>)}</select></label>
+      {layout && <label>Safely replace draft <select defaultValue="" onChange={event => void replaceFrom(event.target.value)}><option value="">Choose template…</option>{templates.filter(item => item.id !== layout.id).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>}
+      <span className="toolbar-spacer" /><button className="button" onClick={() => void save(false)}>Save draft</button><button className="button primary" onClick={() => void save(true)}>Publish & push</button>
+    </div>
+  </StudioDialog>;
+}
+
+function ZoneVisual({ zone, media }: { zone: Zone; media: StudioMedia[] }) {
+  const asset = media.find(item => item.id === zone.mediaAssetId);
+  if (zone.type === "media" && asset) return asset.contentType.startsWith("image/") ? <img src={asset.thumbnailUrl || asset.downloadUrl} alt="" style={{ objectFit: zone.fit as CSSProperties["objectFit"] }} /> : <span>▶ {asset.fileName}</span>;
+  if (zone.type === "clock") return <strong>{new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</strong>;
+  if (zone.type === "qr" || zone.type === "wifi") return <StudioQr value={zone.qrValue || ""} />;
+  if (zone.type === "icon") return <span className="zone-icon">{({ star: "★", info: "ⓘ", warning: "⚠", arrow: "➜", check: "✓" } as Record<string,string>)[zone.iconName || ""] || "★"}</span>;
+  if (zone.type === "counter") return <StudioCounter target={zone.counterTargetAt} fallback={zone.content || "Countdown"} />;
+  if (zone.type === "shape") return <span className={`zone-shape ${zone.shape || "rectangle"}`} style={{ borderColor: zone.strokeColor, borderWidth: zone.strokeWidth }} />;
+  if (zone.type === "ticker") return <span className="zone-ticker" style={{ animationDuration: `${Math.max(5, 300 / Math.max(10, zone.tickerSpeed || 60))}s` }}>{zone.content || "Ticker message"}</span>;
+  if (zone.type === "stream") return <span>● LIVE · {zone.sourceUrl ? new URL(zone.sourceUrl).protocol.replace(":", "").toUpperCase() : "stream"}</span>;
+  if (zone.type === "text" && zone.richTextJson) return <><small>{zone.title || zone.type}</small><RichTextPreview value={zone.richTextJson} fallback={zone.content || ""} /></>;
+  return <><small>{zone.title || zone.type}</small><strong>{zone.content || zone.type}</strong></>;
+}
+
+function StudioQr({ value }: { value: string }) {
+  return value ? <GeneratedStudioQr value={value} /> : <span className="zone-qr"><small>Enter a QR destination</small></span>;
+}
+
+function GeneratedStudioQr({ value }: { value: string }) {
+  const [source, setSource] = useState("");
+  useEffect(() => {
+    let current = true;
+    void QRCode.toDataURL(value, { width: 360, margin: 1, errorCorrectionLevel: "M" })
+      .then(url => { if (current) setSource(url); });
+    return () => { current = false; };
+  }, [value]);
+  return <span className="zone-qr">{source ? <img src={source} alt="QR preview" /> : null}</span>;
+}
+
+function StudioCounter({ target, fallback }: { target?: string; fallback: string }) {
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    const first = window.requestAnimationFrame(() => setNow(Date.now()));
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => { window.cancelAnimationFrame(first); window.clearInterval(timer); };
+  }, []);
+  if (!target || now == null) return <strong>{fallback}</strong>;
+  const total = Math.max(0, Math.floor((new Date(target).getTime() - now) / 1_000));
+  const days = Math.floor(total / 86_400);
+  const hours = Math.floor(total % 86_400 / 3_600);
+  const minutes = Math.floor(total % 3_600 / 60);
+  const seconds = total % 60;
+  const clock = [hours, minutes, seconds].map(value => String(value).padStart(2, "0")).join(":");
+  return <strong>{days ? `${days} days  ${clock}` : clock}</strong>;
+}
+
+function RichTextPreview({ value, fallback }: { value: string; fallback: string }) {
+  let runs: { text?: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string }[] = [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) runs = parsed;
+  } catch { /* The plain text fallback remains visible for malformed draft data. */ }
+  if (!runs.length) return <strong>{fallback}</strong>;
+  return <strong>{runs.slice(0, 50).map((run, index) => <span key={index} style={{
+    color: run.color, fontWeight: run.bold ? 800 : undefined, fontStyle: run.italic ? "italic" : undefined,
+    textDecoration: run.underline ? "underline" : undefined
+  }}>{run.text || ""}</span>)}</strong>;
+}
+
+function ZoneInspector({ zone, media, onPatch, onDelete, onDuplicate }: {
+  zone: Zone; media: StudioMedia[]; onPatch: (patch: Partial<Zone>) => void; onDelete: () => void; onDuplicate: () => void;
+}) {
+  const online = ["stream","weather","calendar","rss","menu","slides","webpage","dashboard","social","traffic","customHtml"].includes(zone.type);
+  const contentLocked = zone.lockMode === "content" || zone.lockMode === "full";
+  const positionLocked = zone.lockMode === "position" || zone.lockMode === "full" || zone.locked;
+  const fullyLocked = zone.lockMode === "full";
+  return <div className="zone-inspector">
+    <label>Type <select disabled={contentLocked} value={zone.type} onChange={event => onPatch({ type: event.target.value })}>{["text","media","stream","shape","icon","qr","ticker","counter","clock","weather","calendar","rss","menu","slides","webpage","dashboard","social","traffic","wifi","customHtml"].map(value => <option key={value}>{value}</option>)}</select></label>
+    <label>Title <input disabled={contentLocked} value={zone.title || ""} onChange={event => onPatch({ title: event.target.value })} /></label>
+    {zone.type === "media" && <label>Media <select disabled={contentLocked} value={zone.mediaAssetId || ""} onChange={event => onPatch({ mediaAssetId: event.target.value || undefined })}><option value="">Choose media…</option>{media.filter(item => item.contentType.startsWith("image/") || item.contentType.startsWith("video/")).map(item => <option value={item.id} key={item.id}>{item.fileName}</option>)}</select></label>}
+    {!["media","stream","shape","icon","qr"].includes(zone.type) && <label>Content <textarea disabled={contentLocked} value={zone.content || ""} onChange={event => onPatch({ content: event.target.value })} /></label>}
+    {zone.type === "text" && !contentLocked && <RichTextRunsEditor value={zone.richTextJson} onChange={richTextJson => onPatch({ richTextJson })} />}
+    {online && <label>Source URL <input disabled={contentLocked} type="url" value={zone.sourceUrl || ""} onChange={event => onPatch({ sourceUrl: event.target.value })} placeholder="https://…" /></label>}
+    {online && zone.type !== "stream" && <label>Server credential key <input disabled={contentLocked} value={zone.credentialKey || ""} onChange={event => onPatch({ credentialKey: event.target.value || undefined })} placeholder="Optional saved key" /></label>}
+    {(zone.type === "qr" || zone.type === "wifi") && <label>{zone.type === "wifi" ? "Wi-Fi setup value" : "QR destination"} <input disabled={contentLocked} value={zone.qrValue || ""} onChange={event => onPatch({ qrValue: event.target.value })} placeholder={zone.type === "wifi" ? "WIFI:T:WPA;S:Network;P:password;;" : "https://…"}/></label>}
+    {zone.type === "icon" && <label>Icon <select disabled={contentLocked} value={zone.iconName || "star"} onChange={event => onPatch({ iconName: event.target.value })}><option value="star">Star</option><option value="info">Information</option><option value="warning">Warning</option><option value="arrow">Arrow</option><option value="check">Check</option></select></label>}
+    {zone.type === "shape" && <label>Shape <select disabled={contentLocked} value={zone.shape || "rectangle"} onChange={event => onPatch({ shape: event.target.value })}><option>rectangle</option><option>circle</option><option>triangle</option><option>line</option></select></label>}
+    {zone.type === "counter" && <label>Target time <input disabled={contentLocked} type="datetime-local" value={zone.counterTargetAt?.slice(0,16) || ""} onChange={event => onPatch({ counterTargetAt: event.target.value ? new Date(event.target.value).toISOString() : undefined })} /></label>}
+    {zone.type === "ticker" && <label>Speed <input disabled={contentLocked} type="range" min="10" max="300" value={zone.tickerSpeed || 60} onChange={event => onPatch({ tickerSpeed: Number(event.target.value) })} /></label>}
+    <div className="inspector-grid"><label>X<input disabled={positionLocked} type="number" value={zone.x} onChange={event => onPatch({ x: Number(event.target.value) })} /></label><label>Y<input disabled={positionLocked} type="number" value={zone.y} onChange={event => onPatch({ y: Number(event.target.value) })} /></label><label>W<input disabled={positionLocked} type="number" value={zone.width} onChange={event => onPatch({ width: Number(event.target.value) })} /></label><label>H<input disabled={positionLocked} type="number" value={zone.height} onChange={event => onPatch({ height: Number(event.target.value) })} /></label><label>°<input disabled={positionLocked} type="number" min="-180" max="180" value={zone.rotation} onChange={event => onPatch({ rotation: Number(event.target.value) })} /></label><label>Opacity<input disabled={fullyLocked} type="number" min="0" max="100" value={zone.opacity} onChange={event => onPatch({ opacity: Number(event.target.value) })} /></label></div>
+    <div className="inspector-grid"><label>Fill<input disabled={fullyLocked} type="color" value={zone.backgroundColor} onChange={event => onPatch({ backgroundColor: event.target.value })} /></label><label>Text<input disabled={fullyLocked} type="color" value={zone.textColor} onChange={event => onPatch({ textColor: event.target.value })} /></label><label>Stroke<input disabled={fullyLocked} type="color" value={zone.strokeColor || "#ffffff"} onChange={event => onPatch({ strokeColor: event.target.value })} /></label><label>Radius<input disabled={fullyLocked} type="number" min="0" max="100" value={zone.cornerRadius || 0} onChange={event => onPatch({ cornerRadius: Number(event.target.value) })} /></label></div>
+    {["text","ticker","counter","clock"].includes(zone.type) && <><label>Font <select value={zone.fontFamily || "system-ui"} onChange={event => onPatch({ fontFamily: event.target.value })}><option value="system-ui">System</option><option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="monospace">Monospace</option></select></label><div className="inspector-grid"><label>Size<input type="number" min="8" max="300" value={zone.fontSize || 48} onChange={event => onPatch({ fontSize: Number(event.target.value) })} /></label><label>Weight<input type="number" min="100" max="900" step="100" value={zone.fontWeight || 600} onChange={event => onPatch({ fontWeight: Number(event.target.value) })} /></label><label>Align<select value={zone.textAlign || "left"} onChange={event => onPatch({ textAlign: event.target.value })}><option>left</option><option>center</option><option>right</option><option>justify</option></select></label><label>Line %<input type="number" min="80" max="300" value={zone.lineHeightPercent || 120} onChange={event => onPatch({ lineHeightPercent: Number(event.target.value) })} /></label></div><div className="inline-checks"><label><input type="checkbox" checked={zone.italic || false} onChange={event => onPatch({ italic: event.target.checked })} /> Italic</label><label><input type="checkbox" checked={zone.underline || false} onChange={event => onPatch({ underline: event.target.checked })} /> Underline</label></div></>}
+    <label>Lock <select value={zone.lockMode || (zone.locked ? "position" : "none")} onChange={event => onPatch({ lockMode: event.target.value as Zone["lockMode"], locked: false })}><option value="none">Unlocked</option><option value="position">Position and size</option><option value="content">Content</option><option value="full">Everything</option></select></label>
+    <div className="inline-checks"><label><input disabled={fullyLocked} type="checkbox" checked={zone.hidden} onChange={event => onPatch({ hidden: event.target.checked })} /> Hidden</label><label><input disabled={positionLocked} type="checkbox" checked={zone.flipX} onChange={event => onPatch({ flipX: event.target.checked })} /> Flip X</label><label><input disabled={positionLocked} type="checkbox" checked={zone.flipY} onChange={event => onPatch({ flipY: event.target.checked })} /> Flip Y</label></div>
+    <div className="studio-card-actions"><button disabled={fullyLocked} onClick={onDuplicate}>Duplicate</button><button disabled={fullyLocked} className="danger" onClick={onDelete}>Delete selected</button></div>
+  </div>;
+}
+
+function RichTextRunsEditor({ value, onChange }: { value?: string; onChange: (value: string) => void }) {
+  type Run = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string };
+  let parsed: Run[] = [];
+  try { const candidate = JSON.parse(value || "[]"); if (Array.isArray(candidate)) parsed = candidate; } catch { parsed = []; }
+  const runs = parsed;
+  const update = (next: Run[]) => onChange(JSON.stringify(next.slice(0, 50)));
+  return <details className="rich-text-runs"><summary>Mixed text formatting</summary><p>Optional runs override the plain fallback content above.</p>{runs.map((run,index)=><div key={index}><input value={run.text} placeholder="Text run" onChange={event=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,text:event.target.value}:item))}/><input type="color" value={run.color||"#ffffff"} onChange={event=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,color:event.target.value}:item))}/><button className={run.bold?"active":""} onClick={()=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,bold:!item.bold}:item))}>B</button><button className={run.italic?"active":""} onClick={()=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,italic:!item.italic}:item))}>I</button><button className={run.underline?"active":""} onClick={()=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,underline:!item.underline}:item))}>U</button><button onClick={()=>update(runs.filter((_,itemIndex)=>itemIndex!==index))}>×</button></div>)}<button onClick={()=>update([...runs,{text:"New text",color:"#ffffff"}])}>+ Formatted run</button></details>;
+}
+
+function CredentialsDialog({ notify, onClose }: { notify: (message: string) => void; onClose: () => void }) {
+  const [items, setItems] = useState<{ key: string; kind: string; username?: string; headerName?: string; updatedAt: string }[]>([]);
+  const load = () => studioApi<typeof items>("/credentials").then(setItems).catch(error => notify(errorText(error)));
+  useEffect(() => { void load(); }, []);
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget));
+    try { await studioApi(`/credentials/${encodeURIComponent(String(values.key))}`, { method: "PUT", body: JSON.stringify(values) }); (event.currentTarget).reset(); load(); notify("Source credential encrypted and saved only on this server."); }
+    catch (error) { notify(errorText(error)); }
+  }
+  async function remove(key: string) { if (!confirm(`Delete server credential ${key}? Widgets using it will retain cached data but cannot refresh.`)) return; try { await studioApi(`/credentials/${encodeURIComponent(key)}`, { method: "DELETE" }); load(); } catch(error) { notify(errorText(error)); } }
+  return <StudioDialog title="Server-side source credentials" onClose={onClose}><div className="credential-note">Secrets are encrypted with this LessonCue server’s local data-protection keys. They never appear in display manifests, browser storage, GitHub, backups, or API responses.</div><form className="studio-form credential-form" onSubmit={save}><label>Key<input name="key" required pattern="[a-z0-9_-]{2,120}" placeholder="weather_api" /></label><label>Authentication<select name="kind"><option value="bearer">Bearer token</option><option value="basic">Basic username/password</option><option value="custom">Custom header</option></select></label><label>Username (Basic only)<input name="username" /></label><label>Header name (Custom only)<input name="headerName" placeholder="X-API-Key" /></label><label>Secret<input name="secret" type="password" required autoComplete="new-password" /></label><button className="button primary">Encrypt and save locally</button></form><div className="credential-list">{items.map(item=><div key={item.key}><span><strong>{item.key}</strong><small>{item.kind}{item.username?` · ${item.username}`:""}{item.headerName?` · ${item.headerName}`:""} · updated {timeAgo(item.updatedAt)}</small></span><button className="danger" onClick={()=>remove(item.key)}>Delete</button></div>)}</div></StudioDialog>;
+}
+
+function PlaylistsPanel({ media, notify }: Props) {
+  const [playlists, setPlaylists] = useState<StudioPlaylist[]>([]);
+  const [layouts, setLayouts] = useState<Layout[]>([]);
+  const [editing, setEditing] = useState<StudioPlaylist | "new">();
+  const [query, setQuery] = useState("");
+  const load = () => Promise.all([studioApi<StudioPlaylist[]>("/playlists"), studioApi<Layout[]>("/layouts")])
+    .then(([nextPlaylists, nextLayouts]) => { setPlaylists(nextPlaylists); setLayouts(nextLayouts); }).catch(error => notify(errorText(error)));
+  useEffect(() => { void load(); }, []);
+  async function duplicate(item: StudioPlaylist) { try { await studioApi(`/playlists/${item.id}/duplicate`, { method: "POST", body: "{}" }); load(); notify("Playlist duplicated."); } catch (error) { notify(errorText(error)); } }
+  async function remove(item: StudioPlaylist) { if (!confirm(`Delete ${item.name}?`)) return; try { await studioApi(`/playlists/${item.id}`, { method: "DELETE" }); load(); notify("Playlist deleted."); } catch(error) { notify(errorText(error)); } }
+  return <section className="studio-panel"><div className="studio-toolbar panel"><div><strong>Independent signage playlists</strong><small>Mix layouts, media, apps, webpages, nested lists, tags, CSV, and cloud sources.</small></div><input type="search" placeholder="Search playlists" value={query} onChange={event => setQuery(event.target.value)} /><button className="button primary" onClick={() => setEditing("new")}>New playlist</button></div>
+    <div className="studio-card-grid">{playlists.filter(item => `${item.name} ${item.folder}`.toLowerCase().includes(query.toLowerCase())).map(item => <article className="studio-resource-card playlist-card" key={item.id}><div className="playlist-preview">{item.items.slice(0,5).map((entry,index) => <i key={entry.id} style={{ zIndex: 5-index }}>{entry.kind.slice(0,1).toUpperCase()}</i>)}</div><div className="studio-resource-body"><span className={`studio-state ${item.publishState}`}>{item.publishState}</span><h3>{item.name}</h3><p>{item.folder || "Unfiled"} · {item.items.length} entries · {item.playbackMode} · {item.synchronization} sync</p><small>Draft v{item.version}{item.publishedVersion ? ` · published v${item.publishedVersion}` : ""}</small><div className="studio-card-actions"><button onClick={() => setEditing(item)}>Edit</button><button onClick={() => duplicate(item)}>Duplicate</button><button className="danger" onClick={() => remove(item)}>Delete</button></div></div></article>)}</div>
+    {editing && <PlaylistEditor playlist={editing === "new" ? undefined : editing} playlists={playlists} layouts={layouts} media={media} notify={notify} onClose={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); load(); }} />}
+  </section>;
+}
+
+function PlaylistEditor({ playlist, playlists, layouts, media, notify, onClose, onSaved }: {
+  playlist?: StudioPlaylist; playlists: StudioPlaylist[]; layouts: Layout[]; media: StudioMedia[]; notify: (message:string)=>void; onClose:()=>void; onSaved:()=>void;
+}) {
+  const [name, setName] = useState(playlist?.name || "Untitled playlist");
+  const [folder, setFolder] = useState(playlist?.folder || "");
+  const [mode, setMode] = useState(playlist?.playbackMode || "ordered");
+  const [sync, setSync] = useState(playlist?.synchronization || "screen");
+  const [items, setItems] = useState<PlaylistEntry[]>(playlist?.items || []);
+  const [preview, setPreview] = useState(0);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
+  const add = (kind: PlaylistEntry["kind"]) => setItems(all => [...all, { id: id(), kind, title: `New ${kind}`, durationSeconds: 10, transition: "cut", hidden: false, transparent: false }]);
+  const patch = (entryId:string, values:Partial<PlaylistEntry>) => setItems(all => all.map(item => item.id === entryId ? { ...item, ...values } : item));
+  const move = (index:number, delta:number) => setItems(all => { const next=[...all]; const target=index+delta; if(target<0||target>=next.length)return all; [next[index],next[target]]=[next[target],next[index]]; return next; });
+  async function save(publish=false) {
+    try {
+      const payload={name,folder,playbackMode:mode,synchronization:sync,items};
+      const saved=await studioApi<StudioPlaylist>(playlist?`/playlists/${playlist.id}`:"/playlists",{method:playlist?"PUT":"POST",body:JSON.stringify(payload)});
+      if(publish) await studioApi(`/playlists/${saved.id}/publish`,{method:"POST",body:JSON.stringify({pushToScreens:true})});
+      notify(publish?"Playlist published and screens notified.":"Playlist draft saved."); onSaved();
+    } catch(error){notify(errorText(error));}
+  }
+  function importCsv(file?:File) {
+    if(!file)return; file.text().then(text => {
+      const rows=text.split(/\r?\n/).map(line=>line.trim()).filter(Boolean); const imported=rows.slice(1).map(line=>line.split(",")).filter(parts=>parts.length).map(parts=>({id:id(),kind:(parts[0]||"web") as PlaylistEntry["kind"],title:parts[1]||"Imported entry",sourceUrl:parts[2]||undefined,durationSeconds:Number(parts[3]||10),transition:"cut" as const,hidden:false,transparent:false}));
+      setItems(all=>[...all,...imported]); notify(`Imported ${imported.length} CSV entries.`);
+    });
+  }
+  const activeItems=items.filter(item=>!item.hidden);
+  const active=activeItems[preview % Math.max(1,activeItems.length)];
+  useEffect(() => {
+    if (!previewPlaying || !active) return;
+    const timer = window.setTimeout(() => setPreview(value => value + 1), Math.max(1, Math.min(60, active.durationSeconds)) * 1000);
+    return () => window.clearTimeout(timer);
+  }, [previewPlaying, preview, active?.id, active?.durationSeconds]);
+  return <StudioDialog title={playlist?`Playlist · ${playlist.name}`:"New signage playlist"} wide onClose={onClose}>
+    <div className="playlist-editor-head"><input value={name} onChange={event=>setName(event.target.value)} placeholder="Playlist name"/><input value={folder} onChange={event=>setFolder(event.target.value)} placeholder="Folder"/><label>Playback<select value={mode} onChange={event=>setMode(event.target.value as typeof mode)}><option value="ordered">Ordered</option><option value="random">Random</option><option value="tag">Dynamic tags</option><option value="interactive">Interactive</option></select></label><label>Sync<select value={sync} onChange={event=>setSync(event.target.value as typeof sync)}><option value="screen">Per screen</option><option value="region">Region synchronized</option><option value="global">All screens synchronized</option></select></label></div>
+    <div className="playlist-addbar">{(["layout","media","app","web","nested","tag","cloud","csv"] as PlaylistEntry["kind"][]).map(kind=><button key={kind} onClick={()=>add(kind)}>+ {kind}</button>)}<label className="button">Import CSV<input type="file" accept=".csv,text/csv" hidden onChange={event=>importCsv(event.target.files?.[0])}/></label></div>
+    <div className="playlist-editor-grid"><div className="playlist-items">{items.map((entry,index)=><article className={entry.hidden?"hidden":""} key={entry.id}><b>{index+1}</b><div><input value={entry.title||""} onChange={event=>patch(entry.id,{title:event.target.value})}/><small>{entry.kind}</small></div>
+      {entry.kind==="layout"&&<select value={entry.layoutId||""} onChange={event=>patch(entry.id,{layoutId:event.target.value||undefined})}><option value="">Choose layout…</option>{layouts.filter(item=>item.publishedVersion>0).map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select>}
+      {entry.kind==="media"&&<select value={entry.mediaAssetId||""} onChange={event=>patch(entry.id,{mediaAssetId:event.target.value||undefined})}><option value="">Choose media…</option>{media.map(item=><option value={item.id} key={item.id}>{item.fileName}</option>)}</select>}
+      {entry.kind==="nested"&&<select value={entry.nestedPlaylistId||""} onChange={event=>patch(entry.id,{nestedPlaylistId:event.target.value||undefined})}><option value="">Choose playlist…</option>{playlists.filter(item=>item.id!==playlist?.id&&item.publishedVersion>0).map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select>}
+      {entry.kind==="app"&&<select value={entry.appType||"clock"} onChange={event=>patch(entry.id,{appType:event.target.value})}><option>clock</option><option>weather</option><option>calendar</option><option>menu</option><option>rss</option><option>social</option><option>traffic</option><option>wifi</option></select>}
+      {["web","cloud","csv"].includes(entry.kind)&&<input type="url" value={entry.sourceUrl||""} placeholder="https://…" onChange={event=>patch(entry.id,{sourceUrl:event.target.value})}/>}
+      {entry.kind==="tag"&&<input value={entry.tagsCsv||""} placeholder="media tags" onChange={event=>patch(entry.id,{tagsCsv:event.target.value})}/>}
+      <label>Seconds<input type="number" min="1" max="86400" value={entry.durationSeconds} onChange={event=>patch(entry.id,{durationSeconds:Number(event.target.value)})}/></label><select value={entry.transition} onChange={event=>patch(entry.id,{transition:event.target.value as PlaylistEntry["transition"]})}><option>cut</option><option>fade</option><option>slide</option><option>zoom</option></select>
+      <label><input type="checkbox" checked={entry.transparent} onChange={event=>patch(entry.id,{transparent:event.target.checked})}/> Transparent</label><label><input type="checkbox" checked={entry.hidden} onChange={event=>patch(entry.id,{hidden:event.target.checked})}/> Hidden</label>
+      <button onClick={()=>move(index,-1)}>↑</button><button onClick={()=>move(index,1)}>↓</button><button className="danger" onClick={()=>setItems(all=>all.filter(item=>item.id!==entry.id))}>×</button>
+    </article>)}</div><aside className="playlist-sequence-preview"><strong>Playback preview</strong>{active?<><PlaylistEntryPreview entry={active} layouts={layouts} media={media}/><div><span>{active.kind}</span><h3>{active.title}</h3><p>{active.durationSeconds}s · {active.transition}</p></div><div className="preview-controls"><button onClick={()=>setPreview(value=>Math.max(0,value-1))}>Previous</button><button className={previewPlaying?"active":""} onClick={()=>setPreviewPlaying(value=>!value)}>{previewPlaying?"Pause":"Play sequence"}</button><button onClick={()=>setPreview(value=>value+1)}>Next</button></div><small>{preview+1} of {activeItems.length} active entries · hidden intervals are skipped</small></>:<p>Add entries to preview playback.</p>}</aside></div>
+    <div className="layout-editor-footer"><span>{items.filter(item=>!item.hidden).length} active · {items.reduce((total,item)=>total+(item.hidden?0:item.durationSeconds),0)} seconds per cycle</span><span className="toolbar-spacer"/><button className="button" onClick={()=>void save(false)}>Save draft</button><button className="button primary" onClick={()=>void save(true)}>Publish & push</button></div>
+  </StudioDialog>;
+}
+
+function PlaylistEntryPreview({ entry, layouts, media }: { entry: PlaylistEntry; layouts: Layout[]; media: StudioMedia[] }) {
+  const layout = layouts.find(item => item.id === entry.layoutId);
+  const asset = media.find(item => item.id === entry.mediaAssetId);
+  if (entry.kind === "layout" && layout) return <div className={`entry-preview ${entry.transition}`}><LayoutThumbnail item={layout}/></div>;
+  if (entry.kind === "media" && asset) return <div className={`entry-preview ${entry.transition}`}>{asset.contentType.startsWith("image/")
+    ? <img src={asset.thumbnailUrl || asset.downloadUrl} alt={entry.title || asset.fileName}/>
+    : asset.contentType.startsWith("audio/") ? <audio src={asset.downloadUrl} controls/>
+    : <video key={entry.id} src={asset.downloadUrl} controls muted playsInline/>}</div>;
+  if (entry.kind === "web" && entry.sourceUrl) return <div className={`entry-preview ${entry.transition}`}><iframe src={entry.sourceUrl} title={entry.title || "Web playlist preview"} sandbox="allow-forms allow-same-origin allow-scripts"/></div>;
+  return <div className={`entry-preview placeholder ${entry.transition}`}><b>{entry.kind.toUpperCase()}</b><span>{entry.title || entry.sourceUrl || "Configure this entry"}</span></div>;
+}
+
+function PublishingPanel({ signage, screens, notify, refresh }: Props) {
+  const [chosenSchedules,setChosenSchedules]=useState<string[]>([]);
+  const [chosenScreens,setChosenScreens]=useState<string[]>([]);
+  const [tags,setTags]=useState("");
+  const [preview,setPreview]=useState<unknown>();
+  async function publish(item:StudioSchedule){try{await studioApi(`/schedules/${item.id}/publish`,{method:"POST",body:JSON.stringify({pushToScreens:true})});refresh();notify(`${item.name} published and pushed.`);}catch(error){notify(errorText(error));}}
+  async function assign(){try{await studioApi("/assignments/bulk",{method:"POST",body:JSON.stringify({signageIds:chosenSchedules,screenIds:chosenScreens,targetTagsCsv:tags,publish:true})});refresh();notify("Bulk assignment published and pushed.");}catch(error){notify(errorText(error));}}
+  async function previewScreen(screenId:string){if(!screenId)return;try{setPreview(await studioApi(`/preview/${screenId}`));}catch(error){notify(errorText(error));}}
+  return <section className="studio-panel publishing-grid"><div className="panel"><h2>Draft, publish, and push</h2><p>Published versions remain stable while editors continue working on drafts. Push invalidates manifests immediately; each display reports its applied manifest and cache progress.</p><div className="publish-table"><div><b>Schedule</b><b>Version</b><b>Last push</b><b/></div>{signage.map(item=><div key={item.id}><span><input type="checkbox" checked={chosenSchedules.includes(item.id)} onChange={event=>setChosenSchedules(all=>event.target.checked?[...all,item.id]:all.filter(id=>id!==item.id))}/><strong>{item.name}</strong><small>{item.mode} · {item.enabled?"enabled":"paused"}</small></span><span><i className={`studio-state ${item.publishState}`}>{item.publishState}</i><small>draft {item.version} · live {item.publishedVersion}</small></span><span>{timeAgo(item.lastPushedAt)}</span><button onClick={()=>publish(item)}>Publish & push</button></div>)}</div></div>
+    <div className="panel"><h2>Bulk assignment</h2><p>Assign selected schedules to exact screens and/or matching screen tags.</p><div className="screen-check-grid">{screens.filter(screen=>!screen.revoked).map(screen=><label key={screen.id}><input type="checkbox" checked={chosenScreens.includes(screen.id)} onChange={event=>setChosenScreens(all=>event.target.checked?[...all,screen.id]:all.filter(id=>id!==screen.id))}/><span><strong>{screen.name}</strong><small>{screen.site} · {screen.tagsCsv||"no tags"}</small></span></label>)}</div><label>Additional target tags<input value={tags} onChange={event=>setTags(event.target.value)} placeholder="lobby, campus-a"/></label><button className="button primary" disabled={!chosenSchedules.length} onClick={assign}>Assign, publish, and push</button></div>
+    <div className="panel"><h2>Screen delivery progress</h2><p>Displays report the manifest version they applied and how much assigned content is available offline.</p><div className="delivery-progress">{screens.filter(screen=>!screen.revoked).map(screen=>{const total=screen.totalItems||0,cached=screen.cachedItems||0,percent=total?Math.round(cached/total*100):100;return <div key={screen.id}><span><strong>{screen.name}</strong><small>manifest {screen.manifestVersion||0} · {screen.playbackState||"idle"} · {timeAgo(screen.lastSeenAt)}</small></span><progress max="100" value={percent}/><b>{cached}/{total}</b></div>})}</div></div>
+    <div className="panel"><h2>Preview as a screen</h2><p>Generate the exact manifest a selected display would receive, including schedule targeting, versions, layouts, playlists, and kiosk settings.</p><select defaultValue="" onChange={event=>previewScreen(event.target.value)}><option value="">Choose screen…</option>{screens.filter(screen=>!screen.revoked).map(screen=><option value={screen.id} key={screen.id}>{screen.name}</option>)}</select>{preview !== undefined && <pre className="manifest-preview">{JSON.stringify(preview,null,2)}</pre>}</div>
+  </section>;
+}
+
+function OperationsPanel({ notify, screens }: Props) {
+  const [data,setData]=useState<Operations>();
+  const load=()=>studioApi<Operations>("/operations").then(setData).catch(error=>notify(errorText(error)));
+  useEffect(()=>{load();const timer=window.setInterval(load,30000);return()=>window.clearInterval(timer);},[]);
+  async function restart(signageId:string,zoneId:string){try{await studioApi(`/streams/${signageId}/${encodeURIComponent(zoneId)}/restart`,{method:"POST",body:"{}"});load();notify("Stream relay restarted.");}catch(error){notify(errorText(error));}}
+  async function setFormat(screen: StudioScreen, value: string) {
+    const [orientation, size] = value.split(":"); const [width, height] = size ? size.split("x").map(Number) : [null, null];
+    try { await studioApi(`/screens/${screen.id}/format`, { method: "PUT", body: JSON.stringify({ orientation, width, height }) }); notify(`${screen.name} signage format updated.`); }
+    catch (error) { notify(errorText(error)); }
+  }
+  if(!data)return <div className="panel studio-empty"><p>Loading signage operations…</p></div>;
+  return <section className="studio-panel operations-stack">
+    {!!data.alerts.length&&<div className="panel operations-alerts"><h2>Needs attention</h2>{data.alerts.map((alert,index)=><div key={`${alert.id}-${index}`} className={alert.severity}><strong>{alert.name}</strong><span>{alert.message}</span><i>{alert.severity}</i></div>)}</div>}
+    <div className="panel"><div className="panel-title"><h2>Screen and content status</h2><a className="button" href="/api/v1/signage-studio/proof.csv" download>Export proof CSV</a></div><div className="operations-table"><div><b>Screen</b><b>Connection</b><b>Playback</b><b>Content</b><b>Proof</b></div>{data.screens.map(screen=><div key={screen.id}><span><strong>{screen.name}</strong><small>{screen.site} · {screen.appVersion}</small></span><span className={screen.online?"ok":"bad"}>{screen.online?"Online":`Offline · ${timeAgo(screen.lastSeenAt)}`}<small>{screen.networkQuality}{screen.networkLatencyMs!=null?` · ${screen.networkLatencyMs} ms`:""}</small></span><span>{screen.playbackState}<small>{screen.playbackError||"No reported errors"}</small></span><span>{screen.cachedItems}/{screen.totalItems} cached<small>manifest {screen.manifestVersion}</small></span><span>{screen.proofCount} events<small>{timeAgo(screen.lastProofAt)}</small></span></div>)}</div></div>
+    <div className="panel"><h2>Live stream health</h2>{data.streams.length?<div className="operations-table stream-table"><div><b>Stream</b><b>Status</b><b>Latency</b><b>Error</b><b/></div>{data.streams.map(stream=><div key={`${stream.signageId}-${stream.zoneId}`}><span>{stream.zoneId}<small>{stream.signageId.slice(0,8)}</small></span><span className={stream.running&&stream.playlistReady?"ok":"bad"}>{stream.running?"Running":"Stopped"}<small>{stream.playlistReady?"HLS ready":"Waiting for HLS"}</small></span><span>{stream.segmentLatencyMs==null?"—":`${stream.segmentLatencyMs} ms`}<small>accessed {timeAgo(stream.lastAccess)}</small></span><span>{stream.error||"No relay error"}</span><button onClick={()=>restart(stream.signageId,stream.zoneId)}>Restart</button></div>)}</div>:<p>No live-stream relays are active. They start on demand when a display requests a stream zone.</p>}</div>
+    <div className="panel"><h2>Per-screen format mapping</h2><p>Map portrait, landscape, ultrawide, square, or custom layouts to each physical display. Auto uses the player’s reported orientation.</p><div className="screen-format-grid">{screens.filter(screen=>!screen.revoked).map(screen=><label key={screen.id}><span><strong>{screen.name}</strong><small>{screen.site}</small></span><select defaultValue={`${screen.signageOrientation||"auto"}${screen.signageWidth&&screen.signageHeight?`:${screen.signageWidth}x${screen.signageHeight}`:""}`} onChange={event=>setFormat(screen,event.target.value)}><option value="auto">Auto</option><option value="landscape:1920x1080">Landscape · 1920×1080</option><option value="portrait:1080x1920">Portrait · 1080×1920</option><option value="landscape:2560x1080">Ultrawide · 2560×1080</option><option value="auto:1080x1080">Square · 1080×1080</option>{screen.signageWidth&&screen.signageHeight&&<option value={`${screen.signageOrientation}:${screen.signageWidth}x${screen.signageHeight}`}>Custom · {screen.signageWidth}×{screen.signageHeight}</option>}</select></label>)}</div></div>
+    <div className="panel"><h2>Privacy and screenshots</h2><p>Diagnostic screenshots remain opt-in per screen, require an explicit one-time request from the Screens page, and expire automatically. Signage Studio shows status but never captures a screen silently.</p></div>
+  </section>;
+}
+
+function EmergencyPanel({media,notify,screens}:Props){
+  const [items,setItems]=useState<Emergency[]>([]);const [editing,setEditing]=useState<Emergency|"new">();const [activating,setActivating]=useState<Emergency>();
+  const load=()=>studioApi<Emergency[]>("/emergencies").then(setItems).catch(error=>notify(errorText(error)));useEffect(()=>{void load();},[]);
+  async function activate(event:FormEvent<HTMLFormElement>){event.preventDefault();if(!activating)return;const form=new FormData(event.currentTarget);try{await studioApi(`/emergencies/${activating.id}/activate`,{method:"POST",body:JSON.stringify({durationMinutes:Number(form.get("duration")),screenIds:form.getAll("screenId").map(String),targetTagsCsv:String(form.get("targetTagsCsv")||"")})});setActivating(undefined);load();notify("Emergency alert broadcast immediately.");}catch(error){notify(errorText(error));}}
+  async function cancel(item:Emergency){if(!confirm(`Cancel ${item.name} on all targeted screens now?`))return;try{await studioApi(`/emergencies/${item.id}/cancel`,{method:"POST",body:"{}"});load();notify("Emergency alert cancelled.");}catch(error){notify(errorText(error));}}
+  async function remove(item:Emergency){if(!confirm(`Delete alert type ${item.name}?`))return;try{await studioApi(`/emergencies/${item.id}`,{method:"DELETE"});load();notify("Alert type deleted.");}catch(error){notify(errorText(error));}}
+  return <section className="studio-panel"><div className="studio-toolbar panel"><div><strong>Emergency alert types</strong><small>Prepare alerts in advance, then broadcast or cancel them immediately. Cached media remains usable when the internet is down.</small></div><button className="button primary" onClick={()=>setEditing("new")}>New alert type</button></div><div className="studio-card-grid">{items.map(item=><article className="emergency-card" key={item.id} style={{background:item.backgroundColor,color:item.textColor}}><span>{item.severity.toUpperCase()}</span><h2>{item.name}</h2><p>{item.message}</p><small>{item.targetTagsCsv?`Tags: ${item.targetTagsCsv}`:"All screens"} · {item.defaultDurationMinutes} min default{item.mediaAssetId?" · offline media":""}</small>{item.activeSignageId&&<b>LIVE until {item.expiresAt?new Date(item.expiresAt).toLocaleTimeString():"cancelled"}</b>}<div>{item.activeSignageId?<button onClick={()=>cancel(item)}>Cancel broadcast</button>:<button onClick={()=>setActivating(item)}>Broadcast now</button>}<button onClick={()=>setEditing(item)}>Edit</button><button onClick={()=>remove(item)}>Delete</button></div></article>)}</div>{editing&&<EmergencyEditor item={editing==="new"?undefined:editing} media={media} notify={notify} onClose={()=>setEditing(undefined)} onSaved={()=>{setEditing(undefined);load();}}/>}{activating&&<StudioDialog title="Review immediate broadcast" onClose={()=>setActivating(undefined)}><form className="studio-form" onSubmit={activate}><article className="emergency-card" style={{background:activating.backgroundColor,color:activating.textColor}}><span>{activating.severity.toUpperCase()}</span><h2>{activating.name}</h2><p>{activating.message}</p></article><label>Duration (minutes)<input name="duration" type="number" min="1" max="1440" defaultValue={activating.defaultDurationMinutes}/></label><label>Screen-tag groups<input name="targetTagsCsv" defaultValue={activating.targetTagsCsv} placeholder="Leave blank with no screen choices for every screen"/></label><fieldset className="screen-check-grid"><legend>Exact screens (optional)</legend>{screens.filter(screen=>!screen.revoked).map(screen=><label key={screen.id}><input type="checkbox" name="screenId" value={screen.id}/><span><strong>{screen.name}</strong><small>{screen.site} · {screen.tagsCsv||"no tags"}</small></span></label>)}</fieldset><div className="credential-note">Emergency playback overrides lessons, signage, and kiosk interaction immediately. Confirm the audience and duration before broadcasting.</div><div className="layout-editor-footer"><button type="button" onClick={()=>setActivating(undefined)}>Cancel</button><button className="button primary">Confirm broadcast now</button></div></form></StudioDialog>}</section>;
+}
+
+function EmergencyEditor({item,media,notify,onClose,onSaved}:{item?:Emergency;media:StudioMedia[];notify:(message:string)=>void;onClose:()=>void;onSaved:()=>void}){
+  type Draft = { name:string; severity:string; message:string; backgroundColor:string; textColor:string; mediaAssetId:string|null; targetTagsCsv:string; defaultDurationMinutes:number };
+  const [review,setReview]=useState<Draft>();
+  function prepare(event:FormEvent<HTMLFormElement>){event.preventDefault();const form=new FormData(event.currentTarget);setReview({name:String(form.get("name")||""),severity:String(form.get("severity")||"urgent"),message:String(form.get("message")||""),backgroundColor:String(form.get("backgroundColor")||"#9b1c1c"),textColor:String(form.get("textColor")||"#ffffff"),mediaAssetId:String(form.get("mediaAssetId")||"")||null,targetTagsCsv:String(form.get("targetTagsCsv")||""),defaultDurationMinutes:Number(form.get("duration"))});}
+  async function save(){if(!review)return;try{await studioApi(item?`/emergencies/${item.id}`:"/emergencies",{method:item?"PUT":"POST",body:JSON.stringify(review)});notify("Emergency alert type saved.");onSaved();}catch(error){notify(errorText(error));}}
+  if(review)return <StudioDialog title="Review emergency alert" onClose={()=>setReview(undefined)}><div className="emergency-review"><p>Confirm the message, audience, offline media, and default duration before making this alert type available to operators.</p><article style={{background:review.backgroundColor,color:review.textColor}}><span>{review.severity.toUpperCase()}</span><h2>{review.name}</h2><p>{review.message||"No message"}</p><small>{review.targetTagsCsv?`Screen tags: ${review.targetTagsCsv}`:"All screens"} · {review.defaultDurationMinutes} minutes · {review.mediaAssetId?media.find(value=>value.id===review.mediaAssetId)?.fileName||"offline media":"text only"}</small></article><div className="layout-editor-footer"><button onClick={()=>setReview(undefined)}>Back to edit</button><button className="button primary" onClick={()=>void save()}>Confirm and save</button></div></div></StudioDialog>;
+  return <StudioDialog title={item?`Edit ${item.name}`:"New emergency alert type"} onClose={onClose}><form className="studio-form" onSubmit={prepare}><label>Name<input name="name" required defaultValue={item?.name}/></label><label>Severity<select name="severity" defaultValue={item?.severity||"urgent"}><option>info</option><option>warning</option><option>urgent</option><option>critical</option></select></label><label>Message<textarea name="message" maxLength={2000} defaultValue={item?.message}/></label><div className="two-fields"><label>Background<input name="backgroundColor" type="color" defaultValue={item?.backgroundColor||"#9b1c1c"}/></label><label>Text<input name="textColor" type="color" defaultValue={item?.textColor||"#ffffff"}/></label></div><label>Offline alert media<select name="mediaAssetId" defaultValue={item?.mediaAssetId||""}><option value="">Text only</option>{media.filter(value=>value.sourceKind!=="link").map(value=><option value={value.id} key={value.id}>{value.fileName}</option>)}</select></label><label>Screen-tag groups<input name="targetTagsCsv" defaultValue={item?.targetTagsCsv} placeholder="campus-a, lobby"/></label><label>Default duration (minutes)<input name="duration" type="number" min="1" max="1440" defaultValue={item?.defaultDurationMinutes||30}/></label><div className="layout-editor-footer"><button type="button" onClick={onClose}>Cancel</button><button className="button primary">Review alert</button></div></form></StudioDialog>;
+}
+
+function StudioDialog({title,children,onClose,wide=false}:{title:string;children:ReactNode;onClose:()=>void;wide?:boolean}){
+  return <div className="studio-dialog-backdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}><section className={`studio-dialog ${wide?"wide":""}`} role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button onClick={onClose} aria-label="Close">×</button></header>{children}</section></div>;
+}

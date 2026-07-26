@@ -43,6 +43,36 @@ public sealed class LiveStreamRelayService(string dataPath, ILogger<LiveStreamRe
         return File.Exists(path) ? path : null;
     }
 
+    public IReadOnlyCollection<LiveStreamRelayStatus> Status()
+    {
+        return sessions.Select(pair =>
+        {
+            var session = pair.Value;
+            var parts = pair.Key.Split(':', 2);
+            _ = Guid.TryParseExact(parts[0], "N", out var signageId);
+            var playlist = Path.Combine(session.Directory, "index.m3u8");
+            var latestSegment = Directory.Exists(session.Directory)
+                ? Directory.EnumerateFiles(session.Directory, "*.ts").Select(path => new FileInfo(path))
+                    .OrderByDescending(file => file.LastWriteTimeUtc).FirstOrDefault()
+                : null;
+            var lastSegmentAt = latestSegment is null ? (DateTimeOffset?)null : latestSegment.LastWriteTimeUtc;
+            return new LiveStreamRelayStatus(signageId, parts.Length > 1 ? parts[1] : "", session.Process is { HasExited: false },
+                session.StartedAt, session.LastAccess, lastSegmentAt,
+                lastSegmentAt is null ? null : Math.Max(0, (int)(DateTimeOffset.UtcNow - lastSegmentAt.Value).TotalMilliseconds),
+                File.Exists(playlist), session.RestartCount, session.LastError);
+        }).OrderByDescending(value => value.LastAccess).ToArray();
+    }
+
+    public bool Restart(Guid signageId, string zoneId)
+    {
+        if (!sessions.TryGetValue(Key(signageId, zoneId), out var session)) return false;
+        session.RestartCount++;
+        var source = session.SourceUrl;
+        Stop(session);
+        if (!string.IsNullOrWhiteSpace(source)) Start(session, source);
+        return true;
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         Directory.CreateDirectory(root);
@@ -91,6 +121,7 @@ public sealed class LiveStreamRelayService(string dataPath, ILogger<LiveStreamRe
         var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
         session.SourceUrl = sourceUrl;
         session.LastError = null;
+        session.StartedAt = DateTimeOffset.UtcNow;
         process.ErrorDataReceived += (_, eventArgs) =>
         {
             if (string.IsNullOrWhiteSpace(eventArgs.Data)) return;
@@ -140,6 +171,12 @@ public sealed class LiveStreamRelayService(string dataPath, ILogger<LiveStreamRe
         public Process? Process { get; set; }
         public string? SourceUrl { get; set; }
         public string? LastError { get; set; }
+        public DateTimeOffset? StartedAt { get; set; }
+        public int RestartCount { get; set; }
         public DateTimeOffset LastAccess { get; set; } = DateTimeOffset.UtcNow;
     }
 }
+
+public sealed record LiveStreamRelayStatus(Guid SignageId, string ZoneId, bool Running,
+    DateTimeOffset? StartedAt, DateTimeOffset LastAccess, DateTimeOffset? LastSegmentAt,
+    int? SegmentLatencyMs, bool PlaylistReady, int RestartCount, string? Error);
