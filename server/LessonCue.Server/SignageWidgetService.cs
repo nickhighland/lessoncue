@@ -1,4 +1,5 @@
 using System.Net;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -48,10 +49,13 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
                 var cache = SignageLayout.ParseCache(sign.WidgetCacheJson).ToDictionary(x => x.ZoneId, StringComparer.OrdinalIgnoreCase);
                 var errors = new List<string>();
                 var signChanged = false;
-                foreach (var zone in zones.Where(x => x.Type is "calendar" or "weather" or "menu" or "rss" or "data" or "social" or "traffic")
-                             .Where(x => !string.IsNullOrWhiteSpace(x.SourceUrl)))
+                foreach (var rawZone in zones.Where(x => x.Type is "calendar" or "weather" or "menu" or "rss" or "data" or "social" or "traffic")
+                             .Where(x => !string.IsNullOrWhiteSpace(x.SourceUrl) ||
+                                 x.Type == "weather" && SignageLayout.Normalize(x).WeatherProvider is "open-meteo" or "nws"))
                 {
-                    if (!SignageLayout.TryOrigin(zone.SourceUrl!, out var origin) || !allowlist.Contains(origin, StringComparer.OrdinalIgnoreCase))
+                    var zone = SignageLayout.Normalize(rawZone);
+                    if (zone.WeatherProvider is not ("open-meteo" or "nws") &&
+                        (!SignageLayout.TryOrigin(zone.SourceUrl!, out var origin) || !allowlist.Contains(origin, StringComparer.OrdinalIgnoreCase)))
                     {
                         errors.Add($"{zone.Title ?? zone.Type}: source is no longer approved");
                         continue;
@@ -89,14 +93,48 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
 
     public async Task<SignageWidgetCacheEntry> FetchAsync(SignageZoneInput zone, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, zone.SourceUrl);
-        credentials.Apply(request, zone.CredentialKey);
+        var source = WeatherSource(zone) ?? zone.SourceUrl ?? throw new InvalidDataException("Widget source is missing.");
+        var text = await FetchTextAsync(source, zone.WeatherProvider == "custom" ? zone.CredentialKey : null, cancellationToken);
+        if (zone.Type == "weather" && zone.WeatherProvider == "nws")
+        {
+            using var points = JsonDocument.Parse(text);
+            var forecast = points.RootElement.GetProperty("properties").GetProperty("forecast").GetString();
+            if (!Uri.TryCreate(forecast, UriKind.Absolute, out var forecastUri) ||
+                forecastUri.Scheme != "https" || !forecastUri.Host.Equals("api.weather.gov", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("National Weather Service returned an invalid forecast address.");
+            source = forecastUri.AbsoluteUri;
+            text = await FetchTextAsync(source, null, cancellationToken);
+        }
+        return Parse(zone with { SourceUrl = source }, text, DateTimeOffset.UtcNow);
+    }
+
+    private async Task<string> FetchTextAsync(string source, string? credentialKey, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, source);
+        credentials.Apply(request, credentialKey);
         using var response = await clients.CreateClient("signage-widgets").SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
         if (response.Content.Headers.ContentLength is > 2_000_000) throw new InvalidDataException("Source response exceeds 2 MB.");
         var text = await response.Content.ReadAsStringAsync(cancellationToken);
         if (text.Length > 2_000_000) throw new InvalidDataException("Source response exceeds 2 MB.");
-        return Parse(zone, text, DateTimeOffset.UtcNow);
+        return text;
+    }
+
+    public static string? WeatherSource(SignageZoneInput raw)
+    {
+        var zone = SignageLayout.Normalize(raw);
+        if (zone.Type != "weather" || zone.WeatherLatitude is null || zone.WeatherLongitude is null) return null;
+        var latitude = zone.WeatherLatitude.Value.ToString("0.####", CultureInfo.InvariantCulture);
+        var longitude = zone.WeatherLongitude.Value.ToString("0.####", CultureInfo.InvariantCulture);
+        if (zone.WeatherProvider == "nws") return $"https://api.weather.gov/points/{latitude},{longitude}";
+        if (zone.WeatherProvider != "open-meteo") return null;
+        var temperatureUnit = zone.WeatherUnits == "celsius" ? "celsius" : "fahrenheit";
+        var windUnit = zone.WeatherUnits == "celsius" ? "kmh" : "mph";
+        return "https://api.open-meteo.com/v1/forecast" +
+            $"?latitude={latitude}&longitude={longitude}" +
+            "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m" +
+            "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
+            $"&temperature_unit={temperatureUnit}&wind_speed_unit={windUnit}&timezone=auto&forecast_days=2";
     }
 
     public static SignageWidgetCacheEntry Parse(SignageZoneInput zone, string payload, DateTimeOffset refreshedAt)
@@ -120,6 +158,11 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
                 .Select(x => Clean(x[(x.IndexOf(':') + 1)..])).Where(x => !string.IsNullOrWhiteSpace(x)).Take(8).Cast<string>().ToArray();
             if (items.Length == 0) items = ParseJsonItems(payload);
         }
+        else if (zone.Type == "weather" && zone.WeatherProvider is "open-meteo" or "nws")
+        {
+            using var document = JsonDocument.Parse(payload);
+            return ParsePresetWeather(zone, document.RootElement, refreshedAt);
+        }
         else if (zone.Type is "weather" or "data" or "social" or "traffic")
         {
             using var document = JsonDocument.Parse(payload);
@@ -134,6 +177,75 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
                 .Select(Clean).Where(x => !string.IsNullOrWhiteSpace(x)).Take(12).Cast<string>().ToArray();
         }
         return new(zone.Id, title, Clean(text) ?? "", items, refreshedAt, zone.SourceUrl);
+    }
+
+    private static SignageWidgetCacheEntry ParsePresetWeather(SignageZoneInput zone, JsonElement root, DateTimeOffset refreshedAt)
+    {
+        var fields = (zone.WeatherFields ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var title = zone.WeatherLocation ?? zone.Title ?? "Local weather";
+        double? temperature = null, feelsLike = null, high = null, low = null, precipitation = null, humidity = null, wind = null;
+        string? temperatureUnit = null, windUnit = null, conditions = null, windText = null;
+        int? code = null;
+        if (zone.WeatherProvider == "open-meteo")
+        {
+            if (root.TryGetProperty("current", out var current))
+            {
+                temperature = NumberProperty(current, "temperature_2m");
+                feelsLike = NumberProperty(current, "apparent_temperature");
+                humidity = NumberProperty(current, "relative_humidity_2m");
+                wind = NumberProperty(current, "wind_speed_10m");
+                code = IntProperty(current, "weather_code");
+            }
+            if (root.TryGetProperty("current_units", out var units))
+            {
+                temperatureUnit = StringProperty(units, "temperature_2m");
+                windUnit = StringProperty(units, "wind_speed_10m");
+            }
+            if (root.TryGetProperty("daily", out var daily))
+            {
+                high = FirstNumber(daily, "temperature_2m_max");
+                low = FirstNumber(daily, "temperature_2m_min");
+                precipitation = FirstNumber(daily, "precipitation_probability_max");
+                code ??= FirstInt(daily, "weather_code");
+            }
+            conditions = WeatherCondition(code);
+        }
+        else if (root.TryGetProperty("properties", out var properties) &&
+                 properties.TryGetProperty("periods", out var periods) && periods.ValueKind == JsonValueKind.Array)
+        {
+            var all = periods.EnumerateArray().ToArray();
+            if (all.Length > 0)
+            {
+                var current = all[0];
+                temperature = NumberProperty(current, "temperature");
+                temperatureUnit = StringProperty(current, "temperatureUnit") is { } unit ? $"°{unit}" : "°";
+                conditions = StringProperty(current, "shortForecast");
+                windText = $"{StringProperty(current, "windSpeed")} {StringProperty(current, "windDirection")}".Trim();
+                if (current.TryGetProperty("probabilityOfPrecipitation", out var probability))
+                    precipitation = NumberProperty(probability, "value");
+                if (current.TryGetProperty("relativeHumidity", out var relativeHumidity))
+                    humidity = NumberProperty(relativeHumidity, "value");
+            }
+            high = all.Where(period => BoolProperty(period, "isDaytime") == true).Select(period => NumberProperty(period, "temperature")).FirstOrDefault(value => value is not null);
+            low = all.Where(period => BoolProperty(period, "isDaytime") == false).Select(period => NumberProperty(period, "temperature")).FirstOrDefault(value => value is not null);
+            code = ForecastCode(conditions);
+        }
+        var icon = WeatherIcon(code, conditions);
+        var unitText = temperatureUnit ?? (zone.WeatherUnits == "celsius" ? "°C" : "°F");
+        var headline = new List<string>();
+        if (fields.Contains("icon")) headline.Add(icon);
+        if (fields.Contains("temperature") && temperature is not null) headline.Add($"{temperature:0.#}{unitText}");
+        if (fields.Contains("conditions") && !string.IsNullOrWhiteSpace(conditions)) headline.Add(conditions);
+        var items = new List<string>();
+        if (fields.Contains("feelsLike") && feelsLike is not null) items.Add($"Feels like {feelsLike:0.#}{unitText}");
+        if (fields.Contains("high") && high is not null) items.Add($"High {high:0.#}{unitText}");
+        if (fields.Contains("low") && low is not null) items.Add($"Low {low:0.#}{unitText}");
+        if (fields.Contains("precipitation") && precipitation is not null) items.Add($"Precipitation {precipitation:0.#}%");
+        if (fields.Contains("humidity") && humidity is not null) items.Add($"Humidity {humidity:0.#}%");
+        if (fields.Contains("wind") && !string.IsNullOrWhiteSpace(windText)) items.Add($"Wind {windText}");
+        else if (fields.Contains("wind") && wind is not null) items.Add($"Wind {wind:0.#} {windUnit}".Trim());
+        return new(zone.Id, title, string.Join(" ", headline), items.ToArray(), refreshedAt, zone.SourceUrl);
     }
 
     private static string[] ParseJsonItems(string payload)
@@ -166,6 +278,53 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
     private static double? NumberProperty(JsonElement element, string name) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.TryGetDouble(out var number) ? number : null;
+    private static int? IntProperty(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.TryGetInt32(out var number) ? number : null;
+    private static bool? BoolProperty(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) &&
+        value.ValueKind is JsonValueKind.True or JsonValueKind.False ? value.GetBoolean() : null;
+    private static double? FirstNumber(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var values) &&
+        values.ValueKind == JsonValueKind.Array && values.GetArrayLength() > 0 && values[0].TryGetDouble(out var number) ? number : null;
+    private static int? FirstInt(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var values) &&
+        values.ValueKind == JsonValueKind.Array && values.GetArrayLength() > 0 && values[0].TryGetInt32(out var number) ? number : null;
+    private static string WeatherCondition(int? code) => code switch
+    {
+        0 => "Clear sky",
+        1 => "Mostly clear",
+        2 => "Partly cloudy",
+        3 => "Overcast",
+        45 or 48 => "Fog",
+        51 or 53 or 55 or 56 or 57 => "Drizzle",
+        61 or 63 or 65 or 66 or 67 or 80 or 81 or 82 => "Rain",
+        71 or 73 or 75 or 77 or 85 or 86 => "Snow",
+        95 or 96 or 99 => "Thunderstorms",
+        _ => "Weather"
+    };
+    private static int? ForecastCode(string? value)
+    {
+        var text = value?.ToLowerInvariant() ?? "";
+        if (text.Contains("thunder")) return 95;
+        if (text.Contains("snow") || text.Contains("sleet") || text.Contains("ice")) return 71;
+        if (text.Contains("rain") || text.Contains("shower") || text.Contains("drizzle")) return 61;
+        if (text.Contains("fog") || text.Contains("haze") || text.Contains("smoke")) return 45;
+        if (text.Contains("partly") || text.Contains("mostly sunny") || text.Contains("mostly clear")) return 2;
+        if (text.Contains("cloud") || text.Contains("overcast")) return 3;
+        if (text.Contains("sun") || text.Contains("clear")) return 0;
+        return null;
+    }
+    private static string WeatherIcon(int? code, string? conditions) => (code ?? ForecastCode(conditions)) switch
+    {
+        0 => "☀️",
+        1 or 2 => "🌤️",
+        3 => "☁️",
+        45 or 48 => "🌫️",
+        51 or 53 or 55 or 56 or 57 or 61 or 63 or 65 or 66 or 67 or 80 or 81 or 82 => "🌧️",
+        71 or 73 or 75 or 77 or 85 or 86 => "❄️",
+        95 or 96 or 99 => "⛈️",
+        _ => "🌡️"
+    };
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null :
         WebUtility.HtmlDecode(Regex.Replace(value, "<[^>]+>", " ")).Replace("\\n", " ").Trim()[..Math.Min(500, WebUtility.HtmlDecode(Regex.Replace(value, "<[^>]+>", " ")).Replace("\\n", " ").Trim().Length)];
     private static string Short(string value) => value.Length <= 180 ? value : value[..180];

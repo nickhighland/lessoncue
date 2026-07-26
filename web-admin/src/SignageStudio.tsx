@@ -24,6 +24,9 @@ type Zone = {
   lineHeightPercent?: number; textAlign?: string; shape?: string; strokeColor?: string; strokeWidth?: number;
   cornerRadius?: number; iconName?: string; qrValue?: string; tickerSpeed?: number; counterTargetAt?: string;
   credentialKey?: string;
+  weatherProvider?: "open-meteo" | "nws" | "custom";
+  weatherLocation?: string; weatherLatitude?: number; weatherLongitude?: number;
+  weatherUnits?: "fahrenheit" | "celsius"; weatherFields?: string;
   richTextJson?: string;
 };
 type Layout = {
@@ -63,6 +66,35 @@ type Props = {
   section: SignageStudioSection; media: StudioMedia[]; screens: StudioScreen[]; signage: StudioSchedule[];
   timeZone: string; sourceAllowlist: string[]; refresh: () => void; notify: (message: string) => void;
 };
+
+const ZONE_TYPES = [
+  ["text", "Text / message"], ["media", "Photo, video, or logo"], ["stream", "Live stream"],
+  ["shape", "Shape"], ["icon", "Icon"], ["qr", "QR code"], ["wifi", "Wi-Fi QR code"],
+  ["ticker", "Scrolling ticker"], ["counter", "Countdown"], ["clock", "Time and date"],
+  ["weather", "Weather"], ["calendar", "Calendar / events"], ["rss", "RSS / news"],
+  ["menu", "Menu / data"], ["slides", "Slides"], ["webpage", "Webpage"], ["dashboard", "Dashboard"],
+  ["social", "Social feed"], ["traffic", "Traffic"], ["customHtml", "Custom HTML"]
+] as const;
+
+const WEATHER_FIELDS = [
+  ["icon", "Condition icon"], ["conditions", "Conditions"], ["temperature", "Current temperature"],
+  ["feelsLike", "Feels like"], ["high", "Daily high"], ["low", "Daily low"],
+  ["precipitation", "Precipitation chance"], ["humidity", "Humidity"], ["wind", "Wind"]
+] as const;
+
+const weatherFieldSet = (zone: Zone) =>
+  new Set((zone.weatherFields || "icon,conditions,temperature,high,low,precipitation").split(",").filter(Boolean));
+
+function parseWifiQr(value?: string) {
+  const pick = (key: string) => value?.match(new RegExp(`${key}:((?:\\\\.|[^;])*)`))?.[1]
+    ?.replace(/\\([\\;,:"])/g, "$1") || "";
+  return { security: pick("T") || "WPA", ssid: pick("S"), password: pick("P") };
+}
+
+function makeWifiQr(security: string, ssid: string, password: string) {
+  const escape = (value: string) => value.replace(/([\\;,:"])/g, "\\$1");
+  return `WIFI:T:${escape(security)};S:${escape(ssid)};P:${escape(password)};;`;
+}
 
 async function studioApi<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api/v1/signage-studio${path}`, {
@@ -168,7 +200,7 @@ function LayoutThumbnail({ item }: { item: Layout }) {
 }
 
 function freshZone(type = "text"): Zone {
-  return {
+  const zone: Zone = {
     id: id(), type, title: type === "text" ? "Text" : type, content: type === "text" ? "New message" : "",
     x: 10, y: 10, width: 40, height: 30, backgroundColor: "#17201e", textColor: "#ffffff", accentColor: "#d89127",
     refreshMinutes: 15, rotation: 0, zIndex: 1, opacity: 100, fit: "cover", locked: false, hidden: false,
@@ -176,6 +208,11 @@ function freshZone(type = "text"): Zone {
     lineHeightPercent: 120, textAlign: "left", shape: "rectangle", strokeColor: "#ffffff", strokeWidth: 0,
     cornerRadius: 0, tickerSpeed: 60
   };
+  if (type === "weather") Object.assign(zone, {
+    title: "Local weather", weatherProvider: "open-meteo", weatherLocation: "Your location",
+    weatherUnits: "fahrenheit", weatherFields: "icon,conditions,temperature,high,low,precipitation"
+  });
+  return zone;
 }
 
 function LayoutEditor({ layout, templates, media, onClose, onSaved, notify }: {
@@ -199,6 +236,11 @@ function LayoutEditor({ layout, templates, media, onClose, onSaved, notify }: {
   const [snap, setSnap] = useState(true);
   const [hand, setHand] = useState(false);
   const [showSafe, setShowSafe] = useState(true);
+  const [showFrameBuilder, setShowFrameBuilder] = useState(false);
+  const [bottomSlots, setBottomSlots] = useState(5);
+  const [sidebarSlots, setSidebarSlots] = useState(1);
+  const [framePercent, setFramePercent] = useState(20);
+  const [frameColor, setFrameColor] = useState("#063d2b");
   const [guides, setGuides] = useState<{ vertical?: number; horizontal?: number }>({});
   const [elementType, setElementType] = useState("text");
   const canvas = useRef<HTMLDivElement>(null);
@@ -219,6 +261,37 @@ function LayoutEditor({ layout, templates, media, onClose, onSaved, notify }: {
   function addElement() {
     const zone = { ...freshZone(elementType), x: Math.min(60, 6 + zones.length * 2), y: Math.min(60, 6 + zones.length * 2), zIndex: zones.length + 1 };
     commit([...zones, zone]); setSelected([zone.id]);
+  }
+  function applyInformationFrame() {
+    if (zones.length && !confirm("Replace the current draft elements with an information frame? You can undo this change.")) return;
+    const mainPercent = 100 - framePercent;
+    const framed: Zone[] = [];
+    const main = { ...freshZone("slides"), id: id(), title: "Presentation area",
+      content: "Slides, videos, streams, and scheduled content", x: 0, y: 0, width: mainPercent,
+      height: mainPercent, backgroundColor: "#171c1b", accentColor: frameColor, fontSize: 30, zIndex: 1 };
+    framed.push(main);
+    for (let index = 0; index < sidebarSlots; index++) {
+      framed.push({ ...freshZone(index === 0 ? "calendar" : index === 1 ? "clock" : "text"),
+        id: id(), title: index === 0 ? "Upcoming events" : index === 1 ? "Time and date" : "Sidebar message",
+        content: index === 0 ? "Connect a calendar or enter event information" : index === 1 ? "" : "Add a message",
+        x: mainPercent, y: index * mainPercent / sidebarSlots, width: framePercent,
+        height: mainPercent / sidebarSlots, backgroundColor: frameColor, accentColor: "#d89127",
+        fontSize: 26, zIndex: index + 2 });
+    }
+    const suggestions = ["weather", "wifi", "rss", "text", "qr"];
+    for (let index = 0; index < bottomSlots; index++) {
+      const type = suggestions[index] || "text";
+      const zone = freshZone(type);
+      framed.push({ ...zone, id: id(),
+        title: type === "weather" ? "Local weather" : type === "wifi" ? "Guest Wi-Fi" :
+          type === "rss" ? "News" : type === "qr" ? "Learn more" : "Message",
+        content: type === "rss" ? "Connect a news source" : type === "text" ? "Add a message" : zone.content,
+        x: index * 100 / bottomSlots, y: mainPercent, width: 100 / bottomSlots, height: framePercent,
+        backgroundColor: index % 2 ? frameColor : "#032719", accentColor: "#d89127",
+        fontSize: 28, zIndex: sidebarSlots + index + 2 });
+    }
+    setWidth(1920); setHeight(1080); setBackground(frameColor);
+    commit(framed); setSelected([main.id]); setShowFrameBuilder(false);
   }
   function selectionFor(zone: Zone, event: ReactPointerEvent) {
     const groupedIds = zone.groupId ? zones.filter(value => value.groupId === zone.groupId).map(value => value.id) : [zone.id];
@@ -372,14 +445,23 @@ function LayoutEditor({ layout, templates, media, onClose, onSaved, notify }: {
       <label><input type="checkbox" checked={snap} onChange={event => setSnap(event.target.checked)} /> Snap</label>
       <label>Grid <input type="number" min="1" max="20" value={grid} onChange={event => setGrid(Number(event.target.value))} />%</label>
       <label><input type="checkbox" checked={showSafe} onChange={event => setShowSafe(event.target.checked)} /> Safe area</label>
-      <select value={elementType} onChange={event => setElementType(event.target.value)}>{["text","media","stream","shape","icon","qr","ticker","counter","clock","weather","calendar","rss","menu","slides","webpage","dashboard","social","traffic","wifi","customHtml"].map(value => <option key={value} value={value}>{value}</option>)}</select>
+      <select aria-label="Element type" value={elementType} onChange={event => setElementType(event.target.value)}>{ZONE_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
       <button onClick={addElement}>+ Element</button>
+      <button className={showFrameBuilder ? "active" : ""} onClick={() => setShowFrameBuilder(value => !value)}>▦ Information frame</button>
       <span className="toolbar-spacer" />
       <button onClick={() => align("left")} disabled={selected.length < 2}>Left</button><button onClick={() => align("center")} disabled={selected.length < 2}>Center</button><button onClick={() => align("right")} disabled={selected.length < 2}>Right</button>
       <button onClick={() => align("top")} disabled={selected.length < 2}>Top</button><button onClick={() => align("middle")} disabled={selected.length < 2}>Middle</button><button onClick={() => align("bottom")} disabled={selected.length < 2}>Bottom</button>
       <button onClick={() => align("distribute-h")} disabled={selected.length < 3}>Distribute ↔</button><button onClick={() => align("distribute-v")} disabled={selected.length < 3}>Distribute ↕</button>
       <button onClick={group} disabled={selected.length < 2}>Group</button><button onClick={ungroup} disabled={!selected.some(zoneId => zones.find(zone => zone.id === zoneId)?.groupId)}>Ungroup</button>
     </div>
+    {showFrameBuilder && <section className="information-frame-builder" aria-label="Information frame builder">
+      <div><strong>Information frame</strong><small>Build a 16:9 presentation area with evenly divided information slots along the bottom and right side.</small></div>
+      <label>Bottom boxes <select value={bottomSlots} onChange={event => setBottomSlots(Number(event.target.value))}>{[1,2,3,4,5].map(value => <option key={value}>{value}</option>)}</select></label>
+      <label>Sidebar boxes <select value={sidebarSlots} onChange={event => setSidebarSlots(Number(event.target.value))}>{[1,2,3].map(value => <option key={value}>{value}</option>)}</select></label>
+      <label>Frame size <input type="range" min="12" max="28" value={framePercent} onChange={event => setFramePercent(Number(event.target.value))} /><b>{framePercent}%</b></label>
+      <label>Frame color <input type="color" value={frameColor} onChange={event => setFrameColor(event.target.value)} /></label>
+      <button className="button primary" onClick={applyInformationFrame}>Apply frame</button>
+    </section>}
     <div className="layout-editor-workspace">
       <div className="layout-canvas-scroll">
         <div ref={canvas} className={`layout-canvas ${snap ? "show-grid" : ""} ${hand ? "hand" : ""}`}
@@ -431,6 +513,16 @@ function ZoneVisual({ zone, media }: { zone: Zone; media: StudioMedia[] }) {
   const asset = media.find(item => item.id === zone.mediaAssetId);
   if (zone.type === "media" && asset) return asset.contentType.startsWith("image/") ? <img src={asset.thumbnailUrl || asset.downloadUrl} alt="" style={{ objectFit: zone.fit as CSSProperties["objectFit"] }} /> : <span>▶ {asset.fileName}</span>;
   if (zone.type === "clock") return <strong>{new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</strong>;
+  if (zone.type === "weather") {
+    const fields = weatherFieldSet(zone);
+    return <span className="zone-weather-preview">
+      {fields.has("icon") && <i aria-hidden="true">🌤️</i>}
+      <span><small>{zone.weatherLocation || zone.title || "Local weather"}</small>
+        {fields.has("temperature") && <strong>{zone.weatherUnits === "celsius" ? "21°C" : "70°F"}</strong>}
+        <em>{fields.has("conditions") ? "Partly cloudy" : ""}{fields.has("high") || fields.has("low") ? ` · H ${zone.weatherUnits === "celsius" ? "24°" : "75°"} · L ${zone.weatherUnits === "celsius" ? "15°" : "59°"}` : ""}</em>
+      </span>
+    </span>;
+  }
   if (zone.type === "qr" || zone.type === "wifi") return <StudioQr value={zone.qrValue || ""} />;
   if (zone.type === "icon") return <span className="zone-icon">{({ star: "★", info: "ⓘ", warning: "⚠", arrow: "➜", check: "✓" } as Record<string,string>)[zone.iconName || ""] || "★"}</span>;
   if (zone.type === "counter") return <StudioCounter target={zone.counterTargetAt} fallback={zone.content || "Countdown"} />;
@@ -493,15 +585,40 @@ function ZoneInspector({ zone, media, onPatch, onDelete, onDuplicate }: {
   const contentLocked = zone.lockMode === "content" || zone.lockMode === "full";
   const positionLocked = zone.lockMode === "position" || zone.lockMode === "full" || zone.locked;
   const fullyLocked = zone.lockMode === "full";
+  const wifi = parseWifiQr(zone.qrValue);
+  const weatherFields = weatherFieldSet(zone);
+  const patchWeatherField = (field: string, checked: boolean) => {
+    const next = new Set(weatherFields);
+    if (checked) next.add(field); else next.delete(field);
+    onPatch({ weatherFields: [...next].join(",") });
+  };
   return <div className="zone-inspector">
-    <label>Type <select disabled={contentLocked} value={zone.type} onChange={event => onPatch({ type: event.target.value })}>{["text","media","stream","shape","icon","qr","ticker","counter","clock","weather","calendar","rss","menu","slides","webpage","dashboard","social","traffic","wifi","customHtml"].map(value => <option key={value}>{value}</option>)}</select></label>
+    <label>Type <select disabled={contentLocked} value={zone.type} onChange={event => onPatch({ type: event.target.value })}>{ZONE_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
     <label>Title <input disabled={contentLocked} value={zone.title || ""} onChange={event => onPatch({ title: event.target.value })} /></label>
     {zone.type === "media" && <label>Media <select disabled={contentLocked} value={zone.mediaAssetId || ""} onChange={event => onPatch({ mediaAssetId: event.target.value || undefined })}><option value="">Choose media…</option>{media.filter(item => item.contentType.startsWith("image/") || item.contentType.startsWith("video/")).map(item => <option value={item.id} key={item.id}>{item.fileName}</option>)}</select></label>}
     {!["media","stream","shape","icon","qr"].includes(zone.type) && <label>Content <textarea disabled={contentLocked} value={zone.content || ""} onChange={event => onPatch({ content: event.target.value })} /></label>}
     {zone.type === "text" && !contentLocked && <RichTextRunsEditor value={zone.richTextJson} onChange={richTextJson => onPatch({ richTextJson })} />}
-    {online && <label>Source URL <input disabled={contentLocked} type="url" value={zone.sourceUrl || ""} onChange={event => onPatch({ sourceUrl: event.target.value })} placeholder="https://…" /></label>}
-    {online && zone.type !== "stream" && <label>Server credential key <input disabled={contentLocked} value={zone.credentialKey || ""} onChange={event => onPatch({ credentialKey: event.target.value || undefined })} placeholder="Optional saved key" /></label>}
-    {(zone.type === "qr" || zone.type === "wifi") && <label>{zone.type === "wifi" ? "Wi-Fi setup value" : "QR destination"} <input disabled={contentLocked} value={zone.qrValue || ""} onChange={event => onPatch({ qrValue: event.target.value })} placeholder={zone.type === "wifi" ? "WIFI:T:WPA;S:Network;P:password;;" : "https://…"}/></label>}
+    {zone.type === "weather" && <fieldset className="weather-settings"><legend>Weather source and display</legend>
+      <label>Provider <select disabled={contentLocked} value={zone.weatherProvider || "open-meteo"} onChange={event => onPatch({ weatherProvider: event.target.value as Zone["weatherProvider"] })}>
+        <option value="open-meteo">Open-Meteo · global, no key</option>
+        <option value="nws">National Weather Service · US, no key</option>
+        <option value="custom">Custom approved weather API</option>
+      </select></label>
+      <label>Location label <input disabled={contentLocked} value={zone.weatherLocation || ""} onChange={event => onPatch({ weatherLocation: event.target.value })} placeholder="Bellingham, WA" /></label>
+      <div className="inspector-grid"><label>Latitude<input disabled={contentLocked} type="number" min="-90" max="90" step="0.0001" value={zone.weatherLatitude ?? ""} onChange={event => onPatch({ weatherLatitude: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="48.7519" /></label><label>Longitude<input disabled={contentLocked} type="number" min="-180" max="180" step="0.0001" value={zone.weatherLongitude ?? ""} onChange={event => onPatch({ weatherLongitude: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="-122.4787" /></label></div>
+      <label>Units <select disabled={contentLocked} value={zone.weatherUnits || "fahrenheit"} onChange={event => onPatch({ weatherUnits: event.target.value as Zone["weatherUnits"] })}><option value="fahrenheit">Fahrenheit</option><option value="celsius">Celsius</option></select></label>
+      <div className="weather-field-grid">{WEATHER_FIELDS.map(([value, label]) => <label key={value}><input disabled={contentLocked} type="checkbox" checked={weatherFields.has(value)} onChange={event => patchWeatherField(value, event.target.checked)} /> {label}</label>)}</div>
+      <small>Weather is fetched by the local LessonCue server and cached for displays. No browser or display receives an API credential.</small>
+    </fieldset>}
+    {online && (zone.type !== "weather" || zone.weatherProvider === "custom") && <label>Source URL <input disabled={contentLocked} type="url" value={zone.sourceUrl || ""} onChange={event => onPatch({ sourceUrl: event.target.value })} placeholder="https://…" /></label>}
+    {online && zone.type !== "stream" && (zone.type !== "weather" || zone.weatherProvider === "custom") && <label>Server credential key <input disabled={contentLocked} value={zone.credentialKey || ""} onChange={event => onPatch({ credentialKey: event.target.value || undefined })} placeholder="Optional saved key" /></label>}
+    {zone.type === "qr" && <label>QR destination<input disabled={contentLocked} value={zone.qrValue || ""} onChange={event => onPatch({ qrValue: event.target.value })} placeholder="https://…" /></label>}
+    {zone.type === "wifi" && <fieldset className="weather-settings"><legend>Wi-Fi QR code</legend>
+      <label>Network name (SSID)<input disabled={contentLocked} value={wifi.ssid} onChange={event => onPatch({ qrValue: makeWifiQr(wifi.security, event.target.value, wifi.password) })} /></label>
+      <label>Security<select disabled={contentLocked} value={wifi.security} onChange={event => onPatch({ qrValue: makeWifiQr(event.target.value, wifi.ssid, wifi.password) })}><option value="WPA">WPA / WPA2 / WPA3</option><option value="WEP">WEP</option><option value="nopass">No password</option></select></label>
+      {wifi.security !== "nopass" && <label>Password<input disabled={contentLocked} type="password" value={wifi.password} onChange={event => onPatch({ qrValue: makeWifiQr(wifi.security, wifi.ssid, event.target.value) })} autoComplete="new-password" /></label>}
+      <small>The password is encoded in the QR code and therefore visible to anyone who scans it. Use a guest network.</small>
+    </fieldset>}
     {zone.type === "icon" && <label>Icon <select disabled={contentLocked} value={zone.iconName || "star"} onChange={event => onPatch({ iconName: event.target.value })}><option value="star">Star</option><option value="info">Information</option><option value="warning">Warning</option><option value="arrow">Arrow</option><option value="check">Check</option></select></label>}
     {zone.type === "shape" && <label>Shape <select disabled={contentLocked} value={zone.shape || "rectangle"} onChange={event => onPatch({ shape: event.target.value })}><option>rectangle</option><option>circle</option><option>triangle</option><option>line</option></select></label>}
     {zone.type === "counter" && <label>Target time <input disabled={contentLocked} type="datetime-local" value={zone.counterTargetAt?.slice(0,16) || ""} onChange={event => onPatch({ counterTargetAt: event.target.value ? new Date(event.target.value).toISOString() : undefined })} /></label>}

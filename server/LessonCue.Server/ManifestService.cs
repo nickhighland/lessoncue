@@ -256,7 +256,8 @@ public sealed class ManifestService(LessonCueDb db)
                 zone.GroupId, zone.LockMode, zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight,
                 zone.Italic, zone.Underline, zone.LineHeightPercent, zone.TextAlign, zone.Shape,
                 zone.StrokeColor, zone.StrokeWidth, zone.CornerRadius, zone.IconName, zone.QrValue,
-                zone.TickerSpeed, zone.CounterTargetAt,
+                zone.TickerSpeed, zone.CounterTargetAt, zone.WeatherProvider, zone.WeatherLocation,
+                zone.WeatherLatitude, zone.WeatherLongitude, zone.WeatherUnits, zone.WeatherFields,
                 streamUrl = zone.Type == "stream"
                     ? $"/api/v1/signage/{item.Id}/zones/{Uri.EscapeDataString(zone.Id)}/stream/index.m3u8"
                     : null,
@@ -360,6 +361,8 @@ public sealed class ManifestService(LessonCueDb db)
                     zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight, zone.Italic, zone.Underline,
                     zone.LineHeightPercent, zone.TextAlign, zone.Shape, zone.StrokeColor, zone.StrokeWidth,
                     zone.CornerRadius, zone.IconName, zone.QrValue, zone.TickerSpeed, zone.CounterTargetAt,
+                    zone.WeatherProvider, zone.WeatherLocation, zone.WeatherLatitude, zone.WeatherLongitude,
+                    zone.WeatherUnits, zone.WeatherFields,
                     media = zone.MediaAssetId is { } zoneMediaId && media.TryGetValue(zoneMediaId, out var zoneAsset)
                         ? MapSignageMedia(zoneAsset, $"signage-{schedule.Id}-playlist-{entry.Id}-zone-{zone.Id}",
                             zone.Title ?? zoneAsset.FileName, screen).Manifest : null

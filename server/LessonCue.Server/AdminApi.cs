@@ -2951,7 +2951,8 @@ public static class AdminApi
                         zone.GroupId, zone.LockMode, zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight,
                         zone.Italic, zone.Underline, zone.LineHeightPercent, zone.TextAlign, zone.Shape,
                         zone.StrokeColor, zone.StrokeWidth, zone.CornerRadius, zone.IconName, zone.QrValue,
-                        zone.TickerSpeed, zone.CounterTargetAt,
+                        zone.TickerSpeed, zone.CounterTargetAt, zone.WeatherProvider, zone.WeatherLocation,
+                        zone.WeatherLatitude, zone.WeatherLongitude, zone.WeatherUnits, zone.WeatherFields,
                         mediaFileName = zone.MediaAssetId is { } mediaId && zoneMediaAssets.TryGetValue(mediaId, out var mediaAsset) ? mediaAsset.FileName : null
                     }).ToArray(),
                     widgetCache = SignageLayout.ParseCache(item.WidgetCacheJson),
