@@ -33,7 +33,7 @@ LessonCue remains centered on preparing media, organizing lessons, confirming re
 
 ## Implemented roadmap milestones
 
-- [x] **Signage Studio and Yodeck-class workflow parity (next release)** — complete the independently designed, self-hosted signage design, playlist, scheduling, publishing, monitoring, emergency, and kiosk workflow described in [signage-studio.md](signage-studio.md), without copying third-party branding, templates, artwork, or tutorial text.
+- [x] **Signage Studio (next release)** — complete the independently designed, self-hosted signage design, playlist, scheduling, publishing, monitoring, emergency, and kiosk workflow described in [signage-studio.md](signage-studio.md).
 
    - [x] Replace form-only positioning with direct pointer drag, resize handles, a rotation handle, arbitrary numeric rotation, keyboard nudging, optional grid snapping, exact geometry controls, layering, opacity, fit/fill/stretch, horizontal and vertical flip, duplicate, lock, hide, and a larger live design canvas.
    - [x] Persist advanced object transforms in zone JSON and render them consistently in browser, Android TV, and Apple TV clients.

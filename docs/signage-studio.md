@@ -1,24 +1,6 @@
-# Signage Studio capability audit
+# Signage Studio capabilities
 
-LessonCue’s Signage Studio roadmap uses Yodeck’s public documentation as a functional benchmark while remaining an independently designed, fully self-hosted LessonCue experience. It does not copy Yodeck branding, templates, artwork, screenshots, or tutorial text.
-
-The audit was refreshed on July 25, 2026 from the official documentation:
-
-- [Layout Editor introduction](https://www.yodeck.com/docs/user-manual/yodeck-layout-editor-introduction/)
-- [Editing and customizing layout content](https://www.yodeck.com/docs/user-manual/editing-customizing-content-layout-editor/)
-- [Screen sizes and aspect ratios](https://www.yodeck.com/docs/user-manual/screen-sizes-aspect-ratios-layout-editor/)
-- [Templates](https://www.yodeck.com/docs/user-manual/layout-editor-templates/)
-- [Element locking](https://www.yodeck.com/docs/user-manual/locking-elements-controlling-access-layout-editor/)
-- [Playlists](https://www.yodeck.com/docs/user-manual/playlists-introduction/)
-- [Playlist types](https://www.yodeck.com/docs/user-manual/playlist-types-best-practices/)
-- [Schedules](https://www.yodeck.com/docs/user-manual/schedules-introduction/)
-- [Live streams](https://www.yodeck.com/docs/user-manual/live-video-streaming-support/)
-- [Apps](https://www.yodeck.com/docs/user-manual/apps-introduction/)
-- [Screen management](https://www.yodeck.com/docs/user-manual/screens-overview-introduction/)
-- [Content assignment](https://www.yodeck.com/docs/user-manual/assign-content-to-your-players/)
-- [Emergency alerts](https://www.yodeck.com/docs/user-manual/emergency-alerts-introduction/)
-- [Interactive kiosks](https://www.yodeck.com/docs/user-manual/interactive-kiosk-introduction/)
-- [Playback reports](https://www.yodeck.com/docs/user-manual/playback-reports/)
+LessonCue Signage Studio is an independently designed, fully self-hosted system for designing, scheduling, publishing, and monitoring digital signage.
 
 Browser, Android TV, and Apple TV displays consume the same versioned layout fields. Text styling, mixed-format runs, shape variants, icons, live counters, tickers, and QR or Wi-Fi sharing values are preserved in the manifest. QR images are generated locally on each display, so LessonCue does not send their encoded values to a third-party QR service.
 
