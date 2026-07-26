@@ -1,6 +1,7 @@
-import { CSSProperties, FormEvent, useEffect, useRef, useState } from "react";
+import { CSSProperties, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
+import QRCode from "qrcode";
 
-const APP_VERSION = "0.35.0";
+const APP_VERSION = "0.36.0";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -56,6 +57,8 @@ type Playlist = {
 };
 type Signage = {
   id: string;
+  version?: number;
+  publishedVersion?: number;
   name: string;
   mode: string;
   priority: number;
@@ -68,9 +71,15 @@ type Signage = {
   zones?: SignageZone[];
   widgetCacheUpdatedAt?: string;
   widgetCacheError?: string;
+  contentPlaylist?: { id: string; name: string; playbackMode: string; synchronization: string; version: number; items: SignagePlaylistEntry[] };
+  kiosk?: { enabled: boolean; interactionUrl?: string; timeoutSeconds: number; showCloseButton: boolean; showTouchIndicator: boolean; virtualKeyboard: boolean };
+  volumePercent?: number;
+  displayPower?: string;
+  backgroundAudio?: CueItem;
 };
 type SignageWidgetCache = { zoneId: string; title: string; text: string; items: string[]; refreshedAt: string; source?: string };
-type SignageZone = { id: string; type: string; title?: string; content?: string; sourceUrl?: string; streamUrl?: string; x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string; refreshMinutes: number; rotation?: number; zIndex?: number; opacity?: number; fit?: "cover" | "contain" | "fill"; locked?: boolean; hidden?: boolean; flipX?: boolean; flipY?: boolean; media?: CueItem; cached?: SignageWidgetCache };
+type SignageZone = { id: string; type: string; title?: string; content?: string; sourceUrl?: string; streamUrl?: string; x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string; refreshMinutes: number; rotation?: number; zIndex?: number; opacity?: number; fit?: "cover" | "contain" | "fill"; locked?: boolean; hidden?: boolean; flipX?: boolean; flipY?: boolean; media?: CueItem; cached?: SignageWidgetCache; fontFamily?: string; fontSize?: number; fontWeight?: number; italic?: boolean; underline?: boolean; lineHeightPercent?: number; textAlign?: CSSProperties["textAlign"]; shape?: string; strokeColor?: string; strokeWidth?: number; cornerRadius?: number; iconName?: string; qrValue?: string; tickerSpeed?: number; counterTargetAt?: string; richTextJson?: string };
+type SignagePlaylistEntry = { id: string; kind: string; title?: string; durationSeconds: number; transition?: string; hidden?: boolean; transparent?: boolean; sourceUrl?: string; appType?: string; media?: CueItem; layout?: { id: string; name: string; backgroundColor: string; canvasWidth: number; canvasHeight: number; safeAreaPercent: number; zones: SignageZone[]; backgroundAudio?: CueItem } };
 type Manifest = {
   manifestVersion: number;
   screen: { id: string; name: string; volunteerMode: boolean; site: string };
@@ -375,6 +384,10 @@ export function WebPlayerApp() {
             codecCapabilities: codecCapabilities(),
             cacheInventory: signageCacheRef.current,
             recentErrors: errorsRef.current,
+            signageId: manifestRef.current?.signage?.[0]?.id || null,
+            signageVersion: manifestRef.current?.signage?.[0]?.publishedVersion || manifestRef.current?.signage?.[0]?.version || 1,
+            signageName: manifestRef.current?.signage?.[0]?.name || null,
+            signageError: errorsRef.current.find(error => error.area?.startsWith("signage"))?.message || null,
           }),
         });
         if (response.status === 401 || response.status === 404) throw new PairingExpiredError();
@@ -581,7 +594,7 @@ function PairingScreen({ message, onPaired }: { message: string; onPaired: (iden
 
   return <main className="web-player pairing">
     <section className="web-player-card">
-      <div className="web-player-brand"><b>LC</b><span><strong>LessonCue</strong><small>Browser playback client</small></span></div>
+      <div className="web-player-brand"><img src="/lessoncue-icon.svg" alt="" aria-hidden="true" /><span><strong>LessonCue</strong><small>Browser playback client</small></span></div>
       {!requestId ? <form onSubmit={begin}>
         <span className="web-player-eyebrow">LOCAL DISPLAY SETUP</span>
         <h1>Pair this computer or projector</h1>
@@ -610,9 +623,10 @@ function PlayerLibrary({ manifest, connection, onPlay }: { manifest?: Manifest; 
   useSignagePreload(manifest?.signageSchedule);
   const signageMedia = signage?.media;
   const signageImage = signageMedia?.type === "image" || signageMedia?.contentType?.startsWith("image/");
+  if (signage?.displayPower === "off") return <div className="signage-display-off" aria-label="Display power scheduled off" />;
   return <div className="web-player-library" style={signage ? { backgroundColor: signage.backgroundColor, color: signage.textColor } : undefined}>
-    <header><div className="web-player-brand"><b>LC</b><span><strong>{manifest?.screen.name || "LessonCue"}</strong><small>{manifest?.screen.site || "Browser display"}</small></span></div><span className="web-player-eyebrow">READY FOR PLAYBACK</span></header>
-    {signage ? signage.zones?.length ? <SignageLayout signage={signage} /> : <section className="web-player-signage">
+    <header><div className="web-player-brand"><img src="/lessoncue-icon.svg" alt="" aria-hidden="true" /><span><strong>{manifest?.screen.name || "LessonCue"}</strong><small>{manifest?.screen.site || "Browser display"}</small></span></div><span className="web-player-eyebrow">READY FOR PLAYBACK</span></header>
+    {signage ? <SignageExperience signage={signage}>{signage.zones?.length ? <SignageLayout signage={signage} /> : <section className="web-player-signage">
       {signageMedia?.downloadUrl && (signageImage
         ? <img src={signageMedia.downloadUrl} alt="" />
         : signageMedia.type === "video" || signageMedia.contentType?.startsWith("video/")
@@ -620,7 +634,7 @@ function PlayerLibrary({ manifest, connection, onPlay }: { manifest?: Manifest; 
           : null)}
       {!signageMedia && signage.mediaUrl && <img src={signage.mediaUrl} alt="" />}
       <div><small>{signage.name}</small><h1>{signage.message}</h1></div>
-    </section> : <section className="web-player-ready">
+    </section>}</SignageExperience> : <section className="web-player-ready">
       <span>✓</span><h1>{connection === "online" ? "Ready for a lesson" : "Connecting to LessonCue…"}</h1>
       <p>Use the phone controller, select a lesson below, or wait for scheduled pre-roll and countdown media.</p>
     </section>}
@@ -636,16 +650,110 @@ function PlayerLibrary({ manifest, connection, onPlay }: { manifest?: Manifest; 
   </div>;
 }
 
+function SignageExperience({ signage, children }: { signage: Signage; children: ReactNode }) {
+  const items = signage.contentPlaylist?.items.filter(item => !item.hidden) || [];
+  const [index, setIndex] = useState(0);
+  const [interacting, setInteracting] = useState(false);
+  const timeoutRef = useRef<number>(0);
+  useEffect(() => {
+    let nextIndex = 0;
+    if (signage.contentPlaylist?.synchronization !== "screen" && items.length) {
+      const cycle = items.reduce((total, item) => total + Math.max(1, item.durationSeconds || 10), 0);
+      let offset = Math.floor(Date.now() / 1000) % Math.max(1, cycle);
+      const synchronized = items.findIndex(item => { offset -= Math.max(1, item.durationSeconds || 10); return offset < 0; });
+      nextIndex = Math.max(0, synchronized);
+    }
+    const timer = window.setTimeout(() => setIndex(nextIndex), 0);
+    return () => window.clearTimeout(timer);
+  }, [signage.contentPlaylist?.id, signage.contentPlaylist?.version, signage.contentPlaylist?.synchronization]);
+  useEffect(() => {
+    if (!items.length || interacting) return;
+    const current = items[index % items.length];
+    const timer = window.setTimeout(() => setIndex(value => value + 1), Math.max(1, current.durationSeconds || 10) * 1000);
+    return () => window.clearTimeout(timer);
+  }, [items, index, interacting]);
+  const current = items.length ? items[index % items.length] : undefined;
+  const backgroundAudio = current?.layout?.backgroundAudio || signage.backgroundAudio;
+  function beginInteraction() {
+    if (!signage.kiosk?.enabled || !signage.kiosk.interactionUrl) return;
+    setInteracting(true); resetTimeout();
+  }
+  function resetTimeout() {
+    window.clearTimeout(timeoutRef.current);
+    timeoutRef.current = window.setTimeout(() => setInteracting(false), Math.max(5, signage.kiosk?.timeoutSeconds || 60) * 1000);
+  }
+  let content = children;
+  if (current?.layout) content = <SignageLayout signage={{ ...signage, name: current.layout.name, backgroundColor: current.layout.backgroundColor, zones: current.layout.zones, backgroundAudio: current.layout.backgroundAudio }} />;
+  else if (current?.media?.downloadUrl) content = <section className={`web-player-signage playlist-entry ${current.transition || "cut"}`}>{current.media.type === "video" || current.media.contentType?.startsWith("video/")
+    ? <video src={current.media.downloadUrl} autoPlay muted={false} playsInline preload="auto" />
+    : <img src={current.media.downloadUrl} alt={current.title || ""} />}</section>;
+  else if (current?.sourceUrl) content = <section className="web-player-signage playlist-entry"><iframe src={current.sourceUrl} title={current.title || current.kind} /></section>;
+  return <div className="signage-experience" onPointerDown={beginInteraction}>
+    {backgroundAudio?.downloadUrl && <SignageAudio source={backgroundAudio.downloadUrl} volume={signage.volumePercent ?? 100} />}
+    {current?.transparent && <div className="signage-transparent-base">{children}</div>}
+    {content}
+    {signage.kiosk?.enabled && signage.kiosk.showTouchIndicator && !interacting && <button className="kiosk-touch-indicator" onClick={beginInteraction}>Touch to explore</button>}
+    {interacting && signage.kiosk?.interactionUrl && <div className="kiosk-overlay" onPointerDown={resetTimeout}>
+      {signage.kiosk.showCloseButton && <button onClick={() => setInteracting(false)}>Close</button>}
+      <iframe src={signage.kiosk.interactionUrl} title="Interactive kiosk content" sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts" />
+      {signage.kiosk.virtualKeyboard && <span className="kiosk-keyboard-hint">Tap a text field to use the on-screen keyboard.</span>}
+    </div>}
+  </div>;
+}
+
+function SignageAudio({ source, volume }: { source: string; volume: number }) {
+  const ref = useRef<HTMLAudioElement>(null);
+  useEffect(() => { if (ref.current) ref.current.volume = Math.max(0, Math.min(1, volume / 100)); }, [volume]);
+  return <audio ref={ref} src={source} autoPlay loop />;
+}
+
 function SignageLayout({ signage }: { signage: Signage }) {
   return <section className={`web-player-signage-layout ${signage.layoutPreset || "single"}`} aria-label={`${signage.name} signage layout`}>
-    {signage.zones?.filter(zone => !zone.hidden).map(zone => <article className={`web-player-signage-zone ${zone.type}`} key={zone.id} style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, zIndex: zone.zIndex ?? 0, opacity: (zone.opacity ?? 100) / 100, transform: `rotate(${zone.rotation ?? 0}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})` }}>
+    {signage.zones?.filter(zone => !zone.hidden).map(zone => <article className={`web-player-signage-zone ${zone.type}`} key={zone.id} style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, borderRadius: `${zone.cornerRadius || 0}%`, zIndex: zone.zIndex ?? 0, opacity: (zone.opacity ?? 100) / 100, transform: `rotate(${zone.rotation ?? 0}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`, fontFamily: zone.fontFamily, fontSize: zone.fontSize ? `clamp(12px, ${zone.fontSize / 19.2}vw, ${zone.fontSize}px)` : undefined, fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined, textAlign: zone.textAlign, lineHeight: zone.lineHeightPercent ? zone.lineHeightPercent / 100 : undefined }}>
       {zone.media?.downloadUrl && (zone.media.type === "video" || zone.media.contentType?.startsWith("video/")
         ? <video src={zone.media.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={zone.media.title} style={{ objectFit: zone.fit || "cover" }} />
         : <img src={zone.media.downloadUrl} alt={zone.title || ""} style={{ objectFit: zone.fit || "cover" }} />)}
       {zone.type === "stream" && zone.streamUrl && <SignageStream source={zone.streamUrl} title={zone.title || "Live stream"} fit={zone.fit || "cover"} />}
-      <div className="web-player-zone-copy">{zone.title && <small style={{ color: zone.accentColor }}>{zone.title}</small>}{zone.type === "clock" ? <SignageClock /> : <><strong>{zone.cached?.text || zone.content}</strong>{zone.cached?.items?.length ? <ul>{zone.cached.items.map((item, index) => <li key={`${zone.id}-${index}`}>{item}</li>)}</ul> : null}</>}</div>
+      {(zone.type === "webpage" || zone.type === "dashboard" || zone.type === "slides" || zone.type === "customHtml") && zone.sourceUrl && <iframe src={zone.sourceUrl} title={zone.title || zone.type} />}
+      {zone.type === "shape" && <i className={`signage-shape ${zone.shape || "rectangle"}`} style={{ borderColor: zone.strokeColor, borderWidth: zone.strokeWidth }} />}
+      {zone.type === "icon" && <span className="signage-icon">{({star:"★",info:"ⓘ",warning:"⚠",arrow:"➜",check:"✓"} as Record<string,string>)[zone.iconName || ""] || "★"}</span>}
+      {(zone.type === "qr" || zone.type === "wifi") && <SignageQr value={zone.qrValue || zone.content || ""} />}
+      <div className={`web-player-zone-copy ${zone.type === "ticker" ? "ticker" : ""}`} style={zone.type === "ticker" ? { animationDuration: `${Math.max(5, 300 / Math.max(10, zone.tickerSpeed || 60))}s` } : undefined}>{zone.title && <small style={{ color: zone.accentColor }}>{zone.title}</small>}{zone.type === "clock" ? <SignageClock /> : zone.type === "counter" ? <SignageCounter target={zone.counterTargetAt} /> : zone.type === "text" && zone.richTextJson ? <SignageRichText value={zone.richTextJson} fallback={zone.content || ""} /> : !["shape","icon","qr","wifi","webpage","dashboard","slides","customHtml"].includes(zone.type) ? <><strong>{zone.cached?.text || zone.content}</strong>{zone.cached?.items?.length ? <ul>{zone.cached.items.map((item, index) => <li key={`${zone.id}-${index}`}>{item}</li>)}</ul> : null}</> : null}</div>
     </article>)}
   </section>;
+}
+
+function SignageRichText({ value, fallback }: { value: string; fallback: string }) {
+  let runs: { text?: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string }[] = [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) runs = parsed;
+  } catch { /* The plain text fallback remains visible for malformed manifest data. */ }
+  if (!runs.length) return <strong>{fallback}</strong>;
+  return <strong>{runs.slice(0,50).map((run,index)=><span key={index} style={{fontWeight:run.bold?800:undefined,fontStyle:run.italic?"italic":undefined,textDecoration:run.underline?"underline":undefined,color:/^#[0-9a-f]{6}$/i.test(run.color||"")?run.color:undefined}}>{String(run.text||"")}</span>)}</strong>;
+}
+
+function SignageQr({ value }: { value: string }) {
+  return value ? <GeneratedSignageQr value={value} /> : null;
+}
+
+function GeneratedSignageQr({ value }: { value: string }) {
+  const [source, setSource] = useState("");
+  useEffect(() => { let current = true; void QRCode.toDataURL(value, { width: 480, margin: 1 }).then(url => { if (current) setSource(url); }); return () => { current = false; }; }, [value]);
+  return source ? <img className="signage-qr" src={source} alt={`QR code for ${value}`} /> : null;
+}
+
+function SignageCounter({ target }: { target?: string }) {
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    const first = window.requestAnimationFrame(() => setNow(Date.now()));
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => { window.cancelAnimationFrame(first); window.clearInterval(timer); };
+  }, []);
+  if (!target || now == null) return <strong>Countdown</strong>;
+  const seconds = Math.max(0, Math.floor((new Date(target).getTime() - now) / 1000));
+  const days = Math.floor(seconds / 86400), hours = Math.floor(seconds % 86400 / 3600), minutes = Math.floor(seconds % 3600 / 60);
+  return <strong>{days > 0 ? `${days}d ` : ""}{String(hours).padStart(2,"0")}:{String(minutes).padStart(2,"0")}:{String(seconds % 60).padStart(2,"0")}</strong>;
 }
 
 function SignageStream({ source, title, fit }: { source: string; title: string; fit: "cover" | "contain" | "fill" }) {

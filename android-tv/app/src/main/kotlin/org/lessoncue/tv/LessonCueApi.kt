@@ -108,6 +108,12 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
             .put("downloadQueue", queue)
             .put("codecCapabilities", codecs)
             .put("recentErrors", errors)
+        manifest?.signage?.firstOrNull()?.let { signage ->
+            body.put("signageId", signage.id)
+                .put("signageVersion", signage.publishedVersion)
+                .put("signageName", signage.name)
+                .put("signageError", signage.widgetCacheError)
+        }
         request("/api/v1/tv/status", "POST", body.toString(), identity.token)
         Unit
     }
@@ -168,7 +174,11 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         layoutPreset = item.optString("layoutPreset", "single"),
         zones = item.optJSONArray("zones")?.mapObjects(::parseSignageZone).orEmpty(),
         widgetCacheUpdatedAt = item.optString("widgetCacheUpdatedAt").takeIf { it.isNotBlank() && it != "null" },
-        widgetCacheError = item.optString("widgetCacheError").takeIf { it.isNotBlank() && it != "null" }
+        widgetCacheError = item.optString("widgetCacheError").takeIf { it.isNotBlank() && it != "null" },
+        version = item.optInt("version", 1), publishedVersion = item.optInt("publishedVersion", item.optInt("version", 1)),
+        contentPlaylist = item.optJSONObject("contentPlaylist")?.let(::parseSignagePlaylist),
+        backgroundAudio = item.optJSONObject("backgroundAudio")?.let(::parseItem),
+        volumePercent = item.optInt("volumePercent", 100), displayPower = item.optString("displayPower", "unchanged")
     )
 
     private fun parseSignageZone(item: JSONObject) = SignageZone(
@@ -178,17 +188,45 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         x = item.optInt("x"), y = item.optInt("y"), width = item.optInt("width", 100), height = item.optInt("height", 100),
         backgroundColor = item.optString("backgroundColor", "#17201e"), textColor = item.optString("textColor", "#ffffff"),
         accentColor = item.optString("accentColor", "#d89127"),
+        sourceUrl = item.optString("sourceUrl").takeIf { it.isNotBlank() && it != "null" }
+            ?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
         streamUrl = item.optString("streamUrl").takeIf { it.isNotBlank() && it != "null" }
             ?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
         rotation = item.optInt("rotation"), zIndex = item.optInt("zIndex"), opacity = item.optInt("opacity", 100),
         fit = item.optString("fit", "cover"), locked = item.optBoolean("locked"), hidden = item.optBoolean("hidden"),
         flipX = item.optBoolean("flipX"), flipY = item.optBoolean("flipY"),
+        richTextJson = item.optString("richTextJson").takeIf { it.isNotBlank() && it != "null" },
+        fontFamily = item.optString("fontFamily").takeIf { it.isNotBlank() && it != "null" },
+        fontSize = item.optInt("fontSize", 48), fontWeight = item.optInt("fontWeight", 600),
+        italic = item.optBoolean("italic"), underline = item.optBoolean("underline"),
+        lineHeightPercent = item.optInt("lineHeightPercent", 120),
+        textAlign = item.optString("textAlign", "left"), shape = item.optString("shape", "rectangle"),
+        strokeColor = item.optString("strokeColor", "#ffffff"), strokeWidth = item.optInt("strokeWidth"),
+        cornerRadius = item.optInt("cornerRadius"), iconName = item.optString("iconName").takeIf { it.isNotBlank() && it != "null" },
+        qrValue = item.optString("qrValue").takeIf { it.isNotBlank() && it != "null" },
+        tickerSpeed = item.optInt("tickerSpeed", 60),
+        counterTargetAt = parseOptionalInstant(item.optString("counterTargetAt")),
         media = item.optJSONObject("media")?.let(::parseItem),
         cached = item.optJSONObject("cached")?.let { cached -> SignageWidgetCache(
             zoneId = cached.optString("zoneId", item.getString("id")), title = cached.optString("title"),
             text = cached.optString("text"), items = cached.optJSONArray("items")?.let { array -> (0 until array.length()).map(array::getString) }.orEmpty(),
             refreshedAt = cached.optString("refreshedAt").takeIf { value -> value.isNotBlank() && value != "null" }
         ) }
+    )
+
+    private fun parseSignagePlaylist(item: JSONObject) = SignageContentPlaylist(
+        id = item.getString("id"), name = item.optString("name"), playbackMode = item.optString("playbackMode", "ordered"),
+        synchronization = item.optString("synchronization", "screen"), version = item.optInt("version", 1),
+        items = item.optJSONArray("items")?.mapObjects { entry -> SignagePlaylistEntry(
+            id = entry.getString("id"), kind = entry.optString("kind"), title = entry.optString("title").takeIf { it.isNotBlank() && it != "null" },
+            durationSeconds = entry.optInt("durationSeconds", 10), transition = entry.optString("transition", "cut"),
+            media = entry.optJSONObject("media")?.let(::parseItem),
+            layout = entry.optJSONObject("layout")?.let { layout -> SignagePlaylistLayout(
+                id = layout.getString("id"), name = layout.optString("name"), backgroundColor = layout.optString("backgroundColor", "#25302d"),
+                zones = layout.optJSONArray("zones")?.mapObjects(::parseSignageZone).orEmpty(),
+                backgroundAudio = layout.optJSONObject("backgroundAudio")?.let(::parseItem)
+            ) }, sourceUrl = entry.optString("sourceUrl").takeIf { it.isNotBlank() && it != "null" }
+        ) }.orEmpty()
     )
 
     private fun parsePlaylist(json: JSONObject): LessonPlaylist {
@@ -294,7 +332,10 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
 
 private fun ScreenManifest.allItems(): List<CueItem> = (playlists.flatMap {
     it.items + it.preRoll?.items.orEmpty() + listOfNotNull(it.countdown?.item)
-} + signageSchedule.flatMap { sign -> listOfNotNull(sign.media) + sign.zones.mapNotNull { it.media } }).distinctBy { it.id }
+} + signageSchedule.flatMap { sign -> listOfNotNull(sign.media, sign.backgroundAudio) + sign.zones.mapNotNull { it.media } +
+    sign.contentPlaylist?.items.orEmpty().flatMap { entry ->
+        listOfNotNull(entry.media, entry.layout?.backgroundAudio) + entry.layout?.zones.orEmpty().mapNotNull { it.media }
+    } }).distinctBy { it.id }
 
 private fun <T> JSONArray.mapObjects(transform: (JSONObject) -> T): List<T> =
     (0 until length()).map { transform(getJSONObject(it)) }

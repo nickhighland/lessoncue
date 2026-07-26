@@ -82,6 +82,8 @@ builder.Services.AddHttpClient("signage-widgets", client =>
     client.DefaultRequestHeaders.UserAgent.ParseAdd("LessonCue-Signage/1.0");
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<SignageWidgetService>();
+builder.Services.AddSingleton(services => new SignageCredentialStore(dataPath,
+    services.GetRequiredService<IDataProtectionProvider>()));
 builder.Services.AddHostedService(services => services.GetRequiredService<SignageWidgetService>());
 builder.Services.AddSingleton(services => new LiveStreamRelayService(dataPath,
     services.GetRequiredService<ILogger<LiveStreamRelayService>>()));
@@ -453,6 +455,29 @@ api.MapPost("/tv/status", async (TvStatusInput input, HttpRequest request, Lesso
     if (screen is null) return Results.NotFound();
     ScreenTelemetry.Apply(screen, input, DateTimeOffset.UtcNow,
         request.HttpContext.Connection.RemoteIpAddress?.ToString());
+    if (input.SignageId is { } signageId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var recent = await db.SignageProofRecords.OrderByDescending(x => x.Id)
+            .FirstOrDefaultAsync(x => x.ScreenId == input.ScreenId && x.SignageId == signageId &&
+                x.Event == "shown", ct);
+        if (recent?.StartedAt < now.AddMinutes(-2)) recent = null;
+        if (recent is null)
+        {
+            db.SignageProofRecords.Add(new SignageProofRecord
+            {
+                ScreenId = input.ScreenId, SignageId = signageId, Version = Math.Max(1, input.SignageVersion ?? 1),
+                SignageName = input.SignageName?.Trim() ?? "", Event = string.IsNullOrWhiteSpace(input.SignageError) ? "shown" : "error",
+                StartedAt = now, EndedAt = now, Error = input.SignageError
+            });
+        }
+        else
+        {
+            recent.EndedAt = now;
+            recent.DurationMs = Math.Max(0, (long)(now - recent.StartedAt).TotalMilliseconds);
+            if (!string.IsNullOrWhiteSpace(input.SignageError)) recent.Error = input.SignageError;
+        }
+    }
     await db.SaveChangesAsync(ct);
     await hub.Clients.Group("admins").SendAsync("ScreenStatusChanged", new { screen.Id }, ct);
     return Results.Accepted();

@@ -347,6 +347,9 @@ public sealed class Screen
     public int ManifestVersion { get; set; }
     [MaxLength(500)] public string TagsCsv { get; set; } = "";
     [MaxLength(100)] public string Site { get; set; } = "Main Site";
+    [MaxLength(24)] public string SignageOrientation { get; set; } = "auto";
+    public int? SignageWidth { get; set; }
+    public int? SignageHeight { get; set; }
     [MaxLength(64)] public string? LastIpAddress { get; set; }
     public int ControlVersion { get; set; }
     [MaxLength(24)] public string ControlAction { get; set; } = "none";
@@ -425,8 +428,98 @@ public sealed class SignagePlaylist
     [MaxLength(64000)] public string WidgetCacheJson { get; set; } = "[]";
     public DateTimeOffset? WidgetCacheUpdatedAt { get; set; }
     [MaxLength(2000)] public string? WidgetCacheError { get; set; }
+    public Guid? LayoutId { get; set; }
+    public Guid? ContentPlaylistId { get; set; }
+    public int VolumePercent { get; set; } = 100;
+    [MaxLength(16)] public string DisplayPower { get; set; } = "unchanged";
+    public int Version { get; set; } = 1;
+    public int PublishedVersion { get; set; } = 1;
+    [MaxLength(24)] public string PublishState { get; set; } = "published";
+    public DateTimeOffset? PublishedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? LastPushedAt { get; set; }
+    public bool KioskEnabled { get; set; }
+    [MaxLength(2000)] public string? KioskInteractionUrl { get; set; }
+    public int KioskTimeoutSeconds { get; set; } = 60;
+    public bool KioskShowCloseButton { get; set; } = true;
+    public bool KioskShowTouchIndicator { get; set; } = true;
+    public bool KioskVirtualKeyboard { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class SignageLayoutResource
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    [MaxLength(160)] public required string Name { get; set; }
+    [MaxLength(160)] public string Folder { get; set; } = "";
+    [MaxLength(1000)] public string Description { get; set; } = "";
+    public bool IsTemplate { get; set; }
+    public bool IsStarter { get; set; }
+    [MaxLength(80)] public string? TemplateKey { get; set; }
+    [MaxLength(16)] public string BackgroundColor { get; set; } = "#25302d";
+    public int CanvasWidth { get; set; } = 1920;
+    public int CanvasHeight { get; set; } = 1080;
+    [MaxLength(24)] public string Orientation { get; set; } = "landscape";
+    public int SafeAreaPercent { get; set; } = 5;
+    [MaxLength(32000)] public string DraftZonesJson { get; set; } = "[]";
+    [MaxLength(32000)] public string PublishedZonesJson { get; set; } = "[]";
+    public Guid? BackgroundAudioAssetId { get; set; }
+    public int Version { get; set; } = 1;
+    public int PublishedVersion { get; set; }
+    [MaxLength(24)] public string PublishState { get; set; } = "draft";
+    public DateTimeOffset? PublishedAt { get; set; }
+    [MaxLength(12000)] public string ThumbnailDataUrl { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class SignageContentPlaylist
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    [MaxLength(160)] public required string Name { get; set; }
+    [MaxLength(160)] public string Folder { get; set; } = "";
+    [MaxLength(24)] public string PlaybackMode { get; set; } = "ordered";
+    [MaxLength(24)] public string Synchronization { get; set; } = "screen";
+    [MaxLength(64000)] public string DraftItemsJson { get; set; } = "[]";
+    [MaxLength(64000)] public string PublishedItemsJson { get; set; } = "[]";
+    public int Version { get; set; } = 1;
+    public int PublishedVersion { get; set; }
+    [MaxLength(24)] public string PublishState { get; set; } = "draft";
+    public DateTimeOffset? PublishedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class SignageEmergencyTemplate
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    [MaxLength(160)] public required string Name { get; set; }
+    [MaxLength(80)] public string Severity { get; set; } = "urgent";
+    [MaxLength(2000)] public string Message { get; set; } = "";
+    [MaxLength(16)] public string BackgroundColor { get; set; } = "#9b1c1c";
+    [MaxLength(16)] public string TextColor { get; set; } = "#ffffff";
+    public Guid? MediaAssetId { get; set; }
+    [MaxLength(2000)] public string TargetTagsCsv { get; set; } = "";
+    public int DefaultDurationMinutes { get; set; } = 30;
+    public Guid? ActiveSignageId { get; set; }
+    public DateTimeOffset? ActivatedAt { get; set; }
+    public DateTimeOffset? ExpiresAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class SignageProofRecord
+{
+    public long Id { get; set; }
+    public Guid ScreenId { get; set; }
+    public Guid SignageId { get; set; }
+    public int Version { get; set; }
+    [MaxLength(160)] public string SignageName { get; set; } = "";
+    [MaxLength(24)] public string Event { get; set; } = "shown";
+    public DateTimeOffset StartedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? EndedAt { get; set; }
+    public long DurationMs { get; set; }
+    [MaxLength(1000)] public string? Error { get; set; }
 }
 
 public sealed class BackupRecord
@@ -500,7 +593,8 @@ public sealed record TvStatusInput(Guid ScreenId, string AppVersion, bool Online
     string? DeviceModel = null, string? OsVersion = null, long? ClientTimeUnixMs = null,
     int? NetworkLatencyMs = null, string? NetworkQuality = null,
     List<TvCacheItemInput>? CacheInventory = null, List<TvDownloadItemInput>? DownloadQueue = null,
-    List<TvCodecCapabilityInput>? CodecCapabilities = null, List<TvDiagnosticErrorInput>? RecentErrors = null);
+    List<TvCodecCapabilityInput>? CodecCapabilities = null, List<TvDiagnosticErrorInput>? RecentErrors = null,
+    Guid? SignageId = null, int? SignageVersion = null, string? SignageName = null, string? SignageError = null);
 public sealed record TvCacheItemInput(string ItemId, string Title, string State, long SizeBytes,
     long? ExpectedBytes = null, string? Error = null);
 public sealed record TvDownloadItemInput(string ItemId, string Title, string State, long BytesDownloaded = 0,
@@ -547,7 +641,8 @@ public sealed record PlaylistItemBulkInput(List<Guid> ItemIds, string Action, st
     int? VolumePercent = null, string? EndBehavior = null, bool? AllowSkip = null, string? TitlePrefix = null);
 public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool? VolunteerMode,
     bool ClearAssignment = false, string? TagsCsv = null, string? Site = null,
-    bool? AllowDiagnosticScreenshots = null);
+    bool? AllowDiagnosticScreenshots = null, string? SignageOrientation = null,
+    int? SignageWidth = null, int? SignageHeight = null);
 public sealed record ScreenControlInput(string Action, Guid? LessonId = null, Guid? ItemId = null, long? PositionMs = null);
 public sealed record UserInput(string Username, string DisplayName, string? Email, string Role, string? Password,
     bool Disabled = false, List<string>? Permissions = null);
@@ -570,12 +665,44 @@ public sealed record SignageInput(string Name, string Mode, bool Enabled, int Pr
     string? TargetTagsCsv, string? Recurrence = null, DateOnly? ScheduleStartDate = null, DateOnly? ScheduleEndDate = null,
     int? StartMinutes = null, int? EndMinutes = null, List<int>? DaysOfWeek = null,
     List<DateOnly>? ExcludedDates = null, List<Guid>? TargetScreenIds = null,
-    string? LayoutPreset = null, List<SignageZoneInput>? Zones = null);
+    string? LayoutPreset = null, List<SignageZoneInput>? Zones = null, Guid? LayoutId = null,
+    Guid? ContentPlaylistId = null, int VolumePercent = 100, string? DisplayPower = null,
+    bool KioskEnabled = false, string? KioskInteractionUrl = null, int KioskTimeoutSeconds = 60,
+    bool KioskShowCloseButton = true, bool KioskShowTouchIndicator = true, bool KioskVirtualKeyboard = false);
 public sealed record SignageZoneInput(string Id, string Type, string? Title = null, string? Content = null,
     Guid? MediaAssetId = null, string? SourceUrl = null, int X = 0, int Y = 0, int Width = 100, int Height = 100,
     string? BackgroundColor = null, string? TextColor = null, string? AccentColor = null, int RefreshMinutes = 15,
     int Rotation = 0, int ZIndex = 0, int Opacity = 100, string? Fit = null,
-    bool Locked = false, bool Hidden = false, bool FlipX = false, bool FlipY = false);
+    bool Locked = false, bool Hidden = false, bool FlipX = false, bool FlipY = false,
+    string? GroupId = null, string? LockMode = null, string? RichTextJson = null,
+    string? FontFamily = null, int FontSize = 48, int FontWeight = 600, bool Italic = false,
+    bool Underline = false, int LineHeightPercent = 120, string? TextAlign = null,
+    string? Shape = null, string? StrokeColor = null, int StrokeWidth = 0, int CornerRadius = 0,
+    string? IconName = null, string? QrValue = null, int TickerSpeed = 60,
+    DateTimeOffset? CounterTargetAt = null, string? CredentialKey = null);
+public sealed record SignageLayoutResourceInput(string Name, string? Folder, string? Description,
+    bool IsTemplate, string? BackgroundColor, int CanvasWidth, int CanvasHeight, int SafeAreaPercent,
+    List<SignageZoneInput>? Zones, Guid? BackgroundAudioAssetId = null, string? ThumbnailDataUrl = null);
+public sealed record SignageContentPlaylistItemInput(string Id, string Kind, string? Title = null,
+    Guid? LayoutId = null, Guid? MediaAssetId = null, Guid? NestedPlaylistId = null,
+    string? AppType = null, string? SourceUrl = null, int DurationSeconds = 10,
+    string? Transition = null, bool Hidden = false, bool Transparent = false, string? TagsCsv = null);
+public sealed record SignageContentPlaylistInput(string Name, string? Folder, string? PlaybackMode,
+    string? Synchronization, List<SignageContentPlaylistItemInput>? Items);
+public sealed record SignagePublishInput(bool PushToScreens = true);
+public sealed record SignageBulkAssignmentInput(List<Guid>? SignageIds, List<Guid>? ScreenIds,
+    string? TargetTagsCsv, bool Publish = true);
+public sealed record SignageSeriesEditInput(string Scope, DateOnly EffectiveDate, SignageInput Changes);
+public sealed record SignageEmergencyTemplateInput(string Name, string? Severity, string? Message,
+    string? BackgroundColor, string? TextColor, Guid? MediaAssetId, string? TargetTagsCsv,
+    int DefaultDurationMinutes = 30);
+public sealed record SignageEmergencyActivateInput(int? DurationMinutes = null, List<Guid>? ScreenIds = null,
+    string? TargetTagsCsv = null);
+public sealed record SignageProofInput(Guid ScreenId, Guid SignageId, int Version, string? SignageName,
+    string Event, DateTimeOffset? StartedAt = null, DateTimeOffset? EndedAt = null,
+    long DurationMs = 0, string? Error = null);
+public sealed record SignageScreenFormatInput(string? Orientation, int? Width = null, int? Height = null);
+public sealed record SignageCredentialInput(string Key, string Kind, string? Username, string? HeaderName, string Secret);
 public sealed record LinkInput(string Url, string? Title, bool Download = false, bool Persistent = true,
     Guid? LessonId = null, string? Folder = null, string? TagsCsv = null, bool ImportPresentation = false);
 public sealed record UploadCompleteInput(string FileName, string ContentType, int TotalChunks, long? DurationMs,

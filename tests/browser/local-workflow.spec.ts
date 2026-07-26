@@ -638,7 +638,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.locator(".toast")).toHaveCount(0);
   await page.getByRole("button", { name: /Signage$/ }).click();
   await page.evaluate(() => Object.defineProperty(globalThis.crypto, "randomUUID", { configurable: true, value: undefined }));
-  await page.getByRole("button", { name: "New signage" }).click();
+  await page.getByRole("button", { name: "New schedule" }).click();
   const signageDialog = page.getByRole("dialog", { name: "Create signage" });
   await expect(page.locator("main")).toBeVisible();
   await signageDialog.getByLabel("Name").fill("Browser dashboard layout");
@@ -681,6 +681,81 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   expect(savedSignageLayout[0].rotation).toBe(23);
   expect(savedSignageLayout[0].x).toBeGreaterThan(beforeDrag.x);
   expect(savedSignageLayout[3]).toMatchObject({ type: "stream", sourceUrl: "rtmp://stream.example.org/live/browser-test-key" });
+  const seriesEditing = await page.evaluate(async () => {
+    const date = (offset: number) => { const value = new Date(); value.setDate(value.getDate() + offset); return value.toISOString().slice(0, 10); };
+    const base = {
+      name: "Browser recurring signage", mode: "scheduled", enabled: false, priority: 15, startsAt: null, endsAt: null,
+      message: "Original series", backgroundColor: "#25302d", textColor: "#ffffff", mediaAssetId: null,
+      targetTagsCsv: "", recurrence: "daily", scheduleStartDate: date(0), scheduleEndDate: date(10),
+      startMinutes: 480, endMinutes: 1020, daysOfWeek: [], excludedDates: [], targetScreenIds: [],
+      layoutPreset: "single", zones: [], layoutId: null, contentPlaylistId: null, volumePercent: 100,
+      displayPower: "unchanged", kioskEnabled: false, kioskInteractionUrl: null, kioskTimeoutSeconds: 60,
+      kioskShowCloseButton: true, kioskShowTouchIndicator: true, kioskVirtualKeyboard: false
+    };
+    const created = await fetch("/api/v1/signage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(base) }).then(response => response.json());
+    const occurrenceDate = date(1);
+    const eventResponse = await fetch(`/api/v1/signage-studio/schedules/${created.id}/series-edit`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "event", effectiveDate: occurrenceDate, changes: { ...base, message: "One changed occurrence" } })
+    });
+    const futureDate = date(3);
+    const futureResponse = await fetch(`/api/v1/signage-studio/schedules/${created.id}/series-edit`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "future", effectiveDate: futureDate, changes: { ...base, message: "Changed future series", scheduleStartDate: futureDate } })
+    });
+    const schedules = await fetch("/api/v1/signage").then(response => response.json());
+    const source = schedules.find((value: { id: string }) => value.id === created.id);
+    const exception = schedules.find((value: { message: string }) => value.message === "One changed occurrence");
+    const future = schedules.find((value: { message: string }) => value.message === "Changed future series");
+    return { eventStatus: eventResponse.status, futureStatus: futureResponse.status, excluded: source.excludedDates.includes(occurrenceDate),
+      sourceEnd: source.scheduleEndDate, expectedSourceEnd: date(2), exceptionRecurrence: exception?.recurrence,
+      futureStart: future?.scheduleStartDate, expectedFutureStart: futureDate };
+  });
+  expect(seriesEditing).toEqual({ eventStatus: 200, futureStatus: 200, excluded: true, sourceEnd: seriesEditing.expectedSourceEnd,
+    expectedSourceEnd: seriesEditing.expectedSourceEnd, exceptionRecurrence: "once", futureStart: seriesEditing.expectedFutureStart,
+    expectedFutureStart: seriesEditing.expectedFutureStart });
+
+  await page.getByRole("button", { name: "Layouts", exact: true }).click();
+  await expect(page.getByText("Welcome board", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Blank layout" }).click();
+  const layoutDialog = page.getByRole("dialog", { name: "New reusable layout" });
+  await layoutDialog.getByLabel("Layout name").fill("Browser reusable portrait");
+  await layoutDialog.getByLabel("Resolution").selectOption("1080x1920");
+  await layoutDialog.getByLabel("Canvas background").fill("#262f2c");
+  await layoutDialog.getByRole("button", { name: "+ Element" }).click();
+  await layoutDialog.locator(".layout-editor-toolbar select").selectOption("wifi");
+  await layoutDialog.getByRole("button", { name: "+ Element" }).click();
+  await layoutDialog.getByLabel("Wi-Fi setup value").fill("WIFI:T:WPA;S:LessonCue Guest;P:welcome123;;");
+  await expect(layoutDialog.locator(".zone-qr img")).toBeVisible();
+  await layoutDialog.getByRole("button", { name: "Publish & push" }).click();
+  await expect(page.locator(".toast")).toContainText("Layout published and screens notified.");
+  const reusableLayoutCard = page.locator(".studio-resource-card").filter({ hasText: "Browser reusable portrait" });
+  await expect(reusableLayoutCard).toContainText("published");
+  await expect(reusableLayoutCard).toContainText("1080×1920");
+
+  await page.getByRole("button", { name: "Playlists", exact: true }).click();
+  await page.getByRole("button", { name: "New playlist" }).click();
+  const playlistDialog = page.getByRole("dialog", { name: "New signage playlist" });
+  await playlistDialog.locator('.playlist-editor-head input[placeholder="Playlist name"]').fill("Browser signage rotation");
+  await playlistDialog.getByRole("button", { name: "+ layout" }).click();
+  await playlistDialog.locator(".playlist-items article").first().locator("select").first().selectOption({ label: "Browser reusable portrait" });
+  await playlistDialog.getByRole("button", { name: "Publish & push" }).click();
+  await expect(page.locator(".toast")).toContainText("Playlist published and screens notified.");
+  await expect(page.locator(".studio-resource-card").filter({ hasText: "Browser signage rotation" })).toContainText("published");
+
+  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Screen and content status" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Per-screen format mapping" })).toBeVisible();
+  await page.getByRole("button", { name: "Emergency", exact: true }).click();
+  await page.getByRole("button", { name: "New alert type" }).click();
+  const emergencyDialog = page.getByRole("dialog", { name: "New emergency alert type" });
+  await emergencyDialog.getByLabel("Name").fill("Browser safety notice");
+  await emergencyDialog.getByLabel("Message").fill("Please follow staff directions.");
+  await emergencyDialog.getByRole("button", { name: "Review alert" }).click();
+  const emergencyReview = page.getByRole("dialog", { name: "Review emergency alert" });
+  await expect(emergencyReview).toContainText("Please follow staff directions.");
+  await emergencyReview.getByRole("button", { name: "Confirm and save" }).click();
+  await expect(page.locator(".emergency-card").filter({ hasText: "Browser safety notice" })).toBeVisible();
 
   const browserPlayerPin = await page.evaluate(async () =>
     (await fetch("/api/v1/admin/bootstrap").then(response => response.json())).pairingPin as string);
@@ -713,7 +788,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.35.0" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.36.0" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();

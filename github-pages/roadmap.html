@@ -5,16 +5,19 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="description" content="Candidate features and recommended next priorities for LessonCue.">
   <title>Roadmap · LessonCue</title>
+  <link rel="icon" href="assets/lessoncue-icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <nav><a class="brand" href="./"><span>LC</span> LessonCue</a><div><a href="./">Overview</a><a href="install.html">Install</a><a href="implementation.html">Build</a><a class="repo" href="https://github.com/nickhighland/lessoncue">GitHub ↗</a></div></nav>
+  <nav><a class="brand" href="./"><img src="assets/lessoncue-icon.svg" alt=""> LessonCue</a><div><a href="./">Overview</a><a href="install.html">Install</a><a href="implementation.html">Build</a><a class="repo" href="https://github.com/nickhighland/lessoncue">GitHub ↗</a></div></nav>
   <main class="page">
     <p class="eyebrow">PRODUCT ROADMAP</p>
     <h1>Make every room more ready.</h1>
     <p class="intro">The roadmap keeps LessonCue local-first and easy to operate while strengthening live playback, planning, accessibility, security, recovery, and large-site administration.</p>
-    <div class="notice">Intel Quick Sync acceleration is complete for v0.29.0, including real hardware detection, administrator control, universal and adaptive queue acceleration, output validation, visible engine/fallback reporting, and safe software retry. The comprehensive checkbox roadmap remains the source of truth for shipped and remaining work.</div>
+    <div class="notice">Priority 10, the complete self-hosted Signage Studio, is implemented and validated in the next release. The comprehensive checkbox roadmap remains the source of truth for shipped and remaining work; Priority 11 is now the next planned milestone.</div>
     <section class="steps">
+      <article><b>COMPLETE · NEXT RELEASE</b><h2>Signage Studio</h2><p>Design reusable multi-zone layouts; build independent rotations; schedule and publish content; display live streams, local QR codes, widgets, counters, tickers, and rich text; monitor screens and proof of play; broadcast prepared emergency alerts; and run optional browser kiosks entirely from the self-hosted LessonCue server.</p></article>
+      <article><b>NEXT · PRIORITY 11</b><h2>Media upload and library workflow</h2><p>Add resumable pause-and-retry transfers, folder drag-and-drop, stronger progress and duplicate handling, favorites and collections, improved search, safe reference consolidation, and administrator-defined upload and storage limits.</p></article>
       <article><b>SHIPPED · v0.29</b><h2>Validated Intel Quick Sync acceleration</h2><p>Use compatible Intel graphics for universal and adaptive H.264 conversion, verify every result, report the selected engine, and retry safely in software whenever hardware fails.</p></article>
       <article><b>SHIPPED · v0.28</b><h2>Registration and account self-service</h2><p>Choose closed, code-required, or open registration; verify email; recover passwords; edit profiles; manage registration codes; and deliver account messages through a locally protected Resend or Brevo configuration.</p></article>
       <article><b>SHIPPED · v0.27</b><h2>Full-screen browser and projector playback</h2><p>Pair a Windows, Mac, Linux, or ChromeOS browser like a TV, then run local media, online cues, pre-roll, countdowns, and lessons with phone, keyboard, or presentation-remote control.</p></article>

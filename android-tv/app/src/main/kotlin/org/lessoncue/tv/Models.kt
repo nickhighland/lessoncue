@@ -50,15 +50,33 @@ data class PreRollCue(val items: List<CueItem>)
 data class SignageCue(val id: String, val name: String, val mode: String, val priority: Int, val message: String,
     val backgroundColor: String, val textColor: String, val mediaUrl: String?, val media: CueItem? = null,
     val layoutPreset: String = "single", val zones: List<SignageZone> = emptyList(),
-    val widgetCacheUpdatedAt: String? = null, val widgetCacheError: String? = null)
+    val widgetCacheUpdatedAt: String? = null, val widgetCacheError: String? = null,
+    val version: Int = 1, val publishedVersion: Int = 1,
+    val contentPlaylist: SignageContentPlaylist? = null, val backgroundAudio: CueItem? = null,
+    val volumePercent: Int = 100, val displayPower: String = "unchanged")
+
+data class SignageContentPlaylist(val id: String, val name: String, val playbackMode: String,
+    val synchronization: String, val version: Int, val items: List<SignagePlaylistEntry>)
+data class SignagePlaylistEntry(val id: String, val kind: String, val title: String?, val durationSeconds: Int,
+    val transition: String, val media: CueItem? = null, val layout: SignagePlaylistLayout? = null,
+    val sourceUrl: String? = null)
+data class SignagePlaylistLayout(val id: String, val name: String, val backgroundColor: String,
+    val zones: List<SignageZone>, val backgroundAudio: CueItem? = null)
 
 data class SignageWidgetCache(val zoneId: String, val title: String, val text: String,
     val items: List<String>, val refreshedAt: String? = null)
 data class SignageZone(val id: String, val type: String, val title: String?, val content: String?,
     val x: Int, val y: Int, val width: Int, val height: Int, val backgroundColor: String,
-    val textColor: String, val accentColor: String, val streamUrl: String? = null,
+    val textColor: String, val accentColor: String, val sourceUrl: String? = null, val streamUrl: String? = null,
     val rotation: Int = 0, val zIndex: Int = 0, val opacity: Int = 100, val fit: String = "cover",
     val locked: Boolean = false, val hidden: Boolean = false, val flipX: Boolean = false, val flipY: Boolean = false,
+    val richTextJson: String? = null, val fontFamily: String? = null,
+    val fontSize: Int = 48, val fontWeight: Int = 600, val italic: Boolean = false,
+    val underline: Boolean = false, val lineHeightPercent: Int = 120, val textAlign: String = "left",
+    val shape: String = "rectangle",
+    val strokeColor: String = "#ffffff", val strokeWidth: Int = 0, val cornerRadius: Int = 0,
+    val iconName: String? = null, val qrValue: String? = null, val tickerSpeed: Int = 60,
+    val counterTargetAt: Instant? = null,
     val media: CueItem? = null,
     val cached: SignageWidgetCache? = null)
 

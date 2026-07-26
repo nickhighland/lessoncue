@@ -19,6 +19,8 @@ Use JDK 17, Android SDK 36, and the Gradle version pinned in CI. LessonCue has t
 
 Debug builds are suitable only for device testing. Production builds use the permanent organization-owned keystore configured through protected release secrets; never commit the keystore or passwords. See [Android TV self-update system](android-tv-updater.md) for release configuration, verification rules, safe rollout, and the hardware acceptance matrix.
 
+The launcher uses the approved LessonCue icon at every Android TV density, an adaptive icon on Android 8.0 and newer, and the approved full wordmark in every 16:9 banner density. Upload-ready Google Play and Fire TV artwork is kept in [`branding/store`](../branding/store).
+
 During playback, tap Left or Right to move to the previous or next cue in the complete pre-roll/countdown/lesson sequence. Hold Left or Right to rewind or fast-forward the current playable item in five-second steps. The remote's Play, Pause, Play/Pause, center Select, media Previous, media Next, Rewind, and Fast-forward keys are handled directly by LessonCue. Back returns to the lesson plan.
 
 Version 0.32.0 and newer applies the lesson editor's fit/fill/letterbox, rotation, asymmetric crop, background color, whole-lesson and cue volume/mute, playback speed, finite repeat count, still duration, synchronized audiovisual fades, fade-through-black transition, and end behavior on the TV. Older manifests remain readable through safe client defaults.

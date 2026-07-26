@@ -23,6 +23,10 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
     public DbSet<DeviceCredential> DeviceCredentials => Set<DeviceCredential>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
     public DbSet<SignagePlaylist> SignagePlaylists => Set<SignagePlaylist>();
+    public DbSet<SignageLayoutResource> SignageLayouts => Set<SignageLayoutResource>();
+    public DbSet<SignageContentPlaylist> SignageContentPlaylists => Set<SignageContentPlaylist>();
+    public DbSet<SignageEmergencyTemplate> SignageEmergencyTemplates => Set<SignageEmergencyTemplate>();
+    public DbSet<SignageProofRecord> SignageProofRecords => Set<SignageProofRecord>();
     public DbSet<BackupRecord> BackupRecords => Set<BackupRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -65,5 +69,9 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
         modelBuilder.Entity<PlaybackCommandRecord>().HasIndex(x => new { x.ScreenId, x.Version }).IsUnique();
         modelBuilder.Entity<PlaybackCommandRecord>().HasOne(x => x.Screen).WithMany()
             .HasForeignKey(x => x.ScreenId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<SignageLayoutResource>().HasIndex(x => new { x.Folder, x.Name });
+        modelBuilder.Entity<SignageContentPlaylist>().HasIndex(x => new { x.Folder, x.Name });
+        modelBuilder.Entity<SignageProofRecord>().HasIndex(x => new { x.ScreenId, x.StartedAt });
+        modelBuilder.Entity<SignageProofRecord>().HasIndex(x => new { x.SignageId, x.StartedAt });
     }
 }

@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 namespace LessonCue.Server;
 
 public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHttpClientFactory clients,
-    IHubContext<SyncHub> hub, ILogger<SignageWidgetService> logger) : BackgroundService
+    IHubContext<SyncHub> hub, SignageCredentialStore credentials, ILogger<SignageWidgetService> logger) : BackgroundService
 {
     private readonly SemaphoreSlim refreshLock = new(1, 1);
 
@@ -36,14 +36,19 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
             var query = db.SignagePlaylists.Where(x => x.Enabled);
             if (signageId is { } id) query = query.Where(x => x.Id == id);
             var signage = await query.ToListAsync(cancellationToken);
+            var layoutIds = signage.Where(x => x.LayoutId is not null).Select(x => x.LayoutId!.Value).Distinct().ToArray();
+            var layouts = await db.SignageLayouts.AsNoTracking().Where(x => layoutIds.Contains(x.Id))
+                .ToDictionaryAsync(x => x.Id, cancellationToken);
             var changed = 0;
             foreach (var sign in signage)
             {
-                var zones = SignageLayout.ParseZones(sign.ZonesJson);
+                var zones = sign.LayoutId is { } layoutId && layouts.TryGetValue(layoutId, out var layout)
+                    ? SignageLayout.ParseZones(layout.PublishedZonesJson)
+                    : SignageLayout.ParseZones(sign.ZonesJson);
                 var cache = SignageLayout.ParseCache(sign.WidgetCacheJson).ToDictionary(x => x.ZoneId, StringComparer.OrdinalIgnoreCase);
                 var errors = new List<string>();
                 var signChanged = false;
-                foreach (var zone in zones.Where(x => x.Type is "calendar" or "weather" or "menu" or "rss" or "data")
+                foreach (var zone in zones.Where(x => x.Type is "calendar" or "weather" or "menu" or "rss" or "data" or "social" or "traffic")
                              .Where(x => !string.IsNullOrWhiteSpace(x.SourceUrl)))
                 {
                     if (!SignageLayout.TryOrigin(zone.SourceUrl!, out var origin) || !allowlist.Contains(origin, StringComparer.OrdinalIgnoreCase))
@@ -84,7 +89,9 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
 
     public async Task<SignageWidgetCacheEntry> FetchAsync(SignageZoneInput zone, CancellationToken cancellationToken)
     {
-        using var response = await clients.CreateClient("signage-widgets").GetAsync(zone.SourceUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        using var request = new HttpRequestMessage(HttpMethod.Get, zone.SourceUrl);
+        credentials.Apply(request, zone.CredentialKey);
+        using var response = await clients.CreateClient("signage-widgets").SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
         if (response.Content.Headers.ContentLength is > 2_000_000) throw new InvalidDataException("Source response exceeds 2 MB.");
         var text = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -113,7 +120,7 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
                 .Select(x => Clean(x[(x.IndexOf(':') + 1)..])).Where(x => !string.IsNullOrWhiteSpace(x)).Take(8).Cast<string>().ToArray();
             if (items.Length == 0) items = ParseJsonItems(payload);
         }
-        else if (zone.Type is "weather" or "data")
+        else if (zone.Type is "weather" or "data" or "social" or "traffic")
         {
             using var document = JsonDocument.Parse(payload);
             var root = document.RootElement;
