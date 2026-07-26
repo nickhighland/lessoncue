@@ -10,6 +10,24 @@ namespace LessonCue.Server.Tests;
 public sealed class SignageStudioTests
 {
     [Fact]
+    public void LayoutReferenceCheckReadsDraftAndPublishedPlaylistItemsSeparately()
+    {
+        var layoutId = Guid.NewGuid();
+        var otherLayoutId = Guid.NewGuid();
+        var draft = SignageStudio.StoreItems([
+            new("draft-layout", "layout", LayoutId: otherLayoutId)
+        ]);
+        var published = SignageStudio.StoreItems([
+            new("published-layout", "layout", LayoutId: layoutId)
+        ]);
+
+        Assert.True(SignageStudio.ReferencesLayout(draft, published, layoutId));
+        Assert.True(SignageStudio.ReferencesLayout(
+            SignageStudio.StoreItems([new("draft-target", "layout", LayoutId: layoutId)]), "[]", layoutId));
+        Assert.False(SignageStudio.ReferencesLayout(draft, published, Guid.NewGuid()));
+    }
+
+    [Fact]
     public void LayoutDraftAndPublishedVersionsRemainIndependent()
     {
         var layout = new SignageLayoutResource { Name = "Campus board", Version = 0 };
@@ -57,6 +75,13 @@ public sealed class SignageStudioTests
         await db.Database.EnsureCreatedAsync(ct);
         db.Organizations.Add(new Organization { Name = "Test" });
         var screen = new Screen { Name = "Lobby" };
+        var presentationPlaylist = new SignageContentPlaylist
+        {
+            Name = "Presentation rotation", PublishedVersion = 1, Version = 1,
+            PublishedItemsJson = SignageStudio.StoreItems([
+                new("inner-web-entry", "web", "School information", SourceUrl: "https://example.org", DurationSeconds: 15)
+            ])
+        };
         var layout = new SignageLayoutResource
         {
             Name = "Published layout", PublishedVersion = 3, Version = 4, PublishState = "changes",
@@ -66,7 +91,8 @@ public sealed class SignageStudioTests
                     FontFamily: "Georgia", FontSize: 64, FontWeight: 700, LineHeightPercent: 135,
                     TextAlign: "center"),
                 new("wifi", "wifi", Title: "Guest network", QrValue: "WIFI:T:WPA;S:Guest;P:example;;"),
-                new("counter", "counter", Content: "Doors open", CounterTargetAt: DateTimeOffset.Parse("2026-08-01T12:00:00Z"))
+                new("counter", "counter", Content: "Doors open", CounterTargetAt: DateTimeOffset.Parse("2026-08-01T12:00:00Z")),
+                new("presentation", "presentation", Title: "Main presentation", ContentPlaylistId: presentationPlaylist.Id)
             ]),
             DraftZonesJson = SignageLayout.StoreZones([new("draft", "text", Content: "Unpublished content")])
         };
@@ -82,7 +108,7 @@ public sealed class SignageStudioTests
             PublishState = "changes",
             StartsAt = DateTimeOffset.UtcNow.AddMinutes(-5), EndsAt = DateTimeOffset.UtcNow.AddMinutes(5)
         };
-        db.AddRange(screen, layout, playlist, schedule);
+        db.AddRange(screen, presentationPlaylist, layout, playlist, schedule);
         await db.SaveChangesAsync(ct);
 
         var json = JsonSerializer.Serialize(await new ManifestService(db).BuildAsync(screen.Id, ct));
@@ -96,6 +122,9 @@ public sealed class SignageStudioTests
         Assert.Contains("\"LineHeightPercent\":135", json);
         Assert.Contains("\"QrValue\":\"WIFI:T:WPA;S:Guest;P:example;;\"", json);
         Assert.Contains("\"CounterTargetAt\":\"2026-08-01T12:00:00+00:00\"", json);
+        Assert.Contains("\"ContentPlaylistId\":\"" + presentationPlaylist.Id, json);
+        Assert.Contains("inner-web-entry", json);
+        Assert.Contains("Presentation rotation", json);
     }
 
     [Fact]

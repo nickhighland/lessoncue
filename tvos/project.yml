@@ -18,8 +18,8 @@ targets:
     info:
       path: Sources/App/Info.plist
       properties:
-        CFBundleShortVersionString: "0.36.2"
-        CFBundleVersion: "34"
+        CFBundleShortVersionString: "0.37.0"
+        CFBundleVersion: "35"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.lessoncue.tv

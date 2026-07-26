@@ -120,6 +120,42 @@ public sealed class SignageLayoutTests
     }
 
     [Fact]
+    public void NormalizesInteractiveQrClockAndWeeklyCountdownControls()
+    {
+        var zone = SignageLayout.Normalize(new SignageZoneInput("details", "qr", Content: "https://lessoncue.local",
+            QrLabelTop: "Scan to begin", QrLabelBottom: "Open LessonCue", QrLabelLeft: "Left",
+            QrLabelRight: "Right", CounterRepeatWeekly: true, ClockDisplay: "both",
+            ClockTimeFormat: "24h", ClockDateFormat: "medium", ClockOrder: "date-time",
+            ClockTimeFontSize: 72, ClockDateFontSize: 30));
+        Assert.Equal("Scan to begin", zone.QrLabelTop);
+        Assert.Equal("Open LessonCue", zone.QrLabelBottom);
+        Assert.Equal("24h", zone.ClockTimeFormat);
+        Assert.Equal("date-time", zone.ClockOrder);
+        Assert.Equal(72, zone.ClockTimeFontSize);
+    }
+
+    [Fact]
+    public void AcceptsPostalWeatherAndRejectsRemovedElementTypes()
+    {
+        var weather = new SignageZoneInput("weather", "weather", WeatherProvider: "open-meteo",
+            WeatherPostalCode: "98225");
+        Assert.Null(SignageLayout.Validate([weather], []));
+        Assert.Contains("Unsupported signage zone type", SignageLayout.Validate(
+            [new SignageZoneInput("old-dashboard", "dashboard")], []));
+    }
+
+    [Fact]
+    public void PresentationRequiresAPlaylistOrLiveStream()
+    {
+        Assert.Contains("signage playlist or configure a live-stream override",
+            SignageLayout.Validate([new SignageZoneInput("main", "presentation")], []));
+        Assert.Null(SignageLayout.Validate([new SignageZoneInput("main", "presentation",
+            ContentPlaylistId: Guid.NewGuid())], []));
+        Assert.Null(SignageLayout.Validate([new SignageZoneInput("main", "presentation",
+            SourceUrl: "rtmp://camera.example.org/live")], []));
+    }
+
+    [Fact]
     public async Task ApplianceUpgradeAddsLayoutAllowlistAndPersistentCacheColumnsIdempotently()
     {
         var ct = TestContext.Current.CancellationToken;

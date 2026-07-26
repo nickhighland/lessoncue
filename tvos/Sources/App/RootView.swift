@@ -195,22 +195,20 @@ private struct SignageZoneLayout: View {
                     if zone.type == "stream", let path = zone.streamUrl, let url = model.signageURL(for: path) {
                         SignageLiveStream(url: url, fit: zone.fit ?? "cover")
                     }
-                    if zone.type == "shape" { SignageShapeView(zone: zone).padding(10) }
+                    if zone.type == "presentation" {
+                        SignagePresentationView(zone: zone, signage: signage)
+                    }
                     VStack(alignment: .leading, spacing: 12) {
-                        if let title = zone.title { Text(title.uppercased()).font(.headline).tracking(3).foregroundStyle(Color(hex: zone.accentColor)) }
+                        if let title = zone.title, !["qr", "wifi", "presentation", "stream"].contains(zone.type) {
+                            Text(title.uppercased()).font(.headline).tracking(3).foregroundStyle(Color(hex: zone.accentColor))
+                        }
                         if zone.type == "clock" {
-                            TimelineView(.periodic(from: .now, by: 1)) { context in
-                                Text(context.date, style: .time).font(.system(size: 64, weight: .bold, design: .rounded))
-                                Text(context.date.formatted(.dateTime.weekday(.wide).month(.wide).day())).font(.title3)
-                            }
-                        } else if zone.type == "icon" {
-                            Text(["star":"★","info":"ⓘ","warning":"⚠","arrow":"➜","check":"✓"][zone.iconName ?? ""] ?? "★")
-                                .font(.system(size: CGFloat(max(72, zone.fontSize ?? 72)), weight: .bold))
+                            SignageClockView(zone: zone)
                         } else if zone.type == "qr" || zone.type == "wifi" {
-                            if let value = zone.qrValue { SignageQRCode(value: value) }
+                            if let value = zone.qrValue { SignageQRCode(value: value, zone: zone) }
                         } else if zone.type == "counter" {
                             SignageCounterView(zone: zone)
-                        } else if zone.type != "shape" {
+                        } else if !["presentation", "stream", "webpage", "customHtml"].contains(zone.type) {
                             let displayText = (zone.cached?.text.isEmpty == false ? zone.cached?.text : nil) ?? zone.content
                             if let text = displayText {
                                 Group {
@@ -325,14 +323,108 @@ private struct SignageCounterView: View {
     }
 
     private func counterText(at now: Date) -> String {
-        guard let target = zone.counterTargetAt else { return zone.content ?? "Countdown" }
+        guard var target = zone.counterTargetAt else { return zone.content ?? "Countdown" }
+        if zone.counterRepeatWeekly == true, target <= now {
+            target = target.addingTimeInterval((floor(now.timeIntervalSince(target) / 604_800) + 1) * 604_800)
+        }
         let total = max(0, Int(target.timeIntervalSince(now)))
         let days = total / 86_400
         let hours = (total % 86_400) / 3_600
         let minutes = (total % 3_600) / 60
         let seconds = total % 60
         let clock = String(format: "%02d:%02d:%02d", hours, minutes, seconds)
-        return days > 0 ? "\(days) days  \(clock)" : clock
+        let countdown = days > 0 ? "\(days) days  \(clock)" : clock
+        return zone.content?.replacingOccurrences(of: "[countdown]", with: countdown) ?? countdown
+    }
+}
+
+private struct SignageClockView: View {
+    let zone: SignageZone
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let time = Text(formatTime(context.date))
+                .font(.system(size: CGFloat(zone.clockTimeFontSize ?? 64), weight: .bold, design: .rounded))
+            let date = Text(formatDate(context.date))
+                .font(.system(size: CGFloat(zone.clockDateFontSize ?? 28), weight: .regular, design: .rounded))
+            switch zone.clockDisplay ?? "both" {
+            case "time": time
+            case "date": date
+            default:
+                if zone.clockOrder == "inline" {
+                    HStack(alignment: .firstTextBaseline, spacing: 16) { time; date }
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if zone.clockOrder == "date-time" { date; time } else { time; date }
+                    }
+                }
+            }
+        }
+    }
+
+    private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = switch zone.clockTimeFormat {
+        case "24h": "HH:mm"
+        case "24h-seconds": "HH:mm:ss"
+        case "12h-seconds": "h:mm:ss a"
+        default: "h:mm a"
+        }
+        return formatter.string(from: date)
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = switch zone.clockDateFormat {
+        case "numeric": "MM/dd/yyyy"
+        case "short": "MMM d"
+        case "medium": "EEE, MMM d"
+        default: "EEEE, MMMM d, yyyy"
+        }
+        return formatter.string(from: date)
+    }
+}
+
+private struct SignagePresentationView: View {
+    @EnvironmentObject private var model: AppModel
+    let zone: SignageZone
+    let signage: SignageCue
+    @State private var index = 0
+    @State private var streamLive = false
+
+    private var entries: [SignagePlaylistEntry] { zone.contentPlaylist?.items ?? [] }
+    private var entry: SignagePlaylistEntry? { entries.isEmpty ? nil : entries[index % entries.count] }
+
+    var body: some View {
+        ZStack {
+            if let layout = entry?.layout {
+                Color(hex: layout.backgroundColor)
+                SignageZoneLayout(signage: signage, zonesOverride: layout.zones)
+            } else if let media = entry?.media {
+                SignageBackdrop(item: media, fit: zone.fit ?? "contain", opacity: 1)
+            } else if let title = entry?.title {
+                Text(title).font(.title2.bold()).multilineTextAlignment(.center).padding(24)
+            } else {
+                Text("Select a published playlist").font(.title3).foregroundStyle(.secondary)
+            }
+            if zone.streamOverrideWhenLive == true, let path = zone.streamUrl,
+               let url = model.signageURL(for: path) {
+                SignageLiveStream(url: url, fit: zone.fit ?? "cover") { streamLive = $0 }
+                    .opacity(streamLive ? 1 : 0)
+            }
+        }
+        .clipped()
+        .task(id: zone.contentPlaylist?.version) {
+            index = 0
+            while !Task.isCancelled, !entries.isEmpty {
+                guard !streamLive else {
+                    try? await Task.sleep(for: .seconds(1))
+                    continue
+                }
+                try? await Task.sleep(for: .seconds(max(1, entries[index % entries.count].durationSeconds)))
+                index = (index + 1) % entries.count
+            }
+        }
     }
 }
 
@@ -351,45 +443,9 @@ private struct SignageTickerView: View {
     }
 }
 
-private struct SignageTriangle: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.closeSubpath()
-        return path
-    }
-}
-
-private struct SignageLine: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.midY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-        return path
-    }
-}
-
-private struct SignageShapeView: View {
-    let zone: SignageZone
-    private var stroke: Color { Color(hex: zone.strokeColor ?? "#ffffff") }
-    private var lineWidth: CGFloat { CGFloat(max(1, zone.strokeWidth ?? 1)) }
-
-    @ViewBuilder var body: some View {
-        switch zone.shape {
-        case "circle": Circle().stroke(stroke, lineWidth: lineWidth)
-        case "triangle": SignageTriangle().stroke(stroke, lineWidth: lineWidth)
-        case "line": SignageLine().stroke(stroke, lineWidth: lineWidth)
-        default:
-            RoundedRectangle(cornerRadius: CGFloat(zone.cornerRadius ?? 0))
-                .stroke(stroke, lineWidth: lineWidth)
-        }
-    }
-}
-
 private struct SignageQRCode: View {
     let value: String
+    let zone: SignageZone
 
     private var image: UIImage? {
         let filter = CIFilter.qrCodeGenerator()
@@ -402,8 +458,16 @@ private struct SignageQRCode: View {
 
     var body: some View {
         if let image {
-            Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
-                .background(.white).accessibilityLabel("QR code")
+            VStack(spacing: 8) {
+                if let label = zone.qrLabelTop { Text(label).lineLimit(2) }
+                HStack(spacing: 8) {
+                    if let label = zone.qrLabelLeft { Text(label).lineLimit(3) }
+                    Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
+                        .background(.white).accessibilityLabel("QR code")
+                    if let label = zone.qrLabelRight { Text(label).lineLimit(3) }
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let label = zone.qrLabelBottom { Text(label).lineLimit(2) }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity).clipped()
         }
     }
 }
@@ -412,6 +476,7 @@ private struct SignageBackdrop: View {
     @EnvironmentObject private var model: AppModel
     let item: CueItem
     var fit = "cover"
+    var opacity = 0.38
     @State private var imageURL: URL?
     @State private var videoPlayer: AVQueuePlayer?
     @State private var videoLooper: AVPlayerLooper?
@@ -431,7 +496,7 @@ private struct SignageBackdrop: View {
             }
         }
         .ignoresSafeArea()
-        .opacity(0.38)
+        .opacity(opacity)
         .allowsHitTesting(false)
         .task(id: item.id) {
             guard let url = await model.mediaURL(for: item) else { return }
@@ -456,6 +521,7 @@ private struct SignageBackdrop: View {
 private struct SignageLiveStream: View {
     let url: URL
     var fit = "cover"
+    var onAvailabilityChange: ((Bool) -> Void)? = nil
     @State private var player: AVPlayer?
 
     var body: some View {
@@ -469,8 +535,21 @@ private struct SignageLiveStream: View {
             next.isMuted = true
             player = next
             next.play()
+            var waitingSeconds = 0
+            while !Task.isCancelled {
+                if next.timeControlStatus == .playing {
+                    waitingSeconds = 0
+                    onAvailabilityChange?(true)
+                } else {
+                    waitingSeconds += 1
+                    if next.currentItem?.status == .failed || waitingSeconds >= 5 {
+                        onAvailabilityChange?(false)
+                    }
+                }
+                try? await Task.sleep(for: .seconds(1))
+            }
         }
-        .onDisappear { player?.pause(); player = nil }
+        .onDisappear { onAvailabilityChange?(false); player?.pause(); player = nil }
     }
 }
 

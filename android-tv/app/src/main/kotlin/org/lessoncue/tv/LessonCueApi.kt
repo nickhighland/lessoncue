@@ -181,7 +181,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         volumePercent = item.optInt("volumePercent", 100), displayPower = item.optString("displayPower", "unchanged")
     )
 
-    private fun parseSignageZone(item: JSONObject) = SignageZone(
+    private fun parseSignageZone(item: JSONObject): SignageZone = SignageZone(
         id = item.getString("id"), type = item.optString("type", "text"),
         title = item.optString("title").takeIf { it.isNotBlank() && it != "null" },
         content = item.optString("content").takeIf { it.isNotBlank() && it != "null" },
@@ -200,12 +200,29 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         fontSize = item.optInt("fontSize", 48), fontWeight = item.optInt("fontWeight", 600),
         italic = item.optBoolean("italic"), underline = item.optBoolean("underline"),
         lineHeightPercent = item.optInt("lineHeightPercent", 120),
-        textAlign = item.optString("textAlign", "left"), shape = item.optString("shape", "rectangle"),
+        textAlign = item.optString("textAlign", "left"),
         strokeColor = item.optString("strokeColor", "#ffffff"), strokeWidth = item.optInt("strokeWidth"),
-        cornerRadius = item.optInt("cornerRadius"), iconName = item.optString("iconName").takeIf { it.isNotBlank() && it != "null" },
+        cornerRadius = item.optInt("cornerRadius"),
         qrValue = item.optString("qrValue").takeIf { it.isNotBlank() && it != "null" },
+        qrLabelTop = item.optString("qrLabelTop").takeIf { it.isNotBlank() && it != "null" },
+        qrLabelBottom = item.optString("qrLabelBottom").takeIf { it.isNotBlank() && it != "null" },
+        qrLabelLeft = item.optString("qrLabelLeft").takeIf { it.isNotBlank() && it != "null" },
+        qrLabelRight = item.optString("qrLabelRight").takeIf { it.isNotBlank() && it != "null" },
         tickerSpeed = item.optInt("tickerSpeed", 60),
         counterTargetAt = parseOptionalInstant(item.optString("counterTargetAt")),
+        counterRepeatWeekly = item.optBoolean("counterRepeatWeekly"),
+        clockDisplay = item.optString("clockDisplay", "both"),
+        clockTimeFormat = item.optString("clockTimeFormat", "12h"),
+        clockDateFormat = item.optString("clockDateFormat", "long"),
+        clockOrder = item.optString("clockOrder", "time-date"),
+        clockTimeFontSize = item.optInt("clockTimeFontSize", 64),
+        clockDateFontSize = item.optInt("clockDateFontSize", 28),
+        weatherPostalCode = item.optString("weatherPostalCode").takeIf { it.isNotBlank() && it != "null" },
+        contentPlaylistId = item.optString("contentPlaylistId").takeIf { it.isNotBlank() && it != "null" },
+        streamOverrideWhenLive = item.optBoolean("streamOverrideWhenLive"),
+        contentPlaylist = item.optJSONObject("contentPlaylist")?.let(::parseSignagePlaylist),
+        htmlUrl = item.optString("htmlUrl").takeIf { it.isNotBlank() && it != "null" }
+            ?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
         media = item.optJSONObject("media")?.let(::parseItem),
         cached = item.optJSONObject("cached")?.let { cached -> SignageWidgetCache(
             zoneId = cached.optString("zoneId", item.getString("id")), title = cached.optString("title"),
@@ -214,7 +231,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         ) }
     )
 
-    private fun parseSignagePlaylist(item: JSONObject) = SignageContentPlaylist(
+    private fun parseSignagePlaylist(item: JSONObject): SignageContentPlaylist = SignageContentPlaylist(
         id = item.getString("id"), name = item.optString("name"), playbackMode = item.optString("playbackMode", "ordered"),
         synchronization = item.optString("synchronization", "screen"), version = item.optInt("version", 1),
         items = item.optJSONArray("items")?.mapObjects { entry -> SignagePlaylistEntry(

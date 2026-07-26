@@ -93,6 +93,7 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
 
     public async Task<SignageWidgetCacheEntry> FetchAsync(SignageZoneInput zone, CancellationToken cancellationToken)
     {
+        zone = await ResolveWeatherLocationAsync(SignageLayout.Normalize(zone), cancellationToken);
         var source = WeatherSource(zone) ?? zone.SourceUrl ?? throw new InvalidDataException("Widget source is missing.");
         var text = await FetchTextAsync(source, zone.WeatherProvider == "custom" ? zone.CredentialKey : null, cancellationToken);
         if (zone.Type == "weather" && zone.WeatherProvider == "nws")
@@ -111,6 +112,11 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
     private async Task<string> FetchTextAsync(string source, string? credentialKey, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, source);
+        if (request.RequestUri?.Host.Equals("api.weather.gov", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            request.Headers.UserAgent.ParseAdd("LessonCue/0.36 (+https://github.com/nickhighland/lessoncue)");
+            request.Headers.Accept.ParseAdd("application/geo+json");
+        }
         credentials.Apply(request, credentialKey);
         using var response = await clients.CreateClient("signage-widgets").SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -118,6 +124,37 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
         var text = await response.Content.ReadAsStringAsync(cancellationToken);
         if (text.Length > 2_000_000) throw new InvalidDataException("Source response exceeds 2 MB.");
         return text;
+    }
+
+    private async Task<SignageZoneInput> ResolveWeatherLocationAsync(SignageZoneInput zone,
+        CancellationToken cancellationToken)
+    {
+        if (zone.Type != "weather" || zone.WeatherProvider is not ("open-meteo" or "nws") ||
+            zone.WeatherLatitude is not null && zone.WeatherLongitude is not null ||
+            string.IsNullOrWhiteSpace(zone.WeatherPostalCode)) return zone;
+        var source = "https://geocoding-api.open-meteo.com/v1/search" +
+            $"?name={Uri.EscapeDataString(zone.WeatherPostalCode.Trim())}&count=1&language=en&format=json";
+        var payload = await FetchTextAsync(source, null, cancellationToken);
+        using var document = JsonDocument.Parse(payload);
+        if (!document.RootElement.TryGetProperty("results", out var results) ||
+            results.ValueKind != JsonValueKind.Array || results.GetArrayLength() == 0)
+            throw new InvalidDataException($"No weather location matched postal code {zone.WeatherPostalCode}.");
+        var match = results[0];
+        var latitude = NumberProperty(match, "latitude");
+        var longitude = NumberProperty(match, "longitude");
+        if (latitude is null || longitude is null)
+            throw new InvalidDataException("The weather geocoding service did not return valid coordinates.");
+        if (zone.WeatherProvider == "nws" &&
+            !string.Equals(StringProperty(match, "country_code"), "US", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("National Weather Service forecasts require a United States postal code.");
+        var location = zone.WeatherLocation;
+        if (string.IsNullOrWhiteSpace(location))
+        {
+            var name = StringProperty(match, "name");
+            var region = StringProperty(match, "admin1");
+            location = string.Join(", ", new[] { name, region }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        }
+        return zone with { WeatherLatitude = latitude, WeatherLongitude = longitude, WeatherLocation = location };
     }
 
     public static string? WeatherSource(SignageZoneInput raw)

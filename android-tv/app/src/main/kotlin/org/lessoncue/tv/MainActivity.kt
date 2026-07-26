@@ -20,10 +20,10 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -62,10 +62,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.IntSize
@@ -84,6 +81,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.C
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
@@ -605,20 +603,15 @@ private fun SignageZoneLayout(signage: SignageCue) {
             Box(modifier) {
                 zone.media?.let { SignageZoneMedia(it, zone.fit) }
                 zone.streamUrl?.takeIf { zone.type == "stream" }?.let { SignageStreamMedia(zone.id, it, zone.fit) }
-                zone.sourceUrl?.takeIf { zone.type in signageWebZoneTypes }?.let { SignageWebZone(it) }
-                if (zone.type == "shape") SignageShape(zone)
+                (if (zone.type == "customHtml") zone.htmlUrl else zone.sourceUrl)
+                    ?.takeIf { zone.type in signageWebZoneTypes }?.let { SignageWebZone(it) }
+                if (zone.type == "presentation") SignagePresentationZone(zone)
                 Column(Modifier.fillMaxSize().padding(22.dp), verticalArrangement = Arrangement.Center) {
-                    zone.title?.let { Text(it.uppercase(), color = parseDisplayColor(zone.accentColor), fontSize = 14.sp, letterSpacing = 2.sp) }
+                    zone.title?.takeIf { zone.type !in signageNonTextZoneTypes }?.let { Text(it.uppercase(), color = parseDisplayColor(zone.accentColor), fontSize = 14.sp, letterSpacing = 2.sp) }
                     if (zone.type == "clock") {
-                        var now by remember { mutableStateOf(ZonedDateTime.now()) }
-                        LaunchedEffect(zone.id) { while (true) { kotlinx.coroutines.delay(1_000); now = ZonedDateTime.now() } }
-                        Text(now.format(DateTimeFormatter.ofPattern("h:mm a")), color = parseDisplayColor(zone.textColor), fontSize = 54.sp)
-                        Text(now.format(DateTimeFormatter.ofPattern("EEEE, MMMM d")), color = parseDisplayColor(zone.textColor), fontSize = 20.sp)
-                    } else if (zone.type == "icon") {
-                        Text(mapOf("star" to "★", "info" to "ⓘ", "warning" to "⚠", "arrow" to "➜", "check" to "✓")[zone.iconName] ?: "★",
-                            color = parseDisplayColor(zone.textColor), fontSize = zone.fontSize.coerceAtLeast(48).sp)
+                        SignageClock(zone)
                     } else if (zone.type == "qr" || zone.type == "wifi") {
-                        zone.qrValue?.let { SignageQrCode(it) }
+                        zone.qrValue?.let { SignageQrCode(it, zone) }
                     } else if (zone.type == "counter") {
                         SignageCounter(zone)
                     } else if (zone.type !in signageNonTextZoneTypes) {
@@ -643,8 +636,8 @@ private fun SignageZoneLayout(signage: SignageCue) {
     }
 }
 
-private val signageWebZoneTypes = setOf("webpage", "dashboard", "slides", "customHtml")
-private val signageNonTextZoneTypes = signageWebZoneTypes + setOf("shape", "icon", "qr", "wifi")
+private val signageWebZoneTypes = setOf("webpage", "customHtml")
+private val signageNonTextZoneTypes = signageWebZoneTypes + setOf("qr", "wifi", "presentation", "stream")
 
 private fun signageFontFamily(value: String?) = when (value?.lowercase()) {
     "georgia", "serif" -> FontFamily.Serif
@@ -678,44 +671,27 @@ private fun SignageCounter(zone: SignageZone) {
             now = Instant.now()
         }
     }
-    val remaining = zone.counterTargetAt?.epochSecond?.minus(now.epochSecond)?.coerceAtLeast(0)
-    val text = remaining?.let {
+    val target = zone.counterTargetAt?.let {
+        if (!zone.counterRepeatWeekly || it.isAfter(now)) it
+        else it.plusSeconds((((now.epochSecond - it.epochSecond) / 604_800L) + 1L) * 604_800L)
+    }
+    val remaining = target?.epochSecond?.minus(now.epochSecond)?.coerceAtLeast(0)
+    val countdown = remaining?.let {
         val days = it / 86_400
         val hours = (it % 86_400) / 3_600
         val minutes = (it % 3_600) / 60
         val seconds = it % 60
         if (days > 0) "$days days  ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
         else "${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
-    } ?: (zone.content ?: "Countdown")
+    }
+    val text = countdown?.let { value -> zone.content?.replace("[countdown]", value) ?: value }
+        ?: (zone.content ?: "Countdown")
     Text(text, color = parseDisplayColor(zone.textColor), fontSize = zone.fontSize.coerceIn(8, 180).sp,
         fontFamily = signageFontFamily(zone.fontFamily), fontWeight = FontWeight(zone.fontWeight.coerceIn(100, 900)))
 }
 
 @Composable
-private fun SignageShape(zone: SignageZone) {
-    val color = parseDisplayColor(zone.strokeColor)
-    Canvas(Modifier.fillMaxSize().padding(10.dp)) {
-        val stroke = Stroke(zone.strokeWidth.coerceAtLeast(1).dp.toPx())
-        when (zone.shape) {
-            "circle" -> drawCircle(color, style = stroke)
-            "triangle" -> {
-                val path = Path().apply {
-                    moveTo(size.width / 2f, 0f)
-                    lineTo(size.width, size.height)
-                    lineTo(0f, size.height)
-                    close()
-                }
-                drawPath(path, color, style = stroke)
-            }
-            "line" -> drawLine(color, start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f),
-                end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f), strokeWidth = stroke.width)
-            else -> drawRoundRect(color, cornerRadius = CornerRadius(zone.cornerRadius.dp.toPx()), style = stroke)
-        }
-    }
-}
-
-@Composable
-private fun SignageQrCode(value: String) {
+private fun SignageQrCode(value: String, zone: SignageZone) {
     val bitmap = remember(value) {
         runCatching {
             val matrix = MultiFormatWriter().encode(value, BarcodeFormat.QR_CODE, 480, 480,
@@ -727,7 +703,46 @@ private fun SignageQrCode(value: String) {
             }.asImageBitmap()
         }.getOrNull()
     }
-    bitmap?.let { Image(bitmap = it, contentDescription = "QR code", modifier = Modifier.fillMaxSize().padding(8.dp)) }
+    bitmap?.let {
+        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            zone.qrLabelTop?.let { label -> Text(label, color = parseDisplayColor(zone.textColor), textAlign = TextAlign.Center) }
+            Row(Modifier.weight(1f).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                zone.qrLabelLeft?.let { label -> Text(label, color = parseDisplayColor(zone.textColor), modifier = Modifier.padding(end = 8.dp)) }
+                Image(bitmap = it, contentDescription = "QR code", modifier = Modifier.weight(1f).fillMaxSize().aspectRatio(1f))
+                zone.qrLabelRight?.let { label -> Text(label, color = parseDisplayColor(zone.textColor), modifier = Modifier.padding(start = 8.dp)) }
+            }
+            zone.qrLabelBottom?.let { label -> Text(label, color = parseDisplayColor(zone.textColor), textAlign = TextAlign.Center) }
+        }
+    }
+}
+
+@Composable
+private fun SignageClock(zone: SignageZone) {
+    var now by remember(zone.id) { mutableStateOf(ZonedDateTime.now()) }
+    LaunchedEffect(zone.id) { while (true) { kotlinx.coroutines.delay(1_000); now = ZonedDateTime.now() } }
+    val timePattern = when (zone.clockTimeFormat) {
+        "24h" -> "HH:mm"
+        "24h-seconds" -> "HH:mm:ss"
+        "12h-seconds" -> "h:mm:ss a"
+        else -> "h:mm a"
+    }
+    val datePattern = when (zone.clockDateFormat) {
+        "numeric" -> "MM/dd/yyyy"
+        "short" -> "MMM d"
+        "medium" -> "EEE, MMM d"
+        else -> "EEEE, MMMM d, yyyy"
+    }
+    val time: @Composable () -> Unit = { Text(now.format(DateTimeFormatter.ofPattern(timePattern)),
+        color = parseDisplayColor(zone.textColor), fontSize = zone.clockTimeFontSize.coerceIn(8, 180).sp) }
+    val date: @Composable () -> Unit = { Text(now.format(DateTimeFormatter.ofPattern(datePattern)),
+        color = parseDisplayColor(zone.textColor), fontSize = zone.clockDateFontSize.coerceIn(8, 180).sp) }
+    when (zone.clockDisplay) {
+        "time" -> time()
+        "date" -> date()
+        else -> if (zone.clockOrder == "inline") {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) { time(); date() }
+        } else if (zone.clockOrder == "date-time") { date(); time() } else { time(); date() }
+    }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -742,6 +757,32 @@ private fun SignageWebZone(source: String) {
             loadUrl(source)
         }
     }, update = { if (it.url != source) it.loadUrl(source) }, modifier = Modifier.fillMaxSize())
+}
+
+@Composable
+private fun SignagePresentationZone(zone: SignageZone) {
+    val entries = zone.contentPlaylist?.items.orEmpty()
+    var index by remember(zone.contentPlaylist?.id, zone.contentPlaylist?.version) { mutableIntStateOf(0) }
+    var streamLive by remember(zone.id, zone.streamUrl) { mutableStateOf(false) }
+    LaunchedEffect(zone.contentPlaylist?.id, zone.contentPlaylist?.version, index, streamLive) {
+        if (entries.isNotEmpty() && !streamLive) {
+            kotlinx.coroutines.delay(entries[index % entries.size].durationSeconds.coerceAtLeast(1) * 1_000L)
+            index = (index + 1) % entries.size
+        }
+    }
+    val entry = entries.getOrNull(index % maxOf(1, entries.size))
+    Box(Modifier.fillMaxSize()) {
+        entry?.layout?.let { layout ->
+            SignageZoneLayout(SignageCue(zone.id, layout.name, "always", 0, "", layout.backgroundColor,
+                zone.textColor, null, zones = layout.zones, backgroundAudio = layout.backgroundAudio))
+        } ?: entry?.media?.let { SignageZoneMedia(it, zone.fit) }
+            ?: entry?.sourceUrl?.let { SignageWebZone(it) }
+        if (zone.streamOverrideWhenLive && zone.streamUrl != null) {
+            Box(Modifier.fillMaxSize().graphicsLayer(alpha = if (streamLive) 1f else 0f)) {
+                SignageVideo("presentation-stream-${zone.id}", zone.streamUrl, zone.fit) { streamLive = it }
+            }
+        }
+    }
 }
 
 @Composable
@@ -777,12 +818,26 @@ private fun SignageBackgroundAudio(item: CueItem, volumePercent: Int) {
 
 @Composable
 @SuppressLint("UnsafeOptInUsageError")
-private fun SignageVideo(id: String, source: String, fit: String) {
+private fun SignageVideo(id: String, source: String, fit: String, onAvailabilityChange: ((Boolean) -> Unit)? = null) {
     val context = LocalContext.current
     val player = remember(id, source) { ExoPlayer.Builder(context).build().apply {
         setMediaItem(MediaItem.fromUri(source)); repeatMode = Player.REPEAT_MODE_ONE; volume = 0f; prepare(); playWhenReady = true
     } }
-    DisposableEffect(player) { onDispose { player.release() } }
+    DisposableEffect(player, onAvailabilityChange) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) onAvailabilityChange?.invoke(true)
+                else if (playbackState == Player.STATE_IDLE) onAvailabilityChange?.invoke(false)
+            }
+            override fun onPlayerError(error: PlaybackException) { onAvailabilityChange?.invoke(false) }
+        }
+        player.addListener(listener)
+        onDispose {
+            onAvailabilityChange?.invoke(false)
+            player.removeListener(listener)
+            player.release()
+        }
+    }
     val resizeMode = when (fit) { "contain" -> AspectRatioFrameLayout.RESIZE_MODE_FIT; "fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL; else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM }
     AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = false; this.resizeMode = resizeMode } }, modifier = Modifier.fillMaxSize())
 }

@@ -246,21 +246,41 @@ public sealed class ManifestService(LessonCueDb db)
             var media = zone.MediaAssetId is { } mediaId && zoneMedia.TryGetValue(mediaId, out var found) ? found : null;
             var mappedMedia = MapSignageMedia(media, $"signage-{item.Id}-zone-{zone.Id}", zone.Title ?? item.Name, screen);
             cache.TryGetValue(zone.Id, out var cached);
+            contentPlaylists.TryGetValue(zone.ContentPlaylistId ?? Guid.Empty, out var zonePlaylist);
+            var zoneItems = zonePlaylist is null ? [] : ResolveContentItems(zonePlaylist, contentPlaylists,
+                zoneMedia.Values, 0).ToArray();
+            if (zonePlaylist?.PlaybackMode == "random")
+                zoneItems = zoneItems.OrderBy(entry => HashCode.Combine(entry.Id,
+                    DateOnly.FromDateTime(DateTime.UtcNow).DayNumber)).ToArray();
             return new
             {
                 zone.Id, zone.Type, zone.Title, zone.Content,
-                sourceUrl = zone.Type == "stream" ? null : zone.SourceUrl,
+                sourceUrl = zone.Type is "stream" or "presentation" ? null : zone.SourceUrl,
                 zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
                 zone.RefreshMinutes, zone.Rotation, zone.ZIndex, zone.Opacity, zone.Fit,
                 zone.Locked, zone.Hidden, zone.FlipX, zone.FlipY,
                 zone.GroupId, zone.LockMode, zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight,
                 zone.Italic, zone.Underline, zone.LineHeightPercent, zone.TextAlign, zone.Shape,
                 zone.StrokeColor, zone.StrokeWidth, zone.CornerRadius, zone.IconName, zone.QrValue,
-                zone.TickerSpeed, zone.CounterTargetAt, zone.WeatherProvider, zone.WeatherLocation,
-                zone.WeatherLatitude, zone.WeatherLongitude, zone.WeatherUnits, zone.WeatherFields,
-                streamUrl = zone.Type == "stream"
+                zone.QrLabelTop, zone.QrLabelBottom, zone.QrLabelLeft, zone.QrLabelRight,
+                zone.TickerSpeed, zone.CounterTargetAt, zone.CounterRepeatWeekly,
+                zone.ClockDisplay, zone.ClockTimeFormat, zone.ClockDateFormat, zone.ClockOrder,
+                zone.ClockTimeFontSize, zone.ClockDateFontSize,
+                zone.WeatherProvider, zone.WeatherLocation, zone.WeatherLatitude, zone.WeatherLongitude,
+                zone.WeatherPostalCode, zone.WeatherUnits, zone.WeatherFields,
+                zone.ContentPlaylistId, zone.StreamOverrideWhenLive,
+                streamUrl = (zone.Type is "stream" or "presentation") && !string.IsNullOrWhiteSpace(zone.SourceUrl)
                     ? $"/api/v1/signage/{item.Id}/zones/{Uri.EscapeDataString(zone.Id)}/stream/index.m3u8"
                     : null,
+                htmlUrl = zone.Type == "customHtml" && !string.IsNullOrWhiteSpace(zone.Content)
+                    ? $"/api/v1/signage/{item.Id}/zones/{Uri.EscapeDataString(zone.Id)}/html"
+                    : null,
+                contentPlaylist = zonePlaylist is null ? null : new
+                {
+                    zonePlaylist.Id, zonePlaylist.Name, zonePlaylist.PlaybackMode, zonePlaylist.Synchronization,
+                    version = zonePlaylist.PublishedVersion,
+                    items = zoneItems.Select(entry => MapContentPlaylistItem(entry, item, screen, zoneMedia, layouts, contentPlaylists)).ToArray()
+                },
                 media = mappedMedia.Manifest, cached
             };
         }).ToArray();
@@ -269,7 +289,7 @@ public sealed class ManifestService(LessonCueDb db)
             resolvedContentItems = resolvedContentItems.OrderBy(entry => HashCode.Combine(entry.Id,
                 DateOnly.FromDateTime(DateTime.UtcNow).DayNumber)).ToArray();
         var playlistItems = resolvedContentItems
-            .Select(entry => MapContentPlaylistItem(entry, item, screen, zoneMedia, layouts)).ToArray();
+            .Select(entry => MapContentPlaylistItem(entry, item, screen, zoneMedia, layouts, contentPlaylists)).ToArray();
         var referencedMedia = new[] { item.MediaAsset }.Concat(effectiveZones
             .Select(zone => zone.MediaAssetId is { } id && zoneMedia.TryGetValue(id, out var media) ? media : null))
             .Concat(resolvedContentItems
@@ -339,7 +359,8 @@ public sealed class ManifestService(LessonCueDb db)
             : SignageLayout.ParseZones(item.ZonesJson);
 
     private static object MapContentPlaylistItem(SignageContentPlaylistItemInput entry, SignagePlaylist schedule,
-        Screen screen, IReadOnlyDictionary<Guid, MediaAsset> media, IReadOnlyDictionary<Guid, SignageLayoutResource> layouts)
+        Screen screen, IReadOnlyDictionary<Guid, MediaAsset> media, IReadOnlyDictionary<Guid, SignageLayoutResource> layouts,
+        IReadOnlyDictionary<Guid, SignageContentPlaylist> contentPlaylists, int depth = 0)
     {
         var mappedMedia = entry.MediaAssetId is { } mediaId && media.TryGetValue(mediaId, out var asset)
             ? MapSignageMedia(asset, $"signage-{schedule.Id}-playlist-{entry.Id}", entry.Title ?? asset.FileName, screen).Manifest : null;
@@ -352,20 +373,45 @@ public sealed class ManifestService(LessonCueDb db)
                 backgroundAudio = layout.BackgroundAudioAssetId is { } audioId && media.TryGetValue(audioId, out var audioAsset)
                     ? MapSignageMedia(audioAsset, $"signage-{schedule.Id}-playlist-{entry.Id}-background-audio",
                         $"{layout.Name} background audio", screen).Manifest : null,
-                zones = SignageLayout.ParseZones(layout.PublishedZonesJson).Select(zone => new
+                zones = SignageLayout.ParseZones(layout.PublishedZonesJson).Select(zone =>
                 {
-                    zone.Id, zone.Type, zone.Title, zone.Content, sourceUrl = zone.Type == "stream" ? null : zone.SourceUrl,
-                    zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
-                    zone.RefreshMinutes, zone.Rotation, zone.ZIndex, zone.Opacity, zone.Fit,
-                    zone.Locked, zone.Hidden, zone.FlipX, zone.FlipY, zone.GroupId, zone.LockMode,
-                    zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight, zone.Italic, zone.Underline,
-                    zone.LineHeightPercent, zone.TextAlign, zone.Shape, zone.StrokeColor, zone.StrokeWidth,
-                    zone.CornerRadius, zone.IconName, zone.QrValue, zone.TickerSpeed, zone.CounterTargetAt,
-                    zone.WeatherProvider, zone.WeatherLocation, zone.WeatherLatitude, zone.WeatherLongitude,
-                    zone.WeatherUnits, zone.WeatherFields,
-                    media = zone.MediaAssetId is { } zoneMediaId && media.TryGetValue(zoneMediaId, out var zoneAsset)
-                        ? MapSignageMedia(zoneAsset, $"signage-{schedule.Id}-playlist-{entry.Id}-zone-{zone.Id}",
-                            zone.Title ?? zoneAsset.FileName, screen).Manifest : null
+                    contentPlaylists.TryGetValue(zone.ContentPlaylistId ?? Guid.Empty, out var zonePlaylist);
+                    var nestedItems = zonePlaylist is null || depth >= 2 ? [] : ResolveContentItems(
+                        zonePlaylist, contentPlaylists, media.Values, depth + 1).ToArray();
+                    return new
+                    {
+                        zone.Id, zone.Type, zone.Title, zone.Content,
+                        sourceUrl = zone.Type is "stream" or "presentation" ? null : zone.SourceUrl,
+                        zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
+                        zone.RefreshMinutes, zone.Rotation, zone.ZIndex, zone.Opacity, zone.Fit,
+                        zone.Locked, zone.Hidden, zone.FlipX, zone.FlipY, zone.GroupId, zone.LockMode,
+                        zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight, zone.Italic, zone.Underline,
+                        zone.LineHeightPercent, zone.TextAlign, zone.Shape, zone.StrokeColor, zone.StrokeWidth,
+                        zone.CornerRadius, zone.IconName, zone.QrValue,
+                        zone.QrLabelTop, zone.QrLabelBottom, zone.QrLabelLeft, zone.QrLabelRight,
+                        zone.TickerSpeed, zone.CounterTargetAt, zone.CounterRepeatWeekly,
+                        zone.ClockDisplay, zone.ClockTimeFormat, zone.ClockDateFormat, zone.ClockOrder,
+                        zone.ClockTimeFontSize, zone.ClockDateFontSize,
+                        zone.WeatherProvider, zone.WeatherLocation, zone.WeatherLatitude, zone.WeatherLongitude,
+                        zone.WeatherPostalCode, zone.WeatherUnits, zone.WeatherFields,
+                        zone.ContentPlaylistId, zone.StreamOverrideWhenLive,
+                        streamUrl = (zone.Type is "stream" or "presentation") && !string.IsNullOrWhiteSpace(zone.SourceUrl)
+                            ? $"/api/v1/signage/{schedule.Id}/zones/{Uri.EscapeDataString(zone.Id)}/stream/index.m3u8"
+                            : null,
+                        htmlUrl = zone.Type == "customHtml" && !string.IsNullOrWhiteSpace(zone.Content)
+                            ? $"/api/v1/signage/{schedule.Id}/zones/{Uri.EscapeDataString(zone.Id)}/html"
+                            : null,
+                        contentPlaylist = zonePlaylist is null || depth >= 2 ? null : new
+                        {
+                            zonePlaylist.Id, zonePlaylist.Name, zonePlaylist.PlaybackMode, zonePlaylist.Synchronization,
+                            version = zonePlaylist.PublishedVersion,
+                            items = nestedItems.Select(item => MapContentPlaylistItem(
+                                item, schedule, screen, media, layouts, contentPlaylists, depth + 1)).ToArray()
+                        },
+                        media = zone.MediaAssetId is { } zoneMediaId && media.TryGetValue(zoneMediaId, out var zoneAsset)
+                            ? MapSignageMedia(zoneAsset, $"signage-{schedule.Id}-playlist-{entry.Id}-zone-{zone.Id}",
+                                zone.Title ?? zoneAsset.FileName, screen).Manifest : null
+                    };
                 }).ToArray()
             };
         }

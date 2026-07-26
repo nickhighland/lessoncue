@@ -265,6 +265,30 @@
 .information-frame-builder input[type="range"] {
   width: 90px;
 }
+.information-frame-builder input[type="color"] {
+  appearance: none;
+  width: 46px;
+  min-width: 46px;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid #8b7350;
+  border-radius: 7px;
+  background: transparent;
+}
+.information-frame-builder input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.information-frame-builder input[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: 4px;
+}
+.frame-live-label {
+  align-self: center;
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem;
+  color: #07543b;
+  background: #d9faed;
+  font-size: 0.7rem;
+  font-weight: 850;
+}
 .layout-editor-toolbar button,
 .playlist-addbar button {
   padding: 0.36rem 0.55rem;
@@ -403,11 +427,9 @@
   border-radius: 50%;
   cursor: crosshair;
 }
-.zone-qr,
-.zone-icon {
+.zone-qr {
   display: grid;
   place-items: center;
-  font-size: 3em;
 }
 .zone-weather-preview {
   display: flex;
@@ -438,18 +460,96 @@
   line-height: 1;
 }
 .zone-qr {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
   width: 100%;
   height: 100%;
-  padding: 4%;
+  padding: 2%;
+  overflow: hidden;
 }
 .zone-qr img {
   display: block;
+  position: absolute;
+  inset: 2%;
+  width: auto;
+  height: auto;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
 }
 .zone-qr small {
   font-size: 0.2em;
+}
+.zone-qr-layout {
+  display: grid;
+  grid-template: minmax(0, auto) minmax(0, 1fr) minmax(0, auto) /
+    minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+  gap: 0.2em;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 3%;
+  overflow: hidden;
+}
+.zone-qr-layout .zone-qr { grid-area: 2 / 2; }
+.zone-qr-layout .qr-label {
+  align-self: center;
+  justify-self: center;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.38em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+.zone-qr-layout .qr-label.top { grid-area: 1 / 1 / 2 / 4; }
+.zone-qr-layout .qr-label.bottom { grid-area: 3 / 1 / 4 / 4; }
+.zone-qr-layout .qr-label.left { grid-area: 2 / 1; writing-mode: vertical-rl; transform: rotate(180deg); }
+.zone-qr-layout .qr-label.right { grid-area: 2 / 3; writing-mode: vertical-rl; }
+.zone-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: inherit;
+  justify-content: center;
+  gap: 0.12em;
+  width: 100%;
+  height: 100%;
+}
+.zone-clock.inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.45em;
+}
+.zone-clock .clock-time,
+.zone-clock .clock-date {
+  display: block;
+  line-height: 1.05;
+}
+.zone-presentation-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25em;
+  width: 100%;
+  height: 100%;
+  padding: 5%;
+  text-align: center;
+}
+.zone-presentation-preview small,
+.zone-presentation-preview em {
+  font-size: 0.38em;
+  font-style: normal;
+  opacity: 0.8;
+}
+.layout-zone > iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
 }
 .zone-shape {
   position: absolute;
@@ -524,6 +624,19 @@
   display: grid;
   gap: 0.55rem;
   padding: 0.75rem;
+}
+.browser-signage-preview {
+  position: relative;
+  width: min(100%, 1500px);
+  max-height: 78vh;
+  margin: 1rem auto;
+  overflow: hidden;
+  border: 1px solid #ffffff33;
+  border-radius: 12px;
+  box-shadow: 0 24px 70px #0008;
+}
+.browser-signage-preview .layout-zone {
+  position: absolute;
 }
 .zone-inspector > label,
 .studio-form > label,
@@ -1097,28 +1210,109 @@
   height: 100%;
   border: 0;
 }
-.signage-shape {
+.web-player-signage-zone.qr,
+.web-player-signage-zone.wifi {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.signage-qr-layout {
   position: absolute;
-  inset: 5%;
-  border-style: solid;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+  grid-template-rows: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+  align-items: center;
+  justify-items: center;
+  gap: min(1.2vmin, 0.55rem);
+  padding: min(2vmin, 0.75rem);
+  box-sizing: border-box;
+  overflow: hidden;
 }
-.signage-shape.circle {
-  border-radius: 50%;
+.signage-qr-layout .top {
+  grid-column: 1 / 4;
+  grid-row: 1;
 }
-.signage-shape.triangle {
-  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+.signage-qr-layout .left {
+  grid-column: 1;
+  grid-row: 2;
 }
-.signage-shape.line {
-  top: 49%;
-  bottom: 49%;
+.signage-qr-layout .signage-qr {
+  grid-column: 2;
+  grid-row: 2;
 }
-.signage-icon {
-  font-size: min(12vw, 180px);
+.signage-qr-layout .right {
+  grid-column: 3;
+  grid-row: 2;
+}
+.signage-qr-layout .bottom {
+  grid-column: 1 / 4;
+  grid-row: 3;
+}
+.signage-qr-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  line-height: 1.1;
+}
+.signage-qr-label:empty {
+  display: none;
 }
 .signage-qr {
-  max-width: 85%;
-  max-height: 85%;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain !important;
+}
+.signage-presentation,
+.signage-presentation-default,
+.signage-presentation-stream {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.signage-presentation-default > img,
+.signage-presentation-default > video,
+.signage-presentation-default > iframe,
+.signage-presentation-stream > video {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.signage-presentation-stream {
+  visibility: hidden;
+  background: #000;
+}
+.signage-presentation-stream.is-live {
+  visibility: visible;
+}
+.signage-presentation-empty {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  padding: 1rem;
+  text-align: center;
+}
+.signage-clock-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: inherit;
+  justify-content: center;
+  gap: 0.15em;
+}
+.signage-clock-stack.date-first {
+  flex-direction: column-reverse;
+}
+.signage-clock-stack.inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4em;
 }
 .web-player-zone-copy.ticker {
   width: max-content;

@@ -680,10 +680,14 @@ public sealed record SignageZoneInput(string Id, string Type, string? Title = nu
     bool Underline = false, int LineHeightPercent = 120, string? TextAlign = null,
     string? Shape = null, string? StrokeColor = null, int StrokeWidth = 0, int CornerRadius = 0,
     string? IconName = null, string? QrValue = null, int TickerSpeed = 60,
-    DateTimeOffset? CounterTargetAt = null, string? CredentialKey = null,
+    string? QrLabelTop = null, string? QrLabelBottom = null, string? QrLabelLeft = null, string? QrLabelRight = null,
+    DateTimeOffset? CounterTargetAt = null, bool CounterRepeatWeekly = false, string? CredentialKey = null,
+    string? ClockDisplay = null, string? ClockTimeFormat = null, string? ClockDateFormat = null,
+    string? ClockOrder = null, int ClockTimeFontSize = 64, int ClockDateFontSize = 28,
     string? WeatherProvider = null, string? WeatherLocation = null,
-    double? WeatherLatitude = null, double? WeatherLongitude = null,
-    string? WeatherUnits = null, string? WeatherFields = null);
+    double? WeatherLatitude = null, double? WeatherLongitude = null, string? WeatherPostalCode = null,
+    string? WeatherUnits = null, string? WeatherFields = null,
+    Guid? ContentPlaylistId = null, bool StreamOverrideWhenLive = false);
 public sealed record SignageLayoutResourceInput(string Name, string? Folder, string? Description,
     bool IsTemplate, string? BackgroundColor, int CanvasWidth, int CanvasHeight, int SafeAreaPercent,
     List<SignageZoneInput>? Zones, Guid? BackgroundAudioAssetId = null, string? ThumbnailDataUrl = null);
