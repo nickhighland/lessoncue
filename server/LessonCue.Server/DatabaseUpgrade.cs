@@ -302,6 +302,7 @@ public static class DatabaseUpgrade
             ["Organizations.MediaFoldersJson"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"MediaFoldersJson\" TEXT NOT NULL DEFAULT '[\"General\",\"Lessons\",\"Signage\"]'"),
             ["Organizations.MediaTagsJson"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"MediaTagsJson\" TEXT NOT NULL DEFAULT '[\"Reusable\",\"Intro\",\"Outro\",\"Reference\"]'"),
             ["Organizations.SignageSourceAllowlistJson"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"SignageSourceAllowlistJson\" TEXT NOT NULL DEFAULT '[]'"),
+            ["Organizations.SignageEnabled"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"SignageEnabled\" INTEGER NOT NULL DEFAULT 0"),
             ["Organizations.ControllerPinHash"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"ControllerPinHash\" TEXT NULL"),
             ["Organizations.RequireLocalRoomControllers"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"RequireLocalRoomControllers\" INTEGER NOT NULL DEFAULT 0"),
             ["Organizations.RegistrationMode"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"RegistrationMode\" TEXT NOT NULL DEFAULT 'closed'"),

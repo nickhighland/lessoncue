@@ -324,6 +324,8 @@ api.MapGet("/signage/{signageId:guid}/zones/{zoneId}/stream/{fileName}", async (
     Guid signageId, string zoneId, string fileName, LessonCueDb db, LiveStreamRelayService streams,
     CancellationToken ct) =>
 {
+    var signageEnabled = await db.Organizations.AsNoTracking().AnyAsync(value => value.SignageEnabled, ct);
+    if (!signageEnabled) return Results.NotFound();
     var signage = await db.SignagePlaylists.AsNoTracking().SingleOrDefaultAsync(x => x.Id == signageId && x.Enabled, ct);
     SignageZoneInput? zone = null;
     if (signage is not null)
@@ -362,6 +364,7 @@ api.MapGet("/signage/{signageId:guid}/zones/{zoneId}/stream/{fileName}", async (
 api.MapGet("/signage/{signageId:guid}/zones/{zoneId}/html", async (
     Guid signageId, string zoneId, LessonCueDb db, HttpContext context, CancellationToken ct) =>
 {
+    if (!await db.Organizations.AsNoTracking().AnyAsync(value => value.SignageEnabled, ct)) return Results.NotFound();
     var signage = await db.SignagePlaylists.AsNoTracking().SingleOrDefaultAsync(
         value => value.Id == signageId && value.Enabled, ct);
     if (signage is null) return Results.NotFound();

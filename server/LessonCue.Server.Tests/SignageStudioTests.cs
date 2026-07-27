@@ -73,7 +73,7 @@ public sealed class SignageStudioTests
         await connection.OpenAsync(ct);
         await using var db = new LessonCueDb(new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options);
         await db.Database.EnsureCreatedAsync(ct);
-        db.Organizations.Add(new Organization { Name = "Test" });
+        db.Organizations.Add(new Organization { Name = "Test", SignageEnabled = true });
         var screen = new Screen { Name = "Lobby" };
         var presentationPlaylist = new SignageContentPlaylist
         {

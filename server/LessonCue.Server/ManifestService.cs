@@ -11,8 +11,9 @@ public sealed class ManifestService(LessonCueDb db)
         if (screen is null || screen.Revoked) return null;
 
         var now = generatedAt ?? DateTimeOffset.UtcNow;
-        var timeZone = await db.Organizations.AsNoTracking().Select(x => x.TimeZone).FirstOrDefaultAsync(cancellationToken)
-            ?? "UTC";
+        var organization = await db.Organizations.AsNoTracking()
+            .Select(x => new { x.TimeZone, x.SignageEnabled }).FirstOrDefaultAsync(cancellationToken);
+        var timeZone = organization?.TimeZone ?? "UTC";
         var lessonsQuery = db.Lessons.AsNoTracking().Include(x => x.Class).Include(x => x.Items)
             .ThenInclude(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants).AsSplitQuery().AsQueryable();
         if (screen.SignageOnly)
@@ -22,8 +23,10 @@ public sealed class ManifestService(LessonCueDb db)
 
         var lessons = (await lessonsQuery.Where(x => !x.Archived).OrderBy(x => x.Date).ToListAsync(cancellationToken))
             .Where(x => (x.AvailableFrom is null || x.AvailableFrom <= now) && (x.ExpiresAt is null || x.ExpiresAt >= now)).ToList();
-        var signage = await db.SignagePlaylists.AsNoTracking().Include(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants)
-            .Where(x => x.Enabled).ToListAsync(cancellationToken);
+        var signage = organization?.SignageEnabled == true
+            ? await db.SignagePlaylists.AsNoTracking().Include(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants)
+                .Where(x => x.Enabled).ToListAsync(cancellationToken)
+            : [];
         var signageLayouts = (await db.SignageLayouts.AsNoTracking().Where(x => x.PublishedVersion > 0).ToListAsync(cancellationToken))
             .ToDictionary(x => x.Id);
         var signageContentPlaylists = (await db.SignageContentPlaylists.AsNoTracking().Where(x => x.PublishedVersion > 0)
