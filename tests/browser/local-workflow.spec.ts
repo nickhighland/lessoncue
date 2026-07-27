@@ -767,6 +767,59 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.locator(".toast")).toContainText("Playlist published and screens notified.");
   await expect(page.locator(".studio-resource-card").filter({ hasText: "Browser signage rotation" })).toContainText("published");
 
+  const permanentSign = await page.evaluate(async () => {
+    const jsonHeaders = { "Content-Type": "application/json" };
+    const [screens, layouts, playlists] = await Promise.all([
+      fetch("/api/v1/screens").then(response => response.json()),
+      fetch("/api/v1/signage-studio/layouts").then(response => response.json()),
+      fetch("/api/v1/signage-studio/playlists").then(response => response.json()),
+    ]);
+    const screen = screens.find((item: { name: string }) => item.name === "Browser Test TV");
+    const layout = layouts.find((item: { name: string }) => item.name === "Browser reusable portrait");
+    const playlist = playlists.find((item: { name: string }) => item.name === "Browser signage rotation");
+    const scheduleResponse = await fetch("/api/v1/signage", { method: "POST", headers: jsonHeaders, body: JSON.stringify({
+      name: "Browser permanent sign", mode: "idle", enabled: true, priority: 100,
+      startsAt: null, endsAt: null, message: "", backgroundColor: "#000000", textColor: "#ffffff",
+      mediaAssetId: null, targetTagsCsv: "", recurrence: "once", targetScreenIds: [screen.id],
+      layoutId: layout.id, contentPlaylistId: playlist.id, volumePercent: 100, displayPower: "unchanged",
+    }) });
+    if (!scheduleResponse.ok) throw new Error(`Permanent signage setup failed (${scheduleResponse.status}): ${await scheduleResponse.text()}`);
+    const schedule = await scheduleResponse.json();
+    await fetch(`/api/v1/screens/${screen.id}`, { method: "PATCH", headers: jsonHeaders,
+      body: JSON.stringify({ signageOnly: true, permanentPairing: true }) });
+    const browserLink = await fetch(`/api/v1/screens/${screen.id}/browser-link`,
+      { method: "POST", headers: jsonHeaders, body: "{}" }).then(response => response.json());
+    return { url: browserLink.url as string, screenId: screen.id as string, scheduleId: schedule.id as string };
+  });
+  const permanentContext = await page.context().browser()!.newContext({ viewport: { width: 1280, height: 720 } });
+  const permanentPage = await permanentContext.newPage();
+  await permanentPage.goto(permanentSign.url);
+  await expect(permanentPage.locator('[data-display-mode="permanent-sign"]')).toBeVisible();
+  await expect(permanentPage.getByLabel("Browser reusable portrait signage layout")).toBeVisible();
+  await expect(permanentPage.getByAltText("QR code for WIFI:T:WPA;S:LessonCue Guest;P:welcome123;;")).toBeVisible();
+  const permanentBounds = await permanentPage.evaluate(() => {
+    const sign = document.querySelector<HTMLElement>('[data-display-mode="permanent-sign"]')!.getBoundingClientRect();
+    const layout = document.querySelector<HTMLElement>(".web-player-signage-layout")!.getBoundingClientRect();
+    return {
+      sign: [sign.x, sign.y, sign.width, sign.height],
+      layout: [layout.x, layout.y, layout.width, layout.height],
+      viewport: [innerWidth, innerHeight],
+      hasLibrary: Boolean(document.querySelector(".web-player-library")),
+      hasLessonControls: Boolean(document.querySelector(".web-player-lessons, .web-player-actions")),
+    };
+  });
+  expect(permanentBounds).toEqual({
+    sign: [0, 0, 1280, 720], layout: [0, 0, 1280, 720], viewport: [1280, 720],
+    hasLibrary: false, hasLessonControls: false,
+  });
+  await permanentContext.close();
+  await page.evaluate(async ({ screenId, scheduleId }) => {
+    const headers = { "Content-Type": "application/json" };
+    await fetch(`/api/v1/screens/${screenId}`, { method: "PATCH", headers,
+      body: JSON.stringify({ signageOnly: false, permanentPairing: false }) });
+    await fetch(`/api/v1/signage/${scheduleId}`, { method: "DELETE" });
+  }, permanentSign);
+
   await page.getByRole("button", { name: "Operations", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Screen and content status" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Per-screen format mapping" })).toBeVisible();
