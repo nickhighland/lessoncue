@@ -12,19 +12,6 @@ The order is based on five product priorities:
 
 ## Recommended next priorities
 
-11. [x] **Immediate signage reliability and screen-purpose controls**: Make Publish and Push visibly save, publish, and report progress or errors; add QR placement (center/left/right) with normal horizontal side labels; make typography controls and a rich-text editor available wherever signage text appears; accept approved `.ics` calendar URLs; let an administrator mark a screen as signage-only, open its display directly, and preserve it as a permanent pairing or allow it to be temporary.
-   - [x] Replace the expert-first signage workflow with a volunteer-first three-step creation wizard and a dedicated sign workspace: My signs on the left, live display canvas in the center, focused Content/Style/Schedule controls on the right, and a persistent save/publish bar.
-   - [x] Replace the crowded layout-editor modal with a full-screen, responsive three-pane studio: searchable content choices on the left, a larger live canvas in the center, and focused Properties/Layers tabs on the right.
-   - [x] Keep draft/live version state and Preview, Save draft, and Publish & Push actions visible at the top of the workspace while retaining the permanent browser-display workflow.
-   - [x] Add explicit draft-save and publish/push busy states, success notices, and actionable failure messages across reusable layouts, playlists, schedules, and bulk publishing.
-   - [x] Add center, left, and right QR placement with horizontal companion labels in browser, Android TV, and Apple TV renderers.
-   - [x] Extend sign-element typography and rich-text editing controls to every standard text-bearing element.
-   - [x] Accept approved HTTPS iCalendar (`.ics`) sources, refresh them on the local server, and send only cached event summaries to displays.
-   - [x] Enforce signage-only screens server-side: their lesson manifest is empty and playback commands are rejected; hide them from the controller and expose signage-only/permanent-pairing controls on the Screens page.
-   - [x] Preserve permanent browser pairings past the two-hour temporary-display expiry.
-   - [x] Add an authenticated browser-display link that opens a chosen screen directly, creates its display credential locally, stores it in that browser, and removes the one-time credential from the address bar.
-   - [x] Add a Service Admin-only troubleshooting log with searchable, downloadable local runtime events and durable activity audit history; redact credential-like values before storage and display.
-
 12. [ ] **Media upload and library workflow improvements**: Add resumable uploads, pause and retry, folder drag-and-drop, transfer progress, duplicate and near-duplicate detection, safe reference consolidation, favorites and collections, improved search, and administrator-defined storage and upload limits by server, user, role, class, file size, codec, or daily quota.
 13. [ ] **Operational readiness dashboard and alerts**: Focus reporting on lesson readiness, screen uptime, media cache state, download failures, storage growth, client versions, playback acknowledgements, and pre-class warnings. Exclude behavioral or productivity profiling of individual users.
 14. [ ] **Essential screen management without enterprise fleet management**: Keep screen groups, assignments, tags, saved filters, detailed heartbeat, cache inventory, download retry, remote cache purge, re-download, application restart, diagnostics export, kiosk checks, startup validation, screen-saver suppression, and incompatible-version alerts. Do not expand this into full device-management infrastructure.
@@ -45,6 +32,20 @@ The order is based on five product priorities:
 LessonCue remains centered on preparing media, organizing lessons, confirming readiness, playing reliably across common display hardware, and making live control simple for volunteers. SaaS onboarding, budget-hardware optimization, and signage remain intentional product capabilities within that boundary.
 
 ## Implemented roadmap milestones
+
+- [x] **Signage architecture and visual overhaul (next release)** — replace the previous schedule-centric studio with a streamlined, responsive workspace that closely follows the approved visual mockups.
+   - [x] Organize the workflow into three clear steps: persistent **Layouts**, continuously looping **Playlists**, and **Signs & screens**.
+   - [x] Define a Sign as one reusable Layout plus its playlist assignments and assigned screens; let one Sign drive many screens while enforcing exactly one active Sign per screen.
+   - [x] Rebuild the information-frame layout so its 16:9 presentation area stays fixed while users choose one-to-five evenly distributed bottom boxes and one-to-three sidebar boxes with live alternate-color preview.
+   - [x] Add focused element editing for playlist areas, messages, images and logos, QR/Wi-Fi codes, weather, time/date, calendar feeds, and webpages.
+   - [x] Rebuild signage playlists as an easy visual timeline with duration, order, transition, fade-in, fade-out, volume, mute, and picture-fit controls; the last item always returns to the first.
+   - [x] Make layout, playlist, and Sign saves immediately update assigned displays without exposing draft/publish terminology or a separate publishing workflow.
+   - [x] Remove Calendar scheduling, Operations, and Emergency from the signage experience; Signs are persistent and play continuously.
+   - [x] Replace legacy signage configuration during the one-time database upgrade, as explicitly approved, and seed clean generic starter layouts for schools, churches, and other educational environments.
+   - [x] Update browser playback manifests to resolve each Sign's per-element playlist assignment and honor playlist volume, mute, fade, and fit settings.
+   - [x] Preserve the existing Signage enable/disable setting so unfinished signage can remain completely hidden from users.
+
+- [x] **Immediate signage reliability and screen-purpose controls** — add QR placement, broad typography controls, approved `.ics` feeds, signage-only and permanent browser screens, direct browser-display links, and Service Admin-only troubleshooting logs with credential redaction.
 
 - [x] **Service Admin and App Admin separation (next release)** — rename the legacy Owner tier to Service Admin and Administrator tier to App Admin; give Service Admins unrestricted access; limit App Admin settings to updates, registration mode and codes, approved media folders and tags, screen pairing PIN/mode, universal-controller PIN, recycling, and activity; and enforce email, storage allocation, adaptive playback, network/remote access, privacy/backups, and server-operation boundaries on authenticated server routes as well as in the browser.
 

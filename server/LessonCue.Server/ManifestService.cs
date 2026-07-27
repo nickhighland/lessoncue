@@ -25,7 +25,10 @@ public sealed class ManifestService(LessonCueDb db)
             .Where(x => (x.AvailableFrom is null || x.AvailableFrom <= now) && (x.ExpiresAt is null || x.ExpiresAt >= now)).ToList();
         var signage = organization?.SignageEnabled == true
             ? await db.SignagePlaylists.AsNoTracking().Include(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants)
-                .Where(x => x.Enabled).ToListAsync(cancellationToken)
+                .Where(x => x.Enabled && x.Mode == "sign").ToListAsync(cancellationToken)
+            : [];
+        signage = screen.AssignedSignageId is { } assignedSignageId
+            ? signage.Where(item => item.Id == assignedSignageId).ToList()
             : [];
         var signageLayouts = (await db.SignageLayouts.AsNoTracking().Where(x => x.PublishedVersion > 0).ToListAsync(cancellationToken))
             .ToDictionary(x => x.Id);
@@ -242,6 +245,7 @@ public sealed class ManifestService(LessonCueDb db)
     {
         var signageMedia = MapSignageMedia(item.MediaAsset, $"signage-{item.Id}", item.Name, screen);
         var cache = SignageLayout.ParseCache(item.WidgetCacheJson).ToDictionary(entry => entry.ZoneId, StringComparer.OrdinalIgnoreCase);
+        var playlistAssignments = SignageStudio.ParsePlaylistAssignments(item.ZonePlaylistAssignmentsJson);
         layouts.TryGetValue(item.LayoutId ?? Guid.Empty, out var layout);
         contentPlaylists.TryGetValue(item.ContentPlaylistId ?? Guid.Empty, out var contentPlaylist);
         var effectiveZones = EffectiveZones(item, layouts);
@@ -252,7 +256,9 @@ public sealed class ManifestService(LessonCueDb db)
             var media = zone.MediaAssetId is { } mediaId && zoneMedia.TryGetValue(mediaId, out var found) ? found : null;
             var mappedMedia = MapSignageMedia(media, $"signage-{item.Id}-zone-{zone.Id}", zone.Title ?? item.Name, screen);
             cache.TryGetValue(zone.Id, out var cached);
-            contentPlaylists.TryGetValue(zone.ContentPlaylistId ?? Guid.Empty, out var zonePlaylist);
+            var assignedPlaylistId = playlistAssignments.GetValueOrDefault(zone.Id,
+                zone.ContentPlaylistId ?? Guid.Empty);
+            contentPlaylists.TryGetValue(assignedPlaylistId, out var zonePlaylist);
             var zoneItems = zonePlaylist is null ? [] : ResolveContentItems(zonePlaylist, contentPlaylists,
                 zoneMedia.Values, 0).ToArray();
             if (zonePlaylist?.PlaybackMode == "random")
@@ -274,7 +280,8 @@ public sealed class ManifestService(LessonCueDb db)
                 zone.ClockTimeFontSize, zone.ClockDateFontSize,
                 zone.WeatherProvider, zone.WeatherLocation, zone.WeatherLatitude, zone.WeatherLongitude,
                 zone.WeatherPostalCode, zone.WeatherUnits, zone.WeatherFields,
-                zone.ContentPlaylistId, zone.StreamOverrideWhenLive,
+                contentPlaylistId = assignedPlaylistId == Guid.Empty ? (Guid?)null : assignedPlaylistId,
+                zone.StreamOverrideWhenLive,
                 streamUrl = (zone.Type is "stream" or "presentation") && !string.IsNullOrWhiteSpace(zone.SourceUrl)
                     ? $"/api/v1/signage/{item.Id}/zones/{Uri.EscapeDataString(zone.Id)}/stream/index.m3u8"
                     : null,
@@ -425,7 +432,8 @@ public sealed class ManifestService(LessonCueDb db)
         {
             entry.Id, entry.Kind, entry.Title, entry.LayoutId, entry.MediaAssetId, entry.NestedPlaylistId,
             entry.AppType, entry.SourceUrl, entry.DurationSeconds, entry.Transition, entry.Hidden, entry.Transparent,
-            entry.TagsCsv, media = mappedMedia, layout = mappedLayout
+            entry.TagsCsv, entry.VolumePercent, entry.Muted, entry.FadeInMs, entry.FadeOutMs, entry.Fit,
+            media = mappedMedia, layout = mappedLayout
         };
     }
 

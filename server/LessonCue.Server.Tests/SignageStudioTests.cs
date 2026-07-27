@@ -66,6 +66,16 @@ public sealed class SignageStudioTests
     }
 
     [Fact]
+    public void ReusableLayoutsAllowPlaceholdersUntilAConfiguredSignUsesThem()
+    {
+        Assert.Null(SignageLayout.Validate([
+            new("main", "presentation"),
+            new("logo", "media"),
+            new("conditions", "weather", WeatherProvider: "open-meteo")
+        ], []));
+    }
+
+    [Fact]
     public async Task ManifestUsesPublishedReusableLayoutAndPlaylist()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -74,7 +84,6 @@ public sealed class SignageStudioTests
         await using var db = new LessonCueDb(new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options);
         await db.Database.EnsureCreatedAsync(ct);
         db.Organizations.Add(new Organization { Name = "Test", SignageEnabled = true });
-        var screen = new Screen { Name = "Lobby" };
         var presentationPlaylist = new SignageContentPlaylist
         {
             Name = "Presentation rotation", PublishedVersion = 1, Version = 1,
@@ -104,10 +113,13 @@ public sealed class SignageStudioTests
         };
         var schedule = new SignagePlaylist
         {
-            Name = "Lobby signage", LayoutId = layout.Id, ContentPlaylistId = playlist.Id,
-            PublishState = "changes",
-            StartsAt = DateTimeOffset.UtcNow.AddMinutes(-5), EndsAt = DateTimeOffset.UtcNow.AddMinutes(5)
+            Name = "Lobby signage", Mode = "sign", Enabled = true,
+            LayoutId = layout.Id, ContentPlaylistId = playlist.Id,
+            ZonePlaylistAssignmentsJson = SignageStudio.StorePlaylistAssignments(
+                new Dictionary<string, Guid> { ["presentation"] = presentationPlaylist.Id }),
+            PublishState = "published"
         };
+        var screen = new Screen { Name = "Lobby", AssignedSignageId = schedule.Id, SignageOnly = true };
         db.AddRange(screen, presentationPlaylist, layout, playlist, schedule);
         await db.SaveChangesAsync(ct);
 
@@ -116,7 +128,7 @@ public sealed class SignageStudioTests
         Assert.Contains("layout-entry", json);
         Assert.DoesNotContain("Unpublished content", json);
         Assert.DoesNotContain("draft-entry", json);
-        Assert.Contains("\"PublishState\":\"changes\"", json);
+        Assert.Contains("\"PublishState\":\"published\"", json);
         Assert.Contains("\"RichTextJson\":\"[{\\u0022text\\u0022:\\u0022Published\\u0022", json);
         Assert.Contains("\"FontFamily\":\"Georgia\"", json);
         Assert.Contains("\"LineHeightPercent\":135", json);
@@ -125,6 +137,29 @@ public sealed class SignageStudioTests
         Assert.Contains("\"ContentPlaylistId\":\"" + presentationPlaylist.Id, json);
         Assert.Contains("inner-web-entry", json);
         Assert.Contains("Presentation rotation", json);
+    }
+
+    [Fact]
+    public void SignPlaylistAssignmentsRoundTripAndPlaybackSettingsAreNormalized()
+    {
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var json = SignageStudio.StorePlaylistAssignments(new Dictionary<string, Guid>
+        {
+            [" main "] = first,
+            ["sidebar"] = second
+        });
+
+        var assignments = SignageStudio.ParsePlaylistAssignments(json);
+        Assert.Equal(first, assignments["main"]);
+        Assert.Equal(second, assignments["sidebar"]);
+
+        var item = SignageStudio.NormalizeItem(new SignageContentPlaylistItemInput(
+            "entry", "media", VolumePercent: 180, FadeInMs: -4, FadeOutMs: 90000, Fit: "unexpected"));
+        Assert.Equal(100, item.VolumePercent);
+        Assert.Equal(0, item.FadeInMs);
+        Assert.Equal(30000, item.FadeOutMs);
+        Assert.Equal("contain", item.Fit);
     }
 
     [Fact]
@@ -141,7 +176,8 @@ public sealed class SignageStudioTests
             drop.CommandText = $"DROP TABLE \"{table}\"";
             await drop.ExecuteNonQueryAsync(ct);
         }
-        foreach (var column in new[] { "LayoutId", "ContentPlaylistId", "PublishState", "KioskEnabled" })
+        foreach (var column in new[] { "LayoutId", "ContentPlaylistId", "PublishState", "KioskEnabled",
+                     "ZonePlaylistAssignmentsJson" })
         {
             await using var drop = connection.CreateCommand();
             drop.CommandText = $"ALTER TABLE \"SignagePlaylists\" DROP COLUMN \"{column}\"";
@@ -154,8 +190,8 @@ public sealed class SignageStudioTests
         await using var command = connection.CreateCommand();
         command.CommandText =
             "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('SignageLayouts','SignageContentPlaylists','SignageEmergencyTemplates','SignageProofRecords')) +" +
-            "(SELECT COUNT(*) FROM pragma_table_info('SignagePlaylists') WHERE name IN ('LayoutId','ContentPlaylistId','PublishState','KioskEnabled'))";
-        Assert.Equal(8L, (long)(await command.ExecuteScalarAsync(ct))!);
+            "(SELECT COUNT(*) FROM pragma_table_info('SignagePlaylists') WHERE name IN ('LayoutId','ContentPlaylistId','PublishState','KioskEnabled','ZonePlaylistAssignmentsJson'))";
+        Assert.Equal(9L, (long)(await command.ExecuteScalarAsync(ct))!);
     }
 
     [Fact]

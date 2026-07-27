@@ -112,13 +112,10 @@ public static class SignageLayout
             if (!ZoneTypes.Contains(raw.Type)) return $"Unsupported signage zone type: {raw.Type}.";
             if (raw.X < 0 || raw.Y < 0 || raw.Width < 2 || raw.Height < 2 || raw.X + raw.Width > 100 || raw.Y + raw.Height > 100)
                 return "Every signage zone must remain within the 100 × 100 layout canvas.";
-            if (raw.Type == "media" && raw.MediaAssetId is null) return "Every media zone must select an image or video.";
             if (raw.Type == "stream" && !TryStreamUrl(raw.SourceUrl, out _))
                 return "Live stream zones require an HTTP, HTTPS, RTMP, RTMPS, or RTSP address without embedded credentials.";
             if (raw.Type == "presentation")
             {
-                if (raw.ContentPlaylistId is null && string.IsNullOrWhiteSpace(raw.SourceUrl))
-                    return "Presentation areas must select a signage playlist or configure a live-stream override.";
                 if (!string.IsNullOrWhiteSpace(raw.SourceUrl) && !TryStreamUrl(raw.SourceUrl, out _))
                     return "Presentation live overrides require an HTTP, HTTPS, RTMP, RTMPS, or RTSP address without embedded credentials.";
             }
@@ -130,7 +127,9 @@ public static class SignageLayout
                     raw.WeatherLongitude is >= -180 and <= 180;
                 var postalCodeValid = !string.IsNullOrWhiteSpace(raw.WeatherPostalCode) &&
                     raw.WeatherPostalCode.Trim().Length is >= 3 and <= 20;
-                if (provider is "open-meteo" or "nws" && !coordinatesValid && !postalCodeValid)
+                var locationStarted = raw.WeatherLatitude is not null || raw.WeatherLongitude is not null ||
+                    !string.IsNullOrWhiteSpace(raw.WeatherPostalCode);
+                if (provider is "open-meteo" or "nws" && locationStarted && !coordinatesValid && !postalCodeValid)
                     return "Preset weather elements require either a postal code or valid latitude and longitude.";
                 if (provider == "nws" && coordinatesValid &&
                     (raw.WeatherLatitude is < 18 or > 72 || raw.WeatherLongitude is < -180 or > -60))

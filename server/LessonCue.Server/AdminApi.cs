@@ -2047,6 +2047,7 @@ public static class AdminApi
                 x.VolunteerMode,
                 x.SignageOnly,
                 x.PermanentPairing,
+                x.AssignedSignageId,
                 x.LastSeenAt,
                 online = x.LastSeenAt != null && x.LastSeenAt >= onlineCutoff,
                 x.FreeBytes,
@@ -2545,6 +2546,17 @@ public static class AdminApi
             if (input.SignageEnabled is not null) organization.SignageEnabled = input.SignageEnabled.Value;
             Audit(db, "organization.update", organization.Id, organization.Name); await db.SaveChangesAsync(ct);
             return Results.Ok(organization);
+        });
+
+        settings.MapPut("/organization/signage-availability", async (SignageAvailabilityInput input,
+            LessonCueDb db, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.FirstAsync(ct);
+            organization.SignageEnabled = input.Enabled;
+            Audit(db, "organization.signage-availability", organization.Id,
+                input.Enabled ? "enabled" : "disabled");
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { signageEnabled = organization.SignageEnabled });
         });
 
         settings.MapPost("/hardware-acceleration/check", async (HardwareAccelerationService hardware,

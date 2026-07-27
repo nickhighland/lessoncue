@@ -1,7 +1,7 @@
 import { CSSProperties, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 
-const APP_VERSION = "0.37.6";
+const APP_VERSION = "0.38.0";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -92,7 +92,7 @@ type SignageZone = {
   clockTimeFontSize?: number; clockDateFontSize?: number;
   weatherPostalCode?: string; contentPlaylistId?: string; streamOverrideWhenLive?: boolean; contentPlaylist?: SignageContentPlaylist;
 };
-type SignagePlaylistEntry = { id: string; kind: string; title?: string; durationSeconds: number; transition?: string; hidden?: boolean; transparent?: boolean; sourceUrl?: string; appType?: string; media?: CueItem; layout?: { id: string; name: string; backgroundColor: string; canvasWidth: number; canvasHeight: number; safeAreaPercent: number; zones: SignageZone[]; backgroundAudio?: CueItem } };
+type SignagePlaylistEntry = { id: string; kind: string; title?: string; durationSeconds: number; transition?: string; hidden?: boolean; transparent?: boolean; sourceUrl?: string; appType?: string; volumePercent?: number; muted?: boolean; fadeInMs?: number; fadeOutMs?: number; fit?: "contain" | "cover" | "fill"; media?: CueItem; layout?: { id: string; name: string; backgroundColor: string; canvasWidth: number; canvasHeight: number; safeAreaPercent: number; zones: SignageZone[]; backgroundAudio?: CueItem } };
 type Manifest = {
   manifestVersion: number;
   screen: { id: string; name: string; volunteerMode: boolean; site: string; signageOnly?: boolean; permanentPairing?: boolean };
@@ -719,9 +719,7 @@ function SignageExperience({ signage, children }: { signage: Signage; children: 
   }
   let content = children;
   if (current?.layout) content = <SignageLayout signage={{ ...signage, name: current.layout.name, backgroundColor: current.layout.backgroundColor, zones: current.layout.zones, backgroundAudio: current.layout.backgroundAudio }} />;
-  else if (current?.media?.downloadUrl) content = <section className={`web-player-signage playlist-entry ${current.transition || "cut"}`}>{current.media.type === "video" || current.media.contentType?.startsWith("video/")
-    ? <video src={current.media.downloadUrl} autoPlay muted={false} playsInline preload="auto" />
-    : <img src={current.media.downloadUrl} alt={current.title || ""} />}</section>;
+  else if (current?.media?.downloadUrl) content = <section className={`web-player-signage playlist-entry ${current.transition || "cut"}`}><SignagePlaylistMedia item={current} /></section>;
   else if (current?.sourceUrl) content = <section className="web-player-signage playlist-entry"><iframe src={current.sourceUrl} title={current.title || current.kind} /></section>;
   return <div className="signage-experience" onPointerDown={beginInteraction}>
     {backgroundAudio?.downloadUrl && <SignageAudio source={backgroundAudio.downloadUrl} volume={signage.volumePercent ?? 100} />}
@@ -740,6 +738,41 @@ function SignageAudio({ source, volume }: { source: string; volume: number }) {
   const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => { if (ref.current) ref.current.volume = Math.max(0, Math.min(1, volume / 100)); }, [volume]);
   return <audio ref={ref} src={source} autoPlay loop />;
+}
+
+function SignagePlaylistMedia({ item, zoneFit }: {
+  item: SignagePlaylistEntry;
+  zoneFit?: "contain" | "cover" | "fill";
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [phase, setPhase] = useState<"in" | "show" | "out">("in");
+  const fadeInMs = Math.max(0, item.fadeInMs || 0);
+  const fadeOutMs = Math.max(0, item.fadeOutMs || 0);
+  useEffect(() => {
+    setPhase("in");
+    const reveal = window.requestAnimationFrame(() => setPhase("show"));
+    const outAt = Math.max(fadeInMs, Math.max(1, item.durationSeconds || 10) * 1000 - fadeOutMs);
+    const hide = fadeOutMs > 0 ? window.setTimeout(() => setPhase("out"), outAt) : 0;
+    return () => {
+      window.cancelAnimationFrame(reveal);
+      if (hide) window.clearTimeout(hide);
+    };
+  }, [item.id, item.durationSeconds, fadeInMs, fadeOutMs]);
+  useEffect(() => {
+    if (!videoRef.current) return;
+    videoRef.current.muted = !!item.muted;
+    videoRef.current.volume = Math.max(0, Math.min(1, (item.volumePercent ?? 100) / 100));
+  }, [item.muted, item.volumePercent]);
+  const style = {
+    objectFit: zoneFit || item.fit || "contain",
+    opacity: phase === "show" ? 1 : 0,
+    transitionProperty: "opacity",
+    transitionTimingFunction: "linear",
+    transitionDuration: `${phase === "out" ? fadeOutMs : fadeInMs}ms`
+  } as CSSProperties;
+  return item.media?.type === "video" || item.media?.contentType?.startsWith("video/")
+    ? <video ref={videoRef} src={item.media.downloadUrl} autoPlay muted={!!item.muted} loop playsInline preload="auto" style={style} />
+    : <img src={item.media?.downloadUrl} alt={item.title || ""} style={style} />;
 }
 
 function SignageLayout({ signage }: { signage: Signage }) {
@@ -780,9 +813,7 @@ function SignagePresentation({ zone, signage }: { zone: SignageZone; signage: Si
   const current = items.length ? items[index % items.length] : undefined;
   let content: ReactNode = <div className="signage-presentation-empty">Select a published playlist</div>;
   if (current?.layout) content = <SignageLayout signage={{ ...signage, name: current.layout.name, backgroundColor: current.layout.backgroundColor, zones: current.layout.zones, backgroundAudio: current.layout.backgroundAudio }} />;
-  else if (current?.media?.downloadUrl) content = current.media.type === "video" || current.media.contentType?.startsWith("video/")
-    ? <video src={current.media.downloadUrl} autoPlay muted loop playsInline preload="auto" style={{ objectFit: zone.fit || "contain" }} />
-    : <img src={current.media.downloadUrl} alt={current.title || ""} style={{ objectFit: zone.fit || "contain" }} />;
+  else if (current?.media?.downloadUrl) content = <SignagePlaylistMedia item={current} zoneFit={zone.fit || "contain"} />;
   else if (current?.sourceUrl) content = <iframe src={current.sourceUrl} title={current.title || current.kind} sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts" />;
   return <div className="signage-presentation">
     <div className="signage-presentation-default" aria-hidden={streamLive}>{content}</div>
