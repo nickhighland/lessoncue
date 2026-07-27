@@ -438,7 +438,7 @@ public static class AdminApi
                     TranscodeLeadDays = canManageService ? organization.TranscodeLeadDays : 0,
                     HardwareAccelerationEnabled = canManageService && organization.HardwareAccelerationEnabled,
                     organization.MediaFoldersJson,
-                    organization.MediaTagsJson, organization.SignageSourceAllowlistJson,
+                    organization.MediaTagsJson, organization.SignageSourceAllowlistJson, organization.SignageEnabled,
                     organization.RequireLocalRoomControllers, organization.RegistrationMode,
                     PublicBaseUrl = canManageService ? organization.PublicBaseUrl : "",
                     EmailFromAddress = canManageService ? organization.EmailFromAddress : "",
@@ -1397,9 +1397,12 @@ public static class AdminApi
             var lessonItems = await db.PlaylistItems.AsNoTracking().Where(x => x.MediaAssetId == id)
                 .Select(x => new { x.Id, itemTitle = x.Title, x.LessonId, lessonTitle = x.Lesson!.Title, x.Lesson.Date })
                 .OrderBy(x => x.Date).ToListAsync(ct);
-            var signage = (await db.SignagePlaylists.AsNoTracking().ToListAsync(ct))
-                .Where(x => x.MediaAssetId == id || SignageLayout.ParseZones(x.ZonesJson).Any(zone => zone.MediaAssetId == id))
-                .Select(x => new { x.Id, x.Name, x.Mode, x.Enabled }).OrderBy(x => x.Name).ToList();
+            var signageEnabled = await db.Organizations.AsNoTracking().AnyAsync(value => value.SignageEnabled, ct);
+            var signage = signageEnabled
+                ? (await db.SignagePlaylists.AsNoTracking().ToListAsync(ct))
+                    .Where(x => x.MediaAssetId == id || SignageLayout.ParseZones(x.ZonesJson).Any(zone => zone.MediaAssetId == id))
+                    .Select(x => new { x.Id, x.Name, x.Mode, x.Enabled }).OrderBy(x => x.Name).ToList()
+                : [];
             var templateItems = await db.LessonTemplateItems.AsNoTracking().Where(x => x.MediaAssetId == id)
                 .Select(x => new { x.Id, itemTitle = x.Title, x.TemplateId, templateName = x.Template!.Name })
                 .OrderBy(x => x.templateName).ToListAsync(ct);
@@ -2231,6 +2234,8 @@ public static class AdminApi
             else if (input.AssignedClassId is not null) screen.AssignedClassId = input.AssignedClassId;
             if (input.SignageOnly is bool signageOnly)
             {
+                if (signageOnly && !await db.Organizations.AsNoTracking().AnyAsync(value => value.SignageEnabled, ct))
+                    return Results.BadRequest(new { error = "Enable Signage in Settings before creating a signage-only screen." });
                 screen.SignageOnly = signageOnly;
                 if (signageOnly) screen.AssignedClassId = null;
             }
@@ -2537,6 +2542,7 @@ public static class AdminApi
                 SignageLayout.TryNormalizeAllowlist(input.SignageSourceAllowlist, out var origins, out _);
                 organization.SignageSourceAllowlistJson = JsonSerializer.Serialize(origins);
             }
+            if (input.SignageEnabled is not null) organization.SignageEnabled = input.SignageEnabled.Value;
             Audit(db, "organization.update", organization.Id, organization.Name); await db.SaveChangesAsync(ct);
             return Results.Ok(organization);
         });
@@ -3001,7 +3007,17 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        admin.MapGet("/signage", async (LessonCueDb db, CancellationToken ct) =>
+        var signage = admin.MapGroup("/signage");
+        signage.AddEndpointFilter(async (context, next) =>
+        {
+            var db = context.HttpContext.RequestServices.GetRequiredService<LessonCueDb>();
+            var enabled = await db.Organizations.AsNoTracking().AnyAsync(value => value.SignageEnabled,
+                context.HttpContext.RequestAborted);
+            return enabled ? await next(context) : Results.NotFound();
+        });
+        var planningSignage = signage.MapGroup("").RequireAuthorization(LessonCuePermissions.Planning);
+
+        signage.MapGet("", async (LessonCueDb db, CancellationToken ct) =>
         {
             var now = DateTimeOffset.UtcNow;
             var timeZone = await db.Organizations.AsNoTracking().Select(x => x.TimeZone).FirstOrDefaultAsync(ct) ?? "UTC";
@@ -3075,7 +3091,7 @@ public static class AdminApi
             }).ToArray();
         });
 
-        planning.MapPost("/signage", async (SignageInput input, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        planningSignage.MapPost("", async (SignageInput input, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var validation = await ValidateSignageAsync(input, db, ct);
             if (validation is not null) return Results.BadRequest(new { error = validation });
@@ -3085,7 +3101,7 @@ public static class AdminApi
             await InvalidateAsync(hub, 0, ct); return Results.Created($"/api/v1/signage/{item.Id}", item);
         });
 
-        planning.MapPut("/signage/{id:guid}", async (Guid id, SignageInput input, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        planningSignage.MapPut("/{id:guid}", async (Guid id, SignageInput input, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var item = await db.SignagePlaylists.FindAsync([id], ct); if (item is null) return Results.NotFound();
             var validation = await ValidateSignageAsync(input, db, ct);
@@ -3094,14 +3110,14 @@ public static class AdminApi
             Audit(db, "signage.update", item.Id, item.Name); await db.SaveChangesAsync(ct); await InvalidateAsync(hub, 0, ct); return Results.Ok(item);
         });
 
-        planning.MapDelete("/signage/{id:guid}", async (Guid id, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
+        planningSignage.MapDelete("/{id:guid}", async (Guid id, LessonCueDb db, IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
             var item = await db.SignagePlaylists.FindAsync([id], ct); if (item is null) return Results.NotFound();
             db.SignagePlaylists.Remove(item); Audit(db, "signage.delete", id, item.Name); await db.SaveChangesAsync(ct); await InvalidateAsync(hub, 0, ct);
             return Results.NoContent();
         });
 
-        planning.MapPost("/signage/{id:guid}/widgets/refresh", async (Guid id, LessonCueDb db,
+        planningSignage.MapPost("/{id:guid}/widgets/refresh", async (Guid id, LessonCueDb db,
             SignageWidgetService widgets, CancellationToken ct) =>
         {
             if (!await db.SignagePlaylists.AnyAsync(x => x.Id == id, ct)) return Results.NotFound();

@@ -24,6 +24,9 @@ public sealed class Organization
     [MaxLength(12000)] public string MediaFoldersJson { get; set; } = "[\"General\",\"Lessons\",\"Signage\"]";
     [MaxLength(12000)] public string MediaTagsJson { get; set; } = "[\"Reusable\",\"Intro\",\"Outro\",\"Reference\"]";
     [MaxLength(12000)] public string SignageSourceAllowlistJson { get; set; } = "[]";
+    // Signage is an optional, preview feature. Keep it off until a Service Admin
+    // deliberately makes it available to this organization.
+    public bool SignageEnabled { get; set; }
     [JsonIgnore] public string? ControllerPinHash { get; set; }
     public bool RequireLocalRoomControllers { get; set; }
     [MaxLength(16)] public string RegistrationMode { get; set; } = "closed";
@@ -658,7 +661,7 @@ public sealed record OrganizationInput(string Name, string SiteName, string Time
     string? NavigationTextColor, string? SelectedTabColor, string WelcomeMessage,
     bool? AdaptiveTranscodingEnabled = null, int? TranscodeLeadDays = null,
     bool? RequireLocalRoomControllers = null, bool? HardwareAccelerationEnabled = null,
-    List<string>? SignageSourceAllowlist = null);
+    List<string>? SignageSourceAllowlist = null, bool? SignageEnabled = null);
 public sealed record StorageLimitInput(long LimitBytes);
 public sealed record LocalHostnameInput(string Hostname);
 public sealed record HttpPortInput(int Port);

@@ -58,7 +58,7 @@ public sealed class ManifestTests
             TransitionStyle = "fade-black",
             TransitionDurationMs = 900
         });
-        db.AddRange(lessonClass, screen, lesson, media, new SignagePlaylist
+        db.AddRange(new Organization { Name = "Test", SignageEnabled = true }, lessonClass, screen, lesson, media, new SignagePlaylist
         {
             Name = "Lobby notice", Enabled = true, TargetTagsCsv = "elementary",
             MediaAssetId = media.Id,
