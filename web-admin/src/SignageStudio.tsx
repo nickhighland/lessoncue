@@ -160,6 +160,7 @@ function LayoutsPanel({ media, notify }: Props) {
   const [layouts, setLayouts] = useState<Layout[]>([]);
   const [playlists, setPlaylists] = useState<StudioPlaylist[]>([]);
   const [editing, setEditing] = useState<Layout | "new">();
+  const [creating, setCreating] = useState(false);
   const [credentials, setCredentials] = useState(false);
   const [query, setQuery] = useState("");
   const [folder, setFolder] = useState("");
@@ -184,7 +185,7 @@ function LayoutsPanel({ media, notify }: Props) {
     <div className="studio-toolbar panel"><div><strong>Reusable layouts</strong><small>Build once, then assign the same branded layout to schedules and playlists.</small></div>
       <input type="search" placeholder="Search layouts" value={query} onChange={event => setQuery(event.target.value)} />
       <select value={folder} onChange={event => setFolder(event.target.value)}><option value="">All folders</option>{folders.map(value => <option key={value}>{value}</option>)}</select>
-      <button className="button" onClick={() => setCredentials(true)}>Source credentials</button><button className="button primary" onClick={() => setEditing("new")}>Blank layout</button></div>
+      <button className="button" onClick={() => setCredentials(true)}>Source credentials</button><button className="button primary" onClick={() => setCreating(true)}>Create sign</button></div>
     <div className="studio-card-grid">{shown.map(item => <article className="studio-resource-card" key={item.id}>
       <LayoutThumbnail item={item} />
       <div className="studio-resource-body"><div><span className={`studio-state ${item.publishState}`}>{item.publishState}</span>{item.isStarter && <span className="pill">Starter</span>}{item.isTemplate && !item.isStarter && <span className="pill">Template</span>}</div>
@@ -193,11 +194,27 @@ function LayoutsPanel({ media, notify }: Props) {
         <div className="studio-card-actions"><button onClick={() => item.isStarter ? duplicate(item) : setEditing(item)}>{item.isStarter ? "Use template" : "Edit"}</button><button onClick={() => duplicate(item)}>Duplicate</button><button className="danger" onClick={() => remove(item)}>Delete</button></div>
       </div></article>)}</div>
     {!shown.length && <div className="panel studio-empty"><h3>No matching layouts</h3><p>Create a blank layout or clear the search filters.</p></div>}
-    {editing && <LayoutEditor layout={editing === "new" ? undefined : editing} templates={layouts.filter(item => item.isTemplate)}
-      media={media} playlists={playlists} onClose={() => setEditing(undefined)} notify={notify}
+    {editing && <LayoutEditor layout={editing === "new" ? undefined : editing} templates={layouts.filter(item => item.isTemplate)} layouts={layouts}
+      media={media} playlists={playlists} onClose={() => setEditing(undefined)} onOpenLayout={item => setEditing(item)} onCreate={() => setEditing("new")} notify={notify}
       onSaved={() => { setEditing(undefined); load(); }} />}
     {credentials && <CredentialsDialog notify={notify} onClose={() => setCredentials(false)} />}
+    {creating && <CreateSignDialog templates={layouts.filter(item => item.isTemplate || item.isStarter)} onClose={() => setCreating(false)} onCreate={() => { setCreating(false); setEditing("new"); }} />}
   </section>;
+}
+
+function CreateSignDialog({ templates, onClose, onCreate }: { templates: Layout[]; onClose: () => void; onCreate: () => void }) {
+  const [step, setStep] = useState(1);
+  const [starter, setStarter] = useState("information");
+  const [extras, setExtras] = useState<string[]>(["weather", "calendar"]);
+  const toggle = (value: string) => setExtras(all => all.includes(value) ? all.filter(item => item !== value) : [...all, value]);
+  return <StudioDialog title="Create a sign" wide onClose={onClose}><div className="create-sign-wizard">
+    <header><h1>Create a sign</h1><p>A simple three-step setup. You can refine every detail later.</p></header>
+    <div className="wizard-steps" aria-label="Create sign steps">{([[1,"Choose a starting point"],[2,"Add content"],[3,"Choose displays & schedule"]] as const).map(([number,label]) => <button key={number} className={step === number ? "active" : step > number ? "done" : ""} onClick={() => setStep(number)}><b>{number}</b><span>{label}</span></button>)}</div>
+    {step === 1 && <section className="wizard-card"><h2>Choose a starting point</h2><p>Start with a simple layout designed for announcements and information.</p><div className="wizard-choice-grid">{[["welcome","Welcome screen","A clear welcome message"],["information","Information frame","Presentation with helpful side panels"],["announcement","Full-screen announcement","One important message"]].map(([value,label,detail]) => <button key={value} className={starter === value ? "selected" : ""} onClick={() => setStarter(value)}><i>{value === "announcement" ? "⌁" : value === "information" ? "▦" : "▧"}</i><strong>{label}</strong><small>{detail}</small></button>)}</div></section>}
+    {step === 2 && <section className="wizard-card"><h2>Add content</h2><p>Select the information panels you would like available. You can add or remove panels later.</p><div className="wizard-choice-grid compact">{[["media","Media rotation"],["weather","Weather & time"],["calendar","Calendar"],["qr","QR code"]].map(([value,label]) => <button key={value} className={extras.includes(value) ? "selected" : ""} onClick={() => toggle(value)}><i>{zoneTypeIcon(value)}</i><strong>{label}</strong><small>{extras.includes(value) ? "Included" : "Add panel"}</small></button>)}</div></section>}
+    {step === 3 && <section className="wizard-card"><h2>Choose displays & schedule</h2><p>Save this as a draft first. You will choose exact screens and a schedule when you publish.</p><div className="wizard-confirmation"><span>▭</span><div><strong>{starter === "information" ? "Information frame" : starter === "welcome" ? "Welcome screen" : "Full-screen announcement"}</strong><small>{extras.length ? `${extras.length} optional information panels selected` : "A simple, focused sign"}</small></div></div></section>}
+    <footer><button onClick={onClose}>Cancel</button><span className="toolbar-spacer" />{step > 1 && <button onClick={() => setStep(step - 1)}>Back</button>}{step < 3 ? <button className="button primary" onClick={() => setStep(step + 1)}>Continue</button> : <button className="button primary" onClick={onCreate}>Create draft sign →</button>}</footer>
+  </div></StudioDialog>;
 }
 
 function LayoutThumbnail({ item }: { item: Layout }) {
@@ -232,9 +249,9 @@ function freshZone(type = "text"): Zone {
   return zone;
 }
 
-function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, notify }: {
-  layout?: Layout; templates: Layout[]; media: StudioMedia[]; playlists: StudioPlaylist[];
-  onClose: () => void; onSaved: () => void; notify: (message: string) => void;
+function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, onOpenLayout, onCreate, onSaved, notify }: {
+  layout?: Layout; templates: Layout[]; layouts: Layout[]; media: StudioMedia[]; playlists: StudioPlaylist[];
+  onClose: () => void; onOpenLayout: (layout: Layout) => void; onCreate: () => void; onSaved: () => void; notify: (message: string) => void;
 }) {
   const [name, setName] = useState(layout?.name || "Untitled layout");
   const [folder, setFolder] = useState(layout?.folder || "");
@@ -264,7 +281,7 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
   const [showBrowserPreview, setShowBrowserPreview] = useState(false);
   const [guides, setGuides] = useState<{ vertical?: number; horizontal?: number }>({});
   const [elementType, setElementType] = useState("text");
-  const [inspectorTab, setInspectorTab] = useState<"properties" | "layers">("properties");
+  const [inspectorTab, setInspectorTab] = useState<"content" | "style" | "layers" | "schedule">("content");
   const [saving, setSaving] = useState<"draft" | "publish" | undefined>();
   const canvas = useRef<HTMLDivElement>(null);
   const current = zones.find(zone => zone.id === selected[0]);
@@ -285,7 +302,7 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
     const zone = { ...freshZone(type), x: Math.min(60, 6 + zones.length * 2), y: Math.min(60, 6 + zones.length * 2), zIndex: zones.length + 1 };
     commit([...zones, zone]); setSelected([zone.id]);
     setElementType(type);
-    setInspectorTab("properties");
+    setInspectorTab("content");
   }
   function buildInformationFrame(persist: boolean) {
     const mainPercent = 100 - framePercent;
@@ -470,15 +487,16 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
   const aspect = `${width} / ${height}`;
   const displayZones = showFrameBuilder ? buildInformationFrame(false) : zones;
   return <StudioDialog title={layout ? `Layout · ${layout.name}` : "New reusable layout"} wide workspace onClose={onClose}>
+    <nav className="signage-workflow" aria-label="Sign creation progress"><span className="active"><b>1</b> Content</span><i/><span><b>2</b> Design</span><i/><span><b>3</b> Publish</span></nav>
     <div className="layout-editor-statusbar">
       <div><span className={`studio-state ${layout?.publishState || "draft"}`}>{layout?.publishState || "New draft"}</span>
-        <small>{layout ? `Draft v${layout.version}${layout.publishedVersion ? ` · live v${layout.publishedVersion}` : " · not published"}` : "Not saved yet"}</small></div>
+        <small>{layout ? `Saved ${layout.updatedAt ? timeAgo(layout.updatedAt) : "just now"}${layout.publishedVersion ? ` · live v${layout.publishedVersion}` : " · not published"}` : "Not saved yet"}</small></div>
       <span className="toolbar-spacer" />
-      <button className="button" onClick={() => setShowBrowserPreview(true)}>Preview</button>
-      <button className="button" disabled={!!saving} onClick={() => void save(false)}>{saving === "draft" ? "Saving…" : "Save draft"}</button>
-      <button className="button primary" disabled={!!saving} onClick={() => void save(true)}>{saving === "publish" ? "Publishing & pushing…" : "Publish & push"}</button>
+      <button className="button" onClick={() => setShowBrowserPreview(true)}>Preview on screen</button>
     </div>
-    <div className="layout-editor-meta">
+    <details className="layout-advanced-controls">
+      <summary>Advanced layout controls</summary>
+      <div className="layout-editor-meta">
       <input aria-label="Layout name" value={name} onChange={event => setName(event.target.value)} placeholder="Layout name" />
       <input aria-label="Folder" value={folder} onChange={event => setFolder(event.target.value)} placeholder="Folder" />
       <select aria-label="Resolution" value={`${width}x${height}`} onChange={event => {
@@ -488,8 +506,8 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
       <label>H <input type="number" min="240" max="7680" value={height} onChange={event => setHeight(Number(event.target.value))} /></label>
       <label>Safe <input type="number" min="0" max="20" value={safeArea} onChange={event => setSafeArea(Number(event.target.value))} />%</label>
       <label>Canvas <input aria-label="Canvas background" type="color" value={background} onChange={event => setBackground(event.target.value)} /></label>
-    </div>
-    <div className="layout-editor-toolbar">
+      </div>
+      <div className="layout-editor-toolbar">
       <button onClick={undo} disabled={!history.length}>↶ Undo</button><button onClick={redo} disabled={!future.length}>↷ Redo</button>
       <button className={hand ? "active" : ""} onClick={() => setHand(value => !value)}>✋ Hand</button>
       <button onClick={() => setZoom(value => Math.max(25, value - 10))}>−</button><span>{zoom}%</span><button onClick={() => setZoom(value => Math.min(200, value + 10))}>+</button>
@@ -503,7 +521,8 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
       <button onClick={() => align("top")} disabled={selected.length < 2}>Top</button><button onClick={() => align("middle")} disabled={selected.length < 2}>Middle</button><button onClick={() => align("bottom")} disabled={selected.length < 2}>Bottom</button>
       <button onClick={() => align("distribute-h")} disabled={selected.length < 3}>Distribute ↔</button><button onClick={() => align("distribute-v")} disabled={selected.length < 3}>Distribute ↕</button>
       <button onClick={group} disabled={selected.length < 2}>Group</button><button onClick={ungroup} disabled={!selected.some(zoneId => zones.find(zone => zone.id === zoneId)?.groupId)}>Ungroup</button>
-    </div>
+      </div>
+    </details>
     {showFrameBuilder && <section className="information-frame-builder" aria-label="Information frame builder">
       <div><strong>Information frame</strong><small>Build a 16:9 presentation area with evenly divided information slots along the bottom and right side.</small></div>
       <label>Bottom boxes <select value={bottomSlots} onChange={event => setBottomSlots(Number(event.target.value))}>{[1,2,3,4,5].map(value => <option key={value}>{value}</option>)}</select></label>
@@ -515,16 +534,14 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
       <button className="button primary" onClick={applyInformationFrame}>Apply frame</button>
     </section>}
     <div className="layout-editor-workspace">
-      <aside className="layout-element-library" aria-label="Add signage content">
-        <header><span>ADD CONTENT</span><strong>Elements</strong><small>Choose an element, then position it on the canvas.</small></header>
-        <div className="layout-element-list">{ZONE_TYPES.map(([value, label]) => <button key={value}
-          className={elementType === value ? "active" : ""} onClick={() => addElement(value)}>
-          <i aria-hidden="true">{zoneTypeIcon(value)}</i><span>{label}<small>{zoneTypeDescription(value)}</small></span><b>+</b>
+      <aside className="layout-sign-list" aria-label="My signs">
+        <header><strong>My signs</strong><small>Choose a sign to edit.</small></header>
+        <button className="create-sign-button" onClick={onCreate}>＋ Create sign</button>
+        <div className="sign-list-items">{layouts.filter(item => !item.isStarter).map(item => <button key={item.id}
+          className={item.id === layout?.id ? "active" : ""} onClick={() => onOpenLayout(item)}>
+          <i aria-hidden="true">▭</i><span><strong>{item.name}</strong><small>{item.folder || "All displays"}</small></span><b className={item.publishState}>{item.publishedVersion ? "Active" : "Draft"}</b>
         </button>)}</div>
-        <button className={`information-frame-card ${showFrameBuilder ? "active" : ""}`}
-          onClick={() => setShowFrameBuilder(value => !value)}>
-          <i aria-hidden="true">▦</i><span><strong>Information frame</strong><small>Build a presentation area with coordinated side and bottom information slots.</small></span>
-        </button>
+        <button className="manage-signs-button" onClick={onClose}>‹ Back to layouts</button>
       </aside>
       <div className="layout-canvas-scroll">
         <div className="layout-canvas-heading"><div><strong>Live canvas</strong><small>{width} × {height} · {zones.length} element{zones.length === 1 ? "" : "s"}</small></div>
@@ -554,8 +571,12 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
       </div>
       <aside className="layout-inspector">
         <div className="layout-inspector-tabs" role="tablist">
-          <button role="tab" aria-selected={inspectorTab === "properties"} className={inspectorTab === "properties" ? "active" : ""}
-            onClick={() => setInspectorTab("properties")}>Properties</button>
+          <button role="tab" aria-selected={inspectorTab === "content"} className={inspectorTab === "content" ? "active" : ""}
+            onClick={() => setInspectorTab("content")}>Content</button>
+          <button role="tab" aria-selected={inspectorTab === "style"} className={inspectorTab === "style" ? "active" : ""}
+            onClick={() => setInspectorTab("style")}>Style</button>
+          <button role="tab" aria-selected={inspectorTab === "schedule"} className={inspectorTab === "schedule" ? "active" : ""}
+            onClick={() => setInspectorTab("schedule")}>Schedule</button>
           <button role="tab" aria-selected={inspectorTab === "layers"} className={inspectorTab === "layers" ? "active" : ""}
             onClick={() => setInspectorTab("layers")}>Layers <span>{zones.length}</span></button>
         </div>
@@ -563,23 +584,26 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
           <div className="layout-layers">{[...zones].sort((a,b) => b.zIndex-a.zIndex).map(zone => <div className={selected.includes(zone.id) ? "selected" : ""} key={zone.id}>
             <button aria-label={`Select ${zone.title || zone.type} layer`} onClick={event => {
               setSelected(event.metaKey || event.ctrlKey ? [...new Set([...selected, zone.id])] : [zone.id]);
-              setInspectorTab("properties");
+              setInspectorTab("content");
             }}><i>{zone.hidden ? "○" : "●"}</i><span>{zone.title || zone.type}<small>{zone.type} · layer {zone.zIndex}{zone.groupId ? " · grouped" : ""}</small></span></button>
             <button title="Move layer up" onClick={() => reorder(zone.id, 1)}>↑</button><button title="Move layer down" onClick={() => reorder(zone.id, -1)}>↓</button>
           </div>)}</div></>}
-        {inspectorTab === "properties" && (current ? <ZoneInspector zone={current} media={media} playlists={playlists} onPatch={values => patch(current.id, values)}
+        {inspectorTab === "content" && (current ? <ZoneInspector zone={current} media={media} playlists={playlists} onPatch={values => patch(current.id, values)}
           onDelete={() => { commit(zones.filter(zone => !selected.includes(zone.id))); setSelected([]); }}
           onDuplicate={() => { const copy = { ...current, id: id(), title: `${current.title || current.type} copy`, x: Math.min(95, current.x + 2), y: Math.min(95, current.y + 2), zIndex: zones.length + 1 }; commit([...zones, copy]); setSelected([copy.id]); }} /> :
-          <div className="studio-help inspector-empty"><i>✦</i><strong>Nothing selected</strong><p>Select an element on the canvas, or add one from the content panel.</p></div>)}
+          <div className="layout-element-list inspector-content-list">{ZONE_TYPES.map(([value, label]) => <button key={value} onClick={() => addElement(value)}><i aria-hidden="true">{zoneTypeIcon(value)}</i><span>{label}<small>{zoneTypeDescription(value)}</small></span><b>+</b></button>)}</div>)}
+        {inspectorTab === "style" && <div className="studio-help inspector-empty"><i>✦</i><strong>{current ? "Style controls" : "Select an element"}</strong><p>{current ? "Use Content to edit its text and source, or Advanced layout controls for exact geometry, fonts, and colors." : "Select a panel on the sign to change its appearance."}</p></div>}
+        {inspectorTab === "schedule" && <div className="studio-help inspector-empty"><i>◷</i><strong>Ready to schedule</strong><p>Save this sign, then use the Signage calendar to choose its displays, dates, and recurring schedule.</p></div>}
       </aside>
     </div>
-    <div className="layout-editor-footer">
+    <div className="layout-editor-footer signage-publish-bar">
       <textarea value={description} onChange={event => setDescription(event.target.value)} placeholder="Layout description" />
       <label><input type="checkbox" checked={isTemplate} onChange={event => setIsTemplate(event.target.checked)} /> Save as reusable template</label>
       <label>Background audio <select value={audioId} onChange={event => setAudioId(event.target.value)}><option value="">None</option>{media.filter(item => item.contentType.startsWith("audio/")).map(item => <option value={item.id} key={item.id}>{item.fileName}</option>)}</select></label>
       {layout && <label>Safely replace draft <select defaultValue="" onChange={event => void replaceFrom(event.target.value)}><option value="">Choose template…</option>{templates.filter(item => item.id !== layout.id).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>}
       <span className="toolbar-spacer" /><button className="button" onClick={() => setShowBrowserPreview(true)}>Browser preview</button>
       <a className="button" href="/display" target="_blank" rel="noreferrer">Open permanent browser display</a>
+      <button className="button" disabled={!!saving} onClick={() => void save(false)}>{saving === "draft" ? "Saving…" : "Save draft"}</button><button className="button primary" disabled={!!saving} onClick={() => void save(true)}>{saving === "publish" ? "Publishing…" : "Publish changes"}</button>
     </div>
     {showBrowserPreview && <StudioDialog title={`Browser preview · ${name}`} wide onClose={() => setShowBrowserPreview(false)}>
       <div className="browser-signage-preview" style={{ aspectRatio: aspect, background }}>
