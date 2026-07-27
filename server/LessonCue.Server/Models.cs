@@ -695,6 +695,8 @@ public sealed record SignageZoneInput(string Id, string Type, string? Title = nu
 public sealed record SignageLayoutResourceInput(string Name, string? Folder, string? Description,
     bool IsTemplate, string? BackgroundColor, int CanvasWidth, int CanvasHeight, int SafeAreaPercent,
     List<SignageZoneInput>? Zones, Guid? BackgroundAudioAssetId = null, string? ThumbnailDataUrl = null);
+public sealed record SignageLayoutSavePublishInput(Guid? Id, SignageLayoutResourceInput Layout,
+    bool PushToScreens = true);
 public sealed record SignageContentPlaylistItemInput(string Id, string Kind, string? Title = null,
     Guid? LayoutId = null, Guid? MediaAssetId = null, Guid? NestedPlaylistId = null,
     string? AppType = null, string? SourceUrl = null, int DurationSeconds = 10,

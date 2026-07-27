@@ -756,6 +756,32 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const reusableLayoutCard = page.locator(".studio-resource-card").filter({ hasText: "Browser reusable portrait" });
   await expect(reusableLayoutCard).toContainText("published");
   await expect(reusableLayoutCard).toContainText("1080×1920");
+  await reusableLayoutCard.getByRole("button", { name: "Edit" }).click();
+  const existingLayoutDialog = page.getByRole("dialog", { name: "Layout · Browser reusable portrait" });
+  await existingLayoutDialog.locator(".layout-layers").getByRole("button").first().click();
+  await existingLayoutDialog.getByLabel("Network name (SSID)").fill("LessonCue Guest Updated");
+  await existingLayoutDialog.getByRole("textbox", { name: "Right", exact: true }).fill("Updated scan instructions");
+  await existingLayoutDialog.getByRole("button", { name: "Publish & push" }).click();
+  await expect(page.locator(".toast")).toContainText("Layout published and screens notified.");
+  await expect.poll(() => page.evaluate(async () => {
+    const layouts = await fetch("/api/v1/signage-studio/layouts").then(response => response.json());
+    const layout = layouts.find((item: { name: string }) => item.name === "Browser reusable portrait");
+    const draft = layout?.zones?.find((zone: { type: string }) => zone.type === "wifi");
+    const published = layout?.publishedZones?.find((zone: { type: string }) => zone.type === "wifi");
+    return {
+      versionsMatch: layout?.version === layout?.publishedVersion,
+      draftQr: draft?.qrValue,
+      draftLabel: draft?.qrLabelRight,
+      publishedQr: published?.qrValue,
+      publishedLabel: published?.qrLabelRight,
+    };
+  })).toEqual({
+    versionsMatch: true,
+    draftQr: "WIFI:T:WPA;S:LessonCue Guest Updated;P:welcome123;;",
+    draftLabel: "Updated scan instructions",
+    publishedQr: "WIFI:T:WPA;S:LessonCue Guest Updated;P:welcome123;;",
+    publishedLabel: "Updated scan instructions",
+  });
 
   await page.getByRole("button", { name: "Playlists", exact: true }).click();
   await page.getByRole("button", { name: "New playlist" }).click();
@@ -796,7 +822,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await permanentPage.goto(permanentSign.url);
   await expect(permanentPage.locator('[data-display-mode="permanent-sign"]')).toBeVisible();
   await expect(permanentPage.getByLabel("Browser reusable portrait signage layout")).toBeVisible();
-  await expect(permanentPage.getByAltText("QR code for WIFI:T:WPA;S:LessonCue Guest;P:welcome123;;")).toBeVisible();
+  await expect(permanentPage.getByAltText("QR code for WIFI:T:WPA;S:LessonCue Guest Updated;P:welcome123;;")).toBeVisible();
   const permanentBounds = await permanentPage.evaluate(() => {
     const sign = document.querySelector<HTMLElement>('[data-display-mode="permanent-sign"]')!.getBoundingClientRect();
     const layout = document.querySelector<HTMLElement>(".web-player-signage-layout")!.getBoundingClientRect();

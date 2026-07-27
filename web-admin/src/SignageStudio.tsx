@@ -446,10 +446,15 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
     try {
       const payload = { name, folder, description, isTemplate, backgroundColor: background, canvasWidth: width,
         canvasHeight: height, safeAreaPercent: safeArea, zones, backgroundAudioAssetId: audioId || null, thumbnailDataUrl: null };
-      const saved = await studioApi<Layout>(layout ? `/layouts/${layout.id}` : "/layouts", {
-        method: layout ? "PUT" : "POST", body: JSON.stringify(payload)
-      });
-      if (publish) await studioApi(`/layouts/${saved.id}/publish`, { method: "POST", body: JSON.stringify({ pushToScreens: true }) });
+      const saved = publish
+        ? await studioApi<Layout>("/layouts/save-publish", {
+          method: "POST", body: JSON.stringify({ id: layout?.id || null, layout: payload, pushToScreens: true })
+        })
+        : await studioApi<Layout>(layout ? `/layouts/${layout.id}` : "/layouts", {
+          method: layout ? "PUT" : "POST", body: JSON.stringify(payload)
+        });
+      if (publish && (saved.version !== saved.publishedVersion || saved.publishedZones.length !== saved.zones.length))
+        throw new Error("The server did not confirm the complete draft as published.");
       notify(publish ? "Layout published and screens notified." : "Layout draft saved."); onSaved();
     } catch (error) { notify(`Could not ${publish ? "publish" : "save"} layout: ${errorText(error)}`); }
     finally { setSaving(undefined); }
