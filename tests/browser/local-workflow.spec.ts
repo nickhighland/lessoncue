@@ -54,7 +54,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const scheduleDate = dateDaysFromNow(14);
   const scheduleEnd = dateDaysFromNow(21);
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Create your local administrator" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Create your Service Admin" })).toBeVisible();
   await page.getByLabel("Organization name").fill("LessonCue Browser Test");
   await page.getByLabel("Your name").fill("Test Administrator");
   await page.getByLabel("Username").fill("browser-admin");
@@ -432,6 +432,10 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   expect(controllerSecurity).toMatchObject({ denied: 403, accepted: 200, updated: 200, created: 201, resolved: 200,
     path: expect.stringMatching(/^\/session\/[0-9a-f]{48}$/), scope: { lessonId: expect.any(String) } });
   await page.getByRole("button", { name: /Data & recovery/ }).click();
+  const troubleshootingPanel = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: "Troubleshooting log" }) });
+  await troubleshootingPanel.getByRole("button", { name: "Load log" }).click();
+  await expect(troubleshootingPanel.getByRole("button", { name: "Download JSON" })).toBeVisible();
+  await expect(troubleshootingPanel.getByRole("heading", { name: /Activity audit/ })).toBeVisible();
   await page.getByRole("button", { name: "Full backup" }).click();
   await expect(page.getByText("Full backup created.", { exact: false })).toBeVisible();
   const fullBackupLink = page.locator("a.backup-row").filter({ hasText: "full" });
@@ -531,13 +535,29 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const manifest = await fetch(`/api/v1/screens/${identity.screenId}/manifest`, { headers: { Authorization: `Bearer ${identity.deviceToken}` } }).then(response => response.json());
     const adaptiveItem = manifest.playlists.flatMap((playlist: { items: unknown[] }) => playlist.items)
       .find((item: { title: string }) => item.title === "Browser Compatibility Video");
+    await fetch(`/api/v1/screens/${identity.screenId}`, { method: "PATCH", headers: jsonHeaders,
+      body: JSON.stringify({ signageOnly: true, permanentPairing: true }) });
+    const signageOnlyManifest = await fetch(`/api/v1/screens/${identity.screenId}/manifest`,
+      { headers: { Authorization: `Bearer ${identity.deviceToken}` } }).then(response => response.json());
+    const blockedControl = await fetch(`/api/v1/screens/${identity.screenId}/control`, { method: "POST", headers: jsonHeaders,
+      body: JSON.stringify({ action: "play", lessonId: adaptiveLesson.id }) });
+    const browserLink = await fetch(`/api/v1/screens/${identity.screenId}/browser-link`,
+      { method: "POST", headers: jsonHeaders, body: "{}" }).then(response => response.json());
+    const browserUrl = new URL(browserLink.url);
+    const directManifest = await fetch(`/api/v1/screens/${identity.screenId}/manifest`,
+      { headers: { Authorization: `Bearer ${browserUrl.searchParams.get("token")}` } });
+    await fetch(`/api/v1/screens/${identity.screenId}`, { method: "PATCH", headers: jsonHeaders,
+      body: JSON.stringify({ signageOnly: false, permanentPairing: false }) });
     const screenshot = await fetch(`/api/v1/screens/${identity.screenId}/diagnostics/screenshot`);
     return { upload: upload.status, screenshot: screenshot.status, requestMatches: control.screenshotRequestId === screenshotRequest.requestId,
       cache: JSON.parse(screen.cacheInventoryJson)[0]?.title, quality: screen.networkQuality, screenshotAvailable: screen.screenshotAvailable,
-      requestedProfile: adaptiveItem?.requestedProfile, selectedProfile: adaptiveItem?.selectedProfile };
+      requestedProfile: adaptiveItem?.requestedProfile, selectedProfile: adaptiveItem?.selectedProfile,
+      signageOnlyPlaylists: signageOnlyManifest.playlists.length, blockedControl: blockedControl.status,
+      browserLinkPath: browserUrl.pathname, directManifest: directManifest.status };
   });
   expect(diagnostics).toEqual({ upload: 202, screenshot: 200, requestMatches: true, cache: "Cached welcome", quality: "poor", screenshotAvailable: true,
-    requestedProfile: "h264-480", selectedProfile: "h264-480" });
+    requestedProfile: "h264-480", selectedProfile: "h264-480", signageOnlyPlaylists: 0, blockedControl: 409,
+    browserLinkPath: "/display", directManifest: 200 });
 
   await page.getByRole("button", { name: /Screens$/ }).click();
   await expect(page.getByRole("link", { name: "Open browser player ↗" })).toHaveAttribute("href", "/player");
@@ -725,8 +745,12 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await layoutDialog.getByRole("button", { name: "+ Element" }).click();
   await layoutDialog.locator(".layout-editor-toolbar select").selectOption("wifi");
   await layoutDialog.getByRole("button", { name: "+ Element" }).click();
-  await layoutDialog.getByLabel("Wi-Fi setup value").fill("WIFI:T:WPA;S:LessonCue Guest;P:welcome123;;");
+  await layoutDialog.getByLabel("Network name (SSID)").fill("LessonCue Guest");
+  await layoutDialog.getByRole("textbox", { name: "Password", exact: true }).fill("welcome123");
+  await layoutDialog.getByLabel("QR placement").selectOption("left");
+  await layoutDialog.getByRole("textbox", { name: "Right", exact: true }).fill("Scan to connect");
   await expect(layoutDialog.locator(".zone-qr img")).toBeVisible();
+  await expect(layoutDialog.locator(".zone-qr-layout.placement-left")).toContainText("Scan to connect");
   await layoutDialog.getByRole("button", { name: "Publish & push" }).click();
   await expect(page.locator(".toast")).toContainText("Layout published and screens notified.");
   const reusableLayoutCard = page.locator(".studio-resource-card").filter({ hasText: "Browser reusable portrait" });
@@ -815,7 +839,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await userDialog.getByRole("button", { name: "Create user" }).click();
   await expect(page.getByText("Local user created with a temporary password.", { exact: false })).toBeVisible();
   const volunteerRow = page.locator(".user-row").filter({ hasText: "Playback Volunteer" });
-  await expect(volunteerRow).toContainText("1 of 8 permissions · custom");
+  await expect(volunteerRow).toContainText("1 of 9 permissions · custom");
   await volunteerRow.getByRole("button", { name: "Reset password" }).click();
   await expect(page.getByRole("dialog", { name: "Temporary password for Playback Volunteer" })).toBeVisible();
   await page.getByRole("dialog", { name: "Temporary password for Playback Volunteer" }).getByRole("button", { name: "Close dialog" }).click();

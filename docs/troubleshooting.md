@@ -1,5 +1,11 @@
 # Troubleshooting
 
+## Browser troubleshooting log
+
+A **Service Admin** can open **Settings → Data & recovery → Troubleshooting log** to load a searchable view of recent runtime events and the server's durable activity audit. Use **Download JSON** when sharing diagnostics with support. Credential-like values are redacted before runtime entries are saved or displayed. App Admins and other roles cannot open this log.
+
+The browser log supplements—rather than replaces—the operating-system journal. For startup failures or problems before sign-in, use `sudo journalctl -u lessoncue -n 200 --no-pager` over SSH.
+
 ## TV cannot find the server
 
 Open `http://SERVER-IP/.well-known/lessoncue` from a phone on the same Wi-Fi. If it fails, check the server service, firewall, VLAN, and client isolation. Android TV version 0.30.1 and newer automatically browses `_lessoncue._tcp` and saves the resolved numeric address when ordinary `lessoncue.local` lookup fails. If both automatic discovery and `.local` fail while the numeric address works, enter the numeric address and reserve it in DHCP; multicast DNS is blocked between the TV and server. If an administrator selected a non-default port, add `:PORT` after the hostname or IP address.

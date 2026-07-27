@@ -2306,6 +2306,20 @@ public static class AdminApi
         settings.MapGet("/organization", async (LessonCueDb db, CancellationToken ct) =>
             await db.Organizations.AsNoTracking().FirstAsync(ct));
 
+        settings.MapGet("/troubleshooting-log", async (int? limit, LessonCueDb db, TroubleshootingLog log,
+            CancellationToken ct) =>
+        {
+            var safeLimit = Math.Clamp(limit ?? 500, 1, 2_000);
+            var audit = await db.AuditEvents.AsNoTracking().OrderByDescending(x => x.Id).Take(safeLimit).ToListAsync(ct);
+            return Results.Ok(new
+            {
+                generatedAt = DateTimeOffset.UtcNow,
+                runtime = log.GetRecent(safeLimit),
+                audit = audit.OrderByDescending(x => x.Timestamp),
+                retention = new { runtimeEntries = 2_000, file = "last 4 MB plus the prior rotated file" }
+            });
+        });
+
         settings.MapGet("/registration/settings", async (LessonCueDb db, AccountEmailService email,
             CancellationToken ct) =>
         {

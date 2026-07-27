@@ -29,6 +29,9 @@ var keyPath = Path.Combine(configPath, "keys");
 Directory.CreateDirectory(keyPath);
 builder.Configuration.AddJsonFile(Path.Combine(configPath, "appsettings.json"), optional: true, reloadOnChange: true);
 
+var troubleshootingLog = new TroubleshootingLog(dataPath);
+builder.Logging.AddProvider(troubleshootingLog);
+
 var port = HttpPortConfiguration.Resolve(dataPath);
 if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
     builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
@@ -41,6 +44,7 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(keyPath))
     .SetApplicationName("LessonCue");
 builder.Services.AddScoped<ManifestService>();
+builder.Services.AddSingleton(troubleshootingLog);
 builder.Services.AddSingleton(new PairingCodeService(dataPath, builder.Configuration["LessonCue:PairingPin"]));
 builder.Services.AddSingleton(new BackupService(dataPath));
 builder.Services.AddSingleton(new MediaStoragePaths(dataPath));

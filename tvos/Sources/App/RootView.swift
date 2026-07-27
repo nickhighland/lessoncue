@@ -212,7 +212,7 @@ private struct SignageZoneLayout: View {
                             let displayText = (zone.cached?.text.isEmpty == false ? zone.cached?.text : nil) ?? zone.content
                             if let text = displayText {
                                 Group {
-                                    if zone.type == "text", let runs = zone.richTextJson {
+                                    if let runs = zone.richTextJson {
                                         SignageRichText(value: runs, fallback: text)
                                     } else if zone.type == "ticker" {
                                         SignageTickerView(text: text, speed: zone.tickerSpeed ?? 60)

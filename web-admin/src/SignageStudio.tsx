@@ -831,16 +831,20 @@ function PlaylistEditor({ playlist, playlists, layouts, media, notify, onClose, 
   const [items, setItems] = useState<PlaylistEntry[]>(playlist?.items || []);
   const [preview, setPreview] = useState(0);
   const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [saving, setSaving] = useState<"draft" | "publish" | undefined>();
   const add = (kind: PlaylistEntry["kind"]) => setItems(all => [...all, { id: id(), kind, title: `New ${kind}`, durationSeconds: 10, transition: "cut", hidden: false, transparent: false }]);
   const patch = (entryId:string, values:Partial<PlaylistEntry>) => setItems(all => all.map(item => item.id === entryId ? { ...item, ...values } : item));
   const move = (index:number, delta:number) => setItems(all => { const next=[...all]; const target=index+delta; if(target<0||target>=next.length)return all; [next[index],next[target]]=[next[target],next[index]]; return next; });
   async function save(publish=false) {
+    if (!name.trim()) return notify("Enter a playlist name.");
+    setSaving(publish ? "publish" : "draft");
     try {
       const payload={name,folder,playbackMode:mode,synchronization:sync,items};
       const saved=await studioApi<StudioPlaylist>(playlist?`/playlists/${playlist.id}`:"/playlists",{method:playlist?"PUT":"POST",body:JSON.stringify(payload)});
       if(publish) await studioApi(`/playlists/${saved.id}/publish`,{method:"POST",body:JSON.stringify({pushToScreens:true})});
       notify(publish?"Playlist published and screens notified.":"Playlist draft saved."); onSaved();
-    } catch(error){notify(errorText(error));}
+    } catch(error){notify(`Could not ${publish ? "publish" : "save"} playlist: ${errorText(error)}`);}
+    finally { setSaving(undefined); }
   }
   function importCsv(file?:File) {
     if(!file)return; file.text().then(text => {
@@ -869,7 +873,7 @@ function PlaylistEditor({ playlist, playlists, layouts, media, notify, onClose, 
       <label><input type="checkbox" checked={entry.transparent} onChange={event=>patch(entry.id,{transparent:event.target.checked})}/> Transparent</label><label><input type="checkbox" checked={entry.hidden} onChange={event=>patch(entry.id,{hidden:event.target.checked})}/> Hidden</label>
       <button onClick={()=>move(index,-1)}>↑</button><button onClick={()=>move(index,1)}>↓</button><button className="danger" onClick={()=>setItems(all=>all.filter(item=>item.id!==entry.id))}>×</button>
     </article>)}</div><aside className="playlist-sequence-preview"><strong>Playback preview</strong>{active?<><PlaylistEntryPreview entry={active} layouts={layouts} media={media}/><div><span>{active.kind}</span><h3>{active.title}</h3><p>{active.durationSeconds}s · {active.transition}</p></div><div className="preview-controls"><button onClick={()=>setPreview(value=>Math.max(0,value-1))}>Previous</button><button className={previewPlaying?"active":""} onClick={()=>setPreviewPlaying(value=>!value)}>{previewPlaying?"Pause":"Play sequence"}</button><button onClick={()=>setPreview(value=>value+1)}>Next</button></div><small>{preview+1} of {activeItems.length} active entries · hidden intervals are skipped</small></>:<p>Add entries to preview playback.</p>}</aside></div>
-    <div className="layout-editor-footer"><span>{items.filter(item=>!item.hidden).length} active · {items.reduce((total,item)=>total+(item.hidden?0:item.durationSeconds),0)} seconds per cycle</span><span className="toolbar-spacer"/><button className="button" onClick={()=>void save(false)}>Save draft</button><button className="button primary" onClick={()=>void save(true)}>Publish & push</button></div>
+    <div className="layout-editor-footer"><span>{items.filter(item=>!item.hidden).length} active · {items.reduce((total,item)=>total+(item.hidden?0:item.durationSeconds),0)} seconds per cycle</span><span className="toolbar-spacer"/><button className="button" disabled={!!saving} onClick={()=>void save(false)}>{saving === "draft" ? "Saving…" : "Save draft"}</button><button className="button primary" disabled={!!saving} onClick={()=>void save(true)}>{saving === "publish" ? "Publishing & pushing…" : "Publish & push"}</button></div>
   </StudioDialog>;
 }
 
@@ -890,11 +894,22 @@ function PublishingPanel({ signage, screens, notify, refresh }: Props) {
   const [chosenScreens,setChosenScreens]=useState<string[]>([]);
   const [tags,setTags]=useState("");
   const [preview,setPreview]=useState<unknown>();
-  async function publish(item:StudioSchedule){try{await studioApi(`/schedules/${item.id}/publish`,{method:"POST",body:JSON.stringify({pushToScreens:true})});refresh();notify(`${item.name} published and pushed.`);}catch(error){notify(errorText(error));}}
-  async function assign(){try{await studioApi("/assignments/bulk",{method:"POST",body:JSON.stringify({signageIds:chosenSchedules,screenIds:chosenScreens,targetTagsCsv:tags,publish:true})});refresh();notify("Bulk assignment published and pushed.");}catch(error){notify(errorText(error));}}
+  const [working,setWorking]=useState<string>();
+  async function publish(item:StudioSchedule){
+    setWorking(`publish:${item.id}`);
+    try{await studioApi(`/schedules/${item.id}/publish`,{method:"POST",body:JSON.stringify({pushToScreens:true})});refresh();notify(`${item.name} published and pushed.`);}
+    catch(error){notify(`Could not publish and push ${item.name}: ${errorText(error)}`);}
+    finally{setWorking(undefined);}
+  }
+  async function assign(){
+    setWorking("assign");
+    try{await studioApi("/assignments/bulk",{method:"POST",body:JSON.stringify({signageIds:chosenSchedules,screenIds:chosenScreens,targetTagsCsv:tags,publish:true})});refresh();notify("Bulk assignment published and pushed.");}
+    catch(error){notify(`Could not assign, publish, and push: ${errorText(error)}`);}
+    finally{setWorking(undefined);}
+  }
   async function previewScreen(screenId:string){if(!screenId)return;try{setPreview(await studioApi(`/preview/${screenId}`));}catch(error){notify(errorText(error));}}
-  return <section className="studio-panel publishing-grid"><div className="panel"><h2>Draft, publish, and push</h2><p>Published versions remain stable while editors continue working on drafts. Push invalidates manifests immediately; each display reports its applied manifest and cache progress.</p><div className="publish-table"><div><b>Schedule</b><b>Version</b><b>Last push</b><b/></div>{signage.map(item=><div key={item.id}><span><input type="checkbox" checked={chosenSchedules.includes(item.id)} onChange={event=>setChosenSchedules(all=>event.target.checked?[...all,item.id]:all.filter(id=>id!==item.id))}/><strong>{item.name}</strong><small>{item.mode} · {item.enabled?"enabled":"paused"}</small></span><span><i className={`studio-state ${item.publishState}`}>{item.publishState}</i><small>draft {item.version} · live {item.publishedVersion}</small></span><span>{timeAgo(item.lastPushedAt)}</span><button onClick={()=>publish(item)}>Publish & push</button></div>)}</div></div>
-    <div className="panel"><h2>Bulk assignment</h2><p>Assign selected schedules to exact screens and/or matching screen tags.</p><div className="screen-check-grid">{screens.filter(screen=>!screen.revoked).map(screen=><label key={screen.id}><input type="checkbox" checked={chosenScreens.includes(screen.id)} onChange={event=>setChosenScreens(all=>event.target.checked?[...all,screen.id]:all.filter(id=>id!==screen.id))}/><span><strong>{screen.name}</strong><small>{screen.site} · {screen.tagsCsv||"no tags"}</small></span></label>)}</div><label>Additional target tags<input value={tags} onChange={event=>setTags(event.target.value)} placeholder="lobby, campus-a"/></label><button className="button primary" disabled={!chosenSchedules.length} onClick={assign}>Assign, publish, and push</button></div>
+  return <section className="studio-panel publishing-grid"><div className="panel"><h2>Draft, publish, and push</h2><p>Published versions remain stable while editors continue working on drafts. Push invalidates manifests immediately; each display reports its applied manifest and cache progress.</p><div className="publish-table"><div><b>Schedule</b><b>Version</b><b>Last push</b><b/></div>{signage.map(item=>{const publishing=working===`publish:${item.id}`;return <div key={item.id}><span><input type="checkbox" checked={chosenSchedules.includes(item.id)} disabled={!!working} onChange={event=>setChosenSchedules(all=>event.target.checked?[...all,item.id]:all.filter(id=>id!==item.id))}/><strong>{item.name}</strong><small>{item.mode} · {item.enabled?"enabled":"paused"}</small></span><span><i className={`studio-state ${item.publishState}`}>{publishing?"publishing":item.publishState}</i><small>draft {item.version} · live {item.publishedVersion}</small></span><span>{timeAgo(item.lastPushedAt)}</span><button disabled={!!working} onClick={()=>void publish(item)}>{publishing?"Publishing & pushing…":"Publish & push"}</button></div>})}</div></div>
+    <div className="panel"><h2>Bulk assignment</h2><p>Assign selected schedules to exact screens and/or matching screen tags.</p><div className="screen-check-grid">{screens.filter(screen=>!screen.revoked).map(screen=><label key={screen.id}><input type="checkbox" checked={chosenScreens.includes(screen.id)} disabled={!!working} onChange={event=>setChosenScreens(all=>event.target.checked?[...all,screen.id]:all.filter(id=>id!==screen.id))}/><span><strong>{screen.name}</strong><small>{screen.site} · {screen.tagsCsv||"no tags"}</small></span></label>)}</div><label>Additional target tags<input value={tags} disabled={!!working} onChange={event=>setTags(event.target.value)} placeholder="lobby, campus-a"/></label><button className="button primary" disabled={!chosenSchedules.length||!!working} onClick={()=>void assign()}>{working==="assign"?"Assigning, publishing & pushing…":"Assign, publish, and push"}</button></div>
     <div className="panel"><h2>Screen delivery progress</h2><p>Displays report the manifest version they applied and how much assigned content is available offline.</p><div className="delivery-progress">{screens.filter(screen=>!screen.revoked).map(screen=>{const total=screen.totalItems||0,cached=screen.cachedItems||0,percent=total?Math.round(cached/total*100):100;return <div key={screen.id}><span><strong>{screen.name}</strong><small>manifest {screen.manifestVersion||0} · {screen.playbackState||"idle"} · {timeAgo(screen.lastSeenAt)}</small></span><progress max="100" value={percent}/><b>{cached}/{total}</b></div>})}</div></div>
     <div className="panel"><h2>Preview as a screen</h2><p>Generate the exact manifest a selected display would receive, including schedule targeting, versions, layouts, playlists, and kiosk settings.</p><select defaultValue="" onChange={event=>previewScreen(event.target.value)}><option value="">Choose screen…</option>{screens.filter(screen=>!screen.revoked).map(screen=><option value={screen.id} key={screen.id}>{screen.name}</option>)}</select>{preview !== undefined && <pre className="manifest-preview">{JSON.stringify(preview,null,2)}</pre>}</div>
   </section>;

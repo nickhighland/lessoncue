@@ -507,9 +507,11 @@
 .zone-qr-layout .qr-label.bottom { grid-area: 3 / 1 / 4 / 4; }
 .zone-qr-layout .qr-label.left { grid-area: 2 / 1; }
 .zone-qr-layout .qr-label.right { grid-area: 2 / 3; }
+.zone-qr-layout.placement-left { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) 0; }
 .zone-qr-layout.placement-left .zone-qr { grid-area: 2 / 1 / 3 / 2; }
 .zone-qr-layout.placement-left .qr-label.left { display: none; }
 .zone-qr-layout.placement-left .qr-label.right { grid-area: 2 / 2 / 3 / 4; justify-self: stretch; text-align: left; }
+.zone-qr-layout.placement-right { grid-template-columns: 0 minmax(0, 2fr) minmax(0, 1fr); }
 .zone-qr-layout.placement-right .zone-qr { grid-area: 2 / 3 / 3 / 4; }
 .zone-qr-layout.placement-right .qr-label.right { display: none; }
 .zone-qr-layout.placement-right .qr-label.left { grid-area: 2 / 1 / 3 / 3; justify-self: stretch; text-align: right; }
@@ -1255,9 +1257,11 @@
   grid-column: 1 / 4;
   grid-row: 3;
 }
+.signage-qr-layout.placement-left { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) 0; }
 .signage-qr-layout.placement-left .signage-qr { grid-column: 1; }
 .signage-qr-layout.placement-left .left { display: none; }
 .signage-qr-layout.placement-left .right { grid-column: 2 / 4; justify-self: stretch; text-align: left; }
+.signage-qr-layout.placement-right { grid-template-columns: 0 minmax(0, 2fr) minmax(0, 1fr); }
 .signage-qr-layout.placement-right .signage-qr { grid-column: 3; }
 .signage-qr-layout.placement-right .right { display: none; }
 .signage-qr-layout.placement-right .left { grid-column: 1 / 3; justify-self: stretch; text-align: right; }

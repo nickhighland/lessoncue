@@ -12,13 +12,15 @@ The order is based on five product priorities:
 
 ## Recommended next priorities
 
-11. [ ] **Immediate signage reliability and screen-purpose controls**: Make Publish and Push visibly save, publish, and report progress or errors; add QR placement (center/left/right) with normal horizontal side labels; make typography controls and a rich-text editor available wherever signage text appears; accept approved `.ics` calendar URLs; let an administrator mark a screen as signage-only, open its display directly, and preserve it as a permanent pairing or allow it to be temporary.
-   - [x] Add explicit draft-save and publish/push busy states, success notices, and actionable failure messages to the reusable-layout editor.
+11. [x] **Immediate signage reliability and screen-purpose controls**: Make Publish and Push visibly save, publish, and report progress or errors; add QR placement (center/left/right) with normal horizontal side labels; make typography controls and a rich-text editor available wherever signage text appears; accept approved `.ics` calendar URLs; let an administrator mark a screen as signage-only, open its display directly, and preserve it as a permanent pairing or allow it to be temporary.
+   - [x] Add explicit draft-save and publish/push busy states, success notices, and actionable failure messages across reusable layouts, playlists, schedules, and bulk publishing.
    - [x] Add center, left, and right QR placement with horizontal companion labels in browser, Android TV, and Apple TV renderers.
    - [x] Extend sign-element typography and rich-text editing controls to every standard text-bearing element.
+   - [x] Accept approved HTTPS iCalendar (`.ics`) sources, refresh them on the local server, and send only cached event summaries to displays.
    - [x] Enforce signage-only screens server-side: their lesson manifest is empty and playback commands are rejected; hide them from the controller and expose signage-only/permanent-pairing controls on the Screens page.
    - [x] Preserve permanent browser pairings past the two-hour temporary-display expiry.
    - [x] Add an authenticated browser-display link that opens a chosen screen directly, creates its display credential locally, stores it in that browser, and removes the one-time credential from the address bar.
+   - [x] Add a Service Admin-only troubleshooting log with searchable, downloadable local runtime events and durable activity audit history; redact credential-like values before storage and display.
 
 12. [ ] **Media upload and library workflow improvements**: Add resumable uploads, pause and retry, folder drag-and-drop, transfer progress, duplicate and near-duplicate detection, safe reference consolidation, favorites and collections, improved search, and administrator-defined storage and upload limits by server, user, role, class, file size, codec, or daily quota.
 13. [ ] **Operational readiness dashboard and alerts**: Focus reporting on lesson readiness, screen uptime, media cache state, download failures, storage growth, client versions, playback acknowledgements, and pre-class warnings. Exclude behavioral or productivity profiling of individual users.
