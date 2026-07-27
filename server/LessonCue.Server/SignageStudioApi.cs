@@ -83,6 +83,33 @@ public static class SignageStudioApi
             return Results.Ok(SignageStudio.MapLayout(item));
         });
 
+        planning.MapPost("/layouts/save-publish", async (SignageLayoutSavePublishInput input, LessonCueDb db,
+            IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var error = SignageStudio.ValidateLayout(input.Layout,
+                SignageLayout.ParseAllowlist(organization.SignageSourceAllowlistJson));
+            if (error is not null) return Results.BadRequest(new { error });
+            error = await ValidateLayoutReferencesAsync(input.Layout, db, ct);
+            if (error is not null) return Results.BadRequest(new { error });
+            if (input.Layout.BackgroundAudioAssetId is { } audioId &&
+                !await db.MediaAssets.AnyAsync(x => x.Id == audioId, ct))
+                return Results.BadRequest(new { error = "The selected background audio no longer exists." });
+
+            var item = input.Id is { } id
+                ? await db.SignageLayouts.FindAsync([id], ct)
+                : new SignageLayoutResource { Name = input.Layout.Name.Trim(), Version = 0 };
+            if (item is null) return Results.NotFound();
+            if (input.Id is null) db.SignageLayouts.Add(item);
+
+            SignageStudio.ApplyLayout(item, input.Layout);
+            SignageStudio.Publish(item);
+            Audit(db, "signage.layout.save-publish", item.Id, $"{item.Name} v{item.PublishedVersion}");
+            await db.SaveChangesAsync(ct);
+            if (input.PushToScreens) await Invalidate(hub, item.PublishedVersion, ct);
+            return Results.Ok(SignageStudio.MapLayout(item));
+        });
+
         planning.MapPost("/layouts/{id:guid}/duplicate", async (Guid id, LessonCueDb db, CancellationToken ct) =>
         {
             var source = await db.SignageLayouts.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
