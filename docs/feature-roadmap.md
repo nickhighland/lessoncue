@@ -13,6 +13,7 @@ The order is based on five product priorities:
 ## Recommended next priorities
 
 11. [x] **Immediate signage reliability and screen-purpose controls**: Make Publish and Push visibly save, publish, and report progress or errors; add QR placement (center/left/right) with normal horizontal side labels; make typography controls and a rich-text editor available wherever signage text appears; accept approved `.ics` calendar URLs; let an administrator mark a screen as signage-only, open its display directly, and preserve it as a permanent pairing or allow it to be temporary.
+   - [x] Replace the expert-first signage workflow with a volunteer-first three-step creation wizard and a dedicated sign workspace: My signs on the left, live display canvas in the center, focused Content/Style/Schedule controls on the right, and a persistent save/publish bar.
    - [x] Replace the crowded layout-editor modal with a full-screen, responsive three-pane studio: searchable content choices on the left, a larger live canvas in the center, and focused Properties/Layers tabs on the right.
    - [x] Keep draft/live version state and Preview, Save draft, and Publish & Push actions visible at the top of the workspace while retaining the permanent browser-display workflow.
    - [x] Add explicit draft-save and publish/push busy states, success notices, and actionable failure messages across reusable layouts, playlists, schedules, and bulk publishing.

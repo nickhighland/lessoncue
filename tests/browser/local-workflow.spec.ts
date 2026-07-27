@@ -737,8 +737,13 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
 
   await page.getByRole("button", { name: "Layouts", exact: true }).click();
   await expect(page.getByText("Welcome board", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Blank layout" }).click();
+  await page.getByRole("button", { name: "Create sign" }).click();
+  const createSignDialog = page.getByRole("dialog", { name: "Create a sign" });
+  await createSignDialog.getByRole("button", { name: "Continue" }).click();
+  await createSignDialog.getByRole("button", { name: "Continue" }).click();
+  await createSignDialog.getByRole("button", { name: "Create draft sign →" }).click();
   const layoutDialog = page.getByRole("dialog", { name: "New reusable layout" });
+  await layoutDialog.getByText("Advanced layout controls", { exact: true }).click();
   await layoutDialog.getByLabel("Layout name").fill("Browser reusable portrait");
   await layoutDialog.getByLabel("Resolution").selectOption("1080x1920");
   await layoutDialog.getByLabel("Canvas background").fill("#262f2c");
@@ -892,7 +897,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.37.4" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.37.5" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();

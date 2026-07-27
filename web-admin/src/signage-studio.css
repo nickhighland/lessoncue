@@ -165,6 +165,28 @@
   text-align: center;
   padding: 3rem;
 }
+.create-sign-wizard { padding: 1.75rem; background: #fffdfa; }
+.create-sign-wizard > header h1 { margin: 0; color: #1a2421; font-size: 2rem; }
+.create-sign-wizard > header p { margin: .4rem 0 1.4rem; color: #59635f; }
+.wizard-steps { display: grid; grid-template-columns: repeat(3,1fr); gap: .5rem; margin-bottom: 1.25rem; }
+.wizard-steps button { display: flex; align-items: center; gap: .55rem; padding: .8rem; border: 1px solid #dfdbd2; border-radius: 10px; background: #fff; text-align: left; }
+.wizard-steps b { display: grid; place-items: center; flex: 0 0 30px; height: 30px; border-radius: 50%; color: #53615c; background: #eeeae3; }
+.wizard-steps button.active { border-color: #e5a13a; box-shadow: 0 5px 18px #b3731817; }
+.wizard-steps button.active b, .wizard-steps button.done b { color: #fff; background: #e18a08; }
+.wizard-card { min-height: 275px; padding: 1.4rem; border: 1px solid #e2ddd4; border-radius: 16px; background: #fff; box-shadow: 0 10px 30px #1c21120b; }
+.wizard-card h2 { margin: 0; font-size: 1.15rem; }
+.wizard-card > p { margin: .35rem 0 1.15rem; color: #59635f; }
+.wizard-choice-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: .75rem; }
+.wizard-choice-grid.compact { grid-template-columns: repeat(4,1fr); }
+.wizard-choice-grid button { display: grid; justify-items: center; gap: .42rem; min-height: 145px; padding: .8rem; border: 1px solid #ddd8cf; border-radius: 10px; background: #fffdf9; text-align: center; }
+.wizard-choice-grid button.selected { border: 2px solid #e28c08; background: #fff5e5; }
+.wizard-choice-grid i { display: grid; place-items: center; width: 52px; height: 52px; color: #df8700; border: 1px solid #f2c77a; border-radius: 12px; font-size: 1.7rem; font-style: normal; }
+.wizard-choice-grid strong { font-size: .82rem; }
+.wizard-choice-grid small { color: #67716e; font-size: .68rem; }
+.wizard-confirmation { display: flex; align-items: center; gap: 1rem; padding: 1rem; border-radius: 12px; background: #fff5e5; }
+.wizard-confirmation > span { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 12px; color: #fff; background: #df8700; font-size: 1.4rem; }
+.wizard-confirmation div { display: grid; gap: .25rem; }.wizard-confirmation small { color: #5e655f; }
+.create-sign-wizard > footer { display: flex; align-items: center; gap: .5rem; padding-top: 1rem; }
 .studio-dialog-backdrop {
   position: fixed;
   z-index: 1000;
@@ -281,6 +303,25 @@
 .layout-editor-statusbar small {
   color: var(--muted);
 }
+.signage-workflow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  min-height: 66px;
+  padding: 0 1rem;
+  background: #fffdf9;
+  border-bottom: 1px solid #e5e1d9;
+}
+.signage-workflow span { display: flex; align-items: center; gap: 0.65rem; color: #1d2422; font-weight: 800; }
+.signage-workflow b { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #c9c6bf; border-radius: 50%; font-size: 1rem; }
+.signage-workflow span.active { color: #d78300; }
+.signage-workflow span.active b { color: #fff; border-color: #dd8700; background: linear-gradient(135deg, #f3a515, #d87900); }
+.signage-workflow i { width: min(18vw, 260px); height: 1px; background: #d9d5ce; }
+.layout-advanced-controls { flex: 0 0 auto; border-bottom: 1px solid var(--line); background: #fff; }
+.layout-advanced-controls > summary { padding: 0.55rem 1rem; cursor: pointer; color: #53615c; font-size: 0.74rem; font-weight: 800; }
+.layout-advanced-controls:not([open]) > .layout-editor-meta,
+.layout-advanced-controls:not([open]) > .layout-editor-toolbar { display: none; }
 .studio-dialog > header h2 {
   margin: 0;
   font-size: 1.05rem;
@@ -404,6 +445,27 @@
   min-height: 0;
   overflow: hidden;
 }
+.layout-sign-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #fffdfa;
+  border-right: 1px solid #ddd9d1;
+}
+.layout-sign-list > header { display: grid; gap: 0.25rem; padding: 1.35rem 1.25rem 1rem; }
+.layout-sign-list > header strong { font-size: 1rem; }
+.layout-sign-list > header small { color: #67716e; }
+.create-sign-button { margin: 0 1rem 1rem; padding: 0.82rem; border: 0; border-radius: 8px; color: #fff; background: linear-gradient(135deg, #ee9e12, #d87900); font-size: .9rem; font-weight: 850; }
+.sign-list-items { display: grid; overflow: auto; border-top: 1px solid #e3dfd8; }
+.sign-list-items > button { display: grid; grid-template-columns: 26px minmax(0,1fr) auto; align-items: center; gap: 0.6rem; padding: .85rem 1rem; border: 0; border-bottom: 1px solid #e7e2da; background: transparent; text-align: left; }
+.sign-list-items > button.active { box-shadow: inset 4px 0 0 #e58b06; background: linear-gradient(90deg,#fff0d7,#fffaf2); }
+.sign-list-items i { width: 18px; height: 14px; border: 2px solid #202725; border-radius: 3px; font-style: normal; }
+.sign-list-items span { display: grid; gap: .18rem; min-width: 0; }
+.sign-list-items strong { overflow: hidden; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.sign-list-items small { color: #65706c; font-size: .68rem; }
+.sign-list-items b { padding: .26rem .42rem; border-radius: 4px; color: #317341; background: #e7f4e8; font-size: .6rem; font-weight: 750; }
+.sign-list-items b.draft { color: #65635e; background: #ecebe8; }
+.manage-signs-button { margin: auto 1rem 1rem; padding: .7rem; border: 1px solid #ddd8cf; border-radius: 8px; background: #fff; color: #27312e; }
 .layout-element-library {
   display: flex;
   flex-direction: column;
@@ -809,7 +871,7 @@
   z-index: 5;
   top: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(4, 1fr);
   padding: 0.45rem;
   background: #eef2f0;
   border-bottom: 1px solid var(--line);
@@ -990,6 +1052,12 @@
   border-top: 1px solid var(--line);
   border-bottom: 0;
 }
+.signage-publish-bar { min-height: 60px; color: #fff; background: #11211d; border-color: #253632; }
+.signage-publish-bar textarea,
+.signage-publish-bar label,
+.signage-publish-bar > a { display: none; }
+.signage-publish-bar .button { color: #fff; border-color: #d5ddd8; background: transparent; }
+.signage-publish-bar .button.primary { border-color: #e08700; background: linear-gradient(135deg,#f0a116,#d87900); }
 .layout-editor-footer textarea {
   width: 220px;
   min-height: 38px;
