@@ -17,6 +17,30 @@ public sealed class SignageLayoutTests
     }
 
     [Fact]
+    public void AcceptsApprovedIcalendarSourcesAndParsesEventSummaries()
+    {
+        var zone = new SignageZoneInput("events", "calendar", "Upcoming",
+            SourceUrl: "https://calendar.example.org/public/events.ics");
+        Assert.Contains("Approve https://calendar.example.org", SignageLayout.Validate([zone], []));
+        Assert.Null(SignageLayout.Validate([zone], ["https://calendar.example.org"]));
+
+        const string payload = """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VEVENT
+            SUMMARY:Community breakfast
+            END:VEVENT
+            BEGIN:VEVENT
+            SUMMARY;LANGUAGE=en-US:Volunteer orientation
+            END:VEVENT
+            END:VCALENDAR
+            """;
+        var parsed = SignageWidgetService.Parse(zone, payload, DateTimeOffset.Parse("2026-07-26T12:00:00Z"));
+        Assert.Equal(["Community breakfast", "Volunteer orientation"], parsed.Items);
+        Assert.Equal(zone.SourceUrl, parsed.Source);
+    }
+
+    [Fact]
     public void RejectsZonesOutsideTheCanvas()
     {
         var zone = new SignageZoneInput("clock", "clock", X: 80, Y: 0, Width: 30, Height: 100);

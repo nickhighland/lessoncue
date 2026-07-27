@@ -68,6 +68,8 @@ public sealed class ManifestTests
                 new SignageZoneInput("weather", "weather", "Conditions", "Weather unavailable", SourceUrl: "https://weather.example/current", X: 69, Y: 0, Width: 31, Height: 50),
                 new SignageZoneInput("media", "media", "Highlights", MediaAssetId: media.Id, X: 69, Y: 51, Width: 31, Height: 49,
                     Rotation: 17, ZIndex: 4, Opacity: 72, Fit: "contain", FlipX: true),
+                new SignageZoneInput("connect", "qr", "Connect", QrValue: "https://lessoncue.local",
+                    QrLabelRight: "Scan for details", QrPlacement: "left", X: 0, Y: 0, Width: 20, Height: 20),
                 new SignageZoneInput("live", "stream", "Live event", SourceUrl: "rtmp://stream.example/live/private-key",
                     X: 10, Y: 10, Width: 40, Height: 40)
             ]),
@@ -117,6 +119,9 @@ public sealed class ManifestTests
         Assert.Equal(72, mediaZone.GetProperty("Opacity").GetInt32());
         Assert.Equal("contain", mediaZone.GetProperty("Fit").GetString());
         Assert.True(mediaZone.GetProperty("FlipX").GetBoolean());
+        var qr = lobby.GetProperty("zones").EnumerateArray().Single(zone => zone.GetProperty("Type").GetString() == "qr");
+        Assert.Equal("left", qr.GetProperty("QrPlacement").GetString());
+        Assert.Equal("Scan for details", qr.GetProperty("QrLabelRight").GetString());
         var stream = lobby.GetProperty("zones").EnumerateArray().Single(zone => zone.GetProperty("Type").GetString() == "stream");
         Assert.Equal($"/api/v1/signage/{lobbySign.Id}/zones/live/stream/index.m3u8", stream.GetProperty("streamUrl").GetString());
         Assert.Equal(JsonValueKind.Null, stream.GetProperty("sourceUrl").ValueKind);

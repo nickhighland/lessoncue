@@ -106,6 +106,8 @@ type Backup = { id: string; fileName: string; kind: string; sizeBytes: number; c
 type BackupPreview = { restoreId: string; fileName: string; kind: string; compressedBytes: number; uncompressedBytes: number; fileCount: number; organization: string; users: number; classes: number; lessons: number; mediaRecords: number; mediaFiles: number; includesMedia: boolean; warnings: string[]; expiresAt: string };
 type BackupRestoreResult = { safetyBackupId: string; safetyBackupFileName: string; kind: string; organization: string; mediaRestored: boolean; preservedServerSettings: string[] };
 type Audit = { id: number; timestamp: string; actor: string; action: string; object: string; result: string; summary?: string };
+type TroubleshootingEntry = { timestamp: string; level: string; category: string; event: string; message: string; exception?: string };
+type TroubleshootingLog = { generatedAt: string; runtime: TroubleshootingEntry[]; audit: Audit[]; retention: { runtimeEntries: number; file: string } };
 type View = "dashboard" | "controller" | "classes" | "templates" | "calendar" | "media" | "screens" | "signage" | "users" | "settings";
 
 const permissionOptions: { id: Permission; label: string; detail: string }[] = [
@@ -1063,7 +1065,20 @@ function ScreensView({ screens, classes, pin, refresh, notify, canManage }: { sc
   async function revoke(screen: Screen) { if (!confirm(`Revoke ${screen.name}? It will need to be paired again.`)) return; await api(`/api/v1/screens/${screen.id}`, { method: "DELETE" }); refresh(); }
   async function requestScreenshot(screen: Screen) { setBusy(screen.id); try { await api(`/api/v1/screens/${screen.id}/diagnostics/screenshot-request`, { method: "POST", body: "{}" }); notify("One-time screenshot requested. The TV will show a visible notice before capture."); setTimeout(() => { setScreenshotNonce(Date.now()); refresh(); }, 4_000); refresh(); } catch (e) { notify(errorText(e)); } finally { setBusy(undefined); } }
   async function deleteScreenshot(screen: Screen) { setBusy(screen.id); try { await api(`/api/v1/screens/${screen.id}/diagnostics/screenshot`, { method: "DELETE" }); refresh(); notify("Diagnostic screenshot deleted."); } catch (e) { notify(errorText(e)); } finally { setBusy(undefined); } }
-  async function openScreen(screen: Screen) { setBusy(screen.id); try { const result = await api<{ url: string }>(`/api/v1/screens/${screen.id}/browser-link`, { method: "POST", body: "{}" }); window.open(result.url, "_blank", "noopener"); notify(`Opened ${screen.name} as a browser display.`); } catch (e) { notify(errorText(e)); } finally { setBusy(undefined); } }
+  async function openScreen(screen: Screen) {
+    const displayWindow = window.open("about:blank", "_blank");
+    if (!displayWindow) return notify(`Could not open ${screen.name}. Allow pop-ups for this LessonCue server and try again.`);
+    displayWindow.opener = null;
+    setBusy(screen.id);
+    try {
+      const result = await api<{ url: string }>(`/api/v1/screens/${screen.id}/browser-link`, { method: "POST", body: "{}" });
+      displayWindow.location.replace(result.url);
+      notify(`Opened ${screen.name} as a browser display.`);
+    } catch (e) {
+      displayWindow?.close();
+      notify(errorText(e));
+    } finally { setBusy(undefined); }
+  }
   return <><PageHead eyebrow="PLAYBACK DEVICES" title="Screens" detail="Pair TVs, assign a class, and inspect cache, downloads, codecs, timing, network quality, and recent errors." action={canManage && pin ? <div className="pin-card"><span>PAIRING PIN</span><strong>{pin}</strong></div> : undefined} />
     <section className="panel browser-player-intro"><div><span className="eyebrow">COMPUTERS &amp; PROJECTORS</span><h2>Use this server as a full-screen display</h2><p>Open the browser player on the presentation computer, pair it with the PIN above, and control it exactly like a TV. Add <code>?kiosk=1</code> for a clean startup view.</p><small>{location.origin}/player</small></div><div className="card-actions"><a className="button primary" href="/player" target="_blank" rel="noreferrer">Open browser player ↗</a><a className="button" href="/player?kiosk=1" target="_blank" rel="noreferrer">Open kiosk player ↗</a></div></section>
     <section className="panel"><div className="screen-grid">{active.length ? active.map(s => {
@@ -1682,8 +1697,37 @@ function RegistrationSettingsPanel({ bootstrap, notify, refresh, canServiceSetti
   </section>;
 }
 
+function TroubleshootingLogPanel({ notify }: { notify: (message: string) => void }) {
+  const [report, setReport] = useState<TroubleshootingLog>();
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+  const load = async () => {
+    setLoading(true);
+    try { setReport(await api<TroubleshootingLog>("/api/v1/troubleshooting-log?limit=1000")); }
+    catch (cause) { notify(errorText(cause)); }
+    finally { setLoading(false); }
+  };
+  const download = () => {
+    if (!report) return;
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob); const link = document.createElement("a");
+    link.href = url; link.download = `lessoncue-troubleshooting-${new Date().toISOString().replaceAll(":", "-")}.json`;
+    link.click(); URL.revokeObjectURL(url);
+  };
+  const term = query.trim().toLowerCase();
+  const runtime = (report?.runtime || []).filter(entry => !term || `${entry.level} ${entry.category} ${entry.event} ${entry.message} ${entry.exception || ""}`.toLowerCase().includes(term));
+  const audit = (report?.audit || []).filter(entry => !term || `${entry.actor} ${entry.action} ${entry.object} ${entry.result} ${entry.summary || ""}`.toLowerCase().includes(term));
+  return <section className="panel wide-settings settings-panel settings-data">
+    <div className="settings-heading"><div><span className="settings-kicker">SERVICE ADMIN ONLY</span><h2>Troubleshooting log</h2><p className="settings-copy">Review local runtime events and the durable activity audit. Sensitive credential values are redacted before they are saved or shown.</p></div><span className="update-state current">Private server diagnostics</span></div>
+    <div className="head-actions"><button className="button primary" onClick={load} disabled={loading}>{loading ? "Loading…" : report ? "Refresh log" : "Load log"}</button>{report && <button className="button" onClick={download}>Download JSON</button>}</div>
+    {report && <><div className="two-fields"><Field label="Search events, people, and messages"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Example: transcode, failed, email" /></Field><Definition label="Retention" value={`${report.retention.runtimeEntries.toLocaleString()} entries · ${report.retention.file}`} /></div>
+      <div className="settings-subsection"><h3>Runtime events ({runtime.length})</h3>{runtime.length ? <div className="audit-list troubleshooting-list">{runtime.map((entry, index) => <div key={`${entry.timestamp}-${index}`}><span><strong>{entry.level} · {entry.category}</strong><small>{entry.event}: {entry.message}{entry.exception ? ` — ${entry.exception}` : ""}</small></span><small>{new Date(entry.timestamp).toLocaleString()}</small></div>)}</div> : <Empty title="No matching runtime events" body="Try a different search, or refresh after reproducing the issue." />}</div>
+      <div className="settings-subsection"><h3>Activity audit ({audit.length})</h3>{audit.length ? <div className="audit-list troubleshooting-list">{audit.map(item => <div key={item.id}><span><strong>{item.action.replaceAll(".", " ")}</strong><small>{item.actor}{item.summary ? ` · ${item.summary}` : ""}{item.result ? ` · ${item.result}` : ""}</small></span><small>{new Date(item.timestamp).toLocaleString()}</small></div>)}</div> : <Empty title="No matching activity" body="Administrative actions and background work will appear here." />}</div>
+    </>}
+  </section>;
+}
+
 function Settings({ bootstrap, backups, audit, refresh, notify, canAppSettings, canServiceSettings, canBackups, canUpdates }: { bootstrap: Bootstrap; backups: Backup[]; audit: Audit[]; refresh: () => void; notify: (s: string) => void; canAppSettings: boolean; canServiceSettings: boolean; canBackups: boolean; canUpdates: boolean }) {
-  const canManage = canServiceSettings;
   const canManageApp = canAppSettings || canServiceSettings;
   const [settingsSection, setSettingsSection] = useState<"system" | "accounts" | "media" | "connections" | "data">(
     canUpdates ? "system" : canManageApp ? "accounts" : "data"
@@ -1763,6 +1807,7 @@ function Settings({ bootstrap, backups, audit, refresh, notify, canAppSettings, 
       {canManageApp && <section className="panel wide-settings settings-panel settings-data"><div className="settings-heading"><div><h2>Recycling bin</h2><p className="settings-copy">Deleted classes, lessons, and media remain recoverable for 30 days. Recycled media still uses storage until it is purged.</p></div>{recycleItems.length > 0 && <button className="button danger" onClick={purgeRecycleBin}>Purge all</button>}</div>{recycleItems.length ? <div className="recycle-list">{recycleItems.map(item => <div key={`${item.kind}-${item.id}`}><span className="recycle-kind">{item.kind}</span><span><strong>{item.title}</strong><small>{item.detail} · deleted {timeAgo(item.deletedAt)}{item.deletedBy ? ` by ${item.deletedBy}` : ""}</small></span><span><small>Purges {new Date(new Date(item.deletedAt).getTime() + 30 * 86400000).toLocaleDateString()}</small><button className="button" onClick={() => restoreRecycleItem(item)}>Restore</button></span></div>)}</div> : <Empty title="Recycling bin is empty" body="Deleted classes, lessons, and media will appear here for 30 days." />}</section>}
       {canServiceSettings && canBackups && <section className="panel settings-panel settings-data"><h2>Privacy & backups</h2><div className="privacy-callout"><span>⌂</span><div><strong>{bootstrap.cloudflareTunnel.enabled ? "Local-first with optional remote access" : "Fully local"}</strong><p>The interface, database, accounts, schedules, and media live on this server. {bootstrap.cloudflareTunnel.enabled ? "Cloudflare carries encrypted requests to this local origin; it does not become LessonCue's data store." : "No hosted service is required."}</p></div></div><div className="backup-actions"><button className="button" onClick={() => backup(false)}>Back up settings</button><button className="button primary" onClick={() => backup(true)}>Full backup</button></div><form className="backup-restore-upload" onSubmit={previewBackupRestore}><label><span>Restore a LessonCue backup</span><input name="file" type="file" accept=".zip,application/zip" required disabled={restoreBusy} /></label><button className="button" disabled={restoreBusy}>{restoreBusy ? "Validating…" : "Validate and preview"}</button></form>{backups.slice(0, 4).map(item => <a className="backup-row" href={`/api/v1/backups/${item.id}/file`} key={item.id}><span>{item.kind} · {formatBytes(item.sizeBytes)}</span><small>{new Date(item.createdAt).toLocaleString()}</small></a>)}</section>}
       {canManageApp && <section className="panel settings-panel settings-data"><h2>Recent activity</h2><div className="audit-list">{audit.slice(0, 8).map(item => <div key={item.id}><span>{item.action.replaceAll(".", " ")}</span><small>{item.actor} · {timeAgo(item.timestamp)}</small></div>)}</div></section>}
+      {canServiceSettings && <TroubleshootingLogPanel notify={notify} />}
       {canServiceSettings && <section className="panel settings-panel settings-data"><h2>Server commands</h2><pre>sudo systemctl status lessoncue{`\n`}sudo journalctl -u lessoncue -f{`\n`}sudo systemctl restart lessoncue{bootstrap.cloudflareTunnel.enabled ? `\n\nsudo systemctl status lessoncue-cloudflared\nsudo journalctl -u lessoncue-cloudflared -f` : ""}</pre></section>}</div>
     </div>
   </>;

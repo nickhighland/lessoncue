@@ -43,6 +43,7 @@ class SignageManifestTest {
                       "fontWeight": 700,
                       "lineHeightPercent": 135,
                       "qrValue": "WIFI:T:WPA;S:Guest;P:example;;",
+                      "qrPlacement": "left",
                       "tickerSpeed": 95,
                       "counterTargetAt": "2026-08-01T12:00:00Z"
                     }]
@@ -59,6 +60,7 @@ class SignageManifestTest {
             assertEquals("Georgia", zone.fontFamily)
             assertEquals(135, zone.lineHeightPercent)
             assertEquals("WIFI:T:WPA;S:Guest;P:example;;", zone.qrValue)
+            assertEquals("left", zone.qrPlacement)
             assertEquals(95, zone.tickerSpeed)
             assertNotNull(zone.richTextJson)
             assertNotNull(zone.counterTargetAt)

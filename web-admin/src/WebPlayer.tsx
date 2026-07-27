@@ -734,7 +734,7 @@ function SignageLayout({ signage }: { signage: Signage }) {
         ? <video src={zone.media.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={zone.media.title} style={{ objectFit: zone.fit || "cover" }} />
         : <img src={zone.media.downloadUrl} alt={zone.title || ""} style={{ objectFit: zone.fit || "cover" }} />)}
       {zone.type === "stream" && zone.streamUrl && <SignageStream source={zone.streamUrl} title={zone.title || "Live stream"} fit={zone.fit || "cover"} />}
-      {zone.type === "presentation" && <SignagePresentation zone={zone} signage={signage} />}
+      {zone.type === "presentation" && <SignagePresentation key={`${zone.contentPlaylist?.id || "none"}:${zone.contentPlaylist?.version || 0}`} zone={zone} signage={signage} />}
       {zone.type === "webpage" && zone.sourceUrl && <iframe src={zone.sourceUrl} title={zone.title || "Web page"} sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts" />}
       {zone.type === "customHtml" && (zone.htmlUrl
         ? <iframe src={zone.htmlUrl} title={zone.title || "Custom HTML"} sandbox="allow-forms allow-modals allow-popups allow-presentation allow-scripts" />
@@ -744,7 +744,7 @@ function SignageLayout({ signage }: { signage: Signage }) {
         {zone.title && !["qr","wifi","webpage","customHtml","presentation"].includes(zone.type) && <small style={{ color: zone.accentColor }}>{zone.title}</small>}
         {zone.type === "clock" ? <SignageClock zone={zone} />
           : zone.type === "counter" ? <SignageCounter zone={zone} />
-          : zone.type === "text" && zone.richTextJson ? <SignageRichText value={zone.richTextJson} fallback={zone.content || ""} />
+          : zone.richTextJson ? <SignageRichText value={zone.richTextJson} fallback={zone.cached?.text || zone.content || ""} />
           : !["qr","wifi","webpage","customHtml","presentation","stream"].includes(zone.type) ? <><strong>{zone.cached?.text || zone.content}</strong>{zone.cached?.items?.length ? <ul>{zone.cached.items.map((item, index) => <li key={`${zone.id}-${index}`}>{item}</li>)}</ul> : null}</>
           : null}
       </div>
@@ -756,7 +756,6 @@ function SignagePresentation({ zone, signage }: { zone: SignageZone; signage: Si
   const items = zone.contentPlaylist?.items.filter(item => !item.hidden) || [];
   const [index, setIndex] = useState(0);
   const [streamLive, setStreamLive] = useState(false);
-  useEffect(() => { setIndex(0); }, [zone.contentPlaylist?.id, zone.contentPlaylist?.version]);
   useEffect(() => {
     if (!items.length || streamLive) return;
     const current = items[index % items.length];
