@@ -743,7 +743,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await layoutDialog.getByLabel("Resolution").selectOption("1080x1920");
   await layoutDialog.getByLabel("Canvas background").fill("#262f2c");
   await layoutDialog.getByRole("button", { name: "+ Element" }).click();
-  await layoutDialog.locator(".layout-editor-toolbar select").selectOption("wifi");
+  await layoutDialog.getByLabel("Quick element type").selectOption("wifi");
   await layoutDialog.getByRole("button", { name: "+ Element" }).click();
   await layoutDialog.getByLabel("Network name (SSID)").fill("LessonCue Guest");
   await layoutDialog.getByRole("textbox", { name: "Password", exact: true }).fill("welcome123");
@@ -758,7 +758,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(reusableLayoutCard).toContainText("1080×1920");
   await reusableLayoutCard.getByRole("button", { name: "Edit" }).click();
   const existingLayoutDialog = page.getByRole("dialog", { name: "Layout · Browser reusable portrait" });
-  await existingLayoutDialog.locator(".layout-layers").getByRole("button").first().click();
+  await existingLayoutDialog.getByRole("tab", { name: /Layers/ }).click();
+  await existingLayoutDialog.getByRole("button", { name: "Select wifi layer" }).click();
   await existingLayoutDialog.getByLabel("Network name (SSID)").fill("LessonCue Guest Updated");
   await existingLayoutDialog.getByRole("textbox", { name: "Right", exact: true }).fill("Updated scan instructions");
   await existingLayoutDialog.getByRole("button", { name: "Publish & push" }).click();
@@ -891,7 +892,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.37.3" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.37.4" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();

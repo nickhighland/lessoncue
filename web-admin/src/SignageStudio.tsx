@@ -264,6 +264,7 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
   const [showBrowserPreview, setShowBrowserPreview] = useState(false);
   const [guides, setGuides] = useState<{ vertical?: number; horizontal?: number }>({});
   const [elementType, setElementType] = useState("text");
+  const [inspectorTab, setInspectorTab] = useState<"properties" | "layers">("properties");
   const [saving, setSaving] = useState<"draft" | "publish" | undefined>();
   const canvas = useRef<HTMLDivElement>(null);
   const current = zones.find(zone => zone.id === selected[0]);
@@ -280,9 +281,11 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
     const next = all[0]; if (!next) return all;
     setHistory(previous => [...previous, zones]); setZones(next); return all.slice(1);
   });
-  function addElement() {
-    const zone = { ...freshZone(elementType), x: Math.min(60, 6 + zones.length * 2), y: Math.min(60, 6 + zones.length * 2), zIndex: zones.length + 1 };
+  function addElement(type = elementType) {
+    const zone = { ...freshZone(type), x: Math.min(60, 6 + zones.length * 2), y: Math.min(60, 6 + zones.length * 2), zIndex: zones.length + 1 };
     commit([...zones, zone]); setSelected([zone.id]);
+    setElementType(type);
+    setInspectorTab("properties");
   }
   function buildInformationFrame(persist: boolean) {
     const mainPercent = 100 - framePercent;
@@ -466,7 +469,15 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
   }
   const aspect = `${width} / ${height}`;
   const displayZones = showFrameBuilder ? buildInformationFrame(false) : zones;
-  return <StudioDialog title={layout ? `Layout · ${layout.name}` : "New reusable layout"} wide onClose={onClose}>
+  return <StudioDialog title={layout ? `Layout · ${layout.name}` : "New reusable layout"} wide workspace onClose={onClose}>
+    <div className="layout-editor-statusbar">
+      <div><span className={`studio-state ${layout?.publishState || "draft"}`}>{layout?.publishState || "New draft"}</span>
+        <small>{layout ? `Draft v${layout.version}${layout.publishedVersion ? ` · live v${layout.publishedVersion}` : " · not published"}` : "Not saved yet"}</small></div>
+      <span className="toolbar-spacer" />
+      <button className="button" onClick={() => setShowBrowserPreview(true)}>Preview</button>
+      <button className="button" disabled={!!saving} onClick={() => void save(false)}>{saving === "draft" ? "Saving…" : "Save draft"}</button>
+      <button className="button primary" disabled={!!saving} onClick={() => void save(true)}>{saving === "publish" ? "Publishing & pushing…" : "Publish & push"}</button>
+    </div>
     <div className="layout-editor-meta">
       <input aria-label="Layout name" value={name} onChange={event => setName(event.target.value)} placeholder="Layout name" />
       <input aria-label="Folder" value={folder} onChange={event => setFolder(event.target.value)} placeholder="Folder" />
@@ -485,9 +496,8 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
       <label><input type="checkbox" checked={snap} onChange={event => setSnap(event.target.checked)} /> Snap</label>
       <label>Grid <input type="number" min="1" max="20" value={grid} onChange={event => setGrid(Number(event.target.value))} />%</label>
       <label><input type="checkbox" checked={showSafe} onChange={event => setShowSafe(event.target.checked)} /> Safe area</label>
-      <select aria-label="Element type" value={elementType} onChange={event => setElementType(event.target.value)}>{ZONE_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-      <button onClick={addElement}>+ Element</button>
-      <button className={showFrameBuilder ? "active" : ""} onClick={() => setShowFrameBuilder(value => !value)}>▦ Information frame</button>
+      <select aria-label="Quick element type" value={elementType} onChange={event => setElementType(event.target.value)}>{ZONE_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+      <button onClick={() => addElement()}>+ Element</button>
       <span className="toolbar-spacer" />
       <button onClick={() => align("left")} disabled={selected.length < 2}>Left</button><button onClick={() => align("center")} disabled={selected.length < 2}>Center</button><button onClick={() => align("right")} disabled={selected.length < 2}>Right</button>
       <button onClick={() => align("top")} disabled={selected.length < 2}>Top</button><button onClick={() => align("middle")} disabled={selected.length < 2}>Middle</button><button onClick={() => align("bottom")} disabled={selected.length < 2}>Bottom</button>
@@ -505,7 +515,20 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
       <button className="button primary" onClick={applyInformationFrame}>Apply frame</button>
     </section>}
     <div className="layout-editor-workspace">
+      <aside className="layout-element-library" aria-label="Add signage content">
+        <header><span>ADD CONTENT</span><strong>Elements</strong><small>Choose an element, then position it on the canvas.</small></header>
+        <div className="layout-element-list">{ZONE_TYPES.map(([value, label]) => <button key={value}
+          className={elementType === value ? "active" : ""} onClick={() => addElement(value)}>
+          <i aria-hidden="true">{zoneTypeIcon(value)}</i><span>{label}<small>{zoneTypeDescription(value)}</small></span><b>+</b>
+        </button>)}</div>
+        <button className={`information-frame-card ${showFrameBuilder ? "active" : ""}`}
+          onClick={() => setShowFrameBuilder(value => !value)}>
+          <i aria-hidden="true">▦</i><span><strong>Information frame</strong><small>Build a presentation area with coordinated side and bottom information slots.</small></span>
+        </button>
+      </aside>
       <div className="layout-canvas-scroll">
+        <div className="layout-canvas-heading"><div><strong>Live canvas</strong><small>{width} × {height} · {zones.length} element{zones.length === 1 ? "" : "s"}</small></div>
+          <span>{showFrameBuilder ? "FRAME PREVIEW" : selected.length ? `${selected.length} SELECTED` : "CLICK AN ELEMENT TO EDIT"}</span></div>
         <div ref={canvas} className={`layout-canvas ${snap ? "show-grid" : ""} ${hand ? "hand" : ""}`}
           style={{ width: `${zoom}%`, aspectRatio: aspect, background: showFrameBuilder ? frameColor : background, "--grid": `${grid}%` } as CSSProperties}
           onPointerDown={beginCanvasGesture}>
@@ -530,15 +553,24 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
         </div>
       </div>
       <aside className="layout-inspector">
-        <div className="layout-layer-heading"><strong>Layers</strong><span>{selected.length} selected</span></div>
-        <div className="layout-layers">{[...zones].sort((a,b) => b.zIndex-a.zIndex).map(zone => <div className={selected.includes(zone.id) ? "selected" : ""} key={zone.id}>
-          <button onClick={event => setSelected(event.metaKey || event.ctrlKey ? [...new Set([...selected, zone.id])] : [zone.id])}><i>{zone.hidden ? "○" : "●"}</i><span>{zone.title || zone.type}<small>{zone.type} · layer {zone.zIndex}{zone.groupId ? " · grouped" : ""}</small></span></button>
-          <button title="Move layer up" onClick={() => reorder(zone.id, 1)}>↑</button><button title="Move layer down" onClick={() => reorder(zone.id, -1)}>↓</button>
-        </div>)}</div>
-        {current ? <ZoneInspector zone={current} media={media} playlists={playlists} onPatch={values => patch(current.id, values)}
+        <div className="layout-inspector-tabs" role="tablist">
+          <button role="tab" aria-selected={inspectorTab === "properties"} className={inspectorTab === "properties" ? "active" : ""}
+            onClick={() => setInspectorTab("properties")}>Properties</button>
+          <button role="tab" aria-selected={inspectorTab === "layers"} className={inspectorTab === "layers" ? "active" : ""}
+            onClick={() => setInspectorTab("layers")}>Layers <span>{zones.length}</span></button>
+        </div>
+        {inspectorTab === "layers" && <><div className="layout-layer-heading"><strong>Canvas layers</strong><span>{selected.length} selected</span></div>
+          <div className="layout-layers">{[...zones].sort((a,b) => b.zIndex-a.zIndex).map(zone => <div className={selected.includes(zone.id) ? "selected" : ""} key={zone.id}>
+            <button aria-label={`Select ${zone.title || zone.type} layer`} onClick={event => {
+              setSelected(event.metaKey || event.ctrlKey ? [...new Set([...selected, zone.id])] : [zone.id]);
+              setInspectorTab("properties");
+            }}><i>{zone.hidden ? "○" : "●"}</i><span>{zone.title || zone.type}<small>{zone.type} · layer {zone.zIndex}{zone.groupId ? " · grouped" : ""}</small></span></button>
+            <button title="Move layer up" onClick={() => reorder(zone.id, 1)}>↑</button><button title="Move layer down" onClick={() => reorder(zone.id, -1)}>↓</button>
+          </div>)}</div></>}
+        {inspectorTab === "properties" && (current ? <ZoneInspector zone={current} media={media} playlists={playlists} onPatch={values => patch(current.id, values)}
           onDelete={() => { commit(zones.filter(zone => !selected.includes(zone.id))); setSelected([]); }}
           onDuplicate={() => { const copy = { ...current, id: id(), title: `${current.title || current.type} copy`, x: Math.min(95, current.x + 2), y: Math.min(95, current.y + 2), zIndex: zones.length + 1 }; commit([...zones, copy]); setSelected([copy.id]); }} /> :
-          <p className="studio-help">Select an element to edit its content, geometry, style, and locks.</p>}
+          <div className="studio-help inspector-empty"><i>✦</i><strong>Nothing selected</strong><p>Select an element on the canvas, or add one from the content panel.</p></div>)}
       </aside>
     </div>
     <div className="layout-editor-footer">
@@ -548,7 +580,6 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
       {layout && <label>Safely replace draft <select defaultValue="" onChange={event => void replaceFrom(event.target.value)}><option value="">Choose template…</option>{templates.filter(item => item.id !== layout.id).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>}
       <span className="toolbar-spacer" /><button className="button" onClick={() => setShowBrowserPreview(true)}>Browser preview</button>
       <a className="button" href="/display" target="_blank" rel="noreferrer">Open permanent browser display</a>
-      <button className="button" disabled={!!saving} onClick={() => void save(false)}>{saving === "draft" ? "Saving…" : "Save draft"}</button><button className="button primary" disabled={!!saving} onClick={() => void save(true)}>{saving === "publish" ? "Publishing & pushing…" : "Publish & push"}</button>
     </div>
     {showBrowserPreview && <StudioDialog title={`Browser preview · ${name}`} wide onClose={() => setShowBrowserPreview(false)}>
       <div className="browser-signage-preview" style={{ aspectRatio: aspect, background }}>
@@ -566,6 +597,22 @@ function LayoutEditor({ layout, templates, media, playlists, onClose, onSaved, n
         <a className="button primary" href="/display" target="_blank" rel="noreferrer">Pair a permanent browser display</a></div>
     </StudioDialog>}
   </StudioDialog>;
+}
+
+function zoneTypeIcon(type: string) {
+  return ({ text: "T", media: "▧", stream: "●", presentation: "▶", qr: "⌗", wifi: "⌁",
+    ticker: "↔", counter: "◷", clock: "◴", weather: "☀", calendar: "▦", rss: "≋",
+    webpage: "◎", customHtml: "</>" } as Record<string, string>)[type] || "+";
+}
+
+function zoneTypeDescription(type: string) {
+  return ({ text: "Headings, notices, and messages", media: "Images, logos, audio, and video",
+    stream: "HLS, RTMP, RTSP, or web streams", presentation: "A rotating signage playlist",
+    qr: "A scannable web destination", wifi: "Guest network access",
+    ticker: "A continuously scrolling message", counter: "One-time or weekly countdown",
+    clock: "Flexible time and date display", weather: "Local conditions and forecast",
+    calendar: "Upcoming events from an ICS feed", rss: "Headlines from an RSS feed",
+    webpage: "A live approved webpage", customHtml: "Sandboxed custom web content" } as Record<string, string>)[type] || "";
 }
 
 function ZoneVisual({ zone, media, playlists }: { zone: Zone; media: StudioMedia[]; playlists: StudioPlaylist[] }) {
@@ -958,6 +1005,6 @@ function EmergencyEditor({item,media,notify,onClose,onSaved}:{item?:Emergency;me
   return <StudioDialog title={item?`Edit ${item.name}`:"New emergency alert type"} onClose={onClose}><form className="studio-form" onSubmit={prepare}><label>Name<input name="name" required defaultValue={item?.name}/></label><label>Severity<select name="severity" defaultValue={item?.severity||"urgent"}><option>info</option><option>warning</option><option>urgent</option><option>critical</option></select></label><label>Message<textarea name="message" maxLength={2000} defaultValue={item?.message}/></label><div className="two-fields"><label>Background<input name="backgroundColor" type="color" defaultValue={item?.backgroundColor||"#9b1c1c"}/></label><label>Text<input name="textColor" type="color" defaultValue={item?.textColor||"#ffffff"}/></label></div><label>Offline alert media<select name="mediaAssetId" defaultValue={item?.mediaAssetId||""}><option value="">Text only</option>{media.filter(value=>value.sourceKind!=="link").map(value=><option value={value.id} key={value.id}>{value.fileName}</option>)}</select></label><label>Screen-tag groups<input name="targetTagsCsv" defaultValue={item?.targetTagsCsv} placeholder="campus-a, lobby"/></label><label>Default duration (minutes)<input name="duration" type="number" min="1" max="1440" defaultValue={item?.defaultDurationMinutes||30}/></label><div className="layout-editor-footer"><button type="button" onClick={onClose}>Cancel</button><button className="button primary">Review alert</button></div></form></StudioDialog>;
 }
 
-function StudioDialog({title,children,onClose,wide=false}:{title:string;children:ReactNode;onClose:()=>void;wide?:boolean}){
-  return <div className="studio-dialog-backdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}><section className={`studio-dialog ${wide?"wide":""}`} role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button onClick={onClose} aria-label="Close">×</button></header>{children}</section></div>;
+function StudioDialog({title,children,onClose,wide=false,workspace=false}:{title:string;children:ReactNode;onClose:()=>void;wide?:boolean;workspace?:boolean}){
+  return <div className={`studio-dialog-backdrop ${workspace ? "workspace" : ""}`} role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}><section className={`studio-dialog ${wide?"wide":""} ${workspace ? "studio-workspace" : ""}`} role="dialog" aria-modal="true" aria-label={title}><header><div><span>{workspace ? "SIGNAGE STUDIO" : "LESSONCUE"}</span><h2>{title}</h2></div><button onClick={onClose} aria-label="Close">×</button></header>{children}</section></div>;
 }
