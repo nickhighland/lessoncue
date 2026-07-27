@@ -110,6 +110,9 @@ public sealed class ManifestTests
         Assert.True(json.IndexOf("Urgent notice", StringComparison.Ordinal) < json.IndexOf("Lobby notice", StringComparison.Ordinal));
         Assert.True(json.IndexOf("Lobby notice", StringComparison.Ordinal) < json.IndexOf("Idle fallback", StringComparison.Ordinal));
         using var document = JsonDocument.Parse(json);
+        var manifestScreen = document.RootElement.GetProperty("screen");
+        Assert.False(manifestScreen.GetProperty("SignageOnly").GetBoolean());
+        Assert.False(manifestScreen.GetProperty("PermanentPairing").GetBoolean());
         var lobby = document.RootElement.GetProperty("signage").EnumerateArray().Single(item => item.GetProperty("Name").GetString() == "Lobby notice");
         var weather = lobby.GetProperty("zones").EnumerateArray().Single(zone => zone.GetProperty("Type").GetString() == "weather");
         Assert.Equal("72°", weather.GetProperty("cached").GetProperty("Text").GetString());

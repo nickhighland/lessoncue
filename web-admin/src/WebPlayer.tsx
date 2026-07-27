@@ -95,7 +95,7 @@ type SignageZone = {
 type SignagePlaylistEntry = { id: string; kind: string; title?: string; durationSeconds: number; transition?: string; hidden?: boolean; transparent?: boolean; sourceUrl?: string; appType?: string; media?: CueItem; layout?: { id: string; name: string; backgroundColor: string; canvasWidth: number; canvasHeight: number; safeAreaPercent: number; zones: SignageZone[]; backgroundAudio?: CueItem } };
 type Manifest = {
   manifestVersion: number;
-  screen: { id: string; name: string; volunteerMode: boolean; site: string };
+  screen: { id: string; name: string; volunteerMode: boolean; site: string; signageOnly?: boolean; permanentPairing?: boolean };
   signage: Signage[];
   signageSchedule?: Signage[];
   playlists: Playlist[];
@@ -513,6 +513,7 @@ export function WebPlayerApp() {
 
   const currentItem = active?.items[active.index];
   const nextItem = active && active.items[active.index + 1];
+  const permanentSign = Boolean(manifest?.screen.signageOnly && manifest.screen.permanentPairing);
   usePreload(nextItem);
 
   function report(next: PlaybackStatus) {
@@ -529,7 +530,7 @@ export function WebPlayerApp() {
     setConnectionMessage("");
   }} />;
 
-  return <main className={`web-player ${active ? "playing" : ""} ${new URLSearchParams(location.search).has("kiosk") ? "kiosk" : ""}`}>
+  return <main className={`web-player ${active ? "playing" : ""} ${permanentSign ? "permanent-sign" : ""} ${new URLSearchParams(location.search).has("kiosk") ? "kiosk" : ""}`}>
     {active && currentItem ? <PlaybackStage
       key={`${currentItem.itemId}-${active.seekMs}-${unlockNonce}`}
       playlist={active.playlist}
@@ -540,7 +541,8 @@ export function WebPlayerApp() {
       onStatus={report}
       onEnded={finishItem}
       onBlocked={() => setAutoplayBlocked(true)}
-    /> : <PlayerLibrary manifest={manifest} connection={connection} onPlay={playlist => startPlayback(playlist, playlist.items)} />}
+    /> : <PlayerLibrary manifest={manifest} connection={connection} permanentSign={permanentSign}
+      onPlay={playlist => startPlayback(playlist, playlist.items)} />}
 
     {active && controlsVisible && <div className="web-player-overlay">
       <div><span>{active.mode === "preroll" ? "PRE-ROLL" : active.mode === "countdown" ? "COUNTDOWN" : "NOW PLAYING"}</span><strong>{currentItem?.title}</strong><small>{active.playlist.title} · {active.index + 1} of {active.items.length}</small></div>
@@ -564,7 +566,7 @@ export function WebPlayerApp() {
       <i /> <span>{connectionLabel(connection)}</span>
       {connection !== "online" && connectionMessage && <small>{connectionMessage}</small>}
     </div>
-    {!active && <div className="web-player-actions">
+    {!active && !permanentSign && <div className="web-player-actions">
       <button onClick={() => void document.documentElement.requestFullscreen?.().catch(() => undefined)}>Enter full screen</button>
       <button onClick={() => forgetPairing()}>Unpair this browser</button>
     </div>}
@@ -636,7 +638,12 @@ function PairingScreen({ message, onPaired }: { message: string; onPaired: (iden
   </main>;
 }
 
-function PlayerLibrary({ manifest, connection, onPlay }: { manifest?: Manifest; connection: ConnectionState; onPlay: (playlist: Playlist) => void }) {
+function PlayerLibrary({ manifest, connection, permanentSign, onPlay }: {
+  manifest?: Manifest;
+  connection: ConnectionState;
+  permanentSign: boolean;
+  onPlay: (playlist: Playlist) => void;
+}) {
   const signage = manifest?.signage[0];
   const emergency = signage?.mode === "emergency";
   usePreload(signage?.media);
@@ -644,17 +651,25 @@ function PlayerLibrary({ manifest, connection, onPlay }: { manifest?: Manifest; 
   const signageMedia = signage?.media;
   const signageImage = signageMedia?.type === "image" || signageMedia?.contentType?.startsWith("image/");
   if (signage?.displayPower === "off") return <div className="signage-display-off" aria-label="Display power scheduled off" />;
+  const signageContent = signage ? <SignageExperience signage={signage}>{signage.zones?.length ? <SignageLayout signage={signage} /> : <section className="web-player-signage">
+    {signageMedia?.downloadUrl && (signageImage
+      ? <img src={signageMedia.downloadUrl} alt="" />
+      : signageMedia.type === "video" || signageMedia.contentType?.startsWith("video/")
+        ? <video src={signageMedia.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={signageMedia.title} />
+        : null)}
+    {!signageMedia && signage.mediaUrl && <img src={signage.mediaUrl} alt="" />}
+    <div><small>{signage.name}</small><h1>{signage.message}</h1></div>
+  </section>}</SignageExperience> : null;
+  if (permanentSign) return <div className="web-player-permanent-sign" data-display-mode="permanent-sign"
+    style={signage ? { backgroundColor: signage.backgroundColor, color: signage.textColor } : undefined}>
+    {signageContent || <section className="web-player-sign-empty" aria-live="polite">
+      <strong>{connection === "online" ? "Waiting for published signage" : "Connecting to LessonCue…"}</strong>
+      <span>Assign an active layout and playlist to this permanent sign.</span>
+    </section>}
+  </div>;
   return <div className="web-player-library" style={signage ? { backgroundColor: signage.backgroundColor, color: signage.textColor } : undefined}>
     <header><div className="web-player-brand"><img src="/lessoncue-icon.svg" alt="" aria-hidden="true" /><span><strong>{manifest?.screen.name || "LessonCue"}</strong><small>{manifest?.screen.site || "Browser display"}</small></span></div><span className="web-player-eyebrow">READY FOR PLAYBACK</span></header>
-    {signage ? <SignageExperience signage={signage}>{signage.zones?.length ? <SignageLayout signage={signage} /> : <section className="web-player-signage">
-      {signageMedia?.downloadUrl && (signageImage
-        ? <img src={signageMedia.downloadUrl} alt="" />
-        : signageMedia.type === "video" || signageMedia.contentType?.startsWith("video/")
-          ? <video src={signageMedia.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={signageMedia.title} />
-          : null)}
-      {!signageMedia && signage.mediaUrl && <img src={signage.mediaUrl} alt="" />}
-      <div><small>{signage.name}</small><h1>{signage.message}</h1></div>
-    </section>}</SignageExperience> : <section className="web-player-ready">
+    {signageContent || <section className="web-player-ready">
       <span>✓</span><h1>{connection === "online" ? "Ready for a lesson" : "Connecting to LessonCue…"}</h1>
       <p>Use the phone controller, select a lesson below, or wait for scheduled pre-roll and countdown media.</p>
     </section>}
