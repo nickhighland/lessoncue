@@ -8,6 +8,7 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   use: {
     baseURL: "http://127.0.0.1:5117",
+    actionTimeout: 10_000,
     trace: "retain-on-failure",
   },
   webServer: {

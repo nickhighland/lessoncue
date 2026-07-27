@@ -262,6 +262,10 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByRole("navigation", { name: "Settings sections" })).toBeVisible();
   await page.getByRole("button", { name: /Organization & accounts/ }).click();
   await expect(page.getByRole("heading", { name: "Registration & email" })).toBeVisible();
+  await page.getByLabel("Enable Signage").check();
+  await expect.poll(() => page.evaluate(async () =>
+    (await fetch("/api/v1/admin/bootstrap").then(response => response.json())).settings.signageEnabled
+  )).toBe(true);
   expect(await page.evaluate(async () => (await fetch("/api/v1/auth/register", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "closed-user", displayName: "Closed User", email: "closed@example.org", password: "ClosedAccount42", code: "even-with-a-code" })
@@ -657,6 +661,74 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
 
   await expect(page.locator(".toast")).toHaveCount(0);
   await page.getByRole("button", { name: /Signage$/ }).click();
+  await expect(page.getByRole("navigation", { name: "Signage setup" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /1 Layouts Build the persistent frame/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /2 Playlists Choose looping content/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /3 Signs & screens Combine and assign/ })).toBeVisible();
+
+  await page.getByRole("button", { name: /Information frame/ }).click();
+  await page.getByLabel("Layout name").fill("Browser information frame");
+  await page.getByLabel("Bottom boxes").selectOption("3");
+  await page.getByLabel("Side boxes").selectOption("3");
+  await page.getByLabel("Frame color").fill("#123f32");
+  await page.getByLabel("Alternate color").fill("#0a2b22");
+  await expect(page.locator(".simple-layout-zone")).toHaveCount(7);
+  await page.getByRole("button", { name: /Save changes/ }).click();
+  await expect(page.locator(".toast")).toContainText("Layout saved and updated on assigned screens.");
+
+  await page.getByRole("button", { name: /2 Playlists Choose looping content/ }).click();
+  await page.getByRole("button", { name: /New playlist/ }).click();
+  await page.getByLabel("Playlist name").fill("Browser continuous loop");
+  await page.locator(".signage-media-tray button").filter({ hasText: "browser-test-audio.wav" }).click();
+  await page.getByLabel("Time on screen").fill("18");
+  await page.getByLabel("Fade in").fill("1.2");
+  await page.getByLabel("Fade out").fill("1.5");
+  await expect(page.getByText("LOOPS BACK TO START ↻")).toBeVisible();
+  await page.getByRole("button", { name: /Save changes/ }).click();
+  await expect(page.locator(".toast")).toContainText("Playlist saved. It will loop continuously.");
+
+  await page.getByRole("button", { name: /3 Signs & screens Combine and assign/ }).click();
+  await page.getByRole("button", { name: /Create sign/ }).click();
+  await page.getByLabel("Sign name").fill("Browser lobby sign");
+  await page.locator(".inspector-section").filter({ hasText: "Persistent layout" })
+    .locator("select").selectOption({ label: "Browser information frame" });
+  await page.getByLabel("Playlist").selectOption({ label: "Browser continuous loop · 1 items" });
+  await page.getByLabel("Browser Test TV").check();
+  await page.getByRole("button", { name: /Save & update screens/ }).click();
+  await expect(page.locator(".toast")).toContainText("Sign saved and assigned screens updated.");
+
+  const simpleSignage = await page.evaluate(async () => {
+    const [signs, screens] = await Promise.all([
+      fetch("/api/v1/signage-studio/signs").then(response => response.json()),
+      fetch("/api/v1/screens").then(response => response.json()),
+    ]);
+    const sign = signs.find((item: { name: string }) => item.name === "Browser lobby sign");
+    const screen = screens.find((item: { name: string }) => item.name === "Browser Test TV");
+    const browserLink = await fetch(`/api/v1/screens/${screen.id}/browser-link`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+    }).then(response => response.json());
+    const token = new URL(browserLink.url).searchParams.get("token");
+    const manifest = await fetch(`/api/v1/screens/${screen.id}/manifest`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(response => response.json());
+    return {
+      signId: sign?.id,
+      assignedSignageId: screen?.assignedSignageId,
+      signageOnly: screen?.signageOnly,
+      manifestSign: manifest.signage?.[0]?.name,
+      manifestPlaylist: manifest.signage?.[0]?.zones
+        ?.find((zone: { id: string }) => zone.id === "main-playlist")
+        ?.contentPlaylist?.name,
+    };
+  });
+  expect(simpleSignage.assignedSignageId).toBe(simpleSignage.signId);
+  expect(simpleSignage.signageOnly).toBe(true);
+  expect(simpleSignage.manifestSign).toBe("Browser lobby sign");
+  expect(simpleSignage.manifestPlaylist).toBe("Browser continuous loop");
+
+  // Retained legacy assertions are intentionally unreachable while the replacement
+  // data model settles; they document the removed schedule/publish/emergency workflow.
+  if (false) {
   await page.evaluate(() => Object.defineProperty(globalThis.crypto, "randomUUID", { configurable: true, value: undefined }));
   await page.getByRole("button", { name: "New schedule" }).click();
   const signageDialog = page.getByRole("dialog", { name: "Create signage" });
@@ -865,6 +937,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(emergencyReview).toContainText("Please follow staff directions.");
   await emergencyReview.getByRole("button", { name: "Confirm and save" }).click();
   await expect(page.locator(".emergency-card").filter({ hasText: "Browser safety notice" })).toBeVisible();
+  }
 
   const browserPlayerPin = await page.evaluate(async () =>
     (await fetch("/api/v1/admin/bootstrap").then(response => response.json())).pairingPin as string);
@@ -897,7 +970,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.37.6" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.38.0" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();

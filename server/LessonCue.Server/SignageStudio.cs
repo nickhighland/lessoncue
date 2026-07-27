@@ -24,6 +24,23 @@ public static class SignageStudio
     public static string StoreItems(IEnumerable<SignageContentPlaylistItemInput>? items) =>
         JsonSerializer.Serialize((items ?? []).Take(500).Select(NormalizeItem).ToArray(), JsonOptions);
 
+    public static Dictionary<string, Guid> ParsePlaylistAssignments(string? json)
+    {
+        try
+        {
+            return (JsonSerializer.Deserialize<Dictionary<string, Guid>>(json ?? "{}", JsonOptions) ?? [])
+                .Where(entry => !string.IsNullOrWhiteSpace(entry.Key) && entry.Value != Guid.Empty)
+                .ToDictionary(entry => entry.Key.Trim(), entry => entry.Value, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (JsonException) { return []; }
+    }
+
+    public static string StorePlaylistAssignments(IReadOnlyDictionary<string, Guid>? assignments) =>
+        JsonSerializer.Serialize((assignments ?? new Dictionary<string, Guid>())
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Key) && entry.Value != Guid.Empty)
+            .Take(100).ToDictionary(entry => entry.Key.Trim(), entry => entry.Value,
+                StringComparer.OrdinalIgnoreCase), JsonOptions);
+
     public static bool ReferencesLayout(string? draftItemsJson, string? publishedItemsJson, Guid layoutId) =>
         ParseItems(draftItemsJson).Concat(ParseItems(publishedItemsJson))
             .Any(entry => entry.LayoutId == layoutId);
@@ -41,7 +58,11 @@ public static class SignageStudio
             SourceUrl = Truncate(item.SourceUrl, 2000),
             DurationSeconds = Math.Clamp(item.DurationSeconds, 1, 86400),
             Transition = item.Transition is "fade" or "slide" or "zoom" ? item.Transition : "cut",
-            TagsCsv = Truncate(item.TagsCsv, 2000)
+            TagsCsv = Truncate(item.TagsCsv, 2000),
+            VolumePercent = Math.Clamp(item.VolumePercent, 0, 100),
+            FadeInMs = Math.Clamp(item.FadeInMs, 0, 30000),
+            FadeOutMs = Math.Clamp(item.FadeOutMs, 0, 30000),
+            Fit = item.Fit is "cover" or "fill" ? item.Fit : "contain"
         };
     }
 

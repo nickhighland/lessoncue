@@ -40,18 +40,31 @@ public static class SeedData
         {
             var starters = new[]
             {
+                Starter("Full-screen playlist", "fullscreen", 1920, 1080, "#111816",
+                    [new("main-playlist", "presentation", "Main playlist", "Choose a playlist",
+                        X: 0, Y: 0, Width: 100, Height: 100, BackgroundColor: "#111816", Fit: "contain")]),
+                Starter("Information frame", "information-frame", 1920, 1080, "#26302d",
+                    [new("main-playlist", "presentation", "Main playlist", "Choose a playlist",
+                        X: 0, Y: 0, Width: 80, Height: 80, BackgroundColor: "#303331", Fit: "contain"),
+                     new("side-1", "text", "Sidebar", "Add a message", X: 80, Y: 0, Width: 20, Height: 40,
+                        BackgroundColor: "#063b27", FontSize: 34),
+                     new("side-2", "clock", "Time and date", X: 80, Y: 40, Width: 20, Height: 40,
+                        BackgroundColor: "#052c1e", TextAlign: "center"),
+                     new("bottom-1", "weather", "Weather", X: 0, Y: 80, Width: 20, Height: 20,
+                        BackgroundColor: "#052c1e", TextAlign: "center"),
+                     new("bottom-2", "wifi", "Guest Wi-Fi", X: 20, Y: 80, Width: 20, Height: 20,
+                        BackgroundColor: "#063b27", QrPlacement: "left"),
+                     new("bottom-3", "text", "News", "Add an update", X: 40, Y: 80, Width: 20, Height: 20,
+                        BackgroundColor: "#052c1e", FontSize: 30),
+                     new("bottom-4", "text", "Message", "Welcome", X: 60, Y: 80, Width: 20, Height: 20,
+                        BackgroundColor: "#063b27", FontSize: 30),
+                     new("bottom-5", "qr", "Learn more", QrValue: "https://lessoncue.local",
+                        X: 80, Y: 80, Width: 20, Height: 20, BackgroundColor: "#052c1e", QrPlacement: "left")]),
                 Starter("Welcome board", "welcome", 1920, 1080, "#25302d",
                     [new("welcome-title", "text", "Welcome", "Welcome", X: 8, Y: 12, Width: 84, Height: 30, FontSize: 96, TextAlign: "center"),
-                     new("welcome-clock", "clock", "Today", X: 30, Y: 57, Width: 40, Height: 22, FontSize: 54, TextAlign: "center")]),
-                Starter("Daily dashboard", "dashboard", 1920, 1080, "#17201e",
-                    [new("dashboard-title", "text", "Today", "Today at a glance", X: 4, Y: 4, Width: 92, Height: 18, FontSize: 64),
-                     new("dashboard-calendar", "calendar", "Schedule", X: 4, Y: 25, Width: 58, Height: 70),
-                     new("dashboard-weather", "weather", "Weather", X: 65, Y: 25, Width: 31, Height: 33),
-                     new("dashboard-clock", "clock", "Time", X: 65, Y: 61, Width: 31, Height: 34, TextAlign: "center")]),
-                Starter("Portrait announcements", "portrait", 1080, 1920, "#20242a",
-                    [new("portrait-title", "text", "Announcements", "Announcements", X: 7, Y: 5, Width: 86, Height: 15, FontSize: 72, TextAlign: "center"),
-                     new("portrait-media", "shape", "Feature area", X: 7, Y: 24, Width: 86, Height: 48, Shape: "rectangle", CornerRadius: 6),
-                     new("portrait-ticker", "ticker", "Updates", "Add timely updates here", X: 7, Y: 77, Width: 86, Height: 14, TickerSpeed: 50)])
+                     new("welcome-playlist", "presentation", "Feature playlist", "Choose a playlist",
+                        X: 8, Y: 48, Width: 60, Height: 42, BackgroundColor: "#17201e", Fit: "contain"),
+                     new("welcome-clock", "clock", "Today", X: 72, Y: 48, Width: 20, Height: 42, FontSize: 44, TextAlign: "center")])
             };
             db.SignageLayouts.AddRange(starters);
         }

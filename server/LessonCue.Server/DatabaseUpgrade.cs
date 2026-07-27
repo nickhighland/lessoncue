@@ -303,6 +303,7 @@ public static class DatabaseUpgrade
             ["Organizations.MediaTagsJson"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"MediaTagsJson\" TEXT NOT NULL DEFAULT '[\"Reusable\",\"Intro\",\"Outro\",\"Reference\"]'"),
             ["Organizations.SignageSourceAllowlistJson"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"SignageSourceAllowlistJson\" TEXT NOT NULL DEFAULT '[]'"),
             ["Organizations.SignageEnabled"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"SignageEnabled\" INTEGER NOT NULL DEFAULT 0"),
+            ["Organizations.SignageModelVersion"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"SignageModelVersion\" INTEGER NOT NULL DEFAULT 0"),
             ["Organizations.ControllerPinHash"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"ControllerPinHash\" TEXT NULL"),
             ["Organizations.RequireLocalRoomControllers"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"RequireLocalRoomControllers\" INTEGER NOT NULL DEFAULT 0"),
             ["Organizations.RegistrationMode"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"RegistrationMode\" TEXT NOT NULL DEFAULT 'closed'"),
@@ -425,6 +426,7 @@ public static class DatabaseUpgrade
             ["SignagePlaylists.WidgetCacheError"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"WidgetCacheError\" TEXT NULL"),
             ["SignagePlaylists.LayoutId"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"LayoutId\" TEXT NULL"),
             ["SignagePlaylists.ContentPlaylistId"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"ContentPlaylistId\" TEXT NULL"),
+            ["SignagePlaylists.ZonePlaylistAssignmentsJson"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"ZonePlaylistAssignmentsJson\" TEXT NOT NULL DEFAULT '{}'"),
             ["SignagePlaylists.VolumePercent"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"VolumePercent\" INTEGER NOT NULL DEFAULT 100"),
             ["SignagePlaylists.DisplayPower"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"DisplayPower\" TEXT NOT NULL DEFAULT 'unchanged'"),
             ["SignagePlaylists.Version"] = ("SignagePlaylists", "ALTER TABLE \"SignagePlaylists\" ADD COLUMN \"Version\" INTEGER NOT NULL DEFAULT 1"),
@@ -482,6 +484,7 @@ public static class DatabaseUpgrade
             ["Screens.ScreenshotRelativePath"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ScreenshotRelativePath\" TEXT NULL")
             , ["Screens.SignageOnly"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"SignageOnly\" INTEGER NOT NULL DEFAULT 0")
             , ["Screens.PermanentPairing"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"PermanentPairing\" INTEGER NOT NULL DEFAULT 0")
+            , ["Screens.AssignedSignageId"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"AssignedSignageId\" TEXT NULL")
         };
 
         foreach (var (key, addition) in additions)
@@ -490,6 +493,27 @@ public static class DatabaseUpgrade
             if (!await ColumnExistsAsync(connection, addition.Table, column, cancellationToken))
                 await ExecuteAsync(connection, addition.Sql, cancellationToken);
         }
+
+        // v0.38 replaces the scheduled/published signage model with reusable
+        // layouts, looping content playlists, signs, and one active sign per
+        // screen. The product owner explicitly chose to discard legacy signage
+        // configuration instead of carrying the previous model forward.
+        await ExecuteAsync(connection,
+            """
+            DELETE FROM "SignageProofRecords"
+             WHERE EXISTS (SELECT 1 FROM "Organizations" WHERE "SignageModelVersion" < 1);
+            DELETE FROM "SignageEmergencyTemplates"
+             WHERE EXISTS (SELECT 1 FROM "Organizations" WHERE "SignageModelVersion" < 1);
+            DELETE FROM "SignagePlaylists"
+             WHERE EXISTS (SELECT 1 FROM "Organizations" WHERE "SignageModelVersion" < 1);
+            DELETE FROM "SignageLayouts"
+             WHERE EXISTS (SELECT 1 FROM "Organizations" WHERE "SignageModelVersion" < 1);
+            DELETE FROM "SignageContentPlaylists"
+             WHERE EXISTS (SELECT 1 FROM "Organizations" WHERE "SignageModelVersion" < 1);
+            UPDATE "Screens" SET "AssignedSignageId" = NULL
+             WHERE EXISTS (SELECT 1 FROM "Organizations" WHERE "SignageModelVersion" < 1);
+            UPDATE "Organizations" SET "SignageModelVersion" = 1 WHERE "SignageModelVersion" < 1;
+            """, cancellationToken);
 
         // v0.37 introduces explicit service/app administrator tiers. Invalidate
         // existing cookies so the renamed role and its new permission ceiling

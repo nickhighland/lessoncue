@@ -27,6 +27,7 @@ public sealed class Organization
     // Signage is an optional, preview feature. Keep it off until a Service Admin
     // deliberately makes it available to this organization.
     public bool SignageEnabled { get; set; }
+    public int SignageModelVersion { get; set; }
     [JsonIgnore] public string? ControllerPinHash { get; set; }
     public bool RequireLocalRoomControllers { get; set; }
     [MaxLength(16)] public string RegistrationMode { get; set; } = "closed";
@@ -348,6 +349,7 @@ public sealed class Screen
     public bool Revoked { get; set; }
     public bool SignageOnly { get; set; }
     public bool PermanentPairing { get; set; }
+    public Guid? AssignedSignageId { get; set; }
     [MaxLength(32)] public string AppVersion { get; set; } = "unknown";
     public int ManifestVersion { get; set; }
     [MaxLength(500)] public string TagsCsv { get; set; } = "";
@@ -435,6 +437,7 @@ public sealed class SignagePlaylist
     [MaxLength(2000)] public string? WidgetCacheError { get; set; }
     public Guid? LayoutId { get; set; }
     public Guid? ContentPlaylistId { get; set; }
+    [MaxLength(12000)] public string ZonePlaylistAssignmentsJson { get; set; } = "{}";
     public int VolumePercent { get; set; } = 100;
     [MaxLength(16)] public string DisplayPower { get; set; } = "unchanged";
     public int Version { get; set; } = 1;
@@ -662,6 +665,7 @@ public sealed record OrganizationInput(string Name, string SiteName, string Time
     bool? AdaptiveTranscodingEnabled = null, int? TranscodeLeadDays = null,
     bool? RequireLocalRoomControllers = null, bool? HardwareAccelerationEnabled = null,
     List<string>? SignageSourceAllowlist = null, bool? SignageEnabled = null);
+public sealed record SignageAvailabilityInput(bool Enabled);
 public sealed record StorageLimitInput(long LimitBytes);
 public sealed record LocalHostnameInput(string Hostname);
 public sealed record HttpPortInput(int Port);
@@ -703,9 +707,14 @@ public sealed record SignageLayoutSavePublishInput(Guid? Id, SignageLayoutResour
 public sealed record SignageContentPlaylistItemInput(string Id, string Kind, string? Title = null,
     Guid? LayoutId = null, Guid? MediaAssetId = null, Guid? NestedPlaylistId = null,
     string? AppType = null, string? SourceUrl = null, int DurationSeconds = 10,
-    string? Transition = null, bool Hidden = false, bool Transparent = false, string? TagsCsv = null);
+    string? Transition = null, bool Hidden = false, bool Transparent = false, string? TagsCsv = null,
+    int VolumePercent = 100, bool Muted = false, int FadeInMs = 0, int FadeOutMs = 0,
+    string? Fit = null);
 public sealed record SignageContentPlaylistInput(string Name, string? Folder, string? PlaybackMode,
     string? Synchronization, List<SignageContentPlaylistItemInput>? Items);
+public sealed record SignagePlaylistSaveInput(Guid? Id, SignageContentPlaylistInput Playlist);
+public sealed record SignageSignInput(string Name, Guid LayoutId,
+    Dictionary<string, Guid>? PlaylistAssignments, List<Guid>? ScreenIds);
 public sealed record SignagePublishInput(bool PushToScreens = true);
 public sealed record SignageBulkAssignmentInput(List<Guid>? SignageIds, List<Guid>? ScreenIds,
     string? TargetTagsCsv, bool Publish = true);

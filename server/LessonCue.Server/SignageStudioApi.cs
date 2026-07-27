@@ -165,7 +165,7 @@ public static class SignageStudioApi
             if (await db.SignagePlaylists.AnyAsync(x => x.LayoutId == id, ct) ||
                 playlistItems.Any(value => SignageStudio.ReferencesLayout(
                     value.DraftItemsJson, value.PublishedItemsJson, id)))
-                return Results.Conflict(new { error = "This layout is assigned to signage or a playlist. Replace those references before deleting it." });
+                return Results.Conflict(new { error = "This layout is used by a Sign or playlist. Choose a different layout there before deleting it." });
             db.SignageLayouts.Remove(item);
             Audit(db, "signage.layout.delete", item.Id, item.Name);
             await db.SaveChangesAsync(ct);
@@ -201,6 +201,24 @@ public static class SignageStudioApi
             return Results.Ok(SignageStudio.MapPlaylist(item));
         });
 
+        planning.MapPost("/playlists/save", async (SignagePlaylistSaveInput input, LessonCueDb db,
+            IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            var error = await ValidatePlaylistAsync(input.Playlist, input.Id, db, ct);
+            if (error is not null) return Results.BadRequest(new { error });
+            var item = input.Id is { } id
+                ? await db.SignageContentPlaylists.FindAsync([id], ct)
+                : new SignageContentPlaylist { Name = input.Playlist.Name.Trim(), Version = 0 };
+            if (item is null) return Results.NotFound();
+            if (input.Id is null) db.SignageContentPlaylists.Add(item);
+            SignageStudio.ApplyPlaylist(item, input.Playlist);
+            SignageStudio.Publish(item);
+            Audit(db, "signage.playlist.save", item.Id, $"{item.Name} v{item.PublishedVersion}");
+            await db.SaveChangesAsync(ct);
+            await Invalidate(hub, item.PublishedVersion, ct);
+            return Results.Ok(SignageStudio.MapPlaylist(item));
+        });
+
         planning.MapPost("/playlists/{id:guid}/publish", async (Guid id, SignagePublishInput input, LessonCueDb db,
             IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
@@ -233,11 +251,79 @@ public static class SignageStudioApi
         {
             var item = await db.SignageContentPlaylists.FindAsync([id], ct);
             if (item is null) return Results.NotFound();
-            if (await db.SignagePlaylists.AnyAsync(x => x.ContentPlaylistId == id, ct))
-                return Results.Conflict(new { error = "This playlist is assigned to a signage schedule." });
+            var signs = await db.SignagePlaylists.AsNoTracking().Where(value => value.Mode == "sign")
+                .Select(value => value.ZonePlaylistAssignmentsJson).ToListAsync(ct);
+            if (await db.SignagePlaylists.AnyAsync(x => x.ContentPlaylistId == id, ct) ||
+                signs.Any(assignments => SignageStudio.ParsePlaylistAssignments(assignments).Values.Contains(id)))
+                return Results.Conflict(new { error = "This playlist is used by a Sign. Choose a different playlist there before deleting it." });
             db.SignageContentPlaylists.Remove(item);
             Audit(db, "signage.content-playlist.delete", item.Id, item.Name);
             await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        });
+
+        api.MapGet("/signs", async (LessonCueDb db, CancellationToken ct) =>
+        {
+            var layouts = await db.SignageLayouts.AsNoTracking().ToDictionaryAsync(item => item.Id, ct);
+            var screens = await db.Screens.AsNoTracking().Where(item => !item.Revoked)
+                .OrderBy(item => item.Name).ToListAsync(ct);
+            var signs = await db.SignagePlaylists.AsNoTracking().Where(item => item.Mode == "sign")
+                .OrderBy(item => item.Name).ToListAsync(ct);
+            return Results.Ok(signs.Select(item => new
+            {
+                item.Id, item.Name, item.LayoutId,
+                layoutName = item.LayoutId is { } layoutId && layouts.TryGetValue(layoutId, out var layout)
+                    ? layout.Name : "Missing layout",
+                playlistAssignments = SignageStudio.ParsePlaylistAssignments(item.ZonePlaylistAssignmentsJson),
+                screenIds = screens.Where(screen => screen.AssignedSignageId == item.Id).Select(screen => screen.Id).ToArray(),
+                screenNames = screens.Where(screen => screen.AssignedSignageId == item.Id).Select(screen => screen.Name).ToArray(),
+                item.Version, item.UpdatedAt
+            }));
+        });
+
+        planning.MapPost("/signs", async (SignageSignInput input, LessonCueDb db,
+            IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            var error = await ValidateSignAsync(input, db, ct);
+            if (error is not null) return Results.BadRequest(new { error });
+            var item = new SignagePlaylist { Name = input.Name.Trim(), Mode = "sign" };
+            await ApplySignAsync(item, input, db, ct);
+            db.SignagePlaylists.Add(item);
+            Audit(db, "signage.sign.create", item.Id, item.Name);
+            await db.SaveChangesAsync(ct);
+            await Invalidate(hub, item.Version, ct);
+            return Results.Created($"/api/v1/signage-studio/signs/{item.Id}", new { item.Id });
+        });
+
+        planning.MapPut("/signs/{id:guid}", async (Guid id, SignageSignInput input, LessonCueDb db,
+            IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            var item = await db.SignagePlaylists.SingleOrDefaultAsync(value => value.Id == id && value.Mode == "sign", ct);
+            if (item is null) return Results.NotFound();
+            var error = await ValidateSignAsync(input, db, ct);
+            if (error is not null) return Results.BadRequest(new { error });
+            await ApplySignAsync(item, input, db, ct);
+            Audit(db, "signage.sign.update", item.Id, item.Name);
+            await db.SaveChangesAsync(ct);
+            await Invalidate(hub, item.Version, ct);
+            return Results.Ok(new { item.Id });
+        });
+
+        planning.MapDelete("/signs/{id:guid}", async (Guid id, LessonCueDb db,
+            IHubContext<SyncHub> hub, CancellationToken ct) =>
+        {
+            var item = await db.SignagePlaylists.SingleOrDefaultAsync(value => value.Id == id && value.Mode == "sign", ct);
+            if (item is null) return Results.NotFound();
+            var screens = await db.Screens.Where(screen => screen.AssignedSignageId == id).ToListAsync(ct);
+            foreach (var screen in screens)
+            {
+                screen.AssignedSignageId = null;
+                screen.SignageOnly = false;
+            }
+            db.SignagePlaylists.Remove(item);
+            Audit(db, "signage.sign.delete", item.Id, item.Name);
+            await db.SaveChangesAsync(ct);
+            await Invalidate(hub, 0, ct);
             return Results.NoContent();
         });
 
@@ -564,6 +650,71 @@ public static class SignageStudioApi
                     .Append(Csv(record.Event)).Append(',').Append(Csv(record.Error)).Append("\r\n");
             return Results.Text(csv.ToString(), "text/csv; charset=utf-8");
         });
+    }
+
+    private static async Task<string?> ValidateSignAsync(SignageSignInput input, LessonCueDb db,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(input.Name)) return "Sign name is required.";
+        if (input.Name.Trim().Length > 160) return "Sign name must be 160 characters or fewer.";
+        var layout = await db.SignageLayouts.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.Id == input.LayoutId && item.PublishedVersion > 0, ct);
+        if (layout is null) return "Choose an existing layout.";
+        var presentationZoneIds = SignageLayout.ParseZones(layout.PublishedZonesJson)
+            .Where(zone => zone.Type == "presentation").Select(zone => zone.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var assignments = input.PlaylistAssignments ?? [];
+        if (assignments.Keys.Any(zoneId => !presentationZoneIds.Contains(zoneId)))
+            return "A playlist was assigned to an element that is not part of this layout.";
+        var playlistIds = assignments.Values.Where(value => value != Guid.Empty).Distinct().ToArray();
+        if (playlistIds.Length > 0 && await db.SignageContentPlaylists.CountAsync(
+                playlist => playlistIds.Contains(playlist.Id) && playlist.PublishedVersion > 0, ct) != playlistIds.Length)
+            return "One or more selected playlists no longer exists.";
+        var screenIds = (input.ScreenIds ?? []).Distinct().ToArray();
+        if (screenIds.Length > 0 && await db.Screens.CountAsync(
+                screen => screenIds.Contains(screen.Id) && !screen.Revoked, ct) != screenIds.Length)
+            return "One or more selected screens no longer exists.";
+        return null;
+    }
+
+    private static async Task ApplySignAsync(SignagePlaylist item, SignageSignInput input, LessonCueDb db,
+        CancellationToken ct)
+    {
+        item.Name = input.Name.Trim();
+        item.Mode = "sign";
+        item.Enabled = true;
+        item.LayoutId = input.LayoutId;
+        item.ContentPlaylistId = null;
+        item.ZonePlaylistAssignmentsJson = SignageStudio.StorePlaylistAssignments(input.PlaylistAssignments);
+        item.StartsAt = null;
+        item.EndsAt = null;
+        item.Recurrence = "once";
+        item.TargetTagsCsv = "";
+        item.TargetScreenIdsJson = "[]";
+        item.Version++;
+        item.PublishedVersion = item.Version;
+        item.PublishState = "published";
+        item.PublishedAt = DateTimeOffset.UtcNow;
+        item.LastPushedAt = DateTimeOffset.UtcNow;
+        item.UpdatedAt = DateTimeOffset.UtcNow;
+
+        var selectedIds = (input.ScreenIds ?? []).Distinct().ToHashSet();
+        var affected = await db.Screens.Where(screen =>
+            screen.AssignedSignageId == item.Id || selectedIds.Contains(screen.Id)).ToListAsync(ct);
+        foreach (var screen in affected)
+        {
+            if (selectedIds.Contains(screen.Id))
+            {
+                screen.AssignedSignageId = item.Id;
+                screen.SignageOnly = true;
+                screen.AssignedClassId = null;
+            }
+            else
+            {
+                screen.AssignedSignageId = null;
+                screen.SignageOnly = false;
+            }
+        }
     }
 
     private static async Task<string?> ValidatePlaylistAsync(SignageContentPlaylistInput input, Guid? currentId,

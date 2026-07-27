@@ -133,10 +133,12 @@ public sealed class SignageLayoutTests
     }
 
     [Fact]
-    public void WeatherPresetsRequireCoordinatesAndCustomSourcesRemainAllowlisted()
+    public void WeatherPresetsAllowPlaceholdersButValidateStartedLocationsAndCustomSources()
     {
         var preset = new SignageZoneInput("weather", "weather", WeatherProvider: "open-meteo");
-        Assert.Contains("latitude and longitude", SignageLayout.Validate([preset], []));
+        Assert.Null(SignageLayout.Validate([preset], []));
+        var incomplete = preset with { WeatherLatitude = 48.7 };
+        Assert.Contains("latitude and longitude", SignageLayout.Validate([incomplete], []));
         var custom = new SignageZoneInput("weather", "weather", SourceUrl: "https://weather.example/data",
             WeatherProvider: "custom");
         Assert.Contains("Approve https://weather.example", SignageLayout.Validate([custom], []));
@@ -169,14 +171,16 @@ public sealed class SignageLayoutTests
     }
 
     [Fact]
-    public void PresentationRequiresAPlaylistOrLiveStream()
+    public void PresentationAllowsAPlaceholderAndValidatesAnyLiveStream()
     {
-        Assert.Contains("signage playlist or configure a live-stream override",
-            SignageLayout.Validate([new SignageZoneInput("main", "presentation")], []));
+        Assert.Null(SignageLayout.Validate([new SignageZoneInput("main", "presentation")], []));
         Assert.Null(SignageLayout.Validate([new SignageZoneInput("main", "presentation",
             ContentPlaylistId: Guid.NewGuid())], []));
         Assert.Null(SignageLayout.Validate([new SignageZoneInput("main", "presentation",
             SourceUrl: "rtmp://camera.example.org/live")], []));
+        Assert.Contains("live overrides require",
+            SignageLayout.Validate([new SignageZoneInput("main", "presentation",
+                SourceUrl: "not-a-stream")], []));
     }
 
     [Fact]

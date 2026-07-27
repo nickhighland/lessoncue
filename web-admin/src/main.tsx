@@ -18,6 +18,7 @@ import {
   SignageStudioPanel,
   SignageStudioSection,
 } from "./SignageStudio";
+import { SimpleSignage } from "./SimpleSignage";
 import "./styles.css";
 
 type Permission =
@@ -407,6 +408,7 @@ type Screen = {
   screenshotExpiresAt?: string;
   signageOnly?: boolean;
   permanentPairing?: boolean;
+  assignedSignageId?: string;
   screenshotStatus: string;
   screenshotCapturedAt?: string;
   screenshotAvailable: boolean;
@@ -2039,14 +2041,9 @@ function Shell({
                 />
               )}
               {view === "signage" && bootstrap?.settings.signageEnabled && (
-                <SignageView
-                  signage={signage}
+                <SimpleSignage
                   media={media}
                   screens={screens}
-                  timeZone={bootstrap.timeZone || "UTC"}
-                  sourceAllowlist={parseStringArray(
-                    bootstrap.settings.signageSourceAllowlistJson,
-                  )}
                   refresh={refresh}
                   notify={setNotice}
                 />
@@ -11481,6 +11478,9 @@ function Settings({
   const [hardwareAcceleration, setHardwareAcceleration] = useState(
     bootstrap.settings.hardwareAccelerationEnabled,
   );
+  const [signageEnabled, setSignageEnabled] = useState(
+    bootstrap.settings.signageEnabled,
+  );
   const [checkingHardware, setCheckingHardware] = useState(false);
   const [mediaFolders, setMediaFolders] = useState(
     bootstrap.mediaTaxonomy.folders.join("\n"),
@@ -11549,6 +11549,22 @@ function Settings({
       });
       refresh();
       notify("Organization settings saved.");
+    } catch (e) {
+      notify(errorText(e));
+    }
+  }
+  async function saveSignageAvailability(enabled: boolean) {
+    try {
+      await api("/api/v1/organization/signage-availability", {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      });
+      refresh();
+      notify(
+        enabled
+          ? "Signage enabled."
+          : "Signage disabled and hidden from users.",
+      );
     } catch (e) {
       notify(errorText(e));
     }
@@ -12164,12 +12180,14 @@ function Settings({
         <section className="panel settings-panel settings-accounts">
           <h2>Preview features</h2>
           <p className="settings-copy">Choose which optional features are available to your organization.</p>
-          <form className="stack" onSubmit={saveOrganization}>
-            <label className="check-row"><input name="signageEnabled" type="checkbox" defaultChecked={o.signageEnabled} /> Enable Signage</label>
+          <div className="stack">
+            <label className="check-row"><input type="checkbox" checked={signageEnabled} onChange={(event) => {
+              const enabled = event.target.checked;
+              setSignageEnabled(enabled);
+              void saveSignageAvailability(enabled);
+            }} /> Enable Signage</label>
             <p className="settings-copy">Signage is currently a preview feature. When it is off, its navigation, editor, APIs, and display output are unavailable while existing sign data remains safely stored.</p>
-            <input name="name" type="hidden" value={o.name} readOnly /><input name="siteName" type="hidden" value={o.siteName} readOnly /><input name="timeZone" type="hidden" value={o.timeZone} readOnly /><input name="weekStartsOn" type="hidden" value={o.weekStartsOn} readOnly /><input name="welcomeMessage" type="hidden" value={o.welcomeMessage} readOnly /><input name="defaultLessonDurationMinutes" type="hidden" value={o.defaultLessonDurationMinutes} readOnly /><input name="defaultRetentionDays" type="hidden" value={o.defaultRetentionDays} readOnly /><input name="primaryColor" type="hidden" value={o.primaryColor} readOnly /><input name="accentColor" type="hidden" value={o.accentColor} readOnly /><input name="navigationTextColor" type="hidden" value={o.navigationTextColor} readOnly /><input name="selectedTabColor" type="hidden" value={o.selectedTabColor} readOnly /><textarea name="signageSourceAllowlist" className="sr-only" defaultValue={parseStringArray(o.signageSourceAllowlistJson).join("\n")} />
-            <button className="button primary">Save feature availability</button>
-          </form>
+          </div>
         </section>
       )}
       {canServiceSettings && (
