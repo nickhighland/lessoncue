@@ -1288,9 +1288,15 @@ function SignageView({ signage, media, screens, timeZone, sourceAllowlist, refre
   }
   return <><PageHead eyebrow="SIGNAGE STUDIO" title="Signage" detail={`Layouts, playlists, schedules, publishing, emergency alerts, and screen health · ${timeZone}`} action={section === "schedule" ? <button className="button primary" onClick={() => { setEditingOccurrenceDate(undefined); setEditing("new"); }}>New schedule</button> : undefined} />
     <nav className="signage-studio-tabs" aria-label="Signage Studio sections">{([
-      ["layouts", "Layouts"], ["playlists", "Playlists"], ["schedule", "Calendar"], ["publishing", "Publishing"],
-      ["operations", "Operations"], ["emergencies", "Emergency"]
-    ] as [SignageStudioSection, string][]).map(([value, label]) => <button key={value} className={section === value ? "active" : ""} onClick={() => setSection(value)}>{label}</button>)}</nav>
+      ["layouts", "▦", "Layouts", "Design reusable screens"],
+      ["playlists", "▶", "Playlists", "Sequence layouts and media"],
+      ["schedule", "◷", "Calendar", "Choose what plays and when"],
+      ["publishing", "↑", "Publishing", "Assign and deliver content"],
+      ["operations", "✓", "Operations", "Monitor screens and playback"],
+      ["emergencies", "!", "Emergency", "Send an immediate alert"]
+    ] as [SignageStudioSection, string, string, string][]).map(([value, icon, label, detail]) =>
+      <button key={value} className={section === value ? "active" : ""} aria-label={label} aria-current={section === value ? "page" : undefined}
+        onClick={() => setSection(value)}><i aria-hidden="true">{icon}</i><span><strong>{label}</strong><small>{detail}</small></span></button>)}</nav>
     {section !== "schedule" && <SignageStudioPanel section={section} media={media} screens={screens} signage={signage} timeZone={timeZone} sourceAllowlist={sourceAllowlist} refresh={refresh} notify={notify} />}
     {section === "schedule" && <>
     <SignageCalendarBoard signage={signage} timeZone={timeZone} onEdit={(id, occurrenceDate) => { const item = signage.find(value => value.id === id); if (item) { setEditingOccurrenceDate(occurrenceDate); setEditing(item); } }} />
