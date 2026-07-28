@@ -340,3 +340,41 @@ input:focus,select:focus,textarea:focus { border-color:var(--gold); box-shadow:0
 .calendar-toolbar { display:flex; align-items:center; justify-content:space-between; gap:15px; margin-bottom:16px; padding:10px; }.calendar-view-tabs,.calendar-navigation { display:flex; gap:5px; }.calendar-view-tabs button,.calendar-navigation button { border:1px solid var(--line); border-radius:7px; padding:8px 10px; color:var(--ink); background:#fff; font-size:9px; font-weight:800; cursor:pointer; }.calendar-view-tabs button.active { border-color:var(--green); color:#fff; background:var(--green); }.calendar-navigation input { min-width:145px; padding:7px; }.calendar-lesson.conflict { border-color:#df8c6b!important; box-shadow:inset 4px 0 #d36843; }.calendar-meta b { color:#a34424; font-size:8px; }.calendar-week { display:grid; grid-template-columns:repeat(7,minmax(110px,1fr)); overflow-x:auto; padding:0; }.calendar-week>div { min-height:420px; border-right:1px solid var(--line); padding:8px; }.calendar-week>div>header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; color:var(--muted); }.calendar-week>div.today>header { color:var(--green); }.calendar-lesson.compact { display:block; margin-bottom:6px; border:1px solid var(--line); border-radius:7px; padding:8px; background:#fff; }.calendar-lesson.compact strong,.calendar-lesson.compact small { display:block; }.calendar-lesson.compact strong { font-size:9px; }.calendar-lesson.compact small,.calendar-lesson.compact .calendar-meta { margin-top:3px; font-size:7px; }.calendar-month { display:grid; grid-template-columns:repeat(7,minmax(105px,1fr)); overflow-x:auto; padding:0; }.calendar-weekday { padding:9px; color:var(--muted); font-size:8px; text-align:center; }.calendar-month>div { min-height:115px; border-top:1px solid var(--line); border-right:1px solid var(--line); padding:7px; }.calendar-month>div.outside { background:#f5f5f2; opacity:.58; }.calendar-month>div.today>span { display:grid; place-items:center; width:23px; height:23px; border-radius:50%; color:#fff; background:var(--green); }.calendar-month>div>span { display:block; margin-bottom:5px; font-size:9px; font-weight:900; }.calendar-rooms { display:grid; gap:16px; }
 @media (max-width:760px) { .calendar-toolbar { align-items:stretch; flex-direction:column; }.calendar-view-tabs { overflow-x:auto; }.calendar-view-tabs button { flex:1 0 auto; }.calendar-navigation { display:grid; grid-template-columns:auto 1fr auto; }.calendar-navigation input { grid-column:1/-1; grid-row:1; }.run-timing-summary { grid-template-columns:1fr; } }
 @media print { body { background:#fff!important; } body * { visibility:hidden!important; } .run-sheet,.run-sheet * { visibility:visible!important; } .run-sheet { position:absolute; inset:0; width:100%; padding:0; } .modal-backdrop:has(.run-sheet) { position:absolute; display:block; inset:0; padding:0; background:#fff; } .modal:has(.run-sheet) { width:100%; max-height:none; overflow:visible; border:0; box-shadow:none; } .modal:has(.run-sheet)>.modal-head,.no-print { display:none!important; } }
+
+/* Signage element containment: these values are shared with the simplified editor. */
+.web-player-signage-zone { box-sizing:border-box; }
+.web-player-signage-zone>img,
+.web-player-signage-zone>video {
+  inset:var(--signage-zone-padding,0);
+  width:calc(100% - (2 * var(--signage-zone-padding,0)));
+  height:calc(100% - (2 * var(--signage-zone-padding,0)));
+  object-fit:contain;
+  transform:scale(var(--signage-content-scale,1));
+  transform-origin:center;
+}
+.web-player-zone-copy {
+  min-width:0;
+  min-height:0;
+  box-sizing:border-box;
+  padding:var(--signage-zone-padding,clamp(8px,1vw,18px));
+  transform:scale(var(--signage-content-scale,1));
+  transform-origin:center;
+}
+.web-player-signage-zone.align-top .web-player-zone-copy { justify-content:flex-start; }
+.web-player-signage-zone.align-bottom .web-player-zone-copy { justify-content:flex-end; }
+.web-player-zone-copy small {
+  max-width:100%;
+  overflow:hidden;
+  font-size:.42em;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.web-player-zone-copy strong {
+  max-width:100%;
+  overflow-wrap:anywhere;
+  font:inherit;
+  line-height:inherit;
+}
+.web-player-zone-copy b { max-width:100%; font:inherit; line-height:1; }
+.web-player-zone-copy>span { font-size:.7em; }
+.web-player-zone-copy ul { max-height:100%; font-size:.62em; }

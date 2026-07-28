@@ -96,7 +96,10 @@ public static class SignageLayout
             WeatherUnits = type == "weather" ? zone.WeatherUnits == "celsius" ? "celsius" : "fahrenheit" : null,
             WeatherFields = type == "weather" ? NormalizeWeatherFields(zone.WeatherFields) : null,
             ContentPlaylistId = type == "presentation" ? zone.ContentPlaylistId : null,
-            StreamOverrideWhenLive = type == "presentation" && zone.StreamOverrideWhenLive
+            StreamOverrideWhenLive = type == "presentation" && zone.StreamOverrideWhenLive,
+            ContentPadding = Math.Clamp(zone.ContentPadding, 0, 30),
+            ContentScale = Math.Clamp(zone.ContentScale, 25, 100),
+            VerticalAlign = zone.VerticalAlign is "top" or "bottom" ? zone.VerticalAlign : "middle"
         };
     }
 

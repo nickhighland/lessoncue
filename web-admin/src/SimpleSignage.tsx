@@ -67,6 +67,9 @@ type Zone = {
   weatherUnits?: string;
   weatherFields?: string;
   contentPlaylistId?: string;
+  contentPadding?: number;
+  contentScale?: number;
+  verticalAlign?: string;
 };
 
 type Layout = {
@@ -164,6 +167,9 @@ function zone(type: string, zoneId = id("element")): Zone {
     lineHeightPercent: 120,
     textAlign: "left",
     cornerRadius: 0,
+    contentPadding: 6,
+    contentScale: 100,
+    verticalAlign: "middle",
   };
   if (type === "presentation") common.content = "Choose a playlist";
   if (type === "weather") {
@@ -977,11 +983,38 @@ function LayoutPreview({
                     | "left"
                     | "center"
                     | "right",
+                  fontFamily: item.fontFamily,
+                  fontSize: `${Math.max(8, item.fontSize || 34) / 2.4}px`,
+                  fontWeight: item.fontWeight,
+                  fontStyle: item.italic ? "italic" : undefined,
+                  textDecoration: item.underline ? "underline" : undefined,
+                  lineHeight: (item.lineHeightPercent || 120) / 100,
+                  padding: `${item.contentPadding ?? 6}%`,
+                  ["--simple-zone-padding" as string]:
+                    `${item.contentPadding ?? 6}%`,
+                  ["--simple-content-scale" as string]:
+                    (item.contentScale || 100) / 100,
+                  ["--simple-vertical-align" as string]:
+                    item.verticalAlign === "top"
+                      ? "start"
+                      : item.verticalAlign === "bottom"
+                        ? "end"
+                        : "center",
                 }}
                 onClick={() => onSelect?.(item.id)}
               >
                 {asset?.thumbnailUrl && (
-                  <img src={asset.thumbnailUrl} alt="" />
+                  <img
+                    src={asset.thumbnailUrl}
+                    alt=""
+                    style={{
+                      objectFit: item.fit as
+                        | "contain"
+                        | "cover"
+                        | "fill",
+                      transform: `scale(${(item.contentScale || 100) / 100})`,
+                    }}
+                  />
                 )}
                 {item.type === "presentation" ? (
                   <div className="preview-presentation">
@@ -1003,8 +1036,20 @@ function LayoutPreview({
                   </div>
                 ) : item.type === "clock" ? (
                   <div className="preview-clock">
-                    <strong>9:41</strong>
-                    <small>Monday, July 27</small>
+                    <strong
+                      style={{
+                        fontSize: `${Math.max(8, item.clockTimeFontSize || 54) / 2.4}px`,
+                      }}
+                    >
+                      9:41
+                    </strong>
+                    <small
+                      style={{
+                        fontSize: `${Math.max(8, item.clockDateFontSize || 25) / 2.4}px`,
+                      }}
+                    >
+                      Monday, July 27
+                    </small>
                   </div>
                 ) : item.type === "qr" || item.type === "wifi" ? (
                   <div className={`preview-qr align-${item.qrPlacement || "left"}`}>
@@ -1367,6 +1412,142 @@ function LayoutInspector({
               </select>
             </label>
           </div>
+          <div className="two-control">
+            <label>
+              Inner padding
+              <div className="range-value">
+                <input
+                  type="range"
+                  min="0"
+                  max="30"
+                  value={selected.contentPadding ?? 6}
+                  onChange={(event) =>
+                    updateZone({ contentPadding: Number(event.target.value) })
+                  }
+                />
+                <span>{selected.contentPadding ?? 6}%</span>
+              </div>
+            </label>
+            <label>
+              Content size
+              <div className="range-value">
+                <input
+                  type="range"
+                  min="25"
+                  max="100"
+                  step="5"
+                  value={selected.contentScale ?? 100}
+                  onChange={(event) =>
+                    updateZone({ contentScale: Number(event.target.value) })
+                  }
+                />
+                <span>{selected.contentScale ?? 100}%</span>
+              </div>
+            </label>
+          </div>
+          <div className="two-control">
+            <label>
+              Vertical position
+              <select
+                value={selected.verticalAlign || "middle"}
+                onChange={(event) =>
+                  updateZone({ verticalAlign: event.target.value })
+                }
+              >
+                <option value="top">Top</option>
+                <option value="middle">Middle</option>
+                <option value="bottom">Bottom</option>
+              </select>
+            </label>
+            <label>
+              Line spacing
+              <select
+                value={selected.lineHeightPercent || 120}
+                onChange={(event) =>
+                  updateZone({ lineHeightPercent: Number(event.target.value) })
+                }
+              >
+                <option value="90">Tight</option>
+                <option value="110">Compact</option>
+                <option value="120">Normal</option>
+                <option value="150">Relaxed</option>
+              </select>
+            </label>
+          </div>
+          <div className="two-control">
+            <label>
+              Text weight
+              <select
+                value={selected.fontWeight || 600}
+                onChange={(event) =>
+                  updateZone({ fontWeight: Number(event.target.value) })
+                }
+              >
+                <option value="400">Regular</option>
+                <option value="600">Semibold</option>
+                <option value="700">Bold</option>
+                <option value="800">Extra bold</option>
+              </select>
+            </label>
+            <label>
+              Corner rounding
+              <input
+                type="number"
+                min="0"
+                max="50"
+                value={selected.cornerRadius || 0}
+                onChange={(event) =>
+                  updateZone({ cornerRadius: Number(event.target.value) })
+                }
+              />
+            </label>
+          </div>
+          {(selected.type === "media" ||
+            selected.type === "presentation") && (
+            <label>
+              Media fit
+              <select
+                value={selected.fit || "contain"}
+                onChange={(event) => updateZone({ fit: event.target.value })}
+              >
+                <option value="contain">Fit inside — show everything</option>
+                <option value="cover">Fill box — crop edges</option>
+                <option value="fill">Stretch to box</option>
+              </select>
+            </label>
+          )}
+          {selected.type === "clock" && (
+            <div className="two-control">
+              <label>
+                Time size
+                <input
+                  type="number"
+                  min="8"
+                  max="160"
+                  value={selected.clockTimeFontSize || 54}
+                  onChange={(event) =>
+                    updateZone({
+                      clockTimeFontSize: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Date size
+                <input
+                  type="number"
+                  min="8"
+                  max="120"
+                  value={selected.clockDateFontSize || 25}
+                  onChange={(event) =>
+                    updateZone({
+                      clockDateFontSize: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+            </div>
+          )}
         </section>
       )}
       {layout.id && !layout.isStarter && (

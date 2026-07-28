@@ -1590,9 +1590,9 @@
 }
 .web-player-signage-zone > iframe {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  inset: var(--signage-zone-padding, 0);
+  width: calc(100% - (2 * var(--signage-zone-padding, 0)));
+  height: calc(100% - (2 * var(--signage-zone-padding, 0)));
   border: 0;
 }
 .web-player-signage-zone.qr,
@@ -1603,16 +1603,18 @@
 }
 .signage-qr-layout {
   position: absolute;
-  inset: 0;
+  inset: var(--signage-zone-padding, 0);
   display: grid;
   grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
   grid-template-rows: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
   align-items: center;
   justify-items: center;
   gap: min(1.2vmin, 0.55rem);
-  padding: min(2vmin, 0.75rem);
+  padding: 0;
   box-sizing: border-box;
   overflow: hidden;
+  transform: scale(var(--signage-content-scale, 1));
+  transform-origin: center;
 }
 .signage-qr-layout .top {
   grid-column: 1 / 4;
@@ -1662,7 +1664,13 @@
   max-height: 100%;
   object-fit: contain !important;
 }
-.signage-presentation,
+.signage-presentation {
+  position: absolute;
+  inset: var(--signage-zone-padding, 0);
+  overflow: hidden;
+  transform: scale(var(--signage-content-scale, 1));
+  transform-origin: center;
+}
 .signage-presentation-default,
 .signage-presentation-stream {
   position: absolute;
