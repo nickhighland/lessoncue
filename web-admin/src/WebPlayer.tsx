@@ -1,7 +1,7 @@
 import { CSSProperties, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 
-const APP_VERSION = "0.38.0";
+const APP_VERSION = "0.38.1";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -91,6 +91,7 @@ type SignageZone = {
   clockDateFormat?: "short" | "medium" | "long" | "numeric"; clockOrder?: "time-date" | "date-time" | "inline";
   clockTimeFontSize?: number; clockDateFontSize?: number;
   weatherPostalCode?: string; contentPlaylistId?: string; streamOverrideWhenLive?: boolean; contentPlaylist?: SignageContentPlaylist;
+  contentPadding?: number; contentScale?: number; verticalAlign?: "top" | "middle" | "bottom";
 };
 type SignagePlaylistEntry = { id: string; kind: string; title?: string; durationSeconds: number; transition?: string; hidden?: boolean; transparent?: boolean; sourceUrl?: string; appType?: string; volumePercent?: number; muted?: boolean; fadeInMs?: number; fadeOutMs?: number; fit?: "contain" | "cover" | "fill"; media?: CueItem; layout?: { id: string; name: string; backgroundColor: string; canvasWidth: number; canvasHeight: number; safeAreaPercent: number; zones: SignageZone[]; backgroundAudio?: CueItem } };
 type Manifest = {
@@ -777,7 +778,7 @@ function SignagePlaylistMedia({ item, zoneFit }: {
 
 function SignageLayout({ signage }: { signage: Signage }) {
   return <section className={`web-player-signage-layout ${signage.layoutPreset || "single"}`} aria-label={`${signage.name} signage layout`}>
-    {signage.zones?.filter(zone => !zone.hidden).map(zone => <article className={`web-player-signage-zone ${zone.type}`} key={zone.id} style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, borderRadius: `${zone.cornerRadius || 0}%`, zIndex: zone.zIndex ?? 0, opacity: (zone.opacity ?? 100) / 100, transform: `rotate(${zone.rotation ?? 0}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`, fontFamily: zone.fontFamily, fontSize: zone.fontSize ? `clamp(12px, ${zone.fontSize / 19.2}vw, ${zone.fontSize}px)` : undefined, fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined, textAlign: zone.textAlign, lineHeight: zone.lineHeightPercent ? zone.lineHeightPercent / 100 : undefined }}>
+    {signage.zones?.filter(zone => !zone.hidden).map(zone => <article className={`web-player-signage-zone ${zone.type} align-${zone.verticalAlign || "middle"}`} key={zone.id} style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, borderRadius: `${zone.cornerRadius || 0}%`, zIndex: zone.zIndex ?? 0, opacity: (zone.opacity ?? 100) / 100, transform: `rotate(${zone.rotation ?? 0}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`, fontFamily: zone.fontFamily, fontSize: zone.fontSize ? `clamp(8px, ${zone.fontSize / 19.2}vw, ${zone.fontSize}px)` : undefined, fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined, textAlign: zone.textAlign, lineHeight: zone.lineHeightPercent ? zone.lineHeightPercent / 100 : undefined, ["--signage-zone-padding" as string]: `${Math.max(0, Math.min(30, zone.contentPadding ?? 6))}%`, ["--signage-content-scale" as string]: Math.max(.25, Math.min(1, (zone.contentScale ?? 100) / 100)) } as CSSProperties}>
       {zone.media?.downloadUrl && (zone.media.type === "video" || zone.media.contentType?.startsWith("video/")
         ? <video src={zone.media.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={zone.media.title} style={{ objectFit: zone.fit || "cover" }} />
         : <img src={zone.media.downloadUrl} alt={zone.title || ""} style={{ objectFit: zone.fit || "cover" }} />)}
@@ -903,7 +904,9 @@ function SignageClock({ zone }: { zone: SignageZone }) {
   const [now, setNow] = useState(new Date());
   useEffect(() => { const timer = window.setInterval(() => setNow(new Date()), 1000); return () => window.clearInterval(timer); }, []);
   const display = zone.clockDisplay || "both";
-  const time = <b className="signage-clock-time" style={{ fontSize: `${zone.clockTimeFontSize || 64}px` }}>{now.toLocaleTimeString([], {
+  const timeSize = Math.max(8, zone.clockTimeFontSize || 64);
+  const dateSize = Math.max(8, zone.clockDateFontSize || 28);
+  const time = <b className="signage-clock-time" style={{ fontSize: `clamp(8px, ${timeSize / 19.2}vw, ${timeSize}px)` }}>{now.toLocaleTimeString([], {
     hour: "numeric", minute: "2-digit", second: zone.clockTimeFormat?.endsWith("seconds") ? "2-digit" : undefined,
     hour12: !zone.clockTimeFormat?.startsWith("24h")
   })}</b>;
@@ -911,7 +914,7 @@ function SignageClock({ zone }: { zone: SignageZone }) {
     : zone.clockDateFormat === "short" ? { month: "short", day: "numeric" }
     : zone.clockDateFormat === "medium" ? { weekday: "short", month: "short", day: "numeric" }
     : { weekday: "long", month: "long", day: "numeric", year: "numeric" };
-  const date = <span className="signage-clock-date" style={{ fontSize: `${zone.clockDateFontSize || 28}px` }}>{now.toLocaleDateString([], dateOptions)}</span>;
+  const date = <span className="signage-clock-date" style={{ fontSize: `clamp(8px, ${dateSize / 19.2}vw, ${dateSize}px)` }}>{now.toLocaleDateString([], dateOptions)}</span>;
   if (display === "time") return time;
   if (display === "date") return date;
   return <div className={`signage-clock-stack ${zone.clockOrder === "date-time" ? "date-first" : ""} ${zone.clockOrder === "inline" ? "inline" : ""}`}>{time}{date}</div>;

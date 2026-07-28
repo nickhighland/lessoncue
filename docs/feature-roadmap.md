@@ -44,6 +44,7 @@ LessonCue remains centered on preparing media, organizing lessons, confirming re
    - [x] Replace legacy signage configuration during the one-time database upgrade, as explicitly approved, and seed clean generic starter layouts for schools, churches, and other educational environments.
    - [x] Update browser playback manifests to resolve each Sign's per-element playlist assignment and honor playlist volume, mute, fade, and fit settings.
    - [x] Preserve the existing Signage enable/disable setting so unfinished signage can remain completely hidden from users.
+   - [x] Keep every element inside its assigned frame with adjustable padding, content scale, vertical position, typography, line spacing, media fit, corner rounding, and independent clock sizing.
 
 - [x] **Immediate signage reliability and screen-purpose controls** — add QR placement, broad typography controls, approved `.ics` feeds, signage-only and permanent browser screens, direct browser-display links, and Service Admin-only troubleshooting logs with credential redaction.
 

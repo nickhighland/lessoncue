@@ -70,11 +70,15 @@ public sealed class SignageLayoutTests
     public void NormalizesAdvancedCanvasProperties()
     {
         var zone = SignageLayout.Normalize(new SignageZoneInput("hero", "media", MediaAssetId: Guid.NewGuid(),
-            Rotation: 245, ZIndex: 400, Opacity: -4, Fit: "invalid", Locked: true, Hidden: true, FlipX: true));
+            Rotation: 245, ZIndex: 400, Opacity: -4, Fit: "invalid", Locked: true, Hidden: true, FlipX: true,
+            ContentPadding: 80, ContentScale: 4, VerticalAlign: "invalid"));
         Assert.Equal(180, zone.Rotation);
         Assert.Equal(100, zone.ZIndex);
         Assert.Equal(0, zone.Opacity);
         Assert.Equal("cover", zone.Fit);
+        Assert.Equal(30, zone.ContentPadding);
+        Assert.Equal(25, zone.ContentScale);
+        Assert.Equal("middle", zone.VerticalAlign);
         Assert.True(zone.Locked);
         Assert.True(zone.Hidden);
         Assert.True(zone.FlipX);

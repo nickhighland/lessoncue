@@ -281,7 +281,7 @@ public sealed class ManifestService(LessonCueDb db)
                 zone.WeatherProvider, zone.WeatherLocation, zone.WeatherLatitude, zone.WeatherLongitude,
                 zone.WeatherPostalCode, zone.WeatherUnits, zone.WeatherFields,
                 contentPlaylistId = assignedPlaylistId == Guid.Empty ? (Guid?)null : assignedPlaylistId,
-                zone.StreamOverrideWhenLive,
+                zone.StreamOverrideWhenLive, zone.ContentPadding, zone.ContentScale, zone.VerticalAlign,
                 streamUrl = (zone.Type is "stream" or "presentation") && !string.IsNullOrWhiteSpace(zone.SourceUrl)
                     ? $"/api/v1/signage/{item.Id}/zones/{Uri.EscapeDataString(zone.Id)}/stream/index.m3u8"
                     : null,
@@ -408,6 +408,7 @@ public sealed class ManifestService(LessonCueDb db)
                         zone.WeatherProvider, zone.WeatherLocation, zone.WeatherLatitude, zone.WeatherLongitude,
                         zone.WeatherPostalCode, zone.WeatherUnits, zone.WeatherFields,
                         zone.ContentPlaylistId, zone.StreamOverrideWhenLive,
+                        zone.ContentPadding, zone.ContentScale, zone.VerticalAlign,
                         streamUrl = (zone.Type is "stream" or "presentation") && !string.IsNullOrWhiteSpace(zone.SourceUrl)
                             ? $"/api/v1/signage/{schedule.Id}/zones/{Uri.EscapeDataString(zone.Id)}/stream/index.m3u8"
                             : null,

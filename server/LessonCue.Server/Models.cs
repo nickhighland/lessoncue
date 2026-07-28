@@ -698,7 +698,8 @@ public sealed record SignageZoneInput(string Id, string Type, string? Title = nu
     string? WeatherProvider = null, string? WeatherLocation = null,
     double? WeatherLatitude = null, double? WeatherLongitude = null, string? WeatherPostalCode = null,
     string? WeatherUnits = null, string? WeatherFields = null,
-    Guid? ContentPlaylistId = null, bool StreamOverrideWhenLive = false);
+    Guid? ContentPlaylistId = null, bool StreamOverrideWhenLive = false,
+    int ContentPadding = 6, int ContentScale = 100, string? VerticalAlign = null);
 public sealed record SignageLayoutResourceInput(string Name, string? Folder, string? Description,
     bool IsTemplate, string? BackgroundColor, int CanvasWidth, int CanvasHeight, int SafeAreaPercent,
     List<SignageZoneInput>? Zones, Guid? BackgroundAudioAssetId = null, string? ThumbnailDataUrl = null);

@@ -672,6 +672,10 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByLabel("Side boxes").selectOption("3");
   await page.getByLabel("Frame color").fill("#123f32");
   await page.getByLabel("Alternate color").fill("#0a2b22");
+  await page.getByLabel("Inner padding").fill("12");
+  await page.getByLabel("Content size").fill("70");
+  await page.getByLabel("Vertical position").selectOption("top");
+  await page.getByLabel("Media fit").selectOption("contain");
   await expect(page.locator(".simple-layout-zone")).toHaveCount(7);
   await page.getByRole("button", { name: /Save changes/ }).click();
   await expect(page.locator(".toast")).toContainText("Layout saved and updated on assigned screens.");
@@ -719,12 +723,20 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
       manifestPlaylist: manifest.signage?.[0]?.zones
         ?.find((zone: { id: string }) => zone.id === "main-playlist")
         ?.contentPlaylist?.name,
+      containment: (() => {
+        const zone = manifest.signage?.[0]?.zones
+          ?.find((entry: { id: string }) => entry.id === "main-playlist");
+        return zone
+          ? [zone.contentPadding, zone.contentScale, zone.verticalAlign, zone.fit]
+          : null;
+      })(),
     };
   });
   expect(simpleSignage.assignedSignageId).toBe(simpleSignage.signId);
   expect(simpleSignage.signageOnly).toBe(true);
   expect(simpleSignage.manifestSign).toBe("Browser lobby sign");
   expect(simpleSignage.manifestPlaylist).toBe("Browser continuous loop");
+  expect(simpleSignage.containment).toEqual([12, 70, "top", "contain"]);
 
   // Retained legacy assertions are intentionally unreachable while the replacement
   // data model settles; they document the removed schedule/publish/emergency workflow.
@@ -970,7 +982,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.38.0" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.38.1" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
