@@ -29,6 +29,9 @@ public sealed class BackupServiceTests
             await File.WriteAllTextAsync(Path.Combine(root, "config", "cloudflare-token.pending"), "must-not-be-backed-up", ct);
             var service = new BackupService(root);
             var backup = await service.CreateAsync(db, true, "owner", ct);
+            var verification = await service.VerifyStoredAsync(backup, ct);
+            Assert.Equal("Restored Academy", verification.Organization);
+            Assert.True(verification.FileCount >= 3);
             using (var created = ZipFile.OpenRead(service.Resolve(backup.FileName)!))
                 Assert.DoesNotContain(created.Entries, entry => entry.FullName.EndsWith("cloudflare-token.pending", StringComparison.Ordinal));
             await using var archive = File.OpenRead(service.Resolve(backup.FileName)!);

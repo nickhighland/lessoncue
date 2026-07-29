@@ -11578,6 +11578,18 @@ function Settings({
       notify(errorText(e));
     }
   }
+
+  async function verifyBackup(item: Backup) {
+    try {
+      const preview = await api<BackupPreview>(`/api/v1/backups/${item.id}/verify`, {
+        method: "POST",
+        body: "{}",
+      });
+      notify(`Backup verified: ${preview.fileCount} files and a healthy database.`);
+    } catch (error) {
+      notify(errorText(error));
+    }
+  }
   async function previewBackupRestore(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -12995,16 +13007,13 @@ function Settings({
                 </button>
               </form>
               {backups.slice(0, 4).map((item) => (
-                <a
-                  className="backup-row"
-                  href={`/api/v1/backups/${item.id}/file`}
-                  key={item.id}
-                >
-                  <span>
-                    {item.kind} · {formatBytes(item.sizeBytes)}
-                  </span>
-                  <small>{new Date(item.createdAt).toLocaleString()}</small>
-                </a>
+                <div className="backup-row backup-row-actions" key={item.id}>
+                  <a href={`/api/v1/backups/${item.id}/file`}>
+                    <span>{item.kind} · {formatBytes(item.sizeBytes)}</span>
+                    <small>{new Date(item.createdAt).toLocaleString()}</small>
+                  </a>
+                  <button className="button" onClick={() => void verifyBackup(item)}>Verify</button>
+                </div>
               ))}
             </section>
           )}

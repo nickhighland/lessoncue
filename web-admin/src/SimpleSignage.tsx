@@ -1,5 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import "./simple-signage.css";
+import {
+  SignageLayout as ScreenSignageLayout,
+  type CueItem,
+  type Signage,
+  type SignageContentPlaylist,
+  type SignageWidgetCache,
+  type SignageZone,
+} from "./WebPlayer";
 
 type Media = {
   id: string;
@@ -70,6 +78,26 @@ type Zone = {
   contentPadding?: number;
   contentScale?: number;
   verticalAlign?: string;
+  richTextJson?: string;
+  mediaScale?: number;
+  mediaOffsetX?: number;
+  mediaOffsetY?: number;
+  mediaAllowOverflow?: boolean;
+  wifiNetworkName?: string;
+  wifiPassword?: string;
+  wifiSecurity?: string;
+  wifiHidden?: boolean;
+  weatherIconStyle?: string;
+  weatherLatitude?: number;
+  weatherLongitude?: number;
+  clockShowPeriod?: boolean;
+  clockShowWeekday?: boolean;
+  clockShowYear?: boolean;
+  calendarMaxItems?: number;
+  calendarFields?: string;
+  streamOverrideWhenLive?: boolean;
+  streamOverrideStartsAt?: string;
+  streamOverrideEndsAt?: string;
 };
 
 type Layout = {
@@ -139,6 +167,20 @@ function id(prefix: string) {
   return `${prefix}-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 }
 
+function localDateTimeValue(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return "";
+  const local = new Date(date.valueOf() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function asIsoDateTime(value: string) {
+  if (!value) return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.valueOf()) ? undefined : parsed.toISOString();
+}
+
 function zone(type: string, zoneId = id("element")): Zone {
   const common: Zone = {
     id: zoneId,
@@ -170,6 +212,10 @@ function zone(type: string, zoneId = id("element")): Zone {
     contentPadding: 6,
     contentScale: 100,
     verticalAlign: "middle",
+    mediaScale: 100,
+    mediaOffsetX: 0,
+    mediaOffsetY: 0,
+    mediaAllowOverflow: false,
   };
   if (type === "presentation") common.content = "Choose a playlist";
   if (type === "weather") {
@@ -177,7 +223,8 @@ function zone(type: string, zoneId = id("element")): Zone {
     common.weatherLocation = "Your location";
     common.weatherUnits = "fahrenheit";
     common.weatherFields =
-      "icon,conditions,temperature,high,low,precipitation";
+      "icon,conditions,temperature,forecast,high,low,humidity,wind,precipitation,sunrise,sunset";
+    common.weatherIconStyle = "color";
     common.textAlign = "center";
   }
   if (type === "clock") {
@@ -187,16 +234,36 @@ function zone(type: string, zoneId = id("element")): Zone {
     common.clockOrder = "time-date";
     common.clockTimeFontSize = 54;
     common.clockDateFontSize = 25;
+    common.clockShowPeriod = true;
+    common.clockShowWeekday = true;
+    common.clockShowYear = true;
     common.textAlign = "center";
   }
   if (type === "qr" || type === "wifi") {
     common.qrPlacement = "left";
+    common.qrLabelRight = type === "wifi" ? "Scan to join Wi-Fi" : "Scan for details";
+    common.wifiNetworkName = type === "wifi" ? "Guest" : undefined;
+    common.wifiPassword = type === "wifi" ? "password" : undefined;
+    common.wifiSecurity = type === "wifi" ? "WPA" : undefined;
     common.qrValue =
       type === "wifi"
         ? "WIFI:T:WPA;S:Guest;P:password;;"
         : "https://lessoncue.local";
   }
+  if (type === "calendar") {
+    common.calendarMaxItems = 0;
+    common.calendarFields = "date,time,title";
+  }
   return common;
+}
+
+function escapeWifi(value: string) {
+  return value.replaceAll("\\", "\\\\").replaceAll(";", "\\;").replaceAll(",", "\\,").replaceAll(":", "\\:");
+}
+
+function wifiQrValue(item: Zone) {
+  const security = item.wifiSecurity === "none" ? "nopass" : item.wifiSecurity || "WPA";
+  return `WIFI:T:${security};S:${escapeWifi(item.wifiNetworkName || "")};P:${escapeWifi(item.wifiPassword || "")};H:${item.wifiHidden ? "true" : "false"};;`;
 }
 
 function elementName(type: string) {
@@ -769,6 +836,13 @@ export function SimpleSignage({
               assignments={activeAssignments}
               selectedZoneId={tab === "layouts" ? selectedZoneId : undefined}
               onSelect={tab === "layouts" ? setSelectedZoneId : undefined}
+              onZoneChange={tab === "layouts" ? (zoneId, patch) => {
+                setLayoutDraft((current) => current ? {
+                  ...current,
+                  zones: current.zones.map(item => item.id === zoneId ? { ...item, ...patch } : item),
+                } : current);
+                markChanged();
+              } : undefined}
             />
           ) : (
             <div className="simple-preview-empty">
@@ -945,6 +1019,7 @@ function LayoutPreview({
   assignments,
   selectedZoneId,
   onSelect,
+  onZoneChange,
 }: {
   layout: Layout;
   media: Media[];
@@ -952,125 +1027,84 @@ function LayoutPreview({
   assignments: Record<string, string>;
   selectedZoneId?: string;
   onSelect?: (id: string) => void;
+  onZoneChange?: (id: string, patch: Partial<Zone>) => void;
 }) {
+  const [widgetCache, setWidgetCache] = useState<Record<string, SignageWidgetCache>>({});
+  const widgetSignature = JSON.stringify(layout.zones.filter(item => item.type === "weather" || item.type === "calendar").map(item => ({
+    id: item.id, type: item.type, sourceUrl: item.sourceUrl, weatherProvider: item.weatherProvider,
+    weatherLocation: item.weatherLocation, weatherPostalCode: item.weatherPostalCode, weatherUnits: item.weatherUnits,
+    weatherFields: item.weatherFields, weatherLatitude: item.weatherLatitude, weatherLongitude: item.weatherLongitude,
+  })));
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      layout.zones.filter(item => item.type === "weather" || (item.type === "calendar" && item.sourceUrl)).forEach(item => {
+        void request<SignageWidgetCache>("/elements/preview", {
+          method: "POST",
+          signal: controller.signal,
+          body: JSON.stringify(item),
+        }).then(cache => setWidgetCache(current => ({ ...current, [item.id]: cache }))).catch(() => undefined);
+      });
+    }, 500);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+    // The serialized data is the deliberate debounce boundary for remote preview calls.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [widgetSignature]);
+
+  const display: Signage = {
+    id: layout.id,
+    name: layout.name,
+    mode: "layout",
+    priority: 0,
+    message: "",
+    backgroundColor: layout.backgroundColor,
+    textColor: "#ffffff",
+    layoutPreset: layout.templateKey,
+    zones: layout.zones.map(item => {
+      const asset = media.find(value => value.id === item.mediaAssetId);
+      const playlist = playlists.find(value => value.id === (assignments[item.id] || item.contentPlaylistId));
+      return {
+        ...item,
+        streamUrl: item.sourceUrl,
+        cached: widgetCache[item.id],
+        media: asset ? mediaCue(asset) : undefined,
+        contentPlaylist: playlist ? signagePlaylist(playlist, media) : undefined,
+      } as unknown as SignageZone;
+    }),
+  };
   return (
     <div className="simple-display-frame">
-      <div
-        className="simple-layout-canvas"
-        style={{ backgroundColor: layout.backgroundColor }}
-      >
-        {layout.zones
-          .filter((item) => !item.hidden)
-          .map((item) => {
-            const asset = media.find((value) => value.id === item.mediaAssetId);
-            const playlist = playlists.find(
-              (value) =>
-                value.id ===
-                (assignments[item.id] || item.contentPlaylistId),
-            );
-            return (
-              <button
-                key={item.id}
-                className={`simple-layout-zone ${item.type} ${selectedZoneId === item.id ? "selected" : ""}`}
-                style={{
-                  left: `${item.x}%`,
-                  top: `${item.y}%`,
-                  width: `${item.width}%`,
-                  height: `${item.height}%`,
-                  backgroundColor: item.backgroundColor,
-                  color: item.textColor,
-                  textAlign: (item.textAlign || "left") as
-                    | "left"
-                    | "center"
-                    | "right",
-                  fontFamily: item.fontFamily,
-                  fontSize: `${Math.max(8, item.fontSize || 34) / 2.4}px`,
-                  fontWeight: item.fontWeight,
-                  fontStyle: item.italic ? "italic" : undefined,
-                  textDecoration: item.underline ? "underline" : undefined,
-                  lineHeight: (item.lineHeightPercent || 120) / 100,
-                  padding: `${item.contentPadding ?? 6}%`,
-                  ["--simple-zone-padding" as string]:
-                    `${item.contentPadding ?? 6}%`,
-                  ["--simple-content-scale" as string]:
-                    (item.contentScale || 100) / 100,
-                  ["--simple-vertical-align" as string]:
-                    item.verticalAlign === "top"
-                      ? "start"
-                      : item.verticalAlign === "bottom"
-                        ? "end"
-                        : "center",
-                }}
-                onClick={() => onSelect?.(item.id)}
-              >
-                {asset?.thumbnailUrl && (
-                  <img
-                    src={asset.thumbnailUrl}
-                    alt=""
-                    style={{
-                      objectFit: item.fit as
-                        | "contain"
-                        | "cover"
-                        | "fill",
-                      transform: `scale(${(item.contentScale || 100) / 100})`,
-                    }}
-                  />
-                )}
-                {item.type === "presentation" ? (
-                  <div className="preview-presentation">
-                    <span>▶</span>
-                    <strong>{playlist?.name || "Choose a playlist"}</strong>
-                    <small>
-                      {playlist
-                        ? `${playlist.items.length} items · continuous loop`
-                        : "Playlist area"}
-                    </small>
-                  </div>
-                ) : item.type === "weather" ? (
-                  <div className="preview-weather">
-                    <span>☀</span>
-                    <strong>72°</strong>
-                    <small>
-                      {item.weatherLocation || item.weatherPostalCode || "Local weather"}
-                    </small>
-                  </div>
-                ) : item.type === "clock" ? (
-                  <div className="preview-clock">
-                    <strong
-                      style={{
-                        fontSize: `${Math.max(8, item.clockTimeFontSize || 54) / 2.4}px`,
-                      }}
-                    >
-                      9:41
-                    </strong>
-                    <small
-                      style={{
-                        fontSize: `${Math.max(8, item.clockDateFontSize || 25) / 2.4}px`,
-                      }}
-                    >
-                      Monday, July 27
-                    </small>
-                  </div>
-                ) : item.type === "qr" || item.type === "wifi" ? (
-                  <div className={`preview-qr align-${item.qrPlacement || "left"}`}>
-                    <i>▦</i>
-                    <span>
-                      <strong>{item.title}</strong>
-                      <small>{item.type === "wifi" ? "Scan to join Wi-Fi" : "Scan for details"}</small>
-                    </span>
-                  </div>
-                ) : (
-                  <div className="preview-copy">
-                    <small>{item.title || elementName(item.type)}</small>
-                    <strong>{item.content || elementName(item.type)}</strong>
-                  </div>
-                )}
-              </button>
-            );
-          })}
+      <div className="simple-layout-canvas">
+        <ScreenSignageLayout signage={display} editor={{
+          selectedZoneId,
+          onSelect,
+          onMediaTransform: onZoneChange ? (zoneId, patch) => onZoneChange(zoneId, patch) : undefined,
+        }} />
       </div>
     </div>
   );
+}
+
+function mediaCue(asset: Media): CueItem {
+  return {
+    itemId: asset.id, mediaId: asset.id, type: asset.contentType.startsWith("video/") ? "video" : "image",
+    title: asset.fileName, downloadUrl: asset.thumbnailUrl || asset.downloadUrl, contentType: asset.contentType,
+    startMs: 0, volumePercent: 100, endBehavior: "advance", allowSkip: true, fadeInMs: 0, fadeOutMs: 0, cuePoints: [],
+  };
+}
+
+function signagePlaylist(playlist: Playlist, media: Media[]): SignageContentPlaylist {
+  return {
+    id: playlist.id, name: playlist.name, playbackMode: "loop", synchronization: "independent", version: playlist.version,
+    items: playlist.items.map(item => {
+      const asset = media.find(value => value.id === item.mediaAssetId);
+      return {
+        id: item.id, kind: item.kind, title: item.title, durationSeconds: item.durationSeconds, transition: item.transition,
+        sourceUrl: item.sourceUrl, volumePercent: item.volumePercent, muted: item.muted, fadeInMs: item.fadeInMs,
+        fadeOutMs: item.fadeOutMs, fit: item.fit as "contain" | "cover" | "fill", media: asset ? mediaCue(asset) : undefined,
+      };
+    }),
+  };
 }
 
 function LayoutInspector({
@@ -1128,7 +1162,6 @@ function LayoutInspector({
     <div className="simple-inspector">
       <div className="inspector-tabs">
         <button className="active">Design</button>
-        <button>Element</button>
       </div>
       <label>
         Layout name
@@ -1244,7 +1277,7 @@ function LayoutInspector({
               <option value="webpage">Web page</option>
             </select>
           </label>
-          {selected.type !== "presentation" && (
+          {!["presentation", "media"].includes(selected.type) && (
             <label>
               Title
               <input
@@ -1254,39 +1287,97 @@ function LayoutInspector({
             </label>
           )}
           {selected.type === "text" && (
-            <label>
-              Message
-              <textarea
-                rows={4}
-                value={selected.content || ""}
-                onChange={(event) => updateZone({ content: event.target.value })}
-              />
-            </label>
+            <RichTextEditor zone={selected} onChange={updateZone} />
+          )}
+          {selected.type === "presentation" && (
+            <section className="stream-override-controls">
+              <label className="toggle-label">
+                <input
+                  type="checkbox"
+                  checked={Boolean(selected.streamOverrideWhenLive)}
+                  onChange={(event) =>
+                    updateZone({ streamOverrideWhenLive: event.target.checked })
+                  }
+                />
+                <span>
+                  <strong>RTMP override</strong>
+                  <small>Play a live stream instead of this playlist while it is live.</small>
+                </span>
+              </label>
+              {selected.streamOverrideWhenLive && (
+                <div className="stream-override-fields">
+                  <label>
+                    RTMP stream address
+                    <input
+                      type="url"
+                      value={selected.sourceUrl || ""}
+                      placeholder="rtmp://example.org/live/stream-key"
+                      onChange={(event) => updateZone({ sourceUrl: event.target.value })}
+                    />
+                  </label>
+                  <div className="two-control">
+                    <label>
+                      Start time
+                      <input
+                        type="datetime-local"
+                        value={localDateTimeValue(selected.streamOverrideStartsAt)}
+                        onChange={(event) =>
+                          updateZone({
+                            streamOverrideStartsAt: asIsoDateTime(event.target.value),
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      End time
+                      <input
+                        type="datetime-local"
+                        value={localDateTimeValue(selected.streamOverrideEndsAt)}
+                        onChange={(event) =>
+                          updateZone({
+                            streamOverrideEndsAt: asIsoDateTime(event.target.value),
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                  <p className="field-help">
+                    The playlist remains visible until the start time. The stream takes over only while it is playable, then the playlist returns when it drops or the end time arrives. Leave either time blank for no boundary.
+                  </p>
+                </div>
+              )}
+            </section>
           )}
           {selected.type === "media" && (
-            <label>
-              Image or logo
-              <select
-                value={selected.mediaAssetId || ""}
-                onChange={(event) =>
-                  updateZone({ mediaAssetId: event.target.value || undefined })
-                }
-              >
-                <option value="">Choose media</option>
-                {media
-                  .filter((item) => item.contentType.startsWith("image/"))
-                  .map((item) => (
-                    <option value={item.id} key={item.id}>
-                      {item.fileName}
-                    </option>
+            <div className="element-specific-controls">
+              <label>
+                Image or logo
+                <select
+                  value={selected.mediaAssetId || ""}
+                  onChange={(event) => updateZone({ mediaAssetId: event.target.value || undefined, content: "" })}
+                >
+                  <option value="">Choose media</option>
+                  {media.filter((item) => item.contentType.startsWith("image/")).map((item) => (
+                    <option value={item.id} key={item.id}>{item.fileName}</option>
                   ))}
-              </select>
-            </label>
+                </select>
+              </label>
+              <label>Image size
+                <div className="range-value"><input type="range" min="25" max="400" value={selected.mediaScale || 100} onChange={event => updateZone({ mediaScale: Number(event.target.value) })}/><span>{selected.mediaScale || 100}%</span></div>
+              </label>
+              <div className="two-control">
+                <label>Horizontal position<input type="number" min="-150" max="150" value={Math.round(selected.mediaOffsetX || 0)} onChange={event => updateZone({ mediaOffsetX: Number(event.target.value) })}/></label>
+                <label>Vertical position<input type="number" min="-150" max="150" value={Math.round(selected.mediaOffsetY || 0)} onChange={event => updateZone({ mediaOffsetY: Number(event.target.value) })}/></label>
+              </div>
+              <label className="check-line"><input type="checkbox" checked={Boolean(selected.mediaAllowOverflow)} onChange={event => updateZone({ mediaAllowOverflow: event.target.checked })}/> Allow the image to extend beyond its frame</label>
+              <button type="button" className="secondary-button" onClick={() => updateZone({ mediaOffsetX: 0, mediaOffsetY: 0 })}>Recenter image</button>
+              <p className="field-help">Drag the image directly in the live preview to position it.</p>
+            </div>
           )}
-          {(selected.type === "qr" || selected.type === "wifi") && (
+          {selected.type === "qr" && (
             <>
               <label>
-                {selected.type === "wifi" ? "Wi-Fi QR content" : "Web address"}
+                Web address or QR content
                 <input
                   value={selected.qrValue || ""}
                   onChange={(event) => updateZone({ qrValue: event.target.value })}
@@ -1305,10 +1396,24 @@ function LayoutInspector({
                   <option value="right">Right — text on left</option>
                 </select>
               </label>
+              <QrLabelControls selected={selected} updateZone={updateZone} />
             </>
           )}
+          {selected.type === "wifi" && (
+            <div className="element-specific-controls">
+              <label>Network name (SSID)<input value={selected.wifiNetworkName || ""} onChange={event => { const patch = { wifiNetworkName: event.target.value }; updateZone({ ...patch, qrValue: wifiQrValue({ ...selected, ...patch }) }); }}/></label>
+              <label>Password<input type="password" value={selected.wifiPassword || ""} onChange={event => { const patch = { wifiPassword: event.target.value }; updateZone({ ...patch, qrValue: wifiQrValue({ ...selected, ...patch }) }); }}/></label>
+              <div className="two-control">
+                <label>Security<select value={selected.wifiSecurity || "WPA"} onChange={event => { const patch = { wifiSecurity: event.target.value }; updateZone({ ...patch, qrValue: wifiQrValue({ ...selected, ...patch }) }); }}><option value="WPA">WPA/WPA2/WPA3</option><option value="WEP">WEP</option><option value="none">No password</option></select></label>
+                <label className="check-line"><input type="checkbox" checked={Boolean(selected.wifiHidden)} onChange={event => { const patch = { wifiHidden: event.target.checked }; updateZone({ ...patch, qrValue: wifiQrValue({ ...selected, ...patch }) }); }}/> Hidden network</label>
+              </div>
+              <label>QR alignment<select value={selected.qrPlacement || "left"} onChange={event => updateZone({ qrPlacement: event.target.value })}><option value="left">Left — text on right</option><option value="center">Centered</option><option value="right">Right — text on left</option></select></label>
+              <QrLabelControls selected={selected} updateZone={updateZone} />
+              <p className="field-help">The QR code updates instantly. Scanning it opens the device’s Wi-Fi connection prompt.</p>
+            </div>
+          )}
           {selected.type === "weather" && (
-            <>
+            <div className="element-specific-controls">
               <label>
                 ZIP/postal code
                 <input
@@ -1319,43 +1424,56 @@ function LayoutInspector({
                   }
                 />
               </label>
-              <label>
-                Display
-                <select
-                  value={selected.weatherFields || ""}
-                  onChange={(event) =>
-                    updateZone({ weatherFields: event.target.value })
-                  }
-                >
-                  <option value="icon,conditions,temperature,high,low,precipitation">
-                    Full forecast
-                  </option>
-                  <option value="icon,temperature,conditions">
-                    Current conditions
-                  </option>
-                  <option value="temperature,high,low">Temperature only</option>
-                </select>
-              </label>
-            </>
+              <div className="two-control">
+                <label>Units<select value={selected.weatherUnits || "fahrenheit"} onChange={event => updateZone({ weatherUnits: event.target.value })}><option value="fahrenheit">Fahrenheit</option><option value="celsius">Celsius</option></select></label>
+                <label>Icon style<select value={selected.weatherIconStyle || "color"} onChange={event => updateZone({ weatherIconStyle: event.target.value })}><option value="color">Color icons</option><option value="white">White icons</option></select></label>
+              </div>
+              <fieldset className="field-check-grid"><legend>Weather details</legend>
+                {["icon","conditions","temperature","forecast","high","low","humidity","wind","precipitation","sunrise","sunset"].map(field => {
+                  const active = new Set((selected.weatherFields || "").split(","));
+                  return <label key={field}><input type="checkbox" checked={active.has(field)} onChange={event => { if (event.target.checked) active.add(field); else active.delete(field); updateZone({ weatherFields: [...active].join(",") }); }}/>{field[0].toUpperCase() + field.slice(1)}</label>;
+                })}
+              </fieldset>
+              <p className="field-help">Open-Meteo is the default source and does not require an API key. The preview refreshes after location changes.</p>
+            </div>
           )}
           {selected.type === "clock" && (
-            <label>
-              Show
-              <select
-                value={selected.clockDisplay || "both"}
-                onChange={(event) =>
-                  updateZone({ clockDisplay: event.target.value })
-                }
-              >
-                <option value="both">Time and date</option>
-                <option value="time">Time only</option>
-                <option value="date">Date only</option>
-              </select>
-            </label>
+            <div className="element-specific-controls">
+              <div className="two-control">
+                <label>Show<select value={selected.clockDisplay || "both"} onChange={event => updateZone({ clockDisplay: event.target.value })}><option value="both">Time and date</option><option value="time">Time only</option><option value="date">Date only</option></select></label>
+                <label>Order<select value={selected.clockOrder || "time-date"} onChange={event => updateZone({ clockOrder: event.target.value })}><option value="time-date">Time above date</option><option value="date-time">Date above time</option><option value="inline">Same line</option></select></label>
+              </div>
+              <div className="two-control">
+                <label>Time format<select value={selected.clockTimeFormat || "12h"} onChange={event => updateZone({ clockTimeFormat: event.target.value })}><option value="12h">12-hour</option><option value="12h-seconds">12-hour with seconds</option><option value="24h">24-hour</option><option value="24h-seconds">24-hour with seconds</option></select></label>
+                <label>Date format<select value={selected.clockDateFormat || "long"} onChange={event => updateZone({ clockDateFormat: event.target.value })}><option value="long">Long</option><option value="medium">Medium</option><option value="short">Short</option><option value="numeric">Numeric</option></select></label>
+              </div>
+              <div className="field-check-grid">
+                <label><input type="checkbox" checked={selected.clockShowPeriod !== false} onChange={event => updateZone({ clockShowPeriod: event.target.checked })}/> AM/PM</label>
+                <label><input type="checkbox" checked={selected.clockShowWeekday !== false} onChange={event => updateZone({ clockShowWeekday: event.target.checked })}/> Day of week</label>
+                <label><input type="checkbox" checked={selected.clockShowYear !== false} onChange={event => updateZone({ clockShowYear: event.target.checked })}/> Year</label>
+              </div>
+              <div className="two-control">
+                <label>Time size<input type="number" min="8" max="200" value={selected.clockTimeFontSize || 54} onChange={event => updateZone({ clockTimeFontSize: Number(event.target.value) })}/></label>
+                <label>Date size<input type="number" min="8" max="200" value={selected.clockDateFontSize || 25} onChange={event => updateZone({ clockDateFontSize: Number(event.target.value) })}/></label>
+              </div>
+            </div>
           )}
-          {(selected.type === "calendar" || selected.type === "webpage") && (
+          {selected.type === "calendar" && (
+            <div className="element-specific-controls">
+              <label>ICS calendar address<input type="url" value={selected.sourceUrl || ""} placeholder="https://example.org/calendar.ics" onChange={event => updateZone({ sourceUrl: event.target.value })}/></label>
+              <label>Upcoming events<select value={selected.calendarMaxItems || 0} onChange={event => updateZone({ calendarMaxItems: Number(event.target.value) })}><option value="0">Fill the available space</option>{[1,2,3,4,5,6,8,10,12,15,20].map(value => <option value={value} key={value}>{value} events</option>)}</select></label>
+              <fieldset className="field-check-grid"><legend>Show for each event</legend>
+                {["date","time","title","description","location"].map(field => {
+                  const active = new Set((selected.calendarFields || "date,time,title").split(","));
+                  return <label key={field}><input type="checkbox" checked={active.has(field)} onChange={event => { if (event.target.checked) active.add(field); else active.delete(field); updateZone({ calendarFields: [...active].join(",") }); }}/>{field[0].toUpperCase() + field.slice(1)}</label>;
+                })}
+              </fieldset>
+              <p className="field-help">The editor loads the feed into this live preview. External sources must be approved in Settings → Signage sources.</p>
+            </div>
+          )}
+          {selected.type === "webpage" && (
             <label>
-              {selected.type === "calendar" ? "ICS calendar address" : "Web page address"}
+              Web page address
               <input
                 value={selected.sourceUrl || ""}
                 placeholder="https://"
@@ -1516,38 +1634,6 @@ function LayoutInspector({
               </select>
             </label>
           )}
-          {selected.type === "clock" && (
-            <div className="two-control">
-              <label>
-                Time size
-                <input
-                  type="number"
-                  min="8"
-                  max="160"
-                  value={selected.clockTimeFontSize || 54}
-                  onChange={(event) =>
-                    updateZone({
-                      clockTimeFontSize: Number(event.target.value),
-                    })
-                  }
-                />
-              </label>
-              <label>
-                Date size
-                <input
-                  type="number"
-                  min="8"
-                  max="120"
-                  value={selected.clockDateFontSize || 25}
-                  onChange={(event) =>
-                    updateZone({
-                      clockDateFontSize: Number(event.target.value),
-                    })
-                  }
-                />
-              </label>
-            </div>
-          )}
         </section>
       )}
       {layout.id && !layout.isStarter && (
@@ -1557,6 +1643,59 @@ function LayoutInspector({
       )}
     </div>
   );
+}
+
+type RichRun = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string; fontFamily?: string; fontSize?: number };
+
+function readRichRuns(item: Zone): RichRun[] {
+  try {
+    const parsed = JSON.parse(item.richTextJson || "");
+    if (Array.isArray(parsed)) return parsed.filter(run => typeof run?.text === "string").slice(0, 200);
+  } catch { /* Plain content is converted to runs below. */ }
+  return (item.content || "").split(/(\s+)/).filter(Boolean).map(text => ({ text }));
+}
+
+function RichTextEditor({ zone: item, onChange }: { zone: Zone; onChange: (patch: Partial<Zone>) => void }) {
+  const [selectedRun, setSelectedRun] = useState(0);
+  const runs = readRichRuns(item);
+  const selected = runs[selectedRun] || runs[0] || { text: "" };
+  function save(next: RichRun[]) {
+    onChange({ content: next.map(run => run.text).join(""), richTextJson: JSON.stringify(next) });
+  }
+  function format(patch: Partial<RichRun>) {
+    const next = runs.length ? runs.map(run => ({ ...run })) : [{ text: item.content || "Message" }];
+    next[Math.min(selectedRun, next.length - 1)] = { ...next[Math.min(selectedRun, next.length - 1)], ...patch };
+    save(next);
+  }
+  return <div className="rich-text-editor">
+    <label>Message<textarea rows={4} value={item.content || ""} onChange={event => {
+      const next = event.target.value.split(/(\s+)/).filter(Boolean).map((text, index) => ({ ...(runs[index] || {}), text }));
+      save(next);
+    }}/></label>
+    <p className="field-help">Select a word, then style it. The live preview shows the finished text.</p>
+    <div className="rich-run-picker">
+      {runs.map((run, index) => /\s/.test(run.text) ? <span key={index}> </span> : <button type="button" className={selectedRun === index ? "active" : ""} onClick={() => setSelectedRun(index)} key={index}>{run.text}</button>)}
+    </div>
+    <div className="rich-toolbar">
+      <button type="button" className={selected.bold ? "active" : ""} onClick={() => format({ bold: !selected.bold })}><b>B</b></button>
+      <button type="button" className={selected.italic ? "active" : ""} onClick={() => format({ italic: !selected.italic })}><i>I</i></button>
+      <button type="button" className={selected.underline ? "active" : ""} onClick={() => format({ underline: !selected.underline })}><u>U</u></button>
+      <input aria-label="Selected word color" type="color" value={selected.color || item.textColor || "#ffffff"} onChange={event => format({ color: event.target.value })}/>
+      <select aria-label="Selected word font" value={selected.fontFamily || item.fontFamily || "system-ui"} onChange={event => format({ fontFamily: event.target.value })}>
+        <option value="system-ui">Sans serif</option><option value="Georgia, serif">Serif</option><option value="'Arial Black', sans-serif">Heavy</option><option value="'Courier New', monospace">Monospace</option>
+      </select>
+      <input aria-label="Selected word size" type="number" min="8" max="200" value={selected.fontSize || item.fontSize || 34} onChange={event => format({ fontSize: Number(event.target.value) })}/>
+    </div>
+  </div>;
+}
+
+function QrLabelControls({ selected, updateZone }: { selected: Zone; updateZone: (patch: Partial<Zone>) => void }) {
+  return <fieldset className="qr-label-controls"><legend>Optional labels</legend>
+    <label>Above<input value={selected.qrLabelTop || ""} onChange={event => updateZone({ qrLabelTop: event.target.value })}/></label>
+    <label>Below<input value={selected.qrLabelBottom || ""} onChange={event => updateZone({ qrLabelBottom: event.target.value })}/></label>
+    <label>Left<input value={selected.qrLabelLeft || ""} onChange={event => updateZone({ qrLabelLeft: event.target.value })}/></label>
+    <label>Right<input value={selected.qrLabelRight || ""} onChange={event => updateZone({ qrLabelRight: event.target.value })}/></label>
+  </fieldset>;
 }
 
 function PlaylistTimeline({

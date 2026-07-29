@@ -2,8 +2,11 @@ using System.Text.Json;
 
 namespace LessonCue.Server;
 
+public sealed record SignageCalendarEvent(string Title, string? Description, string? Location,
+    DateTimeOffset? StartsAt, DateTimeOffset? EndsAt, bool AllDay = false);
 public sealed record SignageWidgetCacheEntry(string ZoneId, string Title, string Text, string[] Items,
-    DateTimeOffset RefreshedAt, string? Source = null);
+    DateTimeOffset RefreshedAt, string? Source = null, string? Icon = null,
+    SignageCalendarEvent[]? Events = null);
 
 public static class SignageLayout
 {
@@ -12,7 +15,7 @@ public static class SignageLayout
     public static readonly string[] Presets = ["single", "sidebar", "split", "header-grid", "dashboard"];
     public static readonly string[] WeatherProviders = ["open-meteo", "nws", "custom"];
     public static readonly string[] WeatherDisplayFields = ["icon", "conditions", "temperature", "feelsLike", "high", "low",
-        "precipitation", "humidity", "wind"];
+        "precipitation", "humidity", "wind", "forecast", "sunrise", "sunset"];
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public static List<SignageZoneInput> ParseZones(string? json)
@@ -69,7 +72,9 @@ public static class SignageLayout
             StrokeWidth = Math.Clamp(zone.StrokeWidth, 0, 30),
             CornerRadius = Math.Clamp(zone.CornerRadius, 0, 100),
             IconName = Truncate(zone.IconName, 80),
-            QrValue = Truncate(zone.QrValue, 2000),
+            QrValue = type == "wifi" && !string.IsNullOrWhiteSpace(zone.WifiNetworkName)
+                ? BuildWifiQr(zone.WifiNetworkName!, zone.WifiPassword, zone.WifiSecurity, zone.WifiHidden)
+                : Truncate(zone.QrValue, 2000),
             QrLabelTop = Truncate(zone.QrLabelTop, 160),
             QrLabelBottom = Truncate(zone.QrLabelBottom, 160),
             QrLabelLeft = Truncate(zone.QrLabelLeft, 160),
@@ -99,7 +104,23 @@ public static class SignageLayout
             StreamOverrideWhenLive = type == "presentation" && zone.StreamOverrideWhenLive,
             ContentPadding = Math.Clamp(zone.ContentPadding, 0, 30),
             ContentScale = Math.Clamp(zone.ContentScale, 25, 100),
-            VerticalAlign = zone.VerticalAlign is "top" or "bottom" ? zone.VerticalAlign : "middle"
+            VerticalAlign = zone.VerticalAlign is "top" or "bottom" ? zone.VerticalAlign : "middle",
+            StreamOverrideStartsAt = type == "presentation" ? zone.StreamOverrideStartsAt : null,
+            StreamOverrideEndsAt = type == "presentation" ? zone.StreamOverrideEndsAt : null,
+            MediaScale = Math.Clamp(zone.MediaScale, 25, 400),
+            MediaOffsetX = Math.Clamp(zone.MediaOffsetX, -150, 150),
+            MediaOffsetY = Math.Clamp(zone.MediaOffsetY, -150, 150),
+            MediaAllowOverflow = type == "media" && zone.MediaAllowOverflow,
+            WifiNetworkName = type == "wifi" ? Truncate(zone.WifiNetworkName, 128) : null,
+            WifiPassword = type == "wifi" ? Truncate(zone.WifiPassword, 256) : null,
+            WifiSecurity = type == "wifi" && zone.WifiSecurity is "WEP" or "nopass" ? zone.WifiSecurity : type == "wifi" ? "WPA" : null,
+            WifiHidden = type == "wifi" && zone.WifiHidden,
+            WeatherIconStyle = type == "weather" && zone.WeatherIconStyle == "white" ? "white" : type == "weather" ? "color" : null,
+            ClockShowPeriod = type != "clock" || zone.ClockShowPeriod,
+            ClockShowWeekday = type != "clock" || zone.ClockShowWeekday,
+            ClockShowYear = type != "clock" || zone.ClockShowYear,
+            CalendarMaxItems = type == "calendar" ? Math.Clamp(zone.CalendarMaxItems, 0, 20) : 0,
+            CalendarFields = type == "calendar" ? NormalizeCalendarFields(zone.CalendarFields) : null
         };
     }
 
@@ -119,8 +140,12 @@ public static class SignageLayout
                 return "Live stream zones require an HTTP, HTTPS, RTMP, RTMPS, or RTSP address without embedded credentials.";
             if (raw.Type == "presentation")
             {
+                if (raw.StreamOverrideWhenLive && !TryStreamUrl(raw.SourceUrl, out _))
+                    return "An RTMP override needs a valid RTMP, RTMPS, HTTP, HTTPS, or RTSP stream address.";
                 if (!string.IsNullOrWhiteSpace(raw.SourceUrl) && !TryStreamUrl(raw.SourceUrl, out _))
                     return "Presentation live overrides require an HTTP, HTTPS, RTMP, RTMPS, or RTSP address without embedded credentials.";
+                if (raw.StreamOverrideStartsAt is { } startsAt && raw.StreamOverrideEndsAt is { } endsAt && endsAt <= startsAt)
+                    return "The RTMP override end time must be after its start time.";
             }
             if (raw.Type == "weather")
             {
@@ -208,5 +233,25 @@ public static class SignageLayout
                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(WeatherDisplayFields.Contains).Distinct(StringComparer.Ordinal).ToArray();
         return string.Join(',', selected.Length == 0 ? ["temperature"] : selected);
+    }
+
+    private static string NormalizeCalendarFields(string? value)
+    {
+        var allowed = new HashSet<string>(["date", "time", "title", "description", "location"],
+            StringComparer.OrdinalIgnoreCase);
+        var selected = (value ?? "date,time,title").Split(',',
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(allowed.Contains).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        return string.Join(',', selected.Length == 0 ? ["date", "time", "title"] : selected);
+    }
+
+    private static string BuildWifiQr(string networkName, string? password, string? security, bool hidden)
+    {
+        static string Escape(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace(";", "\\;", StringComparison.Ordinal).Replace(",", "\\,", StringComparison.Ordinal)
+            .Replace(":", "\\:", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
+        var mode = security is "WEP" or "nopass" ? security : "WPA";
+        var secret = mode == "nopass" ? "" : Escape(password ?? "");
+        return $"WIFI:T:{mode};S:{Escape(networkName.Trim())};P:{secret};H:{(hidden ? "true" : "false")};;";
     }
 }

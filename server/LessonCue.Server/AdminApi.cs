@@ -3083,6 +3083,11 @@ public static class AdminApi
                         zone.WeatherProvider, zone.WeatherLocation, zone.WeatherLatitude, zone.WeatherLongitude,
                         zone.WeatherPostalCode, zone.WeatherUnits, zone.WeatherFields,
                         zone.ContentPlaylistId, zone.StreamOverrideWhenLive,
+                        zone.StreamOverrideStartsAt, zone.StreamOverrideEndsAt,
+                        zone.MediaScale, zone.MediaOffsetX, zone.MediaOffsetY, zone.MediaAllowOverflow,
+                        zone.WifiNetworkName, zone.WifiSecurity, zone.WifiHidden, zone.WeatherIconStyle,
+                        zone.ClockShowPeriod, zone.ClockShowWeekday, zone.ClockShowYear,
+                        zone.CalendarMaxItems, zone.CalendarFields,
                         mediaFileName = zone.MediaAssetId is { } mediaId && zoneMediaAssets.TryGetValue(mediaId, out var mediaAsset) ? mediaAsset.FileName : null
                     }).ToArray(),
                     widgetCache = SignageLayout.ParseCache(item.WidgetCacheJson),
@@ -3148,6 +3153,31 @@ public static class AdminApi
         {
             var record = await db.BackupRecords.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (record is null) return Results.NotFound();
             var path = backups.Resolve(record.FileName); return path is null ? Results.NotFound() : Results.File(path, "application/zip", record.FileName);
+        });
+        backupsAdmin.MapPost("/backups/{id:guid}/verify", async (Guid id, LessonCueDb db, BackupService backups,
+            HttpContext context, CancellationToken ct) =>
+        {
+            var record = await db.BackupRecords.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (record is null) return Results.NotFound();
+            try
+            {
+                var preview = await backups.VerifyStoredAsync(record, ct);
+                Audit(db, "backup.verify", record.Id, $"ok:{preview.FileCount} files");
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(preview);
+            }
+            catch (InvalidDataException ex)
+            {
+                Audit(db, "backup.verify", record.Id, "failed");
+                await db.SaveChangesAsync(ct);
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (IOException ex)
+            {
+                Audit(db, "backup.verify", record.Id, "failed");
+                await db.SaveChangesAsync(ct);
+                return Results.BadRequest(new { error = ex.Message });
+            }
         });
         backupsAdmin.MapPost("/backups/restore/preview", async (HttpRequest request, BackupService backups,
             CancellationToken ct) =>

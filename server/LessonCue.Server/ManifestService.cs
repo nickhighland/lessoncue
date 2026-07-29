@@ -282,6 +282,10 @@ public sealed class ManifestService(LessonCueDb db)
                 zone.WeatherPostalCode, zone.WeatherUnits, zone.WeatherFields,
                 contentPlaylistId = assignedPlaylistId == Guid.Empty ? (Guid?)null : assignedPlaylistId,
                 zone.StreamOverrideWhenLive, zone.ContentPadding, zone.ContentScale, zone.VerticalAlign,
+                zone.StreamOverrideStartsAt, zone.StreamOverrideEndsAt,
+                zone.MediaScale, zone.MediaOffsetX, zone.MediaOffsetY, zone.MediaAllowOverflow,
+                zone.WeatherIconStyle, zone.ClockShowPeriod, zone.ClockShowWeekday, zone.ClockShowYear,
+                zone.CalendarMaxItems, zone.CalendarFields,
                 streamUrl = (zone.Type is "stream" or "presentation") && !string.IsNullOrWhiteSpace(zone.SourceUrl)
                     ? $"/api/v1/signage/{item.Id}/zones/{Uri.EscapeDataString(zone.Id)}/stream/index.m3u8"
                     : null,
@@ -409,6 +413,10 @@ public sealed class ManifestService(LessonCueDb db)
                         zone.WeatherPostalCode, zone.WeatherUnits, zone.WeatherFields,
                         zone.ContentPlaylistId, zone.StreamOverrideWhenLive,
                         zone.ContentPadding, zone.ContentScale, zone.VerticalAlign,
+                        zone.StreamOverrideStartsAt, zone.StreamOverrideEndsAt,
+                        zone.MediaScale, zone.MediaOffsetX, zone.MediaOffsetY, zone.MediaAllowOverflow,
+                        zone.WeatherIconStyle, zone.ClockShowPeriod, zone.ClockShowWeekday, zone.ClockShowYear,
+                        zone.CalendarMaxItems, zone.CalendarFields,
                         streamUrl = (zone.Type is "stream" or "presentation") && !string.IsNullOrWhiteSpace(zone.SourceUrl)
                             ? $"/api/v1/signage/{schedule.Id}/zones/{Uri.EscapeDataString(zone.Id)}/stream/index.m3u8"
                             : null,
