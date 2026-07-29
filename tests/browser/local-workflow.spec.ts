@@ -989,7 +989,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.39.0" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.0" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
@@ -998,6 +998,31 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByText("Browser Test Audio", { exact: true })).toHaveCount(0);
 
   await page.goto("/");
+  await page.getByRole("button", { name: /Audience$/ }).click();
+  await expect(page.getByRole("heading", { name: "Audience interaction" })).toBeVisible();
+  await page.getByRole("button", { name: "New interaction" }).click();
+  const audienceDialog = page.getByRole("dialog", { name: "New audience session" });
+  await audienceDialog.getByLabel("Session title").fill("Browser audience poll");
+  await audienceDialog.getByLabel("Prompt").fill("Ready to continue?");
+  await audienceDialog.getByRole("button", { name: "Save session" }).click();
+  await expect(page.getByRole("heading", { name: "Browser audience poll" })).toBeVisible();
+  await page.getByRole("button", { name: "Open responses" }).click();
+  await expect(page.getByText("Audience session opened.")).toBeVisible();
+  const audiencePath = await page.getByRole("link", { name: "Open response page" }).getAttribute("href");
+  expect(audiencePath).toMatch(/^\/respond\/[A-Z0-9]{6}$/);
+  const responsePage = await page.context().newPage();
+  await responsePage.goto(audiencePath!);
+  await expect(responsePage.getByRole("heading", { name: "Browser audience poll" })).toBeVisible();
+  await responsePage.getByLabel("Yes").check();
+  await responsePage.getByRole("button", { name: "Send anonymous response" }).click();
+  await expect(responsePage.getByText("Response received")).toBeVisible();
+  await responsePage.close();
+  await expect.poll(() => page.evaluate(async () => {
+    const sessions = await fetch("/api/v1/audience/admin/sessions").then(response => response.json());
+    return { participants: sessions[0]?.participantCount, responses: sessions[0]?.questions[0]?.responses.length };
+  })).toEqual({ participants: 1, responses: 1 });
+  await expect(page.getByText("1 anonymous participant", { exact: false })).toBeVisible();
+
   await page.getByRole("button", { name: /Users$/ }).click();
   await page.getByRole("button", { name: "Send setup link" }).click();
   const invitationDialog = page.getByRole("dialog", { name: "Invite a user" });

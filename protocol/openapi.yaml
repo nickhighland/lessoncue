@@ -1370,12 +1370,202 @@ paths:
       responses:
         '200': { description: Existing code revoked and replacement full code returned once }
         '404': { description: Code not found }
+  /api/v1/audience/join/{code}:
+    parameters:
+      - name: code
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[A-Z0-9]{6}$' }
+    get:
+      operationId: joinAudienceSession
+      description: Public, rate-limited local route. It does not require an account and returns questions only while the session is open.
+      responses:
+        '200':
+          description: Public session state, questions, and optional approved results
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AudiencePublicSession' }
+        '404': { description: Response code not found }
+        '429': { description: Too many requests }
+  /api/v1/audience/join/{code}/responses:
+    parameters:
+      - name: code
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[A-Z0-9]{6}$' }
+    post:
+      operationId: submitAudienceResponses
+      description: Public and rate-limited. The participant token is salted per session and stored only as a SHA-256 hash.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AudienceResponseInput' }
+      responses:
+        '200': { description: Anonymous response accepted }
+        '400': { description: Missing, excessive, or invalid answer }
+        '404': { description: Response code not found }
+        '409': { description: Session closed or response changes disabled }
+        '429': { description: Too many submissions }
+  /api/v1/audience/admin/sessions:
+    get:
+      operationId: listAudienceSessions
+      description: Requires planning.manage.
+      responses:
+        '200':
+          description: Local sessions, questions, response aggregates, and moderation queue
+    post:
+      operationId: createAudienceSession
+      description: Requires planning.manage.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AudienceSessionInput' }
+      responses:
+        '201': { description: Session created with a unique response code }
+        '400': { description: Session validation failed }
+  /api/v1/audience/admin/sessions/{sessionId}:
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      operationId: updateAudienceSession
+      description: Requires planning.manage. Questions cannot change while responses exist.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AudienceSessionInput' }
+      responses:
+        '200': { description: Session saved }
+        '409': { description: Reset responses before changing questions }
+    delete:
+      operationId: deleteAudienceSession
+      description: Requires planning.manage and permanently deletes the session and its responses.
+      responses:
+        '204': { description: Session deleted }
+  /api/v1/audience/admin/sessions/{sessionId}/state/{action}:
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: action
+        in: path
+        required: true
+        schema: { enum: [open, close] }
+    post:
+      operationId: changeAudienceSessionState
+      description: Requires planning.manage.
+      responses:
+        '200': { description: Session opened or closed }
+  /api/v1/audience/admin/sessions/{sessionId}/reset:
+    post:
+      operationId: resetAudienceResponses
+      description: Requires planning.manage and permanently deletes every response in the session.
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Responses deleted }
+  /api/v1/audience/admin/responses/{responseId}/moderation:
+    put:
+      operationId: moderateAudienceResponse
+      description: Requires planning.manage.
+      parameters:
+        - name: responseId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { enum: [approved, rejected] }
+      responses:
+        '200': { description: Moderation state saved }
 components:
   securitySchemes:
     deviceBearer:
       type: http
       scheme: bearer
   schemas:
+    AudienceQuestionInput:
+      type: object
+      required: [type, prompt]
+      properties:
+        id: { type: [string, 'null'], format: uuid }
+        type: { enum: [single, multiple, text] }
+        prompt: { type: string, minLength: 1, maxLength: 500 }
+        options:
+          type: array
+          maxItems: 12
+          items: { type: string, minLength: 1 }
+        required: { type: boolean, default: true }
+        maxSelections: { type: integer, minimum: 1, maximum: 12, default: 1 }
+        moderateResponses: { type: boolean, default: true }
+    AudienceSessionInput:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 160 }
+        showLiveResults: { type: boolean, default: false }
+        allowResponseChanges: { type: boolean, default: true }
+        retentionDays: { type: integer, minimum: 1, maximum: 30, default: 7 }
+        questions:
+          type: array
+          maxItems: 20
+          items: { $ref: '#/components/schemas/AudienceQuestionInput' }
+    AudienceAnswerInput:
+      type: object
+      required: [questionId]
+      properties:
+        questionId: { type: string, format: uuid }
+        choices:
+          type: array
+          maxItems: 12
+          items: { type: string }
+        text: { type: [string, 'null'], maxLength: 1000 }
+    AudienceResponseInput:
+      type: object
+      required: [participantToken, answers]
+      properties:
+        participantToken:
+          type: string
+          minLength: 20
+          maxLength: 200
+          description: Random browser-local value; never stored in plaintext.
+        answers:
+          type: array
+          maxItems: 20
+          items: { $ref: '#/components/schemas/AudienceAnswerInput' }
+    AudiencePublicSession:
+      type: object
+      required: [code, title, status, questions, privacy]
+      properties:
+        code: { type: string, pattern: '^[A-Z0-9]{6}$' }
+        title: { type: string }
+        status: { enum: [draft, open, closed] }
+        showLiveResults: { type: boolean }
+        allowResponseChanges: { type: boolean }
+        questions:
+          type: array
+          items:
+            allOf:
+              - { $ref: '#/components/schemas/AudienceQuestionInput' }
+              - type: object
+                required: [id]
+        results: { type: [object, 'null'] }
+        privacy: { type: string }
     HardwareAccelerationStatus:
       type: object
       required: [supported, available, engine, message]

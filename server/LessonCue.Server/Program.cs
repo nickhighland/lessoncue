@@ -61,6 +61,7 @@ builder.Services.AddHostedService<PresentationConversionService>();
 builder.Services.AddHostedService<YouTubeImportService>();
 builder.Services.AddHostedService<MediaRetentionService>();
 builder.Services.AddHostedService<RecurringLessonGeneratorService>();
+builder.Services.AddHostedService<AudienceRetentionService>();
 builder.Services.AddSingleton(services => new ScreenDiagnosticCleanupService(services.GetRequiredService<IServiceScopeFactory>(),
     dataPath, services.GetRequiredService<ILogger<ScreenDiagnosticCleanupService>>()));
 builder.Services.AddHostedService(services => services.GetRequiredService<ScreenDiagnosticCleanupService>());
@@ -166,6 +167,24 @@ builder.Services.AddRateLimiter(options =>
             Window = TimeSpan.FromMinutes(15),
             QueueLimit = 0
         }));
+    options.AddPolicy("audience", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 60,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+    options.AddPolicy("audience-submit", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            // A classroom commonly shares one NAT address. Keep abuse bounded
+            // without preventing a room of participants from submitting at once.
+            PermitLimit = 120,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
 });
 
 var app = builder.Build();
@@ -254,6 +273,7 @@ app.MapGet("/health", async (LessonCueDb db, CancellationToken ct) =>
 var api = app.MapGroup("/api/v1");
 
 app.MapLessonCueAdmin(mediaPath, dataPath, serverId, serverName);
+app.MapAudienceInteraction();
 
 api.MapGet("/media/{mediaId:guid}/file", async (Guid mediaId, LessonCueDb db, CancellationToken ct) =>
 {

@@ -4,7 +4,7 @@
 
 LessonCue is a self-hosted lesson scheduling and television playback system for schools, churches, training programs, and other learning organizations. Administrators build dated media playlists in a browser; paired Android TV, Fire TV, and Apple TV clients cache their assignments and keep playing when the network is unavailable.
 
-[Installation guide](docs/installation.md) · [Accounts and registration](docs/account-self-service.md) · [Run-of-show planning](docs/run-of-show.md) · [Signage scheduling](docs/signage.md) · [Browser player](docs/browser-player.md) · [Implementation guide](docs/implementation.md) · [Feature roadmap](docs/feature-roadmap.md) · [Brand assets](branding/README.md) · [Protocol](protocol/openapi.yaml)
+[Installation guide](docs/installation.md) · [Accounts and registration](docs/account-self-service.md) · [Run-of-show planning](docs/run-of-show.md) · [Audience interaction](docs/audience-interaction.md) · [Signage scheduling](docs/signage.md) · [Browser player](docs/browser-player.md) · [Implementation guide](docs/implementation.md) · [Feature roadmap](docs/feature-roadmap.md) · [Brand assets](branding/README.md) · [Protocol](protocol/openapi.yaml)
 
 ## What is included
 
@@ -24,6 +24,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - PDF, current and legacy PowerPoint, OpenDocument, Keynote, Word, and shared Google Slides ingestion from the Media Library or lesson page, producing ordered screen-ready PNG slide sequences with configurable timing and automatic lesson insertion.
 - Reusable lesson templates that preserve complete playlist and timing structure, one-click dated instantiation, and automatic weekly, biweekly, monthly, term, or custom-date schedules with idempotent generation and reversible holiday exceptions.
 - Teacher and substitute notes, flexible-time cues, printable run sheets, trim/speed/repeat-aware duration estimates, live remaining-time and overrun guidance, same-room conflict warnings, five calendar views, full copy/move between rooms and dates, and private pre-roll livestream monitoring on the phone controller.
+- Local audience polls and QR response collection with single choice, multiple choice, and moderated written answers; anonymous per-session device tokens; optional approved live results; explicit open/close controls; rate limits; audit history; and automatic 1–30 day deletion.
 - Daily release checks, administrator alerts, protected one-click Linux updates with health-check rollback, and administrator-controlled storage allocation with uploader-visible capacity.
 - A locally configurable six-digit pairing PIN, with a choice between a persistent administrator-set PIN and automatic ten-minute rotation.
 - Automatic `lessoncue.local` setup on native Linux, with an administrator-configurable `.local` browser name and numeric-IP fallback.

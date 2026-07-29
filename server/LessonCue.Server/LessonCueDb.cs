@@ -28,6 +28,9 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
     public DbSet<SignageEmergencyTemplate> SignageEmergencyTemplates => Set<SignageEmergencyTemplate>();
     public DbSet<SignageProofRecord> SignageProofRecords => Set<SignageProofRecord>();
     public DbSet<BackupRecord> BackupRecords => Set<BackupRecord>();
+    public DbSet<AudienceSession> AudienceSessions => Set<AudienceSession>();
+    public DbSet<AudienceQuestion> AudienceQuestions => Set<AudienceQuestion>();
+    public DbSet<AudienceResponse> AudienceResponses => Set<AudienceResponse>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -73,5 +76,14 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
         modelBuilder.Entity<SignageContentPlaylist>().HasIndex(x => new { x.Folder, x.Name });
         modelBuilder.Entity<SignageProofRecord>().HasIndex(x => new { x.ScreenId, x.StartedAt });
         modelBuilder.Entity<SignageProofRecord>().HasIndex(x => new { x.SignageId, x.StartedAt });
+        modelBuilder.Entity<AudienceSession>().HasIndex(x => x.Code).IsUnique();
+        modelBuilder.Entity<AudienceQuestion>().HasIndex(x => new { x.SessionId, x.Position });
+        modelBuilder.Entity<AudienceQuestion>().HasOne(x => x.Session).WithMany(x => x.Questions)
+            .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<AudienceResponse>().HasIndex(x => new { x.QuestionId, x.ParticipantTokenHash }).IsUnique();
+        modelBuilder.Entity<AudienceResponse>().HasOne(x => x.Session).WithMany()
+            .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<AudienceResponse>().HasOne(x => x.Question).WithMany(x => x.Responses)
+            .HasForeignKey(x => x.QuestionId).OnDelete(DeleteBehavior.Cascade);
     }
 }

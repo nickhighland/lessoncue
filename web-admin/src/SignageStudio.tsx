@@ -203,6 +203,7 @@ function LayoutsPanel({ media, notify }: Props) {
 }
 
 function CreateSignDialog({ templates, onClose, onCreate }: { templates: Layout[]; onClose: () => void; onCreate: () => void }) {
+  void templates;
   const [step, setStep] = useState(1);
   const [starter, setStarter] = useState("information");
   const [extras, setExtras] = useState<string[]>(["weather", "calendar"]);

@@ -1,7 +1,7 @@
 import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 
-const APP_VERSION = "0.39.0";
+const APP_VERSION = "0.40.0";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -755,6 +755,8 @@ function SignagePlaylistMedia({ item, zoneFit }: {
   const fadeInMs = Math.max(0, item.fadeInMs || 0);
   const fadeOutMs = Math.max(0, item.fadeOutMs || 0);
   useEffect(() => {
+    // Reset the visual envelope when the playlist advances to a new item.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPhase("in");
     const reveal = window.requestAnimationFrame(() => setPhase("show"));
     const outAt = Math.max(fadeInMs, Math.max(1, item.durationSeconds || 10) * 1000 - fadeOutMs);
@@ -871,7 +873,7 @@ function SignagePresentation({ zone, signage }: { zone: SignageZone; signage: Si
 }
 
 function useScheduledStreamOverride(zone: SignageZone) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   const startsAt = zone.streamOverrideStartsAt ? Date.parse(zone.streamOverrideStartsAt) : Number.NEGATIVE_INFINITY;
   const endsAt = zone.streamOverrideEndsAt ? Date.parse(zone.streamOverrideEndsAt) : Number.POSITIVE_INFINITY;
   useEffect(() => {
