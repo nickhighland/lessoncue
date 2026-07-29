@@ -540,6 +540,54 @@ public sealed class BackupRecord
     [MaxLength(80)] public string CreatedBy { get; set; } = "system";
 }
 
+public sealed class AudienceSession
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    [MaxLength(160)] public required string Title { get; set; }
+    [MaxLength(12)] public required string Code { get; set; }
+    [MaxLength(16)] public string Status { get; set; } = "draft";
+    public bool ShowLiveResults { get; set; }
+    public bool AllowResponseChanges { get; set; } = true;
+    public int RetentionDays { get; set; } = 7;
+    [MaxLength(80)] public string CreatedBy { get; set; } = "admin";
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? OpenedAt { get; set; }
+    public DateTimeOffset? ClosedAt { get; set; }
+    public DateTimeOffset PurgeAt { get; set; } = DateTimeOffset.UtcNow.AddDays(7);
+    public List<AudienceQuestion> Questions { get; set; } = [];
+}
+
+public sealed class AudienceQuestion
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid SessionId { get; set; }
+    public AudienceSession? Session { get; set; }
+    public int Position { get; set; }
+    [MaxLength(16)] public string Type { get; set; } = "single";
+    [MaxLength(500)] public required string Prompt { get; set; }
+    [MaxLength(8000)] public string OptionsJson { get; set; } = "[]";
+    public bool Required { get; set; } = true;
+    public int MaxSelections { get; set; } = 1;
+    public bool ModerateResponses { get; set; } = true;
+    public List<AudienceResponse> Responses { get; set; } = [];
+}
+
+public sealed class AudienceResponse
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid SessionId { get; set; }
+    public AudienceSession? Session { get; set; }
+    public Guid QuestionId { get; set; }
+    public AudienceQuestion? Question { get; set; }
+    [MaxLength(64)] public required string ParticipantTokenHash { get; set; }
+    [MaxLength(8000)] public string AnswerJson { get; set; } = "[]";
+    [MaxLength(1000)] public string TextAnswer { get; set; } = "";
+    [MaxLength(16)] public string ModerationStatus { get; set; } = "approved";
+    public DateTimeOffset SubmittedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
 public sealed class PairingAttempt
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -626,6 +674,13 @@ public sealed record RegistrationSettingsInput(string Mode, string PublicBaseUrl
 public sealed record RegistrationModeInput(string Mode);
 public sealed record TestAccountEmailInput(string Recipient);
 public sealed record RegistrationCodeInput(string Label, DateTimeOffset? ExpiresAt, int? MaxUses);
+public sealed record AudienceSessionInput(string Title, bool ShowLiveResults = false,
+    bool AllowResponseChanges = true, int RetentionDays = 7, List<AudienceQuestionInput>? Questions = null);
+public sealed record AudienceQuestionInput(Guid? Id, string Type, string Prompt, List<string>? Options,
+    bool Required = true, int MaxSelections = 1, bool ModerateResponses = true);
+public sealed record AudienceResponseInput(string ParticipantToken, List<AudienceAnswerInput>? Answers);
+public sealed record AudienceAnswerInput(Guid QuestionId, List<string>? Choices, string? Text);
+public sealed record AudienceModerationInput(string Status);
 public sealed record LessonUpdateInput(string? Title, DateOnly? Date, DateTimeOffset? AvailableFrom,
     DateTimeOffset? ExpiresAt, DateTimeOffset? DesignatedStartAt, bool? PreRollEnabled, Guid? CountdownItemId,
     bool ClearCountdown = false, bool ClearAvailableFrom = false, bool ClearExpiresAt = false,

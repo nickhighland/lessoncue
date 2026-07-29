@@ -284,6 +284,54 @@ public static class DatabaseUpgrade
             CREATE INDEX IF NOT EXISTS "IX_RecurringLessonSchedules_ClassId" ON "RecurringLessonSchedules" ("ClassId");
             """, cancellationToken);
 
+        await ExecuteAsync(connection,
+            """
+            CREATE TABLE IF NOT EXISTS "AudienceSessions" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_AudienceSessions" PRIMARY KEY,
+                "Title" TEXT NOT NULL,
+                "Code" TEXT NOT NULL,
+                "Status" TEXT NOT NULL DEFAULT 'draft',
+                "ShowLiveResults" INTEGER NOT NULL DEFAULT 0,
+                "AllowResponseChanges" INTEGER NOT NULL DEFAULT 1,
+                "RetentionDays" INTEGER NOT NULL DEFAULT 7,
+                "CreatedBy" TEXT NOT NULL DEFAULT 'admin',
+                "CreatedAt" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL,
+                "OpenedAt" TEXT NULL,
+                "ClosedAt" TEXT NULL,
+                "PurgeAt" TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_AudienceSessions_Code" ON "AudienceSessions" ("Code");
+            CREATE TABLE IF NOT EXISTS "AudienceQuestions" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_AudienceQuestions" PRIMARY KEY,
+                "SessionId" TEXT NOT NULL,
+                "Position" INTEGER NOT NULL DEFAULT 0,
+                "Type" TEXT NOT NULL DEFAULT 'single',
+                "Prompt" TEXT NOT NULL,
+                "OptionsJson" TEXT NOT NULL DEFAULT '[]',
+                "Required" INTEGER NOT NULL DEFAULT 1,
+                "MaxSelections" INTEGER NOT NULL DEFAULT 1,
+                "ModerateResponses" INTEGER NOT NULL DEFAULT 1,
+                CONSTRAINT "FK_AudienceQuestions_AudienceSessions_SessionId" FOREIGN KEY ("SessionId") REFERENCES "AudienceSessions" ("Id") ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS "IX_AudienceQuestions_SessionId_Position" ON "AudienceQuestions" ("SessionId", "Position");
+            CREATE TABLE IF NOT EXISTS "AudienceResponses" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_AudienceResponses" PRIMARY KEY,
+                "SessionId" TEXT NOT NULL,
+                "QuestionId" TEXT NOT NULL,
+                "ParticipantTokenHash" TEXT NOT NULL,
+                "AnswerJson" TEXT NOT NULL DEFAULT '[]',
+                "TextAnswer" TEXT NOT NULL DEFAULT '',
+                "ModerationStatus" TEXT NOT NULL DEFAULT 'approved',
+                "SubmittedAt" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL,
+                CONSTRAINT "FK_AudienceResponses_AudienceSessions_SessionId" FOREIGN KEY ("SessionId") REFERENCES "AudienceSessions" ("Id") ON DELETE CASCADE,
+                CONSTRAINT "FK_AudienceResponses_AudienceQuestions_QuestionId" FOREIGN KEY ("QuestionId") REFERENCES "AudienceQuestions" ("Id") ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_AudienceResponses_QuestionId_ParticipantTokenHash" ON "AudienceResponses" ("QuestionId", "ParticipantTokenHash");
+            CREATE INDEX IF NOT EXISTS "IX_AudienceResponses_SessionId" ON "AudienceResponses" ("SessionId");
+            """, cancellationToken);
+
         var additions = new Dictionary<string, (string Table, string Sql)>
         {
             ["Organizations.SiteName"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"SiteName\" TEXT NOT NULL DEFAULT 'Main Site'"),

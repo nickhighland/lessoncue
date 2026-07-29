@@ -19,6 +19,7 @@ import {
   SignageStudioSection,
 } from "./SignageStudio";
 import { SimpleSignage } from "./SimpleSignage";
+import { AudienceAdmin, AudienceResponseApp } from "./AudienceInteraction";
 import "./styles.css";
 
 type Permission =
@@ -689,6 +690,7 @@ type View =
   | "media"
   | "screens"
   | "signage"
+  | "audience"
   | "users"
   | "settings";
 
@@ -819,6 +821,7 @@ async function uploadMediaFile(
 
 function App() {
   if (isWebPlayerPath(location.pathname)) return <WebPlayerApp />;
+  if (isAudiencePath(location.pathname)) return <AudienceResponseApp />;
   return <AdminApp />;
 }
 
@@ -870,6 +873,10 @@ function AdminApp() {
 
 function isWebPlayerPath(path: string) {
   return path === "/player" || path === "/display";
+}
+
+function isAudiencePath(path: string) {
+  return path === "/respond" || path.startsWith("/respond/");
 }
 
 function isAccountLinkPath(path: string) {
@@ -1669,7 +1676,7 @@ function Shell({
   const [schedules, setSchedules] = useState<RecurringSchedule[]>([]);
   const [media, setMedia] = useState<Media[]>([]);
   const [screens, setScreens] = useState<Screen[]>([]);
-  const [signage, setSignage] = useState<Signage[]>([]);
+  const [, setSignage] = useState<Signage[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [backups, setBackups] = useState<Backup[]>([]);
   const [audit, setAudit] = useState<Audit[]>([]);
@@ -1820,6 +1827,7 @@ function Shell({
       (view === "controller" && !canControl) ||
       (view === "classes" && !canPlan) ||
       (view === "templates" && !canPlan) ||
+      (view === "audience" && !canPlan) ||
       (view === "signage" &&
         (!canPlan || !bootstrap?.settings.signageEnabled)) ||
       (view === "users" && !canManageUsers) ||
@@ -1852,6 +1860,7 @@ function Shell({
       ? ([
           ["classes", "▤", "Classes"],
           ["templates", "↻", "Templates"],
+          ["audience", "◉", "Audience"],
         ] as [View, string, string][])
       : []),
     ["calendar", "□", "Calendar"],
@@ -2047,6 +2056,9 @@ function Shell({
                   refresh={refresh}
                   notify={setNotice}
                 />
+              )}
+              {view === "audience" && canPlan && (
+                <AudienceAdmin notify={setNotice} />
               )}
               {view === "users" && (
                 <UsersView
@@ -8578,6 +8590,8 @@ function CalendarLesson({
   );
 }
 
+// Retained during the Simple Signage migration for backward-compatible editing.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function SignageView({
   signage,
   media,
