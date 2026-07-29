@@ -381,11 +381,43 @@ input:focus,select:focus,textarea:focus { border-color:var(--gold); box-shadow:0
 .web-player-zone-copy ul { max-height:100%; font-size:.62em; }
 .web-player-signage-zone.allow-media-overflow { overflow:visible; }
 .web-player-signage-zone.media .web-player-zone-copy { display:none; }
-.signage-weather { display:grid; min-width:0; height:100%; place-content:center; justify-items:center; gap:.12em; overflow:hidden; }
-.signage-weather-icon { font-size:1.5em; line-height:1; }
+.signage-weather { display:grid; grid-template-areas:"title" "icon" "reading" "details"; min-width:0; width:100%; height:100%; place-content:center; justify-items:center; gap:.18em; overflow:hidden; }
+.signage-weather-title { grid-area:title; max-width:100%; overflow-wrap:anywhere; line-height:1.05; text-align:center; }
+.signage-weather-icon { grid-area:icon; line-height:1; }
 .signage-weather-icon.white { filter:grayscale(1) brightness(0) invert(1); }
-.signage-weather strong { max-width:100%; font-size:1em; text-align:center; }
-.signage-weather ul { width:100%; margin:.2em 0 0; }
+.signage-weather-reading { grid-area:reading; display:grid; justify-items:center; min-width:0; }
+.signage-weather-temperature { max-width:100%; line-height:1; text-align:center; }
+.signage-weather-conditions { max-width:100%; overflow-wrap:anywhere; text-align:center; }
+.signage-weather-details { grid-area:details; display:flex!important; flex-wrap:wrap; justify-content:center; gap:.15em .65em!important; width:100%; margin:.2em 0 0!important; padding:0!important; list-style:none!important; }
+.signage-weather-details li { border:0!important; padding:0!important; white-space:nowrap; }
+.signage-weather.layout-icon-left { grid-template-areas:"title title" "icon reading" "icon details"; grid-template-columns:auto minmax(0,1fr); align-content:center; }
+.signage-weather.layout-icon-right { grid-template-areas:"title title" "reading icon" "details icon"; grid-template-columns:minmax(0,1fr) auto; align-content:center; }
+.signage-weather.layout-compact { grid-template-areas:"icon title reading" "details details details"; grid-template-columns:auto auto auto; align-content:center; }
+.signage-audience { width:100%; height:100%; display:grid; grid-template-columns:minmax(80px,var(--signage-qr-size)) minmax(0,1fr); gap:clamp(8px,2%,24px); align-items:center; overflow:hidden; }
+.signage-audience.layout-right { grid-template-columns:minmax(0,1fr) minmax(80px,var(--signage-qr-size)); }
+.signage-audience.layout-right .signage-audience-qr { grid-column:2; }
+.signage-audience.layout-right .signage-audience-copy { grid-column:1; grid-row:1; }
+.signage-audience.layout-center { grid-template-columns:1fr; grid-template-rows:minmax(0,var(--signage-qr-size)) minmax(0,1fr); justify-items:center; text-align:center; }
+.signage-audience-qr { min-width:0; max-width:100%; display:grid; place-items:center; gap:.25em; align-content:center; }
+.signage-audience-qr .signage-qr { width:min(100%,42vh); height:auto; max-height:100%; object-fit:contain; border-radius:.1em; }
+.signage-audience-qr>b { max-width:100%; overflow-wrap:anywhere; font:.8em ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.12em; }
+.signage-audience-copy { min-width:0; max-height:100%; display:flex; flex-direction:column; gap:.28em; overflow:hidden; }
+.signage-audience-copy>strong { font-size:1.25em; line-height:1.05; overflow-wrap:anywhere; }
+.signage-audience-copy>p,.signage-audience-copy>h4,.signage-audience-copy>small { margin:0; }
+.signage-audience-copy>p { opacity:.85; }
+.signage-audience-copy>h4 { font-size:1em; line-height:1.12; }
+.signage-audience-status { width:max-content; max-width:100%; border-radius:999px; padding:.25em .65em; color:#17201e; background:#e5e9e7; font-size:.58em; font-weight:800; text-transform:uppercase; letter-spacing:.08em; }
+.signage-audience-status.open { color:#fff; background:#2b8a58; }
+.signage-audience-status.closed { background:#e6a23c; }
+.signage-audience-copy>ul { display:flex!important; flex-wrap:wrap; gap:.25em .8em!important; margin:0!important; padding:0!important; list-style:none!important; font-size:.78em; }
+.signage-audience-copy>ul li { border:0!important; padding:0!important; }
+.signage-audience-results { display:grid; gap:.25em; min-height:0; overflow:hidden; font-size:.68em; }
+.signage-audience-results>div>span { display:flex; justify-content:space-between; gap:.5em; }
+.signage-audience-results em { font-style:normal; }
+.signage-audience-results i { display:block; height:.32em; overflow:hidden; border-radius:999px; background:#ffffff35; }
+.signage-audience-results i>b { display:block; height:100%; min-width:2px; border-radius:inherit; background:var(--gold,#df941f); }
+.signage-audience-error { color:#ffb4a9; }
+.signage-audience-empty { width:100%; height:100%; display:grid; place-items:center; text-align:center; opacity:.7; }
 .signage-calendar-list { display:grid!important; gap:.28em!important; width:100%; max-height:100%; margin:0!important; padding:0!important; overflow:hidden; list-style:none!important; }
 .signage-calendar-list li { display:grid; grid-template-columns:auto 1fr; gap:.08em .5em; min-width:0; border-left:3px solid currentColor; padding-left:.45em!important; white-space:normal!important; }
 .signage-calendar-list time { grid-row:1/4; min-width:4.5em; color:inherit; font-size:.8em; font-weight:800; }
@@ -451,6 +483,8 @@ input:focus,select:focus,textarea:focus { border-color:var(--gold); box-shadow:0
 .empty-state.compact strong,.empty-state.compact small { display:block; }
 .empty-state.compact small { margin-top:5px; color:var(--muted); }
 .audience-public { min-height:100vh; padding:20px; color:#1c2925; background:radial-gradient(circle at 10% 5%,#38645d,transparent 30%),linear-gradient(145deg,#0d2928,#173b36); }
+.audience-display-page { --signage-qr-size:38%; width:100vw; height:100vh; overflow:hidden; padding:clamp(24px,4vw,72px); color:#fff; background:radial-gradient(circle at 12% 8%,#38645d,transparent 34%),linear-gradient(145deg,#0d2928,#173b36); font:600 clamp(18px,2.4vw,42px)/1.2 system-ui,sans-serif; }
+.audience-display-page>.signage-audience { border:1px solid #ffffff24; border-radius:clamp(18px,2vw,34px); padding:clamp(22px,4vw,70px); background:#071b19a8; box-shadow:0 30px 90px #020b0a70; }
 .audience-public>header { width:min(680px,100%); display:flex; align-items:center; gap:11px; margin:0 auto 18px; color:#fff; }
 .audience-public>header img { width:43px; height:43px; border-radius:9px; }
 .audience-public>header strong,.audience-public>header span { display:block; }

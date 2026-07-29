@@ -55,6 +55,7 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
                 {
                     var zone = SignageLayout.Normalize(rawZone);
                     if (zone.WeatherProvider is not ("open-meteo" or "nws") &&
+                        !SignageLayout.IsBuiltInPublicSource(zone) &&
                         (!SignageLayout.TryOrigin(zone.SourceUrl!, out var origin) || !allowlist.Contains(origin, StringComparer.OrdinalIgnoreCase)))
                     {
                         errors.Add($"{zone.Title ?? zone.Type}: source is no longer approved");
@@ -223,7 +224,7 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var title = zone.WeatherLocation ?? zone.Title ?? "Local weather";
         double? temperature = null, feelsLike = null, high = null, low = null, precipitation = null, humidity = null, wind = null;
-        string? temperatureUnit = null, windUnit = null, conditions = null, windText = null, sunrise = null, sunset = null;
+        string? temperatureUnit = null, windUnit = null, conditions = null, forecast = null, windText = null, sunrise = null, sunset = null;
         int? code = null, forecastCode = null;
         if (zone.WeatherProvider == "open-meteo")
         {
@@ -270,6 +271,7 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
             }
             high = all.Where(period => BoolProperty(period, "isDaytime") == true).Select(period => NumberProperty(period, "temperature")).FirstOrDefault(value => value is not null);
             low = all.Where(period => BoolProperty(period, "isDaytime") == false).Select(period => NumberProperty(period, "temperature")).FirstOrDefault(value => value is not null);
+            forecast = all.Skip(1).Select(period => StringProperty(period, "shortForecast")).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
             code = ForecastCode(conditions);
         }
         var icon = WeatherIcon(code, conditions);
@@ -289,7 +291,12 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
         if (fields.Contains("forecast") && forecastCode is not null) items.Add($"Tomorrow {WeatherCondition(forecastCode)}");
         if (fields.Contains("sunrise") && FormatWeatherTime(sunrise) is { } sunriseText) items.Add($"Sunrise {sunriseText}");
         if (fields.Contains("sunset") && FormatWeatherTime(sunset) is { } sunsetText) items.Add($"Sunset {sunsetText}");
-        return new(zone.Id, title, string.Join(" ", headline), items.ToArray(), refreshedAt, zone.SourceUrl, icon);
+        var weather = new SignageWeatherSnapshot(temperature, feelsLike, high, low, precipitation, humidity, wind,
+            unitText, windUnit, conditions,
+            forecast ?? (forecastCode is null ? null : WeatherCondition(forecastCode)),
+            FormatWeatherTime(sunrise), FormatWeatherTime(sunset), windText);
+        return new(zone.Id, title, string.Join(" ", headline), items.ToArray(), refreshedAt, zone.SourceUrl, icon,
+            Weather: weather);
     }
 
     private static IReadOnlyCollection<SignageCalendarEvent> ParseCalendarEvents(string payload)
@@ -315,7 +322,9 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
             events.Add(new SignageCalendarEvent(title, Clean(Value("DESCRIPTION")), Clean(Value("LOCATION")),
                 ParseCalendarDate(startRaw), ParseCalendarDate(endRaw), allDay));
         }
-        return events.OrderBy(value => value.StartsAt ?? DateTimeOffset.MaxValue).ToArray();
+        var now = DateTimeOffset.UtcNow;
+        return events.Where(value => (value.EndsAt ?? value.StartsAt ?? DateTimeOffset.MaxValue) >= now)
+            .OrderBy(value => value.StartsAt ?? DateTimeOffset.MaxValue).ToArray();
     }
 
     private static DateTimeOffset? ParseCalendarDate(string? value)

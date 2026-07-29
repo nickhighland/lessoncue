@@ -1,7 +1,7 @@
 import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 
-const APP_VERSION = "0.40.1";
+const APP_VERSION = "0.40.2";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -79,14 +79,19 @@ export type Signage = {
   backgroundAudio?: CueItem;
 };
 export type SignageCalendarEvent = { title: string; description?: string; location?: string; startsAt?: string; endsAt?: string; allDay?: boolean };
-export type SignageWidgetCache = { zoneId: string; title: string; text: string; items: string[]; refreshedAt: string; source?: string; icon?: string; events?: SignageCalendarEvent[] };
+export type SignageWeatherSnapshot = {
+  temperature?: number; feelsLike?: number; high?: number; low?: number; precipitation?: number;
+  humidity?: number; wind?: number; temperatureUnit?: string; windUnit?: string; conditions?: string;
+  forecast?: string; sunrise?: string; sunset?: string; windText?: string;
+};
+export type SignageWidgetCache = { zoneId: string; title: string; text: string; items: string[]; refreshedAt: string; source?: string; icon?: string; events?: SignageCalendarEvent[]; weather?: SignageWeatherSnapshot };
 export type SignageZone = {
   id: string; type: string; title?: string; content?: string; sourceUrl?: string; streamUrl?: string; htmlUrl?: string;
   x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string; refreshMinutes: number;
   rotation?: number; zIndex?: number; opacity?: number; fit?: "cover" | "contain" | "fill"; locked?: boolean; hidden?: boolean; flipX?: boolean; flipY?: boolean;
   media?: CueItem; cached?: SignageWidgetCache; fontFamily?: string; fontSize?: number; fontWeight?: number; italic?: boolean; underline?: boolean;
   lineHeightPercent?: number; textAlign?: CSSProperties["textAlign"]; strokeColor?: string; strokeWidth?: number; cornerRadius?: number;
-  qrValue?: string; qrLabelTop?: string; qrLabelBottom?: string; qrLabelLeft?: string; qrLabelRight?: string; qrPlacement?: "left" | "center" | "right";
+  qrValue?: string; qrLabelTop?: string; qrLabelBottom?: string; qrLabelLeft?: string; qrLabelRight?: string; qrPlacement?: "left" | "center" | "right"; qrSizePercent?: number;
   tickerSpeed?: number; counterTargetAt?: string; counterRepeatWeekly?: boolean; richTextJson?: string;
   clockDisplay?: "time" | "date" | "both"; clockTimeFormat?: "12h" | "12h-seconds" | "24h" | "24h-seconds";
   clockDateFormat?: "short" | "medium" | "long" | "numeric"; clockOrder?: "time-date" | "date-time" | "inline";
@@ -95,8 +100,12 @@ export type SignageZone = {
   contentPadding?: number; contentScale?: number; verticalAlign?: "top" | "middle" | "bottom";
   mediaScale?: number; mediaOffsetX?: number; mediaOffsetY?: number; mediaAllowOverflow?: boolean;
   wifiNetworkName?: string; wifiSecurity?: string; wifiHidden?: boolean;
-  weatherIconStyle?: "color" | "white"; clockShowPeriod?: boolean; clockShowWeekday?: boolean; clockShowYear?: boolean;
+  weatherProvider?: "open-meteo" | "nws" | "custom"; weatherLocation?: string; weatherFields?: string;
+  weatherIconStyle?: "color" | "white"; weatherLayout?: "icon-top" | "icon-left" | "icon-right" | "compact";
+  weatherIconSize?: number; weatherTitleSize?: number; weatherTemperatureSize?: number; weatherDetailsSize?: number;
+  clockShowPeriod?: boolean; clockShowWeekday?: boolean; clockShowYear?: boolean;
   calendarMaxItems?: number; calendarFields?: string;
+  audienceSessionId?: string; audienceCode?: string; audienceShowResults?: boolean; audienceResultDelaySeconds?: number;
 };
 export type SignagePlaylistEntry = { id: string; kind: string; title?: string; durationSeconds: number; transition?: string; hidden?: boolean; transparent?: boolean; sourceUrl?: string; appType?: string; volumePercent?: number; muted?: boolean; fadeInMs?: number; fadeOutMs?: number; fit?: "contain" | "cover" | "fill"; media?: CueItem; layout?: { id: string; name: string; backgroundColor: string; canvasWidth: number; canvasHeight: number; safeAreaPercent: number; zones: SignageZone[]; backgroundAudio?: CueItem } };
 type Manifest = {
@@ -819,7 +828,7 @@ export function SignageLayout({ signage, editor }: { signage: Signage; editor?: 
       onPointerMove={moveMedia}
       onPointerUp={endMediaDrag}
       onPointerCancel={endMediaDrag}
-      style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, borderRadius: `${zone.cornerRadius || 0}%`, zIndex: zone.zIndex ?? 0, opacity: (zone.opacity ?? 100) / 100, transform: `rotate(${zone.rotation ?? 0}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`, fontFamily: zone.fontFamily, fontSize: zone.fontSize ? `clamp(8px, ${zone.fontSize / 19.2}vw, ${zone.fontSize}px)` : undefined, fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined, textAlign: zone.textAlign, lineHeight: zone.lineHeightPercent ? zone.lineHeightPercent / 100 : undefined, ["--signage-zone-padding" as string]: `${Math.max(0, Math.min(30, zone.contentPadding ?? 6))}%`, ["--signage-content-scale" as string]: Math.max(.25, Math.min(1, (zone.contentScale ?? 100) / 100)) } as CSSProperties}>
+      style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, borderRadius: `${zone.cornerRadius || 0}%`, zIndex: zone.zIndex ?? 0, opacity: (zone.opacity ?? 100) / 100, transform: `rotate(${zone.rotation ?? 0}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`, fontFamily: zone.fontFamily, fontSize: zone.fontSize ? `clamp(8px, ${zone.fontSize / 19.2}vw, ${zone.fontSize}px)` : undefined, fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined, textAlign: zone.textAlign, lineHeight: zone.lineHeightPercent ? zone.lineHeightPercent / 100 : undefined, ["--signage-zone-padding" as string]: `${Math.max(0, Math.min(30, zone.contentPadding ?? 6))}%`, ["--signage-content-scale" as string]: Math.max(.25, Math.min(1, (zone.contentScale ?? 100) / 100)), ["--signage-qr-size" as string]: `${Math.max(20, Math.min(90, zone.qrSizePercent ?? 42))}%` } as CSSProperties}>
       {zone.media?.downloadUrl && (zone.media.type === "video" || zone.media.contentType?.startsWith("video/")
         ? <video src={zone.media.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={zone.media.title} style={{ objectFit: zone.fit || "cover", transform: mediaTransform(zone) }} />
         : <img src={zone.media.downloadUrl} alt={zone.title || ""} style={{ objectFit: zone.fit || "cover", transform: mediaTransform(zone) }} />)}
@@ -830,14 +839,15 @@ export function SignageLayout({ signage, editor }: { signage: Signage; editor?: 
         ? <iframe src={zone.htmlUrl} title={zone.title || "Custom HTML"} sandbox="allow-forms allow-modals allow-popups allow-presentation allow-scripts" />
         : zone.content && <iframe srcDoc={zone.content} title={zone.title || "Custom HTML"} sandbox="allow-forms allow-modals allow-popups allow-presentation allow-scripts" />)}
       {(zone.type === "qr" || zone.type === "wifi") && <SignageQr zone={zone} />}
+      {zone.type === "audience" && <SignageAudiencePoll zone={zone} />}
       <div className={`web-player-zone-copy ${zone.type === "ticker" ? "ticker" : ""}`} style={zone.type === "ticker" ? { animationDuration: `${Math.max(5, 300 / Math.max(10, zone.tickerSpeed || 60))}s` } : undefined}>
-        {zone.title && !["qr","wifi","webpage","customHtml","presentation","media"].includes(zone.type) && <small style={{ color: zone.accentColor }}>{zone.title}</small>}
+        {zone.title && !["qr","wifi","audience","webpage","customHtml","presentation","media","weather"].includes(zone.type) && <small style={{ color: zone.accentColor }}>{zone.title}</small>}
         {zone.type === "clock" ? <SignageClock zone={zone} />
           : zone.type === "weather" ? <SignageWeather zone={zone} />
           : zone.type === "calendar" ? <SignageCalendar zone={zone} />
           : zone.type === "counter" ? <SignageCounter zone={zone} />
           : zone.richTextJson ? <SignageRichText value={zone.richTextJson} fallback={zone.cached?.text || zone.content || ""} />
-          : !["qr","wifi","webpage","customHtml","presentation","stream","media","weather","calendar"].includes(zone.type) ? <><strong>{zone.cached?.text || zone.content}</strong>{zone.cached?.items?.length ? <ul>{zone.cached.items.map((item, index) => <li key={`${zone.id}-${index}`}>{item}</li>)}</ul> : null}</>
+          : !["qr","wifi","audience","webpage","customHtml","presentation","stream","media","weather","calendar"].includes(zone.type) ? <><strong>{zone.cached?.text || zone.content}</strong>{zone.cached?.items?.length ? <ul>{zone.cached.items.map((item, index) => <li key={`${zone.id}-${index}`}>{item}</li>)}</ul> : null}</>
           : null}
       </div>
     </article>)}
@@ -910,6 +920,123 @@ function GeneratedSignageQr({ value }: { value: string }) {
   const [source, setSource] = useState("");
   useEffect(() => { let current = true; void QRCode.toDataURL(value, { width: 480, margin: 1 }).then(url => { if (current) setSource(url); }); return () => { current = false; }; }, [value]);
   return source ? <img className="signage-qr" src={source} alt={`QR code for ${value}`} /> : null;
+}
+
+type SignageAudienceSession = {
+  code: string;
+  title: string;
+  status: "draft" | "open" | "closed";
+  showLiveResults: boolean;
+  questions: { id: string; prompt: string; type: "single" | "multiple" | "text"; options: string[] }[];
+  results?: {
+    participantCount: number;
+    questions: { id: string; prompt: string; type: string; counts: { option: string; count: number }[] }[];
+  };
+};
+
+function SignageAudiencePoll({ zone }: { zone: SignageZone }) {
+  return <AudiencePollDisplay
+    code={zone.audienceCode || ""}
+    title={zone.title}
+    instructions={zone.content}
+    showResults={zone.audienceShowResults !== false}
+    resultDelaySeconds={zone.audienceResultDelaySeconds || 0}
+    placement={zone.qrPlacement as "left" | "center" | "right" | undefined}
+  />;
+}
+
+export function AudiencePollDisplay({
+  code: rawCode,
+  title,
+  instructions,
+  showResults = true,
+  resultDelaySeconds = 0,
+  placement = "left",
+}: {
+  code: string;
+  title?: string;
+  instructions?: string;
+  showResults?: boolean;
+  resultDelaySeconds?: number;
+  placement?: "left" | "center" | "right";
+}) {
+  const code = String(rawCode || "").trim().toUpperCase();
+  const [session, setSession] = useState<SignageAudienceSession>();
+  const [displayedResults, setDisplayedResults] =
+    useState<SignageAudienceSession["results"]>();
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!code) {
+      setSession(undefined);
+      setDisplayedResults(undefined);
+      setError("");
+      return;
+    }
+    let active = true;
+    let timer = 0;
+    const resultTimers: number[] = [];
+    const delayMs = Math.min(3600, Math.max(0, resultDelaySeconds)) * 1000;
+    if (!showResults || delayMs > 0) setDisplayedResults(undefined);
+    async function refresh() {
+      try {
+        const response = await fetch(`/api/v1/audience/join/${encodeURIComponent(code)}`, { credentials: "same-origin" });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || `Unable to load poll (${response.status}).`);
+        if (active) {
+          const next = body as SignageAudienceSession;
+          setSession(next);
+          if (!showResults) setDisplayedResults(undefined);
+          else if (delayMs === 0) setDisplayedResults(next.results);
+          else {
+            resultTimers.push(window.setTimeout(() => {
+              if (active) setDisplayedResults(next.results);
+            }, delayMs));
+          }
+          setError("");
+        }
+      } catch (problem) {
+        if (active) setError(problem instanceof Error ? problem.message : "Unable to load poll.");
+      } finally {
+        if (active) timer = window.setTimeout(refresh, 10_000);
+      }
+    }
+    void refresh();
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+      resultTimers.forEach((id) => window.clearTimeout(id));
+    };
+  }, [code, showResults, resultDelaySeconds]);
+  if (!code) return <div className="signage-audience-empty">Choose an audience poll</div>;
+  const responseUrl = `${location.origin}/respond/${code}`;
+  const question = session?.questions[0];
+  const result = question
+    ? displayedResults?.questions.find(item => item.id === question.id)
+    : displayedResults?.questions[0];
+  const prompt = question?.prompt || result?.prompt;
+  const total = Math.max(1, result?.counts.reduce((sum, item) => sum + item.count, 0) || 0);
+  return <div className={`signage-audience layout-${placement}`}>
+    <div className="signage-audience-qr">
+      <GeneratedSignageQr value={responseUrl} />
+      <b>{code}</b>
+    </div>
+    <div className="signage-audience-copy">
+      <strong>{title || session?.title || "Audience poll"}</strong>
+      <span className={`signage-audience-status ${session?.status || "loading"}`}>
+        {session?.status === "open" ? "Voting open" : session?.status === "closed" ? "Voting closed" : session?.status === "draft" ? "Not open yet" : "Loading poll"}
+      </span>
+      <p>{instructions || "Scan the QR code to vote."}</p>
+      {prompt && <h4>{prompt}</h4>}
+      {showResults && result?.counts?.length
+        ? <div className="signage-audience-results">{result.counts.slice(0, 8).map(item => <div key={item.option}>
+            <span><b>{item.option}</b><em>{item.count}</em></span>
+            <i><b style={{ width: `${item.count / total * 100}%` }} /></i>
+          </div>)}</div>
+        : question?.options?.length ? <ul>{question.options.slice(0, 8).map(option => <li key={option}>{option}</li>)}</ul> : null}
+      {showResults && displayedResults && <small>{displayedResults.participantCount} response{displayedResults.participantCount === 1 ? "" : "s"}</small>}
+      {error && <small className="signage-audience-error">{error}</small>}
+    </div>
+  </div>;
 }
 
 function SignageCounter({ zone }: { zone: SignageZone }) {
@@ -990,12 +1117,35 @@ function SignageClock({ zone }: { zone: SignageZone }) {
 
 function SignageWeather({ zone }: { zone: SignageZone }) {
   const cache = zone.cached;
+  const weather = cache?.weather;
+  const fields = new Set((zone.weatherFields || "icon,conditions,temperature,high,low").split(","));
   const icon = cache?.icon || "☀️";
-  const text = (cache?.text || zone.content || "Weather").replace(icon, "").trim();
-  return <div className="signage-weather">
-    <span className={`signage-weather-icon ${zone.weatherIconStyle === "white" ? "white" : "color"}`}>{icon}</span>
-    <strong>{text || "Weather"}</strong>
-    {cache?.items?.length ? <ul>{cache.items.map((item, index) => <li key={`${zone.id}-weather-${index}`}>{item}</li>)}</ul> : null}
+  const unit = weather?.temperatureUnit || "°";
+  const details = [
+    fields.has("high") && weather?.high != null ? `High ${weather.high.toFixed(0)}${unit}` : "",
+    fields.has("low") && weather?.low != null ? `Low ${weather.low.toFixed(0)}${unit}` : "",
+    fields.has("feelsLike") && weather?.feelsLike != null ? `Feels like ${weather.feelsLike.toFixed(0)}${unit}` : "",
+    fields.has("humidity") && weather?.humidity != null ? `Humidity ${weather.humidity.toFixed(0)}%` : "",
+    fields.has("precipitation") && weather?.precipitation != null ? `Precipitation ${weather.precipitation.toFixed(0)}%` : "",
+    fields.has("wind") && weather?.windText ? `Wind ${weather.windText}` :
+      fields.has("wind") && weather?.wind != null ? `Wind ${weather.wind.toFixed(0)} ${weather.windUnit || ""}`.trim() : "",
+    fields.has("forecast") && weather?.forecast ? `Tomorrow ${weather.forecast}` : "",
+    fields.has("sunrise") && weather?.sunrise ? `Sunrise ${weather.sunrise}` : "",
+    fields.has("sunset") && weather?.sunset ? `Sunset ${weather.sunset}` : "",
+  ].filter(Boolean);
+  const fallbackText = (cache?.text || zone.content || "Weather").replace(icon, "").trim();
+  return <div className={`signage-weather layout-${zone.weatherLayout || "icon-top"}`}>
+    {(zone.title || cache?.title) && <b className="signage-weather-title" style={{ fontSize: `${zone.weatherTitleSize || 28}px` }}>{zone.title || cache?.title}</b>}
+    {fields.has("icon") && <span className={`signage-weather-icon ${zone.weatherIconStyle === "white" ? "white" : "color"}`} style={{ fontSize: `${zone.weatherIconSize || 84}px` }}>{icon}</span>}
+    <div className="signage-weather-reading">
+      {fields.has("temperature") && weather?.temperature != null
+        ? <strong className="signage-weather-temperature" style={{ fontSize: `${zone.weatherTemperatureSize || 58}px` }}>{weather.temperature.toFixed(0)}{unit}</strong>
+        : !weather && <strong className="signage-weather-temperature">{fallbackText || "Weather"}</strong>}
+      {fields.has("conditions") && weather?.conditions && <span className="signage-weather-conditions">{weather.conditions}</span>}
+    </div>
+    {details.length > 0
+      ? <ul className="signage-weather-details" style={{ fontSize: `${zone.weatherDetailsSize || 22}px` }}>{details.map((item, index) => <li key={`${zone.id}-weather-${index}`}>{item}</li>)}</ul>
+      : !weather && cache?.items?.length ? <ul className="signage-weather-details">{cache.items.map((item, index) => <li key={`${zone.id}-weather-${index}`}>{item}</li>)}</ul> : null}
   </div>;
 }
 

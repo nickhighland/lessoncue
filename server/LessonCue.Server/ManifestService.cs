@@ -275,6 +275,7 @@ public sealed class ManifestService(LessonCueDb db)
                 zone.Italic, zone.Underline, zone.LineHeightPercent, zone.TextAlign, zone.Shape,
                 zone.StrokeColor, zone.StrokeWidth, zone.CornerRadius, zone.IconName, zone.QrValue,
                 zone.QrLabelTop, zone.QrLabelBottom, zone.QrLabelLeft, zone.QrLabelRight, zone.QrPlacement,
+                zone.QrSizePercent,
                 zone.TickerSpeed, zone.CounterTargetAt, zone.CounterRepeatWeekly,
                 zone.ClockDisplay, zone.ClockTimeFormat, zone.ClockDateFormat, zone.ClockOrder,
                 zone.ClockTimeFontSize, zone.ClockDateFontSize,
@@ -284,8 +285,12 @@ public sealed class ManifestService(LessonCueDb db)
                 zone.StreamOverrideWhenLive, zone.ContentPadding, zone.ContentScale, zone.VerticalAlign,
                 zone.StreamOverrideStartsAt, zone.StreamOverrideEndsAt,
                 zone.MediaScale, zone.MediaOffsetX, zone.MediaOffsetY, zone.MediaAllowOverflow,
-                zone.WeatherIconStyle, zone.ClockShowPeriod, zone.ClockShowWeekday, zone.ClockShowYear,
+                zone.WeatherIconStyle, zone.WeatherLayout, zone.WeatherIconSize, zone.WeatherTitleSize,
+                zone.WeatherTemperatureSize, zone.WeatherDetailsSize,
+                zone.ClockShowPeriod, zone.ClockShowWeekday, zone.ClockShowYear,
                 zone.CalendarMaxItems, zone.CalendarFields,
+                zone.AudienceSessionId, zone.AudienceCode, zone.AudienceShowResults,
+                zone.AudienceResultDelaySeconds,
                 streamUrl = (zone.Type is "stream" or "presentation") && !string.IsNullOrWhiteSpace(zone.SourceUrl)
                     ? $"/api/v1/signage/{item.Id}/zones/{Uri.EscapeDataString(zone.Id)}/stream/index.m3u8"
                     : null,
@@ -406,6 +411,7 @@ public sealed class ManifestService(LessonCueDb db)
                         zone.LineHeightPercent, zone.TextAlign, zone.Shape, zone.StrokeColor, zone.StrokeWidth,
                         zone.CornerRadius, zone.IconName, zone.QrValue,
                         zone.QrLabelTop, zone.QrLabelBottom, zone.QrLabelLeft, zone.QrLabelRight, zone.QrPlacement,
+                        zone.QrSizePercent,
                         zone.TickerSpeed, zone.CounterTargetAt, zone.CounterRepeatWeekly,
                         zone.ClockDisplay, zone.ClockTimeFormat, zone.ClockDateFormat, zone.ClockOrder,
                         zone.ClockTimeFontSize, zone.ClockDateFontSize,
@@ -415,8 +421,12 @@ public sealed class ManifestService(LessonCueDb db)
                         zone.ContentPadding, zone.ContentScale, zone.VerticalAlign,
                         zone.StreamOverrideStartsAt, zone.StreamOverrideEndsAt,
                         zone.MediaScale, zone.MediaOffsetX, zone.MediaOffsetY, zone.MediaAllowOverflow,
-                        zone.WeatherIconStyle, zone.ClockShowPeriod, zone.ClockShowWeekday, zone.ClockShowYear,
+                        zone.WeatherIconStyle, zone.WeatherLayout, zone.WeatherIconSize, zone.WeatherTitleSize,
+                        zone.WeatherTemperatureSize, zone.WeatherDetailsSize,
+                        zone.ClockShowPeriod, zone.ClockShowWeekday, zone.ClockShowYear,
                         zone.CalendarMaxItems, zone.CalendarFields,
+                        zone.AudienceSessionId, zone.AudienceCode, zone.AudienceShowResults,
+                        zone.AudienceResultDelaySeconds,
                         streamUrl = (zone.Type is "stream" or "presentation") && !string.IsNullOrWhiteSpace(zone.SourceUrl)
                             ? $"/api/v1/signage/{schedule.Id}/zones/{Uri.EscapeDataString(zone.Id)}/stream/index.m3u8"
                             : null,

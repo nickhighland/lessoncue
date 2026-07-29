@@ -54,6 +54,12 @@ public sealed class SignageStudioTests
             [new("feed", "cloud", SourceUrl: "/relative")])));
         Assert.Null(SignageStudio.ValidatePlaylist(new("News", "", "random", "region",
             [new("feed", "cloud", SourceUrl: "https://content.example.edu/signage.csv", DurationSeconds: 30)])));
+        Assert.Null(SignageStudio.ValidatePlaylist(new("Live poll", "", "ordered", "screen",
+            [new("poll", "web", SourceUrl: "/audience-display/ABC123?results=1&delay=30", DurationSeconds: 60)])));
+        Assert.Contains("audience-display", SignageStudio.ValidatePlaylist(new("Invalid poll timing", "", "ordered", "screen",
+            [new("poll", "web", SourceUrl: "/audience-display/ABC123?delay=forever", DurationSeconds: 60)])));
+        Assert.Contains("audience-display", SignageStudio.ValidatePlaylist(new("Invalid local page", "", "ordered", "screen",
+            [new("page", "web", SourceUrl: "/settings", DurationSeconds: 30)])));
     }
 
     [Fact]

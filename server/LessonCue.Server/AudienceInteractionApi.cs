@@ -24,6 +24,7 @@ public static class AudienceInteractionApi
         admin.MapPut("/sessions/{id:guid}", UpdateSession);
         admin.MapPost("/sessions/{id:guid}/state/{action}", ChangeState);
         admin.MapPost("/sessions/{id:guid}/reset", ResetResponses);
+        admin.MapPost("/sessions/{id:guid}/display-media", GetOrCreateDisplayMedia);
         admin.MapPut("/responses/{id:guid}/moderation", ModerateResponse);
         admin.MapDelete("/sessions/{id:guid}", DeleteSession);
     }
@@ -227,6 +228,49 @@ public static class AudienceInteractionApi
         Audit(db, context, "audience.responses.reset", id, item.Title);
         await db.SaveChangesAsync(ct);
         return Results.NoContent();
+    }
+
+    private static async Task<IResult> GetOrCreateDisplayMedia(Guid id, AudienceDisplayMediaInput input,
+        HttpContext context,
+        LessonCueDb db, CancellationToken ct)
+    {
+        var session = await db.AudienceSessions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (session is null) return Results.NotFound(new { error = "That audience poll no longer exists." });
+        var delay = input.ShowResults ? Math.Clamp(input.ResultDelaySeconds, 0, 3600) : 0;
+        var sourceUrl = $"/audience-display/{session.Code}?results={(input.ShowResults ? 1 : 0)}&delay={delay}";
+        var media = await db.MediaAssets.SingleOrDefaultAsync(
+            x => (x.SourceKind == "link" || x.SourceKind == "audience-poll") &&
+                 x.LinkKind == "embedded" && x.SourceUrl == sourceUrl, ct);
+        if (media is null)
+        {
+            media = new MediaAsset
+            {
+                FileName = session.Title,
+                ContentType = "text/uri-list",
+                RelativePath = "",
+                SizeBytes = 0,
+                OfflineEligible = false,
+                ProcessingStatus = "ready",
+                CompatibilityStatus = "not-needed",
+                SourceKind = "link",
+                SourceUrl = sourceUrl,
+                LinkKind = "embedded"
+            };
+            MediaRetention.KeepPermanently(media);
+            db.MediaAssets.Add(media);
+            Audit(db, context, "audience.display-media.create", session.Id, session.Title);
+            await db.SaveChangesAsync(ct);
+        }
+        else if (media.FileName != session.Title || media.SourceKind != "link" ||
+                 media.CompatibilityStatus != "not-needed")
+        {
+            media.FileName = session.Title;
+            media.SourceKind = "link";
+            media.ProcessingStatus = "ready";
+            media.CompatibilityStatus = "not-needed";
+            await db.SaveChangesAsync(ct);
+        }
+        return Results.Ok(media);
     }
 
     private static async Task<IResult> ModerateResponse(Guid id, AudienceModerationInput input, HttpContext context,

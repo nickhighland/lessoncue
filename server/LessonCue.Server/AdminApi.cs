@@ -3151,6 +3151,8 @@ public static class AdminApi
                         zone.WifiNetworkName, zone.WifiSecurity, zone.WifiHidden, zone.WeatherIconStyle,
                         zone.ClockShowPeriod, zone.ClockShowWeekday, zone.ClockShowYear,
                         zone.CalendarMaxItems, zone.CalendarFields,
+                        zone.AudienceSessionId, zone.AudienceCode, zone.AudienceShowResults,
+                        zone.AudienceResultDelaySeconds,
                         mediaFileName = zone.MediaAssetId is { } mediaId && zoneMediaAssets.TryGetValue(mediaId, out var mediaAsset) ? mediaAsset.FileName : null
                     }).ToArray(),
                     widgetCache = SignageLayout.ParseCache(item.WidgetCacheJson),
