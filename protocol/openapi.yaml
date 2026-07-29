@@ -479,8 +479,8 @@ paths:
         '201': { description: One-time temporary controller URL and expiry }
   /api/v1/controller/sessions/{token}:
     get:
-      operationId: getTemporaryControllerSession
-      description: Requires playback.control. Resolves an unexpired temporary controller scope.
+      operationId: getRestrictedControllerSession
+      description: Requires playback.control. Resolves an unexpired temporary scope or an active permanent revocable scope.
       parameters:
         - name: token
           in: path
@@ -488,7 +488,42 @@ paths:
           schema: { type: string, pattern: '^[0-9a-f]{48}$' }
       responses:
         '200': { description: Active restricted scope }
-        '404': { description: Link is invalid, expired, or was cleared by a server restart }
+        '404': { description: Link is invalid, expired, revoked, or was a temporary link cleared by a server restart }
+  /api/v1/controller/permanent:
+    post:
+      operationId: rotatePermanentControllerSession
+      description: Requires planning.manage. Creates or rotates the permanent revocable controller QR for one class and optionally one lesson. Rotation immediately revokes the previous URL.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PermanentControllerSessionInput' }
+      responses:
+        '200': { description: Active permanent controller URL }
+        '400': { description: Class or lesson scope is invalid }
+  /api/v1/controller/permanent/{classId}:
+    get:
+      operationId: getPermanentControllerSession
+      description: Requires planning.manage. Returns the current permanent controller QR state for a class.
+      parameters:
+        - name: classId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Active link details or an inactive state }
+        '404': { description: Class not found }
+    delete:
+      operationId: revokePermanentControllerSession
+      description: Requires planning.manage. Immediately revokes the class's permanent controller QR.
+      parameters:
+        - name: classId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Permanent QR revoked }
+        '404': { description: Class not found }
   /api/v1/tv/status:
     post:
       operationId: reportTvStatus
@@ -1920,6 +1955,12 @@ components:
         classId: { type: string, format: uuid }
         lessonId: { type: [string, 'null'], format: uuid }
         expiresInMinutes: { type: integer, minimum: 5, maximum: 10080, default: 60 }
+    PermanentControllerSessionInput:
+      type: object
+      required: [classId]
+      properties:
+        classId: { type: string, format: uuid }
+        lessonId: { type: [string, 'null'], format: uuid }
     RecycleBinItem:
       type: object
       required: [kind, id, title, detail, deletedAt]

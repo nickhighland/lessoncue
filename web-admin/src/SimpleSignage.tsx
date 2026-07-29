@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./simple-signage.css";
 import {
   SignageLayout as ScreenSignageLayout,
@@ -412,14 +412,19 @@ function blankLayout(kind: "information" | "fullscreen" | "welcome"): Layout {
 export function SimpleSignage({
   media,
   screens,
+  navigation,
+  onNavigate,
   refresh,
   notify,
 }: {
   media: Media[];
   screens: Screen[];
+  navigation: { key: string; icon: string; label: string }[];
+  onNavigate: (key: string) => void;
   refresh: () => void;
   notify: (message: string) => void;
 }) {
+  const navigationMenu = useRef<HTMLDetailsElement>(null);
   const [tab, setTab] = useState<Tab>("layouts");
   const [layouts, setLayouts] = useState<Layout[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -692,7 +697,30 @@ export function SimpleSignage({
           <strong>LessonCue</strong>
           <span>Signage</span>
         </div>
-        <div className="simple-signage-local">⌂ Self-hosted</div>
+        <details className="simple-signage-navigation" ref={navigationMenu}>
+          <summary aria-label="Open LessonCue navigation">
+            <span className="simple-signage-menu-icon" aria-hidden="true">
+              ☰
+            </span>
+            <span>Menu</span>
+          </summary>
+          <nav aria-label="LessonCue navigation">
+            {navigation.map((item) => (
+              <button
+                className={item.key === "signage" ? "active" : ""}
+                key={item.key}
+                onClick={() => {
+                  navigationMenu.current?.removeAttribute("open");
+                  onNavigate(item.key);
+                }}
+                type="button"
+              >
+                <span aria-hidden="true">{item.icon}</span>
+                {item.label}
+              </button>
+            ))}
+          </nav>
+        </details>
       </header>
 
       <nav className="simple-signage-steps" aria-label="Signage setup">

@@ -593,7 +593,48 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const controllerDialog = page.getByRole("dialog", { name: /controller$/ });
   await expect(controllerDialog.getByAltText(/QR code for/)).toBeVisible();
   await expect(controllerDialog.getByText(/\/room\/browser-room/)).toBeVisible();
-  await controllerDialog.getByRole("button", { name: "Close" }).click();
+  const controllerColor = controllerDialog.getByLabel("Controller theme color");
+  await expect(controllerColor).toHaveValue("#316b83");
+  await controllerColor.evaluate((element: HTMLInputElement) => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(element, "#8a3f72");
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await expect(controllerDialog.getByText("#8A3F72")).toBeVisible();
+  await expect(controllerDialog.locator(".controller-share-preview")).toHaveCSS(
+    "border-left-color",
+    "rgb(138, 63, 114)",
+  );
+  await controllerDialog.getByRole("button", { name: "Create permanent QR" }).click();
+  await expect(controllerDialog.getByText("PERMANENT REVOCABLE CONTROLLER")).toBeVisible();
+  const firstPermanent = await page.evaluate(async () => {
+    const classes = await fetch("/api/v1/classes").then(response => response.json());
+    return fetch(`/api/v1/controller/permanent/${classes[0].id}`).then(response => response.json());
+  });
+  expect(firstPermanent.path).toMatch(/^\/session\/[a-f0-9]{48}$/);
+  expect((await page.request.get(firstPermanent.path.replace("/session/", "/api/v1/controller/sessions/"))).status()).toBe(200);
+  page.once("dialog", dialog => dialog.accept());
+  await controllerDialog.getByRole("button", { name: "Refresh permanent QR" }).click();
+  const rotatedPermanent = await page.evaluate(async () => {
+    const classes = await fetch("/api/v1/classes").then(response => response.json());
+    return fetch(`/api/v1/controller/permanent/${classes[0].id}`).then(response => response.json());
+  });
+  expect(rotatedPermanent.path).not.toBe(firstPermanent.path);
+  expect((await page.request.get(firstPermanent.path.replace("/session/", "/api/v1/controller/sessions/"))).status()).toBe(404);
+  expect((await page.request.get(rotatedPermanent.path.replace("/session/", "/api/v1/controller/sessions/"))).status()).toBe(200);
+  page.once("dialog", dialog => dialog.accept());
+  await controllerDialog.getByRole("button", { name: "Revoke" }).click();
+  await expect(controllerDialog.getByRole("button", { name: "Create permanent QR" })).toBeVisible();
+  expect((await page.request.get(rotatedPermanent.path.replace("/session/", "/api/v1/controller/sessions/"))).status()).toBe(404);
+  await controllerDialog.getByRole("button", { name: "Save controller" }).click();
+  await expect(page.getByText("Class controller address and theme saved.")).toBeVisible();
+  expect(await page.evaluate(async () => {
+    const classes = await fetch("/api/v1/classes").then(response => response.json());
+    return classes[0].controllerColor;
+  })).toBe("#8a3f72");
   const recycleWorkflow = await page.evaluate(async () => {
     const headers = { "Content-Type": "application/json" };
     const classes = await fetch("/api/v1/classes").then(response => response.json());
@@ -662,6 +703,13 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.locator(".toast")).toHaveCount(0);
   await page.getByRole("button", { name: /Signage$/ }).click();
   await expect(page.getByRole("navigation", { name: "Signage setup" })).toBeVisible();
+  await expect(page.getByText("Self-hosted", { exact: true })).toHaveCount(0);
+  await page.getByLabel("Open LessonCue navigation").click();
+  const signageNavigation = page.getByRole("navigation", { name: "LessonCue navigation" });
+  await expect(signageNavigation).toBeVisible();
+  await expect(signageNavigation.getByRole("button", { name: "Dashboard" })).toBeVisible();
+  await expect(signageNavigation.getByRole("button", { name: "Signage" })).toHaveClass(/active/);
+  await page.getByLabel("Open LessonCue navigation").click();
   await expect(page.getByRole("button", { name: /1 Layouts Build the persistent frame/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /2 Playlists Choose looping content/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /3 Signs & screens Combine and assign/ })).toBeVisible();
@@ -989,7 +1037,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.0" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.1" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();

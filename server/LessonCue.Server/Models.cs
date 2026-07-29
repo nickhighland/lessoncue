@@ -91,6 +91,9 @@ public sealed class LessonClass
     [MaxLength(63)] public string ControllerSlug { get; set; } = "";
     [MaxLength(16)] public string ControllerColor { get; set; } = "#2d6a4f";
     [MaxLength(253)] public string? ControllerHostname { get; set; }
+    [JsonIgnore, MaxLength(48)] public string? PermanentControllerToken { get; set; }
+    public Guid? PermanentControllerLessonId { get; set; }
+    public DateTimeOffset? PermanentControllerCreatedAt { get; set; }
     public DateTimeOffset? DeletedAt { get; set; }
     [MaxLength(80)] public string? DeletedBy { get; set; }
 }
@@ -638,6 +641,7 @@ public sealed record PairingConfirmInput(Guid RequestId, string Pin);
 public sealed record PairingPinInput(string? Pin, bool Automatic = false);
 public sealed record ControllerPinInput(string Pin);
 public sealed record TemporaryControllerSessionInput(Guid ClassId, Guid? LessonId, int ExpiresInMinutes = 60);
+public sealed record PermanentControllerSessionInput(Guid ClassId, Guid? LessonId);
 public sealed record RecycleBinItem(string Kind, Guid Id, string Title, string Detail,
     DateTimeOffset DeletedAt, string? DeletedBy);
 public sealed record BackupRestoreInput(Guid RestoreId, string Confirmation);
