@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
+import { AudiencePollDisplay } from "./WebPlayer";
 
 type QuestionType = "single" | "multiple" | "text";
 type AudienceResponse = {
@@ -952,6 +953,26 @@ export function AudienceResponseApp() {
         </section>
       )}
       <footer>Self-hosted on {location.host}</footer>
+    </main>
+  );
+}
+
+export function AudienceDisplayApp() {
+  const code = location.pathname.split("/").filter(Boolean).at(-1) || "";
+  const params = new URLSearchParams(location.search);
+  const showResults = params.get("results") !== "0";
+  const resultDelaySeconds = Math.min(
+    3600,
+    Math.max(0, Number(params.get("delay") || 0) || 0),
+  );
+  return (
+    <main className="audience-display-page">
+      <AudiencePollDisplay
+        code={code}
+        showResults={showResults}
+        resultDelaySeconds={resultDelaySeconds}
+        placement="left"
+      />
     </main>
   );
 }

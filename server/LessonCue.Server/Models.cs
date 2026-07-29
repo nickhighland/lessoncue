@@ -685,6 +685,7 @@ public sealed record AudienceQuestionInput(Guid? Id, string Type, string Prompt,
 public sealed record AudienceResponseInput(string ParticipantToken, List<AudienceAnswerInput>? Answers);
 public sealed record AudienceAnswerInput(Guid QuestionId, List<string>? Choices, string? Text);
 public sealed record AudienceModerationInput(string Status);
+public sealed record AudienceDisplayMediaInput(bool ShowResults = true, int ResultDelaySeconds = 0);
 public sealed record LessonUpdateInput(string? Title, DateOnly? Date, DateTimeOffset? AvailableFrom,
     DateTimeOffset? ExpiresAt, DateTimeOffset? DesignatedStartAt, bool? PreRollEnabled, Guid? CountdownItemId,
     bool ClearCountdown = false, bool ClearAvailableFrom = false, bool ClearExpiresAt = false,
@@ -750,7 +751,7 @@ public sealed record SignageZoneInput(string Id, string Type, string? Title = nu
     string? Shape = null, string? StrokeColor = null, int StrokeWidth = 0, int CornerRadius = 0,
     string? IconName = null, string? QrValue = null, int TickerSpeed = 60,
     string? QrLabelTop = null, string? QrLabelBottom = null, string? QrLabelLeft = null, string? QrLabelRight = null,
-    string? QrPlacement = null,
+    string? QrPlacement = null, int QrSizePercent = 42,
     DateTimeOffset? CounterTargetAt = null, bool CounterRepeatWeekly = false, string? CredentialKey = null,
     string? ClockDisplay = null, string? ClockTimeFormat = null, string? ClockDateFormat = null,
     string? ClockOrder = null, int ClockTimeFontSize = 64, int ClockDateFontSize = 28,
@@ -762,9 +763,13 @@ public sealed record SignageZoneInput(string Id, string Type, string? Title = nu
     DateTimeOffset? StreamOverrideStartsAt = null, DateTimeOffset? StreamOverrideEndsAt = null,
     int MediaScale = 100, int MediaOffsetX = 0, int MediaOffsetY = 0, bool MediaAllowOverflow = false,
     string? WifiNetworkName = null, string? WifiPassword = null, string? WifiSecurity = null,
-    bool WifiHidden = false, string? WeatherIconStyle = null,
+    bool WifiHidden = false, string? WeatherIconStyle = null, string? WeatherLayout = null,
+    int WeatherIconSize = 84, int WeatherTitleSize = 28, int WeatherTemperatureSize = 58,
+    int WeatherDetailsSize = 22,
     bool ClockShowPeriod = true, bool ClockShowWeekday = true, bool ClockShowYear = true,
-    int CalendarMaxItems = 0, string? CalendarFields = null);
+    int CalendarMaxItems = 0, string? CalendarFields = null,
+    Guid? AudienceSessionId = null, string? AudienceCode = null, bool AudienceShowResults = true,
+    int AudienceResultDelaySeconds = 0);
 public sealed record SignageLayoutResourceInput(string Name, string? Folder, string? Description,
     bool IsTemplate, string? BackgroundColor, int CanvasWidth, int CanvasHeight, int SafeAreaPercent,
     List<SignageZoneInput>? Zones, Guid? BackgroundAudioAssetId = null, string? ThumbnailDataUrl = null);

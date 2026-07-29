@@ -404,6 +404,53 @@
     0 2px 4px #0004;
 }
 
+.simple-widget-errors {
+  display: grid;
+  gap: 4px;
+  margin-top: 9px;
+  border: 1px solid #e5b7ae;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fff2ef;
+  color: #8b2f20;
+  font-size: 11px;
+}
+
+.simple-widget-errors p {
+  margin: 0;
+}
+
+.audience-poll-summary {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  border: 1px solid #d7ddd9;
+  border-radius: 9px;
+  padding: 10px 12px;
+  background: #f6f8f6;
+}
+
+.audience-poll-summary strong {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.audience-poll-summary span {
+  color: #63706b;
+  font-size: 10px;
+}
+
+.audience-poll-summary.open {
+  border-color: #94c8aa;
+  background: #edf8f1;
+}
+
+.audience-poll-summary.closed {
+  border-color: #dfba82;
+  background: #fff8ec;
+}
+
 .simple-layout-canvas {
   position: relative;
   width: 100%;
@@ -514,6 +561,15 @@
   display: flex !important;
   align-items: center;
   gap: 6px;
+}
+
+.qr-label-controls textarea {
+  min-height: 54px;
+  resize: vertical;
+}
+
+.qr-label-controls .field-help {
+  grid-column: 1 / -1;
 }
 
 .field-check-grid input,
@@ -717,6 +773,23 @@
 .toggle-label small,
 .field-help { margin: 0; color: #786b56; font-size: 11px; line-height: 1.4; }
 .stream-override-fields { display: grid; gap: 10px; }
+
+.date-time-boundary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  border: 1px solid #ead7ad;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.date-time-boundary legend {
+  padding: 0 5px;
+  color: #6e4d18;
+  font-size: 10px;
+  font-weight: 850;
+}
 
 .simple-preview-empty,
 .playlist-empty {
@@ -1064,6 +1137,31 @@
   font-size: 10px;
   font-weight: 800;
   cursor: pointer;
+}
+
+.signage-media-tray-actions {
+  display: flex !important;
+  flex: 0 0 auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.signage-media-tray-actions select {
+  min-width: 170px;
+  max-width: 260px;
+  min-height: 36px;
+  border: 1px solid #d99019;
+  border-radius: 8px;
+  padding: 0 32px 0 12px;
+  color: #6e4300;
+  background: #fffaf2;
+  font: 700 12px/1 system-ui, sans-serif;
+}
+
+.signage-media-tray-actions select:disabled {
+  border-color: #d8d5cf;
+  color: #8d8b86;
+  background: #f5f4f1;
 }
 
 .signage-media-tray > div {

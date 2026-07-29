@@ -4,14 +4,17 @@ namespace LessonCue.Server;
 
 public sealed record SignageCalendarEvent(string Title, string? Description, string? Location,
     DateTimeOffset? StartsAt, DateTimeOffset? EndsAt, bool AllDay = false);
+public sealed record SignageWeatherSnapshot(double? Temperature, double? FeelsLike, double? High, double? Low,
+    double? Precipitation, double? Humidity, double? Wind, string? TemperatureUnit, string? WindUnit,
+    string? Conditions, string? Forecast, string? Sunrise, string? Sunset, string? WindText);
 public sealed record SignageWidgetCacheEntry(string ZoneId, string Title, string Text, string[] Items,
     DateTimeOffset RefreshedAt, string? Source = null, string? Icon = null,
-    SignageCalendarEvent[]? Events = null);
+    SignageCalendarEvent[]? Events = null, SignageWeatherSnapshot? Weather = null);
 
 public static class SignageLayout
 {
     public static readonly string[] ZoneTypes = ["media", "stream", "presentation", "text", "clock", "calendar",
-        "weather", "rss", "qr", "ticker", "counter", "webpage", "wifi", "customHtml"];
+        "weather", "rss", "qr", "ticker", "counter", "webpage", "wifi", "audience", "customHtml"];
     public static readonly string[] Presets = ["single", "sidebar", "split", "header-grid", "dashboard"];
     public static readonly string[] WeatherProviders = ["open-meteo", "nws", "custom"];
     public static readonly string[] WeatherDisplayFields = ["icon", "conditions", "temperature", "feelsLike", "high", "low",
@@ -80,6 +83,7 @@ public static class SignageLayout
             QrLabelLeft = Truncate(zone.QrLabelLeft, 160),
             QrLabelRight = Truncate(zone.QrLabelRight, 160),
             QrPlacement = zone.QrPlacement is "left" or "right" ? zone.QrPlacement : "center",
+            QrSizePercent = Math.Clamp(zone.QrSizePercent, 20, 90),
             TickerSpeed = Math.Clamp(zone.TickerSpeed, 10, 300),
             CredentialKey = Truncate(zone.CredentialKey, 120),
             ClockDisplay = zone.ClockDisplay is "time" or "date" ? zone.ClockDisplay : "both",
@@ -116,11 +120,23 @@ public static class SignageLayout
             WifiSecurity = type == "wifi" && zone.WifiSecurity is "WEP" or "nopass" ? zone.WifiSecurity : type == "wifi" ? "WPA" : null,
             WifiHidden = type == "wifi" && zone.WifiHidden,
             WeatherIconStyle = type == "weather" && zone.WeatherIconStyle == "white" ? "white" : type == "weather" ? "color" : null,
+            WeatherLayout = type == "weather" && zone.WeatherLayout is "icon-left" or "icon-right" or "compact"
+                ? zone.WeatherLayout : type == "weather" ? "icon-top" : null,
+            WeatherIconSize = Math.Clamp(zone.WeatherIconSize, 16, 220),
+            WeatherTitleSize = Math.Clamp(zone.WeatherTitleSize, 8, 120),
+            WeatherTemperatureSize = Math.Clamp(zone.WeatherTemperatureSize, 12, 220),
+            WeatherDetailsSize = Math.Clamp(zone.WeatherDetailsSize, 8, 100),
             ClockShowPeriod = type != "clock" || zone.ClockShowPeriod,
             ClockShowWeekday = type != "clock" || zone.ClockShowWeekday,
             ClockShowYear = type != "clock" || zone.ClockShowYear,
             CalendarMaxItems = type == "calendar" ? Math.Clamp(zone.CalendarMaxItems, 0, 20) : 0,
-            CalendarFields = type == "calendar" ? NormalizeCalendarFields(zone.CalendarFields) : null
+            CalendarFields = type == "calendar" ? NormalizeCalendarFields(zone.CalendarFields) : null,
+            AudienceSessionId = type == "audience" ? zone.AudienceSessionId : null,
+            AudienceCode = type == "audience" ? NormalizeAudienceCode(zone.AudienceCode) : null,
+            AudienceShowResults = type == "audience" && zone.AudienceShowResults,
+            AudienceResultDelaySeconds = type == "audience" && zone.AudienceShowResults
+                ? Math.Clamp(zone.AudienceResultDelaySeconds, 0, 3600)
+                : 0
         };
     }
 
@@ -165,6 +181,9 @@ public static class SignageLayout
                 if (provider == "custom" && string.IsNullOrWhiteSpace(raw.SourceUrl))
                     return "A custom weather provider requires an approved source URL.";
             }
+            if (raw.Type == "audience" &&
+                (raw.AudienceSessionId is null || NormalizeAudienceCode(raw.AudienceCode) is null))
+                return "Audience Poll elements require an existing audience session.";
             if (!string.IsNullOrWhiteSpace(raw.SourceUrl))
             {
                 if (raw.Type is "stream" or "presentation") continue;
@@ -172,7 +191,8 @@ public static class SignageLayout
                 if (raw.Type is not ("calendar" or "weather" or "rss" or "webpage" or "customHtml"))
                     return "That signage element cannot use an online source.";
                 if (!TryOrigin(raw.SourceUrl, out var origin)) return "Widget sources must be absolute HTTP or HTTPS addresses without embedded credentials.";
-                if (!allowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
+                if (!IsBuiltInPublicSource(raw) &&
+                    !allowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
                     return $"Approve {origin} in Settings before using it as a signage source.";
             }
         }
@@ -218,6 +238,15 @@ public static class SignageLayout
         return true;
     }
 
+    public static bool IsBuiltInPublicSource(SignageZoneInput zone)
+    {
+        if (!Uri.TryCreate(zone.SourceUrl?.Trim(), UriKind.Absolute, out var uri) || uri.Scheme != "https")
+            return false;
+        return zone.Type == "calendar" &&
+            uri.Host.Equals("calendar.google.com", StringComparison.OrdinalIgnoreCase) &&
+            uri.AbsolutePath.StartsWith("/calendar/ical/", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string? Truncate(string? value, int length)
     {
         var clean = value?.Trim();
@@ -226,6 +255,12 @@ public static class SignageLayout
 
     private static string Color(string? value, string fallback) =>
         value is { Length: 7 } && value[0] == '#' && value[1..].All(Uri.IsHexDigit) ? value : fallback;
+
+    private static string? NormalizeAudienceCode(string? value)
+    {
+        var code = new string((value ?? "").Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
+        return code.Length == 6 ? code : null;
+    }
 
     private static string NormalizeWeatherFields(string? value)
     {

@@ -19,7 +19,7 @@ import {
   SignageStudioSection,
 } from "./SignageStudio";
 import { SimpleSignage } from "./SimpleSignage";
-import { AudienceAdmin, AudienceResponseApp } from "./AudienceInteraction";
+import { AudienceAdmin, AudienceDisplayApp, AudienceResponseApp } from "./AudienceInteraction";
 import "./styles.css";
 
 type Permission =
@@ -823,6 +823,7 @@ async function uploadMediaFile(
 
 function App() {
   if (isWebPlayerPath(location.pathname)) return <WebPlayerApp />;
+  if (isAudienceDisplayPath(location.pathname)) return <AudienceDisplayApp />;
   if (isAudiencePath(location.pathname)) return <AudienceResponseApp />;
   return <AdminApp />;
 }
@@ -879,6 +880,10 @@ function isWebPlayerPath(path: string) {
 
 function isAudiencePath(path: string) {
   return path === "/respond" || path.startsWith("/respond/");
+}
+
+function isAudienceDisplayPath(path: string) {
+  return path.startsWith("/audience-display/");
 }
 
 function isAccountLinkPath(path: string) {
@@ -3215,6 +3220,13 @@ function ClassesView({
   );
 }
 
+type AudiencePollOption = {
+  id: string;
+  title: string;
+  code: string;
+  status: "draft" | "open" | "closed";
+};
+
 function LessonEditor({
   lesson,
   classes,
@@ -3244,6 +3256,7 @@ function LessonEditor({
   const [onlineMode, setOnlineMode] = useState<
     "online" | "download" | "slides"
   >("online");
+  const [audiencePolls, setAudiencePolls] = useState<AudiencePollOption[]>([]);
   const [previewItem, setPreviewItem] = useState<PlaylistItem>();
   const [selectedCueIds, setSelectedCueIds] = useState<Set<string>>(new Set());
   const [cueBulkAction, setCueBulkAction] = useState("role");
@@ -3257,6 +3270,12 @@ function LessonEditor({
       : "simple",
   );
   const items = [...lesson.items].sort((a, b) => a.position - b.position);
+  useEffect(() => {
+    if (!showAdd) return;
+    void api<AudiencePollOption[]>("/api/v1/audience/admin/sessions")
+      .then(setAudiencePolls)
+      .catch(() => setAudiencePolls([]));
+  }, [showAdd]);
   const countdown = items.find((i) => i.role === "countdown");
   const lessonItems = items.filter((item) => item.role === "lesson");
   const plannedDurationMs = lessonItems.reduce(
@@ -3333,9 +3352,12 @@ function LessonEditor({
     role: string,
     title?: FormDataEntryValue | null,
     position?: number,
+    typeOverride?: string,
+    durationMs?: number,
   ) {
     const type =
-      asset.linkKind === "webpage"
+      typeOverride ||
+      (asset.linkKind === "webpage"
         ? "external"
         : asset.linkKind === "youtube" || asset.linkKind === "embedded"
           ? "web"
@@ -3343,7 +3365,7 @@ function LessonEditor({
             ? "video"
             : asset.contentType.startsWith("audio")
               ? "audio"
-              : "image";
+              : "image");
     await api(`/api/v1/lessons/${lesson.id}/items`, {
       method: "POST",
       body: JSON.stringify({
@@ -3352,7 +3374,7 @@ function LessonEditor({
         role,
         position: position ?? (items.length + 1) * 1000,
         mediaId: asset.id,
-        durationMs: asset.durationMs,
+        durationMs: durationMs ?? asset.durationMs,
         startMs: 0,
         endMs: null,
         volumePercent: 100,
@@ -3497,6 +3519,39 @@ function LessonEditor({
             ? "Google Slides imported; converted slides will appear in this lesson automatically."
             : "Online media added to the lesson.",
       );
+    } catch (e) {
+      notify(errorText(e));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function addAudiencePoll(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const sessionId = String(form.get("audienceSessionId") || "");
+    if (!sessionId) return;
+    const showResults = form.get("showResults") === "on";
+    const resultDelaySeconds = showResults
+      ? Number(form.get("resultDelaySeconds") || 0)
+      : 0;
+    setUploading(true);
+    try {
+      const asset = await api<Media>(`/api/v1/audience/admin/sessions/${sessionId}/display-media`, {
+        method: "POST",
+        body: JSON.stringify({ showResults, resultDelaySeconds }),
+      });
+      await addAssetToLesson(
+        asset,
+        "lesson",
+        form.get("title") || asset.fileName,
+        undefined,
+        "audience",
+        Number(form.get("durationSeconds") || 60) * 1000,
+      );
+      setShowAdd(false);
+      refresh();
+      notify("Audience poll added to the lesson.");
     } catch (e) {
       notify(errorText(e));
     } finally {
@@ -3750,6 +3805,71 @@ function LessonEditor({
                     : "Upload and add"}
                 </button>
               </form>
+            </section>
+            <section className="online-choice audience-lesson-choice">
+              <h3>Add an audience poll</h3>
+              <p>
+                Show a voting QR code and live poll state as a cue in this
+                lesson. Open and manage responses from Audience.
+              </p>
+              {audiencePolls.length ? (
+                <form className="stack" onSubmit={addAudiencePoll}>
+                  <Field label="Audience poll">
+                    <select name="audienceSessionId" required>
+                      {audiencePolls.map((poll) => (
+                        <option key={poll.id} value={poll.id}>
+                          {poll.title} · {poll.status} · {poll.code}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <div className="two-fields">
+                    <Field label="Display title">
+                      <input name="title" placeholder="Use poll title" />
+                    </Field>
+                    <Field
+                      label="Planned duration"
+                      hint="The cue can still be advanced manually."
+                    >
+                      <input
+                        name="durationSeconds"
+                        type="number"
+                        min="5"
+                        max="3600"
+                        defaultValue="60"
+                      />
+                    </Field>
+                  </div>
+                  <div className="two-fields">
+                    <Field label="Results on screen">
+                      <label className="check-line">
+                        <input name="showResults" type="checkbox" defaultChecked />
+                        Show results when the poll permits them
+                      </label>
+                    </Field>
+                    <Field
+                      label="Result timing"
+                      hint="The delay is not identified on the displayed poll."
+                    >
+                      <select name="resultDelaySeconds" defaultValue="0">
+                        <option value="0">Real time</option>
+                        <option value="15">15-second delay</option>
+                        <option value="30">30-second delay</option>
+                        <option value="60">1-minute delay</option>
+                        <option value="120">2-minute delay</option>
+                        <option value="300">5-minute delay</option>
+                      </select>
+                    </Field>
+                  </div>
+                  <button className="button primary" disabled={uploading}>
+                    {uploading ? "Adding…" : "Add audience poll"}
+                  </button>
+                </form>
+              ) : (
+                <p className="field-help">
+                  Create an audience poll first, then return here to add it.
+                </p>
+              )}
             </section>
             <section className="online-choice">
               <h3>Add online media or slides</h3>

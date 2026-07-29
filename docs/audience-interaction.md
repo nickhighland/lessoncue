@@ -10,6 +10,8 @@ LessonCue can collect local audience polls and written responses without a cloud
 4. Decide whether participants may revise their answers and whether approved live results should appear on their devices.
 5. Save the session, select **Open responses**, and display or copy its QR link.
 6. Watch aggregate totals update. Approve or hide written responses before they appear in audience results.
+
+An existing session can also be selected as an **Audience poll** element in **Signage → Layouts**, added as a timed item in **Signage → Playlists**, or inserted as a cue from a lesson's **Add media** window. Every placement uses the same local display page and response-page QR code, refreshes its open or closed state, and can hide results, show permitted results in real time, or show them after a selected delay. A configured delay is intentionally not identified on the public display. Opening or closing responses remains an explicit action in **Audience**.
 7. Select **Close responses** when finished. You can reset the answers for another group or permanently delete the session immediately.
 
 The join page is `/respond/CODE`. The page does not require a LessonCue account. Draft and closed sessions do not accept submissions.
@@ -25,5 +27,4 @@ The join page is `/respond/CODE`. The page does not require a LessonCue account.
 - Every session has a deletion date. The local server deletes its questions and responses automatically after 1–30 days. An administrator can reset or delete them sooner.
 - Create, update, open, close, moderate, reset, delete, and automatic-purge actions are recorded in LessonCue’s local audit history.
 
-Audience interaction is intentionally separate from lesson playback. Opening a poll does not select a lesson, send a TV command, interrupt signage, or change any paired screen.
-
+Opening or closing a poll never sends playback commands or interrupts a display by itself. A poll appears on a lesson or sign only when an operator explicitly adds that poll as a lesson cue, signage element, or signage-playlist item.

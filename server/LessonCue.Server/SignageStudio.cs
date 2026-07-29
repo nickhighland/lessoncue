@@ -79,7 +79,9 @@ public static class SignageStudio
             if (item.Kind == "layout" && item.LayoutId is null) return "Every layout entry must select a layout.";
             if (item.Kind == "media" && item.MediaAssetId is null) return "Every media entry must select media.";
             if (item.Kind == "nested" && item.NestedPlaylistId is null) return "Every nested entry must select a playlist.";
-            if (item.Kind is "web" or "cloud" or "csv" && !AbsoluteHttp(item.SourceUrl))
+            if (item.Kind == "web" && !WebSource(item.SourceUrl))
+                return "web entries require an absolute HTTP or HTTPS address or a LessonCue audience-display path.";
+            if (item.Kind is "cloud" or "csv" && !AbsoluteHttp(item.SourceUrl))
                 return $"{item.Kind} entries require an absolute HTTP or HTTPS address.";
         }
         return null;
@@ -168,6 +170,30 @@ public static class SignageStudio
     private static bool AbsoluteHttp(string? value) =>
         Uri.TryCreate(value?.Trim(), UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" &&
         string.IsNullOrWhiteSpace(uri.UserInfo);
+    private static bool WebSource(string? value)
+    {
+        var clean = value?.Trim() ?? "";
+        if (AbsoluteHttp(clean)) return true;
+        const string prefix = "/audience-display/";
+        if (!clean.StartsWith(prefix, StringComparison.Ordinal)) return false;
+        var suffix = clean[prefix.Length..];
+        var queryAt = suffix.IndexOf('?');
+        var code = queryAt < 0 ? suffix : suffix[..queryAt];
+        if (code.Length != 6 || !code.All(char.IsAsciiLetterOrDigit)) return false;
+        if (queryAt < 0) return true;
+        var query = suffix[(queryAt + 1)..];
+        return query.Split('&', StringSplitOptions.RemoveEmptyEntries).All(part =>
+        {
+            var pair = part.Split('=', 2);
+            if (pair.Length != 2) return false;
+            return pair[0] switch
+            {
+                "results" => pair[1] is "0" or "1",
+                "delay" => int.TryParse(pair[1], out var delay) && delay is >= 0 and <= 3600,
+                _ => false
+            };
+        });
+    }
     private static string? Truncate(string? value, int length)
     {
         var clean = value?.Trim();

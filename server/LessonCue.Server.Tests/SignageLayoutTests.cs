@@ -50,6 +50,34 @@ public sealed class SignageLayoutTests
     }
 
     [Fact]
+    public void AcceptsPublicGoogleCalendarFeedsAndOnlyReturnsUpcomingEvents()
+    {
+        var zone = new SignageZoneInput("events", "calendar", "Upcoming",
+            SourceUrl: "https://calendar.google.com/calendar/ical/example%40gmail.com/public/basic.ics");
+        Assert.Null(SignageLayout.Validate([zone], []));
+
+        var past = DateTimeOffset.UtcNow.AddDays(-3).ToString("yyyyMMdd'T'HHmmss'Z'");
+        var future = DateTimeOffset.UtcNow.AddDays(3).ToString("yyyyMMdd'T'HHmmss'Z'");
+        var payload = $"""
+            BEGIN:VCALENDAR
+            BEGIN:VEVENT
+            SUMMARY:Already finished
+            DTSTART:{past}
+            DTEND:{past}
+            END:VEVENT
+            BEGIN:VEVENT
+            SUMMARY:Upcoming meeting
+            DTSTART:{future}
+            DTEND:{future}
+            END:VEVENT
+            END:VCALENDAR
+            """;
+        var parsed = SignageWidgetService.Parse(zone, payload, DateTimeOffset.UtcNow);
+        Assert.Equal(["Upcoming meeting"], parsed.Items);
+        Assert.Equal("Upcoming meeting", Assert.Single(parsed.Events!).Title);
+    }
+
+    [Fact]
     public void RejectsZonesOutsideTheCanvas()
     {
         var zone = new SignageZoneInput("clock", "clock", X: 80, Y: 0, Width: 30, Height: 100);
@@ -169,6 +197,11 @@ public sealed class SignageLayoutTests
         Assert.Contains(weather.Items, item => item.StartsWith("Sunrise "));
         Assert.Contains(weather.Items, item => item.StartsWith("Sunset "));
         Assert.Equal("🌤️", weather.Icon);
+        Assert.NotNull(weather.Weather);
+        Assert.Equal(75, weather.Weather.High);
+        Assert.Equal(59, weather.Weather.Low);
+        Assert.Equal(72, weather.Weather.Temperature);
+        Assert.Equal("Rain", weather.Weather.Forecast);
     }
 
     [Fact]
@@ -189,14 +222,31 @@ public sealed class SignageLayoutTests
     {
         var zone = SignageLayout.Normalize(new SignageZoneInput("details", "qr", Content: "https://lessoncue.local",
             QrLabelTop: "Scan to begin", QrLabelBottom: "Open LessonCue", QrLabelLeft: "Left",
-            QrLabelRight: "Right", CounterRepeatWeekly: true, ClockDisplay: "both",
+            QrLabelRight: "Right", QrSizePercent: 99, CounterRepeatWeekly: true, ClockDisplay: "both",
             ClockTimeFormat: "24h", ClockDateFormat: "medium", ClockOrder: "date-time",
             ClockTimeFontSize: 72, ClockDateFontSize: 30));
         Assert.Equal("Scan to begin", zone.QrLabelTop);
         Assert.Equal("Open LessonCue", zone.QrLabelBottom);
+        Assert.Equal(90, zone.QrSizePercent);
         Assert.Equal("24h", zone.ClockTimeFormat);
         Assert.Equal("date-time", zone.ClockOrder);
         Assert.Equal(72, zone.ClockTimeFontSize);
+    }
+
+    [Fact]
+    public void AudiencePollElementsRequireAndNormalizeAnExistingSessionReference()
+    {
+        var sessionId = Guid.NewGuid();
+        var zone = SignageLayout.Normalize(new SignageZoneInput("poll", "audience",
+            AudienceSessionId: sessionId, AudienceCode: " ab-23cd ", AudienceShowResults: true,
+            QrSizePercent: 55, QrPlacement: "right"));
+        Assert.Equal(sessionId, zone.AudienceSessionId);
+        Assert.Equal("AB23CD", zone.AudienceCode);
+        Assert.True(zone.AudienceShowResults);
+        Assert.Equal(55, zone.QrSizePercent);
+        Assert.Null(SignageLayout.Validate([zone], []));
+        Assert.Contains("existing audience session", SignageLayout.Validate(
+            [new SignageZoneInput("poll", "audience")], []));
     }
 
     [Fact]

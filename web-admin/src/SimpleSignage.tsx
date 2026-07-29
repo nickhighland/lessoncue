@@ -63,6 +63,7 @@ type Zone = {
   qrLabelLeft?: string;
   qrLabelRight?: string;
   qrPlacement?: string;
+  qrSizePercent?: number;
   clockDisplay?: string;
   clockTimeFormat?: string;
   clockDateFormat?: string;
@@ -88,6 +89,11 @@ type Zone = {
   wifiSecurity?: string;
   wifiHidden?: boolean;
   weatherIconStyle?: string;
+  weatherLayout?: string;
+  weatherIconSize?: number;
+  weatherTitleSize?: number;
+  weatherTemperatureSize?: number;
+  weatherDetailsSize?: number;
   weatherLatitude?: number;
   weatherLongitude?: number;
   clockShowPeriod?: boolean;
@@ -95,6 +101,10 @@ type Zone = {
   clockShowYear?: boolean;
   calendarMaxItems?: number;
   calendarFields?: string;
+  audienceSessionId?: string;
+  audienceCode?: string;
+  audienceShowResults?: boolean;
+  audienceResultDelaySeconds?: number;
   streamOverrideWhenLive?: boolean;
   streamOverrideStartsAt?: string;
   streamOverrideEndsAt?: string;
@@ -147,6 +157,15 @@ type Sign = {
   version: number;
 };
 
+type AudienceSession = {
+  id: string;
+  title: string;
+  code: string;
+  status: "draft" | "open" | "closed";
+  showLiveResults: boolean;
+  participantCount: number;
+};
+
 type Tab = "layouts" | "playlists" | "signs";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -161,6 +180,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (response.status === 204) return undefined as T;
   return response.json();
+}
+
+async function audienceSessions(): Promise<AudienceSession[]> {
+  const response = await fetch("/api/v1/audience/admin/sessions", { credentials: "same-origin" });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || `Unable to load audience polls (${response.status}).`);
+  return body as AudienceSession[];
 }
 
 function id(prefix: string) {
@@ -179,6 +205,38 @@ function asIsoDateTime(value: string) {
   if (!value) return undefined;
   const parsed = new Date(value);
   return Number.isNaN(parsed.valueOf()) ? undefined : parsed.toISOString();
+}
+
+function audienceDisplaySettings(sourceUrl?: string) {
+  if (!sourceUrl?.startsWith("/audience-display/")) return null;
+  const url = new URL(sourceUrl, location.origin);
+  return {
+    code: url.pathname.split("/").filter(Boolean).at(-1) || "",
+    mode:
+      url.searchParams.get("results") === "0"
+        ? "off"
+        : String(Math.max(0, Number(url.searchParams.get("delay") || 0) || 0)),
+  };
+}
+
+function audienceDisplaySource(code: string, mode: string) {
+  const showResults = mode !== "off";
+  return `/audience-display/${code}?results=${showResults ? 1 : 0}&delay=${showResults ? Math.max(0, Number(mode) || 0) : 0}`;
+}
+
+function localDatePart(value?: string) {
+  return localDateTimeValue(value).slice(0, 10);
+}
+
+function localTimePart(value?: string) {
+  return localDateTimeValue(value).slice(11, 16);
+}
+
+function withLocalDateTimePart(value: string | undefined, part: "date" | "time", next: string) {
+  if (!next) return undefined;
+  const existingDate = localDatePart(value) || localDateTimeValue(new Date().toISOString()).slice(0, 10);
+  const existingTime = localTimePart(value) || "00:00";
+  return asIsoDateTime(part === "date" ? `${next}T${existingTime}` : `${existingDate}T${next}`);
 }
 
 function zone(type: string, zoneId = id("element")): Zone {
@@ -225,6 +283,11 @@ function zone(type: string, zoneId = id("element")): Zone {
     common.weatherFields =
       "icon,conditions,temperature,forecast,high,low,humidity,wind,precipitation,sunrise,sunset";
     common.weatherIconStyle = "color";
+    common.weatherLayout = "icon-top";
+    common.weatherIconSize = 84;
+    common.weatherTitleSize = 28;
+    common.weatherTemperatureSize = 58;
+    common.weatherDetailsSize = 22;
     common.textAlign = "center";
   }
   if (type === "clock") {
@@ -241,6 +304,7 @@ function zone(type: string, zoneId = id("element")): Zone {
   }
   if (type === "qr" || type === "wifi") {
     common.qrPlacement = "left";
+    common.qrSizePercent = 42;
     common.qrLabelRight = type === "wifi" ? "Scan to join Wi-Fi" : "Scan for details";
     common.wifiNetworkName = type === "wifi" ? "Guest" : undefined;
     common.wifiPassword = type === "wifi" ? "password" : undefined;
@@ -249,6 +313,14 @@ function zone(type: string, zoneId = id("element")): Zone {
       type === "wifi"
         ? "WIFI:T:WPA;S:Guest;P:password;;"
         : "https://lessoncue.local";
+  }
+  if (type === "audience") {
+    common.title = "";
+    common.content = "Scan the QR code to vote.";
+    common.qrPlacement = "left";
+    common.qrSizePercent = 42;
+    common.audienceShowResults = true;
+    common.audienceResultDelaySeconds = 0;
   }
   if (type === "calendar") {
     common.calendarMaxItems = 0;
@@ -277,6 +349,7 @@ function elementName(type: string) {
       wifi: "Wi-Fi QR",
       media: "Image or logo",
       calendar: "Calendar feed",
+      audience: "Audience poll",
       webpage: "Web page",
     }[type] || "Empty"
   );
@@ -429,6 +502,7 @@ export function SimpleSignage({
   const [layouts, setLayouts] = useState<Layout[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [signs, setSigns] = useState<Sign[]>([]);
+  const [audiencePolls, setAudiencePolls] = useState<AudienceSession[]>([]);
   const [layoutDraft, setLayoutDraft] = useState<Layout>();
   const [playlistDraft, setPlaylistDraft] = useState<Playlist>();
   const [signDraft, setSignDraft] = useState<Sign>();
@@ -443,14 +517,16 @@ export function SimpleSignage({
     signId?: string;
   }) {
     try {
-      const [nextLayouts, nextPlaylists, nextSigns] = await Promise.all([
+      const [nextLayouts, nextPlaylists, nextSigns, nextAudiencePolls] = await Promise.all([
         request<Layout[]>("/layouts"),
         request<Playlist[]>("/playlists"),
         request<Sign[]>("/signs"),
+        audienceSessions(),
       ]);
       setLayouts(nextLayouts);
       setPlaylists(nextPlaylists);
       setSigns(nextSigns);
+      setAudiencePolls(nextAudiencePolls);
       const layout =
         nextLayouts.find((item) => item.id === prefer?.layoutId) ||
         nextLayouts.find((item) => !item.isStarter) ||
@@ -470,6 +546,12 @@ export function SimpleSignage({
 
   useEffect(() => {
     void load();
+  }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void audienceSessions().then(setAudiencePolls).catch(() => undefined);
+    }, 10_000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const activeLayout =
@@ -613,6 +695,34 @@ export function SimpleSignage({
       title: "Web page",
       sourceUrl,
       durationSeconds: 15,
+      transition: "fade",
+      volumePercent: 100,
+      muted: true,
+      fadeInMs: 500,
+      fadeOutMs: 500,
+      fit: "contain",
+    };
+    setPlaylistDraft((current) =>
+      current ? { ...current, items: [...current.items, entry] } : current,
+    );
+    setSelectedItemId(entry.id);
+    markChanged();
+  }
+
+  function addAudiencePollToPlaylist(
+    poll: AudienceSession,
+    showResults: boolean,
+    resultDelaySeconds: number,
+  ) {
+    const entry: PlaylistItem = {
+      id: id("slide"),
+      kind: "web",
+      title: poll.title,
+      sourceUrl: audienceDisplaySource(
+        poll.code,
+        showResults ? String(resultDelaySeconds) : "off",
+      ),
+      durationSeconds: 60,
       transition: "fade",
       volumePercent: 100,
       muted: true,
@@ -880,7 +990,13 @@ export function SimpleSignage({
             </div>
           )}
           {tab === "playlists" && (
-            <MediaTray media={media} onAdd={addMedia} onAddWeb={addWebPage} />
+            <MediaTray
+              media={media}
+              audiencePolls={audiencePolls}
+              onAdd={addMedia}
+              onAddWeb={addWebPage}
+              onAddAudience={addAudiencePollToPlaylist}
+            />
           )}
           {tab === "signs" && signDraft && (
             <div className="sign-summary">
@@ -913,6 +1029,8 @@ export function SimpleSignage({
             <LayoutInspector
               layout={layoutDraft}
               media={media}
+              playlists={playlists}
+              audiencePolls={audiencePolls}
               selectedZoneId={selectedZoneId}
               onSelect={setSelectedZoneId}
               onChange={(next) => {
@@ -1058,8 +1176,9 @@ function LayoutPreview({
   onZoneChange?: (id: string, patch: Partial<Zone>) => void;
 }) {
   const [widgetCache, setWidgetCache] = useState<Record<string, SignageWidgetCache>>({});
+  const [widgetErrors, setWidgetErrors] = useState<Record<string, string>>({});
   const widgetSignature = JSON.stringify(layout.zones.filter(item => item.type === "weather" || item.type === "calendar").map(item => ({
-    id: item.id, type: item.type, sourceUrl: item.sourceUrl, weatherProvider: item.weatherProvider,
+    id: item.id, type: item.type, title: item.title, sourceUrl: item.sourceUrl, weatherProvider: item.weatherProvider,
     weatherLocation: item.weatherLocation, weatherPostalCode: item.weatherPostalCode, weatherUnits: item.weatherUnits,
     weatherFields: item.weatherFields, weatherLatitude: item.weatherLatitude, weatherLongitude: item.weatherLongitude,
   })));
@@ -1071,7 +1190,17 @@ function LayoutPreview({
           method: "POST",
           signal: controller.signal,
           body: JSON.stringify(item),
-        }).then(cache => setWidgetCache(current => ({ ...current, [item.id]: cache }))).catch(() => undefined);
+        }).then(cache => {
+          setWidgetCache(current => ({ ...current, [item.id]: cache }));
+          setWidgetErrors(current => {
+            const next = { ...current };
+            delete next[item.id];
+            return next;
+          });
+        }).catch(error => setWidgetErrors(current => ({
+          ...current,
+          [item.id]: error instanceof Error ? error.message : "Unable to load live data.",
+        })));
       });
     }, 500);
     return () => { window.clearTimeout(timer); controller.abort(); };
@@ -1101,15 +1230,20 @@ function LayoutPreview({
     }),
   };
   return (
-    <div className="simple-display-frame">
-      <div className="simple-layout-canvas">
-        <ScreenSignageLayout signage={display} editor={{
-          selectedZoneId,
-          onSelect,
-          onMediaTransform: onZoneChange ? (zoneId, patch) => onZoneChange(zoneId, patch) : undefined,
-        }} />
+    <>
+      <div className="simple-display-frame">
+        <div className="simple-layout-canvas">
+          <ScreenSignageLayout signage={display} editor={{
+            selectedZoneId,
+            onSelect,
+            onMediaTransform: onZoneChange ? (zoneId, patch) => onZoneChange(zoneId, patch) : undefined,
+          }} />
+        </div>
       </div>
-    </div>
+      {Object.keys(widgetErrors).length > 0 && <div className="simple-widget-errors" role="status">
+        {Object.entries(widgetErrors).map(([zoneId, message]) => <p key={zoneId}>{layout.zones.find(zone => zone.id === zoneId)?.title || "Live data"}: {message}</p>)}
+      </div>}
+    </>
   );
 }
 
@@ -1138,6 +1272,8 @@ function signagePlaylist(playlist: Playlist, media: Media[]): SignageContentPlay
 function LayoutInspector({
   layout,
   media,
+  playlists,
+  audiencePolls,
   selectedZoneId,
   onSelect,
   onChange,
@@ -1145,6 +1281,8 @@ function LayoutInspector({
 }: {
   layout: Layout;
   media: Media[];
+  playlists: Playlist[];
+  audiencePolls: AudienceSession[];
   selectedZoneId?: string;
   onSelect: (id: string) => void;
   onChange: (layout: Layout) => void;
@@ -1302,10 +1440,11 @@ function LayoutInspector({
               <option value="weather">Weather</option>
               <option value="clock">Time & date</option>
               <option value="calendar">Calendar feed</option>
+              <option value="audience">Audience poll</option>
               <option value="webpage">Web page</option>
             </select>
           </label>
-          {!["presentation", "media"].includes(selected.type) && (
+          {!["presentation", "media", "weather", "audience"].includes(selected.type) && (
             <label>
               Title
               <input
@@ -1319,6 +1458,19 @@ function LayoutInspector({
           )}
           {selected.type === "presentation" && (
             <section className="stream-override-controls">
+              <label>
+                Playlist
+                <select
+                  value={selected.contentPlaylistId || ""}
+                  onChange={(event) => updateZone({ contentPlaylistId: event.target.value || undefined })}
+                >
+                  <option value="">Choose a playlist</option>
+                  {playlists.map((playlist) => (
+                    <option value={playlist.id} key={playlist.id}>{playlist.name}</option>
+                  ))}
+                </select>
+              </label>
+              {!playlists.length && <p className="field-help">Create a playlist in step 2, then return here to select it.</p>}
               <label className="toggle-label">
                 <input
                   type="checkbox"
@@ -1343,32 +1495,60 @@ function LayoutInspector({
                       onChange={(event) => updateZone({ sourceUrl: event.target.value })}
                     />
                   </label>
-                  <div className="two-control">
+                  <fieldset className="date-time-boundary">
+                    <legend>Start boundary</legend>
                     <label>
-                      Start time
+                      Date
                       <input
-                        type="datetime-local"
-                        value={localDateTimeValue(selected.streamOverrideStartsAt)}
+                        type="date"
+                        value={localDatePart(selected.streamOverrideStartsAt)}
                         onChange={(event) =>
                           updateZone({
-                            streamOverrideStartsAt: asIsoDateTime(event.target.value),
+                            streamOverrideStartsAt: withLocalDateTimePart(selected.streamOverrideStartsAt, "date", event.target.value),
                           })
                         }
                       />
                     </label>
                     <label>
-                      End time
+                      Time
                       <input
-                        type="datetime-local"
-                        value={localDateTimeValue(selected.streamOverrideEndsAt)}
+                        type="time"
+                        value={localTimePart(selected.streamOverrideStartsAt)}
                         onChange={(event) =>
                           updateZone({
-                            streamOverrideEndsAt: asIsoDateTime(event.target.value),
+                            streamOverrideStartsAt: withLocalDateTimePart(selected.streamOverrideStartsAt, "time", event.target.value),
                           })
                         }
                       />
                     </label>
-                  </div>
+                  </fieldset>
+                  <fieldset className="date-time-boundary">
+                    <legend>End boundary</legend>
+                    <label>
+                      Date
+                      <input
+                        type="date"
+                        value={localDatePart(selected.streamOverrideEndsAt)}
+                        onChange={(event) =>
+                          updateZone({
+                            streamOverrideEndsAt: withLocalDateTimePart(selected.streamOverrideEndsAt, "date", event.target.value),
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Time
+                      <input
+                        type="time"
+                        value={localTimePart(selected.streamOverrideEndsAt)}
+                        onChange={(event) =>
+                          updateZone({
+                            streamOverrideEndsAt: withLocalDateTimePart(selected.streamOverrideEndsAt, "time", event.target.value),
+                          })
+                        }
+                      />
+                    </label>
+                  </fieldset>
                   <p className="field-help">
                     The playlist remains visible until the start time. The stream takes over only while it is playable, then the playlist returns when it drops or the end time arrives. Leave either time blank for no boundary.
                   </p>
@@ -1424,6 +1604,9 @@ function LayoutInspector({
                   <option value="right">Right — text on left</option>
                 </select>
               </label>
+              <label>QR size
+                <div className="range-value"><input aria-label="QR size" type="range" min="20" max="90" value={selected.qrSizePercent || 42} onChange={event => updateZone({ qrSizePercent: Number(event.target.value) })}/><span>{selected.qrSizePercent || 42}%</span></div>
+              </label>
               <QrLabelControls selected={selected} updateZone={updateZone} />
             </>
           )}
@@ -1436,12 +1619,80 @@ function LayoutInspector({
                 <label className="check-line"><input type="checkbox" checked={Boolean(selected.wifiHidden)} onChange={event => { const patch = { wifiHidden: event.target.checked }; updateZone({ ...patch, qrValue: wifiQrValue({ ...selected, ...patch }) }); }}/> Hidden network</label>
               </div>
               <label>QR alignment<select value={selected.qrPlacement || "left"} onChange={event => updateZone({ qrPlacement: event.target.value })}><option value="left">Left — text on right</option><option value="center">Centered</option><option value="right">Right — text on left</option></select></label>
+              <label>QR size<div className="range-value"><input aria-label="Wi-Fi QR size" type="range" min="20" max="90" value={selected.qrSizePercent || 42} onChange={event => updateZone({ qrSizePercent: Number(event.target.value) })}/><span>{selected.qrSizePercent || 42}%</span></div></label>
               <QrLabelControls selected={selected} updateZone={updateZone} />
               <p className="field-help">The QR code updates instantly. Scanning it opens the device’s Wi-Fi connection prompt.</p>
             </div>
           )}
+          {selected.type === "audience" && (
+            <div className="element-specific-controls audience-poll-controls">
+              <label>
+                Audience poll
+                <select
+                  value={selected.audienceSessionId || ""}
+                  onChange={(event) => {
+                    const poll = audiencePolls.find(item => item.id === event.target.value);
+                    updateZone({
+                      audienceSessionId: poll?.id,
+                      audienceCode: poll?.code,
+                      title: "",
+                    });
+                  }}
+                >
+                  <option value="">Choose an audience poll</option>
+                  {audiencePolls.map(poll => (
+                    <option value={poll.id} key={poll.id}>
+                      {poll.title} · {poll.status} · {poll.code}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {!audiencePolls.length && <p className="field-help">Create a poll in Audience, then return here to add it to the sign.</p>}
+              <label>
+                Custom heading (optional)
+                <input value={selected.title || ""} placeholder="Uses the poll title" onChange={event => updateZone({ title: event.target.value })}/>
+              </label>
+              <label>
+                Voting instructions
+                <textarea rows={2} value={selected.content || ""} onChange={event => updateZone({ content: event.target.value })}/>
+              </label>
+              <div className="two-control">
+                <label>QR alignment<select value={selected.qrPlacement || "left"} onChange={event => updateZone({ qrPlacement: event.target.value })}><option value="left">Left — poll on right</option><option value="center">Centered above poll</option><option value="right">Right — poll on left</option></select></label>
+                <label>QR size<div className="range-value"><input aria-label="Audience poll QR size" type="range" min="20" max="90" value={selected.qrSizePercent || 42} onChange={event => updateZone({ qrSizePercent: Number(event.target.value) })}/><span>{selected.qrSizePercent || 42}%</span></div></label>
+              </div>
+              <label className="check-line"><input type="checkbox" checked={selected.audienceShowResults !== false} onChange={event => updateZone({ audienceShowResults: event.target.checked })}/> Show live results when the poll permits them</label>
+              {selected.audienceShowResults !== false && (
+                <label>
+                  Result timing
+                  <select
+                    aria-label="Audience result timing"
+                    value={selected.audienceResultDelaySeconds || 0}
+                    onChange={event => updateZone({ audienceResultDelaySeconds: Number(event.target.value) })}
+                  >
+                    <option value="0">Real time</option>
+                    <option value="15">15-second delay</option>
+                    <option value="30">30-second delay</option>
+                    <option value="60">1-minute delay</option>
+                    <option value="120">2-minute delay</option>
+                    <option value="300">5-minute delay</option>
+                  </select>
+                </label>
+              )}
+              {selected.audienceSessionId && (() => {
+                const poll = audiencePolls.find(item => item.id === selected.audienceSessionId);
+                return poll ? <p className={`audience-poll-summary ${poll.status}`}><strong>{poll.status === "open" ? "Voting open" : poll.status === "closed" ? "Voting closed" : "Draft — not open"}</strong><span>{poll.participantCount} response{poll.participantCount === 1 ? "" : "s"} · code {poll.code}</span></p> : null;
+              })()}
+              <p className="field-help">The QR opens the real anonymous response page. Open, close, reset, and edit the poll from Audience.</p>
+            </div>
+          )}
           {selected.type === "weather" && (
             <div className="element-specific-controls">
+              <label>Weather source<select value={selected.weatherProvider || "open-meteo"} onChange={event => updateZone({ weatherProvider: event.target.value, sourceUrl: event.target.value === "custom" ? selected.sourceUrl : undefined })}><option value="open-meteo">Open-Meteo — worldwide, no key</option><option value="nws">National Weather Service — United States</option><option value="custom">Custom JSON source</option></select></label>
+              {selected.weatherProvider === "custom" && <label>Custom weather JSON address<input type="url" value={selected.sourceUrl || ""} placeholder="https://weather.example.org/current.json" onChange={event => updateZone({ sourceUrl: event.target.value })}/></label>}
+              <label>
+                Display title
+                <input value={selected.title || ""} placeholder="Rochester, NY" onChange={event => updateZone({ title: event.target.value })}/>
+              </label>
               <label>
                 ZIP/postal code
                 <input
@@ -1456,13 +1707,22 @@ function LayoutInspector({
                 <label>Units<select value={selected.weatherUnits || "fahrenheit"} onChange={event => updateZone({ weatherUnits: event.target.value })}><option value="fahrenheit">Fahrenheit</option><option value="celsius">Celsius</option></select></label>
                 <label>Icon style<select value={selected.weatherIconStyle || "color"} onChange={event => updateZone({ weatherIconStyle: event.target.value })}><option value="color">Color icons</option><option value="white">White icons</option></select></label>
               </div>
+              <label>Layout<select value={selected.weatherLayout || "icon-top"} onChange={event => updateZone({ weatherLayout: event.target.value })}><option value="icon-top">Icon above reading</option><option value="icon-left">Large icon on left</option><option value="icon-right">Large icon on right</option><option value="compact">Compact horizontal</option></select></label>
+              <div className="two-control">
+                <label>Icon size<input type="number" min="16" max="220" value={selected.weatherIconSize || 84} onChange={event => updateZone({ weatherIconSize: Number(event.target.value) })}/></label>
+                <label>Title size<input type="number" min="8" max="120" value={selected.weatherTitleSize || 28} onChange={event => updateZone({ weatherTitleSize: Number(event.target.value) })}/></label>
+              </div>
+              <div className="two-control">
+                <label>Temperature size<input type="number" min="12" max="220" value={selected.weatherTemperatureSize || 58} onChange={event => updateZone({ weatherTemperatureSize: Number(event.target.value) })}/></label>
+                <label>Details size<input type="number" min="8" max="100" value={selected.weatherDetailsSize || 22} onChange={event => updateZone({ weatherDetailsSize: Number(event.target.value) })}/></label>
+              </div>
               <fieldset className="field-check-grid"><legend>Weather details</legend>
                 {["icon","conditions","temperature","forecast","high","low","humidity","wind","precipitation","sunrise","sunset"].map(field => {
                   const active = new Set((selected.weatherFields || "").split(","));
                   return <label key={field}><input type="checkbox" checked={active.has(field)} onChange={event => { if (event.target.checked) active.add(field); else active.delete(field); updateZone({ weatherFields: [...active].join(",") }); }}/>{field[0].toUpperCase() + field.slice(1)}</label>;
                 })}
               </fieldset>
-              <p className="field-help">Open-Meteo is the default source and does not require an API key. The preview refreshes after location changes.</p>
+              <p className="field-help">Open-Meteo requires no key. NWS is available for U.S. locations. Custom JSON sources must be approved in Settings. The preview refreshes after changes.</p>
             </div>
           )}
           {selected.type === "clock" && (
@@ -1719,10 +1979,11 @@ function RichTextEditor({ zone: item, onChange }: { zone: Zone; onChange: (patch
 
 function QrLabelControls({ selected, updateZone }: { selected: Zone; updateZone: (patch: Partial<Zone>) => void }) {
   return <fieldset className="qr-label-controls"><legend>Optional labels</legend>
-    <label>Above<input value={selected.qrLabelTop || ""} onChange={event => updateZone({ qrLabelTop: event.target.value })}/></label>
-    <label>Below<input value={selected.qrLabelBottom || ""} onChange={event => updateZone({ qrLabelBottom: event.target.value })}/></label>
-    <label>Left<input value={selected.qrLabelLeft || ""} onChange={event => updateZone({ qrLabelLeft: event.target.value })}/></label>
-    <label>Right<input value={selected.qrLabelRight || ""} onChange={event => updateZone({ qrLabelRight: event.target.value })}/></label>
+    <label>Above<textarea rows={2} value={selected.qrLabelTop || ""} onChange={event => updateZone({ qrLabelTop: event.target.value })}/></label>
+    <label>Below<textarea rows={2} value={selected.qrLabelBottom || ""} onChange={event => updateZone({ qrLabelBottom: event.target.value })}/></label>
+    <label>Left<textarea rows={2} value={selected.qrLabelLeft || ""} onChange={event => updateZone({ qrLabelLeft: event.target.value })}/></label>
+    <label>Right<textarea rows={2} value={selected.qrLabelRight || ""} onChange={event => updateZone({ qrLabelRight: event.target.value })}/></label>
+    <p className="field-help">Press Enter to control line breaks. Resize the QR to give side text more or less room.</p>
   </fieldset>;
 }
 
@@ -1822,13 +2083,26 @@ function PlaylistTimeline({
 
 function MediaTray({
   media,
+  audiencePolls,
   onAdd,
   onAddWeb,
+  onAddAudience,
 }: {
   media: Media[];
+  audiencePolls: AudienceSession[];
   onAdd: (media: Media) => void;
   onAddWeb: () => void;
+  onAddAudience: (
+    poll: AudienceSession,
+    showResults: boolean,
+    resultDelaySeconds: number,
+  ) => void;
 }) {
+  const [audienceResultMode, setAudienceResultMode] = useState("0");
+  const showAudienceResults = audienceResultMode !== "off";
+  const audienceResultDelaySeconds = showAudienceResults
+    ? Number(audienceResultMode)
+    : 0;
   return (
     <section className="signage-media-tray">
       <header>
@@ -1836,7 +2110,55 @@ function MediaTray({
           <strong>Add content</strong>
           <small>Click an item to add it to the end of the loop.</small>
         </div>
-        <button onClick={onAddWeb}>＋ Web page</button>
+        <div className="signage-media-tray-actions">
+          <select
+            aria-label="Audience poll to add"
+            defaultValue=""
+            disabled={!audiencePolls.length}
+            title={
+              audiencePolls.length
+                ? "Add an existing Audience poll"
+                : "Create a poll in Audience first"
+            }
+            onChange={(event) => {
+              const poll = audiencePolls.find(
+                (item) => item.id === event.currentTarget.value,
+              );
+              if (poll)
+                onAddAudience(
+                  poll,
+                  showAudienceResults,
+                  audienceResultDelaySeconds,
+                );
+              event.currentTarget.value = "";
+            }}
+          >
+            <option value="">
+              {audiencePolls.length
+                ? "＋ Audience poll"
+                : "No audience polls yet"}
+            </option>
+            {audiencePolls.map((poll) => (
+              <option key={poll.id} value={poll.id}>
+                {poll.title} · {poll.status}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Playlist audience result timing"
+            value={audienceResultMode}
+            onChange={(event) => setAudienceResultMode(event.target.value)}
+          >
+            <option value="off">Hide results</option>
+            <option value="0">Results: real time</option>
+            <option value="15">Results: 15s delay</option>
+            <option value="30">Results: 30s delay</option>
+            <option value="60">Results: 1m delay</option>
+            <option value="120">Results: 2m delay</option>
+            <option value="300">Results: 5m delay</option>
+          </select>
+          <button onClick={onAddWeb}>＋ Web page</button>
+        </div>
       </header>
       <div>
         {media.slice(0, 20).map((item) => (
@@ -1866,6 +2188,7 @@ function PlaylistInspector({
   onDelete: () => void;
 }) {
   const selected = playlist.items.find((item) => item.id === selectedItemId);
+  const selectedAudience = audienceDisplaySettings(selected?.sourceUrl);
   function updateItem(patch: Partial<PlaylistItem>) {
     if (!selected) return;
     onChange({
@@ -1938,6 +2261,30 @@ function PlaylistInspector({
               </select>
             </label>
           </div>
+          {selectedAudience && (
+            <label>
+              Audience result timing
+              <select
+                value={selectedAudience.mode}
+                onChange={(event) =>
+                  updateItem({
+                    sourceUrl: audienceDisplaySource(
+                      selectedAudience.code,
+                      event.target.value,
+                    ),
+                  })
+                }
+              >
+                <option value="off">Hide results</option>
+                <option value="0">Real time</option>
+                <option value="15">15-second delay</option>
+                <option value="30">30-second delay</option>
+                <option value="60">1-minute delay</option>
+                <option value="120">2-minute delay</option>
+                <option value="300">5-minute delay</option>
+              </select>
+            </label>
+          )}
           <div className="two-control">
             <label>
               Fade in

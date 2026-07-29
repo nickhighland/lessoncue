@@ -726,8 +726,12 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByLabel("Media fit").selectOption("contain");
   await page.getByLabel("RTMP override").check();
   await page.getByLabel("RTMP stream address").fill("rtmp://stream.example/live");
-  await page.getByLabel("Start time").fill("2026-08-02T10:00");
-  await page.getByLabel("End time").fill("2026-08-02T11:00");
+  const startBoundary = page.getByRole("group", { name: "Start boundary" });
+  await startBoundary.getByLabel("Date").fill("2026-08-02");
+  await startBoundary.getByLabel("Time").fill("10:00");
+  const endBoundary = page.getByRole("group", { name: "End boundary" });
+  await endBoundary.getByLabel("Date").fill("2026-08-02");
+  await endBoundary.getByLabel("Time").fill("11:00");
   await expect(page.locator(".simple-layout-canvas .web-player-signage-zone")).toHaveCount(7);
   await page.getByRole("button", { name: /Save changes/ }).click();
   await expect(page.locator(".toast")).toContainText("Layout saved and updated on assigned screens.");
@@ -742,6 +746,12 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByText("LOOPS BACK TO START ↻")).toBeVisible();
   await page.getByRole("button", { name: /Save changes/ }).click();
   await expect(page.locator(".toast")).toContainText("Playlist saved. It will loop continuously.");
+
+  await page.getByRole("button", { name: /1 Layouts Build the persistent frame/ }).click();
+  await page.locator(".element-list button").filter({ hasText: "Playlist" }).first().click();
+  await page.locator(".stream-override-controls select").first().selectOption({ label: "Browser continuous loop" });
+  await page.getByRole("button", { name: /Save changes/ }).click();
+  await expect(page.locator(".toast")).toContainText("Layout saved and updated on assigned screens.");
 
   await page.getByRole("button", { name: /3 Signs & screens Combine and assign/ }).click();
   await page.getByRole("button", { name: /Create sign/ }).click();
@@ -1037,7 +1047,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.1" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.2" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
@@ -1070,8 +1080,59 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     return { participants: sessions[0]?.participantCount, responses: sessions[0]?.questions[0]?.responses.length };
   })).toEqual({ participants: 1, responses: 1 });
   await expect(page.getByText("1 anonymous participant", { exact: false })).toBeVisible();
+  const audienceDisplayPage = await page.context().newPage();
+  await audienceDisplayPage.goto(
+    audiencePath!.replace("/respond/", "/audience-display/") +
+      "?results=1&delay=1",
+  );
+  await expect(
+    audienceDisplayPage.getByRole("heading", { name: "Ready to continue?" }),
+  ).toBeVisible();
+  await expect(audienceDisplayPage.getByText("1 response")).toHaveCount(0);
+  await expect(audienceDisplayPage.getByText("1 response")).toBeVisible({
+    timeout: 4_000,
+  });
+  await expect(audienceDisplayPage.getByText(/delay/i)).toHaveCount(0);
+  await audienceDisplayPage.close();
 
-  await page.getByRole("button", { name: /Users$/ }).click();
+  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Learning Lab/ }).click();
+  await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
+  await page.getByRole("button", { name: "Add media" }).click();
+  const lessonAudienceForm = page.locator(".audience-lesson-choice");
+  await expect(lessonAudienceForm.getByLabel("Audience poll")).toContainText("Browser audience poll");
+  await lessonAudienceForm.getByLabel("Display title").fill("Live class poll");
+  await lessonAudienceForm.getByLabel("Planned duration").fill("90");
+  await lessonAudienceForm.getByLabel("Result timing").selectOption("30");
+  await lessonAudienceForm.getByRole("button", { name: "Add audience poll" }).click();
+  await expect(page.getByText("Audience poll added to the lesson.")).toBeVisible();
+  await expect(page.getByText("Live class poll", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: /Signage$/ }).click();
+  await page.getByRole("button", { name: /2 Playlists Choose looping content/ }).click();
+  await page.getByRole("button", { name: /Browser continuous loop/ }).click();
+  await page
+    .getByLabel("Playlist audience result timing")
+    .selectOption("30");
+  await page.getByLabel("Audience poll to add").selectOption({ index: 1 });
+  await expect(page.locator(".playlist-timeline")).toContainText("Browser audience poll");
+  await page.getByRole("button", { name: /Save changes/ }).click();
+  await expect(page.locator(".toast")).toContainText("Playlist saved. It will loop continuously.");
+
+  await page.getByRole("button", { name: /1 Layouts Build the persistent frame/ }).click();
+  await page.getByRole("button", { name: /Browser information frame/ }).click();
+  await page.locator(".element-list button").filter({ hasText: "Text message" }).first().click();
+  await page.locator(".element-editor select").first().selectOption("audience");
+  await page.locator(".audience-poll-controls select").first().selectOption({ index: 1 });
+  await page.getByLabel("Audience result timing").selectOption("30");
+  await expect(page.locator(".signage-audience img")).toHaveAttribute("alt", /\/respond\/[A-Z0-9]{6}$/);
+  await expect(page.locator(".signage-audience")).toContainText("Voting open");
+  await expect(page.locator(".signage-audience")).toContainText("Ready to continue?");
+  await page.getByRole("button", { name: /Save changes/ }).click();
+  await expect(page.locator(".toast")).toContainText("Layout saved and updated on assigned screens.");
+
+  await page.locator(".simple-signage-navigation summary").click();
+  await page.locator(".simple-signage-navigation").getByRole("button", { name: /Users$/ }).click();
   await page.getByRole("button", { name: "Send setup link" }).click();
   const invitationDialog = page.getByRole("dialog", { name: "Invite a user" });
   await expect(invitationDialog.getByLabel("Email")).toBeVisible();
