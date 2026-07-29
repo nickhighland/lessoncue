@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 namespace LessonCue.Server;
 
 public sealed record TemporaryControllerSession(string Token, Guid ClassId, Guid? LessonId,
-    DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt);
+    DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, bool Permanent = false);
 
 public sealed class ControllerSessionService
 {

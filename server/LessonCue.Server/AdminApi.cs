@@ -584,12 +584,75 @@ public static class AdminApi
             });
         });
 
-        playback.MapGet("/controller/sessions/{token}", (string token, ControllerSessionService controllerSessions) =>
+        planning.MapGet("/controller/permanent/{classId:guid}", async (Guid classId, LessonCueDb db,
+            CancellationToken ct) =>
         {
-            var session = controllerSessions.Get(token);
-            return session is null ? Results.NotFound(new { error = "This temporary controller link is invalid or expired." }) : Results.Ok(new
+            var lessonClass = await db.Classes.AsNoTracking().SingleOrDefaultAsync(x => x.Id == classId, ct);
+            if (lessonClass is null) return Results.NotFound();
+            if (string.IsNullOrWhiteSpace(lessonClass.PermanentControllerToken))
+                return Results.Ok(new { active = false });
+            return Results.Ok(new
             {
-                session.ClassId, session.LessonId, session.ExpiresAt
+                active = true,
+                token = lessonClass.PermanentControllerToken,
+                classId = lessonClass.Id,
+                lessonId = lessonClass.PermanentControllerLessonId,
+                createdAt = lessonClass.PermanentControllerCreatedAt,
+                path = $"/session/{lessonClass.PermanentControllerToken}",
+                permanent = true
+            });
+        });
+
+        planning.MapPost("/controller/permanent", async (PermanentControllerSessionInput input, LessonCueDb db,
+            CancellationToken ct) =>
+        {
+            var lessonClass = await db.Classes.SingleOrDefaultAsync(x => x.Id == input.ClassId, ct);
+            if (lessonClass is null) return Results.BadRequest(new { error = "Choose an existing class." });
+            if (input.LessonId is Guid lessonId && !await db.Lessons.AnyAsync(
+                    x => x.Id == lessonId && x.ClassId == input.ClassId && !x.Archived, ct))
+                return Results.BadRequest(new { error = "The selected lesson is unavailable in that class." });
+            lessonClass.PermanentControllerToken =
+                Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
+            lessonClass.PermanentControllerLessonId = input.LessonId;
+            lessonClass.PermanentControllerCreatedAt = DateTimeOffset.UtcNow;
+            Audit(db, "controller.permanent.rotate", input.ClassId,
+                $"lesson:{input.LessonId};created:{lessonClass.PermanentControllerCreatedAt:O}");
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new
+            {
+                active = true,
+                token = lessonClass.PermanentControllerToken,
+                classId = lessonClass.Id,
+                lessonId = lessonClass.PermanentControllerLessonId,
+                createdAt = lessonClass.PermanentControllerCreatedAt,
+                path = $"/session/{lessonClass.PermanentControllerToken}",
+                permanent = true
+            });
+        });
+
+        planning.MapDelete("/controller/permanent/{classId:guid}", async (Guid classId, LessonCueDb db,
+            CancellationToken ct) =>
+        {
+            var lessonClass = await db.Classes.SingleOrDefaultAsync(x => x.Id == classId, ct);
+            if (lessonClass is null) return Results.NotFound();
+            lessonClass.PermanentControllerToken = null;
+            lessonClass.PermanentControllerLessonId = null;
+            lessonClass.PermanentControllerCreatedAt = null;
+            Audit(db, "controller.permanent.revoke", classId, lessonClass.Name);
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        });
+
+        playback.MapGet("/controller/sessions/{token}", async (string token,
+            ControllerSessionService controllerSessions, LessonCueDb db, CancellationToken ct) =>
+        {
+            var session = await ResolveControllerSessionAsync(token, controllerSessions, db, ct);
+            return session is null ? Results.NotFound(new { error = "This controller link is invalid, expired, or revoked." }) : Results.Ok(new
+            {
+                session.ClassId,
+                session.LessonId,
+                expiresAt = session.Permanent ? (DateTimeOffset?)null : session.ExpiresAt,
+                session.Permanent
             });
         });
 
@@ -2182,7 +2245,7 @@ public static class AdminApi
             }
             if (controllerContext.StartsWith("session:", StringComparison.OrdinalIgnoreCase))
             {
-                var session = controllerSessions.Get(controllerContext[8..]);
+                var session = await ResolveControllerSessionAsync(controllerContext[8..], controllerSessions, db, ct);
                 if (session is null || screen.AssignedClassId != session.ClassId ||
                     session.LessonId is Guid restrictedCurrentLessonId && action != "play" && screen.PlaybackLessonId != restrictedCurrentLessonId ||
                     input.LessonId is Guid sessionLessonId &&
@@ -3660,6 +3723,27 @@ public static class AdminApi
             normalizedHost.Split('.').Any(label => label.Length is < 1 or > 63 || label.StartsWith('-') || label.EndsWith('-') || label.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '-'))))
             return "Controller hostname must be a hostname only, without https://, a port, or a path.";
         return null;
+    }
+
+    private static async Task<TemporaryControllerSession?> ResolveControllerSessionAsync(string token,
+        ControllerSessionService controllerSessions, LessonCueDb db, CancellationToken ct)
+    {
+        var normalized = token.Trim().ToLowerInvariant();
+        var temporary = controllerSessions.Get(normalized);
+        if (temporary is not null) return temporary;
+        if (normalized.Length != 48 || normalized.Any(character => !Uri.IsHexDigit(character))) return null;
+        var persistent = await db.Classes.AsNoTracking()
+            .Where(x => x.PermanentControllerToken == normalized)
+            .Select(x => new
+            {
+                x.Id,
+                x.PermanentControllerLessonId,
+                x.PermanentControllerCreatedAt
+            })
+            .SingleOrDefaultAsync(ct);
+        return persistent is null ? null : new TemporaryControllerSession(normalized, persistent.Id,
+            persistent.PermanentControllerLessonId, persistent.PermanentControllerCreatedAt ?? DateTimeOffset.UtcNow,
+            DateTimeOffset.MaxValue, true);
     }
 
     private static Task SignInAsync(HttpContext context, AdminAccount account)

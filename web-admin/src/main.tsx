@@ -170,8 +170,10 @@ type TemporaryControllerSession = {
   token: string;
   classId: string;
   lessonId?: string;
-  expiresAt: string;
+  expiresAt?: string;
+  createdAt?: string;
   path: string;
+  permanent?: boolean;
 };
 type RecycleItem = {
   kind: "class" | "lesson" | "media";
@@ -2053,6 +2055,12 @@ function Shell({
                 <SimpleSignage
                   media={media}
                   screens={screens}
+                  navigation={nav.map(([key, icon, label]) => ({
+                    key,
+                    icon,
+                    label,
+                  }))}
+                  onNavigate={(key) => setView(key as View)}
                   refresh={refresh}
                   notify={setNotice}
                 />
@@ -2421,7 +2429,13 @@ function ClassesView({
   const [controllerLessonId, setControllerLessonId] = useState("");
   const [temporaryController, setTemporaryController] =
     useState<TemporaryControllerSession>();
+  const [permanentController, setPermanentController] =
+    useState<TemporaryControllerSession | null>();
+  const [controllerLinkMode, setControllerLinkMode] = useState<
+    "signed-in" | "temporary" | "permanent"
+  >("signed-in");
   const [temporaryMinutes, setTemporaryMinutes] = useState("60");
+  const [controllerColor, setControllerColor] = useState("#2d6a4f");
   const [selectedLessonIds, setSelectedLessonIds] = useState<Set<string>>(
     new Set(),
   );
@@ -2429,6 +2443,38 @@ function ClassesView({
   const [showLessonBulk, setShowLessonBulk] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const current = classes.find((c) => c.id === selected) || classes[0];
+  const currentClassId = current?.id;
+  const currentControllerColor = current?.controllerColor;
+  useEffect(() => {
+    setControllerColor(currentControllerColor || "#2d6a4f");
+    setTemporaryController(undefined);
+    setControllerLinkMode("signed-in");
+    if (!showControllerSettings || !currentClassId) {
+      setPermanentController(undefined);
+      return;
+    }
+    let active = true;
+    setPermanentController(undefined);
+    api<
+      | (TemporaryControllerSession & { active: true })
+      | { active: false }
+    >(`/api/v1/controller/permanent/${currentClassId}`)
+      .then((result) => {
+        if (!active) return;
+        if (result.active) {
+          setPermanentController(result);
+          setControllerLinkMode("permanent");
+        } else {
+          setPermanentController(null);
+        }
+      })
+      .catch(() => {
+        if (active) setPermanentController(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [currentClassId, currentControllerColor, showControllerSettings]);
   const classLessons = lessons
     .filter((l) => l.classId === current?.id)
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -2567,7 +2613,59 @@ function ClassesView({
         },
       );
       setTemporaryController(session);
+      setControllerLinkMode("temporary");
       notify("Temporary restricted controller link created.");
+    } catch (error) {
+      notify(errorText(error));
+    }
+  }
+  async function rotatePermanentController() {
+    if (!current) return;
+    if (
+      permanentController &&
+      !confirm(
+        "Refresh this permanent controller QR? The current QR will stop working immediately.",
+      )
+    )
+      return;
+    try {
+      const session = await api<TemporaryControllerSession>(
+        "/api/v1/controller/permanent",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            classId: current.id,
+            lessonId: controllerLessonId || null,
+          }),
+        },
+      );
+      setPermanentController(session);
+      setControllerLinkMode("permanent");
+      notify(
+        permanentController
+          ? "Permanent controller QR refreshed. The previous QR is revoked."
+          : "Permanent revocable controller QR created.",
+      );
+    } catch (error) {
+      notify(errorText(error));
+    }
+  }
+  async function revokePermanentController() {
+    if (
+      !current ||
+      !permanentController ||
+      !confirm(
+        "Revoke this permanent controller QR? Phones using it will lose access immediately.",
+      )
+    )
+      return;
+    try {
+      await api(`/api/v1/controller/permanent/${current.id}`, {
+        method: "DELETE",
+      });
+      setPermanentController(null);
+      setControllerLinkMode("signed-in");
+      notify("Permanent controller QR revoked.");
     } catch (error) {
       notify(errorText(error));
     }
@@ -2751,8 +2849,14 @@ function ClassesView({
               (() => {
                 const controllerOrigin =
                   localControllerOrigin || location.origin;
-                const controllerUrl = temporaryController
-                  ? `${controllerOrigin}${temporaryController.path}`
+                const activeController =
+                  controllerLinkMode === "temporary"
+                    ? temporaryController
+                    : controllerLinkMode === "permanent"
+                      ? permanentController
+                      : undefined;
+                const controllerUrl = activeController
+                  ? `${controllerOrigin}${activeController.path}`
                   : classControllerUrl(
                       current,
                       controllerLessonId,
@@ -2768,21 +2872,25 @@ function ClassesView({
                         className="controller-share-preview"
                         style={
                           {
-                            "--room-color": current.controllerColor,
+                            "--room-color": controllerColor,
                           } as CSSProperties
                         }
                       >
                         <QrCode value={controllerUrl} />
                         <div>
                           <span>
-                            {temporaryController
+                            {activeController?.permanent
+                              ? "PERMANENT REVOCABLE CONTROLLER"
+                              : activeController
                               ? "TEMPORARY RESTRICTED CONTROLLER"
                               : "TEACHER CONTROLLER"}
                           </span>
                           <strong>{controllerUrl}</strong>
                           <p>
-                            {temporaryController
-                              ? `This link expires ${new Date(temporaryController.expiresAt).toLocaleString()} and cannot control another class or lesson.`
+                            {activeController?.permanent
+                              ? "This QR remains valid across server restarts until an administrator refreshes or revokes it."
+                              : activeController
+                                ? `This link expires ${new Date(activeController.expiresAt!).toLocaleString()} and cannot control another class or lesson.`
                               : `This signed-in page only displays screens and lessons assigned to ${current.name}. Print or scan the QR code, then save the page to the phone's Home Screen.`}
                           </p>
                           {localControllerOrigin && (
@@ -2802,6 +2910,7 @@ function ClassesView({
                           onChange={(event) => {
                             setControllerLessonId(event.target.value);
                             setTemporaryController(undefined);
+                            setControllerLinkMode("signed-in");
                           }}
                         >
                           <option value="">The classroom</option>
@@ -2821,6 +2930,7 @@ function ClassesView({
                             onChange={(event) => {
                               setTemporaryMinutes(event.target.value);
                               setTemporaryController(undefined);
+                              setControllerLinkMode("signed-in");
                             }}
                           >
                             <option value="15">15 minutes</option>
@@ -2838,6 +2948,50 @@ function ClassesView({
                           Create restricted temporary QR
                         </button>
                       </div>
+                      <section className="permanent-controller-card">
+                        <div>
+                          <strong>Permanent revocable QR</strong>
+                          <small>
+                            {permanentController
+                              ? `Active since ${new Date(permanentController.createdAt || Date.now()).toLocaleString()}. It remains valid until refreshed or revoked.`
+                              : permanentController === undefined
+                                ? "Checking for an existing permanent QR…"
+                                : "Create one for a printed sign or a teacher phone that should keep working without an expiration date."}
+                          </small>
+                        </div>
+                        <div>
+                          {permanentController && (
+                            <button
+                              type="button"
+                              className="button"
+                              onClick={() =>
+                                setControllerLinkMode("permanent")
+                              }
+                            >
+                              Show permanent QR
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="button"
+                            onClick={rotatePermanentController}
+                            disabled={permanentController === undefined}
+                          >
+                            {permanentController
+                              ? "Refresh permanent QR"
+                              : "Create permanent QR"}
+                          </button>
+                          {permanentController && (
+                            <button
+                              type="button"
+                              className="button danger"
+                              onClick={revokePermanentController}
+                            >
+                              Revoke
+                            </button>
+                          )}
+                        </div>
+                      </section>
                       <div className="two-fields">
                         <Field
                           label="Path"
@@ -2855,11 +3009,19 @@ function ClassesView({
                           </div>
                         </Field>
                         <Field label="Theme color">
-                          <input
-                            name="controllerColor"
-                            type="color"
-                            defaultValue={current.controllerColor || "#2d6a4f"}
-                          />
+                          <div className="controller-color-picker">
+                            <input
+                              name="controllerColor"
+                              type="color"
+                              value={controllerColor}
+                              aria-label="Controller theme color"
+                              style={{ backgroundColor: controllerColor }}
+                              onChange={(event) =>
+                                setControllerColor(event.target.value)
+                              }
+                            />
+                            <output>{controllerColor.toUpperCase()}</output>
+                          </div>
                         </Field>
                       </div>
                       <Field
@@ -6420,7 +6582,7 @@ function ControllerView({
   if (sessionToken && temporarySession === undefined)
     return (
       <div className="controller-page">
-        <div className="loading">Validating temporary controller…</div>
+        <div className="loading">Validating controller link…</div>
       </div>
     );
   if (
@@ -6520,16 +6682,20 @@ function ControllerView({
     >
       <PageHead
         eyebrow={
-          temporarySession
-            ? "TEMPORARY CONTROL"
+          temporarySession?.permanent
+            ? "PERMANENT CLASSROOM CONTROL"
+            : temporarySession
+              ? "TEMPORARY CONTROL"
             : room
               ? "CLASSROOM CONTROL"
               : "LIVE CONTROL"
         }
         title={room ? room.name : "Universal controller"}
         detail={
-          temporarySession
-            ? `Restricted link · expires ${new Date(temporarySession.expiresAt).toLocaleString()}`
+          temporarySession?.permanent
+            ? "This revocable controller remains active until an administrator refreshes or revokes its QR code."
+            : temporarySession?.expiresAt
+              ? `Restricted link · expires ${new Date(temporarySession.expiresAt).toLocaleString()}`
             : room
               ? `This controller is restricted to ${room.name} screens and lessons.`
               : "Choose any paired screen, then run its assigned lesson from this phone."
