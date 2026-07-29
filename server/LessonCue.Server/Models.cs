@@ -699,7 +699,13 @@ public sealed record SignageZoneInput(string Id, string Type, string? Title = nu
     double? WeatherLatitude = null, double? WeatherLongitude = null, string? WeatherPostalCode = null,
     string? WeatherUnits = null, string? WeatherFields = null,
     Guid? ContentPlaylistId = null, bool StreamOverrideWhenLive = false,
-    int ContentPadding = 6, int ContentScale = 100, string? VerticalAlign = null);
+    int ContentPadding = 6, int ContentScale = 100, string? VerticalAlign = null,
+    DateTimeOffset? StreamOverrideStartsAt = null, DateTimeOffset? StreamOverrideEndsAt = null,
+    int MediaScale = 100, int MediaOffsetX = 0, int MediaOffsetY = 0, bool MediaAllowOverflow = false,
+    string? WifiNetworkName = null, string? WifiPassword = null, string? WifiSecurity = null,
+    bool WifiHidden = false, string? WeatherIconStyle = null,
+    bool ClockShowPeriod = true, bool ClockShowWeekday = true, bool ClockShowYear = true,
+    int CalendarMaxItems = 0, string? CalendarFields = null);
 public sealed record SignageLayoutResourceInput(string Name, string? Folder, string? Description,
     bool IsTemplate, string? BackgroundColor, int CanvasWidth, int CanvasHeight, int SafeAreaPercent,
     List<SignageZoneInput>? Zones, Guid? BackgroundAudioAssetId = null, string? ThumbnailDataUrl = null);

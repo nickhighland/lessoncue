@@ -1,13 +1,13 @@
-import { CSSProperties, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 
-const APP_VERSION = "0.38.1";
+const APP_VERSION = "0.39.0";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
 type ConnectionState = "connecting" | "online" | "reconnecting" | "offline" | "error";
 type CuePoint = { name: string; positionMs: number };
-type CueItem = {
+export type CueItem = {
   itemId: string;
   mediaId?: string;
   type: string;
@@ -55,8 +55,8 @@ type Playlist = {
   preRoll?: { enabled: boolean; loop: boolean; items: CueItem[] };
   items: CueItem[];
 };
-type SignageContentPlaylist = { id: string; name: string; playbackMode: string; synchronization: string; version: number; items: SignagePlaylistEntry[] };
-type Signage = {
+export type SignageContentPlaylist = { id: string; name: string; playbackMode: string; synchronization: string; version: number; items: SignagePlaylistEntry[] };
+export type Signage = {
   id: string;
   version?: number;
   publishedVersion?: number;
@@ -78,8 +78,9 @@ type Signage = {
   displayPower?: string;
   backgroundAudio?: CueItem;
 };
-type SignageWidgetCache = { zoneId: string; title: string; text: string; items: string[]; refreshedAt: string; source?: string };
-type SignageZone = {
+export type SignageCalendarEvent = { title: string; description?: string; location?: string; startsAt?: string; endsAt?: string; allDay?: boolean };
+export type SignageWidgetCache = { zoneId: string; title: string; text: string; items: string[]; refreshedAt: string; source?: string; icon?: string; events?: SignageCalendarEvent[] };
+export type SignageZone = {
   id: string; type: string; title?: string; content?: string; sourceUrl?: string; streamUrl?: string; htmlUrl?: string;
   x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string; refreshMinutes: number;
   rotation?: number; zIndex?: number; opacity?: number; fit?: "cover" | "contain" | "fill"; locked?: boolean; hidden?: boolean; flipX?: boolean; flipY?: boolean;
@@ -90,10 +91,14 @@ type SignageZone = {
   clockDisplay?: "time" | "date" | "both"; clockTimeFormat?: "12h" | "12h-seconds" | "24h" | "24h-seconds";
   clockDateFormat?: "short" | "medium" | "long" | "numeric"; clockOrder?: "time-date" | "date-time" | "inline";
   clockTimeFontSize?: number; clockDateFontSize?: number;
-  weatherPostalCode?: string; contentPlaylistId?: string; streamOverrideWhenLive?: boolean; contentPlaylist?: SignageContentPlaylist;
+  weatherPostalCode?: string; contentPlaylistId?: string; streamOverrideWhenLive?: boolean; streamOverrideStartsAt?: string; streamOverrideEndsAt?: string; contentPlaylist?: SignageContentPlaylist;
   contentPadding?: number; contentScale?: number; verticalAlign?: "top" | "middle" | "bottom";
+  mediaScale?: number; mediaOffsetX?: number; mediaOffsetY?: number; mediaAllowOverflow?: boolean;
+  wifiNetworkName?: string; wifiSecurity?: string; wifiHidden?: boolean;
+  weatherIconStyle?: "color" | "white"; clockShowPeriod?: boolean; clockShowWeekday?: boolean; clockShowYear?: boolean;
+  calendarMaxItems?: number; calendarFields?: string;
 };
-type SignagePlaylistEntry = { id: string; kind: string; title?: string; durationSeconds: number; transition?: string; hidden?: boolean; transparent?: boolean; sourceUrl?: string; appType?: string; volumePercent?: number; muted?: boolean; fadeInMs?: number; fadeOutMs?: number; fit?: "contain" | "cover" | "fill"; media?: CueItem; layout?: { id: string; name: string; backgroundColor: string; canvasWidth: number; canvasHeight: number; safeAreaPercent: number; zones: SignageZone[]; backgroundAudio?: CueItem } };
+export type SignagePlaylistEntry = { id: string; kind: string; title?: string; durationSeconds: number; transition?: string; hidden?: boolean; transparent?: boolean; sourceUrl?: string; appType?: string; volumePercent?: number; muted?: boolean; fadeInMs?: number; fadeOutMs?: number; fit?: "contain" | "cover" | "fill"; media?: CueItem; layout?: { id: string; name: string; backgroundColor: string; canvasWidth: number; canvasHeight: number; safeAreaPercent: number; zones: SignageZone[]; backgroundAudio?: CueItem } };
 type Manifest = {
   manifestVersion: number;
   screen: { id: string; name: string; volunteerMode: boolean; site: string; signageOnly?: boolean; permanentPairing?: boolean };
@@ -776,12 +781,46 @@ function SignagePlaylistMedia({ item, zoneFit }: {
     : <img src={item.media?.downloadUrl} alt={item.title || ""} style={style} />;
 }
 
-function SignageLayout({ signage }: { signage: Signage }) {
+export type SignageEditorOptions = {
+  selectedZoneId?: string;
+  onSelect?: (id: string) => void;
+  onMediaTransform?: (id: string, patch: { mediaOffsetX: number; mediaOffsetY: number }) => void;
+};
+
+export function SignageLayout({ signage, editor }: { signage: Signage; editor?: SignageEditorOptions }) {
+  const dragRef = useRef<{ id: string; x: number; y: number; offsetX: number; offsetY: number; width: number; height: number } | undefined>(undefined);
+  function beginMediaDrag(event: ReactPointerEvent<HTMLElement>, zone: SignageZone) {
+    if (!editor?.onMediaTransform || zone.type !== "media") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    dragRef.current = { id: zone.id, x: event.clientX, y: event.clientY, offsetX: zone.mediaOffsetX || 0, offsetY: zone.mediaOffsetY || 0, width: bounds.width, height: bounds.height };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+  function moveMedia(event: ReactPointerEvent<HTMLElement>) {
+    const drag = dragRef.current;
+    if (!drag || !editor?.onMediaTransform) return;
+    editor.onMediaTransform(drag.id, {
+      mediaOffsetX: Math.max(-150, Math.min(150, drag.offsetX + (event.clientX - drag.x) / Math.max(1, drag.width) * 100)),
+      mediaOffsetY: Math.max(-150, Math.min(150, drag.offsetY + (event.clientY - drag.y) / Math.max(1, drag.height) * 100))
+    });
+  }
+  function endMediaDrag() { dragRef.current = undefined; }
   return <section className={`web-player-signage-layout ${signage.layoutPreset || "single"}`} aria-label={`${signage.name} signage layout`}>
-    {signage.zones?.filter(zone => !zone.hidden).map(zone => <article className={`web-player-signage-zone ${zone.type} align-${zone.verticalAlign || "middle"}`} key={zone.id} style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, borderRadius: `${zone.cornerRadius || 0}%`, zIndex: zone.zIndex ?? 0, opacity: (zone.opacity ?? 100) / 100, transform: `rotate(${zone.rotation ?? 0}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`, fontFamily: zone.fontFamily, fontSize: zone.fontSize ? `clamp(8px, ${zone.fontSize / 19.2}vw, ${zone.fontSize}px)` : undefined, fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined, textAlign: zone.textAlign, lineHeight: zone.lineHeightPercent ? zone.lineHeightPercent / 100 : undefined, ["--signage-zone-padding" as string]: `${Math.max(0, Math.min(30, zone.contentPadding ?? 6))}%`, ["--signage-content-scale" as string]: Math.max(.25, Math.min(1, (zone.contentScale ?? 100) / 100)) } as CSSProperties}>
+    {signage.zones?.filter(zone => !zone.hidden).map(zone => <article
+      className={`web-player-signage-zone ${zone.type} align-${zone.verticalAlign || "middle"} ${zone.mediaAllowOverflow ? "allow-media-overflow" : ""} ${editor?.selectedZoneId === zone.id ? "editor-selected" : ""}`}
+      key={zone.id}
+      role={editor ? "button" : undefined}
+      tabIndex={editor ? 0 : undefined}
+      onClick={() => editor?.onSelect?.(zone.id)}
+      onPointerDown={event => beginMediaDrag(event, zone)}
+      onPointerMove={moveMedia}
+      onPointerUp={endMediaDrag}
+      onPointerCancel={endMediaDrag}
+      style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, borderRadius: `${zone.cornerRadius || 0}%`, zIndex: zone.zIndex ?? 0, opacity: (zone.opacity ?? 100) / 100, transform: `rotate(${zone.rotation ?? 0}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`, fontFamily: zone.fontFamily, fontSize: zone.fontSize ? `clamp(8px, ${zone.fontSize / 19.2}vw, ${zone.fontSize}px)` : undefined, fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined, textAlign: zone.textAlign, lineHeight: zone.lineHeightPercent ? zone.lineHeightPercent / 100 : undefined, ["--signage-zone-padding" as string]: `${Math.max(0, Math.min(30, zone.contentPadding ?? 6))}%`, ["--signage-content-scale" as string]: Math.max(.25, Math.min(1, (zone.contentScale ?? 100) / 100)) } as CSSProperties}>
       {zone.media?.downloadUrl && (zone.media.type === "video" || zone.media.contentType?.startsWith("video/")
-        ? <video src={zone.media.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={zone.media.title} style={{ objectFit: zone.fit || "cover" }} />
-        : <img src={zone.media.downloadUrl} alt={zone.title || ""} style={{ objectFit: zone.fit || "cover" }} />)}
+        ? <video src={zone.media.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={zone.media.title} style={{ objectFit: zone.fit || "cover", transform: mediaTransform(zone) }} />
+        : <img src={zone.media.downloadUrl} alt={zone.title || ""} style={{ objectFit: zone.fit || "cover", transform: mediaTransform(zone) }} />)}
       {zone.type === "stream" && zone.streamUrl && <SignageStream source={zone.streamUrl} title={zone.title || "Live stream"} fit={zone.fit || "cover"} />}
       {zone.type === "presentation" && <SignagePresentation key={`${zone.contentPlaylist?.id || "none"}:${zone.contentPlaylist?.version || 0}`} zone={zone} signage={signage} />}
       {zone.type === "webpage" && zone.sourceUrl && <iframe src={zone.sourceUrl} title={zone.title || "Web page"} sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts" />}
@@ -790,48 +829,68 @@ function SignageLayout({ signage }: { signage: Signage }) {
         : zone.content && <iframe srcDoc={zone.content} title={zone.title || "Custom HTML"} sandbox="allow-forms allow-modals allow-popups allow-presentation allow-scripts" />)}
       {(zone.type === "qr" || zone.type === "wifi") && <SignageQr zone={zone} />}
       <div className={`web-player-zone-copy ${zone.type === "ticker" ? "ticker" : ""}`} style={zone.type === "ticker" ? { animationDuration: `${Math.max(5, 300 / Math.max(10, zone.tickerSpeed || 60))}s` } : undefined}>
-        {zone.title && !["qr","wifi","webpage","customHtml","presentation"].includes(zone.type) && <small style={{ color: zone.accentColor }}>{zone.title}</small>}
+        {zone.title && !["qr","wifi","webpage","customHtml","presentation","media"].includes(zone.type) && <small style={{ color: zone.accentColor }}>{zone.title}</small>}
         {zone.type === "clock" ? <SignageClock zone={zone} />
+          : zone.type === "weather" ? <SignageWeather zone={zone} />
+          : zone.type === "calendar" ? <SignageCalendar zone={zone} />
           : zone.type === "counter" ? <SignageCounter zone={zone} />
           : zone.richTextJson ? <SignageRichText value={zone.richTextJson} fallback={zone.cached?.text || zone.content || ""} />
-          : !["qr","wifi","webpage","customHtml","presentation","stream"].includes(zone.type) ? <><strong>{zone.cached?.text || zone.content}</strong>{zone.cached?.items?.length ? <ul>{zone.cached.items.map((item, index) => <li key={`${zone.id}-${index}`}>{item}</li>)}</ul> : null}</>
+          : !["qr","wifi","webpage","customHtml","presentation","stream","media","weather","calendar"].includes(zone.type) ? <><strong>{zone.cached?.text || zone.content}</strong>{zone.cached?.items?.length ? <ul>{zone.cached.items.map((item, index) => <li key={`${zone.id}-${index}`}>{item}</li>)}</ul> : null}</>
           : null}
       </div>
     </article>)}
   </section>;
 }
 
+function mediaTransform(zone: SignageZone) {
+  return `translate(${zone.mediaOffsetX || 0}%, ${zone.mediaOffsetY || 0}%) scale(${Math.max(25, Math.min(400, zone.mediaScale || 100)) / 100})`;
+}
+
 function SignagePresentation({ zone, signage }: { zone: SignageZone; signage: Signage }) {
   const items = zone.contentPlaylist?.items.filter(item => !item.hidden) || [];
   const [index, setIndex] = useState(0);
   const [streamLive, setStreamLive] = useState(false);
+  const streamOverrideActive = useScheduledStreamOverride(zone);
   useEffect(() => {
-    if (!items.length || streamLive) return;
+    if (!items.length || (streamOverrideActive && streamLive)) return;
     const current = items[index % items.length];
     const timer = window.setTimeout(() => setIndex(value => value + 1), Math.max(1, current.durationSeconds || 10) * 1000);
     return () => window.clearTimeout(timer);
-  }, [items, index, streamLive]);
+  }, [items, index, streamOverrideActive, streamLive]);
   const current = items.length ? items[index % items.length] : undefined;
   let content: ReactNode = <div className="signage-presentation-empty">Select a published playlist</div>;
   if (current?.layout) content = <SignageLayout signage={{ ...signage, name: current.layout.name, backgroundColor: current.layout.backgroundColor, zones: current.layout.zones, backgroundAudio: current.layout.backgroundAudio }} />;
   else if (current?.media?.downloadUrl) content = <SignagePlaylistMedia item={current} zoneFit={zone.fit || "contain"} />;
   else if (current?.sourceUrl) content = <iframe src={current.sourceUrl} title={current.title || current.kind} sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts" />;
   return <div className="signage-presentation">
-    <div className="signage-presentation-default" aria-hidden={streamLive}>{content}</div>
-    {zone.streamOverrideWhenLive && zone.streamUrl && <div className={`signage-presentation-stream ${streamLive ? "is-live" : ""}`}>
+    <div className="signage-presentation-default" aria-hidden={streamOverrideActive && streamLive}>{content}</div>
+    {streamOverrideActive && zone.streamUrl && <div className={`signage-presentation-stream ${streamLive ? "is-live" : ""}`}>
       <SignageStream source={zone.streamUrl} title={zone.title || "Live stream"} fit={zone.fit || "cover"} onAvailabilityChange={setStreamLive} />
     </div>}
   </div>;
 }
 
+function useScheduledStreamOverride(zone: SignageZone) {
+  const [now, setNow] = useState(Date.now());
+  const startsAt = zone.streamOverrideStartsAt ? Date.parse(zone.streamOverrideStartsAt) : Number.NEGATIVE_INFINITY;
+  const endsAt = zone.streamOverrideEndsAt ? Date.parse(zone.streamOverrideEndsAt) : Number.POSITIVE_INFINITY;
+  useEffect(() => {
+    const next = [startsAt, endsAt].filter(value => Number.isFinite(value) && value > now).sort((a, b) => a - b)[0];
+    if (!next) return;
+    const timer = window.setTimeout(() => setNow(Date.now()), Math.max(1, next - now));
+    return () => window.clearTimeout(timer);
+  }, [startsAt, endsAt, now]);
+  return Boolean(zone.streamOverrideWhenLive && zone.streamUrl && now >= startsAt && now < endsAt);
+}
+
 function SignageRichText({ value, fallback }: { value: string; fallback: string }) {
-  let runs: { text?: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string }[] = [];
+  let runs: { text?: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string; fontFamily?: string; fontSize?: number }[] = [];
   try {
     const parsed = JSON.parse(value);
     if (Array.isArray(parsed)) runs = parsed;
   } catch { /* The plain text fallback remains visible for malformed manifest data. */ }
   if (!runs.length) return <strong>{fallback}</strong>;
-  return <strong>{runs.slice(0,50).map((run,index)=><span key={index} style={{fontWeight:run.bold?800:undefined,fontStyle:run.italic?"italic":undefined,textDecoration:run.underline?"underline":undefined,color:/^#[0-9a-f]{6}$/i.test(run.color||"")?run.color:undefined}}>{String(run.text||"")}</span>)}</strong>;
+  return <strong>{runs.slice(0,200).map((run,index)=><span key={index} style={{fontWeight:run.bold?800:undefined,fontStyle:run.italic?"italic":undefined,textDecoration:run.underline?"underline":undefined,color:/^#[0-9a-f]{6}$/i.test(run.color||"")?run.color:undefined,fontFamily:String(run.fontFamily||"").slice(0,80)||undefined,fontSize:Number.isFinite(run.fontSize)?`${Math.max(8,Math.min(200,Number(run.fontSize)))}px`:undefined}}>{String(run.text||"")}</span>)}</strong>;
 }
 
 function SignageQr({ zone }: { zone: SignageZone }) {
@@ -906,18 +965,62 @@ function SignageClock({ zone }: { zone: SignageZone }) {
   const display = zone.clockDisplay || "both";
   const timeSize = Math.max(8, zone.clockTimeFontSize || 64);
   const dateSize = Math.max(8, zone.clockDateFontSize || 28);
-  const time = <b className="signage-clock-time" style={{ fontSize: `clamp(8px, ${timeSize / 19.2}vw, ${timeSize}px)` }}>{now.toLocaleTimeString([], {
+  const timeOptions: Intl.DateTimeFormatOptions = {
     hour: "numeric", minute: "2-digit", second: zone.clockTimeFormat?.endsWith("seconds") ? "2-digit" : undefined,
     hour12: !zone.clockTimeFormat?.startsWith("24h")
-  })}</b>;
-  const dateOptions: Intl.DateTimeFormatOptions = zone.clockDateFormat === "numeric" ? { year: "numeric", month: "2-digit", day: "2-digit" }
+  };
+  let timeText = now.toLocaleTimeString([], timeOptions);
+  if (timeOptions.hour12 && zone.clockShowPeriod === false) {
+    timeText = new Intl.DateTimeFormat([], timeOptions).formatToParts(now).filter(part => part.type !== "dayPeriod").map(part => part.value).join("").trim();
+  }
+  const time = <b className="signage-clock-time" style={{ fontSize: `clamp(8px, ${timeSize / 19.2}vw, ${timeSize}px)` }}>{timeText}</b>;
+  const year = zone.clockShowYear === false ? undefined : "numeric";
+  const weekday = zone.clockShowWeekday === false ? undefined : zone.clockDateFormat === "medium" ? "short" : "long";
+  const dateOptions: Intl.DateTimeFormatOptions = zone.clockDateFormat === "numeric" ? { year, month: "2-digit", day: "2-digit" }
     : zone.clockDateFormat === "short" ? { month: "short", day: "numeric" }
-    : zone.clockDateFormat === "medium" ? { weekday: "short", month: "short", day: "numeric" }
-    : { weekday: "long", month: "long", day: "numeric", year: "numeric" };
+    : zone.clockDateFormat === "medium" ? { weekday, month: "short", day: "numeric", year }
+    : { weekday, month: "long", day: "numeric", year };
   const date = <span className="signage-clock-date" style={{ fontSize: `clamp(8px, ${dateSize / 19.2}vw, ${dateSize}px)` }}>{now.toLocaleDateString([], dateOptions)}</span>;
   if (display === "time") return time;
   if (display === "date") return date;
   return <div className={`signage-clock-stack ${zone.clockOrder === "date-time" ? "date-first" : ""} ${zone.clockOrder === "inline" ? "inline" : ""}`}>{time}{date}</div>;
+}
+
+function SignageWeather({ zone }: { zone: SignageZone }) {
+  const cache = zone.cached;
+  const icon = cache?.icon || "☀️";
+  const text = (cache?.text || zone.content || "Weather").replace(icon, "").trim();
+  return <div className="signage-weather">
+    <span className={`signage-weather-icon ${zone.weatherIconStyle === "white" ? "white" : "color"}`}>{icon}</span>
+    <strong>{text || "Weather"}</strong>
+    {cache?.items?.length ? <ul>{cache.items.map((item, index) => <li key={`${zone.id}-weather-${index}`}>{item}</li>)}</ul> : null}
+  </div>;
+}
+
+function SignageCalendar({ zone }: { zone: SignageZone }) {
+  const fields = new Set((zone.calendarFields || "date,time,title").split(",").map(value => value.trim().toLowerCase()).filter(Boolean));
+  const allEvents = zone.cached?.events || [];
+  const events = zone.calendarMaxItems && zone.calendarMaxItems > 0 ? allEvents.slice(0, zone.calendarMaxItems) : allEvents;
+  if (!events.length) {
+    const items = zone.cached?.items || [];
+    const visible = zone.calendarMaxItems && zone.calendarMaxItems > 0 ? items.slice(0, zone.calendarMaxItems) : items;
+    return visible.length ? <ul className="signage-calendar-list">{visible.map((item, index) => <li key={`${zone.id}-calendar-${index}`}>{item}</li>)}</ul> : <strong>{zone.content || "Calendar feed"}</strong>;
+  }
+  return <ol className="signage-calendar-list">
+    {events.map((event, index) => {
+      const starts = event.startsAt ? new Date(event.startsAt) : undefined;
+      return <li key={`${zone.id}-event-${index}`}>
+        {(fields.has("date") || fields.has("time")) && starts && <time dateTime={event.startsAt}>
+          {fields.has("date") ? starts.toLocaleDateString([], { month: "short", day: "numeric" }) : ""}
+          {fields.has("date") && fields.has("time") ? " · " : ""}
+          {fields.has("time") && !event.allDay ? starts.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
+        </time>}
+        {fields.has("title") && <b>{event.title}</b>}
+        {fields.has("description") && event.description && <span>{event.description}</span>}
+        {fields.has("location") && event.location && <small>{event.location}</small>}
+      </li>;
+    })}
+  </ol>;
 }
 
 function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, onEnded, onBlocked }: {

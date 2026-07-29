@@ -323,6 +323,8 @@ PDF, PowerPoint (`.ppt`, `.pptx`, `.pps`, `.ppsx`, `.pot`, `.potx`), OpenDocumen
 
 Local document conversion runs through headless LibreOffice and Poppler and creates PNG media with a maximum 1920-pixel dimension. Google Slides is downloaded once through Google's PDF export endpoint and then follows the same local conversion path; no LessonCue-hosted cloud service receives the deck. Static conversion intentionally loses transitions, builds, animations, embedded video, and presenter timing. Some `.key` files depend on the LibreOffice version installed by the server and may need to be exported to PDF if that importer cannot open them. The recommended Linux installer and Docker image include both converters. For a manual Debian/Ubuntu install, run `sudo apt-get install -y libreoffice-impress libreoffice-writer poppler-utils`. On Windows, install LibreOffice system-wide, install a Poppler build, set the machine environment variable `LESSONCUE_PDFTOPPM_PATH` to `pdftoppm.exe`, and restart the LessonCue service.
 
+For a deck whose native animations must be retained, export it to H.264/AAC MP4 in PowerPoint, Keynote, or the originating application and upload that video. The [animation-preservation investigation](presentation-animation-preservation.md) explains why LessonCue does not offer a misleading headless “preserve animations” switch.
+
 To remove the headless Linux service while preserving its database and media:
 
 ```bash

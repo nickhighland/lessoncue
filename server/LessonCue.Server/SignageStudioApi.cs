@@ -45,6 +45,23 @@ public static class SignageStudioApi
             Results.Ok((await db.SignageLayouts.AsNoTracking().OrderBy(x => x.Folder).ThenBy(x => x.Name).ToListAsync(ct))
                 .Select(item => SignageStudio.MapLayout(item))));
 
+        planning.MapPost("/elements/preview", async (SignageZoneInput input, LessonCueDb db,
+            SignageWidgetService widgets, CancellationToken ct) =>
+        {
+            if (input.Type is not ("calendar" or "weather"))
+                return Results.BadRequest(new { error = "Live data preview is available for calendar and weather elements." });
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var error = SignageLayout.Validate([input],
+                SignageLayout.ParseAllowlist(organization.SignageSourceAllowlistJson));
+            if (error is not null) return Results.BadRequest(new { error });
+            try { return Results.Ok(await widgets.FetchAsync(input, ct)); }
+            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException
+                                                or InvalidDataException or System.Text.Json.JsonException)
+            {
+                return Results.BadRequest(new { error = exception.Message });
+            }
+        });
+
         planning.MapPost("/layouts", async (SignageLayoutResourceInput input, LessonCueDb db, CancellationToken ct) =>
         {
             var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);

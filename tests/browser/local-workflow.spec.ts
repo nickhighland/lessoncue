@@ -442,7 +442,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(troubleshootingPanel.getByRole("heading", { name: /Activity audit/ })).toBeVisible();
   await page.getByRole("button", { name: "Full backup" }).click();
   await expect(page.getByText("Full backup created.", { exact: false })).toBeVisible();
-  const fullBackupLink = page.locator("a.backup-row").filter({ hasText: "full" });
+  const fullBackupLink = page.locator(".backup-row a").filter({ hasText: "full" });
   await expect(fullBackupLink).toBeVisible();
   const downloadPromise = page.waitForEvent("download");
   await fullBackupLink.click();
@@ -676,7 +676,11 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByLabel("Content size").fill("70");
   await page.getByLabel("Vertical position").selectOption("top");
   await page.getByLabel("Media fit").selectOption("contain");
-  await expect(page.locator(".simple-layout-zone")).toHaveCount(7);
+  await page.getByLabel("RTMP override").check();
+  await page.getByLabel("RTMP stream address").fill("rtmp://stream.example/live");
+  await page.getByLabel("Start time").fill("2026-08-02T10:00");
+  await page.getByLabel("End time").fill("2026-08-02T11:00");
+  await expect(page.locator(".simple-layout-canvas .web-player-signage-zone")).toHaveCount(7);
   await page.getByRole("button", { name: /Save changes/ }).click();
   await expect(page.locator(".toast")).toContainText("Layout saved and updated on assigned screens.");
 
@@ -727,7 +731,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
         const zone = manifest.signage?.[0]?.zones
           ?.find((entry: { id: string }) => entry.id === "main-playlist");
         return zone
-          ? [zone.contentPadding, zone.contentScale, zone.verticalAlign, zone.fit]
+          ? [zone.contentPadding, zone.contentScale, zone.verticalAlign, zone.fit,
+            zone.streamOverrideWhenLive, zone.streamOverrideStartsAt, zone.streamOverrideEndsAt]
           : null;
       })(),
     };
@@ -736,7 +741,9 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   expect(simpleSignage.signageOnly).toBe(true);
   expect(simpleSignage.manifestSign).toBe("Browser lobby sign");
   expect(simpleSignage.manifestPlaylist).toBe("Browser continuous loop");
-  expect(simpleSignage.containment).toEqual([12, 70, "top", "contain"]);
+  expect(simpleSignage.containment?.slice(0, 5)).toEqual([12, 70, "top", "contain", true]);
+  expect(Date.parse(simpleSignage.containment?.[5] || "")).not.toBeNaN();
+  expect(Date.parse(simpleSignage.containment?.[6] || "")).not.toBeNaN();
 
   // Retained legacy assertions are intentionally unreachable while the replacement
   // data model settles; they document the removed schedule/publish/emergency workflow.
@@ -982,7 +989,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.38.1" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.39.0" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();

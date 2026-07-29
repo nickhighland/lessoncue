@@ -170,7 +170,7 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
         return "https://api.open-meteo.com/v1/forecast" +
             $"?latitude={latitude}&longitude={longitude}" +
             "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m" +
-            "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
+            "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset" +
             $"&temperature_unit={temperatureUnit}&wind_speed_unit={windUnit}&timezone=auto&forecast_days=2";
     }
 
@@ -190,10 +190,11 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
         }
         else if (zone.Type == "calendar")
         {
-            var unfolded = Regex.Replace(payload, "\\r?\\n[ \\t]", "");
-            items = unfolded.Split('\n').Select(x => x.Trim()).Where(x => x.StartsWith("SUMMARY", StringComparison.OrdinalIgnoreCase))
-                .Select(x => Clean(x[(x.IndexOf(':') + 1)..])).Where(x => !string.IsNullOrWhiteSpace(x)).Take(8).Cast<string>().ToArray();
+            var events = ParseCalendarEvents(payload).Take(24).ToArray();
+            items = events.Select(value => value.Title).ToArray();
             if (items.Length == 0) items = ParseJsonItems(payload);
+            return new(zone.Id, title, Clean(text) ?? "", items, refreshedAt, zone.SourceUrl,
+                Events: events.Length == 0 ? null : events);
         }
         else if (zone.Type == "weather" && zone.WeatherProvider is "open-meteo" or "nws")
         {
@@ -222,8 +223,8 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var title = zone.WeatherLocation ?? zone.Title ?? "Local weather";
         double? temperature = null, feelsLike = null, high = null, low = null, precipitation = null, humidity = null, wind = null;
-        string? temperatureUnit = null, windUnit = null, conditions = null, windText = null;
-        int? code = null;
+        string? temperatureUnit = null, windUnit = null, conditions = null, windText = null, sunrise = null, sunset = null;
+        int? code = null, forecastCode = null;
         if (zone.WeatherProvider == "open-meteo")
         {
             if (root.TryGetProperty("current", out var current))
@@ -245,6 +246,9 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
                 low = FirstNumber(daily, "temperature_2m_min");
                 precipitation = FirstNumber(daily, "precipitation_probability_max");
                 code ??= FirstInt(daily, "weather_code");
+                forecastCode = ArrayInt(daily, "weather_code", 1);
+                sunrise = FirstString(daily, "sunrise");
+                sunset = FirstString(daily, "sunset");
             }
             conditions = WeatherCondition(code);
         }
@@ -282,8 +286,58 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
         if (fields.Contains("humidity") && humidity is not null) items.Add($"Humidity {humidity:0.#}%");
         if (fields.Contains("wind") && !string.IsNullOrWhiteSpace(windText)) items.Add($"Wind {windText}");
         else if (fields.Contains("wind") && wind is not null) items.Add($"Wind {wind:0.#} {windUnit}".Trim());
-        return new(zone.Id, title, string.Join(" ", headline), items.ToArray(), refreshedAt, zone.SourceUrl);
+        if (fields.Contains("forecast") && forecastCode is not null) items.Add($"Tomorrow {WeatherCondition(forecastCode)}");
+        if (fields.Contains("sunrise") && FormatWeatherTime(sunrise) is { } sunriseText) items.Add($"Sunrise {sunriseText}");
+        if (fields.Contains("sunset") && FormatWeatherTime(sunset) is { } sunsetText) items.Add($"Sunset {sunsetText}");
+        return new(zone.Id, title, string.Join(" ", headline), items.ToArray(), refreshedAt, zone.SourceUrl, icon);
     }
+
+    private static IReadOnlyCollection<SignageCalendarEvent> ParseCalendarEvents(string payload)
+    {
+        var unfolded = Regex.Replace(payload, "\\r?\\n[ \\t]", "");
+        var events = new List<SignageCalendarEvent>();
+        foreach (var block in Regex.Matches(unfolded, "BEGIN:VEVENT(?<body>[\\s\\S]*?)END:VEVENT",
+                     RegexOptions.IgnoreCase).Cast<Match>())
+        {
+            var values = block.Groups["body"].Value.Split(['\r', '\n'],
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            string? Value(string key)
+            {
+                var line = values.FirstOrDefault(value => value.StartsWith(key, StringComparison.OrdinalIgnoreCase) &&
+                    value.IndexOf(':') >= 0);
+                return line is null ? null : UnescapeCalendar(line[(line.IndexOf(':') + 1)..]);
+            }
+            var title = Clean(Value("SUMMARY"));
+            if (string.IsNullOrWhiteSpace(title)) continue;
+            var startRaw = Value("DTSTART");
+            var endRaw = Value("DTEND");
+            var allDay = startRaw?.Length == 8 && startRaw.All(char.IsDigit);
+            events.Add(new SignageCalendarEvent(title, Clean(Value("DESCRIPTION")), Clean(Value("LOCATION")),
+                ParseCalendarDate(startRaw), ParseCalendarDate(endRaw), allDay));
+        }
+        return events.OrderBy(value => value.StartsAt ?? DateTimeOffset.MaxValue).ToArray();
+    }
+
+    private static DateTimeOffset? ParseCalendarDate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (DateTimeOffset.TryParseExact(value, ["yyyyMMdd'T'HHmmss'Z'", "yyyyMMdd'T'HHmm'Z'"],
+                CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var absolute)) return absolute;
+        if (DateTime.TryParseExact(value, ["yyyyMMdd'T'HHmmss", "yyyyMMdd'T'HHmm", "yyyyMMdd"],
+                CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var local))
+            return new DateTimeOffset(local);
+        return DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal,
+            out absolute) ? absolute : null;
+    }
+
+    private static string UnescapeCalendar(string value) => value.Replace("\\n", "\n", StringComparison.OrdinalIgnoreCase)
+        .Replace("\\,", ",", StringComparison.Ordinal).Replace("\\;", ";", StringComparison.Ordinal)
+        .Replace("\\\\", "\\", StringComparison.Ordinal);
+
+    private static string? FormatWeatherTime(string? value) =>
+        DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed)
+            ? parsed.ToString("h:mm tt", CultureInfo.CurrentCulture) : null;
 
     private static string[] ParseJsonItems(string payload)
     {
@@ -326,6 +380,14 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
     private static int? FirstInt(JsonElement element, string name) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var values) &&
         values.ValueKind == JsonValueKind.Array && values.GetArrayLength() > 0 && values[0].TryGetInt32(out var number) ? number : null;
+    private static int? ArrayInt(JsonElement element, string name, int index) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var values) &&
+        values.ValueKind == JsonValueKind.Array && values.GetArrayLength() > index &&
+        values[index].TryGetInt32(out var number) ? number : null;
+    private static string? FirstString(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var values) &&
+        values.ValueKind == JsonValueKind.Array && values.GetArrayLength() > 0 &&
+        values[0].ValueKind == JsonValueKind.String ? values[0].GetString() : null;
     private static string WeatherCondition(int? code) => code switch
     {
         0 => "Clear sky",

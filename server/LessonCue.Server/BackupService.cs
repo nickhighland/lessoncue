@@ -181,6 +181,23 @@ public sealed class BackupService
         return path.StartsWith(Path.GetFullPath(BackupPath), StringComparison.Ordinal) && File.Exists(path) ? path : null;
     }
 
+    public async Task<BackupPreview> VerifyStoredAsync(BackupRecord record, CancellationToken ct)
+    {
+        var archivePath = Resolve(record.FileName) ?? throw new FileNotFoundException("The backup file is missing.");
+        CleanupExpiredStages();
+        var verificationId = Guid.NewGuid();
+        var stage = StageDirectory(verificationId);
+        Directory.CreateDirectory(stage);
+        try
+        {
+            return await InspectAsync(verificationId, record.FileName, archivePath, ct);
+        }
+        finally
+        {
+            TryDelete(stage);
+        }
+    }
+
     private async Task<BackupPreview> InspectAsync(Guid restoreId, string fileName, string archivePath, CancellationToken ct)
     {
         using var archive = ZipFile.OpenRead(archivePath);

@@ -29,6 +29,10 @@ public sealed class SignageLayoutTests
             VERSION:2.0
             BEGIN:VEVENT
             SUMMARY:Community breakfast
+            DTSTART:20260730T130000Z
+            DTEND:20260730T140000Z
+            DESCRIPTION:Breakfast and conversation
+            LOCATION:Community room
             END:VEVENT
             BEGIN:VEVENT
             SUMMARY;LANGUAGE=en-US:Volunteer orientation
@@ -38,6 +42,11 @@ public sealed class SignageLayoutTests
         var parsed = SignageWidgetService.Parse(zone, payload, DateTimeOffset.Parse("2026-07-26T12:00:00Z"));
         Assert.Equal(["Community breakfast", "Volunteer orientation"], parsed.Items);
         Assert.Equal(zone.SourceUrl, parsed.Source);
+        var first = Assert.IsType<SignageCalendarEvent[]>(parsed.Events)[0];
+        Assert.Equal("Community breakfast", first.Title);
+        Assert.Equal("Breakfast and conversation", first.Description);
+        Assert.Equal("Community room", first.Location);
+        Assert.Equal(DateTimeOffset.Parse("2026-07-30T13:00:00Z"), first.StartsAt);
     }
 
     [Fact]
@@ -85,6 +94,26 @@ public sealed class SignageLayoutTests
     }
 
     [Fact]
+    public void NormalizesMediaWifiClockAndCalendarDisplayControls()
+    {
+        var media = SignageLayout.Normalize(new SignageZoneInput("logo", "media", MediaScale: 999,
+            MediaOffsetX: -999, MediaOffsetY: 999, MediaAllowOverflow: true));
+        Assert.Equal(400, media.MediaScale);
+        Assert.Equal(-150, media.MediaOffsetX);
+        Assert.Equal(150, media.MediaOffsetY);
+        Assert.True(media.MediaAllowOverflow);
+
+        var wifi = SignageLayout.Normalize(new SignageZoneInput("guest", "wifi",
+            WifiNetworkName: "School;Guest", WifiPassword: "pass:word", WifiSecurity: "WPA", WifiHidden: true));
+        Assert.Equal("WIFI:T:WPA;S:School\\;Guest;P:pass\\:word;H:true;;", wifi.QrValue);
+
+        var calendar = SignageLayout.Normalize(new SignageZoneInput("events", "calendar",
+            CalendarMaxItems: 99, CalendarFields: "title,description,location,unsafe"));
+        Assert.Equal(20, calendar.CalendarMaxItems);
+        Assert.Equal("title,description,location", calendar.CalendarFields);
+    }
+
+    [Fact]
     public void ParsesRssAndWeatherIntoDisplaySafeCacheEntries()
     {
         var now = DateTimeOffset.Parse("2026-07-22T12:00:00Z");
@@ -103,7 +132,7 @@ public sealed class SignageLayoutTests
         var zone = SignageLayout.Normalize(new SignageZoneInput("weather", "weather", "Weather",
             WeatherProvider: "open-meteo", WeatherLocation: "Bellingham, WA", WeatherLatitude: 48.7519,
             WeatherLongitude: -122.4787, WeatherUnits: "fahrenheit",
-            WeatherFields: "icon,conditions,temperature,high,low,precipitation,humidity,wind"));
+            WeatherFields: "icon,conditions,temperature,forecast,high,low,precipitation,humidity,wind,sunrise,sunset"));
         var source = SignageWidgetService.WeatherSource(zone);
         Assert.StartsWith("https://api.open-meteo.com/v1/forecast?", source);
         Assert.Contains("latitude=48.7519", source);
@@ -123,7 +152,9 @@ public sealed class SignageLayoutTests
                 "temperature_2m_max": [75],
                 "temperature_2m_min": [59],
                 "precipitation_probability_max": [20],
-                "weather_code": [2]
+                "weather_code": [2, 61],
+                "sunrise": ["2026-07-25T05:34"],
+                "sunset": ["2026-07-25T20:58"]
               }
             }
             """;
@@ -134,6 +165,10 @@ public sealed class SignageLayoutTests
         Assert.Contains("High 75°F", weather.Items);
         Assert.Contains("Low 59°F", weather.Items);
         Assert.Contains("Precipitation 20%", weather.Items);
+        Assert.Contains("Tomorrow Rain", weather.Items);
+        Assert.Contains(weather.Items, item => item.StartsWith("Sunrise "));
+        Assert.Contains(weather.Items, item => item.StartsWith("Sunset "));
+        Assert.Equal("🌤️", weather.Icon);
     }
 
     [Fact]
@@ -185,6 +220,22 @@ public sealed class SignageLayoutTests
         Assert.Contains("live overrides require",
             SignageLayout.Validate([new SignageZoneInput("main", "presentation",
                 SourceUrl: "not-a-stream")], []));
+    }
+
+    [Fact]
+    public void ScheduledRtmpOverrideNeedsAStreamAndValidTimeWindow()
+    {
+        var start = DateTimeOffset.Parse("2026-08-02T10:00:00Z");
+        Assert.Contains("RTMP override needs", SignageLayout.Validate(
+            [new SignageZoneInput("main", "presentation", StreamOverrideWhenLive: true)], []));
+        Assert.Contains("end time", SignageLayout.Validate(
+            [new SignageZoneInput("main", "presentation", SourceUrl: "rtmp://stream.example/live",
+                StreamOverrideWhenLive: true, StreamOverrideStartsAt: start,
+                StreamOverrideEndsAt: start)], []));
+        Assert.Null(SignageLayout.Validate(
+            [new SignageZoneInput("main", "presentation", SourceUrl: "rtmp://stream.example/live",
+                StreamOverrideWhenLive: true, StreamOverrideStartsAt: start,
+                StreamOverrideEndsAt: start.AddHours(1))], []));
     }
 
     [Fact]
