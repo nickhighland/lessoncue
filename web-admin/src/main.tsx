@@ -2848,9 +2848,13 @@ function ClassesView({
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget));
     try {
+      const body = {
+        ...values,
+        controllerColor: (values as any).controllerColor || "#2d6a4f",
+      } as any;
       const item = await api<LessonClass>("/api/v1/classes", {
         method: "POST",
-        body: JSON.stringify(values),
+        body: JSON.stringify(body),
       });
       setSelected(item.id);
       setShowClassForm(false);
@@ -3093,6 +3097,12 @@ function ClassesView({
             <Field label="Description">
               <textarea name="description" rows={3} />
             </Field>
+            <Field label="Theme color">
+              <div className="controller-color-picker">
+                <input name="controllerColor" type="color" defaultValue="#2d6a4f" aria-label="Class theme color" />
+                <output>#2D6A4F</output>
+              </div>
+            </Field>
             <button className="button primary">Create class</button>
           </form>
         </Modal>
@@ -3125,7 +3135,7 @@ function ClassesView({
                   setSelectedLessonIds(new Set());
                 }}
               >
-                <span className="class-glyph">{c.name[0]}</span>
+                <span className="class-glyph" style={{ backgroundColor: c.controllerColor || undefined }}>{c.name[0]}</span>
                 <span>
                   <strong>{c.name}</strong>
                   <small>
@@ -3179,6 +3189,12 @@ function ClassesView({
                       defaultValue={current.description}
                       rows={3}
                     />
+                  </Field>
+                  <Field label="Theme color">
+                    <div className="controller-color-picker">
+                      <input name="controllerColor" type="color" defaultValue={current.controllerColor || "#2d6a4f"} aria-label="Class theme color" />
+                      <output>{(current.controllerColor || "#2d6a4f").toUpperCase()}</output>
+                    </div>
                   </Field>
                   <button className="button primary">Save class</button>
                   <button
