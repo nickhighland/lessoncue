@@ -3,18 +3,31 @@
   "$id": "https://lessoncue.org/protocol/v1/manifest.schema.json",
   "title": "LessonCue screen manifest",
   "type": "object",
-  "required": ["apiVersion", "manifestVersion", "generatedAt", "screen", "signage", "signageSchedule", "playlists"],
+  "required": ["apiVersion", "capabilityContractVersion", "manifestVersion", "generatedAt", "displayCapabilities", "compatibilityWarnings", "screen", "signage", "signageSchedule", "playlists"],
   "properties": {
     "apiVersion": { "const": 1 },
+    "capabilityContractVersion": { "const": 1 },
     "manifestVersion": { "type": "integer", "minimum": 1 },
     "generatedAt": { "type": "string", "format": "date-time" },
+    "displayCapabilities": { "$ref": "#/$defs/displayCapabilities" },
+    "compatibilityWarnings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/compatibilityWarning" }
+    },
     "screen": {
       "type": "object",
       "required": ["id", "name"],
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
-        "volunteerMode": { "type": "boolean", "default": true }
+        "volunteerMode": { "type": "boolean", "default": true },
+        "site": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "orientation": { "enum": ["auto", "landscape", "portrait"] },
+        "width": { "type": ["integer", "null"], "minimum": 240, "maximum": 7680 },
+        "height": { "type": ["integer", "null"], "minimum": 240, "maximum": 7680 },
+        "signageOnly": { "type": "boolean" },
+        "permanentPairing": { "type": "boolean" }
       }
     },
     "playlists": {
@@ -25,17 +38,56 @@
     "signageSchedule": { "type": "array", "items": { "$ref": "#/$defs/signage" } }
   },
   "$defs": {
+    "displayCapabilities": {
+      "type": "object",
+      "required": ["platform", "displayName", "contractVersion", "minimumClientVersion", "capabilities", "limitations"],
+      "properties": {
+        "platform": { "enum": ["web-player", "android-tv", "unknown"] },
+        "displayName": { "type": "string" },
+        "contractVersion": { "const": 1 },
+        "minimumClientVersion": { "type": "string" },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "label", "supported", "fallback"],
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "supported": { "type": "boolean" },
+              "fallback": { "type": "string" },
+              "notes": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "compatibilityWarning": {
+      "type": "object",
+      "required": ["code", "severity", "contentKind", "contentId", "title", "message", "fallback"],
+      "properties": {
+        "code": { "type": "string" },
+        "severity": { "enum": ["warning", "error"] },
+        "contentKind": { "enum": ["lesson", "signage"] },
+        "contentId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "fallback": { "type": "string" }
+      }
+    },
     "signage": {
       "type": "object",
       "required": ["id", "name", "mode", "priority", "message", "backgroundColor", "textColor"],
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
-        "mode": { "enum": ["scheduled", "idle", "emergency"] },
+        "mode": { "enum": ["sign", "scheduled", "idle", "emergency"] },
         "priority": { "type": "integer", "minimum": 0, "maximum": 100 },
         "message": { "type": "string" },
         "backgroundColor": { "type": "string" },
         "textColor": { "type": "string" },
+        "layoutPreset": { "type": "string" },
         "mediaAssetId": { "type": ["string", "null"] },
         "mediaUrl": { "type": ["string", "null"] },
         "media": { "anyOf": [{ "$ref": "#/$defs/item" }, { "type": "null" }] },
@@ -44,6 +96,9 @@
         "publishedVersion": { "type": "integer", "minimum": 0 },
         "publishState": { "enum": ["draft", "changes", "published"] },
         "layoutId": { "type": ["string", "null"] },
+        "canvasWidth": { "type": "integer", "minimum": 240, "maximum": 7680 },
+        "canvasHeight": { "type": "integer", "minimum": 240, "maximum": 7680 },
+        "safeAreaPercent": { "type": "integer", "minimum": 0, "maximum": 20 },
         "contentPlaylistId": { "type": ["string", "null"] },
         "volumePercent": { "type": "integer", "minimum": 0, "maximum": 150 },
         "displayPower": { "enum": ["unchanged", "on", "off"] },
@@ -63,7 +118,20 @@
         "startsAt": { "type": ["string", "null"], "format": "date-time" },
         "endsAt": { "type": ["string", "null"], "format": "date-time" },
         "recurrence": { "enum": ["once", "daily", "weekly"] },
+        "scheduleStartDate": { "type": ["string", "null"], "format": "date" },
+        "scheduleEndDate": { "type": ["string", "null"], "format": "date" },
+        "startMinutes": { "type": ["integer", "null"], "minimum": 0, "maximum": 1439 },
+        "endMinutes": { "type": ["integer", "null"], "minimum": 1, "maximum": 1440 },
+        "daysOfWeek": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 0, "maximum": 6 }
+        },
+        "excludedDates": { "type": "array", "items": { "type": "string", "format": "date" } },
+        "activeNow": { "type": "boolean" },
         "nextChangeAt": { "type": ["string", "null"], "format": "date-time" },
+        "widgetCacheUpdatedAt": { "type": ["string", "null"], "format": "date-time" },
+        "widgetCacheError": { "type": ["string", "null"] },
         "ready": { "type": "boolean" },
         "readiness": { "enum": ["ready", "preparing", "failed", "missing"] }
       }
@@ -73,15 +141,20 @@
       "required": ["id", "type", "x", "y", "width", "height"],
       "properties": {
         "id": { "type": "string" },
-        "type": { "enum": ["media", "stream", "text", "clock", "calendar", "weather", "menu", "rss", "data", "shape", "icon", "qr", "ticker", "counter", "webpage", "dashboard", "social", "traffic", "wifi", "customHtml", "slides"] },
+        "type": { "enum": ["media", "stream", "presentation", "text", "clock", "calendar", "weather", "rss", "qr", "ticker", "counter", "webpage", "wifi", "audience", "customHtml"] },
         "title": { "type": ["string", "null"] },
         "content": { "type": ["string", "null"] },
         "sourceUrl": { "type": ["string", "null"] },
         "streamUrl": { "type": ["string", "null"] },
+        "htmlUrl": { "type": ["string", "null"] },
         "x": { "type": "number", "minimum": 0, "maximum": 100 },
         "y": { "type": "number", "minimum": 0, "maximum": 100 },
         "width": { "type": "number", "minimum": 2, "maximum": 100 },
         "height": { "type": "number", "minimum": 2, "maximum": 100 },
+        "backgroundColor": { "type": "string" },
+        "textColor": { "type": "string" },
+        "accentColor": { "type": "string" },
+        "refreshMinutes": { "type": "integer", "minimum": 5, "maximum": 1440 },
         "rotation": { "type": "integer", "minimum": -180, "maximum": 180 },
         "zIndex": { "type": "integer", "minimum": 0, "maximum": 100 },
         "opacity": { "type": "integer", "minimum": 0, "maximum": 100 },
@@ -90,8 +163,10 @@
         "hidden": { "type": "boolean" },
         "flipX": { "type": "boolean" },
         "flipY": { "type": "boolean" },
+        "groupId": { "type": ["string", "null"] },
+        "lockMode": { "enum": ["none", "position", "content", "full"] },
         "media": { "anyOf": [{ "$ref": "#/$defs/item" }, { "type": "null" }] },
-        "cached": { "type": ["object", "null"] },
+        "cached": { "anyOf": [{ "$ref": "#/$defs/widgetCache" }, { "type": "null" }] },
         "richTextJson": { "type": ["string", "null"], "maxLength": 12000 },
         "fontFamily": { "type": ["string", "null"] },
         "fontSize": { "type": "integer", "minimum": 8, "maximum": 300 },
@@ -106,14 +181,57 @@
         "cornerRadius": { "type": "integer", "minimum": 0, "maximum": 100 },
         "iconName": { "type": ["string", "null"] },
         "qrValue": { "type": ["string", "null"] },
+        "qrLabelTop": { "type": ["string", "null"] },
+        "qrLabelBottom": { "type": ["string", "null"] },
+        "qrLabelLeft": { "type": ["string", "null"] },
+        "qrLabelRight": { "type": ["string", "null"] },
+        "qrPlacement": { "enum": ["left", "center", "right"] },
+        "qrSizePercent": { "type": "integer", "minimum": 20, "maximum": 90 },
         "tickerSpeed": { "type": "integer", "minimum": 10, "maximum": 300 },
         "counterTargetAt": { "type": ["string", "null"], "format": "date-time" },
+        "counterRepeatWeekly": { "type": "boolean" },
+        "clockDisplay": { "enum": ["time", "date", "both"] },
+        "clockTimeFormat": { "enum": ["12h", "12h-seconds", "24h", "24h-seconds"] },
+        "clockDateFormat": { "enum": ["short", "medium", "long", "numeric"] },
+        "clockOrder": { "enum": ["time-date", "date-time", "inline"] },
+        "clockTimeFontSize": { "type": "integer", "minimum": 8, "maximum": 300 },
+        "clockDateFontSize": { "type": "integer", "minimum": 8, "maximum": 300 },
+        "clockShowPeriod": { "type": "boolean" },
+        "clockShowWeekday": { "type": "boolean" },
+        "clockShowYear": { "type": "boolean" },
         "weatherProvider": { "enum": ["open-meteo", "nws", "custom", null] },
         "weatherLocation": { "type": ["string", "null"] },
         "weatherLatitude": { "type": ["number", "null"], "minimum": -90, "maximum": 90 },
         "weatherLongitude": { "type": ["number", "null"], "minimum": -180, "maximum": 180 },
+        "weatherPostalCode": { "type": ["string", "null"] },
         "weatherUnits": { "enum": ["fahrenheit", "celsius", null] },
-        "weatherFields": { "type": ["string", "null"] }
+        "weatherFields": { "type": ["string", "null"] },
+        "weatherIconStyle": { "enum": ["color", "white", null] },
+        "weatherLayout": { "enum": ["icon-top", "icon-left", "icon-right", "compact", null] },
+        "weatherIconSize": { "type": "integer", "minimum": 16, "maximum": 220 },
+        "weatherTitleSize": { "type": "integer", "minimum": 8, "maximum": 120 },
+        "weatherTemperatureSize": { "type": "integer", "minimum": 12, "maximum": 220 },
+        "weatherDetailsSize": { "type": "integer", "minimum": 8, "maximum": 100 },
+        "contentPlaylistId": { "type": ["string", "null"] },
+        "contentPlaylist": { "anyOf": [{ "$ref": "#/$defs/signageContentPlaylist" }, { "type": "null" }] },
+        "streamOverrideWhenLive": { "type": "boolean" },
+        "streamOverrideStartsAt": { "type": ["string", "null"], "format": "date-time" },
+        "streamOverrideEndsAt": { "type": ["string", "null"], "format": "date-time" },
+        "contentPadding": { "type": "integer", "minimum": 0, "maximum": 30 },
+        "contentScale": { "type": "integer", "minimum": 25, "maximum": 100 },
+        "verticalAlign": { "enum": ["top", "middle", "bottom"] },
+        "mediaScale": { "type": "integer", "minimum": 25, "maximum": 400 },
+        "mediaOffsetX": { "type": "integer", "minimum": -150, "maximum": 150 },
+        "mediaOffsetY": { "type": "integer", "minimum": -150, "maximum": 150 },
+        "mediaAllowOverflow": { "type": "boolean" },
+        "calendarMaxItems": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "calendarFields": { "type": ["string", "null"] },
+        "audienceSessionId": { "type": ["string", "null"] },
+        "audienceCode": { "type": ["string", "null"], "pattern": "^[A-Z0-9]{6}$" },
+        "audienceShowResults": { "type": "boolean" },
+        "audienceResultDelaySeconds": { "type": "integer", "minimum": 0, "maximum": 3600 },
+        "renderSupport": { "enum": ["supported", "fallback"] },
+        "fallbackMessage": { "type": ["string", "null"] }
       }
     },
     "signageContentPlaylist": {
@@ -134,9 +252,24 @@
             "properties": {
               "id": { "type": "string" },
               "kind": { "enum": ["layout", "media", "app", "web", "nested", "tag", "cloud", "csv"] },
+              "title": { "type": ["string", "null"] },
+              "layoutId": { "type": ["string", "null"] },
+              "mediaAssetId": { "type": ["string", "null"] },
+              "nestedPlaylistId": { "type": ["string", "null"] },
+              "appType": { "type": ["string", "null"] },
+              "sourceUrl": { "type": ["string", "null"] },
               "durationSeconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
               "transition": { "enum": ["cut", "fade", "slide", "zoom"] },
-              "media": { "anyOf": [{ "$ref": "#/$defs/item" }, { "type": "null" }] }
+              "hidden": { "type": "boolean" },
+              "transparent": { "type": "boolean" },
+              "tagsCsv": { "type": ["string", "null"] },
+              "volumePercent": { "type": "integer", "minimum": 0, "maximum": 100 },
+              "muted": { "type": "boolean" },
+              "fadeInMs": { "type": "integer", "minimum": 0, "maximum": 30000 },
+              "fadeOutMs": { "type": "integer", "minimum": 0, "maximum": 30000 },
+              "fit": { "enum": ["contain", "cover", "fill"] },
+              "media": { "anyOf": [{ "$ref": "#/$defs/item" }, { "type": "null" }] },
+              "layout": { "anyOf": [{ "$ref": "#/$defs/signagePlaylistLayout" }, { "type": "null" }] }
             }
           }
         }
@@ -149,6 +282,9 @@
         "playlistId": { "type": "string" },
         "title": { "type": "string" },
         "version": { "type": "integer", "minimum": 1 },
+        "lessonDate": { "type": "string", "format": "date" },
+        "volumePercent": { "type": "integer", "minimum": 0, "maximum": 150 },
+        "muted": { "type": "boolean" },
         "availableFrom": { "type": ["string", "null"], "format": "date-time" },
         "expiresAt": { "type": ["string", "null"], "format": "date-time" },
         "designatedStartAt": { "type": ["string", "null"], "format": "date-time" },
@@ -186,13 +322,15 @@
         "mediaId": { "type": ["string", "null"] },
         "type": { "enum": ["video", "audio", "image", "liveStream", "external", "web"] },
         "title": { "type": "string" },
+        "renderSupport": { "enum": ["supported", "fallback"] },
+        "fallbackMessage": { "type": ["string", "null"] },
         "downloadUrl": { "type": ["string", "null"] },
         "playbackUrl": { "type": ["string", "null"] },
         "contentType": { "type": ["string", "null"] },
         "fileExtension": { "type": ["string", "null"], "pattern": "^[a-zA-Z0-9]{0,8}$" },
         "compatibilityStatus": { "type": ["string", "null"], "enum": ["pending", "converting", "native", "ready", "failed", "not-needed", null] },
         "requestedProfile": { "type": ["string", "null"], "enum": ["native", "h264-1080", "h264-720", "h264-480", null] },
-        "selectedProfile": { "type": ["string", "null"], "enum": ["native", "h264-1080", "h264-720", "h264-480", null] },
+        "selectedProfile": { "type": ["string", "null"], "enum": ["original", "native", "h264-1080", "h264-720", "h264-480", null] },
         "transcodeStatus": { "type": ["string", "null"], "enum": ["pending", "converting", "ready", "failed", "not-generated", "not-needed", null] },
         "sha256": { "type": ["string", "null"] },
         "sizeBytes": { "type": ["integer", "null"], "minimum": 0 },
@@ -200,6 +338,8 @@
         "startMs": { "type": "integer", "minimum": 0, "default": 0 },
         "endMs": { "type": ["integer", "null"], "minimum": 0 },
         "volumePercent": { "type": "integer", "minimum": 0, "maximum": 150, "default": 100 },
+        "configuredVolumePercent": { "type": "integer", "minimum": 0, "maximum": 150 },
+        "muted": { "type": "boolean" },
         "imageDurationSeconds": { "type": ["integer", "null"], "minimum": 1 },
         "endBehavior": { "enum": ["advance", "pause", "loop", "menu", "stop"] },
         "allowSkip": { "type": "boolean", "default": true },
@@ -212,11 +352,82 @@
         "fadeInMs": { "type": "integer", "minimum": 0 },
         "fadeOutMs": { "type": "integer", "minimum": 0 },
         "normalizeAudio": { "type": "boolean" },
+        "fitMode": { "enum": ["fit", "fill", "letterbox"] },
+        "rotationDegrees": { "type": "integer", "minimum": -270, "maximum": 270 },
+        "cropLeftPercent": { "type": "integer", "minimum": 0, "maximum": 45 },
+        "cropTopPercent": { "type": "integer", "minimum": 0, "maximum": 45 },
+        "cropRightPercent": { "type": "integer", "minimum": 0, "maximum": 45 },
+        "cropBottomPercent": { "type": "integer", "minimum": 0, "maximum": 45 },
+        "playbackRatePercent": { "type": "integer", "minimum": 25, "maximum": 400 },
+        "repeatCount": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "backgroundColor": { "type": "string" },
+        "transitionStyle": { "enum": ["cut", "fade", "fade-black"] },
+        "transitionDurationMs": { "type": "integer", "minimum": 0, "maximum": 30000 },
         "cuePoints": {
           "type": "array",
           "maxItems": 50,
           "items": { "$ref": "#/$defs/cuePoint" }
         }
+      }
+    },
+    "signagePlaylistLayout": {
+      "type": "object",
+      "required": ["id", "name", "backgroundColor", "canvasWidth", "canvasHeight", "safeAreaPercent", "zones"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "backgroundColor": { "type": "string" },
+        "canvasWidth": { "type": "integer", "minimum": 240, "maximum": 7680 },
+        "canvasHeight": { "type": "integer", "minimum": 240, "maximum": 7680 },
+        "safeAreaPercent": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "backgroundAudio": { "anyOf": [{ "$ref": "#/$defs/item" }, { "type": "null" }] },
+        "zones": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/signageZone" } }
+      }
+    },
+    "widgetCache": {
+      "type": "object",
+      "required": ["zoneId", "title", "text", "items", "refreshedAt"],
+      "properties": {
+        "zoneId": { "type": "string" },
+        "title": { "type": "string" },
+        "text": { "type": "string" },
+        "items": { "type": "array", "items": { "type": "string" } },
+        "refreshedAt": { "type": "string", "format": "date-time" },
+        "source": { "type": ["string", "null"] },
+        "icon": { "type": ["string", "null"] },
+        "events": { "type": ["array", "null"], "items": { "$ref": "#/$defs/calendarEvent" } },
+        "weather": { "anyOf": [{ "$ref": "#/$defs/weatherSnapshot" }, { "type": "null" }] }
+      }
+    },
+    "calendarEvent": {
+      "type": "object",
+      "required": ["title", "allDay"],
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": ["string", "null"] },
+        "location": { "type": ["string", "null"] },
+        "startsAt": { "type": ["string", "null"], "format": "date-time" },
+        "endsAt": { "type": ["string", "null"], "format": "date-time" },
+        "allDay": { "type": "boolean" }
+      }
+    },
+    "weatherSnapshot": {
+      "type": "object",
+      "properties": {
+        "temperature": { "type": ["number", "null"] },
+        "feelsLike": { "type": ["number", "null"] },
+        "high": { "type": ["number", "null"] },
+        "low": { "type": ["number", "null"] },
+        "precipitation": { "type": ["number", "null"] },
+        "humidity": { "type": ["number", "null"] },
+        "wind": { "type": ["number", "null"] },
+        "temperatureUnit": { "type": ["string", "null"] },
+        "windUnit": { "type": ["string", "null"] },
+        "conditions": { "type": ["string", "null"] },
+        "forecast": { "type": ["string", "null"] },
+        "sunrise": { "type": ["string", "null"] },
+        "sunset": { "type": ["string", "null"] },
+        "windText": { "type": ["string", "null"] }
       }
     },
     "cuePoint": {

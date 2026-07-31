@@ -2,9 +2,9 @@
 
 # LessonCue
 
-LessonCue is a self-hosted lesson scheduling and television playback system for schools, churches, training programs, and other learning organizations. Administrators build dated media playlists in a browser; paired Android TV, Fire TV, and Apple TV clients cache their assignments and keep playing when the network is unavailable.
+LessonCue is a self-hosted lesson scheduling and television playback system for schools, churches, training programs, and other learning organizations. Administrators build dated media playlists in a browser; paired Android TV, Google TV, and Fire TV clients cache their assignments and keep playing when the network is unavailable. Computers and projectors use the paired full-screen browser player.
 
-[Installation guide](docs/installation.md) · [Accounts and registration](docs/account-self-service.md) · [Run-of-show planning](docs/run-of-show.md) · [Audience interaction](docs/audience-interaction.md) · [Signage scheduling](docs/signage.md) · [Browser player](docs/browser-player.md) · [Implementation guide](docs/implementation.md) · [Feature roadmap](docs/feature-roadmap.md) · [Brand assets](branding/README.md) · [Protocol](protocol/openapi.yaml)
+[Installation guide](docs/installation.md) · [Accounts and registration](docs/account-self-service.md) · [Local network security](docs/local-network-security.md) · [Accessibility acceptance](docs/accessibility.md) · [Run-of-show planning](docs/run-of-show.md) · [Audience interaction](docs/audience-interaction.md) · [Signage scheduling](docs/signage.md) · [Browser player](docs/browser-player.md) · [Display compatibility](docs/display-compatibility.md) · [Implementation guide](docs/implementation.md) · [Protocol contract](docs/protocol-contract.md) · [Feature roadmap](docs/feature-roadmap.md) · [Brand assets](branding/README.md)
 
 ## What is included
 
@@ -12,12 +12,11 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - An ASP.NET Core 10 API with SQLite, pairing, manifests, health reporting, SignalR invalidation, and range-enabled media hosting.
 - A native Android TV/Fire TV application using Kotlin, Compose for TV, Media3, DataStore, and WorkManager.
 - Separate Android distributions: **LessonCue Sideload** with verified GitHub updates, and policy-clean Google Play/Amazon store packages whose updates are managed only by the installed store.
-- A native tvOS application using SwiftUI, AVKit, Bonjour discovery declarations, and persistent offline manifests.
-- A paired full-screen browser client for Windows, macOS, Linux, ChromeOS, computers, and projectors, using the same local manifests, controller commands, acknowledgements, heartbeats, scheduling, and diagnostics as the native TV clients.
+- A paired full-screen browser client for Windows, macOS, Linux, ChromeOS, computers, and projectors, using the same local manifests, controller commands, acknowledgements, heartbeats, scheduling, and diagnostics as Android displays.
 - A versioned OpenAPI contract and JSON Schema shared by every client.
 - Docker, Windows, and Linux installation assets.
-- Calendar, local role-based users, approval-required or verified self-registration, administrator email invitations, first-login temporary passwords, and a complete self-hosted Signage Studio with reusable layouts, independent playlists, calendar scheduling, versioned publishing, proof-of-play, operations alerts, emergency broadcasts, and optional browser kiosk interaction.
-- Direct lesson uploads, online webpages, embedded YouTube playback, queued local YouTube imports, reusable or four-week lesson retention, automatic cleanup, resumable large uploads, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, and range-enabled delivery. Uploaded video is audited automatically and, when necessary, converted locally to a TV-safe H.264/AAC MP4 while preserving the original.
+- Calendar, local role-based users, approval-required or verified self-registration, administrator email invitations, first-login temporary passwords, and optional self-hosted signage with persistent layouts, independent looping playlists, one active sign per screen, and browser kiosk playback. Signage remains an administrator-enabled preview feature while its production-hardening roadmap is completed.
+- Direct lesson uploads, online webpages, embedded YouTube playback, queued local YouTube imports, reusable or four-week lesson retention, automatic cleanup, durable pause/resume/cancel uploads of every size, streaming SHA-256 and signature validation, SHA-256 deduplication, FFprobe metadata, FFmpeg thumbnails, and range-enabled delivery. Uploaded video is audited automatically and, when necessary, converted locally to a TV-safe H.264/AAC MP4 while preserving the original.
 - Multi-file uploads from lessons and the Media Library; bulk lesson archive, restore, class move, date/time shift, rename, and deletion; bulk playlist role, volume, ending, skip, rename, and removal; and Media Library bulk rename, folder/tag organization, retention, and safe deletion. Every retention date can also be edited directly from its table row.
 - Searchable media folders and tags, upload-time and bulk organization, lesson/signage impact previews, local reprocessing, and safe file replacement behind a stable media ID with downloadable and restorable original-version history.
 - A visual signage canvas with zoom/pan, snapping and alignment guides, groups, rich text, QR/Wi-Fi sharing, widgets, background audio, portrait/ultrawide/custom formats, approved server-side data credentials, HLS/HTTP/RTMP/RTMPS/RTSP relays, per-screen delivery progress, and exact manifest preview.
@@ -26,6 +25,7 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - Teacher and substitute notes, flexible-time cues, printable run sheets, trim/speed/repeat-aware duration estimates, live remaining-time and overrun guidance, same-room conflict warnings, five calendar views, full copy/move between rooms and dates, and private pre-roll livestream monitoring on the phone controller.
 - Local audience polls and QR response collection with single choice, multiple choice, and moderated written answers; anonymous per-session device tokens; optional approved live results; explicit open/close controls; rate limits; audit history; and automatic 1–30 day deletion.
 - Daily release checks, administrator alerts, protected one-click Linux updates with health-check rollback, and administrator-controlled storage allocation with uploader-visible capacity.
+- Password-encrypted `.lcbak` exports with an authenticated whole-archive digest, per-file SHA-256 manifest, default exclusion of server secrets, and verified browser restore preview.
 - A locally configurable six-digit pairing PIN, with a choice between a persistent administrator-set PIN and automatic ten-minute rotation.
 - Automatic `lessoncue.local` setup on native Linux, with an administrator-configurable `.local` browser name and numeric-IP fallback.
 - Optional Cloudflare Tunnel remote access through an administrator-owned hostname, with a write-only token, checksum-verified connector installation, a restricted local service account, active edge-connection status, safe disable/credential removal, and strong Cloudflare Access guidance. Local-only operation remains the default.
@@ -35,13 +35,13 @@ LessonCue is a self-hosted lesson scheduling and television playback system for 
 - Local interface branding with independent navigation background, navigation text, selected-tab, and accent colors.
 - Browser previews for every ready media item, including playlist trim points, synchronized audio-and-picture fades to/from black, fit/fill/letterbox, crop, rotation, background, speed, repeat, volume/mute, ending, and operator notes.
 - Simple and Advanced cue-editing modes plus a prominent **Visually trim both ends & edit fades** action on every lesson cue. Locally generated video filmstrips and audio waveforms have draggable IN/OUT and independently colored fade handles, edge-following preview, 0.04-second keyboard nudging, and synchronized numeric controls.
-- A remote-friendly media browser in both native TV apps: choose a lesson, scroll through pre-roll, countdown, and lesson cues with the directional pad, and start any item without returning to the local browser.
+- A remote-friendly media browser in the Android TV app: choose a lesson, scroll through pre-roll, countdown, and lesson cues with the directional pad, and start any item without returning to the local browser.
 - A full-screen local browser/projector player at `/player`, with secure TV-style pairing, phone control, scheduled pre-roll and countdown transitions, autoplay guidance, reconnection, next-item prefetching, keyboard and presentation-remote controls, and a kiosk-friendly startup URL.
 - Actionable screen diagnostics with per-file cache and queue detail, decoder capabilities, download and playback errors, local-network latency, clock drift, and freshness. Optional screenshots are disabled per screen by default, visibly announced on the TV, valid for one request and 60 seconds, restricted to screen administrators, and deleted automatically after 24 hours.
 - A phone-first local controller for selecting screens, lessons, and individual media, with play, pause, resume, previous, next, stop, and seek controls; actual playback state, progress, errors, and command acknowledgement arrive live from the TV and the controller can be saved to an iPhone, iPad, or Android home screen.
 - Dedicated classroom controller paths with unique colors and optional public hostnames; locally generated room or lesson QR codes; expiring restricted substitute/event links; and a separately PIN-protected universal remote.
 - Editable and removable classrooms plus an administrator-only recycling bin: deleted classes, lessons, and media remain restorable for 30 days, keep their relationships and files intact, and can be purged immediately when recovery is not needed.
-- GitHub Actions that build the web app, server, Android APK, tvOS app, release packages, and GitHub Pages documentation.
+- GitHub Actions that build the web app, server, Android packages, container, release packages, and GitHub Pages documentation.
 
 ## Quick start
 
@@ -51,6 +51,8 @@ For a quick Docker evaluation:
 
 ```bash
 cp .env.example .env
+mkdir -p lessoncue-data
+sudo chown -R 10001:10001 lessoncue-data
 docker compose up -d --build
 ```
 
@@ -87,7 +89,7 @@ Recurring schedules support weekly or multi-week intervals, monthly dates, bound
 
 Every file upload asks how it should be stored. **For a lesson** is the default and automatically deletes the file four weeks after the latest lesson that uses it. **Keep permanently** places reusable material in the media library until an administrator removes it. Playlist history remains intact when an expired file is cleaned up.
 
-Lesson pages and the Media Library also accept webpages and YouTube URLs. Android TV and Fire TV render webpages and the embedded YouTube player while online. A YouTube URL can instead be queued as a local MP4 import and then uses the same four-week or permanent retention policy as an upload; only import video you are authorized to copy. Apple TV plays the downloaded local copy because tvOS does not provide the web-view surface used by the Android client.
+Lesson pages and the Media Library also accept webpages and YouTube URLs. Android TV, Google TV, Fire TV, and the browser player render supported online content while connected. A YouTube URL can instead be queued as a local MP4 import and then uses the same four-week or permanent retention policy as an upload; only import video you are authorized to copy.
 
 LessonCue inspects every uploaded video in the background. MP4/H.264/AAC files that meet the common TV profile are used directly. Other containers, codecs, pixel formats, oversized frames, or unsupported H.264 levels receive a local H.264 High 4.1, 8-bit 4:2:0, AAC, 1080p-or-smaller playback copy. The original remains available for future reprocessing, and the Media Library shows whether the item is already TV-ready, is making its TV copy, or needs attention. Existing videos are audited automatically after upgrading.
 
@@ -97,11 +99,11 @@ On Intel Linux and Windows servers, LessonCue checks FFmpeg and the installed In
 
 ## Updates and storage
 
-Native Linux installations check for a new LessonCue release once per day. Service Admins and App Admins can check immediately and install an available update from **Settings → Software updates**. The protected updater verifies the published checksum, restarts the server, performs a health check, and restores the previous application version if the new one cannot start. Existing servers must run the current SSH installer once to add this updater; later releases can be installed from the browser.
+Native Linux installations check for a new LessonCue release once per day. Service Admins and App Admins can check immediately and install an available update from **Settings → Software updates**. The protected updater verifies the offline Ed25519 signature on the complete release manifest and then the selected archive checksum before it extracts or executes downloaded code. It stops writers, creates and verifies a pre-update database/configuration snapshot, snapshots its protected executable and systemd units, starts the new server, and requires database plus persistent-storage readiness. If migration or readiness fails, it restores the application, database, configuration, updater, and service units together. A persistent transaction marker also triggers boot-time recovery after a power loss. When a verified snapshot exists, a Service Admin can deliberately restore it from the same page; LessonCue first verifies and protects the currently running installation so a rejected rollback can itself be reversed. Existing servers must run the current SSH installer once to add these protected services; later releases can be installed or rolled back from the browser.
 
 Native Linux also advertises `http://lessoncue.local` automatically. Service Admins can choose a different single-label `.local` name or HTTP port under **Settings → Connections & pairing** without changing the computer's Linux or SSH hostname. Port 80 is the default, so it does not need to appear in the address.
 
-Service Admins can choose an explicit LessonCue storage allocation or let it follow safely available disk space. LessonCue preserves a 512 MB operating-system reserve, rejects uploads that exceed the allocation, and shows remaining upload capacity to every user who has upload access.
+Service Admins can choose an explicit LessonCue storage allocation or let it follow safely available disk space. LessonCue preserves a 512 MB operating-system reserve, atomically reserves the full size of each persisted upload session, and shows remaining plus in-flight reserved capacity. Uploaders can pause, resume, cancel, or retry from the same file for 24 hours after an interruption. Optional limits cover file size, active sessions, daily use by account/role/class, and verified codecs. See [resumable uploads and storage limits](docs/uploads.md).
 
 ## Roles and granular permissions
 
@@ -113,7 +115,7 @@ Permission checks run on the local server, not only in the browser. Restricted n
 
 Select **Preview** on any ready item in the Media Library, or use the preview row on a lesson playlist. Video previews reproduce the saved start/end trims and fade both picture and audio from/to black; audio previews apply the same volume envelope. Loop behavior and notes are also preserved. Images, PDFs, online webpages, and YouTube embeds preview in the same local interface; presentation files provide a local open action when the browser cannot render the format directly.
 
-On a lesson page, choose **Visually trim both ends & edit fades** beneath a cue. Drag IN or OUT directly on the filmstrip/waveform and the preview seeks to that edge; drag either blue fade handle and the preview moves to that fade's midpoint. Range and numeric controls stay synchronized for exact entry. Simple mode keeps role, ending, volume, picture fit, and still duration close at hand; Advanced adds speed, finite repeats, rotation, asymmetric crop, background, transition, exact timing, notes, and audio options. All values are saved into the same manifest used by browser, Android TV, and Apple TV displays.
+On a lesson page, choose **Visually trim both ends & edit fades** beneath a cue. Drag IN or OUT directly on the filmstrip/waveform and the preview seeks to that edge; drag either blue fade handle and the preview moves to that fade's midpoint. Range and numeric controls stay synchronized for exact entry. Simple mode keeps role, ending, volume, picture fit, and still duration close at hand; Advanced adds speed, finite repeats, rotation, asymmetric crop, background, transition, exact timing, notes, and audio options. All values are saved into the same manifest used by browser and Android displays.
 
 On a phone connected to the same trusted network, open a class's **Controller link** from the Classes page, scan its locally generated QR code, and sign in with a LessonCue account that has live-playback permission. The address uses `/room/class-name`; administrators can set its path, color, and optional Cloudflare hostname, point its QR code at a particular lesson, or create a class/lesson-restricted link that expires in 15 minutes to seven days. Temporary links are deliberately cleared by a server restart. Room scope is validated again by the server for every playback command.
 
@@ -129,7 +131,7 @@ To save it like an app, use **Share → Add to Home Screen** in Safari on iPhone
 web-admin/           Local React administration interface
 server/              ASP.NET Core API and tests
 android-tv/          Android TV and Fire TV client
-tvos/                Apple TV client and shared Swift protocol package
+tvos/                Archived unsupported Apple TV prototype (not built or released)
 protocol/            OpenAPI, manifest schema, and behavioral rules
 installers/          Linux and Windows service installers
 docker/              Container support files
@@ -139,10 +141,14 @@ github-pages/        Public project documentation site
 
 ## Project status
 
-The complete self-hosted workflow runs on the local server: setup, local or verified self-service accounts, roles and permissions, registration codes, password recovery, classes, calendar, lesson playlists, resumable media ingestion, signage, pre-roll, duration-aware countdown, rotating PIN pairing, screen assignment/health, branding, audit history, and backups. Android/Fire TV and tvOS clients build from this repository and retain offline manifests and media. Hardware signing, managed-store submission, and final device certification require the deploying organization's accounts and target devices.
+The complete self-hosted workflow runs on the local server: setup, local or verified self-service accounts, roles and permissions, registration codes, password recovery, classes, calendar, lesson playlists, resumable media ingestion, optional preview signage, pre-roll, duration-aware countdown, rotating PIN pairing, screen assignment/health, branding, audit history, and backups. Android/Google TV/Fire TV clients build from this repository and retain offline manifests and media. Hardware signing, managed-store submission, and final device certification require the deploying organization's accounts and target devices.
+
+Apple TV/tvOS is explicitly unsupported and deferred for the current product cycle. The archived source is not part of CI, releases, installation support, or current feature-parity promises. See the [feature roadmap](docs/feature-roadmap.md) for the requirements that would apply before it can be reconsidered.
 
 ## License
 
 LessonCue is free to use, modify, and self-host for non-commercial purposes under the [PolyForm Noncommercial License 1.0.0](LICENSE). Commercial use requires a separately purchased commercial license from the LessonCue maintainers. For commercial licensing, contact the maintainers through the [LessonCue repository](https://github.com/nickhighland/lessoncue).
 
 This is not an OSI-approved open-source license. The full license—not this summary—controls.
+
+Tagged downloads also include an exact SPDX software bill of materials and generated third-party notices. Release archives are authenticated by a pinned Ed25519 key and GitHub provenance attestations; verification and signing-key recovery procedures are documented in [docs/release-signing.md](docs/release-signing.md).

@@ -15,18 +15,32 @@ RUN dotnet publish server/LessonCue.Server/LessonCue.Server.csproj -c Release -o
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 ARG TARGETARCH
+ARG YT_DLP_VERSION=2026.07.04
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg libreoffice-impress libreoffice-writer poppler-utils ca-certificates curl \
+    && apt-get install -y --no-install-recommends ffmpeg libreoffice-impress libreoffice-writer poppler-utils ca-certificates curl bubblewrap util-linux coreutils \
     && if [ "$TARGETARCH" = "amd64" ] && apt-cache show intel-media-va-driver >/dev/null 2>&1; then apt-get install -y --no-install-recommends intel-media-va-driver; fi \
     && if [ "$TARGETARCH" = "amd64" ] && apt-cache show i965-va-driver >/dev/null 2>&1; then apt-get install -y --no-install-recommends i965-va-driver; fi \
     && rm -rf /var/lib/apt/lists/*
-RUN case "$TARGETARCH" in arm64) asset=yt-dlp_linux_aarch64 ;; *) asset=yt-dlp_linux ;; esac \
-    && curl -fL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${asset}" -o /usr/local/bin/yt-dlp \
-    && chmod 0755 /usr/local/bin/yt-dlp
+RUN case "$TARGETARCH" in \
+      arm64) asset=yt-dlp_linux_aarch64; expected=b6ce97646773070d7a7ffd6bbbdcaecb47c48483909c54c915bf08a7a9b5e0b1 ;; \
+      *) asset=yt-dlp_linux; expected=6bbb3d314cde4febe36e5fa1d55462e29c974f63444e707871834f6d8cc210ae ;; \
+    esac \
+    && curl -fL "https://github.com/yt-dlp/yt-dlp/releases/download/${YT_DLP_VERSION}/${asset}" -o /usr/local/bin/yt-dlp \
+    && printf '%s  %s\n' "${expected}" /usr/local/bin/yt-dlp | sha256sum -c - \
+    && chmod 0755 /usr/local/bin/yt-dlp \
+    && test "$(/usr/local/bin/yt-dlp --version)" = "${YT_DLP_VERSION}"
+RUN groupadd --gid 10001 lessoncue \
+    && useradd --uid 10001 --gid 10001 --home-dir /data --shell /usr/sbin/nologin lessoncue \
+    && install -d -o lessoncue -g lessoncue -m 0750 /data
 WORKDIR /app
 COPY --from=build /app/publish .
+COPY installers/linux/lessoncue-media-worker /usr/local/libexec/lessoncue-media-worker
+RUN chmod 0755 /usr/local/libexec/lessoncue-media-worker
 ENV LESSONCUE_DATA_PATH=/data \
-    LESSONCUE_HTTP_PORT=80
-EXPOSE 80
+    LESSONCUE_HTTP_PORT=8080 \
+    HOME=/data \
+    XDG_CACHE_HOME=/data/.cache
+EXPOSE 8080
 VOLUME ["/data"]
+USER 10001:10001
 ENTRYPOINT ["dotnet", "LessonCue.Server.dll"]

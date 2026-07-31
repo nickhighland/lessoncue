@@ -59,13 +59,19 @@ public sealed class ManifestService(LessonCueDb db)
             .ThenByDescending(entry => entry.Item.UpdatedAt)
             .ToArray();
         var matchingSignage = targetedSignage.Where(entry => entry.State.Active).ToArray();
+        var compatibilityWarnings = DisplayCapabilities.AssessLessons(screen.Platform, lessons);
+        compatibilityWarnings.AddRange(targetedSignage.SelectMany(entry =>
+            DisplayCapabilities.AssessZones(screen.Platform, EffectiveZones(entry.Item, signageLayouts), zoneMedia)));
         var version = ManifestVersion(lessons, targetedSignage.Select(entry => entry.Item),
             matchingSignage.Select(entry => entry.Item.Id));
         return new
         {
             apiVersion = 1,
+            capabilityContractVersion = DisplayCapabilities.ContractVersion,
             manifestVersion = version,
-            generatedAt = DateTimeOffset.UtcNow,
+            generatedAt = now,
+            displayCapabilities = DisplayCapabilities.For(screen.Platform),
+            compatibilityWarnings,
             screen = new { id = screen.Id, screen.Name, screen.VolunteerMode, screen.Site, tags = SplitTags(screen.TagsCsv),
                 orientation = screen.SignageOrientation, width = screen.SignageWidth, height = screen.SignageHeight,
                 screen.SignageOnly, screen.PermanentPairing },
@@ -131,6 +137,7 @@ public sealed class ManifestService(LessonCueDb db)
     private static object MapItem(PlaylistItem item, Screen screen, int lessonVolumePercent, bool lessonMuted)
     {
         var media = item.MediaAsset;
+        var render = DisplayCapabilities.LessonDecision(screen.Platform, item);
         var compatible = media?.CompatibilityStatus == "ready" && !string.IsNullOrWhiteSpace(media.CompatibilityPath);
         var requestedProfile = media?.VideoCodec is not null ? AdaptiveTranscodeProfiles.SelectForScreen(screen, media) : null;
         var variant = requestedProfile is null ? null : media?.TranscodeVariants.FirstOrDefault(x =>
@@ -144,12 +151,15 @@ public sealed class ManifestService(LessonCueDb db)
             mediaId = item.MediaAssetId,
             item.Type,
             item.Title,
-            downloadUrl = media is { SourceKind: "link", LinkKind: "direct" } linked ? linked.SourceUrl :
+            renderSupport = render.Support,
+            fallbackMessage = render.Message,
+            downloadUrl = !render.CanRender ? null :
+                media is { SourceKind: "link", LinkKind: "direct" } linked ? linked.SourceUrl :
                 useVariant ? $"/api/v1/media/{media!.Id}/transcodes/{variant!.Profile}" :
                 useNative ? $"/api/v1/media/{media!.Id}/file" :
                 item.MediaAssetId is { } mediaId && media?.SourceKind != "link" && !string.IsNullOrWhiteSpace(media?.RelativePath)
                     ? $"/api/v1/media/{mediaId}/playback" : null,
-            playbackUrl = media is { SourceKind: "link" } online
+            playbackUrl = render.CanRender && media is { SourceKind: "link" } online
                 ? YouTubeMedia.EmbedUrl(online.SourceUrl) ?? online.SourceUrl : null,
             sha256 = useVariant ? variant!.Sha256 : compatible && !useNative ? media?.CompatibilitySha256 : media?.Sha256,
             sizeBytes = useVariant ? variant!.SizeBytes : compatible && !useNative ? media?.CompatibilitySizeBytes : media?.SizeBytes,
@@ -254,6 +264,7 @@ public sealed class ManifestService(LessonCueDb db)
         var zones = effectiveZones.Select(zone =>
         {
             var media = zone.MediaAssetId is { } mediaId && zoneMedia.TryGetValue(mediaId, out var found) ? found : null;
+            var render = DisplayCapabilities.ZoneDecision(screen.Platform, zone, media);
             var mappedMedia = MapSignageMedia(media, $"signage-{item.Id}-zone-{zone.Id}", zone.Title ?? item.Name, screen);
             cache.TryGetValue(zone.Id, out var cached);
             var assignedPlaylistId = playlistAssignments.GetValueOrDefault(zone.Id,
@@ -267,6 +278,8 @@ public sealed class ManifestService(LessonCueDb db)
             return new
             {
                 zone.Id, zone.Type, zone.Title, zone.Content,
+                renderSupport = render.Support,
+                fallbackMessage = render.Message,
                 sourceUrl = zone.Type is "stream" or "presentation" ? null : zone.SourceUrl,
                 zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
                 zone.RefreshMinutes, zone.Rotation, zone.ZIndex, zone.Opacity, zone.Fit,
@@ -397,12 +410,17 @@ public sealed class ManifestService(LessonCueDb db)
                         $"{layout.Name} background audio", screen).Manifest : null,
                 zones = SignageLayout.ParseZones(layout.PublishedZonesJson).Select(zone =>
                 {
+                    var zoneAsset = zone.MediaAssetId is { } currentZoneMediaId &&
+                        media.TryGetValue(currentZoneMediaId, out var currentAsset) ? currentAsset : null;
+                    var render = DisplayCapabilities.ZoneDecision(screen.Platform, zone, zoneAsset);
                     contentPlaylists.TryGetValue(zone.ContentPlaylistId ?? Guid.Empty, out var zonePlaylist);
                     var nestedItems = zonePlaylist is null || depth >= 2 ? [] : ResolveContentItems(
                         zonePlaylist, contentPlaylists, media.Values, depth + 1).ToArray();
                     return new
                     {
                         zone.Id, zone.Type, zone.Title, zone.Content,
+                        renderSupport = render.Support,
+                        fallbackMessage = render.Message,
                         sourceUrl = zone.Type is "stream" or "presentation" ? null : zone.SourceUrl,
                         zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
                         zone.RefreshMinutes, zone.Rotation, zone.ZIndex, zone.Opacity, zone.Fit,
@@ -440,7 +458,7 @@ public sealed class ManifestService(LessonCueDb db)
                             items = nestedItems.Select(item => MapContentPlaylistItem(
                                 item, schedule, screen, media, layouts, contentPlaylists, depth + 1)).ToArray()
                         },
-                        media = zone.MediaAssetId is { } zoneMediaId && media.TryGetValue(zoneMediaId, out var zoneAsset)
+                        media = zoneAsset is not null
                             ? MapSignageMedia(zoneAsset, $"signage-{schedule.Id}-playlist-{entry.Id}-zone-{zone.Id}",
                                 zone.Title ?? zoneAsset.FileName, screen).Manifest : null
                     };
@@ -482,7 +500,7 @@ public sealed class ManifestService(LessonCueDb db)
 
     private static List<CuePointInput> ParseCuePoints(string json)
     {
-        try { return JsonSerializer.Deserialize<List<CuePointInput>>(json) ?? []; }
+        try { return JsonSerializer.Deserialize<List<CuePointInput>>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? []; }
         catch (JsonException) { return []; }
     }
 

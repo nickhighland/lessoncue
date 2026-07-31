@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -118,23 +117,25 @@ public sealed class PresentationConversionService(
             var extension = Path.GetExtension(source.RelativePath).ToLowerInvariant();
             if (!PresentationConversion.IsConvertible(source.RelativePath))
                 throw new InvalidOperationException("Convert supports PDF, PowerPoint, OpenDocument Presentation, Keynote, and Word files.");
+            MediaContentInspector.RequireValid(original, source.RelativePath);
             var pdftoppm = FindExecutable("LESSONCUE_PDFTOPPM_PATH", "pdftoppm",
                 @"C:\Program Files\poppler\Library\bin\pdftoppm.exe")
                 ?? throw new InvalidOperationException("PDF rendering is unavailable. Install poppler-utils (pdftoppm) on the LessonCue server.");
             Directory.CreateDirectory(work);
-            var pdf = original;
+            var input = Path.Combine(work, "source" + extension);
+            File.Copy(original, input);
+            var pdf = input;
             if (extension != ".pdf")
             {
                 var libreOffice = FindExecutable("LESSONCUE_LIBREOFFICE_PATH", "libreoffice",
                     @"C:\Program Files\LibreOffice\program\soffice.exe")
                     ?? FindExecutable("LESSONCUE_LIBREOFFICE_PATH", "soffice")
                     ?? throw new InvalidOperationException("Document conversion is unavailable. Install LibreOffice on the LessonCue server.");
-                var input = Path.Combine(work, "source" + extension);
-                File.Copy(original, input);
                 var profile = Path.Combine(work, "libreoffice-profile");
                 await RunAsync(libreOffice,
                     ["--headless", "--nologo", "--nodefault", "--nolockcheck", "--nofirststartwizard",
-                     $"-env:UserInstallation={new Uri(profile).AbsoluteUri}", "--convert-to", "pdf", "--outdir", work, input], ct);
+                     $"-env:UserInstallation={new Uri(profile).AbsoluteUri}", "--convert-to", "pdf", "--outdir", work, input],
+                    work, ct);
                 pdf = Path.Combine(work, "source.pdf");
                 if (!File.Exists(pdf)) throw new InvalidOperationException("LibreOffice did not produce a PDF for this document.");
             }
@@ -142,12 +143,14 @@ public sealed class PresentationConversionService(
             var pdfinfo = FindExecutable("LESSONCUE_PDFINFO_PATH", "pdfinfo",
                 Path.Combine(Path.GetDirectoryName(pdftoppm) ?? "", OperatingSystem.IsWindows() ? "pdfinfo.exe" : "pdfinfo"))
                 ?? throw new InvalidOperationException("PDF preflight is unavailable. Install the complete Poppler utilities package on the LessonCue server.");
-            var info = await RunAsync(pdfinfo, [pdf], ct);
+            var info = await RunAsync(pdfinfo, [pdf], work, ct);
             var pageMatch = Regex.Match(info, @"(?im)^Pages:\s*(\d+)\s*$");
             if (!pageMatch.Success || !int.TryParse(pageMatch.Groups[1].Value, out var pageCount) || pageCount < 1)
                 throw new InvalidOperationException("LessonCue could not determine the document page count safely.");
             if (pageCount > 500) throw new InvalidOperationException("Presentations are limited to 500 slides per conversion.");
-            await RunAsync(pdftoppm, ["-f", "1", "-l", "500", "-png", "-r", "144", "-scale-to", "1920", pdf, prefix], ct);
+            await RunAsync(pdftoppm,
+                ["-f", "1", "-l", "500", "-png", "-r", "144", "-scale-to", "1920", pdf, prefix],
+                work, ct);
             var pages = Directory.EnumerateFiles(work, "slide-*.png").OrderBy(PageNumber).ToList();
             if (pages.Count == 0) throw new InvalidOperationException("The document did not produce any readable slides.");
             if (pages.Count > 500) throw new InvalidOperationException("Presentations are limited to 500 slides per conversion.");
@@ -245,29 +248,10 @@ public sealed class PresentationConversionService(
         finally { TryDeleteDirectory(work); }
     }
 
-    private static async Task<string> RunAsync(string executable, IReadOnlyList<string> arguments, CancellationToken ct)
-    {
-        using var process = new Process { StartInfo = new ProcessStartInfo(executable)
-        {
-            RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true
-        }};
-        if (!OperatingSystem.IsWindows()) process.StartInfo.Environment["LC_ALL"] = "C";
-        foreach (var argument in arguments) process.StartInfo.ArgumentList.Add(argument);
-        process.Start();
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromMinutes(10));
-        var stdout = process.StandardOutput.ReadToEndAsync(timeout.Token);
-        var stderr = process.StandardError.ReadToEndAsync(timeout.Token);
-        try { await process.WaitForExitAsync(timeout.Token); }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            try { process.Kill(entireProcessTree: true); } catch { }
-            throw new InvalidOperationException("Local document conversion exceeded the ten-minute safety limit.");
-        }
-        var output = (await stdout) + "\n" + (await stderr);
-        if (process.ExitCode != 0) throw new InvalidOperationException($"Local converter exited with code {process.ExitCode}: {output.Trim()}");
-        return output;
-    }
+    private static Task<string> RunAsync(string executable, IReadOnlyList<string> arguments,
+        string work, CancellationToken ct) =>
+        ConstrainedProcessRunner.RunAsync(executable, arguments,
+            ConstrainedProcessOptions.Document(work), ct);
 
     private static string? FindExecutable(string environmentName, string command, params string[] candidates)
     {

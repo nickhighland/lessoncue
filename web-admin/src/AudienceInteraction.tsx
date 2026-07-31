@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { AudiencePollDisplay } from "./WebPlayer";
+import { confirmAction, useDialogFocus } from "./AccessibleDialogs";
 
 type QuestionType = "single" | "multiple" | "text";
 type AudienceResponse = {
@@ -348,9 +349,12 @@ export function AudienceAdmin({
                 )}
                 <button
                   className="button"
-                  onClick={() =>
-                    confirm("Delete every response in this session?") &&
-                    action(
+                  onClick={async () =>
+                    (await confirmAction(
+                      "Delete every response in this session?",
+                      { destructive: true, confirmLabel: "Delete responses" },
+                    )) &&
+                    void action(
                       `/api/v1/audience/admin/sessions/${selected.id}/reset`,
                       "Audience responses reset.",
                     )
@@ -361,9 +365,12 @@ export function AudienceAdmin({
                 </button>
                 <button
                   className="button danger"
-                  onClick={() =>
-                    confirm("Permanently delete this interaction session?") &&
-                    action(
+                  onClick={async () =>
+                    (await confirmAction(
+                      "Permanently delete this interaction session?",
+                      { destructive: true },
+                    )) &&
+                    void action(
                       `/api/v1/audience/admin/sessions/${selected.id}`,
                       "Audience session deleted.",
                       "DELETE",
@@ -489,14 +496,19 @@ function SessionEditor({
       ),
     });
   }
+  const { dialogRef, onDialogKeyDown } =
+    useDialogFocus<HTMLFormElement>(onCancel);
   return (
     <div className="modal-backdrop">
       <form
+        ref={dialogRef}
         className="modal audience-editor"
         onSubmit={onSubmit}
         role="dialog"
         aria-modal="true"
         aria-label={value.id ? "Edit audience session" : "New audience session"}
+        tabIndex={-1}
+        onKeyDown={onDialogKeyDown}
       >
         <header className="modal-head">
           <div>
@@ -723,7 +735,7 @@ export function AudienceResponseApp() {
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
-  const participantToken = useMemo(getParticipantToken, []);
+  const participantToken = useMemo(() => getParticipantToken(), []);
 
   async function join(value = code) {
     const normalized = value.replace(/[^a-z0-9]/gi, "").toUpperCase();
@@ -822,7 +834,7 @@ export function AudienceResponseApp() {
             />
             <button className="button primary">Join</button>
           </form>
-          {error && <div className="alert error">{error}</div>}
+          {error && <div className="alert error" role="alert">{error}</div>}
         </section>
       ) : (
         <section className="audience-public-card">
@@ -917,7 +929,7 @@ export function AudienceResponseApp() {
                   )}
                 </fieldset>
               ))}
-              {error && <div className="alert error">{error}</div>}
+              {error && <div className="alert error" role="alert">{error}</div>}
               <button
                 type="button"
                 className="button primary wide"

@@ -11,6 +11,8 @@ if ! flock -n 9; then
   echo "Another LessonCue update is already running."
   exit 0
 fi
+RECOVERY_ONLY=false
+if [[ "${1:-}" == "--recover" ]]; then RECOVERY_ONLY=true; fi
 if [[ "$(uname -m)" =~ ^(x86_64|amd64)$ ]] && id lessoncue >/dev/null 2>&1; then
   for device_group in render video; do
     if getent group "${device_group}" >/dev/null 2>&1; then usermod -a -G "${device_group}" lessoncue; fi
@@ -18,7 +20,299 @@ if [[ "$(uname -m)" =~ ^(x86_64|amd64)$ ]] && id lessoncue >/dev/null 2>&1; then
 fi
 
 REQUEST_PATH=/var/lib/lessoncue/config/update-request
-REQUEST="$(head -n 1 "${REQUEST_PATH}" 2>/dev/null || true)"
+if [[ "${RECOVERY_ONLY}" == true ]]; then
+  REQUEST=""
+else
+  REQUEST="$(head -n 1 "${REQUEST_PATH}" 2>/dev/null || true)"
+  rm -f "${REQUEST_PATH}"
+fi
+
+ROLLBACK_ROOT=/var/lib/lessoncue/update-rollback
+MANUAL_SAFETY_ROOT=/var/lib/lessoncue/manual-rollback-safety
+TRANSACTION_MARKER=/var/lib/lessoncue/update-transaction
+STAGED=/opt/lessoncue.new
+PREVIOUS=/opt/lessoncue.previous
+FAILED=/opt/lessoncue.failed
+ROLLBACK_REJECTED=/opt/lessoncue.rollback-rejected
+UPDATE_TRANSACTION_ACTIVE=false
+APP_SWAPPED=false
+READINESS_ATTEMPTS="${LESSONCUE_UPDATE_READINESS_ATTEMPTS:-30}"
+READINESS_DELAY_SECONDS="${LESSONCUE_UPDATE_READINESS_DELAY_SECONDS:-2}"
+if [[ ! "${READINESS_ATTEMPTS}" =~ ^[1-9][0-9]*$ ]]; then READINESS_ATTEMPTS=30; fi
+if [[ ! "${READINESS_DELAY_SECONDS}" =~ ^[0-9]+$ ]]; then READINESS_DELAY_SECONDS=2; fi
+
+write_update_result() {
+  local success="$1" version="$2" message="$3"
+  local result=/var/lib/lessoncue/config/update-result.json temporary escaped_version escaped_message
+  escaped_version="${version//\\/\\\\}"
+  escaped_version="${escaped_version//\"/\\\"}"
+  escaped_message="${message//\\/\\\\}"
+  escaped_message="${escaped_message//\"/\\\"}"
+  escaped_message="${escaped_message//$'\n'/\\n}"
+  temporary="$(mktemp)"
+  printf '{"success":%s,"version":"%s","message":"%s","completedAt":"%s"}\n' \
+    "${success}" "${escaped_version}" "${escaped_message}" "$(date --iso-8601=seconds)" > "${temporary}"
+  install -o lessoncue -g lessoncue -m 0600 "${temporary}" "${result}"
+  rm -f "${temporary}"
+}
+
+snapshot_path() {
+  local source="$1" root="${2:-${ROLLBACK_ROOT}}" relative="${1#/}" destination="${2:-${ROLLBACK_ROOT}}/system/${1#/}"
+  if [[ -e "${source}" || -L "${source}" ]]; then
+    mkdir -p "$(dirname "${destination}")"
+    cp -a "${source}" "${destination}"
+  else
+    mkdir -p "${root}/missing/$(dirname "${relative}")"
+    : > "${root}/missing/${relative}"
+  fi
+}
+
+restore_path() {
+  local target="$1" root="${2:-${ROLLBACK_ROOT}}" relative="${1#/}" source="${2:-${ROLLBACK_ROOT}}/system/${1#/}"
+  if [[ -e "${source}" || -L "${source}" ]]; then
+    rm -rf "${target}"
+    mkdir -p "$(dirname "${target}")"
+    cp -a "${source}" "${target}"
+  elif [[ -e "${root}/missing/${relative}" ]]; then
+    rm -rf "${target}"
+  fi
+}
+
+prepare_update_snapshot() {
+  local temporary="${ROLLBACK_ROOT}.new"
+  rm -rf "${temporary}"
+  install -d -o root -g root -m 0700 "${temporary}/data" || return 1
+  if [[ -d /var/lib/lessoncue/database ]]; then cp -a /var/lib/lessoncue/database "${temporary}/data/database" || return 1; fi
+  if [[ -d /var/lib/lessoncue/config ]]; then cp -a /var/lib/lessoncue/config "${temporary}/data/config" || return 1; fi
+  if [[ ! -f "${temporary}/data/database/lessoncue.db" ]] ||
+     ! "${STAGED}/LessonCue.Server" --verify-database "${temporary}/data/database/lessoncue.db"; then
+    return 1
+  fi
+  if [[ -d /var/lib/lessoncue/database ]] &&
+     ! diff -qr /var/lib/lessoncue/database "${temporary}/data/database" >/dev/null; then
+    return 1
+  fi
+  if [[ -d /var/lib/lessoncue/config ]] &&
+     ! diff -qr /var/lib/lessoncue/config "${temporary}/data/config" >/dev/null; then
+    return 1
+  fi
+  rm -rf "${ROLLBACK_ROOT}"
+  mv "${temporary}" "${ROLLBACK_ROOT}" || return 1
+
+  snapshot_path /usr/local/sbin/lessoncue-update || return 1
+  snapshot_path /etc/systemd/system/lessoncue-update.service || return 1
+  snapshot_path /etc/systemd/system/lessoncue-update.path || return 1
+  snapshot_path /etc/systemd/system/lessoncue-update-recovery.service || return 1
+  snapshot_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service || return 1
+  snapshot_path /etc/systemd/system/lessoncue.service || return 1
+  snapshot_path /etc/systemd/system/lessoncue-cloudflared.service || return 1
+  snapshot_path /etc/lessoncue || return 1
+  printf '%s\n' "${CURRENT_VERSION:-unknown}" > "${ROLLBACK_ROOT}/from-version" || return 1
+  printf '%s\n' "${VERSION:-unknown}" > "${ROLLBACK_ROOT}/to-version" || return 1
+  printf '%s\n' "$(date --iso-8601=seconds)" > "${ROLLBACK_ROOT}/created-at" || return 1
+}
+
+restore_update_snapshot() {
+  local operation="${1:-update}" restored=true
+  set +e
+  systemctl stop lessoncue.service >/dev/null 2>&1
+
+  if [[ "${APP_SWAPPED}" == true ]]; then
+    rm -rf "${FAILED}"
+    if [[ -d /opt/lessoncue ]]; then mv /opt/lessoncue "${FAILED}"; fi
+    if [[ -d "${PREVIOUS}" ]]; then mv "${PREVIOUS}" /opt/lessoncue; else restored=false; fi
+  fi
+
+  if [[ -d "${ROLLBACK_ROOT}/data/database" ]]; then
+    rm -rf /var/lib/lessoncue/database
+    cp -a "${ROLLBACK_ROOT}/data/database" /var/lib/lessoncue/database || restored=false
+  fi
+  if [[ -d "${ROLLBACK_ROOT}/data/config" ]]; then
+    rm -rf /var/lib/lessoncue/config
+    cp -a "${ROLLBACK_ROOT}/data/config" /var/lib/lessoncue/config || restored=false
+    rm -f /var/lib/lessoncue/config/update-request
+  fi
+  chown -R lessoncue:lessoncue /var/lib/lessoncue/database /var/lib/lessoncue/config 2>/dev/null || restored=false
+
+  restore_path /usr/local/sbin/lessoncue-update || restored=false
+  restore_path /etc/systemd/system/lessoncue-update.service || restored=false
+  restore_path /etc/systemd/system/lessoncue-update.path || restored=false
+  restore_path /etc/systemd/system/lessoncue-update-recovery.service || restored=false
+  restore_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service || restored=false
+  restore_path /etc/systemd/system/lessoncue.service || restored=false
+  restore_path /etc/systemd/system/lessoncue-cloudflared.service || restored=false
+  restore_path /etc/lessoncue || restored=false
+  systemctl daemon-reload || restored=false
+
+  local rollback_port
+  rollback_port="$(cat /var/lib/lessoncue/config/http-port 2>/dev/null || printf '80')"
+  if [[ "${restored}" == true ]] && systemctl start lessoncue.service; then
+    for ((attempt = 1; attempt <= READINESS_ATTEMPTS; attempt++)); do
+      if curl -fsS "http://127.0.0.1:${rollback_port}/health/ready" >/dev/null; then
+        UPDATE_TRANSACTION_ACTIVE=false
+        rm -f "${TRANSACTION_MARKER}"
+        if [[ "${operation}" == "manual" ]]; then
+          write_update_result true "${VERSION:-unknown}" \
+            "LessonCue restored the protected last-known-good application, database, configuration, updater, and service units."
+        else
+          write_update_result false "${VERSION:-unknown}" \
+            "The update was interrupted or failed. LessonCue restored the previous application, database, configuration, updater, and service units."
+        fi
+        set -e
+        return 0
+      fi
+      sleep "${READINESS_DELAY_SECONDS}"
+    done
+  fi
+
+  write_update_result false "${VERSION:-unknown}" \
+    "The protected operation failed and the previous installation could not be restored automatically. Keep the server online and inspect journalctl -u lessoncue-update.service."
+  set -e
+  return 1
+}
+
+prepare_manual_rollback_safety() {
+  local temporary="${MANUAL_SAFETY_ROOT}.new"
+  rm -rf "${temporary}"
+  install -d -o root -g root -m 0700 "${temporary}/data" || return 1
+  if [[ -d /var/lib/lessoncue/database ]]; then cp -a /var/lib/lessoncue/database "${temporary}/data/database" || return 1; fi
+  if [[ -d /var/lib/lessoncue/config ]]; then cp -a /var/lib/lessoncue/config "${temporary}/data/config" || return 1; fi
+  if [[ ! -f "${temporary}/data/database/lessoncue.db" ]] ||
+     ! /opt/lessoncue/LessonCue.Server --verify-database "${temporary}/data/database/lessoncue.db"; then
+    return 1
+  fi
+  if ! diff -qr /var/lib/lessoncue/database "${temporary}/data/database" >/dev/null ||
+     ! diff -qr /var/lib/lessoncue/config "${temporary}/data/config" >/dev/null; then
+    return 1
+  fi
+  rm -rf "${MANUAL_SAFETY_ROOT}"
+  mv "${temporary}" "${MANUAL_SAFETY_ROOT}" || return 1
+  snapshot_path /usr/local/sbin/lessoncue-update "${MANUAL_SAFETY_ROOT}" || return 1
+  snapshot_path /etc/systemd/system/lessoncue-update.service "${MANUAL_SAFETY_ROOT}" || return 1
+  snapshot_path /etc/systemd/system/lessoncue-update.path "${MANUAL_SAFETY_ROOT}" || return 1
+  snapshot_path /etc/systemd/system/lessoncue-update-recovery.service "${MANUAL_SAFETY_ROOT}" || return 1
+  snapshot_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service "${MANUAL_SAFETY_ROOT}" || return 1
+  snapshot_path /etc/systemd/system/lessoncue.service "${MANUAL_SAFETY_ROOT}" || return 1
+  snapshot_path /etc/systemd/system/lessoncue-cloudflared.service "${MANUAL_SAFETY_ROOT}" || return 1
+  snapshot_path /etc/lessoncue "${MANUAL_SAFETY_ROOT}" || return 1
+  printf '%s\n' "${CURRENT_VERSION:-unknown}" > "${MANUAL_SAFETY_ROOT}/version" || return 1
+  printf '%s\n' "$(date --iso-8601=seconds)" > "${MANUAL_SAFETY_ROOT}/created-at" || return 1
+}
+
+restore_manual_rollback_safety() {
+  local restored=true safety_port
+  set +e
+  systemctl stop lessoncue.service >/dev/null 2>&1
+  rm -rf "${ROLLBACK_REJECTED}"
+  if [[ -d /opt/lessoncue ]]; then mv /opt/lessoncue "${ROLLBACK_REJECTED}"; fi
+  if [[ -d "${FAILED}" ]]; then mv "${FAILED}" /opt/lessoncue; else restored=false; fi
+
+  if [[ -d "${MANUAL_SAFETY_ROOT}/data/database" ]]; then
+    rm -rf /var/lib/lessoncue/database
+    cp -a "${MANUAL_SAFETY_ROOT}/data/database" /var/lib/lessoncue/database || restored=false
+  fi
+  if [[ -d "${MANUAL_SAFETY_ROOT}/data/config" ]]; then
+    rm -rf /var/lib/lessoncue/config
+    cp -a "${MANUAL_SAFETY_ROOT}/data/config" /var/lib/lessoncue/config || restored=false
+    rm -f /var/lib/lessoncue/config/update-request
+  fi
+  chown -R lessoncue:lessoncue /var/lib/lessoncue/database /var/lib/lessoncue/config 2>/dev/null || restored=false
+
+  restore_path /usr/local/sbin/lessoncue-update "${MANUAL_SAFETY_ROOT}" || restored=false
+  restore_path /etc/systemd/system/lessoncue-update.service "${MANUAL_SAFETY_ROOT}" || restored=false
+  restore_path /etc/systemd/system/lessoncue-update.path "${MANUAL_SAFETY_ROOT}" || restored=false
+  restore_path /etc/systemd/system/lessoncue-update-recovery.service "${MANUAL_SAFETY_ROOT}" || restored=false
+  restore_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service "${MANUAL_SAFETY_ROOT}" || restored=false
+  restore_path /etc/systemd/system/lessoncue.service "${MANUAL_SAFETY_ROOT}" || restored=false
+  restore_path /etc/systemd/system/lessoncue-cloudflared.service "${MANUAL_SAFETY_ROOT}" || restored=false
+  restore_path /etc/lessoncue "${MANUAL_SAFETY_ROOT}" || restored=false
+  systemctl daemon-reload || restored=false
+
+  safety_port="$(cat /var/lib/lessoncue/config/http-port 2>/dev/null || printf '80')"
+  if [[ "${restored}" == true ]] && systemctl start lessoncue.service; then
+    for ((attempt = 1; attempt <= READINESS_ATTEMPTS; attempt++)); do
+      if curl -fsS "http://127.0.0.1:${safety_port}/health/ready" >/dev/null; then
+        rm -f "${TRANSACTION_MARKER}"
+        UPDATE_TRANSACTION_ACTIVE=false
+        write_update_result false "${CURRENT_VERSION:-unknown}" \
+          "The requested rollback did not become ready. LessonCue restored the application, database, configuration, updater, and service units that were active before the rollback."
+        set -e
+        return 0
+      fi
+      sleep "${READINESS_DELAY_SECONDS}"
+    done
+  fi
+
+  # Preserve the rejected last-known-good application as the previous
+  # application so a boot-time recovery pass still has a complete pair to
+  # work with if even the pre-rollback installation cannot become ready.
+  if [[ -d "${ROLLBACK_REJECTED}" && ! -e "${PREVIOUS}" ]]; then
+    mv "${ROLLBACK_REJECTED}" "${PREVIOUS}" || true
+  fi
+  write_update_result false "${CURRENT_VERSION:-unknown}" \
+    "Rollback and automatic rollback recovery both failed. Keep the server online and inspect journalctl -u lessoncue-update.service. The protected manual rollback safety snapshot remains available."
+  set -e
+  return 1
+}
+
+perform_manual_rollback() {
+  if [[ ! -d "${PREVIOUS}" || ! -f "${ROLLBACK_ROOT}/data/database/lessoncue.db" ]]; then
+    write_update_result false "unknown" "No verified last-known-good update snapshot is available."
+    return 1
+  fi
+  CURRENT_VERSION="$(cat /var/lib/lessoncue/config/installed-version 2>/dev/null || true)"
+  if [[ -z "${CURRENT_VERSION}" ]]; then
+    CURRENT_VERSION="$(/opt/lessoncue/LessonCue.Server --version 2>/dev/null || printf 'unknown')"
+  fi
+  VERSION="$(cat "${ROLLBACK_ROOT}/from-version" 2>/dev/null || printf 'unknown')"
+  if ! /opt/lessoncue/LessonCue.Server --verify-database "${ROLLBACK_ROOT}/data/database/lessoncue.db"; then
+    write_update_result false "${VERSION}" "The protected rollback database failed its integrity check. The current installation was not changed."
+    return 1
+  fi
+
+  systemctl stop lessoncue.service
+  if ! prepare_manual_rollback_safety; then
+    systemctl start lessoncue.service || true
+    write_update_result false "${VERSION}" \
+      "LessonCue could not create and verify the required pre-rollback safety snapshot. The current installation was not changed."
+    return 1
+  fi
+
+  printf 'manual:%s\n' "$(date --iso-8601=seconds)" > "${TRANSACTION_MARKER}"
+  chmod 0600 "${TRANSACTION_MARKER}"
+  UPDATE_TRANSACTION_ACTIVE=true
+  APP_SWAPPED=true
+  if restore_update_snapshot manual; then return 0; fi
+  restore_manual_rollback_safety
+}
+
+handle_update_error() {
+  local code="$1"
+  if [[ "${UPDATE_TRANSACTION_ACTIVE}" == true ]]; then
+    echo "The update was interrupted. Restoring the complete pre-update snapshot."
+    restore_update_snapshot || true
+  fi
+  exit "${code}"
+}
+
+trap 'handle_update_error $?' ERR
+
+if [[ -f "${TRANSACTION_MARKER}" ]]; then
+  VERSION="$(cat "${ROLLBACK_ROOT}/from-version" 2>/dev/null || printf 'unknown')"
+  UPDATE_TRANSACTION_ACTIVE=true
+  if [[ -d "${PREVIOUS}" ]]; then APP_SWAPPED=true; fi
+  echo "LessonCue found an interrupted protected operation. Restoring the last-known-good snapshot."
+  restore_update_snapshot interrupted
+  exit $?
+fi
+
+if [[ "${RECOVERY_ONLY}" == true ]]; then exit 0; fi
+if [[ -z "${REQUEST}" ]]; then exit 0; fi
+if [[ "${REQUEST}" == rollback:* ]]; then
+  perform_manual_rollback
+  exit $?
+fi
+
 format_address() {
   local hostname="$1" port="$2"
   if [[ "${port}" == "80" ]]; then printf 'http://%s.local' "${hostname}"; else printf 'http://%s.local:%s' "${hostname}" "${port}"; fi
@@ -323,7 +617,7 @@ if [[ "${REQUEST}" == port:* ]]; then
   systemctl restart avahi-daemon || true
   systemctl restart lessoncue.service || true
   for _ in {1..30}; do
-    if curl -fsS "http://127.0.0.1:${HTTP_PORT}/health" >/dev/null; then
+    if curl -fsS "http://127.0.0.1:${HTTP_PORT}/health/ready" >/dev/null; then
       printf '%s\n' "${HTTP_PORT}" > /var/lib/lessoncue/config/port-result
       chown lessoncue:lessoncue /var/lib/lessoncue/config/port-result
       chmod 0600 /var/lib/lessoncue/config/port-result
@@ -351,19 +645,38 @@ case "$(uname -m)" in
   *) echo "Unsupported CPU architecture: $(uname -m)"; exit 1 ;;
 esac
 
-REPOSITORY=https://github.com/nickhighland/lessoncue
-VERSION_URL="$(curl -fsSL -o /dev/null -w '%{url_effective}' "${REPOSITORY}/releases/latest")"
-VERSION="${VERSION_URL##*/}"
+CURRENT_VERSION="$(cat /var/lib/lessoncue/config/installed-version 2>/dev/null || true)"
+if [[ -z "${CURRENT_VERSION}" && -x /opt/lessoncue/LessonCue.Server ]]; then
+  CURRENT_VERSION="$(/opt/lessoncue/LessonCue.Server --version 2>/dev/null || true)"
+fi
+if [[ -z "${CURRENT_VERSION}" ]]; then CURRENT_VERSION=unknown; fi
+
+REPOSITORY="${LESSONCUE_UPDATE_REPOSITORY:-https://github.com/nickhighland/lessoncue}"
+if [[ -n "${LESSONCUE_UPDATE_VERSION:-}" ]]; then
+  VERSION="${LESSONCUE_UPDATE_VERSION}"
+else
+  VERSION_URL="$(curl -fsSL -o /dev/null -w '%{url_effective}' "${REPOSITORY}/releases/latest")"
+  VERSION="${VERSION_URL##*/}"
+fi
 ASSET="LessonCue-Server-${RUNTIME}.tar.gz"
 WORKDIR="$(mktemp -d)"
-STAGED=/opt/lessoncue.new
-PREVIOUS=/opt/lessoncue.previous
-FAILED=/opt/lessoncue.failed
 trap 'rm -rf "${WORKDIR}" "${STAGED}"' EXIT
 
 echo "Downloading LessonCue ${VERSION} for ${RUNTIME}..."
 curl -fL "${REPOSITORY}/releases/download/${VERSION}/${ASSET}" -o "${WORKDIR}/${ASSET}"
 curl -fL "${REPOSITORY}/releases/download/${VERSION}/SHA256SUMS" -o "${WORKDIR}/SHA256SUMS"
+curl -fL "${REPOSITORY}/releases/download/${VERSION}/SHA256SUMS.sig" -o "${WORKDIR}/SHA256SUMS.sig"
+RELEASE_PUBLIC_KEY="${LESSONCUE_RELEASE_PUBLIC_KEY:-/etc/lessoncue/release-signing-public.pem}"
+if [[ ! -f "${RELEASE_PUBLIC_KEY}" ]]; then
+  echo "The pinned LessonCue release-signing public key is missing. Run the current SSH installer once before using browser updates."
+  exit 1
+fi
+if ! openssl pkeyutl -verify -pubin -inkey "${RELEASE_PUBLIC_KEY}" \
+  -rawin -in "${WORKDIR}/SHA256SUMS" \
+  -sigfile "${WORKDIR}/SHA256SUMS.sig"; then
+  echo "LessonCue rejected this release because its Ed25519 signature is invalid."
+  exit 1
+fi
 if ! grep -F "  ${ASSET}" "${WORKDIR}/SHA256SUMS" > "${WORKDIR}/asset.sha256"; then
   echo "The release does not contain a checksum for ${ASSET}."
   exit 1
@@ -382,13 +695,32 @@ install -d "${STAGED}"
 cp -a "${WORKDIR}/archive/payload/." "${STAGED}/"
 chown -R root:root "${STAGED}"
 
-# Refresh the updater itself only after the archive has passed verification.
+# Stop all writers before taking a consistent database/configuration snapshot.
+systemctl stop lessoncue.service
+if ! prepare_update_snapshot; then
+  rm -rf "${ROLLBACK_ROOT}" "${ROLLBACK_ROOT}.new"
+  systemctl start lessoncue.service || true
+  write_update_result false "${VERSION}" \
+    "LessonCue could not create and verify the required pre-update snapshot. The existing installation was not changed."
+  echo "The update was cancelled because the pre-update snapshot could not be created."
+  exit 1
+fi
+
+rm -rf "${PREVIOUS}" "${FAILED}"
+printf 'update:%s:%s\n' "${VERSION}" "$(date --iso-8601=seconds)" > "${TRANSACTION_MARKER}"
+chmod 0600 "${TRANSACTION_MARKER}"
+UPDATE_TRANSACTION_ACTIVE=true
+
+# Refresh protected executables and units only after the archive and rollback
+# snapshot have both passed validation.
 install -m 0755 "${WORKDIR}/archive/lessoncue-update" /usr/local/sbin/lessoncue-update
 install -m 0644 "${WORKDIR}/archive/lessoncue-update.service" /etc/systemd/system/lessoncue-update.service
 install -m 0644 "${WORKDIR}/archive/lessoncue-update.path" /etc/systemd/system/lessoncue-update.path
+install -m 0644 "${WORKDIR}/archive/lessoncue-update-recovery.service" /etc/systemd/system/lessoncue-update-recovery.service
 install -m 0644 "${WORKDIR}/archive/lessoncue.service" /etc/systemd/system/lessoncue.service
 install -m 0644 "${WORKDIR}/archive/lessoncue-cloudflared.service" /etc/systemd/system/lessoncue-cloudflared.service
 systemctl daemon-reload
+systemctl enable lessoncue-update-recovery.service
 
 # Older installations may have a root-owned media parent even though their
 # existing media subdirectories belong to the service account. Repair the
@@ -406,27 +738,30 @@ else
   systemctl try-restart lessoncue-cloudflared.service >/dev/null 2>&1 || true
 fi
 
-systemctl stop lessoncue.service
-rm -rf "${PREVIOUS}" "${FAILED}"
-if [[ -d /opt/lessoncue ]]; then mv /opt/lessoncue "${PREVIOUS}"; fi
+if [[ -d /opt/lessoncue ]]; then
+  mv /opt/lessoncue "${PREVIOUS}"
+  APP_SWAPPED=true
+fi
 mv "${STAGED}" /opt/lessoncue
 
 HTTP_PORT="$(cat /var/lib/lessoncue/config/http-port 2>/dev/null || printf '8080')"
 if systemctl start lessoncue.service; then
-  for _ in {1..30}; do
-    if curl -fsS "http://127.0.0.1:${HTTP_PORT}/health" >/dev/null; then
+  for ((attempt = 1; attempt <= READINESS_ATTEMPTS; attempt++)); do
+    if curl -fsS "http://127.0.0.1:${HTTP_PORT}/health/ready" >/dev/null; then
+      UPDATE_TRANSACTION_ACTIVE=false
+      printf '%s\n' "${VERSION#v}" > /var/lib/lessoncue/config/installed-version
+      chown lessoncue:lessoncue /var/lib/lessoncue/config/installed-version
+      chmod 0600 /var/lib/lessoncue/config/installed-version
+      rm -f "${TRANSACTION_MARKER}"
+      write_update_result true "${VERSION}" \
+        "LessonCue installed the update successfully. A protected last-known-good rollback snapshot is available."
       echo "LessonCue ${VERSION} installed successfully."
       exit 0
     fi
-    sleep 2
+    sleep "${READINESS_DELAY_SECONDS}"
   done
 fi
 
-echo "The updated server did not become healthy. Restoring the previous version."
-systemctl stop lessoncue.service || true
-mv /opt/lessoncue "${FAILED}"
-if [[ -d "${PREVIOUS}" ]]; then
-  mv "${PREVIOUS}" /opt/lessoncue
-  systemctl start lessoncue.service
-fi
+echo "The updated server did not become ready. Restoring the complete previous installation."
+restore_update_snapshot || true
 exit 1

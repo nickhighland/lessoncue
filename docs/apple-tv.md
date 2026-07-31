@@ -1,6 +1,8 @@
-# Apple TV delivery
+# Apple TV delivery — archived and unsupported
 
-## Screen diagnostics
+Apple TV/tvOS is explicitly abandoned for the current LessonCue product cycle. This document records the archived prototype only. The client is not built in CI, shipped in releases, covered by installation support, or included in present feature-parity claims. Do not deploy it as a supported LessonCue display. A future reintroduction requires a new roadmap, current-device research, active automated tests, physical-device acceptance, and dedicated signing/release ownership.
+
+## Historical prototype notes
 
 Version 0.18 and newer reports a bounded inventory of assigned offline media, queued downloads and failures, AVFoundation decoder capabilities, recent playback errors, measured server latency, and the Apple TV clock. View it under **Screens → View diagnostics** in the local browser.
 

@@ -106,6 +106,9 @@ public sealed class ManifestTests
         var manifestScreen = document.RootElement.GetProperty("screen");
         Assert.False(manifestScreen.GetProperty("SignageOnly").GetBoolean());
         Assert.False(manifestScreen.GetProperty("PermanentPairing").GetBoolean());
+        var capabilities = document.RootElement.GetProperty("displayCapabilities");
+        Assert.Equal("android-tv", capabilities.GetProperty("Platform").GetString());
+        Assert.Equal(DisplayCapabilities.ContractVersion, capabilities.GetProperty("ContractVersion").GetInt32());
         var lobby = document.RootElement.GetProperty("signage").EnumerateArray().Single(item => item.GetProperty("Name").GetString() == "Lobby notice");
         var weather = lobby.GetProperty("zones").EnumerateArray().Single(zone => zone.GetProperty("Type").GetString() == "weather");
         Assert.Equal("72°", weather.GetProperty("cached").GetProperty("Text").GetString());
@@ -123,6 +126,8 @@ public sealed class ManifestTests
         Assert.Equal(JsonValueKind.Null, stream.GetProperty("sourceUrl").ValueKind);
         Assert.DoesNotContain("private-key", json);
         var cue = document.RootElement.GetProperty("playlists")[0].GetProperty("items")[0];
+        Assert.Equal("supported", cue.GetProperty("renderSupport").GetString());
+        Assert.Equal(JsonValueKind.Null, cue.GetProperty("fallbackMessage").ValueKind);
         Assert.Equal(60, cue.GetProperty("volumePercent").GetInt32());
         Assert.Equal("fill", cue.GetProperty("FitMode").GetString());
         Assert.Equal(90, cue.GetProperty("RotationDegrees").GetInt32());

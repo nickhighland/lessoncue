@@ -5,6 +5,7 @@ import {
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
   ReactNode,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -20,6 +21,11 @@ import {
 } from "./SignageStudio";
 import { SimpleSignage } from "./SimpleSignage";
 import { AudienceAdmin, AudienceDisplayApp, AudienceResponseApp } from "./AudienceInteraction";
+import {
+  AccessibleDialogHost,
+  confirmAction,
+  useDialogFocus,
+} from "./AccessibleDialogs";
 import "./styles.css";
 
 type Permission =
@@ -57,10 +63,12 @@ type Bootstrap = {
   storage: StorageStatus;
   mediaTaxonomy: MediaTaxonomy;
   update: UpdateStatus;
+  backupPolicy?: BackupPolicyStatus;
   localAddress: LocalAddressStatus;
   httpPort: HttpPortStatus;
   cloudflareTunnel: CloudflareTunnelStatus;
   hardwareAcceleration: HardwareAccelerationStatus;
+  uploadQuotaPolicy?: UploadQuotaPolicy;
   accountEmail: { configured: boolean; provider: string };
   counts: { classes: number; lessons: number; media: number; screens: number };
   permissionDefinitions: Permission[];
@@ -99,7 +107,42 @@ type StorageStatus = {
   maximumAllocationBytes: number;
   allocationBytes: number;
   remainingBytes: number;
+  reservedBytes: number;
   automaticAllocation: boolean;
+};
+type UploadQuotaPolicy = {
+  maxFileBytes: number;
+  maxDailyBytes: number;
+  maxActiveSessionsPerUser: number;
+  userDailyBytes: Record<string, number>;
+  roleDailyBytes: Record<string, number>;
+  classDailyBytes: Record<string, number>;
+  allowedVideoCodecs: string[];
+  allowedAudioCodecs: string[];
+};
+type UploadSessionStatus = {
+  id: string;
+  fileName: string;
+  expectedLength: number;
+  chunkSize: number;
+  chunkCount: number;
+  receivedBytes: number;
+  state:
+    | "active"
+    | "paused"
+    | "failed"
+    | "completing"
+    | "complete"
+    | "cancelled"
+    | "expired";
+  failureReason?: string;
+  expiresAt: string;
+  missingChunks: number[];
+};
+type MediaUploadControl = {
+  pause: () => Promise<void>;
+  resume: () => Promise<void>;
+  cancel: () => Promise<void>;
 };
 type UpdateStatus = {
   currentVersion: string;
@@ -110,6 +153,12 @@ type UpdateStatus = {
   error?: string;
   automaticInstallSupported: boolean;
   installing: boolean;
+  lastInstallSucceeded?: boolean;
+  lastInstallAt?: string;
+  lastInstallVersion?: string;
+  lastInstallMessage?: string;
+  rollbackSnapshotAvailable: boolean;
+  rollbackTargetVersion?: string;
 };
 type LocalAddressStatus = {
   hostname: string;
@@ -419,6 +468,29 @@ type Screen = {
   signageWidth?: number;
   signageHeight?: number;
 };
+type DisplayCompatibilityIssue = {
+  code: string;
+  severity: string;
+  contentKind: string;
+  contentId: string;
+  title: string;
+  message: string;
+  fallback: string;
+};
+type DisplayCapabilityContract = {
+  platform: string;
+  displayName: string;
+  contractVersion: number;
+  minimumClientVersion: string;
+  capabilities: {
+    id: string;
+    label: string;
+    supported: boolean;
+    fallback: string;
+    notes?: string;
+  }[];
+  limitations: string[];
+};
 type CacheDiagnostic = {
   itemId?: string;
   title?: string;
@@ -469,6 +541,15 @@ type AccountProfile = {
   email?: string;
   emailVerified: boolean;
   role: string;
+};
+type MfaStatus = {
+  enabled: boolean;
+  configured: boolean;
+  totpEnabledAt?: string;
+};
+type MfaSetup = {
+  secret: string;
+  provisioningUri: string;
 };
 type RegistrationSettings = {
   mode: "closed" | "approval" | "open" | "code";
@@ -649,6 +730,10 @@ type BackupPreview = {
   mediaRecords: number;
   mediaFiles: number;
   includesMedia: boolean;
+  encrypted: boolean;
+  secretHandling: "exclude" | "include" | "legacy-combined";
+  sourceVersion?: string;
+  compatibility: "compatible" | "unknown";
   warnings: string[];
   expiresAt: string;
 };
@@ -659,6 +744,35 @@ type BackupRestoreResult = {
   organization: string;
   mediaRestored: boolean;
   preservedServerSettings: string[];
+};
+type BackupPolicyStatus = {
+  enabled: boolean;
+  frequency: "daily" | "weekly";
+  hourLocal: number;
+  weeklyDay?: number;
+  includeMedia: boolean;
+  retentionCount: number;
+  retentionDays: number;
+  secretHandling: "exclude" | "include";
+  backupPasswordConfigured: boolean;
+  remoteWebDavUrl?: string;
+  remoteAuthentication: "none" | "basic" | "bearer";
+  remoteUsername?: string;
+  remoteSecretConfigured: boolean;
+  lastAttemptAt?: string;
+  lastSucceededAt?: string;
+  lastVerifiedAt?: string;
+  lastBackupFileName?: string;
+  lastError?: string;
+  nextRunAt?: string;
+  overdue: boolean;
+  running: boolean;
+};
+type MigrationTransferGrant = {
+  token: string;
+  fileName: string;
+  expiresAt: string;
+  endpoint: string;
 };
 type Audit = {
   id: number;
@@ -746,6 +860,16 @@ const permissionOptions: { id: Permission; label: string; detail: string }[] = [
   },
 ];
 
+class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly problem: Record<string, unknown> = {},
+  ) {
+    super(message);
+  }
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     credentials: "same-origin",
@@ -757,8 +881,14 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (response.status === 401) throw new Error("SESSION_EXPIRED");
   if (!response.ok) {
-    const problem = await response.json().catch(() => ({}));
-    throw new Error(problem.error || `Request failed (${response.status})`);
+    const problem = (await response
+      .json()
+      .catch(() => ({}))) as Record<string, unknown>;
+    throw new ApiError(
+      String(problem.error || `Request failed (${response.status})`),
+      response.status,
+      problem,
+    );
   }
   if (response.status === 204) return undefined as T;
   return response.json();
@@ -772,60 +902,225 @@ async function uploadMediaFile(
     folder?: string;
     tagsCsv?: string;
     onProgress?: (percent: number) => void;
+    onControlReady?: (control?: MediaUploadControl) => void;
   },
 ): Promise<Media> {
   const duration = await detectDuration(file);
-  let result: Media | { duplicate: true; media: Media };
-  if (file.size > 16 * 1024 * 1024) {
-    const session = await api<{ uploadId: string; chunkSize: number }>(
-      `/api/v1/uploads?fileName=${encodeURIComponent(file.name)}&totalBytes=${file.size}`,
-      { method: "POST", body: "{}" },
-    );
-    const totalChunks = Math.ceil(file.size / session.chunkSize);
-    for (let index = 0; index < totalChunks; index++) {
-      const chunk = file.slice(
-        index * session.chunkSize,
-        Math.min(file.size, (index + 1) * session.chunkSize),
-      );
-      await api(`/api/v1/uploads/${session.uploadId}/chunks/${index}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/octet-stream" },
-        body: chunk,
-      });
-      options.onProgress?.(Math.round(((index + 1) / totalChunks) * 100));
+  const resumeKey = `lessoncue.upload.${[
+    file.name,
+    file.size,
+    file.lastModified,
+    options.persistent,
+    options.lessonId || "",
+    options.folder || "",
+    options.tagsCsv || "",
+  ].join("|")}`;
+  let status: UploadSessionStatus | undefined;
+  try {
+    const savedId = localStorage.getItem(resumeKey);
+    if (savedId) {
+      try {
+        const saved = await api<UploadSessionStatus>(
+          `/api/v1/uploads/${savedId}`,
+        );
+        if (
+          saved.fileName === file.name &&
+          saved.expectedLength === file.size &&
+          ["active", "paused", "failed", "completing"].includes(saved.state)
+        ) {
+          status = saved;
+          if (saved.state === "paused" || saved.state === "failed")
+            status = await api<UploadSessionStatus>(
+              `/api/v1/uploads/${saved.id}/resume`,
+              { method: "POST", body: "{}" },
+            );
+        } else localStorage.removeItem(resumeKey);
+      } catch (error) {
+        if (error instanceof ApiError && [404, 409, 410].includes(error.status))
+          localStorage.removeItem(resumeKey);
+        else throw error;
+      }
     }
-    result = await api(`/api/v1/uploads/${session.uploadId}/complete`, {
+  } catch (error) {
+    if (error instanceof DOMException) {
+      // Resuming still works for this page even if browser storage is disabled.
+    } else throw error;
+  }
+
+  if (!status) {
+    const created = await api<{
+      uploadId: string;
+      fileName: string;
+      chunkSize: number;
+      chunkCount: number;
+      expectedLength: number;
+      expiresAt: string;
+    }>("/api/v1/uploads", {
       method: "POST",
       body: JSON.stringify({
         fileName: file.name,
+        totalBytes: file.size,
         contentType: file.type || "application/octet-stream",
-        totalChunks,
-        durationMs: duration || null,
         persistent: options.persistent,
         lessonId: options.lessonId || null,
         folder: options.folder || "",
         tagsCsv: options.tagsCsv || "",
+        durationMs: duration || null,
       }),
     });
-  } else {
-    const data = new FormData();
-    data.append("file", file);
-    data.append("persistent", String(options.persistent));
-    if (options.lessonId) data.append("lessonId", options.lessonId);
-    if (options.folder) data.append("folder", options.folder);
-    if (options.tagsCsv) data.append("tagsCsv", options.tagsCsv);
-    if (duration) data.append("durationMs", String(duration));
-    result = await api("/api/v1/media", { method: "POST", body: data });
-    options.onProgress?.(100);
+    status = {
+      id: created.uploadId,
+      fileName: created.fileName,
+      chunkSize: created.chunkSize,
+      chunkCount: created.chunkCount,
+      expectedLength: created.expectedLength,
+      receivedBytes: 0,
+      state: "active",
+      expiresAt: created.expiresAt,
+      missingChunks: Array.from(
+        { length: created.chunkCount },
+        (_, index) => index,
+      ),
+    };
+    try {
+      localStorage.setItem(resumeKey, status.id);
+    } catch {
+      // The server remains resumable even when browser storage is unavailable.
+    }
   }
-  return "media" in result ? result.media : result;
+
+  let paused = false;
+  let cancelled = false;
+  let releasePause: (() => void) | undefined;
+  const waitWhilePaused = async () => {
+    if (!paused) return;
+    await new Promise<void>((resolve) => {
+      releasePause = resolve;
+    });
+  };
+  const control: MediaUploadControl = {
+    pause: async () => {
+      if (paused || cancelled) return;
+      paused = true;
+      await api(`/api/v1/uploads/${status!.id}/pause`, {
+        method: "POST",
+        body: "{}",
+      });
+    },
+    resume: async () => {
+      if (!paused || cancelled) return;
+      await api(`/api/v1/uploads/${status!.id}/resume`, {
+        method: "POST",
+        body: "{}",
+      });
+      paused = false;
+      releasePause?.();
+      releasePause = undefined;
+    },
+    cancel: async () => {
+      if (cancelled) return;
+      cancelled = true;
+      paused = false;
+      releasePause?.();
+      releasePause = undefined;
+      await api(`/api/v1/uploads/${status!.id}`, { method: "DELETE" });
+      try {
+        localStorage.removeItem(resumeKey);
+      } catch {
+        /* no-op */
+      }
+    },
+  };
+  options.onControlReady?.(control);
+
+  try {
+    const missing = new Set(status.missingChunks);
+    const alreadyReceived = status.chunkCount - missing.size;
+    options.onProgress?.(
+      Math.round((alreadyReceived / status.chunkCount) * 100),
+    );
+    for (let index = 0; index < status.chunkCount; index++) {
+      if (!missing.has(index)) continue;
+      await waitWhilePaused();
+      if (cancelled) throw new Error("Upload cancelled.");
+      const chunk = file.slice(
+        index * status.chunkSize,
+        Math.min(file.size, (index + 1) * status.chunkSize),
+      );
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          await api(`/api/v1/uploads/${status.id}/chunks/${index}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/octet-stream" },
+            body: chunk,
+          });
+          lastError = undefined;
+          break;
+        } catch (error) {
+          lastError = error;
+          if (
+            error instanceof ApiError &&
+            error.status < 500 &&
+            error.status !== 429
+          )
+            break;
+          await new Promise((resolve) =>
+            setTimeout(resolve, 500 * 2 ** attempt),
+          );
+          await waitWhilePaused();
+        }
+      }
+      if (lastError) throw lastError;
+      missing.delete(index);
+      options.onProgress?.(
+        Math.round(
+          ((status.chunkCount - missing.size) / status.chunkCount) * 100,
+        ),
+      );
+    }
+    const result = await api<Media | { duplicate: true; media: Media }>(
+      `/api/v1/uploads/${status.id}/complete`,
+      {
+        method: "POST",
+        body: JSON.stringify({ durationMs: duration || null }),
+      },
+    );
+    try {
+      localStorage.removeItem(resumeKey);
+    } catch {
+      /* no-op */
+    }
+    options.onProgress?.(100);
+    return "media" in result ? result.media : result;
+  } catch (error) {
+    if (!cancelled) {
+      const message = errorText(error);
+      throw new Error(
+        `${message} LessonCue kept the received chunks for 24 hours; choose Upload again with the same file to resume.`,
+        { cause: error },
+      );
+    }
+    throw error;
+  } finally {
+    options.onControlReady?.(undefined);
+  }
 }
 
 function App() {
-  if (isWebPlayerPath(location.pathname)) return <WebPlayerApp />;
-  if (isAudienceDisplayPath(location.pathname)) return <AudienceDisplayApp />;
-  if (isAudiencePath(location.pathname)) return <AudienceResponseApp />;
-  return <AdminApp />;
+  let content: ReactNode;
+  if (isWebPlayerPath(location.pathname)) content = <WebPlayerApp />;
+  else if (isAudienceDisplayPath(location.pathname))
+    content = <AudienceDisplayApp />;
+  else if (isAudiencePath(location.pathname))
+    content = <AudienceResponseApp />;
+  else content = <AdminApp />;
+  return (
+    <>
+      {content}
+      <AccessibleDialogHost />
+    </>
+  );
 }
 
 function AdminApp() {
@@ -991,7 +1286,7 @@ function RequiredPasswordChange({ onChanged }: { onChanged: () => void }) {
               autoComplete="new-password"
             />
           </Field>
-          {error && <div className="alert error">{error}</div>}
+          {error && <div className="alert error" role="alert">{error}</div>}
           <button className="button primary wide" disabled={busy}>
             {busy ? "Changing…" : "Change password and continue"}
           </button>
@@ -1338,7 +1633,7 @@ function Auth({
                 autoComplete="new-password"
               />
             </Field>
-            {error && <div className="alert error">{error}</div>}
+            {error && <div className="alert error" role="alert">{error}</div>}
             <button className="button primary wide" disabled={busy}>
               {busy ? "Saving…" : "Finish account setup"}
             </button>
@@ -1366,7 +1661,7 @@ function Auth({
                 autoComplete="new-password"
               />
             </Field>
-            {error && <div className="alert error">{error}</div>}
+            {error && <div className="alert error" role="alert">{error}</div>}
             <button className="button primary wide" disabled={busy}>
               {busy ? "Saving…" : "Change password"}
             </button>
@@ -1374,7 +1669,7 @@ function Auth({
         ) : verificationPath ? (
           <div className="account-result">
             {error ? (
-              <div className="alert error">{error}</div>
+              <div className="alert error" role="alert">{error}</div>
             ) : (
               <p>Checking this one-time link…</p>
             )}
@@ -1424,7 +1719,7 @@ function Auth({
                 autoComplete="new-password"
               />
             </Field>
-            {error && <div className="alert error">{error}</div>}
+            {error && <div className="alert error" role="alert">{error}</div>}
             <button className="button primary wide" disabled={busy}>
               {busy
                 ? "Creating…"
@@ -1454,7 +1749,7 @@ function Auth({
                 autoFocus
               />
             </Field>
-            {error && <div className="alert error">{error}</div>}
+            {error && <div className="alert error" role="alert">{error}</div>}
             <button className="button primary wide" disabled={busy}>
               {busy ? "Sending…" : "Send reset link"}
             </button>
@@ -1480,7 +1775,7 @@ function Auth({
                 autoFocus
               />
             </Field>
-            {error && <div className="alert error">{error}</div>}
+            {error && <div className="alert error" role="alert">{error}</div>}
             <button className="button primary wide" disabled={busy}>
               {busy ? "Sending…" : "Resend verification link"}
             </button>
@@ -1586,7 +1881,21 @@ function Auth({
                 </button>
               </div>
             </Field>
-            {error && <div className="alert error">{error}</div>}
+            {!session.setupRequired && (
+              <Field
+                label="Authenticator code (if enabled)"
+                hint="Enter the current six-digit code for a Service Admin account using MFA."
+              >
+                <input
+                  name="mfaCode"
+                  inputMode="numeric"
+                  pattern="[0-9 ]{6,8}"
+                  maxLength={8}
+                  autoComplete="one-time-code"
+                />
+              </Field>
+            )}
+            {error && <div className="alert error" role="alert">{error}</div>}
             <button className="button primary wide" disabled={busy}>
               {busy
                 ? "Please wait…"
@@ -1886,6 +2195,9 @@ function Shell({
       ? ([["settings", "⚙", "Settings"]] as [View, string, string][])
       : []),
   ];
+  useEffect(() => {
+    document.getElementById("main-content")?.focus();
+  }, [view]);
   return (
     <>
       <a className="skip-link" href="#main-content">
@@ -1908,6 +2220,7 @@ function Shell({
                 key={key}
                 className={view === key ? "active" : ""}
                 onClick={() => setView(key)}
+                aria-current={view === key ? "page" : undefined}
               >
                 <span>{icon}</span>
                 {label}
@@ -1947,10 +2260,15 @@ function Shell({
               key={notice}
               role="status"
               aria-live="polite"
-              onClick={() => setNotice("")}
             >
-              {notice}
-              <span>×</span>
+              <span>{notice}</span>
+              <button
+                type="button"
+                onClick={() => setNotice("")}
+                aria-label="Dismiss notification"
+              >
+                ×
+              </button>
             </div>
           )}
           {loading && !bootstrap ? (
@@ -1979,6 +2297,27 @@ function Shell({
                   )}
                 </div>
               )}
+              {bootstrap?.backupPolicy &&
+                (bootstrap.backupPolicy.overdue ||
+                  bootstrap.backupPolicy.lastError) && (
+                  <div className="update-banner backup-alert" role="alert">
+                    <div>
+                      <strong>Scheduled backup needs attention</strong>
+                      <span>
+                        {bootstrap.backupPolicy.lastError ||
+                          "The latest verified recovery copy is overdue."}
+                      </span>
+                    </div>
+                    {canManageBackups && (
+                      <button
+                        className="button"
+                        onClick={() => setView("settings")}
+                      >
+                        Review backups
+                      </button>
+                    )}
+                  </div>
+                )}
               {view === "dashboard" && bootstrap && (
                 <Dashboard
                   bootstrap={bootstrap}
@@ -2163,7 +2502,7 @@ function ProfileModal({
     <Modal title="Your account" onClose={onClose}>
       {!profile ? (
         error ? (
-          <div className="alert error">{error}</div>
+          <div className="alert error" role="alert">{error}</div>
         ) : (
           <p className="muted">Loading your account…</p>
         )
@@ -2235,7 +2574,7 @@ function ProfileModal({
               />
             </Field>
           </div>
-          {error && <div className="alert error">{error}</div>}
+          {error && <div className="alert error" role="alert">{error}</div>}
           <div className="modal-actions split-actions">
             <button className="button danger" type="button" onClick={onLogout}>
               Sign out
@@ -2589,8 +2928,9 @@ function ClassesView({
   async function deleteClass() {
     if (
       !current ||
-      !confirm(
+      !await confirmAction(
         `Move ${current.name} and all of its lessons to the recycling bin? They can be restored for 30 days.`,
+        { destructive: true, confirmLabel: "Move to recycling bin" },
       )
     )
       return;
@@ -2628,7 +2968,7 @@ function ClassesView({
     if (!current) return;
     if (
       permanentController &&
-      !confirm(
+      !await confirmAction(
         "Refresh this permanent controller QR? The current QR will stop working immediately.",
       )
     )
@@ -2659,8 +2999,9 @@ function ClassesView({
     if (
       !current ||
       !permanentController ||
-      !confirm(
+      !await confirmAction(
         "Revoke this permanent controller QR? Phones using it will lose access immediately.",
+        { destructive: true, confirmLabel: "Revoke QR" },
       )
     )
       return;
@@ -2696,8 +3037,9 @@ function ClassesView({
     const values = Object.fromEntries(new FormData(event.currentTarget));
     if (
       lessonBulkAction === "delete" &&
-      !confirm(
+      !await confirmAction(
         `Move ${selectedLessons.length} selected lesson${selectedLessons.length === 1 ? "" : "s"} to the recycling bin? They can be restored for 30 days.`,
+        { destructive: true, confirmLabel: "Move to recycling bin" },
       )
     )
       return;
@@ -3253,6 +3595,8 @@ function LessonEditor({
   const [showAdd, setShowAdd] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadControl, setUploadControl] = useState<MediaUploadControl>();
+  const [uploadPaused, setUploadPaused] = useState(false);
   const [onlineMode, setOnlineMode] = useState<
     "online" | "download" | "slides"
   >("online");
@@ -3437,6 +3781,10 @@ function LessonEditor({
             setUploadProgress(
               Math.round(((completed + percent / 100) / files.length) * 100),
             ),
+          onControlReady: (control) => {
+            setUploadControl(control);
+            if (!control) setUploadPaused(false);
+          },
         });
         if (isConvertibleDocument(asset)) {
           await api(`/api/v1/media/${asset.id}/convert-and-add-to-lesson`, {
@@ -3575,8 +3923,9 @@ function LessonEditor({
   }
   async function removeItem(id: string) {
     if (
-      !confirm(
+      !await confirmAction(
         "Remove this item from the playlist? The media file will remain in your library.",
+        { destructive: true, confirmLabel: "Remove from playlist" },
       )
     )
       return;
@@ -3616,8 +3965,9 @@ function LessonEditor({
     const values = Object.fromEntries(new FormData(event.currentTarget));
     if (
       cueBulkAction === "delete" &&
-      !confirm(
+      !await confirmAction(
         `Remove ${selectedCues.length} selected cue${selectedCues.length === 1 ? "" : "s"} from this lesson? Media files remain in the library.`,
+        { destructive: true, confirmLabel: "Remove cues" },
       )
     )
       return;
@@ -3804,6 +4154,38 @@ function LessonEditor({
                     ? `Uploading ${uploadProgress}%`
                     : "Upload and add"}
                 </button>
+                {uploading && uploadControl && (
+                  <div className="button-row upload-controls">
+                    <button
+                      type="button"
+                      className="button"
+                      onClick={async () => {
+                        if (uploadPaused) {
+                          await uploadControl.resume();
+                          setUploadPaused(false);
+                        } else {
+                          await uploadControl.pause();
+                          setUploadPaused(true);
+                        }
+                      }}
+                    >
+                      {uploadPaused ? "Resume upload" : "Pause upload"}
+                    </button>
+                    <button
+                      type="button"
+                      className="button danger"
+                      onClick={() => void uploadControl.cancel()}
+                    >
+                      Cancel upload
+                    </button>
+                  </div>
+                )}
+                {uploadPaused && (
+                  <div className="alert">
+                    Upload paused. Received chunks and reserved storage are kept
+                    for 24 hours.
+                  </div>
+                )}
               </form>
             </section>
             <section className="online-choice audience-lesson-choice">
@@ -4999,6 +5381,8 @@ function MediaView({
 }) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadControl, setUploadControl] = useState<MediaUploadControl>();
+  const [uploadPaused, setUploadPaused] = useState(false);
   const [showLink, setShowLink] = useState(false);
   const [previewMedia, setPreviewMedia] = useState<Media>();
   const availableLessons = [...lessons]
@@ -5154,8 +5538,9 @@ function MediaView({
   async function deleteSelected() {
     if (
       !selectedMedia.length ||
-      !confirm(
+      !await confirmAction(
         `Move ${selectedMedia.length} selected media item${selectedMedia.length === 1 ? "" : "s"} to the recycling bin? They can be restored for 30 days.`,
+        { destructive: true, confirmLabel: "Move to recycling bin" },
       )
     )
       return;
@@ -5263,7 +5648,7 @@ function MediaView({
     event.preventDefault();
     if (
       !manageMedia ||
-      !confirm(
+      !await confirmAction(
         `Replace ${manageMedia.fileName}? Every lesson and sign using it will receive the new version.`,
       )
     )
@@ -5288,7 +5673,7 @@ function MediaView({
   async function restoreMediaVersion(version: MediaVersion) {
     if (
       !manageMedia ||
-      !confirm(
+      !await confirmAction(
         `Restore version ${version.versionNumber} of ${version.fileName} as the new current version?`,
       )
     )
@@ -5399,6 +5784,10 @@ function MediaView({
             setUploadProgress(
               Math.round(((completed + percent / 100) / files.length) * 100),
             ),
+          onControlReady: (control) => {
+            setUploadControl(control);
+            if (!control) setUploadPaused(false);
+          },
         });
         completed++;
         setUploadProgress(Math.round((completed / files.length) * 100));
@@ -5728,6 +6117,38 @@ function MediaView({
                 ? `Uploading ${uploadProgress}%`
                 : "Upload to local server"}
             </button>
+            {uploading && uploadControl && (
+              <div className="button-row upload-controls">
+                <button
+                  type="button"
+                  className="button"
+                  onClick={async () => {
+                    if (uploadPaused) {
+                      await uploadControl.resume();
+                      setUploadPaused(false);
+                    } else {
+                      await uploadControl.pause();
+                      setUploadPaused(true);
+                    }
+                  }}
+                >
+                  {uploadPaused ? "Resume upload" : "Pause upload"}
+                </button>
+                <button
+                  type="button"
+                  className="button danger"
+                  onClick={() => void uploadControl.cancel()}
+                >
+                  Cancel upload
+                </button>
+              </div>
+            )}
+            {uploadPaused && (
+              <div className="alert">
+                Upload paused. Received chunks and reserved storage are kept for
+                24 hours.
+              </div>
+            )}
           </form>
         </Modal>
       )}
@@ -6178,7 +6599,7 @@ function MediaManagerModal({
                   {media.compatibilityError ||
                     (media.compatibilityStatus === "ready"
                       ? `LessonCue kept the original and serves a ${formatBytes(media.compatibilitySizeBytes || 0)} MP4 fallback to every TV${media.compatibilityTranscodeEngine ? `, created with ${media.compatibilityTranscodeEngine}` : ""}.`
-                      : "LessonCue checks every upload locally and converts only when the original may not play reliably on Android TV, Fire TV, or Apple TV.")}
+                      : "LessonCue checks every upload locally and converts only when the original may not play reliably on Android TV, Google TV, or Fire TV.")}
                 </p>
               </div>
               {media.compatibilityTranscodedAt && (
@@ -6774,7 +7195,7 @@ function ControllerView({
                   autoFocus
                 />
               </Field>
-              {unlockError && <div className="alert error">{unlockError}</div>}
+              {unlockError && <div className="alert error" role="alert">{unlockError}</div>}
               <button className="button primary wide" disabled={unlocking}>
                 {unlocking ? "Checking…" : "Open universal remote"}
               </button>
@@ -7187,8 +7608,42 @@ function ScreensView({
       notify(errorText(e));
     }
   }
+  async function assignClass(screen: Screen, assignedClassId?: string) {
+    if (!assignedClassId) {
+      await change(screen, { clearAssignment: true });
+      return;
+    }
+    try {
+      const result = await api<{
+        contract: DisplayCapabilityContract;
+        issues: DisplayCompatibilityIssue[];
+      }>(`/api/v1/screens/${screen.id}/assignment-check`, {
+        method: "POST",
+        body: JSON.stringify({ assignedClassId }),
+      });
+      if (
+        result.issues.length > 0 &&
+        !await confirmAction(
+          `${result.contract.displayName} will show a clear fallback card for:\n\n${result.issues
+            .slice(0, 8)
+            .map((issue) => `• ${issue.title}: ${issue.message}`)
+            .join("\n")}${result.issues.length > 8 ? `\n• …and ${result.issues.length - 8} more` : ""}\n\nAssign this class anyway?`,
+        )
+      )
+        return;
+      await change(screen, {
+        assignedClassId,
+        allowUnsupportedContent: result.issues.length > 0,
+      });
+    } catch (error) {
+      notify(errorText(error));
+    }
+  }
   async function revoke(screen: Screen) {
-    if (!confirm(`Revoke ${screen.name}? It will need to be paired again.`))
+    if (!await confirmAction(
+      `Revoke ${screen.name}? It will need to be paired again.`,
+      { destructive: true, confirmLabel: "Revoke screen" },
+    ))
       return;
     await api(`/api/v1/screens/${screen.id}`, { method: "DELETE" });
     refresh();
@@ -7382,12 +7837,7 @@ function ScreensView({
                       value={s.assignedClassId || ""}
                       disabled={!canManage || s.signageOnly}
                       onChange={(e) =>
-                        change(
-                          s,
-                          e.target.value
-                            ? { assignedClassId: e.target.value }
-                            : { clearAssignment: true },
-                        )
+                        void assignClass(s, e.target.value || undefined)
                       }
                     >
                       <option value="">Not assigned</option>
@@ -7784,7 +8234,7 @@ function TemplatesView({
     if (!editingTemplate) return;
     const values = Object.fromEntries(new FormData(event.currentTarget));
     if (
-      !confirm(
+      !await confirmAction(
         "Replace this template's playlist and timing defaults from the selected lesson? Existing generated lessons will not change.",
       )
     )
@@ -7930,8 +8380,9 @@ function TemplatesView({
   }
   async function removeTemplate(template: LessonTemplate) {
     if (
-      !confirm(
+      !await confirmAction(
         `Delete ${template.name}? Its ${template.scheduleCount} recurring schedule${template.scheduleCount === 1 ? "" : "s"} will also be removed. Existing lessons stay intact.`,
+        { destructive: true },
       )
     )
       return;
@@ -7947,8 +8398,9 @@ function TemplatesView({
   }
   async function removeSchedule(schedule: RecurringSchedule) {
     if (
-      !confirm(
+      !await confirmAction(
         `Delete ${schedule.name}? Existing generated lessons will stay in their classes.`,
+        { destructive: true },
       )
     )
       return;
@@ -8957,7 +9409,7 @@ function SignageView({
     }
   }
   async function remove(item: Signage) {
-    if (!confirm(`Delete ${item.name}?`)) return;
+    if (!await confirmAction(`Delete ${item.name}?`, { destructive: true })) return;
     try {
       await api(`/api/v1/signage/${item.id}`, { method: "DELETE" });
       refresh();
@@ -9453,9 +9905,50 @@ function SignageEditor({
       ArrowUp: [0, -amount],
       ArrowDown: [0, amount],
     };
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      ["ArrowLeft", "ArrowDown", "ArrowRight", "ArrowUp"].includes(event.key)
+    ) {
+      event.preventDefault();
+      layerZone(
+        zone,
+        event.key === "ArrowRight" || event.key === "ArrowUp"
+          ? "front"
+          : "back",
+      );
+      return;
+    }
+    if (event.key === "[" || event.key === "]") {
+      if (zone.locked) return;
+      event.preventDefault();
+      setZone(zone.id, {
+        rotation: Math.max(
+          -180,
+          Math.min(
+            180,
+            (zone.rotation ?? 0) +
+              (event.key === "]" ? amount : -amount),
+          ),
+        ),
+      });
+      return;
+    }
     const delta = movement[event.key];
     if (!delta || zone.locked) return;
     event.preventDefault();
+    if (event.altKey) {
+      setZone(zone.id, {
+        width: Math.max(
+          2,
+          Math.min(100 - zone.x, zone.width + delta[0]),
+        ),
+        height: Math.max(
+          2,
+          Math.min(100 - zone.y, zone.height + delta[1]),
+        ),
+      });
+      return;
+    }
     setZone(zone.id, {
       x: Math.max(0, Math.min(100 - zone.width, zone.x + delta[0])),
       y: Math.max(0, Math.min(100 - zone.height, zone.y + delta[1])),
@@ -9529,7 +10022,8 @@ function SignageEditor({
               <p>
                 Drag zones to move them. Use the square handle to resize and the
                 round handle to rotate. Arrow keys nudge the selected zone; hold
-                Shift for larger steps.
+                Shift for larger steps. Alt plus an arrow resizes, brackets
+                rotate, and Control or Command plus an arrow changes layer order.
               </p>
             </div>
             <button
@@ -10621,8 +11115,9 @@ function UsersView({
   }
   async function remove(user: User) {
     if (
-      !confirm(
+      !await confirmAction(
         `Delete ${user.displayName}? This permanently removes the local account and cannot be undone.`,
+        { destructive: true },
       )
     )
       return;
@@ -11203,7 +11698,7 @@ function RegistrationSettingsPanel({
   }
   async function rotateCode(item: RegistrationCode) {
     if (
-      !confirm(
+      !await confirmAction(
         `Replace “${item.label}”? The current code will stop working immediately.`,
       )
     )
@@ -11243,7 +11738,10 @@ function RegistrationSettingsPanel({
     }
   }
   async function revokeCode(item: RegistrationCode) {
-    if (!confirm(`Revoke “${item.label}”?`)) return;
+    if (!await confirmAction(`Revoke “${item.label}”?`, {
+      destructive: true,
+      confirmLabel: "Revoke code",
+    })) return;
     try {
       await api(`/api/v1/registration/codes/${item.id}`, { method: "DELETE" });
       await loadCodes();
@@ -11595,6 +12093,181 @@ function RegistrationSettingsPanel({
   );
 }
 
+function ServiceAdminMfaPanel({
+  notify,
+}: {
+  notify: (message: string) => void;
+}) {
+  const [status, setStatus] = useState<MfaStatus>();
+  const [setup, setSetup] = useState<MfaSetup>();
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() =>
+    api<MfaStatus>("/api/v1/auth/mfa")
+      .then(setStatus)
+      .catch((error) => notify(errorText(error))), [notify]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  async function beginSetup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const result = await api<MfaSetup>("/api/v1/auth/mfa/setup", {
+        method: "POST",
+        body: JSON.stringify({ currentPassword }),
+      });
+      setSetup(result);
+      setCurrentPassword("");
+      setCode("");
+      await load();
+      notify("Authenticator setup started. Verify one code to enable it.");
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function enableMfa(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await api("/api/v1/auth/mfa/enable", {
+        method: "POST",
+        body: JSON.stringify({ code }),
+      });
+      setSetup(undefined);
+      setCode("");
+      await load();
+      notify("Authenticator MFA enabled.");
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function disableMfa(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await api("/api/v1/auth/mfa", {
+        method: "DELETE",
+        body: JSON.stringify({ currentPassword, code }),
+      });
+      setCurrentPassword("");
+      setCode("");
+      setSetup(undefined);
+      await load();
+      notify("Authenticator MFA disabled.");
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="panel settings-panel settings-accounts">
+      <div className="settings-heading">
+        <div>
+          <span className="settings-kicker">SERVICE ADMIN SECURITY</span>
+          <h2>Authenticator MFA</h2>
+          <p className="settings-copy">
+            Require a time-based code from any standard authenticator app when
+            this Service Admin signs in.
+          </p>
+        </div>
+        <span
+          className={`update-state ${status?.enabled ? "current" : "available"}`}
+        >
+          {status?.enabled ? "Enabled" : "Optional"}
+        </span>
+      </div>
+      {status?.enabled ? (
+        <form className="stack" onSubmit={disableMfa}>
+          <p className="settings-copy">
+            Enabled
+            {status.totpEnabledAt
+              ? ` ${new Date(status.totpEnabledAt).toLocaleString()}`
+              : ""}. Disabling it signs out other sessions.
+          </p>
+          <Field label="Current password">
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </Field>
+          <Field label="Current authenticator code">
+            <input
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9 ]{6,8}"
+              required
+            />
+          </Field>
+          <button className="button danger" disabled={busy}>
+            {busy ? "Disabling…" : "Disable MFA"}
+          </button>
+        </form>
+      ) : setup ? (
+        <form className="stack mfa-setup" onSubmit={enableMfa}>
+          <div className="mfa-provisioning">
+            <QrCode value={setup.provisioningUri} />
+            <div>
+              <strong>1. Scan this code with your authenticator app.</strong>
+              <p>Or enter this setup key manually:</p>
+              <code>{setup.secret}</code>
+            </div>
+          </div>
+          <Field label="2. Verify the current six-digit code">
+            <input
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9 ]{6,8}"
+              required
+              autoFocus
+            />
+          </Field>
+          <button className="button primary" disabled={busy}>
+            {busy ? "Verifying…" : "Enable MFA"}
+          </button>
+        </form>
+      ) : (
+        <form className="stack" onSubmit={beginSetup}>
+          {status?.configured && (
+            <div className="alert">
+              A previous setup was not finished. Enter your password to create
+              a new setup code.
+            </div>
+          )}
+          <Field
+            label="Current password"
+            hint="SSH password recovery also disables MFA if the authenticator is lost."
+          >
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </Field>
+          <button className="button primary" disabled={busy}>
+            {busy ? "Preparing…" : "Set up authenticator MFA"}
+          </button>
+        </form>
+      )}
+    </section>
+  );
+}
+
 function TroubleshootingLogPanel({
   notify,
 }: {
@@ -11769,6 +12442,35 @@ function Settings({
   const [allocationGb, setAllocationGb] = useState(
     (bootstrap.storage.allocationBytes / 1024 ** 3).toFixed(1),
   );
+  const uploadPolicy = bootstrap.uploadQuotaPolicy;
+  const [maxUploadFileGb, setMaxUploadFileGb] = useState(
+    uploadPolicy?.maxFileBytes
+      ? (uploadPolicy.maxFileBytes / 1024 ** 3).toFixed(1)
+      : "0",
+  );
+  const [maxUploadDailyGb, setMaxUploadDailyGb] = useState(
+    uploadPolicy?.maxDailyBytes
+      ? (uploadPolicy.maxDailyBytes / 1024 ** 3).toFixed(1)
+      : "0",
+  );
+  const [maxActiveUploads, setMaxActiveUploads] = useState(
+    String(uploadPolicy?.maxActiveSessionsPerUser || 3),
+  );
+  const [uploadUserLimits, setUploadUserLimits] = useState(
+    quotaLimitsToText(uploadPolicy?.userDailyBytes),
+  );
+  const [uploadRoleLimits, setUploadRoleLimits] = useState(
+    quotaLimitsToText(uploadPolicy?.roleDailyBytes),
+  );
+  const [uploadClassLimits, setUploadClassLimits] = useState(
+    quotaLimitsToText(uploadPolicy?.classDailyBytes),
+  );
+  const [allowedVideoCodecs, setAllowedVideoCodecs] = useState(
+    uploadPolicy?.allowedVideoCodecs.join(", ") || "",
+  );
+  const [allowedAudioCodecs, setAllowedAudioCodecs] = useState(
+    uploadPolicy?.allowedAudioCodecs.join(", ") || "",
+  );
   const [adaptiveTranscoding, setAdaptiveTranscoding] = useState(
     bootstrap.settings.adaptiveTranscodingEnabled,
   );
@@ -11810,6 +12512,38 @@ function Settings({
   const [restoreResult, setRestoreResult] = useState<BackupRestoreResult>();
   const [restoreConfirmation, setRestoreConfirmation] = useState("");
   const [restoreBusy, setRestoreBusy] = useState(false);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupPassword, setBackupPassword] = useState("");
+  const [backupPasswordConfirmation, setBackupPasswordConfirmation] =
+    useState("");
+  const [backupIncludeSecrets, setBackupIncludeSecrets] = useState(false);
+  const [restorePassword, setRestorePassword] = useState("");
+  const [backupPolicy, setBackupPolicy] = useState<BackupPolicyStatus>();
+  const [backupDrill, setBackupDrill] = useState<BackupPreview>();
+  const [backupPolicyBusy, setBackupPolicyBusy] = useState(false);
+  const [policyEnabled, setPolicyEnabled] = useState(false);
+  const [policyFrequency, setPolicyFrequency] = useState<"daily" | "weekly">(
+    "daily",
+  );
+  const [policyHour, setPolicyHour] = useState("2");
+  const [policyWeeklyDay, setPolicyWeeklyDay] = useState("0");
+  const [policyFull, setPolicyFull] = useState(true);
+  const [policyRetentionCount, setPolicyRetentionCount] = useState("7");
+  const [policyRetentionDays, setPolicyRetentionDays] = useState("30");
+  const [policyIncludeSecrets, setPolicyIncludeSecrets] = useState(false);
+  const [policyPassword, setPolicyPassword] = useState("");
+  const [policyRemoteUrl, setPolicyRemoteUrl] = useState("");
+  const [policyRemoteAuthentication, setPolicyRemoteAuthentication] = useState<
+    "none" | "basic" | "bearer"
+  >("none");
+  const [policyRemoteUsername, setPolicyRemoteUsername] = useState("");
+  const [policyRemoteSecret, setPolicyRemoteSecret] = useState("");
+  const [migrationGrant, setMigrationGrant] =
+    useState<MigrationTransferGrant>();
+  const [migrationSourceAddress, setMigrationSourceAddress] = useState("");
+  const [migrationToken, setMigrationToken] = useState("");
+  const [migrationPassword, setMigrationPassword] = useState("");
+  const [migrationBusy, setMigrationBusy] = useState(false);
   const [recycleItems, setRecycleItems] = useState<RecycleItem[]>([]);
   const loadRecycleBin = () =>
     canManageApp
@@ -11823,6 +12557,25 @@ function Settings({
         .then(setRecycleItems)
         .catch(() => undefined);
   }, [canManageApp]);
+  useEffect(() => {
+    if (!canBackups) return;
+    void api<BackupPolicyStatus>("/api/v1/backups/policy")
+      .then((status) => {
+        setBackupPolicy(status);
+        setPolicyEnabled(status.enabled);
+        setPolicyFrequency(status.frequency);
+        setPolicyHour(String(status.hourLocal));
+        setPolicyWeeklyDay(String(status.weeklyDay ?? 0));
+        setPolicyFull(status.includeMedia);
+        setPolicyRetentionCount(String(status.retentionCount));
+        setPolicyRetentionDays(String(status.retentionDays));
+        setPolicyIncludeSecrets(status.secretHandling === "include");
+        setPolicyRemoteUrl(status.remoteWebDavUrl || "");
+        setPolicyRemoteAuthentication(status.remoteAuthentication);
+        setPolicyRemoteUsername(status.remoteUsername || "");
+      })
+      .catch((error) => notify(errorText(error)));
+  }, [canBackups, notify]);
   async function saveOrganization(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -11870,12 +12623,36 @@ function Settings({
     }
   }
   async function backup(full: boolean) {
+    if (backupPassword.length < 12) {
+      notify("Use a backup password with at least 12 characters.");
+      return;
+    }
+    if (backupPassword !== backupPasswordConfirmation) {
+      notify("The backup password confirmation does not match.");
+      return;
+    }
+    setBackupBusy(true);
     try {
-      await api(`/api/v1/backups?full=${full}`, { method: "POST", body: "{}" });
+      await api("/api/v1/backups", {
+        method: "POST",
+        body: JSON.stringify({
+          full,
+          password: backupPassword,
+          secretHandling: backupIncludeSecrets ? "include" : "exclude",
+        }),
+      });
+      setBackupPassword("");
+      setBackupPasswordConfirmation("");
       refresh();
-      notify(full ? "Full backup created." : "Configuration backup created.");
+      notify(
+        full
+          ? "Encrypted full backup created."
+          : "Encrypted configuration backup created.",
+      );
     } catch (e) {
       notify(errorText(e));
+    } finally {
+      setBackupBusy(false);
     }
   }
 
@@ -11883,11 +12660,103 @@ function Settings({
     try {
       const preview = await api<BackupPreview>(`/api/v1/backups/${item.id}/verify`, {
         method: "POST",
-        body: "{}",
+        body: JSON.stringify({ password: restorePassword }),
       });
-      notify(`Backup verified: ${preview.fileCount} files and a healthy database.`);
+      setBackupDrill(preview);
+      notify(
+        `Backup verified: ${preview.fileCount} files, authenticated manifest, and a healthy database.`,
+      );
     } catch (error) {
       notify(errorText(error));
+    }
+  }
+  async function saveBackupPolicy(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBackupPolicyBusy(true);
+    try {
+      const status = await api<BackupPolicyStatus>("/api/v1/backups/policy", {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled: policyEnabled,
+          frequency: policyFrequency,
+          hourLocal: Number(policyHour),
+          weeklyDay:
+            policyFrequency === "weekly" ? Number(policyWeeklyDay) : null,
+          includeMedia: policyFull,
+          retentionCount: Number(policyRetentionCount),
+          retentionDays: Number(policyRetentionDays),
+          secretHandling: policyIncludeSecrets ? "include" : "exclude",
+          backupPassword: policyPassword || null,
+          remoteWebDavUrl: policyRemoteUrl || null,
+          remoteAuthentication: policyRemoteAuthentication,
+          remoteUsername: policyRemoteUsername || null,
+          remoteSecret: policyRemoteSecret || null,
+        }),
+      });
+      setBackupPolicy(status);
+      setPolicyPassword("");
+      setPolicyRemoteSecret("");
+      notify("Scheduled backup policy saved.");
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      setBackupPolicyBusy(false);
+    }
+  }
+  async function runBackupPolicy() {
+    setBackupPolicyBusy(true);
+    try {
+      const status = await api<BackupPolicyStatus>(
+        "/api/v1/backups/policy/run",
+        { method: "POST", body: "{}" },
+      );
+      setBackupPolicy(status);
+      refresh();
+      notify("Scheduled backup created, verified, and delivered.");
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      setBackupPolicyBusy(false);
+    }
+  }
+  async function createMigrationLink(item: Backup) {
+    setMigrationBusy(true);
+    try {
+      const grant = await api<MigrationTransferGrant>(
+        `/api/v1/backups/${item.id}/migration-link`,
+        { method: "POST", body: "{}" },
+      );
+      setMigrationGrant(grant);
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      setMigrationBusy(false);
+    }
+  }
+  async function previewMigration(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMigrationBusy(true);
+    try {
+      const preview = await api<BackupPreview>(
+        "/api/v1/backups/migration/preview",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            sourceAddress: migrationSourceAddress,
+            transferToken: migrationToken,
+            password: migrationPassword,
+          }),
+        },
+      );
+      setRestorePreview(preview);
+      setRestoreResult(undefined);
+      setRestoreConfirmation("");
+      setMigrationToken("");
+      setMigrationPassword("");
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      setMigrationBusy(false);
     }
   }
   async function previewBackupRestore(event: FormEvent<HTMLFormElement>) {
@@ -11902,6 +12771,7 @@ function Settings({
       setRestorePreview(preview);
       setRestoreResult(undefined);
       setRestoreConfirmation("");
+      setRestorePassword("");
     } catch (e) {
       notify(errorText(e));
     } finally {
@@ -11945,6 +12815,51 @@ function Settings({
           ? "Storage allocation will adjust automatically."
           : "Storage allocation saved.",
       );
+    } catch (e) {
+      notify(errorText(e));
+    }
+  }
+  async function saveUploadPolicy(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      const toBytes = (value: string) =>
+        value.trim() === "" || Number(value) === 0
+          ? 0
+          : Math.round(Number(value) * 1024 ** 3);
+      const policy = await api<UploadQuotaPolicy>("/api/v1/upload-policy", {
+        method: "PUT",
+        body: JSON.stringify({
+          maxFileBytes: toBytes(maxUploadFileGb),
+          maxDailyBytes: toBytes(maxUploadDailyGb),
+          maxActiveSessionsPerUser: Number(maxActiveUploads),
+          userDailyBytes: quotaLimitsFromText(uploadUserLimits),
+          roleDailyBytes: quotaLimitsFromText(uploadRoleLimits),
+          classDailyBytes: quotaLimitsFromText(uploadClassLimits),
+          allowedVideoCodecs: allowedVideoCodecs
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+          allowedAudioCodecs: allowedAudioCodecs
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+        }),
+      });
+      setMaxUploadFileGb(
+        policy.maxFileBytes
+          ? (policy.maxFileBytes / 1024 ** 3).toFixed(1)
+          : "0",
+      );
+      setMaxUploadDailyGb(
+        policy.maxDailyBytes
+          ? (policy.maxDailyBytes / 1024 ** 3).toFixed(1)
+          : "0",
+      );
+      setUploadUserLimits(quotaLimitsToText(policy.userDailyBytes));
+      setUploadRoleLimits(quotaLimitsToText(policy.roleDailyBytes));
+      setUploadClassLimits(quotaLimitsToText(policy.classDailyBytes));
+      notify("Upload limits saved.");
+      refresh();
     } catch (e) {
       notify(errorText(e));
     }
@@ -12025,7 +12940,7 @@ function Settings({
   }
   async function installUpdate() {
     if (
-      !confirm(
+      !await confirmAction(
         `Install LessonCue ${bootstrap.update.latestVersion}? The local interface will be unavailable briefly while the server restarts.`,
       )
     )
@@ -12035,6 +12950,29 @@ function Settings({
       await api("/api/v1/updates/install", { method: "POST", body: "{}" });
       notify("Installing the update. LessonCue will reconnect automatically.");
       await waitForVersion(bootstrap.update.latestVersion);
+      location.reload();
+    } catch (e) {
+      notify(errorText(e));
+      setInstalling(false);
+    }
+  }
+  async function rollbackUpdate() {
+    const target = bootstrap.update.rollbackTargetVersion;
+    if (
+      !await confirmAction(
+        `Restore the protected ${target ? `LessonCue ${target} ` : ""}last-known-good snapshot? This replaces the current application, database, and server configuration with their pre-update copies. Media files are not changed.`,
+        { destructive: true, confirmLabel: "Restore snapshot" },
+      )
+    )
+      return;
+    setInstalling(true);
+    try {
+      const result = await api<{
+        message: string;
+        targetVersion?: string;
+      }>("/api/v1/updates/rollback", { method: "POST", body: "{}" });
+      notify(result.message);
+      await waitForVersion(result.targetVersion);
       location.reload();
     } catch (e) {
       notify(errorText(e));
@@ -12098,7 +13036,7 @@ function Settings({
     event.preventDefault();
     const port = Number(httpPort);
     if (
-      !confirm(
+      !await confirmAction(
         `Change LessonCue's browser port to ${port}? The interface will restart. Saved browser links and screens using the old address must be updated.`,
       )
     )
@@ -12143,8 +13081,9 @@ function Settings({
     if (
       !tunnelEnabled &&
       bootstrap.cloudflareTunnel.enabled &&
-      !confirm(
+      !await confirmAction(
         "Disable remote access through this Cloudflare Tunnel? Local LessonCue access will continue to work.",
+        { destructive: true, confirmLabel: "Disable remote access" },
       )
     )
       return;
@@ -12204,8 +13143,9 @@ function Settings({
   }
   async function purgeRecycleBin() {
     if (
-      !confirm(
+      !await confirmAction(
         "Permanently purge every item in the recycling bin? Files and records cannot be recovered after this.",
+        { destructive: true, confirmLabel: "Permanently purge" },
       )
     )
       return;
@@ -12223,6 +13163,9 @@ function Settings({
     }
   }
   const o = bootstrap.settings;
+  const caddyOriginPort =
+    bootstrap.httpPort.port === 443 ? 8080 : bootstrap.httpPort.port;
+  const caddyConfig = `${bootstrap.localAddress.hostname}.local {\n  tls internal\n  reverse_proxy 127.0.0.1:${caddyOriginPort}\n}`;
   return (
     <>
       <PageHead
@@ -12311,6 +13254,7 @@ function Settings({
             />
           </div>
         )}
+        {canServiceSettings && <ServiceAdminMfaPanel notify={notify} />}
         {restorePreview && (
           <Modal
             title={restoreResult ? "Restore complete" : "Review backup restore"}
@@ -12351,9 +13295,20 @@ function Settings({
               <div className="restore-review">
                 <div className="restore-heading">
                   <div>
-                    <span>{restorePreview.kind.toUpperCase()} BACKUP</span>
+                    <span>
+                      {restorePreview.encrypted ? "ENCRYPTED " : ""}
+                      {restorePreview.kind.toUpperCase()} BACKUP
+                    </span>
                     <h3>{restorePreview.organization}</h3>
-                    <p>{restorePreview.fileName}</p>
+                    <p>
+                      {restorePreview.fileName} · Server secrets{" "}
+                      {restorePreview.secretHandling === "include"
+                        ? "included"
+                        : restorePreview.secretHandling === "exclude"
+                          ? "excluded"
+                          : "use legacy behavior"}{" "}
+                      · Source version {restorePreview.sourceVersion || "unknown"}
+                    </p>
                   </div>
                   <strong>{formatBytes(restorePreview.compressedBytes)}</strong>
                 </div>
@@ -12408,6 +13363,101 @@ function Settings({
             )}
           </Modal>
         )}
+        {backupDrill && (
+          <Modal
+            title="Restore-readiness drill passed"
+            onClose={() => setBackupDrill(undefined)}
+          >
+            <div className="restore-complete">
+              <div className="success-mark">✓</div>
+              <h3>{backupDrill.fileName} is recoverable</h3>
+              <p>
+                LessonCue authenticated the complete encrypted envelope,
+                checked every manifest digest, opened SQLite read-only, ran its
+                integrity check, and confirmed the required tables and media
+                inventory without changing this server.
+              </p>
+              <div className="restore-counts">
+                <Definition
+                  label="Archive files"
+                  value={String(backupDrill.fileCount)}
+                />
+                <Definition
+                  label="Database"
+                  value="Healthy"
+                />
+                <Definition
+                  label="Media files"
+                  value={String(backupDrill.mediaFiles)}
+                />
+                <Definition
+                  label="Encryption"
+                  value={backupDrill.encrypted ? "Authenticated" : "Legacy ZIP"}
+                />
+              </div>
+              <div className="danger-callout">
+                <strong>Complete the human part of the drill.</strong>
+                <p>
+                  Confirm the password is stored separately, download this
+                  backup to another device, and record who can reach it. For
+                  the strongest test, restore that copy on a spare LessonCue
+                  server rather than replacing this production server.
+                </p>
+              </div>
+              <button
+                className="button primary wide"
+                onClick={() => setBackupDrill(undefined)}
+              >
+                Finish drill
+              </button>
+            </div>
+          </Modal>
+        )}
+        {migrationGrant && (
+          <Modal
+            title="One-time server transfer"
+            onClose={() => setMigrationGrant(undefined)}
+          >
+            <div className="migration-grant">
+              <div className="privacy-callout">
+                <strong>{migrationGrant.fileName}</strong>
+                <p>
+                  This encrypted backup can be downloaded once, until{" "}
+                  {new Date(migrationGrant.expiresAt).toLocaleString()}. The
+                  source server never receives its backup password.
+                </p>
+              </div>
+              <Field label="Source LessonCue address">
+                <input
+                  readOnly
+                  value={
+                    bootstrap.cloudflareTunnel.publicUrl ||
+                    bootstrap.httpPort.address
+                  }
+                />
+              </Field>
+              <Field label="One-time transfer token">
+                <textarea readOnly value={migrationGrant.token} rows={2} />
+              </Field>
+              <button
+                className="button primary wide"
+                onClick={() => {
+                  void navigator.clipboard.writeText(
+                    `${bootstrap.cloudflareTunnel.publicUrl || bootstrap.httpPort.address}\n${migrationGrant.token}`,
+                  );
+                  notify("Source address and one-time token copied.");
+                }}
+              >
+                Copy transfer details
+              </button>
+              <p className="settings-copy">
+                On the destination server, open Privacy & backups and paste
+                these values under <strong>Move from another server</strong>.
+                Enter the backup password separately.
+              </p>
+            </div>
+          </Modal>
+        )}
         <div className="settings-grid">
           {canUpdates && (
             <section className="panel wide-settings update-settings settings-panel settings-system">
@@ -12447,7 +13497,46 @@ function Settings({
                 />
               </div>
               {bootstrap.update.error && (
-                <div className="alert error">{bootstrap.update.error}</div>
+                <div className="alert error" role="alert">{bootstrap.update.error}</div>
+              )}
+              {!bootstrap.update.error &&
+                bootstrap.update.lastInstallMessage &&
+                bootstrap.update.lastInstallAt && (
+                  <div
+                    className={`alert ${
+                      bootstrap.update.lastInstallSucceeded === false
+                        ? "error"
+                        : "success"
+                    }`}
+                  >
+                    {bootstrap.update.lastInstallMessage}{" "}
+                    <span className="muted">
+                      ({timeAgo(bootstrap.update.lastInstallAt)})
+                    </span>
+                  </div>
+                )}
+              {bootstrap.update.rollbackSnapshotAvailable && (
+                <div className="rollback-available">
+                  <p className="settings-copy">
+                    A protected last-known-good application, database,
+                    configuration, updater, and service snapshot
+                    {bootstrap.update.rollbackTargetVersion
+                      ? ` for LessonCue ${bootstrap.update.rollbackTargetVersion}`
+                      : ""}{" "}
+                    is available. Media files are not replaced.
+                  </p>
+                  {canServiceSettings && (
+                    <button
+                      className="button danger"
+                      onClick={rollbackUpdate}
+                      disabled={installing}
+                    >
+                      {installing
+                        ? "Server operation in progress…"
+                        : "Restore last-known-good snapshot"}
+                    </button>
+                  )}
+                </div>
               )}
               <div className="head-actions">
                 <button
@@ -12702,6 +13791,10 @@ function Settings({
                   label="Available for uploads"
                   value={formatBytes(bootstrap.storage.remainingBytes)}
                 />
+                <Definition
+                  label="Reserved by active uploads"
+                  value={formatBytes(bootstrap.storage.reservedBytes)}
+                />
               </div>
               <StorageMeter storage={bootstrap.storage} />
               <form className="stack storage-form" onSubmit={saveStorage}>
@@ -12735,6 +13828,153 @@ function Settings({
                   </div>
                 </Field>
                 <button className="button primary">Save storage limit</button>
+              </form>
+            </section>
+          )}
+          {canServiceSettings && (
+            <section className="panel wide-settings settings-panel settings-media">
+              <div className="settings-heading">
+                <div>
+                  <span className="settings-kicker">UPLOAD SAFETY</span>
+                  <h2>Upload limits</h2>
+                  <p className="settings-copy">
+                    Limit file size and daily use without changing the main
+                    storage allocation. Enter 0 for no size or daily limit.
+                    Active uploads always reserve their full declared size.
+                  </p>
+                </div>
+                <span className="update-state current">
+                  {maxActiveUploads} active per account
+                </span>
+              </div>
+              <form className="stack" onSubmit={saveUploadPolicy}>
+                <div className="three-fields">
+                  <Field label="Maximum file size" hint="0 means unlimited.">
+                    <div className="number-suffix">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        value={maxUploadFileGb}
+                        onChange={(event) =>
+                          setMaxUploadFileGb(event.target.value)
+                        }
+                      />
+                      <span>GB</span>
+                    </div>
+                  </Field>
+                  <Field
+                    label="Default daily allowance"
+                    hint="Per account, reset at 00:00 UTC; 0 means unlimited."
+                  >
+                    <div className="number-suffix">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={maxUploadDailyGb}
+                        onChange={(event) =>
+                          setMaxUploadDailyGb(event.target.value)
+                        }
+                      />
+                      <span>GB</span>
+                    </div>
+                  </Field>
+                  <Field
+                    label="Active uploads per account"
+                    hint="Paused and failed resumable uploads count."
+                  >
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={maxActiveUploads}
+                      onChange={(event) =>
+                        setMaxActiveUploads(event.target.value)
+                      }
+                    />
+                  </Field>
+                </div>
+                <details>
+                  <summary>Advanced per-user, role, class, and codec limits</summary>
+                  <div className="stack details-body">
+                    <div className="three-fields">
+                      <Field
+                        label="User daily overrides"
+                        hint={"One per line: username = GB or account UUID = GB"}
+                      >
+                        <textarea
+                          rows={5}
+                          value={uploadUserLimits}
+                          onChange={(event) =>
+                            setUploadUserLimits(event.target.value)
+                          }
+                          placeholder="alex = 5"
+                        />
+                      </Field>
+                      <Field
+                        label="Role daily overrides"
+                        hint="One per line: role = GB. The stricter applicable limit wins."
+                      >
+                        <textarea
+                          rows={5}
+                          value={uploadRoleLimits}
+                          onChange={(event) =>
+                            setUploadRoleLimits(event.target.value)
+                          }
+                          placeholder={"Editor = 10\nViewer = 2"}
+                        />
+                      </Field>
+                      <Field
+                        label="Class daily limits"
+                        hint="One per line: class name or UUID = GB. Shared by everyone uploading to that class."
+                      >
+                        <textarea
+                          rows={5}
+                          value={uploadClassLimits}
+                          onChange={(event) =>
+                            setUploadClassLimits(event.target.value)
+                          }
+                          placeholder="Learning Lab = 20"
+                        />
+                      </Field>
+                    </div>
+                    <div className="two-fields">
+                      <Field
+                        label="Allowed video codecs"
+                        hint="Comma-separated FFmpeg names such as h264, hevc, vp9. Blank allows all."
+                      >
+                        <input
+                          value={allowedVideoCodecs}
+                          onChange={(event) =>
+                            setAllowedVideoCodecs(event.target.value)
+                          }
+                          placeholder="All video codecs"
+                        />
+                      </Field>
+                      <Field
+                        label="Allowed audio codecs"
+                        hint="Comma-separated FFmpeg names such as aac, mp3, opus. Blank allows all."
+                      >
+                        <input
+                          value={allowedAudioCodecs}
+                          onChange={(event) =>
+                            setAllowedAudioCodecs(event.target.value)
+                          }
+                          placeholder="All audio codecs"
+                        />
+                      </Field>
+                    </div>
+                    <div className="alert">
+                      Codec rules are verified from the file itself during
+                      processing, not from its name or browser-supplied type.
+                      A disallowed codec is marked failed with a specific
+                      explanation.
+                    </div>
+                  </div>
+                </details>
+                <button className="button primary">Save upload limits</button>
               </form>
             </section>
           )}
@@ -12937,6 +14177,62 @@ function Settings({
                   <button className="button primary">Save local address</button>
                 </form>
               )}
+            </section>
+          )}
+          {canServiceSettings && (
+            <section className="panel wide-settings settings-panel settings-connections">
+              <div className="settings-heading">
+                <div>
+                  <span className="settings-kicker">LOCAL NETWORK SECURITY</span>
+                  <h2>Optional local HTTPS</h2>
+                  <p className="settings-copy">
+                    Browsers on a trusted private network may use local HTTP.
+                    Use a local reverse proxy when this network is shared or
+                    untrusted.
+                  </p>
+                </div>
+                <span
+                  className={`update-state ${location.protocol === "https:" ? "current" : "available"}`}
+                >
+                  {location.protocol === "https:"
+                    ? "HTTPS protected"
+                    : "Local HTTP"}
+                </span>
+              </div>
+              {bootstrap.httpPort.port === 80 && (
+                <div className="alert">
+                  Change LessonCue’s browser port to 8080 before placing Caddy
+                  on ports 80 and 443.
+                </div>
+              )}
+              <Field label="Caddy configuration">
+                <textarea readOnly rows={4} value={caddyConfig} />
+              </Field>
+              <div className="head-actions">
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(caddyConfig);
+                    notify("Caddy configuration copied.");
+                  }}
+                >
+                  Copy configuration
+                </button>
+                <a
+                  className="button"
+                  href="https://github.com/nickhighland/lessoncue/blob/main/docs/local-network-security.md"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Setup & trust instructions
+                </a>
+              </div>
+              <p className="settings-copy">
+                Do not expose LessonCue’s origin port to the internet. Remote
+                access must use an HTTPS reverse proxy, VPN, or the protected
+                Cloudflare option below.
+              </p>
             </section>
           )}
           {canManageApp && (
@@ -13281,13 +14577,325 @@ function Settings({
                 </div>
               </div>
               <div className="backup-actions">
-                <button className="button" onClick={() => backup(false)}>
+                <label>
+                  <span>Encryption password</span>
+                  <input
+                    type="password"
+                    value={backupPassword}
+                    minLength={12}
+                    maxLength={1024}
+                    autoComplete="new-password"
+                    placeholder="At least 12 characters"
+                    onChange={(event) => setBackupPassword(event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>Confirm password</span>
+                  <input
+                    type="password"
+                    value={backupPasswordConfirmation}
+                    minLength={12}
+                    maxLength={1024}
+                    autoComplete="new-password"
+                    onChange={(event) =>
+                      setBackupPasswordConfirmation(event.target.value)
+                    }
+                  />
+                </label>
+                <label className="check backup-secret-choice">
+                  <input
+                    type="checkbox"
+                    checked={backupIncludeSecrets}
+                    onChange={(event) =>
+                      setBackupIncludeSecrets(event.target.checked)
+                    }
+                  />
+                  Include this server&apos;s encrypted provider credentials,
+                  pairing secrets, and data-protection keys
+                </label>
+                <p className="settings-copy backup-password-note">
+                  LessonCue never stores this password. Keep it somewhere
+                  separate from the downloaded backup. Excluding server secrets
+                  is safest for ordinary exports and migrations.
+                </p>
+                <button
+                  className="button"
+                  onClick={() => void backup(false)}
+                  disabled={backupBusy}
+                >
                   Back up settings
                 </button>
-                <button className="button primary" onClick={() => backup(true)}>
+                <button
+                  className="button primary"
+                  onClick={() => void backup(true)}
+                  disabled={backupBusy}
+                >
                   Full backup
                 </button>
               </div>
+              <form
+                className="backup-policy-form"
+                onSubmit={saveBackupPolicy}
+              >
+                <div className="settings-section-heading">
+                  <div>
+                    <span>AUTOMATIC RECOVERY COPIES</span>
+                    <h3>Scheduled and off-server backups</h3>
+                    <p>
+                      Create, authenticate, verify, retain, and optionally send
+                      encrypted backups to an HTTPS WebDAV folder.
+                    </p>
+                  </div>
+                  <label className="toggle-line">
+                    <input
+                      type="checkbox"
+                      checked={policyEnabled}
+                      onChange={(event) =>
+                        setPolicyEnabled(event.target.checked)
+                      }
+                    />
+                    Enabled
+                  </label>
+                </div>
+                {backupPolicy?.lastError && (
+                  <div className="alert error" role="alert">{backupPolicy.lastError}</div>
+                )}
+                {backupPolicy?.overdue && !backupPolicy.lastError && (
+                  <div className="alert error">
+                    The most recent verified scheduled backup is overdue.
+                  </div>
+                )}
+                {backupPolicy?.lastSucceededAt && (
+                  <div className="alert success">
+                    Last verified{" "}
+                    {timeAgo(
+                      backupPolicy.lastVerifiedAt ||
+                        backupPolicy.lastSucceededAt,
+                    )}
+                    {backupPolicy.lastBackupFileName
+                      ? ` · ${backupPolicy.lastBackupFileName}`
+                      : ""}
+                    {backupPolicy.nextRunAt
+                      ? ` · Next ${new Date(
+                          backupPolicy.nextRunAt,
+                        ).toLocaleString()}`
+                      : ""}
+                  </div>
+                )}
+                <div className="two-fields">
+                  <Field label="Frequency">
+                    <select
+                      value={policyFrequency}
+                      onChange={(event) =>
+                        setPolicyFrequency(
+                          event.target.value as "daily" | "weekly",
+                        )
+                      }
+                    >
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                    </select>
+                  </Field>
+                  <Field label={`Hour in ${bootstrap.timeZone}`}>
+                    <select
+                      value={policyHour}
+                      onChange={(event) => setPolicyHour(event.target.value)}
+                    >
+                      {Array.from({ length: 24 }, (_, hour) => (
+                        <option key={hour} value={hour}>
+                          {new Date(2000, 0, 1, hour).toLocaleTimeString([], {
+                            hour: "numeric",
+                          })}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
+                {policyFrequency === "weekly" && (
+                  <Field label="Weekday">
+                    <select
+                      value={policyWeeklyDay}
+                      onChange={(event) =>
+                        setPolicyWeeklyDay(event.target.value)
+                      }
+                    >
+                      {[
+                        "Sunday",
+                        "Monday",
+                        "Tuesday",
+                        "Wednesday",
+                        "Thursday",
+                        "Friday",
+                        "Saturday",
+                      ].map((day, index) => (
+                        <option key={day} value={index}>
+                          {day}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
+                <div className="two-fields">
+                  <Field label="Keep newest copies">
+                    <input
+                      type="number"
+                      min={1}
+                      max={365}
+                      value={policyRetentionCount}
+                      onChange={(event) =>
+                        setPolicyRetentionCount(event.target.value)
+                      }
+                    />
+                  </Field>
+                  <Field label="Maximum age in days">
+                    <input
+                      type="number"
+                      min={1}
+                      max={3650}
+                      value={policyRetentionDays}
+                      onChange={(event) =>
+                        setPolicyRetentionDays(event.target.value)
+                      }
+                    />
+                  </Field>
+                </div>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={policyFull}
+                    onChange={(event) => setPolicyFull(event.target.checked)}
+                  />
+                  Include the media library
+                </label>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={policyIncludeSecrets}
+                    onChange={(event) =>
+                      setPolicyIncludeSecrets(event.target.checked)
+                    }
+                  />
+                  Include local provider credentials, pairing secrets, and
+                  data-protection keys
+                </label>
+                <Field
+                  label={
+                    backupPolicy?.backupPasswordConfigured
+                      ? "Replace scheduled-backup password (optional)"
+                      : "Scheduled-backup password"
+                  }
+                >
+                  <input
+                    type="password"
+                    minLength={12}
+                    maxLength={1024}
+                    value={policyPassword}
+                    autoComplete="new-password"
+                    placeholder={
+                      backupPolicy?.backupPasswordConfigured
+                        ? "Leave blank to keep the saved protected password"
+                        : "At least 12 characters"
+                    }
+                    onChange={(event) => setPolicyPassword(event.target.value)}
+                  />
+                </Field>
+                <div className="backup-remote-settings">
+                  <h4>Optional HTTPS WebDAV copy</h4>
+                  <p className="settings-copy">
+                    Use a folder URL from a WebDAV-capable NAS or storage
+                    provider. LessonCue uploads each already-encrypted `.lcbak`
+                    file with HTTP PUT.
+                  </p>
+                  <Field label="WebDAV folder URL">
+                    <input
+                      type="url"
+                      value={policyRemoteUrl}
+                      placeholder="https://backup.example.org/lessoncue/"
+                      onChange={(event) =>
+                        setPolicyRemoteUrl(event.target.value)
+                      }
+                    />
+                  </Field>
+                  {policyRemoteUrl && (
+                    <>
+                      <div className="two-fields">
+                        <Field label="Authentication">
+                          <select
+                            value={policyRemoteAuthentication}
+                            onChange={(event) =>
+                              setPolicyRemoteAuthentication(
+                                event.target.value as
+                                  | "none"
+                                  | "basic"
+                                  | "bearer",
+                              )
+                            }
+                          >
+                            <option value="none">None</option>
+                            <option value="basic">Username and password</option>
+                            <option value="bearer">Bearer token</option>
+                          </select>
+                        </Field>
+                        {policyRemoteAuthentication === "basic" && (
+                          <Field label="Username">
+                            <input
+                              value={policyRemoteUsername}
+                              onChange={(event) =>
+                                setPolicyRemoteUsername(event.target.value)
+                              }
+                            />
+                          </Field>
+                        )}
+                      </div>
+                      {policyRemoteAuthentication !== "none" && (
+                        <Field
+                          label={
+                            backupPolicy?.remoteSecretConfigured
+                              ? "Replace remote credential (optional)"
+                              : policyRemoteAuthentication === "basic"
+                                ? "Password"
+                                : "Bearer token"
+                          }
+                        >
+                          <input
+                            type="password"
+                            maxLength={4096}
+                            value={policyRemoteSecret}
+                            autoComplete="new-password"
+                            placeholder={
+                              backupPolicy?.remoteSecretConfigured
+                                ? "Leave blank to keep the saved protected credential"
+                                : ""
+                            }
+                            onChange={(event) =>
+                              setPolicyRemoteSecret(event.target.value)
+                            }
+                          />
+                        </Field>
+                      )}
+                    </>
+                  )}
+                </div>
+                <div className="head-actions">
+                  <button
+                    className="button primary"
+                    disabled={backupPolicyBusy}
+                  >
+                    {backupPolicyBusy ? "Working…" : "Save backup policy"}
+                  </button>
+                  <button
+                    className="button"
+                    type="button"
+                    onClick={() => void runBackupPolicy()}
+                    disabled={
+                      backupPolicyBusy ||
+                      !backupPolicy?.backupPasswordConfigured
+                    }
+                  >
+                    Create and verify now
+                  </button>
+                </div>
+              </form>
               <form
                 className="backup-restore-upload"
                 onSubmit={previewBackupRestore}
@@ -13297,13 +14905,81 @@ function Settings({
                   <input
                     name="file"
                     type="file"
-                    accept=".zip,application/zip"
+                    accept=".lcbak,.zip,application/vnd.lessoncue.backup,application/zip"
                     required
                     disabled={restoreBusy}
                   />
                 </label>
+                <label>
+                  <span>Backup password</span>
+                  <input
+                    name="password"
+                    type="password"
+                    value={restorePassword}
+                    maxLength={1024}
+                    autoComplete="current-password"
+                    placeholder="Required for .lcbak files"
+                    onChange={(event) => setRestorePassword(event.target.value)}
+                  />
+                </label>
                 <button className="button" disabled={restoreBusy}>
                   {restoreBusy ? "Validating…" : "Validate and preview"}
+                </button>
+              </form>
+              <form
+                className="migration-pull-form"
+                onSubmit={previewMigration}
+              >
+                <div>
+                  <span className="settings-kicker">SERVER MIGRATION</span>
+                  <h3>Move from another LessonCue server</h3>
+                  <p className="settings-copy">
+                    Pull a one-time encrypted backup directly over the local
+                    network or HTTPS, then review the normal restore preview.
+                  </p>
+                </div>
+                <Field label="Source LessonCue address">
+                  <input
+                    type="url"
+                    required
+                    value={migrationSourceAddress}
+                    placeholder="http://192.168.1.50 or https://lesson.example.org"
+                    onChange={(event) =>
+                      setMigrationSourceAddress(event.target.value)
+                    }
+                  />
+                </Field>
+                <Field label="One-time transfer token">
+                  <input
+                    required
+                    minLength={64}
+                    maxLength={64}
+                    value={migrationToken}
+                    autoComplete="off"
+                    onChange={(event) =>
+                      setMigrationToken(event.target.value)
+                    }
+                  />
+                </Field>
+                <Field label="Backup password">
+                  <input
+                    type="password"
+                    required
+                    value={migrationPassword}
+                    maxLength={1024}
+                    autoComplete="current-password"
+                    onChange={(event) =>
+                      setMigrationPassword(event.target.value)
+                    }
+                  />
+                </Field>
+                <button
+                  className="button"
+                  disabled={migrationBusy}
+                >
+                  {migrationBusy
+                    ? "Transferring and validating…"
+                    : "Transfer and preview"}
                 </button>
               </form>
               {backups.slice(0, 4).map((item) => (
@@ -13312,7 +14988,19 @@ function Settings({
                     <span>{item.kind} · {formatBytes(item.sizeBytes)}</span>
                     <small>{new Date(item.createdAt).toLocaleString()}</small>
                   </a>
-                  <button className="button" onClick={() => void verifyBackup(item)}>Verify</button>
+                  <button
+                    className="button"
+                    onClick={() => void verifyBackup(item)}
+                  >
+                    Run restore drill
+                  </button>
+                  <button
+                    className="button"
+                    onClick={() => void createMigrationLink(item)}
+                    disabled={migrationBusy}
+                  >
+                    Transfer
+                  </button>
                 </div>
               ))}
             </section>
@@ -14333,17 +16021,21 @@ function Modal({
   children: ReactNode;
 }) {
   const heading = `dialog-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const { dialogRef, onDialogKeyDown } =
+    useDialogFocus<HTMLDivElement>(onClose);
   return (
     <div
       className="modal-backdrop"
       onMouseDown={(e) => e.currentTarget === e.target && onClose()}
-      onKeyDown={(e) => e.key === "Escape" && onClose()}
     >
       <div
+        ref={dialogRef}
         className="modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby={heading}
+        tabIndex={-1}
+        onKeyDown={onDialogKeyDown}
       >
         <div className="modal-title">
           <h2 id={heading}>{title}</h2>
@@ -14505,7 +16197,7 @@ function signageFormPayload(form: FormData) {
   const startValue = String(form.get("startsAt") || "");
   const endValue = String(form.get("endsAt") || "");
   const endTime = String(form.get("endTime") || "");
-  let zones: SignageZone[] = [];
+  let zones: SignageZone[];
   try {
     zones = JSON.parse(String(form.get("zonesJson") || "[]"));
   } catch {
@@ -14947,6 +16639,31 @@ function localDateTimeValue(value?: string) {
 }
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong.";
+}
+function quotaLimitsToText(values?: Record<string, number>) {
+  return Object.entries(values || {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(
+      ([key, bytes]) =>
+        `${key} = ${Number((bytes / 1024 ** 3).toFixed(3))}`,
+    )
+    .join("\n");
+}
+function quotaLimitsFromText(value: string) {
+  const result: Record<string, number> = {};
+  for (const source of value.split("\n")) {
+    const line = source.trim();
+    if (!line) continue;
+    const separator = line.lastIndexOf("=");
+    const key = line.slice(0, separator).trim();
+    const gigabytes = Number(line.slice(separator + 1).trim());
+    if (separator < 1 || !key || !Number.isFinite(gigabytes) || gigabytes <= 0)
+      throw new Error(
+        `Invalid upload limit “${line}”. Use one entry per line in the form name = GB.`,
+      );
+    result[key] = Math.round(gigabytes * 1024 ** 3);
+  }
+  return result;
 }
 function isServiceAdminRole(role: string) {
   return role === "Service Admin" || role === "Owner";

@@ -35,6 +35,7 @@ public sealed class Organization
     [MaxLength(200)] public string EmailFromAddress { get; set; } = "";
     [MaxLength(120)] public string EmailFromName { get; set; } = "LessonCue";
     [MaxLength(16)] public string EmailProvider { get; set; } = "none";
+    [MaxLength(24000)] public string UploadQuotaPolicyJson { get; set; } = "{}";
 }
 
 public sealed class AdminAccount
@@ -55,6 +56,10 @@ public sealed class AdminAccount
     public bool PendingApproval { get; set; }
     public bool PendingSetup { get; set; }
     public bool MustChangePassword { get; set; }
+    [JsonIgnore, MaxLength(2048)] public string? TotpSecretProtected { get; set; }
+    public bool TotpEnabled { get; set; }
+    public long TotpLastCounter { get; set; }
+    public DateTimeOffset? TotpEnabledAt { get; set; }
 }
 
 public sealed class AccountToken
@@ -297,6 +302,37 @@ public sealed class MediaAsset
     public int ConversionSlideDurationSeconds { get; set; } = 10;
     public List<MediaAssetVersion> Versions { get; set; } = [];
     public List<MediaTranscodeVariant> TranscodeVariants { get; set; } = [];
+}
+
+public sealed class UploadSession
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid OwnerAccountId { get; set; }
+    [MaxLength(80)] public string OwnerUsername { get; set; } = "";
+    [MaxLength(32)] public string OwnerRole { get; set; } = "";
+    [MaxLength(255)] public required string FileName { get; set; }
+    [MaxLength(100)] public string DeclaredContentType { get; set; } = "application/octet-stream";
+    public long ExpectedLength { get; set; }
+    public int ChunkSize { get; set; }
+    public int ChunkCount { get; set; }
+    [MaxLength(100000)] public string ChunkBitmap { get; set; } = "";
+    [MaxLength(64)] public string? ExpectedSha256 { get; set; }
+    [MaxLength(64)] public string? ContentSha256 { get; set; }
+    public long ReceivedBytes { get; set; }
+    public long ReservedBytes { get; set; }
+    [MaxLength(24)] public string State { get; set; } = UploadSessionStates.Active;
+    [MaxLength(1000)] public string? FailureReason { get; set; }
+    public bool Persistent { get; set; }
+    public Guid? LessonId { get; set; }
+    public Guid? ClassId { get; set; }
+    [MaxLength(120)] public string Folder { get; set; } = "";
+    [MaxLength(500)] public string TagsCsv { get; set; } = "";
+    public long? DurationMs { get; set; }
+    public Guid? MediaAssetId { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset ExpiresAt { get; set; } = DateTimeOffset.UtcNow.AddHours(24);
+    public DateTimeOffset? CompletedAt { get; set; }
 }
 
 public sealed class MediaTranscodeVariant
@@ -644,6 +680,11 @@ public sealed record TemporaryControllerSessionInput(Guid ClassId, Guid? LessonI
 public sealed record PermanentControllerSessionInput(Guid ClassId, Guid? LessonId);
 public sealed record RecycleBinItem(string Kind, Guid Id, string Title, string Detail,
     DateTimeOffset DeletedAt, string? DeletedBy);
+public sealed record BackupCreateInput(
+    bool Full = false,
+    string? Password = null,
+    string SecretHandling = "exclude");
+public sealed record BackupPasswordInput(string? Password = null);
 public sealed record BackupRestoreInput(Guid RestoreId, string Confirmation);
 public sealed record TvStatusInput(Guid ScreenId, string AppVersion, bool Online, long FreeBytes,
     int ManifestVersion, int FailedDownloads, int? AcknowledgedControlVersion = null,
@@ -664,7 +705,10 @@ public sealed record TvDiagnosticErrorInput(DateTimeOffset Timestamp, string Are
 public sealed record AdminSetupInput(string OrganizationName, string Username, string Password,
     string? DisplayName = null, string? TimeZone = null, string? Email = null,
     string? SiteName = null, string? WeekStartsOn = null);
-public sealed record AdminLoginInput(string Username, string Password);
+public sealed record AdminLoginInput(string Username, string Password, string? MfaCode = null);
+public sealed record MfaSetupInput(string CurrentPassword);
+public sealed record MfaCodeInput(string Code);
+public sealed record MfaDisableInput(string CurrentPassword, string Code);
 public sealed record RegistrationInput(string Username, string DisplayName, string Email, string Password, string? Code);
 public sealed record VerifyAccountInput(string Token);
 public sealed record PasswordRecoveryInput(string Email);
@@ -712,7 +756,8 @@ public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool
     bool ClearAssignment = false, string? TagsCsv = null, string? Site = null,
     bool? AllowDiagnosticScreenshots = null, string? SignageOrientation = null,
     int? SignageWidth = null, int? SignageHeight = null, bool? SignageOnly = null,
-    bool? PermanentPairing = null);
+    bool? PermanentPairing = null, bool AllowUnsupportedContent = false);
+public sealed record ScreenAssignmentCheckInput(Guid? AssignedClassId);
 public sealed record ScreenControlInput(string Action, Guid? LessonId = null, Guid? ItemId = null, long? PositionMs = null);
 public sealed record UserInput(string Username, string DisplayName, string? Email, string Role, string? Password,
     bool Disabled = false, List<string>? Permissions = null);
@@ -785,7 +830,8 @@ public sealed record SignageContentPlaylistInput(string Name, string? Folder, st
     string? Synchronization, List<SignageContentPlaylistItemInput>? Items);
 public sealed record SignagePlaylistSaveInput(Guid? Id, SignageContentPlaylistInput Playlist);
 public sealed record SignageSignInput(string Name, Guid LayoutId,
-    Dictionary<string, Guid>? PlaylistAssignments, List<Guid>? ScreenIds);
+    Dictionary<string, Guid>? PlaylistAssignments, List<Guid>? ScreenIds,
+    bool AllowUnsupportedContent = false);
 public sealed record SignagePublishInput(bool PushToScreens = true);
 public sealed record SignageBulkAssignmentInput(List<Guid>? SignageIds, List<Guid>? ScreenIds,
     string? TargetTagsCsv, bool Publish = true);
@@ -802,8 +848,16 @@ public sealed record SignageScreenFormatInput(string? Orientation, int? Width = 
 public sealed record SignageCredentialInput(string Key, string Kind, string? Username, string? HeaderName, string Secret);
 public sealed record LinkInput(string Url, string? Title, bool Download = false, bool Persistent = true,
     Guid? LessonId = null, string? Folder = null, string? TagsCsv = null, bool ImportPresentation = false);
-public sealed record UploadCompleteInput(string FileName, string ContentType, int TotalChunks, long? DurationMs,
-    bool Persistent = false, Guid? LessonId = null, string? Folder = null, string? TagsCsv = null);
+public sealed record UploadCreateInput(string FileName, long TotalBytes, string? ContentType = null,
+    string? ExpectedSha256 = null, bool Persistent = false, Guid? LessonId = null,
+    string? Folder = null, string? TagsCsv = null, long? DurationMs = null);
+public sealed record UploadCompleteInput(string? FileName = null, string? ContentType = null, int? TotalChunks = null,
+    long? DurationMs = null, bool? Persistent = null, Guid? LessonId = null,
+    string? Folder = null, string? TagsCsv = null);
+public sealed record UploadQuotaPolicyInput(long MaxFileBytes = 0, long MaxDailyBytes = 0,
+    int MaxActiveSessionsPerUser = 3, Dictionary<string, long>? UserDailyBytes = null,
+    Dictionary<string, long>? RoleDailyBytes = null, Dictionary<string, long>? ClassDailyBytes = null,
+    List<string>? AllowedVideoCodecs = null, List<string>? AllowedAudioCodecs = null);
 public sealed record MediaBulkInput(List<Guid> MediaIds, string? Action, DateOnly? DeleteOn = null,
     string? Folder = null, string? TagsCsv = null, string? FileNamePrefix = null);
 public sealed record MediaOrganizeInput(string? FileName, string? Folder, string? TagsCsv);

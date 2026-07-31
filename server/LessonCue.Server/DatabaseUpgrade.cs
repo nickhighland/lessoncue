@@ -27,7 +27,11 @@ public static class DatabaseUpgrade
                 "Email" TEXT NULL,
                 "Role" TEXT NOT NULL DEFAULT 'Service Admin',
                 "Disabled" INTEGER NOT NULL DEFAULT 0,
-                "SessionVersion" INTEGER NOT NULL DEFAULT 1
+                "SessionVersion" INTEGER NOT NULL DEFAULT 1,
+                "TotpSecretProtected" TEXT NULL,
+                "TotpEnabled" INTEGER NOT NULL DEFAULT 0,
+                "TotpLastCounter" INTEGER NOT NULL DEFAULT 0,
+                "TotpEnabledAt" TEXT NULL
             );
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_AdminAccounts_Username" ON "AdminAccounts" ("Username");
             CREATE INDEX IF NOT EXISTS "IX_AdminAccounts_Email" ON "AdminAccounts" ("Email");
@@ -75,6 +79,38 @@ public static class DatabaseUpgrade
                 CONSTRAINT "FK_MediaAssetVersions_MediaAssets_MediaAssetId" FOREIGN KEY ("MediaAssetId") REFERENCES "MediaAssets" ("Id") ON DELETE CASCADE
             );
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_MediaAssetVersions_MediaAssetId_VersionNumber" ON "MediaAssetVersions" ("MediaAssetId", "VersionNumber");
+            CREATE TABLE IF NOT EXISTS "UploadSessions" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_UploadSessions" PRIMARY KEY,
+                "OwnerAccountId" TEXT NOT NULL,
+                "OwnerUsername" TEXT NOT NULL DEFAULT '',
+                "OwnerRole" TEXT NOT NULL DEFAULT '',
+                "FileName" TEXT NOT NULL,
+                "DeclaredContentType" TEXT NOT NULL DEFAULT 'application/octet-stream',
+                "ExpectedLength" INTEGER NOT NULL,
+                "ChunkSize" INTEGER NOT NULL,
+                "ChunkCount" INTEGER NOT NULL,
+                "ChunkBitmap" TEXT NOT NULL,
+                "ExpectedSha256" TEXT NULL,
+                "ContentSha256" TEXT NULL,
+                "ReceivedBytes" INTEGER NOT NULL DEFAULT 0,
+                "ReservedBytes" INTEGER NOT NULL DEFAULT 0,
+                "State" TEXT NOT NULL DEFAULT 'active',
+                "FailureReason" TEXT NULL,
+                "Persistent" INTEGER NOT NULL DEFAULT 0,
+                "LessonId" TEXT NULL,
+                "ClassId" TEXT NULL,
+                "Folder" TEXT NOT NULL DEFAULT '',
+                "TagsCsv" TEXT NOT NULL DEFAULT '',
+                "DurationMs" INTEGER NULL,
+                "MediaAssetId" TEXT NULL,
+                "CreatedAt" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL,
+                "ExpiresAt" TEXT NOT NULL,
+                "CompletedAt" TEXT NULL
+            );
+            CREATE INDEX IF NOT EXISTS "IX_UploadSessions_OwnerAccountId_State" ON "UploadSessions" ("OwnerAccountId", "State");
+            CREATE INDEX IF NOT EXISTS "IX_UploadSessions_ExpiresAt" ON "UploadSessions" ("ExpiresAt");
+            CREATE INDEX IF NOT EXISTS "IX_UploadSessions_CompletedAt" ON "UploadSessions" ("CompletedAt");
             CREATE TABLE IF NOT EXISTS "SignagePlaylists" (
                 "Id" TEXT NOT NULL CONSTRAINT "PK_SignagePlaylists" PRIMARY KEY,
                 "Name" TEXT NOT NULL,
@@ -359,6 +395,7 @@ public static class DatabaseUpgrade
             ["Organizations.EmailFromAddress"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"EmailFromAddress\" TEXT NOT NULL DEFAULT ''"),
             ["Organizations.EmailFromName"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"EmailFromName\" TEXT NOT NULL DEFAULT 'LessonCue'"),
             ["Organizations.EmailProvider"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"EmailProvider\" TEXT NOT NULL DEFAULT 'none'"),
+            ["Organizations.UploadQuotaPolicyJson"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"UploadQuotaPolicyJson\" TEXT NOT NULL DEFAULT '{}'"),
             ["MediaAssets.ConversionLessonId"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"ConversionLessonId\" TEXT NULL"),
             ["MediaAssets.ConversionSlideDurationSeconds"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"ConversionSlideDurationSeconds\" INTEGER NOT NULL DEFAULT 10"),
             ["Classes.ControllerSlug"] = ("Classes", "ALTER TABLE \"Classes\" ADD COLUMN \"ControllerSlug\" TEXT NOT NULL DEFAULT ''"),
@@ -380,6 +417,10 @@ public static class DatabaseUpgrade
             ["AdminAccounts.PendingApproval"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"PendingApproval\" INTEGER NOT NULL DEFAULT 0"),
             ["AdminAccounts.PendingSetup"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"PendingSetup\" INTEGER NOT NULL DEFAULT 0"),
             ["AdminAccounts.MustChangePassword"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"MustChangePassword\" INTEGER NOT NULL DEFAULT 0"),
+            ["AdminAccounts.TotpSecretProtected"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"TotpSecretProtected\" TEXT NULL"),
+            ["AdminAccounts.TotpEnabled"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"TotpEnabled\" INTEGER NOT NULL DEFAULT 0"),
+            ["AdminAccounts.TotpLastCounter"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"TotpLastCounter\" INTEGER NOT NULL DEFAULT 0"),
+            ["AdminAccounts.TotpEnabledAt"] = ("AdminAccounts", "ALTER TABLE \"AdminAccounts\" ADD COLUMN \"TotpEnabledAt\" TEXT NULL"),
             ["Lessons.Archived"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"Archived\" INTEGER NOT NULL DEFAULT 0"),
             ["Lessons.KeepOffline"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"KeepOffline\" INTEGER NOT NULL DEFAULT 0"),
             ["Lessons.DownloadDaysBefore"] = ("Lessons", "ALTER TABLE \"Lessons\" ADD COLUMN \"DownloadDaysBefore\" INTEGER NOT NULL DEFAULT 7"),

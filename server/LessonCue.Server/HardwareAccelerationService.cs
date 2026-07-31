@@ -148,7 +148,7 @@ public sealed class HardwareAccelerationService(ILogger<HardwareAccelerationServ
         {
             try
             {
-                await RunAsync("ffmpeg", hardwareArguments, Timeout.InfiniteTimeSpan, ct, pipeline.VaDriver);
+                await RunUntrustedAsync("ffmpeg", hardwareArguments, outputPath, ct, pipeline.VaDriver);
                 await ValidateMp4Async(outputPath, ct);
                 lock (_statusLock) _status = _status with
                 {
@@ -172,7 +172,7 @@ public sealed class HardwareAccelerationService(ILogger<HardwareAccelerationServ
             }
         }
 
-        await RunAsync("ffmpeg", softwareArguments, Timeout.InfiniteTimeSpan, ct);
+        await RunUntrustedAsync("ffmpeg", softwareArguments, outputPath, ct);
         await ValidateMp4Async(outputPath, ct);
         return new TranscodeExecutionResult("Software", hardwareFailure);
     }
@@ -366,6 +366,21 @@ public sealed class HardwareAccelerationService(ILogger<HardwareAccelerationServ
             try { if (!process.HasExited) process.Kill(true); } catch { }
             throw;
         }
+    }
+
+    private static Task<string> RunUntrustedAsync(string fileName, string arguments,
+        string outputPath, CancellationToken ct, string? vaDriver = null)
+    {
+        var outputDirectory = Path.GetDirectoryName(Path.GetFullPath(outputPath))
+            ?? throw new InvalidOperationException("The transcode output directory is invalid.");
+        Directory.CreateDirectory(outputDirectory);
+        IReadOnlyDictionary<string, string>? environment = string.IsNullOrWhiteSpace(vaDriver)
+            ? null
+            : new Dictionary<string, string> { ["LIBVA_DRIVER_NAME"] = vaDriver };
+        return ConstrainedProcessRunner.RunAsync(fileName,
+            ConstrainedProcessRunner.SplitArguments(arguments),
+            ConstrainedProcessOptions.Media([outputDirectory]) with { Environment = environment },
+            ct);
     }
 
     private static string Escape(string value) => value.Replace("\"", "\\\"");

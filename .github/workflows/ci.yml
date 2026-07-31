@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+env:
+  TRIVY_VERSION: 0.72.0
+  TRIVY_LINUX_X64_SHA256: bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea
+
 jobs:
   web:
     runs-on: ubuntu-latest
@@ -18,6 +22,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run test:protocol
       - run: npm run lint
       - run: npm test
 
@@ -42,6 +47,28 @@ jobs:
         with:
           name: lessoncue-server-portable
           path: artifacts/server
+
+  linux-updater-transaction:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exercise update, failure rollback, operator rollback, and boot recovery
+        run: >-
+          docker run --rm
+          -v "${PWD}:/workspace:ro"
+          debian:trixie-slim
+          bash /workspace/tests/linux-updater-transaction.sh /workspace
+
+  linux-media-worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exercise filesystem, network, and time isolation
+        run: >-
+          docker run --rm --privileged
+          -v "${PWD}:/workspace:ro"
+          debian:trixie-slim
+          bash /workspace/tests/linux-media-worker.sh /workspace
 
   browser-e2e:
     runs-on: ubuntu-latest
@@ -84,18 +111,28 @@ jobs:
             android-tv/app/build/outputs/apk/sideload/debug/app-sideload-debug.apk
             android-tv/app/build/outputs/apk/store/debug/app-store-debug.apk
 
-  tvos:
-    runs-on: macos-15
+  windows-installer:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - run: swift build --package-path tvos
-      - run: brew install xcodegen
-      - run: xcodegen generate
-        working-directory: tvos
-      - run: >-
-          xcodebuild -project tvos/LessonCueTV.xcodeproj -scheme LessonCueTV
-          -sdk appletvsimulator -destination 'generic/platform=tvOS Simulator'
-          CODE_SIGNING_ALLOWED=NO build
+      - name: Parse Windows installer scripts
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($path in @('installers/windows/Install-LessonCue.ps1', 'installers/windows/Uninstall-LessonCue.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $path),
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error "$path`: $($_.Message)" }
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
 
   container:
     runs-on: ubuntu-latest
@@ -107,4 +144,23 @@ jobs:
           context: .
           file: server/LessonCue.Server/Dockerfile
           push: false
+          load: true
           tags: lessoncue/server:ci
+      - name: Install checksum-pinned Trivy
+        run: bash scripts/install-trivy.sh "${RUNNER_TEMP}/lessoncue-security"
+      - name: Scan tracked source for secrets and insecure configuration
+        run: |
+          "${RUNNER_TEMP}/lessoncue-security/trivy" fs \
+            --scanners misconfig,secret \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --skip-dirs .git \
+            .
+      - name: Scan the exact container image
+        run: |
+          "${RUNNER_TEMP}/lessoncue-security/trivy" image \
+            --scanners vuln,misconfig,secret \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            lessoncue/server:ci

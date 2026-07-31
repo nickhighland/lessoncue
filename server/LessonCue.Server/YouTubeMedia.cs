@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
@@ -77,27 +76,11 @@ public sealed class YouTubeImportService(
 
             Directory.CreateDirectory(temporary);
             var outputTemplate = Path.Combine(temporary, "%(title).150B [%(id)s].%(ext)s");
-            var start = new ProcessStartInfo(executable)
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            foreach (var argument in new[] { "--no-config", "--no-playlist", "--newline", "--restrict-filenames",
-                         "--max-filesize", snapshot.RemainingBytes.ToString(), "-f", "best[ext=mp4]", "-o", outputTemplate,
-                         "--print", "after_move:filepath", item.SourceUrl! })
-                start.ArgumentList.Add(argument);
-
-            using var process = new Process { StartInfo = start };
-            process.Start();
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-            var stderrTask = process.StandardError.ReadToEndAsync(ct);
-            await process.WaitForExitAsync(ct);
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
-            if (process.ExitCode != 0)
-                throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr) ? "YouTube download failed." : stderr.Trim());
+            var stdout = await ConstrainedProcessRunner.RunAsync(executable,
+                ["--no-config", "--no-playlist", "--newline", "--restrict-filenames",
+                 "--max-filesize", snapshot.RemainingBytes.ToString(), "-f", "best[ext=mp4]", "-o", outputTemplate,
+                 "--print", "after_move:filepath", item.SourceUrl!],
+                ConstrainedProcessOptions.Download(temporary, snapshot.RemainingBytes), ct);
 
             var downloaded = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(Path.GetFullPath).LastOrDefault(File.Exists);
@@ -109,6 +92,7 @@ public sealed class YouTubeImportService(
 
             var extension = Path.GetExtension(downloaded).ToLowerInvariant();
             if (extension != ".mp4") throw new InvalidOperationException("YouTube did not provide an MP4 version of this video.");
+            MediaContentInspector.RequireValid(downloaded, downloaded);
             var storedName = item.Id + extension;
             var destination = Path.Combine(paths.Originals, storedName);
             Directory.CreateDirectory(paths.Originals);

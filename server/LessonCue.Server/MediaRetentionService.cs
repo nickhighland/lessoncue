@@ -10,6 +10,7 @@ public sealed record MediaStoragePaths(string DataPath)
     public string Versions => Path.Combine(DataPath, "media", "versions");
     public string Compatibility => Path.Combine(DataPath, "media", "compatibility");
     public string Transcodes => Path.Combine(DataPath, "media", "transcodes");
+    public string Temporary => Path.Combine(DataPath, "media", "temporary");
 }
 
 public static class MediaRetention

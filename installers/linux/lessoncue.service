@@ -20,7 +20,22 @@ Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
+ProtectHome=true
 ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RemoveIPC=true
+UMask=0077
+TasksMax=160
+LimitNOFILE=8192
+LimitCORE=0
 ReadWritePaths=/var/lib/lessoncue
 
 [Install]

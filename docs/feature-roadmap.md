@@ -1,53 +1,82 @@
 # LessonCue feature roadmap
 
-This roadmap retains the completed milestone log and re-prioritizes remaining development around user experience and practical capability. It is a planning document, not a promise that every remaining item will be built.
+This roadmap is the authoritative order of work for LessonCue. Reliability, recoverability, security, and an honest supported-platform contract now take precedence over adding more product surface. Completed release history is retained below for context, but historical claims do not override the current priorities and platform decision.
 
-The order is based on five product priorities:
+## Current platform decision
 
-1. Prepare lesson media reliably.
-2. Organize lessons by classroom and date.
-3. Ensure media is compatible and ready before use.
-4. Play it reliably on TVs, computers, and projectors.
-5. Let a volunteer control it simply from a phone or presentation remote.
+- [x] **Explicitly defer and abandon tvOS for the current product cycle.** Apple TV is not a supported, tested, documented, or release-blocking LessonCue target. The existing `tvos/` source is retained only as an archived starting point for a possible future project. Current development, compatibility promises, CI, release validation, installation instructions, and roadmap work target the self-hosted browser player plus Android TV, Google TV, and Fire TV. Reintroducing Apple TV will require a new roadmap item, current-device research, an active test target, feature-parity acceptance criteria, and dedicated signing/release ownership.
 
-## Recommended next priorities
+## Most urgent production-hardening work
 
-1. [x] **Signage element fidelity and live layout preview (top priority)**: Make the Layout builder a true live preview of the assigned screen output—not a simplified mockup—so every saved option is rendered the same way in the editor and on a paired display. Complete the element controls below with safe containment, responsive sizing, and immediate preview updates.
-   - [x] **Text message**: Add a rich-text editor with per-word or per-run font family, color, size, weight, italic, underline, alignment, and line-spacing controls.
-   - [x] **Image or logo**: Support resize, drag-to-reposition, and deliberate overflow beyond the element boundary for cropping and centering; never render an automatic text overlay on an image-only element.
-   - [x] **QR code**: Regenerate the QR image as its value changes; make every label and helper phrase editable, including defaults such as “Scan for details.”
-   - [x] **Wi-Fi QR**: Provide separate network-name, password, security-type, and label fields; generate the connection QR code immediately as values change so compatible devices can join the selected network after scanning.
-   - [x] **Weather**: Add white or color icon styles and selectable fields for current conditions, forecast, high, low, humidity, wind, precipitation, sunrise, and sunset.
-   - [x] **Time and date**: Add 12- or 24-hour choice, AM/PM visibility, time/date order, weekday, year, and selectable date formats.
-   - [x] **Calendar feed**: Load approved `.ics` feeds in the editor preview; choose a fixed number of upcoming events or **fill the available space**, and choose which event fields appear (date, time, title, description, and location).
-   - [x] **Inspector navigation**: Fix the nonfunctional **Element** tab in the Layout builder. It must either switch to a focused, usable selected-element panel or be removed so the inspector does not present a control that does nothing.
-   - [x] **Playlist element assignment**: Select the looping signage playlist directly from the Playlist Area inspector and configure separate local dates and times for optional RTMP start and end boundaries.
-   - [x] **Responsive QR composition**: Resize website and Wi-Fi QR graphics independently, preserve manually entered line breaks in every label, and reflow label text into the remaining frame space.
-   - [x] **Weather layouts and data mapping**: Restore Open-Meteo, National Weather Service, and approved custom JSON sources; map the selected high, low, forecast, precipitation, humidity, wind, sunrise, and sunset values; and provide icon position plus independent title, icon, temperature, and detail sizing.
-   - [x] **Public Google Calendar compatibility**: Safely accept public `calendar.google.com/calendar/ical/` feeds without weakening the general source allowlist, omit completed events, and surface preview-refresh errors in the Layout builder.
-   - [x] **Audience poll integration**: Select an existing anonymous Audience session inside the Layout builder, a looping Signage playlist, or a lesson plan. Show the same local, contained voting QR/code; refresh open or closed state; display the active prompt; and optionally show permitted results in real time or after a placement-specific hidden delay.
+Work through this section in order. Do not declare an item complete merely because the happy path works.
 
-2. [x] **Presentation animation and transition preservation investigation**: Evaluated local rendering, HTML export, virtual-display capture, proprietary automation, hosted playback, and direct OOXML rendering. No reliable headless cross-platform path preserves PowerPoint, Keynote, and Google Slides semantics without proprietary applications, fragile UI automation, or cloud playback. Static conversion remains the supported default; exact-motion decks should be exported to H.264/AAC MP4 in their native application before upload. See [presentation-animation-preservation.md](presentation-animation-preservation.md).
+1. [ ] **Restore core lesson, TV, and signage workflows:**
+   - [ ] Lessons must be selectable before and after their scheduled times.
+   - [ ] Standard Google TV and Fire TV devices must play every supported media type reliably.
+   - [ ] Replace the current "Add Media" flow with a simpler chooser: "Upload new media", "Add an audience poll", "Add online media or slides", and "Choose existing media". Each choice should open its own section and use a friendlier layout.
+   - [ ] When adding online media, include a "Do not download locally" checkbox as a secondary option.
+   - [ ] Lessons must appear correctly in the TV app when they are properly assigned.
+   - [ ] Media selected from a remote must reach the target screens.
+   - [ ] When a class is created or edited, allow a color to be selected so the remote can consistently reflect that class.
+   - [ ] Hide app information when the TV app is being used for signage.
+   - [ ] Match browser signage and on-screen signage rendering, including font sizing and playable elements.
+   - [ ] Cache signage media locally on each device so repeated playback does not re-fetch the same images and videos from the server.
 
-3. [x] **Audience interaction**: Local QR response sessions now provide single-choice, multiple-choice, and written-response questions; explicit draft/open/closed state; one anonymous response per device with optional revision; approved live aggregates; written-response moderation; public-route rate limits; audit history; administrator reset/deletion; and automatic 1–30 day retention. Participant identity, IP address, browser, and device details are not retained, per-session token hashing prevents cross-session correlation, and the workflow never sends playback or display commands. See [audience-interaction.md](audience-interaction.md).
+9. [ ] **Baseline WCAG 2.2 AA accessibility**
+   - [ ] Add automated accessibility checks and manual keyboard, screen-reader, zoom, contrast, reduced-motion, touch-target, and remote-control acceptance tests.
+   - [ ] Replace browser-native prompts and confirmations with accessible dialogs, focus management, inline validation, live status announcements, and reliable error recovery.
+   - [ ] Give every pointer-driven editor action a keyboard equivalent, including selection, movement, resizing, ordering, and saving.
 
-4. [ ] **Validated backup, restore, migration, and rollback improvements**: At low priority, retain scheduled local backups, backup verification, guided restore tests, database integrity checks, corruption safe mode, server migration, and safe software rollback. Keep the existing validated browser restore workflow as the foundation.  Server migration - a complete backup/restore from one server to another - including server-to-server transfer - is priority here.
-   - [x] Add on-demand verification for stored backup archives, including safe ZIP-path validation, SQLite integrity checking, required-table checks, media-record comparison, administrator feedback, and an audit event.
-   - [ ] Add scheduled backup policies, guided restore drills, corruption safe mode, direct server-to-server transfer, and operator-controlled application rollback.
+10. [ ] **Scalable queries, startup, and retention**
+    - [ ] Paginate and filter media, audit, users, lessons, classes, screens, and signage on the server; load each browser workspace incrementally.
+    - [ ] Build manifests from only the applicable lessons, layouts, playlists, and referenced media instead of loading broad tables into memory.
+    - [ ] Add and measure appropriate indexes, SQLite WAL/busy-timeout behavior, write contention, and database maintenance.
+    - [ ] Bound or archive audit events, account tokens, pairing attempts, proof-of-play records, and other operational history.
 
-5. [ ] **Local captions, transcripts, chapters, and searchable content**: At low priority, support optional local models for transcript, caption, chapter, and searchable-content generation, with explicit administrator control and no required cloud processing.
+11. [ ] **Bounded, recoverable background processing**
+    - [ ] Add duration-aware watchdogs and process-tree termination for FFmpeg, FFprobe, presentation conversion, downloads, and stream relays.
+    - [ ] Add durable queue leases, bounded retries, cancellation, dead-letter state, administrator retry/cancel controls, and restart recovery.
+    - [ ] Report queue depth, oldest job, processing resources, converter versions, and recent failures.
 
-6. [ ] **Essential screen management without enterprise fleet management**: Keep screen groups, assignments, tags, saved filters, detailed heartbeat, cache inventory, download retry, remote cache purge, re-download, application restart, diagnostics export, kiosk checks, startup validation, screen-saver suppression, and incompatible-version alerts. Do not expand this into full device-management infrastructure.
+12. [ ] **Referential integrity and lifecycle safety**
+    - [ ] Prevent deleted or expired audience sessions from leaving permanent display media or broken lesson/signage references.
+    - [ ] Add dependency impact previews, safe cascading cleanup or archival, broken-reference detection, and manifest invalidation.
+    - [ ] Apply the same reference-safety contract to media, layouts, playlists, templates, classes, and users.
 
-7. [ ] **Media upload and library workflow improvements**: Add resumable uploads, pause and retry, folder drag-and-drop, transfer progress, duplicate and near-duplicate detection, safe reference consolidation, favorites and collections, improved search, and administrator-defined storage and upload limits by server, user, role, class, file size, codec, or daily quota.
+13. [ ] **Release-grade automated and physical testing**
+    - [ ] Split the oversized browser workflow into independent domain suites and add component, accessibility, contract, migration, update, rollback, backup, restore, and failure-injection tests.
+    - [ ] Execute Android instrumentation tests on an emulator and maintain a real Google TV, Shield TV, and Fire TV acceptance matrix.
+    - [ ] Require a clean install, upgrade from supported prior releases, interrupted upgrade, restored backup, and constrained-storage test before publishing.
 
-8. [ ] **Advanced editing and playback tools**: At very low priority, consider editable fade curves, sophisticated crossfades, loudness normalization, audio ducking, background audio across multiple items, pan and zoom animation, gapless playback across media types, and supported offline webpage packaging. These should remain hidden behind Advanced mode and should not delay core reliability or operator usability.
+14. [ ] **Operational readiness and support diagnostics**
+    - [ ] Add a Service Admin dashboard for database integrity, storage reserve and projected exhaustion, queue health, converter readiness, update state, backup age, and screen errors.
+    - [ ] Create a downloadable redacted support bundle with bounded logs, configuration shape, versions, health results, and recent failures but no secrets, tokens, PINs, or private media.
+    - [ ] Add administrator alerts for failing backups, stuck work, low storage, incompatible displays, and repeated playback errors.
 
-9. [ ] **Precisely synchronized multi-screen playback**: At low priority, add measured clock offset, latency compensation, drift correction, and readiness checks for installations that require coordinated playback across multiple screens.  This will also be important for synchronized signage.
+15. [ ] **Remove obsolete surfaces and correct product claims**
+    - [ ] Remove or archive the superseded signage editor, APIs, state, and documentation that still compile or imply discarded scheduling/publishing/emergency behavior.
+    - [ ] Publish one current browser/Android feature matrix and mark experimental or browser-only behavior accurately.
+    - [ ] Reconcile README, installation, implementation, security, troubleshooting, API, and roadmap claims with verified behavior.
 
-10. [ ] **Mobile administration, onboarding, and simplified volunteer workflows**: Add role-specific dashboards, contextual onboarding, a dismissible setup checklist, favorites, recent items, a simplified volunteer controller, temporary and event-only accounts, urgent mobile schedule and account changes, and clearer separation between planning, administration, and live playback.
+## Least urgent improvements
 
-11. [ ] **Optional accessibility and usability modes**: Add user-controlled toggles for high contrast, reduced motion, larger touch targets, simplified controller layouts, low-vision support, limited-motor-control support, and cognitive-simplicity modes so accessibility-oriented interface changes apply only to users who enable them. Maintain baseline keyboard navigation, visible focus, logical headings, screen-reader announcements, and color-safe status indicators for all users.
+Begin these only when the production-hardening dependencies above are stable.
+
+1. [ ] **Modular frontend architecture**: Split the oversized application and signage files into domain modules, reusable accessible components, typed API clients, isolated state, and focused tests.
+2. [ ] **Frontend performance and code splitting**: Lazy-load signage, settings, media editing, reports, and heavy playback libraries; set and enforce bundle budgets.
+3. [ ] **Reliable PWA/offline behavior**: Add versioned cache population, safe eviction, quota reporting, offline status, background synchronization, and explicit recovery from incompatible cached releases.
+4. [ ] **Advanced editing and playback**: Add editable fade curves, crossfades, loudness normalization, audio ducking, background audio, pan/zoom, chapters, and gapless playback behind an Advanced mode.
+5. [ ] **Precisely synchronized multi-screen playback**: Add measured clock offset, latency compensation, drift correction, readiness barriers, and synchronization diagnostics.
+6. [ ] **Essential screen fleet tools**: Add groups, tags, saved filters, remote cache purge, re-download, restart, kiosk/startup validation, screen-saver checks, and diagnostics export without becoming a general device-management platform.
+7. [ ] **Local captions, transcripts, chapters, and search**: Support optional local models under explicit administrator control with no required cloud processing.
+8. [ ] **Role-specific onboarding and mobile workflows**: Add focused teacher, volunteer, media-operator, and administrator dashboards, favorites, recent lessons, temporary accounts, and urgent mobile changes.
+9. [ ] **Media-library organization**: Add near-duplicate detection, safe consolidation, collections, favorites, folder drag-and-drop, improved search, and more granular optional quotas.
+10. [ ] **Templates and branding**: Add reusable typography/color systems, organization presets, importable layout packages, and constrained high-quality starting templates.
+11. [ ] **Internationalization and localization**: Add translated UI resources, RTL layouts, locale-aware units and formats, and daylight-saving/time-zone regression fixtures.
+12. [ ] **Permissioned integrations**: Add calendar, LMS, Canva, and storage integrations only through stable authorized APIs with explicit refresh, failure, revocation, and fallback behavior.
+13. [ ] **Licensing, privacy, and compliance packaging**: Add third-party notices, data-retention/export templates, privacy documentation, commercial-license administration, and deployment checklists.
+14. [ ] **Local-only product insight**: Report storage trends, common failures, frequently reused media, screen reliability, and processing performance without requiring cloud telemetry.
+15. [ ] **Optional accessibility modes beyond the baseline**: Add per-user high contrast, reduced motion, larger controls, low-vision, limited-motor-control, and cognitive-simplicity modes after universal baseline access is verified.
 
 
 ## Scope boundary
@@ -56,6 +85,59 @@ LessonCue remains centered on preparing media, organizing lessons, confirming re
 
 ## Implemented roadmap milestones
 
+[x] **Transactional server updates and truthful health checks**
+   - [x] Add separate liveness and readiness endpoints. Readiness returns HTTP 503 when the database or required persistent storage cannot be used; `/health` remains a backward-compatible alias for readiness.
+   - [x] Make the Linux installer, port changer, updater, and Windows installer require the readiness endpoint rather than accepting any running HTTP process.
+   - [x] Stop writers, snapshot the live SQLite database and protected configuration immediately before an update, verify file fidelity and SQLite integrity with the staged server binary, and preserve the protected last-known-good snapshot after readiness succeeds.
+   - [x] Roll back the application, database, updater executable, systemd units, and relevant configuration as one operation when startup, migration, or readiness fails.
+   - [x] Persist the result, version, completion time, failure reason, and rollback-snapshot availability of the most recent update and show that state to a Service Admin.
+   - [x] Add a Service Admin-only rollback action with a separately verified pre-rollback safety snapshot, a persistent transaction marker with boot-time recovery, and disposable release-to-release tests covering success, rejected readiness, operator rollback, and interrupted-update recovery.
+
+  [x] **Encrypted, scheduled, and verified recovery**
+   - [x] Retain on-demand archive verification, safe ZIP-path validation, SQLite integrity checking, required-table checks, media-record comparison, administrator feedback, and restore safety backups.
+   - [x] Encrypt every Service Admin-exported backup with a user-supplied password in a chunked AES-256-GCM `.lcbak` envelope. Bind the complete ZIP length and SHA-256 digest into the authenticated header, include a per-file SHA-256 manifest, and reject a wrong password, changed chunk, changed manifest entry, unexpected trailing data, unsafe key-derivation parameters, or unsupported format before database inspection.
+   - [x] Exclude email/signage provider credentials, pairing secrets, and local data-protection keys by default. Let a Service Admin deliberately include them only inside a password-encrypted export, never store the export password, and identify the selected secret-handling mode during verification and restore preview.
+   - [x] Add daily or weekly scheduled policies in the organization time zone, count-and-age local retention, optional HTTPS WebDAV delivery, protected stored scheduler credentials excluded from every export, backup-age/failure alerts, automatic envelope/manifest/database verification, guided non-destructive restore drills, and documented recovery objectives.
+   - [x] Record the source server version in current manifests, reject a backup created by a newer LessonCue release before restoration, and start a minimal read-only recovery web app with 503 readiness, local-backup discovery, and SSH guidance when database creation or upgrade fails.
+   - [x] Add a Service Admin migration workflow: generate a 30-minute one-use authorization token for an encrypted backup, pull it directly from a destination server over private-LAN HTTP or HTTPS without sending the password to the source, reject redirects and unsafe public HTTP origins, validate it through the normal restore staging pipeline, and require the ordinary reviewed restore confirmation.
+
+  [x] **Signed and reproducible installer/release supply chain**
+   - [x] Sign the complete release manifest with an offline Ed25519 key independent of GitHub-hosted checksums, authenticate every artifact through that manifest, pin the public trust anchor in the installer/updater, and verify the signature before reading checksums or executing downloaded code as root. Adversarial updater tests prove a changed signature is rejected without touching the live installation.
+   - [x] Pin every bundled `yt-dlp` binary to reviewed release `2026.07.04`, verify architecture-specific SHA-256 values and the reported version in Linux, Windows, and container builds, and remove mutable `latest` downloads.
+   - [x] Upgrade the JavaScript lint toolchain to patched versions and verify that `npm audit` reports no known vulnerabilities.
+   - [x] Add weekly Dependabot coverage for npm, NuGet, Gradle, Docker, and GitHub Actions plus scheduled/push/PR CodeQL analysis for C#, JavaScript/TypeScript, and Kotlin.
+   - [x] Produce an exact SPDX release SBOM, generated third-party notices, GitHub/Sigstore provenance and SBOM attestations, plus checksum-pinned Trivy source, dependency, configuration, secret, and exact-container scanning.
+   - [x] Require web lint/type/build, server tests, installer syntax, browser end-to-end tests, Android tests/lint/build, and a container build for the exact tagged commit before packaging jobs can run.
+   - [x] Restrict the GitHub `production-release` environment to `v*` tags with required maintainer approval, store the private signing key only as an encrypted environment secret plus ignored/offline local copies, and document fingerprint verification, key rotation, and compromise recovery.
+
+  [x] **Least-privilege processing of untrusted uploads**
+   - [x] Run Windows as the built-in restricted LocalService identity, apply explicit read/execute application ACLs and modify-only data ACLs, limit the firewall rule to Domain/Private networks, and validate installer syntax in CI instead of processing uploads as LocalSystem.
+   - [x] Run the container as UID/GID 10001 on internal unprivileged port 8080 with all capabilities dropped, `no-new-privileges`, a read-only root filesystem, and only `/data` plus a bounded temporary filesystem writable.
+   - [x] Run FFmpeg, FFprobe, LibreOffice, Poppler, and downloaded-media processing through bounded worker execution. Native Linux uses a root-installed Bubblewrap namespace with no network by default, read-only data and explicit output roots, private process/device/temp state, CPU/address-space/file/process/descriptor/wall-time limits, bounded output, and disposable isolation tests; only the YouTube download worker receives network. Windows combines LocalService/ACL confinement, CPU-time/memory/process/wall-time Job Object limits, and outbound-denied private FFmpeg/FFprobe plus document-converter binaries. Container deployments add read-only root, dropped capabilities, no-new-privileges, bounded memory/CPU/PIDs/tmpfs, and the same worker.
+   - [x] Validate image, audio, video, PDF, OLE, OpenXML, OpenDocument, and Keynote signatures/package structure independently of file names and browser-supplied MIME types before processing; reject truncated content, type mismatches, unsafe archive paths, and incorrect Office package kinds.
+
+  [x] **Explicit browser and Android display capability contract**
+   - [x] Publish declared capabilities for browser and Android displays and warn before assigning unsupported lesson or signage content.
+   - [x] Define safe fallbacks instead of blank, generic-text, or partially rendered output.
+   - [x] Complete native Android renderers for every feature advertised as cross-platform, including structured weather/calendar data, mixed rich text, current signage controls, and audience results in lessons; explicitly label live audience-result signage browser-only and use an element-level fallback on Android.
+   - [x] Add rendering-conformance fixtures, a committed browser fallback golden screenshot, remote/D-pad acceptance checks, and a client/server compatibility matrix.
+
+  [x] **Durable, bounded resumable uploads and storage accounting**
+   - [x] Persist each upload session with its owner, expected length, chunk count, content hash, chunk bitmap, creation time, and expiration.
+   - [x] Clean up abandoned sessions and partial files automatically, and expose pause, retry, cancellation, and actionable failure state.
+   - [x] Replace recursive per-chunk disk scans and check-then-write quota decisions with atomic storage reservations and incrementally maintained accounting.
+   - [x] Add streaming hashes, magic/MIME validation, upload concurrency and rate limits, and optional quotas by user, role, class, file size, codec, or day.
+
+  [x] **One generated, tested protocol contract**
+   - [x] Reconcile the JSON manifest schema with current presentation, audience, signage, media, and capability fields; remove obsolete element types.
+   - [x] Reconcile OpenAPI roles, permissions, registration, and redesigned signage endpoints with the actual server.
+   - [x] Validate real server-produced fixtures against both contracts in CI and test backward/forward compatibility with every supported browser and Android client.
+
+  [x] **Protected local-network operation**
+   - [x] Add guided local HTTPS or a supported local reverse-proxy/certificate workflow for shared networks.
+   - [x] Remove sensitive pairing values from logs, narrow Android cleartext allowances where practical, and clearly distinguish trusted local HTTP from remote HTTPS.
+   - [x] Add optional authenticator MFA for Service Admins and rate limits for authentication, pairing, expensive media, conversion, and public interaction endpoints.
+   - [x] Review intentionally unauthenticated media delivery, mark it private/non-indexable at shared caches, and document network segmentation and privacy expectations.
 - [x] **Signage architecture and visual overhaul (next release)** — replace the previous schedule-centric studio with a streamlined, responsive workspace that closely follows the approved visual mockups.
    - [x] Organize the workflow into three clear steps: persistent **Layouts**, continuously looping **Playlists**, and **Signs & screens**.
    - [x] Define a Sign as one reusable Layout plus its playlist assignments and assigned screens; let one Sign drive many screens while enforcing exactly one active Sign per screen.

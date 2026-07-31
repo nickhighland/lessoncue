@@ -1,5 +1,6 @@
-import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
+import { confirmAction, useDialogFocus } from "./AccessibleDialogs";
 import "./signage-studio.css";
 
 export type SignageStudioSection = "layouts" | "playlists" | "schedule" | "publishing" | "operations" | "emergencies";
@@ -177,7 +178,10 @@ function LayoutsPanel({ media, notify }: Props) {
   }
   async function remove(item: Layout) {
     const starterNote = item.isStarter ? " This removes the built-in starter from this server." : "";
-    if (!confirm(`Permanently delete ${item.name}?${starterNote} Layouts used by schedules or playlists remain protected.`)) return;
+    if (!await confirmAction(
+      `Permanently delete ${item.name}?${starterNote} Layouts used by schedules or playlists remain protected.`,
+      { destructive: true },
+    )) return;
     try { await studioApi(`/layouts/${item.id}`, { method: "DELETE" }); load(); notify("Layout deleted."); }
     catch (error) { notify(errorText(error)); }
   }
@@ -339,8 +343,10 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
     }
     return framed;
   }
-  function applyInformationFrame() {
-    if (zones.length && !confirm("Replace the current draft elements with this information frame? You can undo this change.")) return;
+  async function applyInformationFrame() {
+    if (zones.length && !await confirmAction(
+      "Replace the current draft elements with this information frame? You can undo this change.",
+    )) return;
     const framed = buildInformationFrame(true);
     const main = framed[0];
     setWidth(1920); setHeight(1080); setBackground(frameColor);
@@ -408,6 +414,63 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
       document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", finish);
     };
     document.addEventListener("pointermove", move); document.addEventListener("pointerup", finish, { once: true });
+  }
+  function keyboardGesture(event: ReactKeyboardEvent<HTMLDivElement>, zone: Zone) {
+    if (showFrameBuilder || hand) return;
+    const groupedIds = zone.groupId
+      ? zones.filter(value => value.groupId === zone.groupId).map(value => value.id)
+      : [zone.id];
+    const ids = selected.includes(zone.id) ? selected : groupedIds;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      setSelected(groupedIds);
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) &&
+        ["ArrowLeft", "ArrowDown", "ArrowRight", "ArrowUp"].includes(event.key)) {
+      event.preventDefault();
+      setSelected(groupedIds);
+      reorder(zone.id, event.key === "ArrowRight" || event.key === "ArrowUp" ? 1 : -1);
+      return;
+    }
+    if (event.key === "[" || event.key === "]") {
+      event.preventDefault();
+      const direction = event.key === "]" ? 1 : -1;
+      const next = zones.map(value =>
+        ids.includes(value.id) &&
+        value.lockMode !== "position" &&
+        value.lockMode !== "full" &&
+        !value.locked
+          ? { ...value, rotation: Math.max(-180, Math.min(180, value.rotation + direction * (event.shiftKey ? 15 : 1))) }
+          : value,
+      );
+      if (next.some((value, index) => value !== zones[index])) commit(next);
+      setSelected(ids);
+      return;
+    }
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    const step = event.shiftKey ? Math.max(5, grid) : snap ? grid : 0.5;
+    const horizontal = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+    const vertical = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+    const next = zones.map(value => {
+      if (!ids.includes(value.id) || value.lockMode === "position" ||
+          value.lockMode === "full" || value.locked) return value;
+      if (event.altKey) {
+        return {
+          ...value,
+          width: Math.max(2, Math.min(100 - value.x, value.width + horizontal)),
+          height: Math.max(2, Math.min(100 - value.y, value.height + vertical)),
+        };
+      }
+      return {
+        ...value,
+        x: Math.max(0, Math.min(100 - value.width, value.x + horizontal)),
+        y: Math.max(0, Math.min(100 - value.height, value.y + vertical)),
+      };
+    });
+    if (next.some((value, index) => value !== zones[index])) commit(next);
+    setSelected(ids);
   }
   function beginCanvasGesture(event: ReactPointerEvent<HTMLDivElement>) {
     if (!hand) { setSelected([]); return; }
@@ -481,7 +544,9 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
     finally { setSaving(undefined); }
   }
   async function replaceFrom(templateId: string) {
-    if (!layout || !templateId || !confirm("Replace the current draft with this template? The published version remains live until you publish again.")) return;
+    if (!layout || !templateId || !await confirmAction(
+      "Replace the current draft with this template? The published version remains live until you publish again.",
+    )) return;
     try { await studioApi(`/layouts/${layout.id}/replace-from-template/${templateId}`, { method: "POST", body: "{}" }); notify("Draft replaced safely; the live version was not changed."); onSaved(); }
     catch (error) { notify(errorText(error)); }
   }
@@ -547,6 +612,11 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
       <div className="layout-canvas-scroll">
         <div className="layout-canvas-heading"><div><strong>Live canvas</strong><small>{width} × {height} · {zones.length} element{zones.length === 1 ? "" : "s"}</small></div>
           <span>{showFrameBuilder ? "FRAME PREVIEW" : selected.length ? `${selected.length} SELECTED` : "CLICK AN ELEMENT TO EDIT"}</span></div>
+        <p id="layout-canvas-keyboard-help" className="sr-only">
+          Select an element with Enter or Space. Arrow keys move it; hold Shift for larger steps.
+          Alt plus an arrow resizes it. Left and right brackets rotate it. Control or Command
+          plus an arrow changes its layer order. Exact values are also available in the inspector.
+        </p>
         <div ref={canvas} className={`layout-canvas ${snap ? "show-grid" : ""} ${hand ? "hand" : ""}`}
           style={{ width: `${zoom}%`, aspectRatio: aspect, background: showFrameBuilder ? frameColor : background, "--grid": `${grid}%` } as CSSProperties}
           onPointerDown={beginCanvasGesture}>
@@ -554,8 +624,14 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
           {guides.vertical != null && <i className="layout-guide vertical" style={{ left: `${guides.vertical}%` }} />}
           {guides.horizontal != null && <i className="layout-guide horizontal" style={{ top: `${guides.horizontal}%` }} />}
           {displayZones.slice().sort((a, b) => a.zIndex - b.zIndex).map(zone => <div key={zone.id}
+            role={showFrameBuilder ? undefined : "button"}
+            tabIndex={showFrameBuilder ? -1 : 0}
+            aria-label={showFrameBuilder ? undefined : `${zone.title || zone.type} element`}
+            aria-pressed={showFrameBuilder ? undefined : selected.includes(zone.id)}
+            aria-describedby={showFrameBuilder ? undefined : "layout-canvas-keyboard-help"}
             className={`layout-zone ${zone.type} ${!showFrameBuilder && selected.includes(zone.id) ? "selected" : ""} ${zone.hidden ? "hidden" : ""} ${zone.lockMode !== "none" || zone.locked ? "locked" : ""}`}
             onPointerDown={event => { if (!showFrameBuilder) gesture(event, zone, "move"); }}
+            onKeyDown={event => keyboardGesture(event, zone)}
             style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`,
               background: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, opacity: zone.opacity / 100,
               zIndex: zone.zIndex, transform: `rotate(${zone.rotation}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`,
@@ -878,7 +954,7 @@ function CredentialsDialog({ notify, onClose }: { notify: (message: string) => v
     try { await studioApi(`/credentials/${encodeURIComponent(String(values.key))}`, { method: "PUT", body: JSON.stringify(values) }); (event.currentTarget).reset(); load(); notify("Source credential encrypted and saved only on this server."); }
     catch (error) { notify(errorText(error)); }
   }
-  async function remove(key: string) { if (!confirm(`Delete server credential ${key}? Widgets using it will retain cached data but cannot refresh.`)) return; try { await studioApi(`/credentials/${encodeURIComponent(key)}`, { method: "DELETE" }); load(); } catch(error) { notify(errorText(error)); } }
+  async function remove(key: string) { if (!await confirmAction(`Delete server credential ${key}? Widgets using it will retain cached data but cannot refresh.`, { destructive: true })) return; try { await studioApi(`/credentials/${encodeURIComponent(key)}`, { method: "DELETE" }); load(); } catch(error) { notify(errorText(error)); } }
   return <StudioDialog title="Server-side source credentials" onClose={onClose}><div className="credential-note">Secrets are encrypted with this LessonCue server’s local data-protection keys. They never appear in display manifests, browser storage, GitHub, backups, or API responses.</div><form className="studio-form credential-form" onSubmit={save}><label>Key<input name="key" required pattern="[a-z0-9_-]{2,120}" placeholder="weather_api" /></label><label>Authentication<select name="kind"><option value="bearer">Bearer token</option><option value="basic">Basic username/password</option><option value="custom">Custom header</option></select></label><label>Username (Basic only)<input name="username" /></label><label>Header name (Custom only)<input name="headerName" placeholder="X-API-Key" /></label><label>Secret<input name="secret" type="password" required autoComplete="new-password" /></label><button className="button primary">Encrypt and save locally</button></form><div className="credential-list">{items.map(item=><div key={item.key}><span><strong>{item.key}</strong><small>{item.kind}{item.username?` · ${item.username}`:""}{item.headerName?` · ${item.headerName}`:""} · updated {timeAgo(item.updatedAt)}</small></span><button className="danger" onClick={()=>remove(item.key)}>Delete</button></div>)}</div></StudioDialog>;
 }
 
@@ -891,7 +967,7 @@ function PlaylistsPanel({ media, notify }: Props) {
     .then(([nextPlaylists, nextLayouts]) => { setPlaylists(nextPlaylists); setLayouts(nextLayouts); }).catch(error => notify(errorText(error)));
   useEffect(() => { void load(); }, []);
   async function duplicate(item: StudioPlaylist) { try { await studioApi(`/playlists/${item.id}/duplicate`, { method: "POST", body: "{}" }); load(); notify("Playlist duplicated."); } catch (error) { notify(errorText(error)); } }
-  async function remove(item: StudioPlaylist) { if (!confirm(`Delete ${item.name}?`)) return; try { await studioApi(`/playlists/${item.id}`, { method: "DELETE" }); load(); notify("Playlist deleted."); } catch(error) { notify(errorText(error)); } }
+  async function remove(item: StudioPlaylist) { if (!await confirmAction(`Delete ${item.name}?`, { destructive: true })) return; try { await studioApi(`/playlists/${item.id}`, { method: "DELETE" }); load(); notify("Playlist deleted."); } catch(error) { notify(errorText(error)); } }
   return <section className="studio-panel"><div className="studio-toolbar panel"><div><strong>Independent signage playlists</strong><small>Mix layouts, media, apps, webpages, nested lists, tags, CSV, and cloud sources.</small></div><input type="search" placeholder="Search playlists" value={query} onChange={event => setQuery(event.target.value)} /><button className="button primary" onClick={() => setEditing("new")}>New playlist</button></div>
     <div className="studio-card-grid">{playlists.filter(item => `${item.name} ${item.folder}`.toLowerCase().includes(query.toLowerCase())).map(item => <article className="studio-resource-card playlist-card" key={item.id}><div className="playlist-preview">{item.items.slice(0,5).map((entry,index) => <i key={entry.id} style={{ zIndex: 5-index }}>{entry.kind.slice(0,1).toUpperCase()}</i>)}</div><div className="studio-resource-body"><span className={`studio-state ${item.publishState}`}>{item.publishState}</span><h3>{item.name}</h3><p>{item.folder || "Unfiled"} · {item.items.length} entries · {item.playbackMode} · {item.synchronization} sync</p><small>Draft v{item.version}{item.publishedVersion ? ` · published v${item.publishedVersion}` : ""}</small><div className="studio-card-actions"><button onClick={() => setEditing(item)}>Edit</button><button onClick={() => duplicate(item)}>Duplicate</button><button className="danger" onClick={() => remove(item)}>Delete</button></div></div></article>)}</div>
     {editing && <PlaylistEditor playlist={editing === "new" ? undefined : editing} playlists={playlists} layouts={layouts} media={media} notify={notify} onClose={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); load(); }} />}
@@ -1016,8 +1092,8 @@ function EmergencyPanel({media,notify,screens}:Props){
   const [items,setItems]=useState<Emergency[]>([]);const [editing,setEditing]=useState<Emergency|"new">();const [activating,setActivating]=useState<Emergency>();
   const load=()=>studioApi<Emergency[]>("/emergencies").then(setItems).catch(error=>notify(errorText(error)));useEffect(()=>{void load();},[]);
   async function activate(event:FormEvent<HTMLFormElement>){event.preventDefault();if(!activating)return;const form=new FormData(event.currentTarget);try{await studioApi(`/emergencies/${activating.id}/activate`,{method:"POST",body:JSON.stringify({durationMinutes:Number(form.get("duration")),screenIds:form.getAll("screenId").map(String),targetTagsCsv:String(form.get("targetTagsCsv")||"")})});setActivating(undefined);load();notify("Emergency alert broadcast immediately.");}catch(error){notify(errorText(error));}}
-  async function cancel(item:Emergency){if(!confirm(`Cancel ${item.name} on all targeted screens now?`))return;try{await studioApi(`/emergencies/${item.id}/cancel`,{method:"POST",body:"{}"});load();notify("Emergency alert cancelled.");}catch(error){notify(errorText(error));}}
-  async function remove(item:Emergency){if(!confirm(`Delete alert type ${item.name}?`))return;try{await studioApi(`/emergencies/${item.id}`,{method:"DELETE"});load();notify("Alert type deleted.");}catch(error){notify(errorText(error));}}
+  async function cancel(item:Emergency){if(!await confirmAction(`Cancel ${item.name} on all targeted screens now?`, { destructive: true, confirmLabel: "Cancel broadcast" }))return;try{await studioApi(`/emergencies/${item.id}/cancel`,{method:"POST",body:"{}"});load();notify("Emergency alert cancelled.");}catch(error){notify(errorText(error));}}
+  async function remove(item:Emergency){if(!await confirmAction(`Delete alert type ${item.name}?`, { destructive: true }))return;try{await studioApi(`/emergencies/${item.id}`,{method:"DELETE"});load();notify("Alert type deleted.");}catch(error){notify(errorText(error));}}
   return <section className="studio-panel"><div className="studio-toolbar panel"><div><strong>Emergency alert types</strong><small>Prepare alerts in advance, then broadcast or cancel them immediately. Cached media remains usable when the internet is down.</small></div><button className="button primary" onClick={()=>setEditing("new")}>New alert type</button></div><div className="studio-card-grid">{items.map(item=><article className="emergency-card" key={item.id} style={{background:item.backgroundColor,color:item.textColor}}><span>{item.severity.toUpperCase()}</span><h2>{item.name}</h2><p>{item.message}</p><small>{item.targetTagsCsv?`Tags: ${item.targetTagsCsv}`:"All screens"} · {item.defaultDurationMinutes} min default{item.mediaAssetId?" · offline media":""}</small>{item.activeSignageId&&<b>LIVE until {item.expiresAt?new Date(item.expiresAt).toLocaleTimeString():"cancelled"}</b>}<div>{item.activeSignageId?<button onClick={()=>cancel(item)}>Cancel broadcast</button>:<button onClick={()=>setActivating(item)}>Broadcast now</button>}<button onClick={()=>setEditing(item)}>Edit</button><button onClick={()=>remove(item)}>Delete</button></div></article>)}</div>{editing&&<EmergencyEditor item={editing==="new"?undefined:editing} media={media} notify={notify} onClose={()=>setEditing(undefined)} onSaved={()=>{setEditing(undefined);load();}}/>}{activating&&<StudioDialog title="Review immediate broadcast" onClose={()=>setActivating(undefined)}><form className="studio-form" onSubmit={activate}><article className="emergency-card" style={{background:activating.backgroundColor,color:activating.textColor}}><span>{activating.severity.toUpperCase()}</span><h2>{activating.name}</h2><p>{activating.message}</p></article><label>Duration (minutes)<input name="duration" type="number" min="1" max="1440" defaultValue={activating.defaultDurationMinutes}/></label><label>Screen-tag groups<input name="targetTagsCsv" defaultValue={activating.targetTagsCsv} placeholder="Leave blank with no screen choices for every screen"/></label><fieldset className="screen-check-grid"><legend>Exact screens (optional)</legend>{screens.filter(screen=>!screen.revoked).map(screen=><label key={screen.id}><input type="checkbox" name="screenId" value={screen.id}/><span><strong>{screen.name}</strong><small>{screen.site} · {screen.tagsCsv||"no tags"}</small></span></label>)}</fieldset><div className="credential-note">Emergency playback overrides lessons, signage, and kiosk interaction immediately. Confirm the audience and duration before broadcasting.</div><div className="layout-editor-footer"><button type="button" onClick={()=>setActivating(undefined)}>Cancel</button><button className="button primary">Confirm broadcast now</button></div></form></StudioDialog>}</section>;
 }
 
@@ -1031,5 +1107,6 @@ function EmergencyEditor({item,media,notify,onClose,onSaved}:{item?:Emergency;me
 }
 
 function StudioDialog({title,children,onClose,wide=false,workspace=false}:{title:string;children:ReactNode;onClose:()=>void;wide?:boolean;workspace?:boolean}){
-  return <div className={`studio-dialog-backdrop ${workspace ? "workspace" : ""}`} role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}><section className={`studio-dialog ${wide?"wide":""} ${workspace ? "studio-workspace" : ""}`} role="dialog" aria-modal="true" aria-label={title}><header><div><span>{workspace ? "SIGNAGE STUDIO" : "LESSONCUE"}</span><h2>{title}</h2></div><button onClick={onClose} aria-label="Close">×</button></header>{children}</section></div>;
+  const { dialogRef, onDialogKeyDown } = useDialogFocus<HTMLElement>(onClose);
+  return <div className={`studio-dialog-backdrop ${workspace ? "workspace" : ""}`} role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}><section ref={dialogRef} className={`studio-dialog ${wide?"wide":""} ${workspace ? "studio-workspace" : ""}`} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} onKeyDown={onDialogKeyDown}><header><div><span>{workspace ? "SIGNAGE STUDIO" : "LESSONCUE"}</span><h2>{title}</h2></div><button onClick={onClose} aria-label="Close">×</button></header>{children}</section></div>;
 }

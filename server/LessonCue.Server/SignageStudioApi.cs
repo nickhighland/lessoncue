@@ -60,7 +60,7 @@ public static class SignageStudioApi
             {
                 return Results.BadRequest(new { error = exception.Message });
             }
-        });
+        }).RequireRateLimiting("remote-preview");
 
         planning.MapPost("/layouts", async (SignageLayoutResourceInput input, LessonCueDb db, CancellationToken ct) =>
         {
@@ -303,9 +303,19 @@ public static class SignageStudioApi
         {
             var error = await ValidateSignAsync(input, db, ct);
             if (error is not null) return Results.BadRequest(new { error });
+            var compatibilityIssues = await SignCompatibilityIssuesAsync(input, db, ct);
+            if (compatibilityIssues.Count > 0 && !input.AllowUnsupportedContent)
+                return Results.Conflict(new
+                {
+                    code = "display_capability_warning",
+                    error = $"{compatibilityIssues.Count} signage element assignment{(compatibilityIssues.Count == 1 ? "" : "s")} will use a safe fallback.",
+                    issues = compatibilityIssues
+                });
             var item = new SignagePlaylist { Name = input.Name.Trim(), Mode = "sign" };
             await ApplySignAsync(item, input, db, ct);
             db.SignagePlaylists.Add(item);
+            if (compatibilityIssues.Count > 0)
+                Audit(db, "signage.assignment.compatibility-override", item.Id, compatibilityIssues.Count.ToString());
             Audit(db, "signage.sign.create", item.Id, item.Name);
             await db.SaveChangesAsync(ct);
             await Invalidate(hub, item.Version, ct);
@@ -319,7 +329,17 @@ public static class SignageStudioApi
             if (item is null) return Results.NotFound();
             var error = await ValidateSignAsync(input, db, ct);
             if (error is not null) return Results.BadRequest(new { error });
+            var compatibilityIssues = await SignCompatibilityIssuesAsync(input, db, ct);
+            if (compatibilityIssues.Count > 0 && !input.AllowUnsupportedContent)
+                return Results.Conflict(new
+                {
+                    code = "display_capability_warning",
+                    error = $"{compatibilityIssues.Count} signage element assignment{(compatibilityIssues.Count == 1 ? "" : "s")} will use a safe fallback.",
+                    issues = compatibilityIssues
+                });
             await ApplySignAsync(item, input, db, ct);
+            if (compatibilityIssues.Count > 0)
+                Audit(db, "signage.assignment.compatibility-override", item.Id, compatibilityIssues.Count.ToString());
             Audit(db, "signage.sign.update", item.Id, item.Name);
             await db.SaveChangesAsync(ct);
             await Invalidate(hub, item.Version, ct);
@@ -692,6 +712,61 @@ public static class SignageStudioApi
                 screen => screenIds.Contains(screen.Id) && !screen.Revoked, ct) != screenIds.Length)
             return "One or more selected screens no longer exists.";
         return null;
+    }
+
+    private static async Task<List<DisplayCompatibilityIssue>> SignCompatibilityIssuesAsync(
+        SignageSignInput input, LessonCueDb db, CancellationToken ct)
+    {
+        var layouts = await db.SignageLayouts.AsNoTracking().Where(value => value.PublishedVersion > 0)
+            .ToDictionaryAsync(value => value.Id, ct);
+        var playlists = await db.SignageContentPlaylists.AsNoTracking().Where(value => value.PublishedVersion > 0)
+            .ToDictionaryAsync(value => value.Id, ct);
+        var media = await db.MediaAssets.AsNoTracking().ToDictionaryAsync(value => value.Id, ct);
+        var zones = SignageLayout.ParseZones(layouts[input.LayoutId].PublishedZonesJson);
+        var reviewedPlaylists = new HashSet<Guid>();
+        foreach (var playlistId in (input.PlaylistAssignments ?? []).Values.Where(value => value != Guid.Empty))
+            CollectPlaylistCompatibilityZones(playlistId, playlists, layouts, reviewedPlaylists, zones);
+        foreach (var playlistId in zones.Select(value => value.ContentPlaylistId)
+                     .Where(value => value is not null).Select(value => value!.Value).Distinct().ToArray())
+            CollectPlaylistCompatibilityZones(playlistId, playlists, layouts, reviewedPlaylists, zones);
+        var screenIds = (input.ScreenIds ?? []).Distinct().ToArray();
+        var screens = await db.Screens.AsNoTracking().Where(value => screenIds.Contains(value.Id) && !value.Revoked)
+            .ToListAsync(ct);
+        var issues = new List<DisplayCompatibilityIssue>();
+        foreach (var screen in screens)
+        {
+            issues.AddRange(DisplayCapabilities.AssessZones(screen.Platform, zones, media).Select(issue => issue with
+            {
+                ContentId = $"{screen.Id}:{issue.ContentId}",
+                Message = $"{screen.Name}: {issue.Message}"
+            }));
+        }
+        return issues;
+    }
+
+    private static void CollectPlaylistCompatibilityZones(Guid playlistId,
+        IReadOnlyDictionary<Guid, SignageContentPlaylist> playlists,
+        IReadOnlyDictionary<Guid, SignageLayoutResource> layouts,
+        HashSet<Guid> reviewedPlaylists,
+        List<SignageZoneInput> zones)
+    {
+        if (!reviewedPlaylists.Add(playlistId) || !playlists.TryGetValue(playlistId, out var playlist)) return;
+        foreach (var item in SignageStudio.ParseItems(playlist.PublishedItemsJson))
+        {
+            if (item.LayoutId is { } layoutId && layouts.TryGetValue(layoutId, out var layout))
+            {
+                var layoutZones = SignageLayout.ParseZones(layout.PublishedZonesJson);
+                zones.AddRange(layoutZones);
+                foreach (var zonePlaylistId in layoutZones.Select(value => value.ContentPlaylistId)
+                             .Where(value => value is not null).Select(value => value!.Value))
+                    CollectPlaylistCompatibilityZones(zonePlaylistId, playlists, layouts, reviewedPlaylists, zones);
+            }
+            if (item.NestedPlaylistId is { } nestedId)
+                CollectPlaylistCompatibilityZones(nestedId, playlists, layouts, reviewedPlaylists, zones);
+            if (item.Kind == "app" && item.AppType == "audience")
+                zones.Add(new SignageZoneInput($"playlist-{playlist.Id}-{item.Id}", "audience",
+                    item.Title ?? "Audience results"));
+        }
     }
 
     private static async Task ApplySignAsync(SignagePlaylist item, SignageSignInput input, LessonCueDb db,

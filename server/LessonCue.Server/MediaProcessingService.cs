@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -49,6 +48,11 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
                 return;
             }
             var extension = Path.GetExtension(fullPath).ToLowerInvariant();
+            // FileName is the user-facing title and may intentionally omit or change
+            // an extension (for example, generated presentation slides). RelativePath
+            // is the immutable, server-controlled storage name and therefore the
+            // authoritative type declaration for files that have already been admitted.
+            MediaContentInspector.RequireValid(fullPath, item.RelativePath);
             if (extension is ".pdf" or ".pptx" or ".odp" or ".docx")
             {
                 item.OfflineEligible = false;
@@ -83,6 +87,20 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
                 formatName = format.TryGetProperty("format_name", out var formatValue) ? formatValue.GetString() : null;
                 if (format.TryGetProperty("duration", out var duration) && double.TryParse(duration.GetString(),
                     NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds)) item.DurationMs = (long)(seconds * 1000);
+            }
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var uploadPolicy = UploadQuotaPolicy.Read(organization);
+            if (!uploadPolicy.Allows(item.VideoCodec, item.AudioCodec))
+            {
+                var rejected = new List<string>();
+                if (item.VideoCodec is not null && uploadPolicy.AllowedVideoCodecs.Count > 0 &&
+                    !uploadPolicy.AllowedVideoCodecs.Contains(item.VideoCodec))
+                    rejected.Add($"video codec {item.VideoCodec}");
+                if (item.AudioCodec is not null && uploadPolicy.AllowedAudioCodecs.Count > 0 &&
+                    !uploadPolicy.AllowedAudioCodecs.Contains(item.AudioCodec))
+                    rejected.Add($"audio codec {item.AudioCodec}");
+                throw new InvalidDataException(
+                    $"The server upload policy does not allow {string.Join(" and ", rejected)}. Ask a Service Admin to change the codec policy or upload a converted file.");
             }
 
             var isVideo = IsVideo(extension, item.ContentType);
@@ -164,7 +182,9 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
     private async Task<string> CreateCompatibilityCopyAsync(MediaAsset item, LessonCueDb db, string source,
         bool remuxOnly, CancellationToken ct)
     {
-        var work = Path.Combine(Path.GetTempPath(), $"lessoncue-compat-{Guid.NewGuid():N}.mp4");
+        var workRoot = Path.Combine(paths.Temporary, $"compat-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workRoot);
+        var work = Path.Combine(workRoot, "output.mp4");
         try
         {
             if (remuxOnly)
@@ -210,7 +230,11 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
             item.CompatibilityTranscodedAt = DateTimeOffset.UtcNow;
             return destination;
         }
-        finally { TryDelete(work); }
+        finally
+        {
+            TryDelete(work);
+            try { if (Directory.Exists(workRoot)) Directory.Delete(workRoot, true); } catch { }
+        }
     }
 
     private static bool IsVideo(string extension, string contentType) =>
@@ -219,20 +243,15 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
             ".mpeg" or ".mpg" or ".mpe" or ".ts" or ".mts" or ".m2ts" or ".flv" or ".f4v" or
             ".ogv" or ".3gp" or ".3g2" or ".vob";
 
-    private static async Task<string> RunAsync(string fileName, string arguments, CancellationToken ct)
+    private Task<string> RunAsync(string fileName, string arguments, CancellationToken ct)
     {
-        using var process = new Process { StartInfo = new ProcessStartInfo(fileName, arguments)
-        {
-            RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true
-        }};
-        process.Start();
-        var stdout = process.StandardOutput.ReadToEndAsync(ct);
-        var stderr = process.StandardError.ReadToEndAsync(ct);
-        await process.WaitForExitAsync(ct);
-        var output = await stdout;
-        var errors = await stderr;
-        if (process.ExitCode != 0) throw new InvalidOperationException(errors.Trim());
-        return string.IsNullOrWhiteSpace(output) ? errors : output;
+        Directory.CreateDirectory(paths.Thumbnails);
+        Directory.CreateDirectory(paths.Compatibility);
+        Directory.CreateDirectory(paths.Temporary);
+        return ConstrainedProcessRunner.RunAsync(fileName,
+            ConstrainedProcessRunner.SplitArguments(arguments),
+            ConstrainedProcessOptions.Media([paths.Thumbnails, paths.Compatibility, paths.Temporary]),
+            ct);
     }
 
     private async Task RunDerivativeAsync(string fileName, string arguments, string mediaName, CancellationToken ct)

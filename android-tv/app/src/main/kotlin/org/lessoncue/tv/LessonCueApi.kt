@@ -24,7 +24,7 @@ internal fun parseOptionalInstant(value: String?): Instant? {
 }
 
 class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
-    val baseUrl = serverUrl.trim().trimEnd('/').let { if (it.startsWith("http")) it else "http://$it" }
+    val baseUrl = normalizeLessonCueServerUrl(serverUrl)
 
     suspend fun discover(): String = withContext(Dispatchers.IO) {
         val json = request("/.well-known/lessoncue")
@@ -159,9 +159,33 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
             screenName = screen.getString("name"),
             signage = activeSignage,
             playlists = payload.getJSONArray("playlists").mapObjects { lesson -> parsePlaylist(lesson) },
-            signageSchedule = payload.optJSONArray("signageSchedule")?.mapObjects(::parseSignage) ?: activeSignage
+            signageSchedule = payload.optJSONArray("signageSchedule")?.mapObjects(::parseSignage) ?: activeSignage,
+            displayCapabilities = payload.optJSONObject("displayCapabilities")?.let(::parseDisplayCapabilities),
+            compatibilityWarnings = payload.optJSONArray("compatibilityWarnings")?.mapObjects { item ->
+                DisplayCompatibilityWarning(
+                    item.optString("code"), item.optString("title"), item.optString("message"),
+                    item.optString("fallback")
+                )
+            }.orEmpty()
         )
     }
+
+    private fun parseDisplayCapabilities(item: JSONObject) = DisplayCapabilityContract(
+        platform = item.optString("platform"),
+        displayName = item.optString("displayName"),
+        contractVersion = item.optInt("contractVersion"),
+        minimumClientVersion = item.optString("minimumClientVersion"),
+        capabilities = item.optJSONArray("capabilities")?.mapObjects { capability ->
+            DisplayCapability(
+                capability.optString("id"), capability.optString("label"),
+                capability.optBoolean("supported"), capability.optString("fallback"),
+                capability.optString("notes").takeIf { it.isNotBlank() && it != "null" }
+            )
+        }.orEmpty(),
+        limitations = item.optJSONArray("limitations")?.let { array ->
+            (0 until array.length()).map(array::getString)
+        }.orEmpty()
+    )
 
     private fun parseSignage(item: JSONObject) = SignageCue(
         id = item.getString("id"), name = item.getString("name"), mode = item.getString("mode"),
@@ -218,17 +242,60 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         clockOrder = item.optString("clockOrder", "time-date"),
         clockTimeFontSize = item.optInt("clockTimeFontSize", 64),
         clockDateFontSize = item.optInt("clockDateFontSize", 28),
+        clockShowPeriod = item.optBoolean("clockShowPeriod", true),
+        clockShowWeekday = item.optBoolean("clockShowWeekday", true),
+        clockShowYear = item.optBoolean("clockShowYear", true),
+        weatherProvider = item.optString("weatherProvider", "open-meteo"),
+        weatherLocation = item.optString("weatherLocation").takeIf { it.isNotBlank() && it != "null" },
         weatherPostalCode = item.optString("weatherPostalCode").takeIf { it.isNotBlank() && it != "null" },
+        weatherUnits = item.optString("weatherUnits", "fahrenheit"),
+        weatherFields = item.optString("weatherFields", "icon,conditions,temperature,high,low"),
+        weatherIconStyle = item.optString("weatherIconStyle", "color"),
+        weatherLayout = item.optString("weatherLayout", "icon-left"),
+        weatherIconSize = item.optInt("weatherIconSize", 72),
+        weatherTitleSize = item.optInt("weatherTitleSize", 24),
+        weatherTemperatureSize = item.optInt("weatherTemperatureSize", 64),
+        weatherDetailsSize = item.optInt("weatherDetailsSize", 22),
+        calendarMaxItems = item.optInt("calendarMaxItems"),
+        calendarFields = item.optString("calendarFields", "date,time,title"),
+        contentPadding = item.optInt("contentPadding", 6),
+        contentScale = item.optInt("contentScale", 100),
+        verticalAlign = item.optString("verticalAlign", "middle"),
         contentPlaylistId = item.optString("contentPlaylistId").takeIf { it.isNotBlank() && it != "null" },
         streamOverrideWhenLive = item.optBoolean("streamOverrideWhenLive"),
         contentPlaylist = item.optJSONObject("contentPlaylist")?.let(::parseSignagePlaylist),
         htmlUrl = item.optString("htmlUrl").takeIf { it.isNotBlank() && it != "null" }
             ?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
+        renderSupport = item.optString("renderSupport", "supported"),
+        fallbackMessage = item.optString("fallbackMessage").takeIf { it.isNotBlank() && it != "null" },
         media = item.optJSONObject("media")?.let(::parseItem),
         cached = item.optJSONObject("cached")?.let { cached -> SignageWidgetCache(
             zoneId = cached.optString("zoneId", item.getString("id")), title = cached.optString("title"),
             text = cached.optString("text"), items = cached.optJSONArray("items")?.let { array -> (0 until array.length()).map(array::getString) }.orEmpty(),
-            refreshedAt = cached.optString("refreshedAt").takeIf { value -> value.isNotBlank() && value != "null" }
+            refreshedAt = cached.optString("refreshedAt").takeIf { value -> value.isNotBlank() && value != "null" },
+            icon = cached.optString("icon").takeIf { value -> value.isNotBlank() && value != "null" },
+            events = cached.optJSONArray("events")?.mapObjects { event -> SignageCalendarEvent(
+                title = event.optString("title"),
+                description = event.optString("description").takeIf { value -> value.isNotBlank() && value != "null" },
+                location = event.optString("location").takeIf { value -> value.isNotBlank() && value != "null" },
+                startsAt = parseOptionalInstant(event.optString("startsAt")),
+                allDay = event.optBoolean("allDay")
+            ) }.orEmpty(),
+            weather = cached.optJSONObject("weather")?.let { weather -> SignageWeatherSnapshot(
+                temperature = weather.optionalDouble("temperature"),
+                feelsLike = weather.optionalDouble("feelsLike"),
+                high = weather.optionalDouble("high"),
+                low = weather.optionalDouble("low"),
+                precipitation = weather.optionalDouble("precipitation"),
+                humidity = weather.optionalDouble("humidity"),
+                wind = weather.optionalDouble("wind"),
+                temperatureUnit = weather.optString("temperatureUnit").takeIf { value -> value.isNotBlank() && value != "null" },
+                windUnit = weather.optString("windUnit").takeIf { value -> value.isNotBlank() && value != "null" },
+                conditions = weather.optString("conditions").takeIf { value -> value.isNotBlank() && value != "null" },
+                forecast = weather.optString("forecast").takeIf { value -> value.isNotBlank() && value != "null" },
+                sunrise = weather.optString("sunrise").takeIf { value -> value.isNotBlank() && value != "null" },
+                sunset = weather.optString("sunset").takeIf { value -> value.isNotBlank() && value != "null" }
+            ) }
         ) }
     )
 
@@ -287,6 +354,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         endBehavior = json.optString("endBehavior", "advance"),
         volumePercent = json.optInt("volumePercent", 100),
         notes = json.optString("notes", ""),
+        flexibleTime = json.optBoolean("flexibleTime", false),
         imageDurationSeconds = json.optInt("imageDurationSeconds").takeIf { json.has("imageDurationSeconds") && !json.isNull("imageDurationSeconds") },
         fadeInMs = json.optInt("fadeInMs", 0),
         fadeOutMs = json.optInt("fadeOutMs", 0),
@@ -303,6 +371,8 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         transitionStyle = json.optString("transitionStyle", "cut"),
         transitionDurationMs = json.optInt("transitionDurationMs", 500),
         offlineEligible = json.optBoolean("offlineEligible", false),
+        renderSupport = json.optString("renderSupport", "supported"),
+        fallbackMessage = json.optString("fallbackMessage").takeIf { it.isNotBlank() && it != "null" },
         cuePoints = json.optJSONArray("cuePoints")?.mapObjects { cue ->
             CuePoint(cue.getString("name"), cue.getLong("positionMs"))
         } ?: emptyList()
@@ -357,3 +427,6 @@ private fun ScreenManifest.allItems(): List<CueItem> = (playlists.flatMap {
 
 private fun <T> JSONArray.mapObjects(transform: (JSONObject) -> T): List<T> =
     (0 until length()).map { transform(getJSONObject(it)) }
+
+private fun JSONObject.optionalDouble(name: String): Double? =
+    if (has(name) && !isNull(name)) optDouble(name).takeUnless(Double::isNaN) else null

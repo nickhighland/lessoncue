@@ -40,4 +40,4 @@ The **Calendar** page offers Agenda, Day, Week, Month, and Room views. Use the d
 
 The class or universal controller shows the current cue's notes, whole-lesson substitute instructions, total time remaining, and estimated finish. A warning appears when the live estimate runs beyond the planned finish. Flexible cues are labeled in the media list so an authorized operator can make an informed adjustment.
 
-During the configured pre-roll window, the optional private monitor opens automatically on the controller. It can also be opened or hidden manually. The monitor URL is never included in Android TV, Apple TV, or browser-player manifests.
+During the configured pre-roll window, the optional private monitor opens automatically on the controller. It can also be opened or hidden manually. The monitor URL is never included in Android TV or browser-player manifests.

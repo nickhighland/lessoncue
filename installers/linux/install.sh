@@ -12,6 +12,18 @@ if [[ ! -x "${PAYLOAD_DIR}/LessonCue.Server" ]]; then
   echo "Missing payload/LessonCue.Server. Use a packaged release archive."
   exit 1
 fi
+if [[ ! -f "${SOURCE_DIR}/release-signing-public.pem" ]]; then
+  echo "Missing release-signing-public.pem. Use a complete signed release archive."
+  exit 1
+fi
+if [[ ! -x "${SOURCE_DIR}/lessoncue-media-worker" ]]; then
+  echo "Missing lessoncue-media-worker. Use a complete signed release archive."
+  exit 1
+fi
+if ! command -v bwrap >/dev/null 2>&1; then
+  echo "Missing bubblewrap. Install the bubblewrap package before installing LessonCue."
+  exit 1
+fi
 
 id lessoncue >/dev/null 2>&1 || useradd --system --home /var/lib/lessoncue --shell /usr/sbin/nologin lessoncue
 for device_group in render video; do
@@ -44,8 +56,17 @@ chown -R root:root /opt/lessoncue
 install -m 0644 "${SOURCE_DIR}/lessoncue.service" /etc/systemd/system/lessoncue.service
 install -m 0644 "${SOURCE_DIR}/lessoncue-cloudflared.service" /etc/systemd/system/lessoncue-cloudflared.service
 install -m 0755 "${SOURCE_DIR}/lessoncue-update" /usr/local/sbin/lessoncue-update
+install -d -o root -g root -m 0755 /usr/local/libexec
+install -o root -g root -m 0755 "${SOURCE_DIR}/lessoncue-media-worker" /usr/local/libexec/lessoncue-media-worker
 install -m 0644 "${SOURCE_DIR}/lessoncue-update.service" /etc/systemd/system/lessoncue-update.service
 install -m 0644 "${SOURCE_DIR}/lessoncue-update.path" /etc/systemd/system/lessoncue-update.path
+install -m 0644 "${SOURCE_DIR}/lessoncue-update-recovery.service" /etc/systemd/system/lessoncue-update-recovery.service
+if [[ ! -d /etc/lessoncue ]]; then
+  install -d -o root -g root -m 0755 /etc/lessoncue
+fi
+install -o root -g root -m 0644 \
+  "${SOURCE_DIR}/release-signing-public.pem" \
+  /etc/lessoncue/release-signing-public.pem
 
 if command -v avahi-daemon >/dev/null 2>&1; then
   AVAHI_SOURCE="${SOURCE_DIR}/docker/avahi-service.xml"
@@ -77,8 +98,13 @@ fi
 if command -v ufw >/dev/null 2>&1; then ufw allow "${HTTP_PORT}/tcp" >/dev/null || true; fi
 systemctl daemon-reload
 systemctl enable --now lessoncue-update.path
+systemctl enable lessoncue-update-recovery.service
 systemctl enable lessoncue
 systemctl restart lessoncue
+INSTALLED_VERSION="$("${PAYLOAD_DIR}/LessonCue.Server" --version 2>/dev/null || printf 'unknown')"
+printf '%s\n' "${INSTALLED_VERSION}" > /var/lib/lessoncue/config/installed-version
+chown lessoncue:lessoncue /var/lib/lessoncue/config/installed-version
+chmod 0600 /var/lib/lessoncue/config/installed-version
 if [[ "${HTTP_PORT}" == "80" ]]; then PORT_SUFFIX=""; else PORT_SUFFIX=":${HTTP_PORT}"; fi
 echo "LessonCue is installed. Open http://lessoncue.local${PORT_SUFFIX}"
 echo "Numeric fallback: http://$(hostname -I | awk '{print $1}')${PORT_SUFFIX}"

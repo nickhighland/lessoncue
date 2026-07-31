@@ -1,0 +1,58 @@
+{
+  "apiVersion": 1,
+  "capabilityContractVersion": 1,
+  "manifestVersion": 99,
+  "generatedAt": "2026-07-29T16:00:00Z",
+  "futureServerField": {
+    "ignoredSafely": true
+  },
+  "displayCapabilities": {
+    "platform": "android-tv",
+    "displayName": "Future Android display",
+    "contractVersion": 1,
+    "minimumClientVersion": "0.40.2",
+    "capabilities": [],
+    "limitations": [],
+    "futureCapabilityMetadata": "ignored"
+  },
+  "compatibilityWarnings": [],
+  "screen": {
+    "id": "30000000-0000-0000-0000-000000000001",
+    "name": "Future-version display",
+    "volunteerMode": true,
+    "site": "Test lab",
+    "futureScreenField": 42
+  },
+  "signage": [],
+  "signageSchedule": [],
+  "playlists": [
+    {
+      "playlistId": "30000000-0000-0000-0000-000000000002",
+      "title": "Future-version lesson",
+      "version": 8,
+      "items": [
+        {
+          "itemId": "30000000-0000-0000-0000-000000000003",
+          "type": "image",
+          "title": "Future additive image",
+          "downloadUrl": "/api/v1/media/30000000-0000-0000-0000-000000000004/file",
+          "fileExtension": "png",
+          "startMs": 0,
+          "volumePercent": 100,
+          "imageDurationSeconds": 10,
+          "endBehavior": "advance",
+          "allowSkip": true,
+          "offlineEligible": true,
+          "fadeInMs": 0,
+          "fadeOutMs": 0,
+          "cuePoints": [],
+          "futureCueField": [
+            "ignored",
+            "without breaking playback"
+          ]
+        }
+      ],
+      "futurePlaylistField": "ignored"
+    }
+  ]
+}
