@@ -1,0 +1,35 @@
+{
+  "manifestVersion": 1,
+  "screen": {
+    "name": "Previous-version display"
+  },
+  "signage": [],
+  "playlists": [
+    {
+      "playlistId": "20000000-0000-0000-0000-000000000001",
+      "title": "Previous-version lesson",
+      "designatedStartAt": null,
+      "preRollStartsAt": null,
+      "countdown": null,
+      "preRoll": null,
+      "items": [
+        {
+          "itemId": "20000000-0000-0000-0000-000000000002",
+          "type": "image",
+          "title": "Previous-version image",
+          "downloadUrl": "/api/v1/media/20000000-0000-0000-0000-000000000003/file",
+          "fileExtension": "png",
+          "startMs": 0,
+          "volumePercent": 100,
+          "imageDurationSeconds": 10,
+          "endBehavior": "advance",
+          "allowSkip": true,
+          "offlineEligible": true,
+          "fadeInMs": 0,
+          "fadeOutMs": 0,
+          "cuePoints": []
+        }
+      ]
+    }
+  ]
+}

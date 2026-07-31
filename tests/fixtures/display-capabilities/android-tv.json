@@ -1,0 +1,14 @@
+{
+  "platform": "android-tv",
+  "contractVersion": 1,
+  "expected": {
+    "lesson.video": true,
+    "lesson.youtube": true,
+    "lesson.webpage": true,
+    "signage.weather": true,
+    "signage.calendar": true,
+    "signage.audience": false,
+    "remote.dpad": true
+  },
+  "requiredFallback": "signage.audience"
+}

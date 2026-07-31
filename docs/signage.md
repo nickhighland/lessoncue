@@ -1,54 +1,60 @@
-# Signage scheduling
+# Signage
 
-LessonCue signage uses the same local media library, paired screens, screen tags, and authenticated manifests as lesson playback. It does not require the hosted demonstration interface or a cloud scheduling service. See [Signage Studio](signage-studio.md) for the complete design, playlist, publishing, operations, emergency, and kiosk workflow.
+LessonCue signage is an optional, self-hosted preview feature. A Service Admin must enable it under **Settings → Preview features** before Signage appears in navigation. Disable it to hide the interface and keep ordinary lesson playback unchanged.
 
-## Create or edit signage
+The current workflow has three parts:
 
-Open **Signage** in the local administrator interface. Use **Layouts** and **Playlists** to create reusable content, then use **Calendar → New schedule** to assign it. Each schedule has:
+1. **Layouts** define the persistent regions and elements that appear on a sign.
+2. **Playlists** define media that loops continuously inside a playlist region.
+3. **Signs & screens** combine one layout with its playlist choices and assign the resulting sign to one or more screens.
 
-- a mode: emergency override, scheduled signage, or idle fallback;
-- a priority from 0 through 100;
-- text, colors, and optional Media Library content;
-- an optional reusable layout, independent signage playlist, or backward-compatible inline layout;
-- optional display-power and signage-volume events;
-- a one-time window, daily recurrence, or selected weekdays;
-- optional first and last dates plus excluded `YYYY-MM-DD` dates;
-- explicit paired-screen targets, screen-tag targets, or an all-screen default.
+Each screen has at most one active sign. One sign can be reused by many screens. Signage does not use the older Calendar, draft/publish, operations, or emergency-broadcast workflow; those concepts are historical and are not part of the supported current interface.
 
-Recurring times use the organization time zone shown at the top of the Signage page. A window such as 10:00 PM–2:00 AM crosses midnight and belongs to the day on which it starts. The ending boundary is exclusive, preventing two adjacent schedules from overlapping for a minute. Clicking a recurring calendar occurrence lets an editor change only that occurrence, split the series from that date forward, or update the entire series.
+## Layouts
 
-Use **Edit**, **Pause**, **Resume**, or **Delete** on a sign card. Pausing retains the complete schedule but removes it from display manifests.
+Choose a full-screen layout or an information frame. Information frames preserve a 16:9 presentation region while providing one to five evenly divided bottom slots and one to three sidebar slots. The layout colors, slot counts, and frame size update the editor preview immediately.
 
-## Layouts and information widgets
+Each slot can contain one supported element, including:
 
-Reusable layouts support up to 64 independently positioned elements and keep their draft separate from the published version. The editor includes zoom, hand-tool panning, snapping, live alignment guides, multi-select, grouping, layers, granular locks, rich text, shapes, icons, QR/Wi-Fi codes, counters, tickers, online apps, background audio, safe areas, and standard or custom display sizes.
+- looping playlist area;
+- text;
+- image or logo;
+- website or Wi-Fi QR code;
+- weather;
+- time and date;
+- approved calendar feed;
+- webpage;
+- audience poll.
 
-Select a zone on the canvas and drag it into place. The square corner handle resizes it and the round handle rotates it. Arrow keys nudge by one percent and Shift plus an arrow nudges by five percent. Optional grid snapping, exact coordinates, arbitrary rotation from -180° through 180°, layer order, opacity, fill/fit/stretch, horizontal or vertical flip, duplicate, lock and hide controls are available without CSS or template code.
+Select an element in the preview or inspector to edit it. Element settings control its content, background, padding, content scale, alignment, and type-specific options. The layout preview is intended to match browser output, but signage remains a preview feature while the capability contract and automated browser/Android rendering-conformance work in the roadmap are completed.
 
-Live-stream zones accept HLS, direct HTTP video, RTMP, RTMPS, and RTSP. LessonCue keeps the source address on the server and uses FFmpeg to expose a short local HLS stream that browser, Android TV, and Apple TV displays can play. H.264 source video is remuxed without video re-encoding and audio is normalized to AAC. Relays start on demand, retry while the source comes online, and stop after five minutes without a viewer.
+A playlist area can optionally use a server-relayed stream override. Enter the stream source and optional local start and end boundaries. During the configured window, a reachable stream replaces the normal playlist; when it drops or the window ends, the looping playlist returns.
 
-Online widget sources must first be approved under **Settings → Organization & appearance → Approved signage information sources**. Enter the origin only, such as `https://weather.example.org`; paths beneath that origin can then be selected by signage editors. LessonCue rejects unapproved origins and URLs with embedded credentials.
+## Playlists
 
-The server fetches source data instead of asking every television to contact the internet. RSS/Atom titles, ICS calendar summaries, weather JSON, line-based menu text, and common JSON `items` or `events` structures are normalized and stored in the local database. Each zone may refresh every 5 minutes through daily. **Refresh data** on the sign card performs an immediate refresh.
+Signage playlists loop indefinitely. Add Media Library items, arrange their order, and set duration, transition, fade-in, fade-out, volume, mute, and picture fit for each entry. The last item returns to the first.
 
-If a request fails, LessonCue records the error but retains the last successful cached content. That cache is embedded in the paired-screen manifest and its offline copy, so native and browser displays continue showing the last known information. Fallback text is used before the first successful refresh or when a source has no displayable content.
+Layouts select playlists by identifier. Saving a playlist or layout invalidates assigned display manifests so connected screens can refresh without a separate publishing step.
 
-## Conflict order
+## Signs and screens
 
-LessonCue resolves active signage in this order:
+A sign contains:
 
-1. emergency override;
-2. scheduled signage;
-3. idle fallback.
+- a name;
+- one selected layout;
+- the layout's playlist assignments;
+- one or more paired screens.
 
-Within a level, the higher numeric priority wins. Equal priorities prefer the most recently edited sign. The server publishes signs in this deterministic order so Android TV, Apple TV, and browser displays agree on the winner.
+Assigning a sign to a screen replaces that screen's prior sign assignment. Browser screens can be marked **Signage only** and **Permanent pairing**, then opened directly from **Screens** for a computer-connected television or projector. Permanent browser pairings are not removed by the two-hour inactive temporary-screen cleanup.
 
-Explicit screen IDs and screen tags are inclusive: a sign matches when the display is directly selected or has any listed tag. If both are blank, the sign targets every paired display.
+## Data sources and privacy
 
-## Readiness
+Online information sources are fetched by the LessonCue server, not separately by every screen. Service Admins approve source origins and store optional source credentials locally. Public calendar and weather data are normalized and cached so the last successful result can remain visible during a temporary provider failure.
 
-The Signage page reports all attached server and zone media as **ready**, **preparing**, **failed**, or **missing**. It also reports how many targeted displays have cached every media zone in the sign and whether any display reported a cache failure. The authenticated manifest includes future targeted signs in `signageSchedule`; Android TV and Apple TV put that media through the same checksummed cache and heartbeat diagnostics as lesson media. Paired browser displays store scheduled signage audio, images, and video in durable origin Cache Storage, use the service worker copy during a network interruption, prune obsolete sign media, and report ready, downloading, and failed inventory in their heartbeat. Browser storage remains subject to the browser and operating system's quota and eviction policy.
+QR values are generated locally for display. Wi-Fi QR codes contain the network information entered by the administrator, so treat signage layout access as sensitive and do not expose a private network password in labels.
 
-## Lesson handoff
+## Playback compatibility
 
-Normal signage occupies a lesson-capable display's idle/library state. Existing scheduled pre-roll, countdown, and lesson playback takes control at its configured times; finishing or stopping playback reveals the current active sign. A browser screen marked both **Signage only** and **Permanent pairing** instead dedicates the entire viewport to its active published layout and signage playlist, with no lesson library or local player controls. An emergency sign interrupts active lesson playback on Android TV, Apple TV, and browser displays, blocks new lesson selection while the override is active, and resumes the interrupted cue at its last reported position when the override ends. See the manual physical-device acceptance item in the roadmap for final D-pad, Siri Remote, sleep/wake, and real-network checks.
+The paired browser player is the reference signage renderer. Android TV, Google TV, and Fire TV support a growing subset through the native client. Until the capability-contract roadmap item is complete, verify every layout on its actual target screen and avoid assigning browser-only elements without a tested fallback.
+
+Apple TV/tvOS is not a supported LessonCue target in the current product cycle.

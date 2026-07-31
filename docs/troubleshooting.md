@@ -6,6 +6,46 @@ A **Service Admin** can open **Settings → Data & recovery → Troubleshooting 
 
 The browser log supplements—rather than replaces—the operating-system journal. For startup failures or problems before sign-in, use `sudo journalctl -u lessoncue -n 200 --no-pager` over SSH.
 
+## An update or rollback did not complete
+
+Open **Settings → Software updates** as a Service Admin. LessonCue records the last protected operation's completion time, target version, success or failure, and whether a last-known-good snapshot remains available. The rollback control is intentionally unavailable to App Admins because it replaces the application database and protected server configuration.
+
+Native Linux updates write a root-only transaction marker before changing protected files. If power is lost, `lessoncue-update-recovery.service` runs before LessonCue at the next boot and restores the verified snapshot. Inspect both protected services over SSH:
+
+```bash
+sudo systemctl status lessoncue-update.service lessoncue-update-recovery.service --no-pager
+sudo journalctl -u lessoncue-update.service -u lessoncue-update-recovery.service -n 200 --no-pager
+sudo test -e /var/lib/lessoncue/update-transaction && echo "Recovery is still pending"
+curl -fsS http://127.0.0.1/health/ready && echo
+```
+
+Do not manually delete `/opt/lessoncue.previous`, `/var/lib/lessoncue/update-rollback`, or an active transaction marker while recovery is pending. If the current server works but an operator-requested rollback was rejected, LessonCue restores the pre-rollback safety snapshot automatically and records that outcome in Settings.
+
+## LessonCue started in recovery mode
+
+If the browser says **LessonCue is protecting your data**, the process is alive but the database could not be opened, created, or upgraded safely. Normal API, background processing, pairing, and media routes are disabled. `/health/live` returns 200 with `safeMode: true`; `/health/ready`, `/health`, and `/recovery/status` return 503 so a load balancer or protected updater never mistakes recovery mode for a successful start.
+
+Do not delete `/var/lib/lessoncue` or repeatedly reinstall. Capture the evidence first:
+
+```bash
+sudo systemctl status lessoncue --no-pager
+sudo journalctl -u lessoncue -n 200 --no-pager
+df -h /var/lib/lessoncue
+sudo ls -lah /var/lib/lessoncue/database /var/lib/lessoncue/backups
+curl -sS http://127.0.0.1/health/ready | python3 -m json.tool
+```
+
+If the failure followed a power loss during an update, run the root-owned recovery unit and recheck readiness:
+
+```bash
+sudo systemctl start lessoncue-update-recovery.service
+sudo journalctl -u lessoncue-update-recovery.service -n 100 --no-pager
+sudo systemctl restart lessoncue
+curl -fsS http://127.0.0.1/health/ready && echo
+```
+
+Otherwise preserve a copy of the entire data directory before changing it. Install the same or a newer LessonCue release on a spare server and use a separately stored password to run a restore drill on the newest `.lcbak` file shown by the recovery page. Current manifests record their source version; LessonCue refuses a backup created by a newer release and tells you to update the receiving server first. If no verified backup exists, keep the original database and logs intact for manual SQLite recovery rather than creating a new database over it.
+
 ## TV cannot find the server
 
 Open `http://SERVER-IP/.well-known/lessoncue` from a phone on the same Wi-Fi. If it fails, check the server service, firewall, VLAN, and client isolation. Android TV version 0.30.1 and newer automatically browses `_lessoncue._tcp` and saves the resolved numeric address when ordinary `lessoncue.local` lookup fails. If both automatic discovery and `.local` fail while the numeric address works, enter the numeric address and reserve it in DHCP; multicast DNS is blocked between the TV and server. If an administrator selected a non-default port, add `:PORT` after the hostname or IP address.
@@ -24,7 +64,7 @@ Use the SSH commands in [Reset a forgotten administrator password](installation.
 
 ## Media says internet required
 
-Webpages, embedded players, Vimeo, and external destinations require internet. On Android TV and Fire TV, YouTube links use an embedded web player. For offline playback—or any YouTube item assigned to Apple TV—open **Add media**, choose **Download YouTube locally**, and wait for the Media Library status to change from Downloading/Processing to Offline ready. Only import media you are authorized to copy.
+Webpages, embedded players, Vimeo, and external destinations require internet. On Android TV, Google TV, and Fire TV, YouTube links use an embedded web player. For offline playback, open **Add media**, choose **Download YouTube locally**, and wait for the Media Library status to change from Downloading/Processing to Offline ready. Only import media you are authorized to copy.
 
 If a local YouTube import fails, read its processing error in the Media Library, confirm the server can reach YouTube, check available LessonCue storage, and inspect `sudo journalctl -u lessoncue -n 100 --no-pager`. Re-run the latest installer or install the latest release if the error says `yt-dlp` was not found.
 

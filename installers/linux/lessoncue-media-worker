@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+network=deny
+timeout_seconds=14400
+memory_bytes=2147483648
+file_bytes=21474836480
+processes=32
+write_roots=()
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --network=allow) network=allow; shift ;;
+    --network=deny) network=deny; shift ;;
+    --timeout=*) timeout_seconds="${1#*=}"; shift ;;
+    --memory=*) memory_bytes="${1#*=}"; shift ;;
+    --file-size=*) file_bytes="${1#*=}"; shift ;;
+    --processes=*) processes="${1#*=}"; shift ;;
+    --write-root=*) write_roots+=("${1#*=}"); shift ;;
+    --) shift; break ;;
+    *) echo "Unknown LessonCue worker option: $1" >&2; exit 64 ;;
+  esac
+done
+
+if [[ "$#" -lt 1 ]]; then
+  echo "LessonCue worker received no executable." >&2
+  exit 64
+fi
+if [[ ! "${timeout_seconds}" =~ ^[1-9][0-9]{0,5}$ ]] ||
+   [[ ! "${memory_bytes}" =~ ^[1-9][0-9]{6,}$ ]] ||
+   [[ ! "${file_bytes}" =~ ^[1-9][0-9]{6,}$ ]] ||
+   [[ ! "${processes}" =~ ^[1-9][0-9]{0,2}$ ]]; then
+  echo "LessonCue worker limits are invalid." >&2
+  exit 64
+fi
+if ! command -v bwrap >/dev/null 2>&1; then
+  echo "The required LessonCue media sandbox is unavailable. Install bubblewrap and run the current LessonCue installer." >&2
+  exit 78
+fi
+
+data_path="${LESSONCUE_DATA_PATH:-/var/lib/lessoncue}"
+data_path="$(readlink -f "${data_path}")"
+if [[ ! -d "${data_path}" ]]; then
+  echo "LessonCue media storage is unavailable." >&2
+  exit 78
+fi
+
+sandbox=(
+  bwrap
+  --die-with-parent
+  --new-session
+  --unshare-user-try
+  --unshare-pid
+  --unshare-ipc
+  --unshare-uts
+  --unshare-cgroup-try
+  --clearenv
+  --setenv PATH /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  --setenv LC_ALL C
+  --setenv LANG C
+  --dir /etc
+  --dir /opt
+  --dir /sys
+  --dir /sys/class
+  --dir /sys/dev
+  --dir /var
+  --dir /var/lib
+  --ro-bind /usr /usr
+  --symlink usr/bin /bin
+  --symlink usr/sbin /sbin
+  --symlink usr/lib /lib
+  --ro-bind-try /usr/lib64 /usr/lib64
+  --symlink usr/lib64 /lib64
+  --ro-bind-try /etc/fonts /etc/fonts
+  --ro-bind-try /etc/passwd /etc/passwd
+  --ro-bind-try /etc/group /etc/group
+  --ro-bind-try /etc/ld.so.cache /etc/ld.so.cache
+  --ro-bind-try /etc/localtime /etc/localtime
+  --ro-bind-try /sys/class/drm /sys/class/drm
+  --ro-bind-try /sys/dev/char /sys/dev/char
+  --proc /proc
+  --dev /dev
+  --dev-bind-try /dev/dri /dev/dri
+  --tmpfs /tmp
+  --ro-bind "${data_path}" "${data_path}"
+)
+
+if [[ -d /opt/lessoncue ]]; then
+  sandbox+=(--ro-bind /opt/lessoncue /opt/lessoncue)
+fi
+if [[ "${network}" == allow ]]; then
+  sandbox+=(
+    --ro-bind-try /etc/ssl /etc/ssl
+    --ro-bind-try /etc/resolv.conf /etc/resolv.conf
+    --ro-bind-try /etc/hosts /etc/hosts
+    --ro-bind-try /etc/nsswitch.conf /etc/nsswitch.conf
+  )
+else
+  sandbox+=(--unshare-net)
+fi
+
+first_write=
+for root in "${write_roots[@]}"; do
+  canonical="$(readlink -f "${root}")"
+  case "${canonical}" in
+    "${data_path}"/*|/tmp/lessoncue-*) ;;
+    *) echo "LessonCue refused an unsafe media-worker write path." >&2; exit 64 ;;
+  esac
+  if [[ ! -d "${canonical}" ]]; then
+    echo "LessonCue media-worker write path does not exist." >&2
+    exit 64
+  fi
+  sandbox+=(--bind "${canonical}" "${canonical}")
+  if [[ -z "${first_write}" ]]; then first_write="${canonical}"; fi
+done
+
+if [[ -n "${first_write}" ]]; then
+  sandbox+=(--setenv HOME "${first_write}" --setenv XDG_CACHE_HOME "${first_write}" --chdir "${first_write}")
+else
+  sandbox+=(--setenv HOME /tmp --setenv XDG_CACHE_HOME /tmp --chdir /tmp)
+fi
+
+exec "${sandbox[@]}" -- \
+  /usr/bin/timeout --signal=TERM --kill-after=10s "${timeout_seconds}s" \
+  /usr/bin/prlimit \
+    "--cpu=${timeout_seconds}" \
+    "--as=${memory_bytes}" \
+    "--fsize=${file_bytes}" \
+    "--nproc=${processes}" \
+    --nofile=256 \
+    -- \
+    "$@"

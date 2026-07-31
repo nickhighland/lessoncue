@@ -82,6 +82,10 @@ public static class AdminRecoveryCommand
         var hasher = new PasswordHasher<AdminAccount>();
         accountToReset.PasswordHash = hasher.HashPassword(accountToReset, password);
         accountToReset.MustChangePassword = false;
+        accountToReset.TotpSecretProtected = null;
+        accountToReset.TotpEnabled = false;
+        accountToReset.TotpLastCounter = 0;
+        accountToReset.TotpEnabledAt = null;
         accountToReset.SessionVersion++;
         db.AuditEvents.Add(new AuditEvent
         {
@@ -92,7 +96,7 @@ public static class AdminRecoveryCommand
         });
         await db.SaveChangesAsync(ct);
 
-        Console.WriteLine($"Password reset complete for '{accountToReset.Username}'. Existing browser sessions were signed out.");
+        Console.WriteLine($"Password reset complete for '{accountToReset.Username}'. Existing browser sessions were signed out and MFA was disabled.");
         if (accountToReset.Disabled)
             Console.WriteLine("This account is disabled. Sign in with another owner account to enable it.");
         return 0;
@@ -107,6 +111,10 @@ public static class AdminRecoveryCommand
         if (account is null) return false;
         account.PasswordHash = new PasswordHasher<AdminAccount>().HashPassword(account, password);
         account.MustChangePassword = false;
+        account.TotpSecretProtected = null;
+        account.TotpEnabled = false;
+        account.TotpLastCounter = 0;
+        account.TotpEnabledAt = null;
         account.SessionVersion++;
         db.AuditEvents.Add(new AuditEvent { Actor = "ssh-recovery", Action = "user.password.reset", Object = account.Id.ToString(), Summary = account.Username });
         await db.SaveChangesAsync(ct);

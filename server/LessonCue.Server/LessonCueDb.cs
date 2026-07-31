@@ -17,6 +17,7 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
     public DbSet<MediaAssetVersion> MediaAssetVersions => Set<MediaAssetVersion>();
     public DbSet<MediaTranscodeVariant> MediaTranscodeVariants => Set<MediaTranscodeVariant>();
+    public DbSet<UploadSession> UploadSessions => Set<UploadSession>();
     public DbSet<Screen> Screens => Set<Screen>();
     public DbSet<PlaybackCommandRecord> PlaybackCommands => Set<PlaybackCommandRecord>();
     public DbSet<PairingAttempt> PairingAttempts => Set<PairingAttempt>();
@@ -48,6 +49,9 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
         modelBuilder.Entity<AccountToken>().HasOne(x => x.Account).WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<RegistrationCode>().HasIndex(x => x.CodeHash).IsUnique();
         modelBuilder.Entity<MediaAsset>().HasIndex(x => x.Sha256);
+        modelBuilder.Entity<UploadSession>().HasIndex(x => new { x.OwnerAccountId, x.State });
+        modelBuilder.Entity<UploadSession>().HasIndex(x => x.ExpiresAt);
+        modelBuilder.Entity<UploadSession>().HasIndex(x => x.CompletedAt);
         modelBuilder.Entity<MediaAssetVersion>().HasIndex(x => new { x.MediaAssetId, x.VersionNumber }).IsUnique();
         modelBuilder.Entity<MediaAssetVersion>().HasOne(x => x.MediaAsset).WithMany(x => x.Versions)
             .HasForeignKey(x => x.MediaAssetId).OnDelete(DeleteBehavior.Cascade);

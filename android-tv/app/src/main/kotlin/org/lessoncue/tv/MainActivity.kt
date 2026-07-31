@@ -66,6 +66,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -606,10 +607,25 @@ private fun SignageZoneLayout(signage: SignageCue) {
                 (if (zone.type == "customHtml") zone.htmlUrl else zone.sourceUrl)
                     ?.takeIf { zone.type in signageWebZoneTypes }?.let { SignageWebZone(it) }
                 if (zone.type == "presentation") SignagePresentationZone(zone)
-                Column(Modifier.fillMaxSize().padding(22.dp), verticalArrangement = Arrangement.Center) {
+                val arrangement = when (zone.verticalAlign) {
+                    "top" -> Arrangement.Top
+                    "bottom" -> Arrangement.Bottom
+                    else -> Arrangement.Center
+                }
+                Column(Modifier.fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = zone.contentScale.coerceIn(25, 100) / 100f
+                        scaleY = zone.contentScale.coerceIn(25, 100) / 100f
+                    }
+                    .padding((zone.contentPadding.coerceIn(0, 30) * 2).dp),
+                    verticalArrangement = arrangement) {
                     zone.title?.takeIf { zone.type !in signageNonTextZoneTypes }?.let { Text(it.uppercase(), color = parseDisplayColor(zone.accentColor), fontSize = 14.sp, letterSpacing = 2.sp) }
                     if (zone.type == "clock") {
                         SignageClock(zone)
+                    } else if (zone.type == "weather") {
+                        SignageWeather(zone)
+                    } else if (zone.type == "calendar") {
+                        SignageCalendar(zone)
                     } else if (zone.type == "qr" || zone.type == "wifi") {
                         zone.qrValue?.let { SignageQrCode(it, zone) }
                     } else if (zone.type == "counter") {
@@ -629,6 +645,21 @@ private fun SignageZoneLayout(signage: SignageCue) {
                                 velocity = (zone.tickerSpeed.coerceIn(10, 300) / 2f).dp
                             ) else Modifier) }
                         zone.cached?.items?.take(8)?.forEach { Text("• $it", color = parseDisplayColor(zone.textColor), fontSize = 18.sp, modifier = Modifier.padding(top = 7.dp)) }
+                    }
+                }
+                if (zone.renderSupport == "fallback") {
+                    Column(
+                        Modifier.fillMaxSize().zIndex(10_000f).background(parseDisplayColor(zone.backgroundColor))
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text("CONTENT UNAVAILABLE", color = parseDisplayColor(zone.accentColor),
+                            fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                        Text(zone.title ?: "Signage element", color = parseDisplayColor(zone.textColor),
+                            fontSize = 30.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                        Text(zone.fallbackMessage ?: "This element is not supported by this display.",
+                            color = parseDisplayColor(zone.textColor), fontSize = 18.sp, textAlign = TextAlign.Center)
                     }
                 }
             }
@@ -656,7 +687,10 @@ private fun signageText(zone: SignageZone, fallback: String) = runCatching {
                 color = color?.let(::parseDisplayColor) ?: Color.Unspecified,
                 fontWeight = if (run.optBoolean("bold")) FontWeight.Bold else FontWeight.Normal,
                 fontStyle = if (run.optBoolean("italic")) FontStyle.Italic else FontStyle.Normal,
-                textDecoration = if (run.optBoolean("underline")) TextDecoration.Underline else TextDecoration.None
+                textDecoration = if (run.optBoolean("underline")) TextDecoration.Underline else TextDecoration.None,
+                fontFamily = run.optString("fontFamily").takeIf(String::isNotBlank)
+                    ?.let(::signageFontFamily),
+                fontSize = run.optInt("fontSize").takeIf { it in 8..300 }?.sp ?: TextUnit.Unspecified
             )) { append(run.optString("text")) }
         }
     }.takeIf { it.isNotEmpty() } ?: buildAnnotatedString { append(fallback) }
@@ -719,21 +753,122 @@ private fun SignageQrCode(value: String, zone: SignageZone) {
 }
 
 @Composable
+private fun SignageWeather(zone: SignageZone) {
+    val snapshot = zone.cached?.weather
+    val fields = zone.weatherFields.split(',').map(String::trim).filter(String::isNotBlank).toSet()
+    val unit = snapshot?.temperatureUnit ?: if (zone.weatherUnits == "celsius") "°C" else "°F"
+    val condition = snapshot?.conditions ?: zone.cached?.text.orEmpty()
+    val icon = when ((zone.cached?.icon ?: condition).lowercase()) {
+        in listOf("clear", "sunny", "sun") -> "☀"
+        in listOf("partly-cloudy", "partly cloudy") -> "⛅"
+        in listOf("rain", "rainy", "showers") -> "🌧"
+        in listOf("snow", "snowy") -> "❄"
+        in listOf("storm", "thunderstorm") -> "⛈"
+        else -> "☁"
+    }
+    val details = buildList {
+        if ("feelsLike" in fields && snapshot?.feelsLike != null) add("Feels ${snapshot.feelsLike.toInt()}$unit")
+        if ("high" in fields && snapshot?.high != null) add("High ${snapshot.high.toInt()}$unit")
+        if ("low" in fields && snapshot?.low != null) add("Low ${snapshot.low.toInt()}$unit")
+        if ("precipitation" in fields && snapshot?.precipitation != null) add("Precipitation ${snapshot.precipitation.toInt()}%")
+        if ("humidity" in fields && snapshot?.humidity != null) add("Humidity ${snapshot.humidity.toInt()}%")
+        if ("wind" in fields && snapshot?.wind != null) add("Wind ${snapshot.wind.toInt()} ${snapshot.windUnit.orEmpty()}".trim())
+        if ("forecast" in fields) snapshot?.forecast?.takeIf(String::isNotBlank)?.let(::add)
+        if ("sunrise" in fields) snapshot?.sunrise?.takeIf(String::isNotBlank)?.let { add("Sunrise $it") }
+        if ("sunset" in fields) snapshot?.sunset?.takeIf(String::isNotBlank)?.let { add("Sunset $it") }
+    }
+    val iconContent: @Composable () -> Unit = {
+        if ("icon" in fields) Text(icon,
+            color = if (zone.weatherIconStyle == "white") Color.White else parseDisplayColor(zone.accentColor),
+            fontSize = zone.weatherIconSize.coerceIn(20, 180).sp)
+    }
+    val values: @Composable () -> Unit = {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(zone.weatherLocation ?: zone.title ?: zone.cached?.title.orEmpty(),
+                color = parseDisplayColor(zone.textColor), fontSize = zone.weatherTitleSize.coerceIn(8, 100).sp,
+                fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            if ("temperature" in fields && snapshot?.temperature != null)
+                Text("${snapshot.temperature.toInt()}$unit", color = parseDisplayColor(zone.textColor),
+                    fontSize = zone.weatherTemperatureSize.coerceIn(16, 180).sp, fontWeight = FontWeight.Bold)
+            if ("conditions" in fields && condition.isNotBlank())
+                Text(condition, color = parseDisplayColor(zone.textColor),
+                    fontSize = zone.weatherDetailsSize.coerceIn(8, 100).sp, textAlign = TextAlign.Center)
+            if (details.isNotEmpty())
+                Text(details.joinToString("  •  "), color = parseDisplayColor(zone.textColor),
+                    fontSize = zone.weatherDetailsSize.coerceIn(8, 100).sp, textAlign = TextAlign.Center)
+        }
+    }
+    when (zone.weatherLayout) {
+        "icon-top" -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center) { iconContent(); values() }
+        "icon-right" -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically) { values(); Spacer(Modifier.width(18.dp)); iconContent() }
+        "compact" -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically) { iconContent(); Spacer(Modifier.width(12.dp)); values() }
+        else -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically) { iconContent(); Spacer(Modifier.width(18.dp)); values() }
+    }
+}
+
+@Composable
+private fun SignageCalendar(zone: SignageZone) {
+    val fields = zone.calendarFields.split(',').map(String::trim).filter(String::isNotBlank).toSet()
+    val available = zone.cached?.events.orEmpty()
+    val events = if (zone.calendarMaxItems > 0) available.take(zone.calendarMaxItems) else available
+    if (events.isEmpty()) {
+        Text(zone.cached?.text?.ifBlank { null } ?: zone.content ?: "No upcoming events",
+            color = parseDisplayColor(zone.textColor), fontSize = zone.fontSize.coerceIn(8, 180).sp,
+            textAlign = TextAlign.Center)
+        return
+    }
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        events.forEach { event ->
+            val date = event.startsAt?.atZone(java.time.ZoneId.systemDefault())
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.Top) {
+                if (date != null && ("date" in fields || "time" in fields)) {
+                    val dateText = buildList {
+                        if ("date" in fields) add(date.format(DateTimeFormatter.ofPattern("MMM d")))
+                        if ("time" in fields && !event.allDay) add(date.format(DateTimeFormatter.ofPattern("h:mm a")))
+                    }.joinToString(" · ")
+                    Text(dateText, color = parseDisplayColor(zone.accentColor),
+                        fontSize = zone.fontSize.coerceIn(8, 180).times(.55f).sp,
+                        modifier = Modifier.width(120.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    if ("title" in fields) Text(event.title, color = parseDisplayColor(zone.textColor),
+                        fontSize = zone.fontSize.coerceIn(8, 180).times(.65f).sp, fontWeight = FontWeight.Bold)
+                    if ("description" in fields && !event.description.isNullOrBlank())
+                        Text(event.description, color = parseDisplayColor(zone.textColor),
+                            fontSize = zone.fontSize.coerceIn(8, 180).times(.45f).sp)
+                    if ("location" in fields && !event.location.isNullOrBlank())
+                        Text(event.location, color = parseDisplayColor(zone.accentColor),
+                            fontSize = zone.fontSize.coerceIn(8, 180).times(.42f).sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SignageClock(zone: SignageZone) {
     var now by remember(zone.id) { mutableStateOf(ZonedDateTime.now()) }
     LaunchedEffect(zone.id) { while (true) { kotlinx.coroutines.delay(1_000); now = ZonedDateTime.now() } }
-    val timePattern = when (zone.clockTimeFormat) {
+    var timePattern = when (zone.clockTimeFormat) {
         "24h" -> "HH:mm"
         "24h-seconds" -> "HH:mm:ss"
         "12h-seconds" -> "h:mm:ss a"
         else -> "h:mm a"
     }
-    val datePattern = when (zone.clockDateFormat) {
+    if (!zone.clockShowPeriod) timePattern = timePattern.replace(" a", "")
+    var datePattern = when (zone.clockDateFormat) {
         "numeric" -> "MM/dd/yyyy"
         "short" -> "MMM d"
         "medium" -> "EEE, MMM d"
         else -> "EEEE, MMMM d, yyyy"
     }
+    if (!zone.clockShowWeekday) datePattern = datePattern.replace("EEEE, ", "").replace("EEE, ", "")
+    if (!zone.clockShowYear) datePattern = datePattern.replace(", yyyy", "").replace("/yyyy", "")
     val time: @Composable () -> Unit = { Text(now.format(DateTimeFormatter.ofPattern(timePattern)),
         color = parseDisplayColor(zone.textColor), fontSize = zone.clockTimeFontSize.coerceIn(8, 180).sp) }
     val date: @Composable () -> Unit = { Text(now.format(DateTimeFormatter.ofPattern(datePattern)),
@@ -951,6 +1086,31 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
     onFinished: () -> Unit, onNext: (Int) -> Unit) {
     val item = items.getOrNull(index)
     BackHandler(onBack = onExit)
+    if (item?.renderSupport == "fallback") {
+        LaunchedEffect(item.id) {
+            onTelemetry(PlaybackTelemetry("unavailable", playlist.id, item.id,
+                error = item.fallbackMessage ?: "This item is not supported by this display."))
+        }
+        val fallbackRemote = playbackRemoteModifier(item.id) { action ->
+            when (action) {
+                PlaybackRemoteAction.Previous, PlaybackRemoteAction.Rewind ->
+                    if (index > 0) onNext(index - 1)
+                PlaybackRemoteAction.Next, PlaybackRemoteAction.FastForward ->
+                    if (index + 1 < items.size) onNext(index + 1)
+                else -> Unit
+            }
+        }
+        Box(Modifier.fillMaxSize().then(fallbackRemote)) {
+            FormLayout(item.title, item.fallbackMessage ?: "This item is not supported by this display.") {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (index > 0) Button(onClick = { onNext(index - 1) }) { Text("Previous") }
+                    if (index + 1 < items.size) Button(onClick = { onNext(index + 1) }) { Text("Next") }
+                    Button(onClick = onExit) { Text("Back to lesson") }
+                }
+            }
+        }
+        return
+    }
     if (item?.playbackUrl != null && item.linkKind in setOf("youtube", "embedded", "webpage", "external")) {
         OnlineMediaScreen(playlist.id, items, index, item, control, onTelemetry, onExit, onNext)
         return

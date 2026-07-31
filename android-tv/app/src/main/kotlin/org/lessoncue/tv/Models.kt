@@ -40,6 +40,8 @@ data class CueItem(
     val transitionStyle: String = "cut",
     val transitionDurationMs: Int = 500,
     val offlineEligible: Boolean = false,
+    val renderSupport: String = "supported",
+    val fallbackMessage: String? = null,
     val cuePoints: List<CuePoint> = emptyList()
 )
 
@@ -63,8 +65,16 @@ data class SignagePlaylistEntry(val id: String, val kind: String, val title: Str
 data class SignagePlaylistLayout(val id: String, val name: String, val backgroundColor: String,
     val zones: List<SignageZone>, val backgroundAudio: CueItem? = null)
 
+data class SignageCalendarEvent(val title: String, val description: String? = null,
+    val location: String? = null, val startsAt: Instant? = null, val allDay: Boolean = false)
+data class SignageWeatherSnapshot(val temperature: Double? = null, val feelsLike: Double? = null,
+    val high: Double? = null, val low: Double? = null, val precipitation: Double? = null,
+    val humidity: Double? = null, val wind: Double? = null, val temperatureUnit: String? = null,
+    val windUnit: String? = null, val conditions: String? = null, val forecast: String? = null,
+    val sunrise: String? = null, val sunset: String? = null)
 data class SignageWidgetCache(val zoneId: String, val title: String, val text: String,
-    val items: List<String>, val refreshedAt: String? = null)
+    val items: List<String>, val refreshedAt: String? = null, val icon: String? = null,
+    val events: List<SignageCalendarEvent> = emptyList(), val weather: SignageWeatherSnapshot? = null)
 data class SignageZone(val id: String, val type: String, val title: String?, val content: String?,
     val x: Int, val y: Int, val width: Int, val height: Int, val backgroundColor: String,
     val textColor: String, val accentColor: String, val sourceUrl: String? = null, val streamUrl: String? = null,
@@ -80,9 +90,19 @@ data class SignageZone(val id: String, val type: String, val title: String?, val
     val clockDisplay: String = "both", val clockTimeFormat: String = "12h",
     val clockDateFormat: String = "long", val clockOrder: String = "time-date",
     val clockTimeFontSize: Int = 64, val clockDateFontSize: Int = 28,
-    val weatherPostalCode: String? = null, val contentPlaylistId: String? = null,
+    val clockShowPeriod: Boolean = true, val clockShowWeekday: Boolean = true, val clockShowYear: Boolean = true,
+    val weatherProvider: String = "open-meteo", val weatherLocation: String? = null,
+    val weatherPostalCode: String? = null, val weatherUnits: String = "fahrenheit",
+    val weatherFields: String = "icon,conditions,temperature,high,low",
+    val weatherIconStyle: String = "color", val weatherLayout: String = "icon-left",
+    val weatherIconSize: Int = 72, val weatherTitleSize: Int = 24,
+    val weatherTemperatureSize: Int = 64, val weatherDetailsSize: Int = 22,
+    val calendarMaxItems: Int = 0, val calendarFields: String = "date,time,title",
+    val contentPadding: Int = 6, val contentScale: Int = 100, val verticalAlign: String = "middle",
+    val contentPlaylistId: String? = null,
     val streamOverrideWhenLive: Boolean = false, val contentPlaylist: SignageContentPlaylist? = null,
     val htmlUrl: String? = null,
+    val renderSupport: String = "supported", val fallbackMessage: String? = null,
     val media: CueItem? = null,
     val cached: SignageWidgetCache? = null)
 
@@ -96,8 +116,15 @@ data class LessonPlaylist(
     val items: List<CueItem>
 )
 
+data class DisplayCapability(val id: String, val label: String, val supported: Boolean,
+    val fallback: String, val notes: String? = null)
+data class DisplayCapabilityContract(val platform: String, val displayName: String, val contractVersion: Int,
+    val minimumClientVersion: String, val capabilities: List<DisplayCapability>, val limitations: List<String>)
+data class DisplayCompatibilityWarning(val code: String, val title: String, val message: String, val fallback: String)
 data class ScreenManifest(val version: Int, val screenName: String, val signage: List<SignageCue>,
-    val playlists: List<LessonPlaylist>, val signageSchedule: List<SignageCue> = signage)
+    val playlists: List<LessonPlaylist>, val signageSchedule: List<SignageCue> = signage,
+    val displayCapabilities: DisplayCapabilityContract? = null,
+    val compatibilityWarnings: List<DisplayCompatibilityWarning> = emptyList())
 
 data class ControlCommand(
     val changed: Boolean,

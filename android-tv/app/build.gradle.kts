@@ -78,6 +78,7 @@ android {
         buildConfig = true
         resValues = true
     }
+    sourceSets.getByName("test").resources.srcDir(rootProject.file("../protocol/fixtures"))
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 

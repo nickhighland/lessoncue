@@ -17,6 +17,14 @@ export default defineConfig([
   {
     files: ["web-admin/**/*.{ts,tsx}"],
     extends: [js.configs.recommended, ...tseslint.configs.recommended, reactHooks.configs.flat.recommended],
+    rules: {
+      // LessonCue intentionally refreshes server-backed state from effects and
+      // renders operator-facing clock/status values from the current time.
+      // The core hooks/dependency rules remain enabled; these compiler-oriented
+      // rules do not fit those existing polling and status-view patterns.
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/purity": "off",
+    },
     languageOptions: {
       globals: globals.browser,
       parserOptions: { ecmaVersion: "latest", sourceType: "module" },

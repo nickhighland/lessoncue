@@ -14,6 +14,16 @@ using Microsoft.EntityFrameworkCore;
 var builder = WebApplication.CreateBuilder(args);
 var dataPath = Environment.GetEnvironmentVariable("LESSONCUE_DATA_PATH")
     ?? Path.Combine(builder.Environment.ContentRootPath, "data");
+if (args.Contains("--version", StringComparer.Ordinal))
+{
+    Console.WriteLine(UpdateService.InstalledVersion());
+    return;
+}
+if (DatabaseVerificationCommand.TryGetPath(args, out var databaseToVerify))
+{
+    Environment.ExitCode = await DatabaseVerificationCommand.RunAsync(databaseToVerify);
+    return;
+}
 if (AdminRecoveryCommand.IsRequested(args))
 {
     Environment.ExitCode = await AdminRecoveryCommand.RunAsync(args, dataPath);
@@ -47,8 +57,31 @@ builder.Services.AddScoped<ManifestService>();
 builder.Services.AddSingleton(troubleshootingLog);
 builder.Services.AddSingleton(new PairingCodeService(dataPath, builder.Configuration["LessonCue:PairingPin"]));
 builder.Services.AddSingleton(new BackupService(dataPath));
+builder.Services.AddHttpClient("backup-offsite", client =>
+    client.Timeout = TimeSpan.FromHours(6));
+builder.Services.AddHttpClient("migration-transfer", client =>
+    {
+        client.Timeout = TimeSpan.FromHours(6);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        ConnectTimeout = TimeSpan.FromSeconds(20)
+    });
+builder.Services.AddSingleton<MigrationTransferService>();
+builder.Services.AddSingleton(services => new BackupPolicyService(
+    dataPath,
+    services.GetRequiredService<IServiceScopeFactory>(),
+    services.GetRequiredService<BackupService>(),
+    services.GetRequiredService<IDataProtectionProvider>(),
+    services.GetRequiredService<IHttpClientFactory>(),
+    services.GetRequiredService<ILogger<BackupPolicyService>>()));
+builder.Services.AddHostedService(services =>
+    services.GetRequiredService<BackupPolicyService>());
 builder.Services.AddSingleton(new MediaStoragePaths(dataPath));
 builder.Services.AddSingleton(new StorageService(dataPath));
+builder.Services.AddSingleton<UploadSessionService>();
+builder.Services.AddHostedService(services => services.GetRequiredService<UploadSessionService>());
 builder.Services.AddSingleton<HardwareAccelerationService>();
 builder.Services.AddHostedService(services => services.GetRequiredService<HardwareAccelerationService>());
 builder.Services.AddSingleton(services => new HttpPortService(dataPath, port, services.GetRequiredService<ILogger<HttpPortService>>()));
@@ -103,6 +136,7 @@ builder.Services.AddHostedService(services => services.GetRequiredService<Cloudf
 builder.Services.AddSingleton<IPasswordHasher<PairingAttempt>, PasswordHasher<PairingAttempt>>();
 builder.Services.AddSingleton<IPasswordHasher<AdminAccount>, PasswordHasher<AdminAccount>>();
 builder.Services.AddSingleton<IPasswordHasher<Organization>, PasswordHasher<Organization>>();
+builder.Services.AddSingleton<AdminMfaService>();
 builder.Services.AddSingleton<ControllerSessionService>();
 builder.Services.AddSignalR();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(options =>
@@ -185,6 +219,49 @@ builder.Services.AddRateLimiter(options =>
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0
         }));
+    options.AddPolicy("migration", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 20,
+            Window = TimeSpan.FromHours(1),
+            QueueLimit = 0
+        }));
+    options.AddPolicy("upload-session", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 30,
+            Window = TimeSpan.FromHours(1),
+            QueueLimit = 0
+        }));
+    options.AddPolicy("upload-chunk", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 600,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+    options.AddPolicy("media-processing", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            // These requests can launch downloads, office conversion, or video
+            // transcodes. Bound accidental loops without blocking normal editing.
+            PermitLimit = 20,
+            Window = TimeSpan.FromHours(1),
+            QueueLimit = 0
+        }));
+    options.AddPolicy("remote-preview", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            // Weather and calendar previews make outbound requests from the server.
+            PermitLimit = 60,
+            Window = TimeSpan.FromHours(1),
+            QueueLimit = 0
+        }));
 });
 
 var app = builder.Build();
@@ -204,6 +281,21 @@ app.Use(async (context, next) =>
     context.Response.Headers.XFrameOptions = "DENY";
     context.Response.Headers["Referrer-Policy"] = "no-referrer";
     context.Response.Headers.ContentSecurityPolicy = "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss:; frame-src 'self' https: http:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+    var mediaPathValue = context.Request.Path.Value ?? "";
+    if (HttpMethods.IsGet(context.Request.Method) &&
+        mediaPathValue.StartsWith("/api/v1/media/", StringComparison.Ordinal) &&
+        (mediaPathValue.EndsWith("/file", StringComparison.Ordinal) ||
+         mediaPathValue.EndsWith("/playback", StringComparison.Ordinal) ||
+         mediaPathValue.Contains("/transcodes/", StringComparison.Ordinal) ||
+         mediaPathValue.EndsWith("/thumbnail", StringComparison.Ordinal) ||
+         mediaPathValue.EndsWith("/filmstrip", StringComparison.Ordinal) ||
+         mediaPathValue.EndsWith("/waveform", StringComparison.Ordinal)))
+    {
+        // Display media is intentionally reachable on the trusted TV network,
+        // but shared proxies must not retain it as public content.
+        context.Response.Headers.CacheControl = "private, max-age=86400";
+        context.Response.Headers["X-Robots-Tag"] = "noindex, noarchive";
+    }
     await next();
 });
 app.UseDefaultFiles();
@@ -241,21 +333,28 @@ app.Use(async (context, next) =>
 });
 app.UseAuthorization();
 
-await using (var scope = app.Services.CreateAsyncScope())
+var serverId = ServerIdentity.LoadOrCreate(dataPath);
+try
 {
+    await using var scope = app.Services.CreateAsyncScope();
     var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
     await db.Database.EnsureCreatedAsync();
     await DatabaseUpgrade.ApplyAsync(db);
     await SeedData.RunAsync(db);
 }
+catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+{
+    app.Logger.LogCritical(ex, "LessonCue database initialization failed");
+    await app.DisposeAsync();
+    await RecoveryModeApp.RunAsync(args, port, dataPath, serverId.ToString(), ex);
+    return;
+}
 
-var serverId = ServerIdentity.LoadOrCreate(dataPath);
 var serverName = Environment.GetEnvironmentVariable("LESSONCUE_SERVER_NAME")
     ?? builder.Configuration["LessonCue:ServerName"] ?? "LessonCue";
 var pairingCodes = app.Services.GetRequiredService<PairingCodeService>();
 var localAddress = app.Services.GetRequiredService<LocalAddressService>();
 var httpPort = app.Services.GetRequiredService<HttpPortService>();
-app.Logger.LogInformation("LessonCue pairing PIN: {PairingPin}", pairingCodes.Current);
 
 app.MapGet("/.well-known/lessoncue", () => new
 {
@@ -267,10 +366,44 @@ app.MapGet("/.well-known/lessoncue", () => new
     pairingEnabled = true
 });
 
-app.MapGet("/health", async (LessonCueDb db, CancellationToken ct) =>
-    Results.Ok(new { status = await db.Database.CanConnectAsync(ct) ? "healthy" : "unhealthy", serverId }));
+app.MapGet("/health/live", () => Results.Ok(new { status = "alive", serverId }));
+
+Func<LessonCueDb, CancellationToken, Task<IResult>> readiness = async (db, ct) =>
+{
+    var report = await ServerReadiness.CheckAsync(db, dataPath, serverId, ct);
+    return Results.Json(
+        report,
+        statusCode: report.Status == "healthy"
+            ? StatusCodes.Status200OK
+            : StatusCodes.Status503ServiceUnavailable);
+};
+app.MapGet("/health/ready", readiness);
+app.MapGet("/health", readiness);
 
 var api = app.MapGroup("/api/v1");
+
+api.MapGet("/display-capabilities", (string? platform) =>
+    Results.Ok(string.IsNullOrWhiteSpace(platform)
+        ? new[] { DisplayCapabilities.For("web-player"), DisplayCapabilities.For("android-tv") }
+        : [DisplayCapabilities.For(platform)]));
+
+api.MapGet("/migration/export", (
+    HttpRequest request,
+    MigrationTransferService transfers) =>
+{
+    var authorization = request.Headers.Authorization.ToString();
+    var token = authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+        ? authorization["Bearer ".Length..]
+        : null;
+    var source = transfers.Consume(token);
+    return source is null
+        ? Results.NotFound()
+        : Results.File(
+            source.Path,
+            "application/vnd.lessoncue.backup",
+            source.FileName,
+            enableRangeProcessing: false);
+}).RequireRateLimiting("migration");
 
 app.MapLessonCueAdmin(mediaPath, dataPath, serverId, serverName);
 app.MapAudienceInteraction();
@@ -424,7 +557,9 @@ api.MapPost("/pairing/request", async (PairingRequestInput input, LessonCueDb db
     };
     attempt.PinHash = hasher.HashPassword(attempt, pairingCodes.Current);
     db.PairingAttempts.Add(attempt);
-    db.AuditEvents.Add(new AuditEvent { Actor = input.DeviceName, Action = "screen.pair.request", Object = attempt.Id.ToString() });
+    // Do not put a pending pairing identifier in a durable log. The request id and
+    // PIN together are credentials until the attempt is completed or expires.
+    db.AuditEvents.Add(new AuditEvent { Actor = input.DeviceName, Action = "screen.pair.request", Object = "pending" });
     await db.SaveChangesAsync(ct);
     return Results.Accepted(value: new { requestId = attempt.Id, attempt.ExpiresAt });
 }).RequireRateLimiting("pairing");

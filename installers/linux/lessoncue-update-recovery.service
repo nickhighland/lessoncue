@@ -1,0 +1,14 @@
+[Unit]
+Description=Recover an interrupted LessonCue server operation
+After=local-fs.target
+Before=lessoncue.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/lessoncue-update --recover
+PrivateTmp=true
+ProtectHome=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { confirmAction, requestText } from "./AccessibleDialogs";
 import "./simple-signage.css";
 import {
   SignageLayout as ScreenSignageLayout,
@@ -168,6 +169,22 @@ type AudienceSession = {
 
 type Tab = "layouts" | "playlists" | "signs";
 
+type CompatibilityIssue = {
+  title: string;
+  message: string;
+  fallback: string;
+};
+
+class SignageRequestError extends Error {
+  constructor(
+    message: string,
+    readonly code?: string,
+    readonly issues: CompatibilityIssue[] = [],
+  ) {
+    super(message);
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api/v1/signage-studio${path}`, {
     credentials: "same-origin",
@@ -176,7 +193,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const problem = await response.json().catch(() => ({}));
-    throw new Error(problem.error || `Request failed (${response.status})`);
+    throw new SignageRequestError(
+      problem.error || `Request failed (${response.status})`,
+      problem.code,
+      problem.issues || [],
+    );
   }
   if (response.status === 204) return undefined as T;
   return response.json();
@@ -603,7 +624,8 @@ export function SimpleSignage({
   }
 
   async function deleteLayout(item: Layout) {
-    if (!confirm(`Delete ${item.name}?`)) return;
+    if (!await confirmAction(`Delete ${item.name}?`, { destructive: true }))
+      return;
     try {
       await request(`/layouts/${item.id}`, { method: "DELETE" });
       setLayoutDraft(undefined);
@@ -654,7 +676,8 @@ export function SimpleSignage({
   }
 
   async function deletePlaylist(item: Playlist) {
-    if (!confirm(`Delete ${item.name}?`)) return;
+    if (!await confirmAction(`Delete ${item.name}?`, { destructive: true }))
+      return;
     try {
       await request(`/playlists/${item.id}`, { method: "DELETE" });
       setPlaylistDraft(undefined);
@@ -686,8 +709,14 @@ export function SimpleSignage({
     markChanged();
   }
 
-  function addWebPage() {
-    const sourceUrl = prompt("Web page address", "https://");
+  async function addWebPage() {
+    const sourceUrl = await requestText({
+      title: "Add a web page",
+      label: "Web page address",
+      defaultValue: "https://",
+      inputType: "url",
+      confirmLabel: "Add web page",
+    });
     if (!sourceUrl) return;
     const entry: PlaylistItem = {
       id: id("slide"),
@@ -762,18 +791,37 @@ export function SimpleSignage({
     if (!signDraft) return;
     setBusy(true);
     try {
-      const result = await request<{ id: string }>(
-        signDraft.id ? `/signs/${signDraft.id}` : "/signs",
-        {
-          method: signDraft.id ? "PUT" : "POST",
-          body: JSON.stringify({
-            name: signDraft.name,
-            layoutId: signDraft.layoutId,
-            playlistAssignments: signDraft.playlistAssignments,
-            screenIds: signDraft.screenIds,
-          }),
-        },
-      );
+      const submit = (allowUnsupportedContent: boolean) =>
+        request<{ id: string }>(
+          signDraft.id ? `/signs/${signDraft.id}` : "/signs",
+          {
+            method: signDraft.id ? "PUT" : "POST",
+            body: JSON.stringify({
+              name: signDraft.name,
+              layoutId: signDraft.layoutId,
+              playlistAssignments: signDraft.playlistAssignments,
+              screenIds: signDraft.screenIds,
+              allowUnsupportedContent,
+            }),
+          },
+        );
+      let result: { id: string };
+      try {
+        result = await submit(false);
+      } catch (error) {
+        if (
+          !(error instanceof SignageRequestError) ||
+          error.code !== "display_capability_warning" ||
+          !await confirmAction(
+            `${error.message}\n\n${error.issues
+              .slice(0, 8)
+              .map((issue) => `• ${issue.message}`)
+              .join("\n")}${error.issues.length > 8 ? `\n• …and ${error.issues.length - 8} more` : ""}\n\nAssign these screens anyway?`,
+          )
+        )
+          throw error;
+        result = await submit(true);
+      }
       await load({ signId: result.id });
       refresh();
       setSaved("Saved just now");
@@ -786,7 +834,10 @@ export function SimpleSignage({
   }
 
   async function deleteSign(item: Sign) {
-    if (!confirm(`Delete ${item.name}? Its screens will become unassigned.`))
+    if (!await confirmAction(
+      `Delete ${item.name}? Its screens will become unassigned.`,
+      { destructive: true },
+    ))
       return;
     try {
       await request(`/signs/${item.id}`, { method: "DELETE" });

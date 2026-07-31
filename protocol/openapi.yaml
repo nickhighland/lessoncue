@@ -15,6 +15,117 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Discovery' }
+  /api/v1/display-capabilities:
+    get:
+      operationId: getDisplayCapabilities
+      description: Public, versioned browser and Android display renderer contract.
+      parameters:
+        - name: platform
+          in: query
+          required: false
+          schema: { enum: [web-player, android-tv] }
+      responses:
+        '200':
+          description: All current display contracts, or the selected platform contract.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DisplayCapabilityContract' }
+  /api/v1/auth/session:
+    get:
+      operationId: getAdminSession
+      description: Returns setup, authentication, role, permission, and registration state for the local administration UI.
+      responses:
+        '200':
+          description: Current administration session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminSession' }
+  /api/v1/auth/setup:
+    post:
+      operationId: setUpServiceAdmin
+      description: Creates the first Service Admin and organization. This endpoint becomes unavailable after setup.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminSetupInput' }
+      responses:
+        '200': { description: "Service Admin created and signed in" }
+        '400': { description: "Invalid account or organization settings" }
+        '409': { description: "Initial setup is already complete" }
+        '429': { description: "Too many attempts" }
+  /api/v1/auth/login:
+    post:
+      operationId: logInAdmin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminLoginInput' }
+      responses:
+        '200': { description: "Signed in" }
+        '401': { description: "Invalid credentials or unavailable account" }
+        '429': { description: "Too many attempts" }
+  /api/v1/auth/mfa:
+    get:
+      operationId: getServiceAdminMfa
+      description: Returns authenticator MFA state for the signed-in Service Admin.
+      responses:
+        '200':
+          description: "MFA state"
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaStatus' }
+        '401': { description: "Authentication required" }
+        '403': { description: "Service Admin required" }
+    delete:
+      operationId: disableServiceAdminMfa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MfaDisableInput' }
+      responses:
+        '200': { description: "MFA disabled and other sessions invalidated" }
+        '400': { description: "Password or authenticator code rejected" }
+        '401': { description: "Authentication required" }
+        '403': { description: "Service Admin required" }
+        '429': { description: "Too many attempts" }
+  /api/v1/auth/mfa/setup:
+    post:
+      operationId: setUpServiceAdminMfa
+      description: Replaces any unfinished authenticator setup and returns a one-time provisioning secret.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MfaSetupInput' }
+      responses:
+        '200':
+          description: "Authenticator provisioning values"
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaSetup' }
+        '400': { description: "Current password rejected" }
+        '401': { description: "Authentication required" }
+        '403': { description: "Service Admin required" }
+        '429': { description: "Too many attempts" }
+  /api/v1/auth/mfa/enable:
+    post:
+      operationId: enableServiceAdminMfa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MfaCodeInput' }
+      responses:
+        '200': { description: "MFA enabled and other sessions invalidated" }
+        '400': { description: "Authenticator code rejected" }
+        '401': { description: "Authentication required" }
+        '403': { description: "Service Admin required" }
+        '429': { description: "Too many attempts" }
   /api/v1/pairing/request:
     post:
       operationId: requestPairing
@@ -52,8 +163,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PairingResult' }
-        '400': { description: Expired or invalid PIN }
-        '429': { description: Too many attempts }
+        '400': { description: "Expired or invalid PIN" }
+        '429': { description: "Too many attempts" }
   /api/v1/classes:
     get:
       operationId: listClasses
@@ -73,7 +184,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/ClassInput' }
       responses:
-        '201': { description: Created }
+        '201': { description: "Created" }
   /api/v1/classes/{id}:
     put:
       operationId: updateClass
@@ -89,13 +200,13 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/ClassInput' }
       responses:
-        '200': { description: Updated class }
-        '409': { description: Controller path is already assigned }
+        '200': { description: "Updated class" }
+        '409': { description: "Controller path is already assigned" }
     delete:
       operationId: recycleClass
       description: Requires planning.manage. Moves a class and its active lessons into the 30-day recycling bin.
       responses:
-        '204': { description: Class and lessons recycled }
+        '204': { description: "Class and lessons recycled" }
   /api/v1/lessons:
     get:
       operationId: listLessons
@@ -110,7 +221,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/LessonInput' }
       responses:
-        '201': { description: Created }
+        '201': { description: "Created" }
   /api/v1/lessons/bulk:
     post:
       operationId: updateLessonsInBulk
@@ -121,9 +232,9 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/LessonBulkInput' }
       responses:
-        '200': { description: Bulk lesson action completed }
-        '400': { description: Invalid selection, action, destination, shift, or title prefix }
-        '404': { description: A selected lesson or destination class no longer exists }
+        '200': { description: "Bulk lesson action completed" }
+        '400': { description: "Invalid selection, action, destination, shift, or title prefix" }
+        '404': { description: "A selected lesson or destination class no longer exists" }
   /api/v1/lessons/{lessonId}/relocate:
     post:
       operationId: copyOrMoveLesson
@@ -136,10 +247,10 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/LessonRelocateInput' }
       responses:
-        '200': { description: Lesson moved }
-        '201': { description: Lesson copy created }
-        '400': { description: Invalid action, class, date, or title }
-        '404': { description: Source lesson or destination class not found }
+        '200': { description: "Lesson moved" }
+        '201': { description: "Lesson copy created" }
+        '400': { description: "Invalid action, class, date, or title" }
+        '404': { description: "Source lesson or destination class not found" }
   /api/v1/playlist-items/bulk:
     post:
       operationId: updatePlaylistItemsInBulk
@@ -150,9 +261,9 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/PlaylistItemBulkInput' }
       responses:
-        '200': { description: Bulk playlist action completed and affected manifests invalidated }
-        '400': { description: Invalid selection, action, role, volume, ending, or title prefix }
-        '404': { description: A selected playlist item no longer exists }
+        '200': { description: "Bulk playlist action completed and affected manifests invalidated" }
+        '400': { description: "Invalid selection, action, role, volume, ending, or title prefix" }
+        '404': { description: "A selected playlist item no longer exists" }
   /api/v1/lessons/{lessonId}/items:
     post:
       operationId: addPlaylistItem
@@ -167,8 +278,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/PlaylistItemInput' }
       responses:
-        '201': { description: Created and manifest invalidated }
-        '404': { description: Lesson not found }
+        '201': { description: "Created and manifest invalidated" }
+        '404': { description: "Lesson not found" }
   /api/v1/lesson-templates:
     get:
       operationId: listLessonTemplates
@@ -188,8 +299,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/LessonTemplateFromLessonInput' }
       responses:
-        '201': { description: Template created }
-        '404': { description: Source lesson not found }
+        '201': { description: "Template created" }
+        '404': { description: "Source lesson not found" }
   /api/v1/lesson-templates/{templateId}:
     put:
       operationId: updateLessonTemplate
@@ -201,14 +312,14 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/LessonTemplateUpdateInput' }
       responses:
-        '200': { description: Template defaults updated }
-        '404': { description: Template not found }
+        '200': { description: "Template defaults updated" }
+        '404': { description: "Template not found" }
     delete:
       operationId: deleteLessonTemplate
       parameters:
         - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        '204': { description: Template and its schedules deleted; generated lessons preserved }
+        '204': { description: "Template and its schedules deleted; generated lessons preserved" }
   /api/v1/lesson-templates/{templateId}/replace-from-lesson:
     post:
       operationId: replaceLessonTemplateStructure
@@ -224,8 +335,8 @@ paths:
               properties:
                 lessonId: { type: string, format: uuid }
       responses:
-        '200': { description: Playlist and timing structure replaced while template identity and schedules remain }
-        '404': { description: Template or lesson not found }
+        '200': { description: "Playlist and timing structure replaced while template identity and schedules remain" }
+        '404': { description: "Template or lesson not found" }
   /api/v1/lesson-templates/{templateId}/instantiate:
     post:
       operationId: instantiateLessonTemplate
@@ -237,13 +348,13 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/LessonTemplateInstantiateInput' }
       responses:
-        '201': { description: One dated lesson created from the template }
-        '404': { description: Template or class not found }
+        '201': { description: "One dated lesson created from the template" }
+        '404': { description: "Template or class not found" }
   /api/v1/recurring-schedules:
     get:
       operationId: listRecurringLessonSchedules
       responses:
-        '200': { description: Recurring schedules with generated counts and explicit exception dates }
+        '200': { description: "Recurring schedules with generated counts and explicit exception dates" }
     post:
       operationId: createRecurringLessonSchedule
       requestBody:
@@ -252,8 +363,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/RecurringScheduleInput' }
       responses:
-        '201': { description: Schedule created and enabled occurrences generated idempotently }
-        '400': { description: Invalid recurrence, template, or class }
+        '201': { description: "Schedule created and enabled occurrences generated idempotently" }
+        '400': { description: "Invalid recurrence, template, or class" }
   /api/v1/recurring-schedules/{scheduleId}:
     put:
       operationId: updateRecurringLessonSchedule
@@ -265,13 +376,13 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/RecurringScheduleInput' }
       responses:
-        '200': { description: Schedule updated and missing enabled occurrences generated }
+        '200': { description: "Schedule updated and missing enabled occurrences generated" }
     delete:
       operationId: deleteRecurringLessonSchedule
       parameters:
         - { name: scheduleId, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        '204': { description: Schedule deleted; generated lessons preserved }
+        '204': { description: "Schedule deleted; generated lessons preserved" }
   /api/v1/recurring-schedules/{scheduleId}/generate:
     post:
       operationId: generateRecurringLessons
@@ -286,7 +397,7 @@ paths:
               properties:
                 throughDate: { type: [string, 'null'], format: date }
       responses:
-        '200': { description: Number of newly generated lessons }
+        '200': { description: "Number of newly generated lessons" }
   /api/v1/recurring-schedules/{scheduleId}/exception:
     post:
       operationId: setRecurringScheduleException
@@ -304,7 +415,7 @@ paths:
                 date: { type: string, format: date }
                 excluded: { type: boolean }
       responses:
-        '200': { description: Exception list and occurrence updated }
+        '200': { description: "Exception list and occurrence updated" }
   /api/v1/signage:
     get:
       operationId: listSignage
@@ -325,8 +436,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/SignageInput' }
       responses:
-        '201': { description: Signage schedule created }
-        '400': { description: Invalid schedule, target, media, or color }
+        '201': { description: "Signage schedule created" }
+        '400': { description: "Invalid schedule, target, media, or color" }
   /api/v1/signage/{signageId}:
     put:
       operationId: updateSignage
@@ -338,16 +449,16 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/SignageInput' }
       responses:
-        '200': { description: Signage schedule updated }
-        '400': { description: Invalid schedule, target, media, or color }
-        '404': { description: Signage schedule not found }
+        '200': { description: "Signage schedule updated" }
+        '400': { description: "Invalid schedule, target, media, or color" }
+        '404': { description: "Signage schedule not found" }
     delete:
       operationId: deleteSignage
       parameters:
         - { name: signageId, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        '204': { description: Signage schedule deleted }
-        '404': { description: Signage schedule not found }
+        '204': { description: "Signage schedule deleted" }
+        '404': { description: "Signage schedule not found" }
   /api/v1/signage/{signageId}/widgets/refresh:
     post:
       operationId: refreshSignageWidgets
@@ -355,8 +466,8 @@ paths:
       parameters:
         - { name: signageId, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        '200': { description: Refresh completed }
-        '404': { description: Signage schedule not found }
+        '200': { description: "Refresh completed" }
+        '404': { description: "Signage schedule not found" }
   /api/v1/signage/{signageId}/zones/{zoneId}/stream/{fileName}:
     get:
       operationId: getSignageLiveStream
@@ -371,8 +482,8 @@ paths:
           content:
             application/vnd.apple.mpegurl: {}
             video/mp2t: {}
-        '404': { description: Signage, stream zone, or segment not found }
-        '503': { description: Stream source has not produced playable output yet }
+        '404': { description: "Signage, stream zone, or segment not found" }
+        '503': { description: "Stream source has not produced playable output yet" }
   /api/v1/playlist-items/{itemId}:
     patch:
       operationId: updatePlaylistItem
@@ -387,9 +498,9 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/PlaylistItemUpdateInput' }
       responses:
-        '200': { description: Updated and manifest invalidated }
-        '400': { description: Invalid trim, fade, or cue marker }
-        '404': { description: Playlist item not found }
+        '200': { description: "Updated and manifest invalidated" }
+        '400': { description: "Invalid trim, fade, or cue marker" }
+        '404': { description: "Playlist item not found" }
   /api/v1/screens/{screenId}/manifest:
     get:
       operationId: getScreenManifest
@@ -425,7 +536,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ScreenControlCommand' }
-        '401': { description: Device credential is invalid or revoked }
+        '401': { description: "Device credential is invalid or revoked" }
     post:
       operationId: sendScreenControlCommand
       description: Sends an ordered playback command from an authenticated local browser controller.
@@ -450,9 +561,9 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/ScreenControlInput' }
       responses:
-        '202': { description: Command saved for the screen }
-        '400': { description: Invalid command, lesson, or playlist item }
-        '404': { description: Screen not found }
+        '202': { description: "Command saved for the screen" }
+        '400': { description: "Invalid command, lesson, or playlist item" }
+        '404': { description: "Screen not found" }
   /api/v1/controller/unlock:
     post:
       operationId: unlockUniversalController
@@ -463,9 +574,9 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/ControllerPinInput' }
       responses:
-        '200': { description: PIN accepted; returns an opaque 12-hour universal-controller grant }
-        '403': { description: PIN not accepted }
-        '409': { description: An administrator has not configured a PIN }
+        '200': { description: "PIN accepted; returns an opaque 12-hour universal-controller grant" }
+        '403': { description: "PIN not accepted" }
+        '409': { description: "An administrator has not configured a PIN" }
   /api/v1/controller/sessions:
     post:
       operationId: createTemporaryControllerSession
@@ -476,7 +587,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/TemporaryControllerSessionInput' }
       responses:
-        '201': { description: One-time temporary controller URL and expiry }
+        '201': { description: "One-time temporary controller URL and expiry" }
   /api/v1/controller/sessions/{token}:
     get:
       operationId: getRestrictedControllerSession
@@ -487,8 +598,8 @@ paths:
           required: true
           schema: { type: string, pattern: '^[0-9a-f]{48}$' }
       responses:
-        '200': { description: Active restricted scope }
-        '404': { description: Link is invalid, expired, revoked, or was a temporary link cleared by a server restart }
+        '200': { description: "Active restricted scope" }
+        '404': { description: "Link is invalid, expired, revoked, or was a temporary link cleared by a server restart" }
   /api/v1/controller/permanent:
     post:
       operationId: rotatePermanentControllerSession
@@ -499,8 +610,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/PermanentControllerSessionInput' }
       responses:
-        '200': { description: Active permanent controller URL }
-        '400': { description: Class or lesson scope is invalid }
+        '200': { description: "Active permanent controller URL" }
+        '400': { description: "Class or lesson scope is invalid" }
   /api/v1/controller/permanent/{classId}:
     get:
       operationId: getPermanentControllerSession
@@ -511,8 +622,8 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '200': { description: Active link details or an inactive state }
-        '404': { description: Class not found }
+        '200': { description: "Active link details or an inactive state" }
+        '404': { description: "Class not found" }
     delete:
       operationId: revokePermanentControllerSession
       description: Requires planning.manage. Immediately revokes the class's permanent controller QR.
@@ -522,8 +633,8 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '204': { description: Permanent QR revoked }
-        '404': { description: Class not found }
+        '204': { description: "Permanent QR revoked" }
+        '404': { description: "Class not found" }
   /api/v1/tv/status:
     post:
       operationId: reportTvStatus
@@ -534,7 +645,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/TvStatus' }
       responses:
-        '202': { description: Accepted }
+        '202': { description: "Accepted" }
   /api/v1/screens/{screenId}/diagnostics/screenshot-request:
     post:
       operationId: requestScreenDiagnosticScreenshot
@@ -545,7 +656,7 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '202': { description: One-time 60-second request created }
+        '202': { description: "One-time 60-second request created" }
         '409': { description: 'Screenshot access is disabled or the player is offline' }
   /api/v1/screens/{screenId}/diagnostics/screenshot:
     get:
@@ -562,7 +673,7 @@ paths:
           content:
             image/jpeg: { schema: { type: string, format: binary } }
             image/png: { schema: { type: string, format: binary } }
-        '404': { description: No unexpired screenshot }
+        '404': { description: "No unexpired screenshot" }
     delete:
       operationId: deleteScreenDiagnosticScreenshot
       description: Requires screens.manage. Immediately deletes the stored diagnostic image and request metadata.
@@ -572,7 +683,7 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '204': { description: Screenshot deleted }
+        '204': { description: "Screenshot deleted" }
   /api/v1/tv/screens/{screenId}/diagnostics/screenshot/{requestId}:
     put:
       operationId: uploadTvDiagnosticScreenshot
@@ -593,8 +704,8 @@ paths:
           image/jpeg: { schema: { type: string, format: binary, maxLength: 8388608 } }
           image/png: { schema: { type: string, format: binary, maxLength: 8388608 } }
       responses:
-        '202': { description: Screenshot accepted }
-        '400': { description: Invalid or oversized image }
+        '202': { description: "Screenshot accepted" }
+        '400': { description: "Invalid or oversized image" }
         '409': { description: 'Request is disabled, expired, or already fulfilled' }
   /api/v1/media/{mediaId}/file:
     get:
@@ -606,9 +717,9 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '200': { description: Media file }
-        '206': { description: Partial media response }
-        '404': { description: Not found }
+        '200': { description: "Media file" }
+        '206': { description: "Partial media response" }
+        '404': { description: "Not found" }
   /api/v1/media/{mediaId}/playback:
     get:
       operationId: streamCompatibleMedia
@@ -619,9 +730,9 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '200': { description: TV-compatible playback media }
-        '206': { description: Partial playback media range }
-        '404': { description: Media or compatible file not found }
+        '200': { description: "TV-compatible playback media" }
+        '206': { description: "Partial playback media range" }
+        '404': { description: "Media or compatible file not found" }
   /api/v1/media/{mediaId}/transcodes/{profile}:
     get:
       operationId: streamAdaptiveMedia
@@ -636,9 +747,9 @@ paths:
           required: true
           schema: { enum: [h264-720, h264-480] }
       responses:
-        '200': { description: Adaptive playback media }
-        '206': { description: Partial adaptive media range }
-        '404': { description: Profile is absent, stale, or not ready }
+        '200': { description: "Adaptive playback media" }
+        '206': { description: "Partial adaptive media range" }
+        '404': { description: "Profile is absent, stale, or not ready" }
     post:
       operationId: queueAdaptiveMedia
       description: Requires uploads.manage. Queues one adaptive profile or both profiles for local generation. Reuses a current ready copy and retries failed or stale copies.
@@ -652,9 +763,9 @@ paths:
           required: true
           schema: { enum: [h264-720, h264-480, all] }
       responses:
-        '202': { description: Requested profiles are queued or already available }
-        '400': { description: Media is not a processed local video or profile is invalid }
-        '404': { description: Media not found }
+        '202': { description: "Requested profiles are queued or already available" }
+        '400': { description: "Media is not a processed local video or profile is invalid" }
+        '404': { description: "Media not found" }
   /api/v1/hardware-acceleration/check:
     post:
       operationId: checkHardwareAcceleration
@@ -684,7 +795,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/BackupPreview' }
-        '400': { description: Invalid, unsafe, corrupt, or oversized backup }
+        '400': { description: "Invalid, unsafe, corrupt, or oversized backup" }
   /api/v1/backups/restore:
     post:
       operationId: restoreBackup
@@ -705,8 +816,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/BackupRestoreResult' }
-        '400': { description: Invalid confirmation or expired staged backup }
-        '409': { description: Another restore is running }
+        '400': { description: "Invalid confirmation or expired staged backup" }
+        '409': { description: "Another restore is running" }
   /api/v1/media/{mediaId}/filmstrip:
     get:
       operationId: getMediaFilmstrip
@@ -717,8 +828,8 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '200': { description: Filmstrip JPEG }
-        '404': { description: Derivative is not available }
+        '200': { description: "Filmstrip JPEG" }
+        '404': { description: "Derivative is not available" }
   /api/v1/media/{mediaId}/waveform:
     get:
       operationId: getMediaWaveform
@@ -729,8 +840,8 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '200': { description: Waveform PNG }
-        '404': { description: Derivative is not available }
+        '200': { description: "Waveform PNG" }
+        '404': { description: "Derivative is not available" }
   /api/v1/media/{mediaId}/impact:
     get:
       operationId: getMediaImpact
@@ -746,7 +857,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MediaImpact' }
-        '404': { description: Media not found }
+        '404': { description: "Media not found" }
   /api/v1/media/{mediaId}/organize:
     patch:
       operationId: organizeMedia
@@ -762,9 +873,9 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/MediaOrganizeInput' }
       responses:
-        '200': { description: Media organized }
-        '400': { description: Invalid display name }
-        '404': { description: Media not found }
+        '200': { description: "Media organized" }
+        '400': { description: "Invalid display name" }
+        '404': { description: "Media not found" }
   /api/v1/media/{mediaId}/reprocess:
     post:
       operationId: reprocessMedia
@@ -775,9 +886,9 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '202': { description: Reprocessing queued }
-        '400': { description: Media has no local file }
-        '409': { description: Media is already processing }
+        '202': { description: "Reprocessing queued" }
+        '400': { description: "Media has no local file" }
+        '409': { description: "Media is already processing" }
   /api/v1/media/{mediaId}/convert:
     post:
       operationId: convertPresentation
@@ -788,9 +899,9 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '202': { description: Conversion queued }
-        '400': { description: Unsupported or online-only source }
-        '409': { description: Conversion already queued or running }
+        '202': { description: "Conversion queued" }
+        '400': { description: "Unsupported or online-only source" }
+        '409': { description: "Conversion already queued or running" }
   /api/v1/media/{mediaId}/convert-and-add-to-lesson:
     post:
       operationId: convertPresentationAndAddToLesson
@@ -806,10 +917,10 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/PresentationLessonInput' }
       responses:
-        '200': { description: Existing converted slides appended immediately }
-        '202': { description: Conversion and automatic lesson insertion queued }
-        '400': { description: Unsupported or online-only source }
-        '404': { description: Source or lesson not found }
+        '200': { description: "Existing converted slides appended immediately" }
+        '202': { description: "Conversion and automatic lesson insertion queued" }
+        '400': { description: "Unsupported or online-only source" }
+        '404': { description: "Source or lesson not found" }
   /api/v1/media/{mediaId}/conversion/add-to-lesson:
     post:
       operationId: addConvertedSlidesToLesson
@@ -825,9 +936,9 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/PresentationLessonInput' }
       responses:
-        '200': { description: Slide sequence appended to the lesson }
-        '404': { description: Source or lesson not found }
-        '409': { description: Conversion is incomplete or a converted slide is missing }
+        '200': { description: "Slide sequence appended to the lesson" }
+        '404': { description: "Source or lesson not found" }
+        '409': { description: "Conversion is incomplete or a converted slide is missing" }
   /api/v1/media/{mediaId}/replace:
     post:
       operationId: replaceMedia
@@ -847,10 +958,10 @@ paths:
               properties:
                 file: { type: string, format: binary }
       responses:
-        '200': { description: Replacement installed and old original archived }
-        '400': { description: Invalid, unsupported, or identical replacement }
-        '409': { description: Current media is missing or processing }
-        '507': { description: Storage allocation is insufficient }
+        '200': { description: "Replacement installed and old original archived" }
+        '400': { description: "Invalid, unsupported, or identical replacement" }
+        '409': { description: "Current media is missing or processing" }
+        '507': { description: "Storage allocation is insufficient" }
   /api/v1/media/{mediaId}/versions/{versionId}/file:
     get:
       operationId: downloadMediaVersion
@@ -858,8 +969,8 @@ paths:
         - { name: mediaId, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: versionId, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        '200': { description: Archived original file }
-        '404': { description: Version or local file not found }
+        '200': { description: "Archived original file" }
+        '404': { description: "Version or local file not found" }
   /api/v1/media/{mediaId}/versions/{versionId}/restore:
     post:
       operationId: restoreMediaVersion
@@ -868,10 +979,10 @@ paths:
         - { name: mediaId, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: versionId, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        '200': { description: Archived file restored as a new version }
-        '404': { description: Media version not found }
-        '409': { description: A required local file is missing }
-        '507': { description: Storage allocation is insufficient }
+        '200': { description: "Archived file restored as a new version" }
+        '404': { description: "Media version not found" }
+        '409': { description: "A required local file is missing" }
+        '507': { description: "Storage allocation is insufficient" }
   /api/v1/media/bulk:
     post:
       operationId: updateMediaInBulk
@@ -892,8 +1003,132 @@ paths:
                 properties:
                   updated: { type: integer, minimum: 1, maximum: 500 }
                   action: { enum: [delete, expire, keep, organize, prefix-name] }
-        '400': { description: Empty selection, invalid action, invalid prefix, missing date, or date in the past }
-        '404': { description: A selected media item no longer exists }
+        '400': { description: "Empty selection, invalid action, invalid prefix, missing date, or date in the past" }
+        '404': { description: "A selected media item no longer exists" }
+  /api/v1/uploads:
+    get:
+      operationId: listOwnUploadSessions
+      description: Requires uploads.manage. Returns the caller's active sessions and recent outcomes.
+      responses:
+        '200':
+          description: Upload sessions
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/UploadSessionStatus' } }
+    post:
+      operationId: createUploadSession
+      description: Requires uploads.manage. Atomically reserves the complete declared file size and creates a durable 24-hour resumable session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UploadCreateInput' }
+      responses:
+        '201':
+          description: Reserved upload session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadSessionCreated' }
+        '400': { description: "Invalid media metadata or retention selection" }
+        '413': { description: "File-size policy exceeded" }
+        '429': { description: "Concurrency or daily allowance exceeded" }
+        '507': { description: "Allocated or physical storage is unavailable" }
+  /api/v1/uploads/{uploadId}:
+    parameters:
+      - { name: uploadId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getOwnUploadSession
+      description: Requires uploads.manage. Includes progress, failure state, and missing chunk indexes.
+      responses:
+        '200':
+          description: Upload status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadSessionStatus' }
+        '404': { description: "Session not found or owned by another account" }
+    delete:
+      operationId: cancelOwnUploadSession
+      description: Requires uploads.manage. Deletes partial files and releases the reservation.
+      responses:
+        '204': { description: "Upload cancelled" }
+        '404': { description: "Session not found or owned by another account" }
+  /api/v1/uploads/{uploadId}/chunks/{index}:
+    put:
+      operationId: putUploadChunk
+      description: Requires uploads.manage. Idempotently stores one exact-size chunk without rescanning the data tree.
+      parameters:
+        - { name: uploadId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: index, in: path, required: true, schema: { type: integer, minimum: 0, maximum: 99999 } }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '204': { description: "Chunk accepted" }
+        '400': { description: "Wrong chunk index or byte length" }
+        '409': { description: "Session is paused or no longer writable" }
+        '410': { description: "Session expired" }
+        '507': { description: "Chunk could not be stored" }
+  /api/v1/uploads/{uploadId}/pause:
+    post:
+      operationId: pauseUploadSession
+      parameters:
+        - { name: uploadId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: "Upload paused" }
+        '404': { description: "Session not found" }
+        '410': { description: "Session expired" }
+  /api/v1/uploads/{uploadId}/resume:
+    post:
+      operationId: resumeUploadSession
+      parameters:
+        - { name: uploadId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: "Upload resumed" }
+        '404': { description: "Session not found" }
+        '410': { description: "Session expired" }
+  /api/v1/uploads/{uploadId}/complete:
+    post:
+      operationId: completeUploadSession
+      description: Requires uploads.manage. Streams chunks into the original while calculating SHA-256, validates file signatures/package structure, deduplicates, and releases the reservation.
+      parameters:
+        - { name: uploadId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                durationMs: { type: [integer, 'null'], format: int64, minimum: 0 }
+      responses:
+        '200': { description: "Duplicate media reused or an already-completed session returned" }
+        '201': { description: "Media created" }
+        '400': { description: "Hash, content signature, or package validation failed" }
+        '409': { description: "Session is paused or missing chunks" }
+        '410': { description: "Session expired" }
+        '507': { description: "Assembly could not be stored" }
+  /api/v1/upload-policy:
+    get:
+      operationId: getUploadQuotaPolicy
+      description: Requires settings.manage.
+      responses:
+        '200':
+          description: Upload quota policy
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadQuotaPolicy' }
+    put:
+      operationId: setUploadQuotaPolicy
+      description: Requires settings.manage. Zero byte limits and empty codec lists mean unrestricted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UploadQuotaPolicy' }
+      responses:
+        '200': { description: "Updated upload quota policy" }
+        '400': { description: "Invalid limits or codec names" }
   /api/v1/storage:
     get:
       operationId: getStorageStatus
@@ -917,8 +1152,8 @@ paths:
               properties:
                 limitBytes: { type: integer, format: int64, minimum: 0 }
       responses:
-        '200': { description: Updated storage status }
-        '400': { description: Allocation exceeds safe disk space or is below current usage }
+        '200': { description: "Updated storage status" }
+        '400': { description: "Allocation exceeds safe disk space or is below current usage" }
   /api/v1/local-address:
     get:
       operationId: getLocalAddress
@@ -947,7 +1182,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/LocalAddressStatus' }
-        '400': { description: Invalid hostname }
+        '400': { description: "Invalid hostname" }
   /api/v1/http-port:
     get:
       operationId: getHttpPort
@@ -976,7 +1211,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/HttpPortStatus' }
-        '400': { description: Invalid port }
+        '400': { description: "Invalid port" }
   /api/v1/cloudflare-tunnel:
     get:
       operationId: getCloudflareTunnel
@@ -1001,7 +1236,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CloudflareTunnelStatus' }
-        '400': { description: Unsupported host, invalid public hostname or token, missing exposure acknowledgement, or missing initial credential }
+        '400': { description: "Unsupported host, invalid public hostname or token, missing exposure acknowledgement, or missing initial credential" }
   /api/v1/updates:
     get:
       operationId: getUpdateStatus
@@ -1017,14 +1252,14 @@ paths:
       operationId: checkForUpdate
       description: Requires updates.manage.
       responses:
-        '200': { description: Refreshed update status }
+        '200': { description: "Refreshed update status" }
   /api/v1/updates/install:
     post:
       operationId: installUpdate
       description: Requires updates.manage. Starts the protected native Linux updater.
       responses:
-        '202': { description: Update installation started }
-        '409': { description: No update is available or automatic installation is not configured }
+        '202': { description: "Update installation started" }
+        '409': { description: "No update is available or automatic installation is not configured" }
   /api/v1/pairing/status:
     get:
       operationId: getPairingStatus
@@ -1054,7 +1289,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PairingStatus' }
-        '400': { description: The fixed PIN is not exactly six digits }
+        '400': { description: "The fixed PIN is not exactly six digits" }
   /api/v1/controller-pin:
     put:
       operationId: setUniversalControllerPin
@@ -1065,8 +1300,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/ControllerPinInput' }
       responses:
-        '204': { description: PIN replaced }
-        '400': { description: PIN is not exactly six digits }
+        '204': { description: "PIN replaced" }
+        '400': { description: "PIN is not exactly six digits" }
   /api/v1/recycle-bin:
     get:
       operationId: listRecycleBin
@@ -1083,7 +1318,7 @@ paths:
       operationId: purgeRecycleBin
       description: Requires settings.manage. Permanently removes all recycled records and stored media files.
       responses:
-        '200': { description: Number of permanently purged items }
+        '200': { description: "Number of permanently purged items" }
   /api/v1/recycle-bin/{kind}/{id}/restore:
     post:
       operationId: restoreRecycleBinItem
@@ -1098,8 +1333,8 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '204': { description: Item restored }
-        '409': { description: A lesson's class must be restored first }
+        '204': { description: "Item restored" }
+        '409': { description: "A lesson's class must be restored first" }
   /api/v1/users:
     get:
       operationId: listUsers
@@ -1121,9 +1356,9 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/UserInput' }
       responses:
-        '201': { description: User created }
-        '400': { description: Invalid username, name, or password }
-        '409': { description: Username already exists }
+        '201': { description: "User created" }
+        '400': { description: "Invalid username, name, or password" }
+        '409': { description: "Username already exists" }
   /api/v1/users/{userId}:
     parameters:
       - name: userId
@@ -1139,17 +1374,17 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/UserInput' }
       responses:
-        '204': { description: User updated }
-        '400': { description: Invalid update, self-pause, or final active owner protection }
-        '404': { description: User not found }
-        '409': { description: Username already exists }
+        '204': { description: "User updated" }
+        '400': { description: "Invalid update, self-pause, or final active owner protection" }
+        '404': { description: "User not found" }
+        '409': { description: "Username already exists" }
     delete:
       operationId: deleteUser
       description: Requires users.manage. Self-deletion and deletion of the final active owner are rejected; only an owner can delete an owner.
       responses:
-        '204': { description: User deleted }
-        '400': { description: Self-deletion or final active owner protection }
-        '404': { description: User not found }
+        '204': { description: "User deleted" }
+        '400': { description: "Self-deletion or final active owner protection" }
+        '404': { description: "User not found" }
   /api/v1/users/invitations:
     post:
       operationId: inviteUser
@@ -1160,10 +1395,10 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/UserInvitationInput' }
       responses:
-        '201': { description: Pending account created and setup message accepted }
-        '400': { description: Invalid email, name, role, or permissions }
-        '409': { description: Email already belongs to an account or email is not configured }
-        '502': { description: Account reserved but setup message could not be delivered }
+        '201': { description: "Pending account created and setup message accepted" }
+        '400': { description: "Invalid email, name, role, or permissions" }
+        '409': { description: "Email already belongs to an account or email is not configured" }
+        '502': { description: "Account reserved but setup message could not be delivered" }
   /api/v1/users/{userId}/invitation:
     parameters:
       - name: userId
@@ -1174,10 +1409,10 @@ paths:
       operationId: resendUserInvitation
       description: Requires users.manage. Invalidates the earlier setup token and sends a new three-day link.
       responses:
-        '200': { description: New setup message accepted }
-        '404': { description: User not found }
-        '409': { description: Account is not pending setup or email is unavailable }
-        '502': { description: Provider could not deliver the setup message }
+        '200': { description: "New setup message accepted" }
+        '404': { description: "User not found" }
+        '409': { description: "Account is not pending setup or email is unavailable" }
+        '502': { description: "Provider could not deliver the setup message" }
   /api/v1/users/{userId}/approve:
     parameters:
       - name: userId
@@ -1188,9 +1423,9 @@ paths:
       operationId: approveUser
       description: Requires users.manage. Releases an approval-required registration and attempts an email notification.
       responses:
-        '200': { description: Account approved }
-        '404': { description: User not found }
-        '409': { description: Account is not awaiting approval }
+        '200': { description: "Account approved" }
+        '404': { description: "User not found" }
+        '409': { description: "Account is not awaiting approval" }
   /api/v1/users/{userId}/temporary-password:
     parameters:
       - name: userId
@@ -1206,10 +1441,10 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/TemporaryPasswordInput' }
       responses:
-        '200': { description: Temporary password set }
-        '400': { description: Invalid password or attempt to reset the current account }
-        '404': { description: User not found }
-        '409': { description: Invited account has not completed setup }
+        '200': { description: "Temporary password set" }
+        '400': { description: "Invalid password or attempt to reset the current account" }
+        '404': { description: "User not found" }
+        '409': { description: "Invited account has not completed setup" }
   /api/v1/auth/register:
     post:
       operationId: registerAccount
@@ -1220,11 +1455,11 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/RegistrationInput' }
       responses:
-        '202': { description: Account created and verification message requested }
-        '400': { description: Invalid account details or registration code }
-        '403': { description: Registration is closed }
-        '409': { description: Account already exists or email is unavailable }
-        '429': { description: Account request limit reached }
+        '202': { description: "Account created and verification message requested" }
+        '400': { description: "Invalid account details or registration code" }
+        '403': { description: "Registration is closed" }
+        '409': { description: "Account already exists or email is unavailable" }
+        '429': { description: "Account request limit reached" }
   /api/v1/auth/verify:
     post:
       operationId: verifyAccount
@@ -1234,9 +1469,9 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/TokenInput' }
       responses:
-        '200': { description: Email verified }
-        '400': { description: Token is invalid, used, or expired }
-        '429': { description: Account request limit reached }
+        '200': { description: "Email verified" }
+        '400': { description: "Token is invalid, used, or expired" }
+        '429': { description: "Account request limit reached" }
   /api/v1/auth/verification/resend:
     post:
       operationId: resendAccountVerification
@@ -1247,8 +1482,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/EmailInput' }
       responses:
-        '202': { description: Generic verification response }
-        '429': { description: Account request limit reached }
+        '202': { description: "Generic verification response" }
+        '429': { description: "Account request limit reached" }
   /api/v1/auth/password/forgot:
     post:
       operationId: requestPasswordRecovery
@@ -1259,8 +1494,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/EmailInput' }
       responses:
-        '202': { description: Generic recovery response }
-        '429': { description: Account request limit reached }
+        '202': { description: "Generic recovery response" }
+        '429': { description: "Account request limit reached" }
   /api/v1/auth/password/reset:
     post:
       operationId: resetPasswordWithToken
@@ -1270,9 +1505,9 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/PasswordResetInput' }
       responses:
-        '200': { description: Password changed and prior sessions invalidated }
-        '400': { description: Invalid password or token }
-        '429': { description: Account request limit reached }
+        '200': { description: "Password changed and prior sessions invalidated" }
+        '400': { description: "Invalid password or token" }
+        '429': { description: "Account request limit reached" }
   /api/v1/auth/password/change-required:
     post:
       operationId: changeRequiredPassword
@@ -1283,10 +1518,10 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/RequiredPasswordChangeInput' }
       responses:
-        '200': { description: Password changed and authenticated session renewed }
-        '400': { description: Temporary password or new password was invalid }
-        '401': { description: Sign-in required }
-        '409': { description: Password change is not required }
+        '200': { description: "Password changed and authenticated session renewed" }
+        '400': { description: "Temporary password or new password was invalid" }
+        '401': { description: "Sign-in required" }
+        '409': { description: "Password change is not required" }
   /api/v1/auth/setup-account:
     post:
       operationId: completeInvitedAccount
@@ -1297,16 +1532,16 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/AccountSetupInput' }
       responses:
-        '200': { description: Account setup completed }
-        '400': { description: Invalid or expired token, identity, or password }
-        '409': { description: Username already exists }
-        '429': { description: Account request limit reached }
+        '200': { description: "Account setup completed" }
+        '400': { description: "Invalid or expired token, identity, or password" }
+        '409': { description: "Username already exists" }
+        '429': { description: "Account request limit reached" }
   /api/v1/auth/profile:
     get:
       operationId: getOwnProfile
       responses:
-        '200': { description: Current account profile }
-        '401': { description: Sign-in required }
+        '200': { description: "Current account profile" }
+        '401': { description: "Sign-in required" }
     put:
       operationId: updateOwnProfile
       description: Changing username, email, or password requires the current password. A changed email remains pending until verified.
@@ -1316,17 +1551,17 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/ProfileUpdateInput' }
       responses:
-        '200': { description: Profile saved }
-        '400': { description: Invalid update or current password }
-        '401': { description: Sign-in required }
-        '409': { description: Username or email already exists, or email delivery is unavailable }
-        '429': { description: Account request limit reached }
+        '200': { description: "Profile saved" }
+        '400': { description: "Invalid update or current password" }
+        '401': { description: "Sign-in required" }
+        '409': { description: "Username or email already exists, or email delivery is unavailable" }
+        '429': { description: "Account request limit reached" }
   /api/v1/registration/settings:
     get:
       operationId: getRegistrationSettings
       description: Requires settings.manage. Never returns an email API key.
       responses:
-        '200': { description: Registration and provider status }
+        '200': { description: "Registration and provider status" }
     put:
       operationId: updateRegistrationSettings
       description: Requires settings.manage. The optional API key is write-only and protected in the local data directory.
@@ -1336,8 +1571,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/RegistrationSettingsInput' }
       responses:
-        '200': { description: Settings saved }
-        '400': { description: Invalid mode, provider, sender, address, or provider configuration }
+        '200': { description: "Settings saved" }
+        '400': { description: "Invalid mode, provider, sender, address, or provider configuration" }
   /api/v1/registration/email/test:
     post:
       operationId: testAccountEmailDelivery
@@ -1352,16 +1587,16 @@ paths:
               properties:
                 recipient: { type: string, format: email, maxLength: 200 }
       responses:
-        '200': { description: Test message accepted by the configured provider }
-        '400': { description: Invalid recipient }
-        '409': { description: Email delivery has not been configured }
-        '502': { description: Provider rejected or could not deliver the test }
+        '200': { description: "Test message accepted by the configured provider" }
+        '400': { description: "Invalid recipient" }
+        '409': { description: "Email delivery has not been configured" }
+        '502': { description: "Provider rejected or could not deliver the test" }
   /api/v1/registration/codes:
     get:
       operationId: listRegistrationCodes
       description: Requires settings.manage. Returns only a short hint, never the full code.
       responses:
-        '200': { description: Registration code metadata }
+        '200': { description: "Registration code metadata" }
     post:
       operationId: createRegistrationCode
       description: Requires settings.manage. Returns the generated full code once.
@@ -1371,8 +1606,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/RegistrationCodeInput' }
       responses:
-        '201': { description: Registration code and hint }
-        '400': { description: Invalid expiration or use limit }
+        '201': { description: "Registration code and hint" }
+        '400': { description: "Invalid expiration or use limit" }
   /api/v1/registration/codes/{codeId}:
     parameters:
       - name: codeId
@@ -1387,13 +1622,13 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/RegistrationCodeInput' }
       responses:
-        '204': { description: Limits saved }
-        '404': { description: Code not found }
+        '204': { description: "Limits saved" }
+        '404': { description: "Code not found" }
     delete:
       operationId: revokeRegistrationCode
       responses:
-        '204': { description: Code revoked }
-        '404': { description: Code not found }
+        '204': { description: "Code revoked" }
+        '404': { description: "Code not found" }
   /api/v1/registration/codes/{codeId}/rotate:
     post:
       operationId: rotateRegistrationCode
@@ -1403,8 +1638,280 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '200': { description: Existing code revoked and replacement full code returned once }
-        '404': { description: Code not found }
+        '200': { description: "Existing code revoked and replacement full code returned once" }
+        '404': { description: "Code not found" }
+  /api/v1/signage-studio/catalog:
+    get:
+      operationId: getSignageStudioCatalog
+      description: Returns supported canvases, canonical element types, and reusable folder names.
+      responses:
+        '200':
+          description: Signage editor catalog
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignageStudioCatalog' }
+        '404': { description: "The optional signage feature is disabled" }
+  /api/v1/signage-studio/elements/preview:
+    post:
+      operationId: previewSignageElement
+      description: Requires planning.manage. Fetches validated calendar or weather data for an editor preview.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignageZone' }
+      responses:
+        '200':
+          description: Live element preview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignageWidgetCache' }
+        '400': { description: "The element or remote source is invalid" }
+        '404': { description: "The optional signage feature is disabled" }
+  /api/v1/signage-studio/layouts:
+    get:
+      operationId: listSignageStudioLayouts
+      responses:
+        '200':
+          description: Reusable signage layouts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SignageLayoutResource' }
+    post:
+      operationId: createSignageStudioLayout
+      description: Requires planning.manage.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignageLayoutResourceInput' }
+      responses:
+        '201':
+          description: Layout draft created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignageLayoutResource' }
+        '400': { description: "Invalid layout, source, or referenced content" }
+  /api/v1/signage-studio/layouts/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      operationId: updateSignageStudioLayout
+      description: Requires planning.manage.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignageLayoutResourceInput' }
+      responses:
+        '200':
+          description: Layout draft updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignageLayoutResource' }
+        '400': { description: "Invalid layout, source, or referenced content" }
+        '404': { description: "Layout not found" }
+    delete:
+      operationId: deleteSignageStudioLayout
+      description: Requires planning.manage. Layouts referenced by signs or playlists cannot be deleted.
+      responses:
+        '204': { description: "Layout deleted" }
+        '404': { description: "Layout not found" }
+        '409': { description: "Layout is still in use" }
+  /api/v1/signage-studio/layouts/{id}/publish:
+    post:
+      operationId: publishSignageStudioLayout
+      description: Requires planning.manage.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignagePublishInput' }
+      responses:
+        '200':
+          description: Layout published
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignageLayoutResource' }
+        '404': { description: "Layout not found" }
+  /api/v1/signage-studio/layouts/save-publish:
+    post:
+      operationId: saveAndPublishSignageStudioLayout
+      description: Requires planning.manage. Atomically creates or updates and publishes a layout.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignageLayoutSavePublishInput' }
+      responses:
+        '200':
+          description: Layout saved and published
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignageLayoutResource' }
+        '400': { description: "Invalid layout, source, or referenced content" }
+        '404': { description: "Layout not found" }
+  /api/v1/signage-studio/playlists:
+    get:
+      operationId: listSignageStudioPlaylists
+      responses:
+        '200':
+          description: Looping signage content playlists
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SignageContentPlaylistResource' }
+    post:
+      operationId: createSignageStudioPlaylist
+      description: Requires planning.manage.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignageContentPlaylistInput' }
+      responses:
+        '201':
+          description: Playlist draft created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignageContentPlaylistResource' }
+        '400': { description: "Invalid or recursive playlist content" }
+  /api/v1/signage-studio/playlists/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      operationId: updateSignageStudioPlaylist
+      description: Requires planning.manage.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignageContentPlaylistInput' }
+      responses:
+        '200':
+          description: Playlist draft updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignageContentPlaylistResource' }
+        '400': { description: "Invalid or recursive playlist content" }
+        '404': { description: "Playlist not found" }
+    delete:
+      operationId: deleteSignageStudioPlaylist
+      description: Requires planning.manage. Playlists assigned to signs cannot be deleted.
+      responses:
+        '204': { description: "Playlist deleted" }
+        '404': { description: "Playlist not found" }
+        '409': { description: "Playlist is still in use" }
+  /api/v1/signage-studio/playlists/{id}/publish:
+    post:
+      operationId: publishSignageStudioPlaylist
+      description: Requires planning.manage.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignagePublishInput' }
+      responses:
+        '200':
+          description: Playlist published
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignageContentPlaylistResource' }
+        '404': { description: "Playlist not found" }
+  /api/v1/signage-studio/playlists/save:
+    post:
+      operationId: saveAndPublishSignageStudioPlaylist
+      description: Requires planning.manage. Atomically creates or updates and publishes a playlist.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignagePlaylistSaveInput' }
+      responses:
+        '200':
+          description: Playlist saved and published
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignageContentPlaylistResource' }
+        '400': { description: "Invalid or recursive playlist content" }
+        '404': { description: "Playlist not found" }
+  /api/v1/signage-studio/signs:
+    get:
+      operationId: listSignageStudioSigns
+      responses:
+        '200':
+          description: Persistent signs and their screen assignments
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SignageSign' }
+    post:
+      operationId: createSignageStudioSign
+      description: Requires planning.manage.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignageSignInput' }
+      responses:
+        '201': { description: "Sign created and assigned manifests invalidated" }
+        '400': { description: "Invalid sign or assignment" }
+        '409': { description: "Display capability acknowledgement is required" }
+  /api/v1/signage-studio/signs/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      operationId: updateSignageStudioSign
+      description: Requires planning.manage.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignageSignInput' }
+      responses:
+        '200': { description: "Sign updated and assigned manifests invalidated" }
+        '400': { description: "Invalid sign or assignment" }
+        '404': { description: "Sign not found" }
+        '409': { description: "Display capability acknowledgement is required" }
+    delete:
+      operationId: deleteSignageStudioSign
+      description: Requires planning.manage. Unassigns its screens.
+      responses:
+        '204': { description: "Sign deleted" }
+        '404': { description: "Sign not found" }
+  /api/v1/signage-studio/assignments/bulk:
+    post:
+      operationId: assignSignageStudioScreensInBulk
+      description: Requires planning.manage.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignageBulkAssignmentInput' }
+      responses:
+        '200': { description: "Assignments saved and manifests invalidated" }
+        '400': { description: "Invalid sign, screen, or assignment" }
+  /api/v1/signage-studio/preview/{screenId}:
+    get:
+      operationId: previewSignageStudioScreen
+      description: Requires planning.manage. Returns the same manifest contract consumed by a paired display.
+      parameters:
+        - { name: screenId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Screen manifest preview
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404': { description: "Screen not found" }
   /api/v1/audience/join/{code}:
     parameters:
       - name: code
@@ -1420,8 +1927,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AudiencePublicSession' }
-        '404': { description: Response code not found }
-        '429': { description: Too many requests }
+        '404': { description: "Response code not found" }
+        '429': { description: "Too many requests" }
   /api/v1/audience/join/{code}/responses:
     parameters:
       - name: code
@@ -1437,11 +1944,11 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/AudienceResponseInput' }
       responses:
-        '200': { description: Anonymous response accepted }
-        '400': { description: Missing, excessive, or invalid answer }
-        '404': { description: Response code not found }
-        '409': { description: Session closed or response changes disabled }
-        '429': { description: Too many submissions }
+        '200': { description: "Anonymous response accepted" }
+        '400': { description: "Missing, excessive, or invalid answer" }
+        '404': { description: "Response code not found" }
+        '409': { description: "Session closed or response changes disabled" }
+        '429': { description: "Too many submissions" }
   /api/v1/audience/admin/sessions:
     get:
       operationId: listAudienceSessions
@@ -1458,8 +1965,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/AudienceSessionInput' }
       responses:
-        '201': { description: Session created with a unique response code }
-        '400': { description: Session validation failed }
+        '201': { description: "Session created with a unique response code" }
+        '400': { description: "Session validation failed" }
   /api/v1/audience/admin/sessions/{sessionId}:
     parameters:
       - name: sessionId
@@ -1475,13 +1982,13 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/AudienceSessionInput' }
       responses:
-        '200': { description: Session saved }
-        '409': { description: Reset responses before changing questions }
+        '200': { description: "Session saved" }
+        '409': { description: "Reset responses before changing questions" }
     delete:
       operationId: deleteAudienceSession
       description: Requires planning.manage and permanently deletes the session and its responses.
       responses:
-        '204': { description: Session deleted }
+        '204': { description: "Session deleted" }
   /api/v1/audience/admin/sessions/{sessionId}/state/{action}:
     parameters:
       - name: sessionId
@@ -1496,7 +2003,7 @@ paths:
       operationId: changeAudienceSessionState
       description: Requires planning.manage.
       responses:
-        '200': { description: Session opened or closed }
+        '200': { description: "Session opened or closed" }
   /api/v1/audience/admin/sessions/{sessionId}/reset:
     post:
       operationId: resetAudienceResponses
@@ -1507,7 +2014,7 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '204': { description: Responses deleted }
+        '204': { description: "Responses deleted" }
   /api/v1/audience/admin/responses/{responseId}/moderation:
     put:
       operationId: moderateAudienceResponse
@@ -1527,13 +2034,78 @@ paths:
               properties:
                 status: { enum: [approved, rejected] }
       responses:
-        '200': { description: Moderation state saved }
+        '200': { description: "Moderation state saved" }
 components:
   securitySchemes:
     deviceBearer:
       type: http
       scheme: bearer
   schemas:
+    AdminSession:
+      type: object
+      required: [setupRequired, authenticated, permissions, mustChangePassword, registrationMode, registrationAvailable, emailConfigured]
+      properties:
+        setupRequired: { type: boolean }
+        authenticated: { type: boolean }
+        username: { type: [string, 'null'] }
+        displayName: { type: [string, 'null'] }
+        role: { type: [string, 'null'], enum: [Viewer, Editor, App Admin, Service Admin, null] }
+        permissions:
+          type: array
+          items: { $ref: '#/components/schemas/Permission' }
+          uniqueItems: true
+        mustChangePassword: { type: boolean }
+        registrationMode: { enum: [closed, open, code, approval] }
+        registrationAvailable: { type: boolean }
+        emailConfigured: { type: boolean }
+    AdminSetupInput:
+      type: object
+      required: [organizationName, username, password]
+      properties:
+        organizationName: { type: string, minLength: 1, maxLength: 120 }
+        username: { type: string, minLength: 3, maxLength: 80 }
+        password: { type: string, minLength: 10, writeOnly: true }
+        displayName: { type: [string, 'null'], maxLength: 120 }
+        timeZone: { type: [string, 'null'] }
+        email: { type: [string, 'null'], format: email }
+        siteName: { type: [string, 'null'], maxLength: 120 }
+        weekStartsOn: { type: [string, 'null'], enum: [Sunday, Monday, null] }
+    AdminLoginInput:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, minLength: 1, maxLength: 80 }
+        password: { type: string, minLength: 1, writeOnly: true }
+        mfaCode: { type: [string, 'null'], pattern: '^[0-9 ]{6,8}$', writeOnly: true }
+    MfaStatus:
+      type: object
+      required: [enabled, configured]
+      properties:
+        enabled: { type: boolean }
+        configured: { type: boolean }
+        totpEnabledAt: { type: [string, 'null'], format: date-time }
+    MfaSetupInput:
+      type: object
+      required: [currentPassword]
+      properties:
+        currentPassword: { type: string, minLength: 1, writeOnly: true }
+    MfaCodeInput:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string, pattern: '^[0-9 ]{6,8}$', writeOnly: true }
+    MfaDisableInput:
+      type: object
+      required: [currentPassword, code]
+      properties:
+        currentPassword: { type: string, minLength: 1, writeOnly: true }
+        code: { type: string, pattern: '^[0-9 ]{6,8}$', writeOnly: true }
+    MfaSetup:
+      type: object
+      required: [secret, provisioningUri]
+      properties:
+        secret: { type: string, pattern: '^[A-Z2-7]+$', writeOnly: true }
+        provisioningUri: { type: string, pattern: '^otpauth://totp/', writeOnly: true }
     AudienceQuestionInput:
       type: object
       required: [type, prompt]
@@ -1705,14 +2277,72 @@ components:
         pairingEnabled: { type: boolean }
     StorageStatus:
       type: object
-      required: [usedBytes, diskAvailableBytes, maximumAllocationBytes, allocationBytes, remainingBytes, automaticAllocation]
+      required: [usedBytes, diskAvailableBytes, maximumAllocationBytes, allocationBytes, remainingBytes, reservedBytes, automaticAllocation]
       properties:
         usedBytes: { type: integer, format: int64 }
         diskAvailableBytes: { type: integer, format: int64 }
         maximumAllocationBytes: { type: integer, format: int64 }
         allocationBytes: { type: integer, format: int64 }
         remainingBytes: { type: integer, format: int64 }
+        reservedBytes: { type: integer, format: int64, minimum: 0 }
         automaticAllocation: { type: boolean }
+    UploadCreateInput:
+      type: object
+      required: [fileName, totalBytes]
+      properties:
+        fileName: { type: string, minLength: 1, maxLength: 255 }
+        totalBytes: { type: integer, format: int64, minimum: 1, maximum: 107374182400 }
+        contentType: { type: [string, 'null'], maxLength: 100 }
+        expectedSha256: { type: [string, 'null'], pattern: '^[0-9a-fA-F]{64}$' }
+        persistent: { type: boolean, default: false }
+        lessonId: { type: [string, 'null'], format: uuid }
+        folder: { type: [string, 'null'], maxLength: 120 }
+        tagsCsv: { type: [string, 'null'], maxLength: 500 }
+        durationMs: { type: [integer, 'null'], format: int64, minimum: 0 }
+    UploadSessionCreated:
+      type: object
+      required: [uploadId, fileName, chunkSize, chunkCount, expectedLength, expiresAt]
+      properties:
+        uploadId: { type: string, format: uuid }
+        fileName: { type: string }
+        chunkSize: { type: integer, minimum: 1 }
+        chunkCount: { type: integer, minimum: 1, maximum: 100000 }
+        expectedLength: { type: integer, format: int64, minimum: 1 }
+        expiresAt: { type: string, format: date-time }
+        storageRemainingBytes: { type: [integer, 'null'], format: int64, minimum: 0 }
+    UploadSessionStatus:
+      type: object
+      required: [id, fileName, expectedLength, chunkSize, chunkCount, receivedBytes, state, createdAt, updatedAt, expiresAt, progressPercent, receivedChunks, missingChunks]
+      properties:
+        id: { type: string, format: uuid }
+        fileName: { type: string }
+        expectedLength: { type: integer, format: int64 }
+        chunkSize: { type: integer }
+        chunkCount: { type: integer }
+        receivedBytes: { type: integer, format: int64 }
+        state: { enum: [active, paused, failed, completing, complete, cancelled, expired] }
+        failureReason: { type: [string, 'null'] }
+        contentSha256: { type: [string, 'null'], pattern: '^[0-9a-f]{64}$' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+        mediaAssetId: { type: [string, 'null'], format: uuid }
+        progressPercent: { type: number, minimum: 0, maximum: 100 }
+        receivedChunks: { type: integer, minimum: 0 }
+        missingChunks: { type: array, items: { type: integer, minimum: 0 } }
+    UploadQuotaPolicy:
+      type: object
+      required: [maxFileBytes, maxDailyBytes, maxActiveSessionsPerUser, userDailyBytes, roleDailyBytes, classDailyBytes, allowedVideoCodecs, allowedAudioCodecs]
+      properties:
+        maxFileBytes: { type: integer, format: int64, minimum: 0, maximum: 107374182400 }
+        maxDailyBytes: { type: integer, format: int64, minimum: 0 }
+        maxActiveSessionsPerUser: { type: integer, minimum: 1, maximum: 10 }
+        userDailyBytes: { type: object, additionalProperties: { type: integer, format: int64, minimum: 1 } }
+        roleDailyBytes: { type: object, additionalProperties: { type: integer, format: int64, minimum: 1 } }
+        classDailyBytes: { type: object, additionalProperties: { type: integer, format: int64, minimum: 1 } }
+        allowedVideoCodecs: { type: array, items: { type: string, maxLength: 40 }, uniqueItems: true }
+        allowedAudioCodecs: { type: array, items: { type: string, maxLength: 40 }, uniqueItems: true }
     MediaOrganizeInput:
       type: object
       properties:
@@ -1829,12 +2459,35 @@ components:
         cloudflaredUpdateError: { type: [string, 'null'] }
         appliedAt: { type: [string, 'null'], format: date-time }
         error: { type: [string, 'null'] }
+    DisplayCapability:
+      type: object
+      required: [id, label, supported, fallback]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        supported: { type: boolean }
+        fallback: { type: string }
+        notes: { type: [string, 'null'] }
+    DisplayCapabilityContract:
+      type: object
+      required: [platform, displayName, contractVersion, minimumClientVersion, capabilities, limitations]
+      properties:
+        platform: { enum: [web-player, android-tv, unknown] }
+        displayName: { type: string }
+        contractVersion: { type: integer, const: 1 }
+        minimumClientVersion: { type: string }
+        capabilities:
+          type: array
+          items: { $ref: '#/components/schemas/DisplayCapability' }
+        limitations:
+          type: array
+          items: { type: string }
     PairingRequest:
       type: object
       required: [deviceName, platform, appVersion]
       properties:
         deviceName: { type: string, maxLength: 100 }
-        platform: { enum: [android-tv, fire-tv, tvos] }
+        platform: { enum: [android-tv, fire-tv, web-player] }
         appVersion: { type: string }
         devicePublicKey: { type: [string, 'null'] }
     PairingResult:
@@ -1860,7 +2513,7 @@ components:
         username: { type: string, minLength: 3, maxLength: 80 }
         displayName: { type: string, minLength: 1 }
         email: { type: [string, 'null'], format: email }
-        role: { enum: [Viewer, Editor, Administrator, Owner] }
+        role: { enum: [Viewer, Editor, App Admin, Service Admin] }
         permissions:
           type: array
           items: { $ref: '#/components/schemas/Permission' }
@@ -1884,12 +2537,12 @@ components:
         username: { type: string, minLength: 3, maxLength: 80 }
         displayName: { type: string, minLength: 1 }
         email: { type: [string, 'null'], format: email }
-        role: { enum: [Viewer, Editor, Administrator, Owner] }
+        role: { enum: [Viewer, Editor, App Admin, Service Admin] }
         permissions:
           type: [array, 'null']
           items: { $ref: '#/components/schemas/Permission' }
           uniqueItems: true
-          description: Null uses role defaults; an empty array intentionally grants no management capabilities. Owners always retain every capability.
+          description: Null uses role defaults; an empty array intentionally grants no management capabilities. Service Admins always retain every capability.
         password:
           type: [string, 'null']
           minLength: 10
@@ -1901,7 +2554,7 @@ components:
       properties:
         email: { type: string, format: email, maxLength: 200 }
         displayName: { type: [string, 'null'], maxLength: 120 }
-        role: { enum: [Viewer, Editor, Administrator, Owner] }
+        role: { enum: [Viewer, Editor, App Admin, Service Admin] }
         permissions:
           type: [array, 'null']
           items: { $ref: '#/components/schemas/Permission' }
@@ -1926,7 +2579,7 @@ components:
         displayName: { type: string, minLength: 1, maxLength: 120 }
         password: { type: string, minLength: 10, writeOnly: true }
     Permission:
-      enum: [planning.manage, uploads.manage, playback.control, screens.manage, users.manage, settings.manage, backups.manage, updates.manage]
+      enum: [planning.manage, uploads.manage, playback.control, screens.manage, users.manage, app-settings.manage, settings.manage, backups.manage, updates.manage]
     Class:
       allOf:
         - $ref: '#/components/schemas/ClassInput'
@@ -2116,20 +2769,188 @@ components:
           type: [array, 'null']
           maxItems: 8
           items: { $ref: '#/components/schemas/SignageZone' }
-    SignageZone:
+    SignageStudioCatalog:
       type: object
-      required: [id, type, x, y, width, height]
+      required: [resolutions, zoneTypes, layoutFolders, playlistFolders]
+      properties:
+        resolutions:
+          type: array
+          items:
+            type: object
+            required: [key, name, width, height]
+            properties:
+              key: { type: string }
+              name: { type: string }
+              width: { type: integer, minimum: 240, maximum: 7680 }
+              height: { type: integer, minimum: 240, maximum: 7680 }
+        zoneTypes:
+          type: array
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/SignageZoneType' }
+        layoutFolders: { type: array, items: { type: string } }
+        playlistFolders: { type: array, items: { type: string } }
+    SignageZoneType:
+      enum: [media, stream, presentation, text, clock, calendar, weather, rss, qr, ticker, counter, webpage, wifi, audience, customHtml]
+    SignageLayoutResourceInput:
+      type: object
+      required: [name, isTemplate, canvasWidth, canvasHeight, safeAreaPercent]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        folder: { type: [string, 'null'], maxLength: 160 }
+        description: { type: [string, 'null'], maxLength: 1000 }
+        isTemplate: { type: boolean }
+        backgroundColor: { type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$' }
+        canvasWidth: { type: integer, minimum: 240, maximum: 7680 }
+        canvasHeight: { type: integer, minimum: 240, maximum: 7680 }
+        safeAreaPercent: { type: integer, minimum: 0, maximum: 20 }
+        zones:
+          type: [array, 'null']
+          maxItems: 64
+          items: { $ref: '#/components/schemas/SignageZone' }
+        backgroundAudioAssetId: { type: [string, 'null'], format: uuid }
+        thumbnailDataUrl: { type: [string, 'null'], maxLength: 12000, pattern: '^data:image/' }
+    SignageLayoutResource:
+      allOf:
+        - $ref: '#/components/schemas/SignageLayoutResourceInput'
+        - type: object
+          required: [id, isStarter, orientation, zones, publishedZones, version, publishedVersion, publishState, createdAt, updatedAt]
+          properties:
+            id: { type: string, format: uuid }
+            isStarter: { type: boolean }
+            templateKey: { type: string }
+            orientation: { enum: [landscape, portrait, square] }
+            zones: { type: array, items: { $ref: '#/components/schemas/SignageZone' } }
+            publishedZones: { type: array, items: { $ref: '#/components/schemas/SignageZone' } }
+            version: { type: integer, minimum: 0 }
+            publishedVersion: { type: integer, minimum: 0 }
+            publishState: { enum: [draft, changes, published] }
+            publishedAt: { type: [string, 'null'], format: date-time }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    SignagePublishInput:
+      type: object
+      properties:
+        pushToScreens: { type: boolean, default: true }
+    SignageLayoutSavePublishInput:
+      type: object
+      required: [layout]
+      properties:
+        id: { type: [string, 'null'], format: uuid }
+        layout: { $ref: '#/components/schemas/SignageLayoutResourceInput' }
+        pushToScreens: { type: boolean, default: true }
+    SignageContentPlaylistItemInput:
+      type: object
+      required: [id, kind]
       properties:
         id: { type: string, minLength: 1, maxLength: 64 }
-        type: { enum: [media, stream, text, clock, calendar, weather, menu, rss, data] }
+        kind: { enum: [layout, media, app, web, nested, tag, cloud, csv] }
         title: { type: [string, 'null'], maxLength: 160 }
-        content: { type: [string, 'null'], maxLength: 4000 }
+        layoutId: { type: [string, 'null'], format: uuid }
         mediaAssetId: { type: [string, 'null'], format: uuid }
-        sourceUrl: { type: [string, 'null'], format: uri }
-        x: { type: integer, minimum: 0, maximum: 90 }
-        y: { type: integer, minimum: 0, maximum: 90 }
-        width: { type: integer, minimum: 10, maximum: 100 }
-        height: { type: integer, minimum: 10, maximum: 100 }
+        nestedPlaylistId: { type: [string, 'null'], format: uuid }
+        appType: { type: [string, 'null'], maxLength: 80 }
+        sourceUrl: { type: [string, 'null'], maxLength: 2000 }
+        durationSeconds: { type: integer, minimum: 1, maximum: 86400, default: 10 }
+        transition: { enum: [cut, fade, slide, zoom] }
+        hidden: { type: boolean, default: false }
+        transparent: { type: boolean, default: false }
+        tagsCsv: { type: [string, 'null'], maxLength: 2000 }
+        volumePercent: { type: integer, minimum: 0, maximum: 100, default: 100 }
+        muted: { type: boolean, default: false }
+        fadeInMs: { type: integer, minimum: 0, maximum: 30000, default: 0 }
+        fadeOutMs: { type: integer, minimum: 0, maximum: 30000, default: 0 }
+        fit: { enum: [contain, cover, fill] }
+    SignageContentPlaylistInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        folder: { type: [string, 'null'], maxLength: 160 }
+        playbackMode: { type: [string, 'null'], enum: [ordered, random, tag, interactive, null] }
+        synchronization: { type: [string, 'null'], enum: [screen, region, global, null] }
+        items:
+          type: [array, 'null']
+          maxItems: 500
+          items: { $ref: '#/components/schemas/SignageContentPlaylistItemInput' }
+    SignageContentPlaylistResource:
+      allOf:
+        - $ref: '#/components/schemas/SignageContentPlaylistInput'
+        - type: object
+          required: [id, items, publishedItems, version, publishedVersion, publishState, createdAt, updatedAt]
+          properties:
+            id: { type: string, format: uuid }
+            items: { type: array, items: { $ref: '#/components/schemas/SignageContentPlaylistItemInput' } }
+            publishedItems: { type: array, items: { $ref: '#/components/schemas/SignageContentPlaylistItemInput' } }
+            version: { type: integer, minimum: 0 }
+            publishedVersion: { type: integer, minimum: 0 }
+            publishState: { enum: [draft, changes, published] }
+            publishedAt: { type: [string, 'null'], format: date-time }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    SignagePlaylistSaveInput:
+      type: object
+      required: [playlist]
+      properties:
+        id: { type: [string, 'null'], format: uuid }
+        playlist: { $ref: '#/components/schemas/SignageContentPlaylistInput' }
+    SignageSignInput:
+      type: object
+      required: [name, layoutId]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        layoutId: { type: string, format: uuid }
+        playlistAssignments:
+          type: [object, 'null']
+          maxProperties: 100
+          additionalProperties: { type: string, format: uuid }
+        screenIds:
+          type: [array, 'null']
+          maxItems: 500
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        allowUnsupportedContent: { type: boolean, default: false }
+    SignageSign:
+      type: object
+      required: [id, name, layoutId, layoutName, playlistAssignments, screenIds, screenNames, version, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        layoutId: { type: string, format: uuid }
+        layoutName: { type: string }
+        playlistAssignments:
+          type: object
+          additionalProperties: { type: string, format: uuid }
+        screenIds: { type: array, items: { type: string, format: uuid } }
+        screenNames: { type: array, items: { type: string } }
+        version: { type: integer, minimum: 0 }
+        updatedAt: { type: string, format: date-time }
+    SignageBulkAssignmentInput:
+      type: object
+      properties:
+        signageIds:
+          type: [array, 'null']
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        screenIds:
+          type: [array, 'null']
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        targetTagsCsv: { type: [string, 'null'] }
+        publish: { type: boolean, default: true }
+    SignageZone:
+      type: object
+      required: [id, type]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 64 }
+        type: { $ref: '#/components/schemas/SignageZoneType' }
+        title: { type: [string, 'null'], maxLength: 160 }
+        content: { type: [string, 'null'], maxLength: 50000 }
+        mediaAssetId: { type: [string, 'null'], format: uuid }
+        sourceUrl: { type: [string, 'null'], maxLength: 2000 }
+        x: { type: integer, minimum: 0, maximum: 90, default: 0 }
+        y: { type: integer, minimum: 0, maximum: 90, default: 0 }
+        width: { type: integer, minimum: 2, maximum: 100, default: 100 }
+        height: { type: integer, minimum: 2, maximum: 100, default: 100 }
         backgroundColor: { type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$' }
         textColor: { type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$' }
         accentColor: { type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$' }
@@ -2137,14 +2958,82 @@ components:
         rotation: { type: integer, minimum: -180, maximum: 180, default: 0 }
         zIndex: { type: integer, minimum: 0, maximum: 100, default: 0 }
         opacity: { type: integer, minimum: 0, maximum: 100, default: 100 }
-        fit: { type: [string, 'null'], enum: [cover, contain, fill, null], default: cover }
+        fit: { type: [string, 'null'], enum: [cover, contain, fill, null] }
         locked: { type: boolean, default: false }
         hidden: { type: boolean, default: false }
         flipX: { type: boolean, default: false }
         flipY: { type: boolean, default: false }
+        groupId: { type: [string, 'null'], maxLength: 64 }
+        lockMode: { type: [string, 'null'], enum: [none, position, content, full, null] }
+        richTextJson: { type: [string, 'null'], maxLength: 12000 }
+        fontFamily: { type: [string, 'null'], maxLength: 80 }
+        fontSize: { type: integer, minimum: 8, maximum: 300, default: 48 }
+        fontWeight: { type: integer, minimum: 100, maximum: 900, default: 600 }
+        italic: { type: boolean, default: false }
+        underline: { type: boolean, default: false }
+        lineHeightPercent: { type: integer, minimum: 80, maximum: 300, default: 120 }
+        textAlign: { type: [string, 'null'], enum: [left, center, right, justify, null] }
+        shape: { type: [string, 'null'], enum: [rectangle, circle, triangle, line, null] }
+        strokeColor: { type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$' }
+        strokeWidth: { type: integer, minimum: 0, maximum: 30, default: 0 }
+        cornerRadius: { type: integer, minimum: 0, maximum: 100, default: 0 }
+        iconName: { type: [string, 'null'], maxLength: 80 }
+        qrValue: { type: [string, 'null'], maxLength: 2000 }
+        qrLabelTop: { type: [string, 'null'], maxLength: 160 }
+        qrLabelBottom: { type: [string, 'null'], maxLength: 160 }
+        qrLabelLeft: { type: [string, 'null'], maxLength: 160 }
+        qrLabelRight: { type: [string, 'null'], maxLength: 160 }
+        qrPlacement: { type: [string, 'null'], enum: [left, center, right, null] }
+        qrSizePercent: { type: integer, minimum: 20, maximum: 90, default: 42 }
+        tickerSpeed: { type: integer, minimum: 10, maximum: 300, default: 60 }
+        counterTargetAt: { type: [string, 'null'], format: date-time }
+        counterRepeatWeekly: { type: boolean, default: false }
+        credentialKey: { type: [string, 'null'], maxLength: 120 }
+        clockDisplay: { type: [string, 'null'], enum: [time, date, both, null] }
+        clockTimeFormat: { type: [string, 'null'], enum: [12h, 12h-seconds, 24h, 24h-seconds, null] }
+        clockDateFormat: { type: [string, 'null'], enum: [short, medium, long, numeric, null] }
+        clockOrder: { type: [string, 'null'], enum: [time-date, date-time, inline, null] }
+        clockTimeFontSize: { type: integer, minimum: 8, maximum: 300, default: 64 }
+        clockDateFontSize: { type: integer, minimum: 8, maximum: 300, default: 28 }
+        clockShowPeriod: { type: boolean, default: true }
+        clockShowWeekday: { type: boolean, default: true }
+        clockShowYear: { type: boolean, default: true }
+        weatherProvider: { type: [string, 'null'], enum: [open-meteo, nws, custom, null] }
+        weatherLocation: { type: [string, 'null'], maxLength: 160 }
+        weatherLatitude: { type: [number, 'null'], minimum: -90, maximum: 90 }
+        weatherLongitude: { type: [number, 'null'], minimum: -180, maximum: 180 }
+        weatherPostalCode: { type: [string, 'null'], maxLength: 20 }
+        weatherUnits: { type: [string, 'null'], enum: [fahrenheit, celsius, null] }
+        weatherFields: { type: [string, 'null'] }
+        weatherIconStyle: { type: [string, 'null'], enum: [color, white, null] }
+        weatherLayout: { type: [string, 'null'], enum: [icon-top, icon-left, icon-right, compact, null] }
+        weatherIconSize: { type: integer, minimum: 16, maximum: 220, default: 84 }
+        weatherTitleSize: { type: integer, minimum: 8, maximum: 120, default: 28 }
+        weatherTemperatureSize: { type: integer, minimum: 12, maximum: 220, default: 58 }
+        weatherDetailsSize: { type: integer, minimum: 8, maximum: 100, default: 22 }
+        contentPlaylistId: { type: [string, 'null'], format: uuid }
+        streamOverrideWhenLive: { type: boolean, default: false }
+        streamOverrideStartsAt: { type: [string, 'null'], format: date-time }
+        streamOverrideEndsAt: { type: [string, 'null'], format: date-time }
+        contentPadding: { type: integer, minimum: 0, maximum: 30, default: 6 }
+        contentScale: { type: integer, minimum: 25, maximum: 100, default: 100 }
+        verticalAlign: { type: [string, 'null'], enum: [top, middle, bottom, null] }
+        mediaScale: { type: integer, minimum: 25, maximum: 400, default: 100 }
+        mediaOffsetX: { type: integer, minimum: -150, maximum: 150, default: 0 }
+        mediaOffsetY: { type: integer, minimum: -150, maximum: 150, default: 0 }
+        mediaAllowOverflow: { type: boolean, default: false }
+        wifiNetworkName: { type: [string, 'null'], maxLength: 128 }
+        wifiPassword: { type: [string, 'null'], maxLength: 256, writeOnly: true }
+        wifiSecurity: { type: [string, 'null'], enum: [WPA, WEP, nopass, null] }
+        wifiHidden: { type: boolean, default: false }
+        calendarMaxItems: { type: integer, minimum: 0, maximum: 20, default: 0 }
+        calendarFields: { type: [string, 'null'] }
+        audienceSessionId: { type: [string, 'null'], format: uuid }
+        audienceCode: { type: [string, 'null'], pattern: '^[A-Z0-9]{6}$' }
+        audienceShowResults: { type: boolean, default: true }
+        audienceResultDelaySeconds: { type: integer, minimum: 0, maximum: 3600, default: 0 }
         streamUrl:
           type: [string, 'null']
-          format: uri-reference
           readOnly: true
     SignageWidgetCache:
       type: object

@@ -106,7 +106,7 @@ sudo -u lessoncue env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
   /opt/lessoncue/LessonCue.Server --reset-password YOUR_USERNAME
 ```
 
-Enter the new password twice when prompted. Nothing is shown while typing. The password must contain at least ten characters with uppercase, lowercase, and numeric characters. The command writes the normal ASP.NET password hash, records an audit event, and signs out that account's existing browser sessions. It does not display or recover the old password.
+Enter the new password twice when prompted. Nothing is shown while typing. The password must contain at least ten characters with uppercase, lowercase, and numeric characters. The command writes the normal ASP.NET password hash, disables authenticator MFA for that account, records an audit event, and signs out that account's existing browser sessions. It does not display or recover the old password.
 
 The web server can remain running during this operation. If the selected account is marked `disabled`, the password is still reset but another active Service Admin must enable the account before it can sign in.
 
@@ -120,7 +120,7 @@ hostname -I | awk '{print "http://" $1}'
 
 First try `http://lessoncue.local`, then use the printed numeric address if `.local` discovery is unavailable on that network. The complete LessonCue administration interface is served from the local server. It does not load or depend on the hosted prototype.
 
-Do not forward LessonCue's HTTP port directly from the internet. Use the protected Cloudflare Tunnel option above or an administrator-managed VPN.
+Do not forward LessonCue's HTTP port directly from the internet. Use the protected Cloudflare Tunnel option above or an administrator-managed VPN. For a shared local network, use the supported [local HTTPS and Caddy workflow](local-network-security.md).
 
 ### Use the cellphone controller
 
@@ -133,7 +133,7 @@ http://SERVER-IP/universalremote
 
 Sign in with a local LessonCue account. Choose the paired screen, choose a lesson, and use **Play lesson**, an individual media row, pause/resume, previous/next, stop, or seek. The television app must be open and paired; its status should say **Screen online** in the controller.
 
-The native Android TV, Fire TV, and Apple TV interfaces also let an operator choose a lesson and scroll through every pre-roll, countdown, and lesson cue with the television remote's directional pad. Press the center/select button to play the focused item and Back/Menu to return to the lesson list. This browsing does not require the phone controller.
+The native Android TV, Google TV, and Fire TV interface also lets an operator choose a lesson and scroll through every pre-roll, countdown, and lesson cue with the television remote's directional pad. Press the center/select button to play the focused item and Back/Menu to return to the lesson list. This browsing does not require the phone controller.
 
 On iPhone or iPad, tap **Share**, then **Add to Home Screen**. On Android, open the browser menu and tap **Add to Home screen** or **Install app** when offered. This saves the local browser controller as an app-like icon; it does not install a separate LessonCue phone binary or connect to a hosted service.
 
@@ -162,6 +162,8 @@ Choose a server with:
 
 Install FFmpeg/FFprobe for media inspection and transcoding. Install LibreOffice headlessly only if PowerPoint conversion is required. Do not expose LessonCue directly to the public internet.
 
+The packaged Windows installer runs LessonCue as the built-in restricted `LocalService` identity, gives that identity read/execute access to the application and modify access only to `%ProgramData%\LessonCue`, and limits its firewall rule to Domain and Private networks. It does not process uploaded media as LocalSystem.
+
 The Linux installer installs both the current Intel media driver and the legacy `i965` driver when the distribution provides them, grants the restricted service account `render` and `video` access, and creates a writable local shader cache. On a server with a supported Intel integrated GPU, keep `/dev/dri` accessible to the `lessoncue` service and open **Settings → Adaptive TV playback → Check hardware**. Version 0.30.5 and newer tries each Intel render node using direct QSV, VAAPI-derived QSV, direct VAAPI, and direct VAAPI forced through `i965`. The successful initializer and driver environment are reused for real conversions. “Hardware ready” means a real H.264 test encode passed. If the driver, GPU, permissions, or FFmpeg support is absent, LessonCue reports the failed paths and continues with software conversion automatically.
 
 ## Alternative: Docker
@@ -172,6 +174,8 @@ Docker is the quickest evaluation and technical-user installation.
 git clone https://github.com/nickhighland/lessoncue.git
 cd lessoncue
 cp .env.example .env
+mkdir -p lessoncue-data
+sudo chown -R 10001:10001 lessoncue-data
 docker compose up -d --build
 docker compose logs -f lessoncue
 ```
@@ -187,7 +191,7 @@ services:
 
 Do not add this mapping on a host without `/dev/dri`; software conversion remains the portable default.
 
-Open `http://SERVER-IP`. Data is stored in `./lessoncue-data` unless `LESSONCUE_DATA_PATH` is changed in `.env`. Docker uses the `LESSONCUE_HTTP_PORT` value in `.env` for its host port; recreate the container after changing it.
+Open `http://SERVER-IP`. Data is stored in `./lessoncue-data` unless `LESSONCUE_DATA_PATH` is changed in `.env`. The directory must be writable by container UID/GID `10001`; apply the same `chown` command to a custom bind-mount path. The application runs as that non-root account with all Linux capabilities dropped, a read-only container filesystem, `no-new-privileges`, and only `/data` plus a bounded temporary filesystem writable. Docker uses the `LESSONCUE_HTTP_PORT` value in `.env` for its host port; recreate the container after changing it.
 
 Docker bridge networking does not reliably publish mDNS. Use the numeric address or install the supplied `docker/avahi-service.xml` on the host. Native installation is friendlier for ordinary deployments.
 
@@ -215,7 +219,7 @@ Run `sudo ./uninstall.sh` to remove the service. It deliberately preserves `/var
 
 ## Windows service installation
 
-Download and unpack `LessonCue-Server-Windows-x64.zip`, open PowerShell as Administrator, and run:
+Install a current static Windows build of FFmpeg/FFprobe and put it on the system `PATH`. LessonCue copies those binaries into its restricted media-worker directory during installation, applies LocalService-only ACLs, and blocks outbound network access for that private copy. Then download and unpack `LessonCue-Server-Windows-x64.zip`, open PowerShell as Administrator, and run:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
@@ -223,6 +227,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 The script installs an automatically starting Windows service, adds the firewall rule, and stores data in `C:\ProgramData\LessonCue`. `Uninstall-LessonCue.ps1` removes the service and application but preserves that data directory.
+
+For production releases, download `SHA256SUMS` and `SHA256SUMS.sig` beside the ZIP and verify them from a trusted checkout before opening an elevated PowerShell window. The public-key fingerprint and exact commands are in [release-signing.md](release-signing.md). Linux's copy/paste installer performs this verification automatically before it executes the downloaded installer as root.
 
 The browser port can be saved under **Settings → Connection & pairing**. On Windows, apply a changed port by opening PowerShell as Administrator, updating the matching Windows Firewall rule if necessary, and running `Restart-Service LessonCue`. Native Linux performs those steps automatically.
 
@@ -273,18 +279,9 @@ On first launch:
 
 Fire TV requires device-specific testing because background scheduling and storage behavior vary by Fire OS version.
 
-## Apple TV
+## Apple TV and tvOS
 
-The tvOS app must be signed with an Apple Developer team before physical-device installation. Clone the repository on a Mac with current Xcode, install XcodeGen, and run:
-
-```bash
-brew install xcodegen
-cd tvos
-xcodegen generate
-open LessonCueTV.xcodeproj
-```
-
-Select your development team, choose the Apple TV, and Run. Bonjour and local-network access prompts must be accepted. See [apple-tv.md](apple-tv.md) for store and device notes.
+Apple TV is explicitly unsupported and deferred for the current LessonCue product cycle. The archived `tvos/` prototype is not built in CI, distributed in releases, covered by current installation support, or included in feature-parity promises. Use the paired browser player on a presentation computer or an Android TV, Google TV, or Fire TV device. Reintroducing tvOS requires a separate future project and current-device acceptance testing.
 
 ## Network checklist
 
@@ -297,11 +294,40 @@ Select your development team, choose the Apple TV, and Run. Bonjour and local-ne
 
 ## Backups and updates
 
-Service Admins can create and download a consistent configuration backup or a full backup from **Settings → Privacy & backups** while the server is running.
+Service Admins can create and download a consistent configuration backup or a full backup from **Settings → Privacy & backups** while the server is running. Every browser-created export requires a password of at least 12 characters and uses LessonCue's `.lcbak` format: a chunked AES-256-GCM envelope authenticates the complete ZIP digest, while the encrypted ZIP contains a SHA-256 manifest for every database, configuration, and media file. LessonCue never stores the export password. Keep it in a password manager separate from the backup; losing it makes the export unrecoverable.
 
-To restore a LessonCue ZIP from the browser, open **Settings → Privacy & backups → Restore a LessonCue backup**. LessonCue validates the archive and database without changing current data, shows the organization and record counts, and warns whether media is included. Type `RESTORE` only after reviewing that preview. LessonCue creates a full safety backup automatically, restores the database, restores media only when the uploaded archive is a full backup, and preserves the receiving server's identity, encryption keys, hostname, port, and pairing secrets. The staged upload expires after 24 hours.
+By default, an export omits the account-email credential, Signage source credentials, pairing secret/PIN preference, and local ASP.NET data-protection keys. This is the safest choice for ordinary off-server storage and migration. Select **Include this server's encrypted provider credentials…** only when the receiving installation must inherit those protected values; LessonCue permits this only inside a password-encrypted export. The password is not placed in the archive. Cloudflare's root-owned tunnel token remains outside browser backups.
 
-Use a backup produced by the same or an older LessonCue release. A newer server automatically applies required database upgrades after restoration. A configuration backup preserves media already on the receiving server; use a full backup when moving media to another computer.
+To restore a LessonCue `.lcbak` or legacy ZIP from the browser, open **Settings → Privacy & backups → Restore a LessonCue backup**, choose the file, and enter its password when required. LessonCue authenticates and decrypts the envelope, verifies every manifest entry and the SQLite database without changing current data, shows the organization and record counts, identifies whether server secrets were included, and warns whether media is included. Type `RESTORE` only after reviewing that preview. LessonCue creates a full local safety backup automatically, restores the database, restores media only when the uploaded archive is a full backup, and preserves the receiving server's identity, encryption keys, hostname, port, and pairing secrets. Authenticator MFA is disabled for restored accounts because the receiving server deliberately keeps its own encryption keys; Service Admins can enroll again after signing in. The decrypted staged upload expires after 24 hours and the password is discarded immediately after validation.
+
+Use a backup produced by the same or an older LessonCue release. A newer server automatically applies required database upgrades after restoration. A configuration backup preserves media already on the receiving server; use a full backup when moving media to another computer. Legacy unencrypted ZIP backups remain readable but are identified clearly because they do not provide the authenticated envelope and per-file manifest used by current exports.
+
+### Schedule and test recovery copies
+
+Under **Settings → Privacy & backups → Scheduled and off-server backups**, a Service Admin can select daily or weekly execution in the organization's configured time zone, configuration-only or full-media content, the number and maximum age of local scheduled copies, and the same server-secret exclusion policy used by manual exports. Enter the backup password once. LessonCue protects the scheduler's copy with its local data-protection key ring, never returns it through the API, and deliberately excludes `backup-policy.json` from every backup so the wrapped password is never packaged with those keys.
+
+An optional HTTPS WebDAV folder sends each already encrypted `.lcbak` file off the LessonCue computer with HTTP PUT. No authentication, username/password, and bearer-token targets are supported. Remote credentials are protected locally and omitted from backups and API responses. LessonCue requires HTTPS and uploads only; configure retention and versioning at the WebDAV provider separately. **Create and verify now** tests the complete schedule, local encryption, manifest/database verification, and remote delivery before you rely on it.
+
+LessonCue raises a Service Admin banner when a scheduled backup fails or the latest successful verified copy is overdue. Local pruning applies both the “keep newest copies” and maximum-age limits, without deleting manually created or pre-restore safety backups. The **Run restore drill** action decrypts a selected copy, authenticates its envelope and every manifest entry, runs SQLite integrity and required-table checks, and compares the media inventory without changing production data. Complete the drill by downloading that exact file to another device, confirming the separately stored password, and periodically restoring it to a spare LessonCue server.
+
+The operational recovery objectives are:
+
+- With a healthy daily policy, the target recovery point is no more than 24 hours before a failure; with a weekly policy it is no more than seven days. A visible overdue or failed state means that objective is not currently met.
+- A configuration-only restore should be rehearsed to complete within 30 minutes after a replacement server is available. A full-media restore time depends on archive size and disk/network throughput; measure and record it during the spare-server drill.
+- Keep at least one verified copy on another physical device or WebDAV service, retain the password in a separate password manager, and ensure two authorized people know the recovery procedure.
+
+### Move directly to another LessonCue server
+
+The migration workflow transfers the same encrypted `.lcbak` artifact and then uses the normal review-and-restore path:
+
+1. On the source server, create and verify a current encrypted configuration or full backup.
+2. Select **Transfer** beside that backup. Copy the displayed source address and 64-character one-time token. The grant expires after 30 minutes and is consumed by its first download.
+3. On the destination server, install the same or a newer LessonCue release. Open **Privacy & backups → Move from another LessonCue server**.
+4. Paste the source address and token, then enter the backup password separately. The password is used only on the destination and is never sent to the source.
+5. Select **Transfer and preview**. LessonCue pulls the encrypted bytes, blocks HTTP redirects, authenticates/decrypts the envelope, verifies the manifest and database, and shows the same restore review used for an uploaded file.
+6. Confirm the organization, record counts, media inclusion, source version, and secret-handling policy. Type `RESTORE` only on the intended destination.
+
+Plain HTTP is accepted only for localhost, private/link-local numeric addresses, or `.local` hostnames. Use HTTPS for a Cloudflare or other remotely reachable source. The token is sent in the Authorization header rather than the URL so it is not written into ordinary request-path logs. If the transfer or password is wrong, create a new one-time token on the source.
 
 For a manual whole-server disaster-recovery copy, stop the service first and archive the entire data directory:
 
@@ -313,15 +339,15 @@ sudo systemctl start lessoncue
 
 To restore that manual whole-directory archive, install the same or newer LessonCue version, stop the service, replace `/var/lib/lessoncue` with the saved directory contents, restore ownership with `sudo chown -R lessoncue:lessoncue /var/lib/lessoncue`, and start the service. Test restoration on a separate machine before relying on a backup policy.
 
-For Docker, pull/build the new image and run `docker compose up -d`. Native Linux installations check for releases daily and alert signed-in users. A user with **Software updates** permission can use **Settings → Software updates → Install**; LessonCue verifies the release checksum, restarts, health-checks the new server, and rolls back the application files if that check fails. Run the two headless installation commands once on a server installed before version 0.4.0 to enable this protected updater. Application updates preserve `/var/lib/lessoncue`, including accounts, media, settings, pairing credentials, and backups.
+For Docker, pull/build the new image and run `docker compose up -d`. Native Linux installations check for releases daily and alert signed-in users. A user with **Software updates** permission can use **Settings → Software updates → Install**; LessonCue verifies the release checksum, stops database writers, creates and verifies a protected pre-update database/configuration snapshot, snapshots the updater and systemd units, and requires the new server's database and persistent storage to report ready. If migration or readiness fails, the application, database, configuration, updater, and service units are restored together. A root-owned transaction marker and boot recovery unit finish that restoration after an interrupted update or power loss. A **Service Admin** can also select **Restore last-known-good snapshot** on the update page; LessonCue takes and verifies a separate snapshot of the current installation before changing it, and restores that newer state if the requested rollback does not become ready. Media files are not rolled back. Run the two headless installation commands once on a server installed before version 0.4.0 to enable these protected services. Successful updates preserve `/var/lib/lessoncue`, including accounts, media, settings, pairing credentials, and backups.
 
-In **Settings → Storage allocation**, a user with **Server settings** permission can choose a maximum amount of disk space or leave automatic allocation enabled. The page shows current LessonCue usage, free computer disk space, and the maximum safe allocation. LessonCue keeps a 512 MB safety reserve and refuses uploads that would exceed the allocation. Everyone with **Media uploads** permission can see the remaining upload capacity in the sidebar and Media Library. Uploads marked **For a lesson** are automatically removed four weeks after the latest lesson that uses them; uploads marked **Keep permanently** are not automatically removed.
+In **Settings → Media & storage**, a Service Admin can choose a maximum amount of disk space or leave automatic allocation enabled. The page shows current LessonCue usage, free computer disk space, active-upload reservations, and the maximum safe allocation. LessonCue keeps a 512 MB safety reserve and reserves the complete file size before accepting chunks. The adjacent **Upload limits** panel optionally caps file size, per-account daily use, simultaneous sessions, user/role/class daily use, and verified codecs. Everyone with **Media uploads** permission can see remaining capacity. Uploaders can pause, resume, or cancel; after a browser/network interruption, selecting the same file and destination within 24 hours continues its missing chunks. Uploads marked **For a lesson** are automatically removed four weeks after the latest lesson that uses them; uploads marked **Keep permanently** are not automatically removed. See [resumable uploads and storage limits](uploads.md).
 
 Media can be assigned to hierarchical folders and comma-separated tags during upload or later in the Media Library. **Manage versions & impact** shows every lesson cue and sign that uses an item before replacement. Replacing a local file preserves its stable media ID, archives the current original, refreshes affected screen manifests, and queues fresh metadata and preview processing. Previous originals can be downloaded or restored as a new current version. Archived versions count against the storage allocation and are removed with their parent media when its retention period ends.
 
 PDF, PowerPoint (`.ppt`, `.pptx`, `.pps`, `.ppsx`, `.pot`, `.potx`), OpenDocument Presentation (`.odp`), Keynote (`.key`), and Word (`.doc`, `.docx`) files can be uploaded in the Media Library or directly on a lesson. Lesson uploads queue conversion and append the generated slides automatically at the chosen seconds per slide; library uploads also expose **Convert to slides** under **Manage versions & impact**. Shared Google Slides decks can be imported by URL from either location when **Anyone with the link can view** is enabled.
 
-Local document conversion runs through headless LibreOffice and Poppler and creates PNG media with a maximum 1920-pixel dimension. Google Slides is downloaded once through Google's PDF export endpoint and then follows the same local conversion path; no LessonCue-hosted cloud service receives the deck. Static conversion intentionally loses transitions, builds, animations, embedded video, and presenter timing. Some `.key` files depend on the LibreOffice version installed by the server and may need to be exported to PDF if that importer cannot open them. The recommended Linux installer and Docker image include both converters. For a manual Debian/Ubuntu install, run `sudo apt-get install -y libreoffice-impress libreoffice-writer poppler-utils`. On Windows, install LibreOffice system-wide, install a Poppler build, set the machine environment variable `LESSONCUE_PDFTOPPM_PATH` to `pdftoppm.exe`, and restart the LessonCue service.
+Local document conversion runs through headless LibreOffice and Poppler and creates PNG media with a maximum 1920-pixel dimension. Google Slides is downloaded once through Google's PDF export endpoint and then follows the same local conversion path; no LessonCue-hosted cloud service receives the deck. Static conversion intentionally loses transitions, builds, animations, embedded video, and presenter timing. Some `.key` files depend on the LibreOffice version installed by the server and may need to be exported to PDF if that importer cannot open them. The recommended Linux installer and Docker image include both converters and the Bubblewrap media sandbox. For a manual Debian/Ubuntu install, run `sudo apt-get install -y libreoffice-impress libreoffice-writer poppler-utils bubblewrap util-linux coreutils`. On Windows, install LibreOffice system-wide, install a Poppler build, set the machine environment variable `LESSONCUE_PDFTOPPM_PATH` to `pdftoppm.exe`, and rerun the LessonCue installer so its outbound-deny rules include those converter binaries.
 
 For a deck whose native animations must be retained, export it to H.264/AAC MP4 in PowerPoint, Keynote, or the originating application and upload that video. The [animation-preservation investigation](presentation-animation-preservation.md) explains why LessonCue does not offer a misleading headless “preserve animations” switch.
 

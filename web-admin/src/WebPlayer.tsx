@@ -44,6 +44,8 @@ export type CueItem = {
   sizeBytes?: number;
   sha256?: string;
   offlineEligible?: boolean;
+  renderSupport?: "supported" | "fallback";
+  fallbackMessage?: string;
 };
 type Playlist = {
   playlistId: string;
@@ -106,10 +108,26 @@ export type SignageZone = {
   clockShowPeriod?: boolean; clockShowWeekday?: boolean; clockShowYear?: boolean;
   calendarMaxItems?: number; calendarFields?: string;
   audienceSessionId?: string; audienceCode?: string; audienceShowResults?: boolean; audienceResultDelaySeconds?: number;
+  renderSupport?: "supported" | "fallback"; fallbackMessage?: string;
 };
 export type SignagePlaylistEntry = { id: string; kind: string; title?: string; durationSeconds: number; transition?: string; hidden?: boolean; transparent?: boolean; sourceUrl?: string; appType?: string; volumePercent?: number; muted?: boolean; fadeInMs?: number; fadeOutMs?: number; fit?: "contain" | "cover" | "fill"; media?: CueItem; layout?: { id: string; name: string; backgroundColor: string; canvasWidth: number; canvasHeight: number; safeAreaPercent: number; zones: SignageZone[]; backgroundAudio?: CueItem } };
 type Manifest = {
   manifestVersion: number;
+  capabilityContractVersion?: number;
+  displayCapabilities?: {
+    platform: string;
+    displayName: string;
+    contractVersion: number;
+    minimumClientVersion: string;
+    capabilities: { id: string; label: string; supported: boolean; fallback: string; notes?: string }[];
+    limitations: string[];
+  };
+  compatibilityWarnings?: {
+    code: string;
+    title: string;
+    message: string;
+    fallback: string;
+  }[];
   screen: { id: string; name: string; volunteerMode: boolean; site: string; signageOnly?: boolean; permanentPairing?: boolean };
   signage: Signage[];
   signageSchedule?: Signage[];
@@ -765,7 +783,6 @@ function SignagePlaylistMedia({ item, zoneFit }: {
   const fadeOutMs = Math.max(0, item.fadeOutMs || 0);
   useEffect(() => {
     // Reset the visual envelope when the playlist advances to a new item.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPhase("in");
     const reveal = window.requestAnimationFrame(() => setPhase("show"));
     const outAt = Math.max(fadeInMs, Math.max(1, item.durationSeconds || 10) * 1000 - fadeOutMs);
@@ -1189,10 +1206,26 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [opacity, setOpacity] = useState(item.fadeInMs > 0 ? 0 : 1);
   const [imagePosition, setImagePosition] = useState(seekMs);
-  const online = Boolean(item.playbackUrl);
-  const image = item.type === "image" || item.contentType?.startsWith("image/");
-  const audio = item.type === "audio" || item.contentType?.startsWith("audio/");
+  const fallback = item.renderSupport === "fallback";
+  const online = !fallback && Boolean(item.playbackUrl);
+  const image = !fallback && (item.type === "image" || item.contentType?.startsWith("image/"));
+  const audio = !fallback && (item.type === "audio" || item.contentType?.startsWith("audio/"));
   const duration = effectiveDuration(item);
+
+  useEffect(() => {
+    if (!fallback) return;
+    onStatus({
+      state: "unavailable",
+      lessonId: playlist.playlistId,
+      itemId: item.itemId,
+      positionMs: 0,
+      durationMs: item.durationMs,
+      volumePercent: 0,
+      error: item.fallbackMessage || "This item is not supported by this display.",
+    });
+    // The fallback is tied to the manifest decision for this item.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fallback, item.itemId]);
 
   useEffect(() => {
     if (!image) return;
@@ -1282,6 +1315,15 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
 
   const stageStyle = { backgroundColor: item.fitMode === "letterbox" ? "#000000" : item.backgroundColor || "#000000" };
   const mediaStyle = cueVisualStyle(item, opacity);
+
+  if (fallback) return <div className="web-player-stage web-player-fallback" style={stageStyle} role="status">
+    <div>
+      <span>CONTENT UNAVAILABLE</span>
+      <h1>{item.title}</h1>
+      <p>{item.fallbackMessage || "This item is not supported by this display."}</p>
+      <small>Use Previous or Next to continue through the lesson.</small>
+    </div>
+  </div>;
 
   if (online) return <div className="web-player-stage online" style={stageStyle}>
     <iframe ref={frameRef} title={item.title} src={youtubeApiUrl(item.playbackUrl!)} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" referrerPolicy="strict-origin-when-cross-origin" style={mediaStyle} onLoad={() => { frameRef.current?.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: item.itemId }), "*"); configureOnlineFrame(frameRef.current, item, paused); }} />

@@ -1,8 +1,10 @@
-# Signage Studio capabilities
+# Legacy Signage Studio capabilities — archived
 
-LessonCue Signage Studio is an independently designed, fully self-hosted system for designing, scheduling, publishing, and monitoring digital signage.
+This document describes the superseded schedule-centric signage prototype. It is retained only as historical design context and does not describe the current supported interface. The current workflow is **Layouts → Playlists → Signs & screens**, documented in [signage.md](signage.md); it intentionally excludes Calendar scheduling, draft/publish, operations, and emergency workflows.
 
-Browser, Android TV, and Apple TV displays consume the same versioned layout fields. Text styling, mixed-format runs, live counters, tickers, and QR or Wi-Fi sharing values are preserved in the manifest. QR images are generated locally on each display, so LessonCue does not send their encoded values to a third-party QR service.
+The former LessonCue Signage Studio was an independently designed, fully self-hosted prototype for designing, scheduling, publishing, and monitoring digital signage.
+
+The historical prototype targeted browser, Android TV, and Apple TV. Apple TV/tvOS is now explicitly unsupported and deferred, and the current preview feature does not promise parity with this legacy design.
 
 ## Parity map
 
@@ -54,7 +56,7 @@ Open-Meteo and National Weather Service requests are made only by the local Less
 
 Optional Basic, Bearer, or custom-header credentials for approved data sources are encrypted in `config/signage-credentials.json` under LessonCue’s data directory using the server’s local ASP.NET Data Protection keys. API responses return only key metadata. The secret is applied to server-side source refreshes and is never placed in a display manifest or browser request.
 
-This file intentionally stays out of configuration backups because it may contain third-party secrets. Preserve the LessonCue data-protection key directory and the credential file together in a protected local server backup if those credentials must survive a machine migration.
+This file stays out of exported backups by default because it may contain third-party secrets. For a controlled migration, a Service Admin may deliberately include the credential file and LessonCue data-protection key directory together, but only inside a password-encrypted `.lcbak` export. Keep that export password separately.
 
 ## Live-stream behavior
 

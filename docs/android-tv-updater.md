@@ -4,6 +4,10 @@ LessonCue's **Sideload** Android TV build is distributed directly from public Gi
 
 The **store** build is produced from the same playback code and application ID but removes `REQUEST_INSTALL_PACKAGES`, disables all GitHub update checks and controls, and relies exclusively on Google Play or the Amazon Appstore for updates.
 
+The Android client’s supported renderers, browser-only signage behavior, and safe fallback
+rules are listed in the [display compatibility contract](display-compatibility.md). LessonCue
+warns before an operator deliberately assigns unsupported content to an Android display.
+
 ## Architecture
 
 The updater follows the existing application conventions:
@@ -115,7 +119,7 @@ The release workflow:
 - verifies the production signing-certificate fingerprint;
 - extracts the actual package version from the signed APK;
 - creates `lessoncue-tv.apk.sha256` and `update.json`;
-- publishes `lessoncue-tv.apk`, `LessonCue-TV-store.apk`, `LessonCue-TV-Google-Play.aab`, both server architectures, Windows, and `SHA256SUMS`; and
+- publishes `lessoncue-tv.apk`, `LessonCue-TV-store.apk`, `LessonCue-TV-Google-Play.aab`, both server architectures, Windows, an SPDX SBOM, third-party notices, and an Ed25519-signed `SHA256SUMS`; and
 - fails before publishing if any production signing or metadata check fails.
 
 Required repository secrets remain:

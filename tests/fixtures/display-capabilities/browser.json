@@ -1,0 +1,12 @@
+{
+  "platform": "web-player",
+  "contractVersion": 1,
+  "expected": {
+    "lesson.video": true,
+    "lesson.youtube": true,
+    "lesson.webpage": true,
+    "signage.audience": true,
+    "signage.customHtml": true,
+    "remote.dpad": true
+  }
+}

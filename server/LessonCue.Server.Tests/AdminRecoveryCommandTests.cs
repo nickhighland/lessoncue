@@ -19,7 +19,8 @@ public sealed class AdminRecoveryCommandTests
             {
                 await db.Database.EnsureCreatedAsync(ct);
                 var account = new AdminAccount { Username = "owner", DisplayName = "Owner", PasswordHash = "pending",
-                    MustChangePassword = true };
+                    MustChangePassword = true, TotpSecretProtected = "protected-secret", TotpEnabled = true,
+                    TotpLastCounter = 42, TotpEnabledAt = DateTimeOffset.UtcNow };
                 account.PasswordHash = new PasswordHasher<AdminAccount>().HashPassword(account, "OldPassword1");
                 db.AdminAccounts.Add(account);
                 await db.SaveChangesAsync(ct);
@@ -33,6 +34,10 @@ public sealed class AdminRecoveryCommandTests
                 var account = await db.AdminAccounts.SingleAsync(ct);
                 Assert.Equal(2, account.SessionVersion);
                 Assert.False(account.MustChangePassword);
+                Assert.False(account.TotpEnabled);
+                Assert.Null(account.TotpSecretProtected);
+                Assert.Equal(0, account.TotpLastCounter);
+                Assert.Null(account.TotpEnabledAt);
                 Assert.NotEqual(PasswordVerificationResult.Failed,
                     new PasswordHasher<AdminAccount>().VerifyHashedPassword(account, account.PasswordHash, "NewPassword2"));
                 Assert.True(await db.AuditEvents.AnyAsync(x => x.Action == "user.password.reset" && x.Actor == "ssh-recovery", ct));
@@ -63,6 +68,10 @@ public sealed class AdminRecoveryCommandTests
             await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"AdminAccounts\" DROP COLUMN \"PendingApproval\"", ct);
             await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"AdminAccounts\" DROP COLUMN \"PendingSetup\"", ct);
             await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"AdminAccounts\" DROP COLUMN \"MustChangePassword\"", ct);
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"AdminAccounts\" DROP COLUMN \"TotpSecretProtected\"", ct);
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"AdminAccounts\" DROP COLUMN \"TotpEnabled\"", ct);
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"AdminAccounts\" DROP COLUMN \"TotpLastCounter\"", ct);
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"AdminAccounts\" DROP COLUMN \"TotpEnabledAt\"", ct);
 
             await DatabaseUpgrade.ApplyAsync(db, ct);
 
@@ -74,6 +83,10 @@ public sealed class AdminRecoveryCommandTests
             Assert.Contains("PendingApproval", columns);
             Assert.Contains("PendingSetup", columns);
             Assert.Contains("MustChangePassword", columns);
+            Assert.Contains("TotpSecretProtected", columns);
+            Assert.Contains("TotpEnabled", columns);
+            Assert.Contains("TotpLastCounter", columns);
+            Assert.Contains("TotpEnabledAt", columns);
         }
         finally { File.Delete(databasePath); }
     }

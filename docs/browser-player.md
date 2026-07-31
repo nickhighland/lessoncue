@@ -2,6 +2,10 @@
 
 LessonCue includes a full-screen playback client for Windows, macOS, Linux, ChromeOS, presentation computers, and projectors with a built-in browser. It is served by the same self-hosted LessonCue server as the administration interface. No hosted site, cloud account, browser extension, or dedicated desktop application is required.
 
+The browser player’s current feature and fallback guarantees are defined in the
+[display compatibility contract](display-compatibility.md). The server includes that contract and
+per-item render decisions in every display manifest.
+
 ## Open and pair a display
 
 1. Connect the presentation computer to the trusted network that can reach the LessonCue server.
@@ -16,9 +20,9 @@ LessonCue includes a full-screen playback client for Windows, macOS, Linux, Chro
 4. Give the display a recognizable name and select **Start pairing**.
 5. Enter the six-digit PIN shown on the administrator's **Screens** page.
 6. Assign the newly paired browser display to a class on **Screens**, if needed.
-7. Select **Enter full screen**. The phone controller can now select and control this display like an Android TV or Apple TV.
+7. Select **Enter full screen**. The phone controller can now select and control this display like an Android TV.
 
-Pairing credentials are stored only in that browser's local storage. Clearing site data or choosing **Unpair this browser** requires the display to be paired again. Revoking the screen from the administrator interface invalidates its token immediately. Temporary browser screen pairings automatically delete from the server after two hours without a heartbeat; returning after that inactivity window requires pairing again. Native Android TV and Apple TV pairings do not use this temporary-display expiration.
+Pairing credentials are stored only in that browser's local storage. Clearing site data or choosing **Unpair this browser** requires the display to be paired again. Revoking the screen from the administrator interface invalidates its token immediately. Temporary browser screen pairings automatically delete from the server after two hours without a heartbeat; returning after that inactivity window requires pairing again. Native Android TV pairings do not use this temporary-display expiration.
 
 For an installed sign, assign an active published layout and signage playlist to the screen, then enable both **Signage only** and **Permanent pairing** under **Screens**. The browser then renders the layout and playlist edge-to-edge across the display viewport, without the LessonCue ready screen, lesson list, or local player actions. Permanent pairing also exempts that browser screen from the two-hour inactive-display cleanup. Browser chrome still requires the operating system's kiosk launch option or a user-initiated full-screen action.
 
@@ -60,7 +64,7 @@ The ready screen can also be navigated with Tab/Shift+Tab and activated with Ent
 
 ## Playback behavior
 
-The browser consumes the same paired-screen manifest as Android TV and Apple TV. It therefore receives the assigned lessons, online media, trim points, per-cue and per-lesson volume/mute, image duration, end behavior, notes, cue markers, fit/fill/letterbox, rotation, crop, background, playback speed, repeat count, transitions, pre-roll loop, duration-aware countdown, and signage. Multi-zone signs render responsive media, text, local clocks, and the server's last successful cached calendar, weather, menu, RSS, or approved JSON content.
+The browser consumes the same paired-screen manifest as Android TV. It therefore receives the assigned lessons, online media, trim points, per-cue and per-lesson volume/mute, image duration, end behavior, notes, cue markers, fit/fill/letterbox, rotation, crop, background, playback speed, repeat count, transitions, pre-roll loop, duration-aware countdown, and signage. Capability warnings must still be observed because online and experimental signage content can differ between browser and Android playback.
 
 - Pre-roll begins at the configured time and loops until the countdown window.
 - Countdown playback seeks to the correct position if the browser starts late.

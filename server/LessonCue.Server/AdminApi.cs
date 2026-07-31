@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
@@ -71,7 +72,7 @@ public static class AdminApi
         }).RequireRateLimiting("login");
 
         auth.MapPost("/login", async (AdminLoginInput input, HttpContext context, LessonCueDb db,
-            IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
+            IPasswordHasher<AdminAccount> hasher, AdminMfaService mfa, CancellationToken ct) =>
         {
             var username = input.Username.Trim().ToLowerInvariant();
             var account = await db.AdminAccounts.SingleOrDefaultAsync(x => x.Username == username, ct);
@@ -82,6 +83,33 @@ public static class AdminApi
                 db.AuditEvents.Add(new AuditEvent { Actor = username, Action = "admin.login", Object = "session", Result = "failed" });
                 await db.SaveChangesAsync(ct);
                 return Results.Unauthorized();
+            }
+            if (LessonCuePermissions.IsServiceAdmin(account.Role) && account.TotpEnabled)
+            {
+                var validation = mfa.Validate(account, input.MfaCode, DateTimeOffset.UtcNow, preventReplay: true);
+                if (validation.Success)
+                {
+                    var claimed = await db.AdminAccounts
+                        .Where(value => value.Id == account.Id && value.TotpEnabled &&
+                            value.TotpLastCounter < validation.Counter)
+                        .ExecuteUpdateAsync(update =>
+                            update.SetProperty(value => value.TotpLastCounter, validation.Counter), ct);
+                    if (claimed != 1) validation = new TotpValidation(false, 0);
+                }
+                if (!validation.Success)
+                {
+                    db.AuditEvents.Add(new AuditEvent
+                    {
+                        Actor = username, Action = "admin.login.mfa", Object = "session", Result = "failed"
+                    });
+                    await db.SaveChangesAsync(ct);
+                    return Results.Json(new
+                    {
+                        error = string.IsNullOrWhiteSpace(input.MfaCode)
+                            ? "Enter the six-digit authenticator code."
+                            : "The authenticator code was not accepted."
+                    }, statusCode: StatusCodes.Status401Unauthorized);
+                }
             }
             account.LastLoginAt = DateTimeOffset.UtcNow;
             db.AuditEvents.Add(new AuditEvent { Actor = username, Action = "admin.login", Object = "session" });
@@ -384,6 +412,89 @@ public static class AdminApi
             return Results.Ok(new { message });
         }).RequireAuthorization().RequireRateLimiting("account");
 
+        var mfaRoutes = auth.MapGroup("/mfa").RequireAuthorization(LessonCuePermissions.Settings);
+        mfaRoutes.MapGet("", async (HttpContext context, LessonCueDb db, CancellationToken ct) =>
+        {
+            var account = await CurrentAccountAsync(context, db, ct);
+            return account is null ? Results.Unauthorized() : Results.Ok(new
+            {
+                enabled = account.TotpEnabled,
+                configured = !string.IsNullOrWhiteSpace(account.TotpSecretProtected),
+                account.TotpEnabledAt
+            });
+        });
+        mfaRoutes.MapPost("/setup", async (MfaSetupInput input, HttpContext context, LessonCueDb db,
+            IPasswordHasher<AdminAccount> hasher, AdminMfaService mfa, CancellationToken ct) =>
+        {
+            var account = await CurrentAccountAsync(context, db, ct);
+            if (account is null) return Results.Unauthorized();
+            if (hasher.VerifyHashedPassword(account, account.PasswordHash, input.CurrentPassword) ==
+                PasswordVerificationResult.Failed)
+                return Results.BadRequest(new { error = "The current password was not accepted." });
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var secret = mfa.CreateSecret();
+            account.TotpSecretProtected = secret.ProtectedSecret;
+            account.TotpEnabled = false;
+            account.TotpLastCounter = 0;
+            account.TotpEnabledAt = null;
+            db.AuditEvents.Add(new AuditEvent
+            {
+                Actor = account.Username, Action = "admin.mfa.setup", Object = account.Id.ToString()
+            });
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new
+            {
+                secret = secret.Secret,
+                provisioningUri = mfa.BuildProvisioningUri(organization.Name, account.Username, secret.Secret)
+            });
+        }).RequireRateLimiting("account");
+        mfaRoutes.MapPost("/enable", async (MfaCodeInput input, HttpContext context, LessonCueDb db,
+            AdminMfaService mfa, CancellationToken ct) =>
+        {
+            var account = await CurrentAccountAsync(context, db, ct);
+            if (account is null) return Results.Unauthorized();
+            var validation = mfa.Validate(account, input.Code, DateTimeOffset.UtcNow, preventReplay: false);
+            if (!validation.Success)
+                return Results.BadRequest(new { error = "The authenticator code was not accepted." });
+            account.TotpEnabled = true;
+            account.TotpLastCounter = validation.Counter;
+            account.TotpEnabledAt = DateTimeOffset.UtcNow;
+            account.SessionVersion++;
+            db.AuditEvents.Add(new AuditEvent
+            {
+                Actor = account.Username, Action = "admin.mfa.enable", Object = account.Id.ToString()
+            });
+            await db.SaveChangesAsync(ct);
+            await SignInAsync(context, account);
+            return Results.Ok(new { enabled = true, account.TotpEnabledAt });
+        }).RequireRateLimiting("account");
+        mfaRoutes.MapDelete("", async ([FromBody] MfaDisableInput input, HttpContext context, LessonCueDb db,
+            IPasswordHasher<AdminAccount> hasher, AdminMfaService mfa, CancellationToken ct) =>
+        {
+            var account = await CurrentAccountAsync(context, db, ct);
+            if (account is null) return Results.Unauthorized();
+            if (hasher.VerifyHashedPassword(account, account.PasswordHash, input.CurrentPassword) ==
+                PasswordVerificationResult.Failed)
+                return Results.BadRequest(new { error = "The current password was not accepted." });
+            if (!account.TotpEnabled)
+                return Results.BadRequest(new { error = "Authenticator MFA is not enabled." });
+            var validation = mfa.Validate(account, input.Code, DateTimeOffset.UtcNow, preventReplay: true);
+            if (!validation.Success)
+                return Results.BadRequest(new { error = "The authenticator code was not accepted." });
+            account.TotpSecretProtected = null;
+            account.TotpEnabled = false;
+            account.TotpLastCounter = 0;
+            account.TotpEnabledAt = null;
+            account.SessionVersion++;
+            db.AuditEvents.Add(new AuditEvent
+            {
+                Actor = account.Username, Action = "admin.mfa.disable", Object = account.Id.ToString()
+            });
+            await db.SaveChangesAsync(ct);
+            await SignInAsync(context, account);
+            return Results.Ok(new { enabled = false });
+        }).RequireRateLimiting("account");
+
         auth.MapPost("/email/verify", async (VerifyAccountInput input, HttpContext context, LessonCueDb db,
             CancellationToken ct) =>
         {
@@ -412,11 +523,12 @@ public static class AdminApi
         admin.MapGet("/admin/bootstrap", async (LessonCueDb db, PairingCodeService pairing, StorageService storage,
             UpdateService updates, LocalAddressService localAddress, HttpPortService httpPort,
             CloudflareTunnelService cloudflareTunnel, HardwareAccelerationService hardwareAcceleration,
+            BackupPolicyService backupPolicy,
             HttpContext context,
             CancellationToken ct) =>
         {
             var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
-            var storageStatus = await storage.GetSnapshotAsync(organization.StorageLimitBytes, ct);
+            var storageStatus = await storage.GetSnapshotAsync(db, ct);
             var canPair = LessonCuePermissions.Has(context.User, LessonCuePermissions.Screens) ||
                 LessonCuePermissions.Has(context.User, LessonCuePermissions.AppSettings) ||
                 LessonCuePermissions.Has(context.User, LessonCuePermissions.Settings);
@@ -455,8 +567,12 @@ public static class AdminApi
                     DiskAvailableBytes = 0,
                     MaximumAllocationBytes = 0
                 },
+                uploadQuotaPolicy = canManageService ? UploadQuotaPolicy.Read(organization) : null,
                 mediaTaxonomy = MediaTaxonomy.Read(organization),
                 update = updates.Status,
+                backupPolicy = canManageService
+                    ? backupPolicy.GetStatus(organization.TimeZone)
+                    : null,
                 localAddress = localAddress.Status,
                 httpPort = httpPort.Status,
                 cloudflareTunnel = canManageService ? cloudflareTunnel.Status : new CloudflareTunnelStatus(
@@ -1451,7 +1567,7 @@ public static class AdminApi
                 Object = media.Id.ToString(), Summary = string.Join(',', profiles) });
             await db.SaveChangesAsync(ct);
             return Results.Accepted(value: new { queued = profiles });
-        });
+        }).RequireRateLimiting("media-processing");
 
         admin.MapGet("/media/{id:guid}/impact", async (Guid id, LessonCueDb db, CancellationToken ct) =>
         {
@@ -1527,7 +1643,7 @@ public static class AdminApi
             DeleteDerivatives(paths, derivatives);
             await DeleteAdaptiveTranscodesAsync(db, paths, media.Id, ct);
             return Results.Accepted($"/api/v1/media/{id}", media);
-        });
+        }).RequireRateLimiting("media-processing");
 
         uploads.MapPost("/media/{id:guid}/convert", async (Guid id, LessonCueDb db, HttpContext context,
             CancellationToken ct) =>
@@ -1544,7 +1660,7 @@ public static class AdminApi
                 Object = media.Id.ToString(), Summary = media.FileName });
             await db.SaveChangesAsync(ct);
             return Results.Accepted($"/api/v1/media/{id}/impact", new { media.Id, media.ConversionStatus });
-        });
+        }).RequireRateLimiting("media-processing");
 
         uploads.MapPost("/media/{id:guid}/convert-and-add-to-lesson", async (Guid id,
             PresentationLessonInput input, LessonCueDb db, HttpContext context, CancellationToken ct) =>
@@ -1579,7 +1695,8 @@ public static class AdminApi
                 media.ConversionStatus,
                 lessonId = lesson.Id
             });
-        }).RequireAuthorization(LessonCuePermissions.Planning);
+        }).RequireAuthorization(LessonCuePermissions.Planning)
+            .RequireRateLimiting("media-processing");
 
         uploads.MapPost("/media/{id:guid}/conversion/add-to-lesson", async (Guid id, PresentationLessonInput input,
             LessonCueDb db, IHubContext<SyncHub> hub, HttpContext context, CancellationToken ct) =>
@@ -1640,6 +1757,8 @@ public static class AdminApi
             try
             {
                 await using (var output = File.Create(temporary)) await upload.CopyToAsync(output, ct);
+                var inspection = MediaContentInspector.Inspect(temporary, upload.FileName);
+                if (!inspection.Valid) return Results.BadRequest(new { error = inspection.Error });
                 string sha;
                 await using (var source = File.OpenRead(temporary))
                     sha = Convert.ToHexString(await SHA256.HashDataAsync(source, ct)).ToLowerInvariant();
@@ -1650,7 +1769,7 @@ public static class AdminApi
                 var archived = CreateArchivedVersion(media, archiveRelative, actor);
                 var derivatives = ResetMediaProcessing(media, clearConversion: true);
                 media.FileName = Path.GetFileName(upload.FileName);
-                media.ContentType = NormalizeContentType(upload.FileName, upload.ContentType);
+                media.ContentType = inspection.ContentType;
                 media.RelativePath = newRelative;
                 media.Sha256 = sha;
                 media.SizeBytes = upload.Length;
@@ -1813,67 +1932,34 @@ public static class AdminApi
             return Results.Ok(new { updated = media.Count, action });
         });
 
-        uploads.MapPost("/media", async (HttpRequest request, LessonCueDb db, StorageService storage, CancellationToken ct) =>
+        uploads.MapPost("/media", async (HttpRequest request, HttpContext context, LessonCueDb db,
+            UploadSessionService sessions, CancellationToken ct) =>
         {
             if (!request.HasFormContentType) return Results.BadRequest(new { error = "multipart/form-data is required." });
             var form = await request.ReadFormAsync(ct);
             var upload = form.Files.GetFile("file");
             if (upload is null || upload.Length == 0) return Results.BadRequest(new { error = "A non-empty file field is required." });
             var persistent = bool.TryParse(form["persistent"], out var keep) && keep;
-            Lesson? retentionLesson = null;
-            if (!persistent)
-            {
-                if (!Guid.TryParse(form["lessonId"], out var retentionLessonId))
-                    return Results.BadRequest(new { error = "Choose the lesson this upload belongs to, or choose Keep permanently." });
-                retentionLesson = await db.Lessons.SingleOrDefaultAsync(x => x.Id == retentionLessonId, ct);
-                if (retentionLesson is null) return Results.BadRequest(new { error = "The selected lesson does not exist." });
-            }
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
-            var selection = MediaTaxonomy.Validate(organization, form["folder"], form["tagsCsv"]);
-            if (selection.Error is not null) return Results.BadRequest(new { error = selection.Error });
-            var extension = Path.GetExtension(upload.FileName);
-            if (!IsSupportedMediaExtension(extension)) return Results.BadRequest(new { error = "Unsupported media type." });
-            if (await storage.EnsureAvailableAsync(db, upload.Length, ct) is null)
-                return StorageExceeded(upload.Length);
-
-            var id = Guid.NewGuid();
-            var storedName = id + extension.ToLowerInvariant();
-            var destination = Path.Combine(mediaPath, storedName);
-            await using (var output = File.Create(destination)) await upload.CopyToAsync(output, ct);
-            string sha;
-            await using (var stream = File.OpenRead(destination))
-                sha = Convert.ToHexString(await SHA256.HashDataAsync(stream, ct)).ToLowerInvariant();
-            var existing = await db.MediaAssets.FirstOrDefaultAsync(x => x.Sha256 == sha, ct);
-            if (existing is not null)
-            {
-                File.Delete(destination);
-                if (persistent) MediaRetention.KeepPermanently(existing);
-                else if (existing.StoragePolicy == MediaRetention.LessonScoped) MediaRetention.KeepForLesson(existing, retentionLesson!);
-                if (!string.IsNullOrWhiteSpace(form["folder"])) existing.Folder = selection.Folder;
-                if (!string.IsNullOrWhiteSpace(form["tagsCsv"])) existing.TagsCsv = selection.TagsCsv;
-                await db.SaveChangesAsync(ct);
-                return Results.Ok(new { duplicate = true, media = existing });
-            }
             long? duration = long.TryParse(form["durationMs"], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
-            var media = new MediaAsset
-            {
-                Id = id,
-                FileName = Path.GetFileName(upload.FileName),
-                ContentType = NormalizeContentType(upload.FileName, upload.ContentType),
-                RelativePath = storedName,
-                Sha256 = sha,
-                SizeBytes = upload.Length,
-                DurationMs = duration,
-                Folder = selection.Folder,
-                TagsCsv = selection.TagsCsv
-            };
-            if (persistent) MediaRetention.KeepPermanently(media);
-            else MediaRetention.SetNewUploadPolicy(media, retentionLesson!);
-            db.MediaAssets.Add(media);
-            Audit(db, "media.upload", media.Id, media.FileName);
-            await db.SaveChangesAsync(ct);
-            return Results.Created($"/api/v1/media/{media.Id}", media);
-        }).DisableAntiforgery();
+            var ownerId = CurrentAccountId(context);
+            var create = await sessions.CreateAsync(db, ownerId, context.User.Identity?.Name ?? "admin",
+                context.User.FindFirstValue(ClaimTypes.Role) ?? "Viewer",
+                new UploadCreateInput(upload.FileName, upload.Length, upload.ContentType, null, persistent,
+                    Guid.TryParse(form["lessonId"], out var lessonId) ? lessonId : null,
+                    form["folder"], form["tagsCsv"], duration),
+                ct, singleChunk: true);
+            if (!create.Success) return UploadError(create.StatusCode, create.Error!, create.Storage);
+
+            await using var input = upload.OpenReadStream();
+            var write = await sessions.WriteChunkAsync(db, create.Session!.Id, ownerId, 0, input, upload.Length, ct);
+            if (!write.Success) return UploadError(write.StatusCode, write.Error!);
+            var completed = await sessions.CompleteAsync(db, create.Session.Id, ownerId,
+                new UploadCompleteInput(DurationMs: duration), ct);
+            if (!completed.Success) return UploadError(completed.StatusCode, completed.Error!);
+            return completed.Duplicate
+                ? Results.Ok(new { duplicate = true, media = completed.Media })
+                : Results.Created($"/api/v1/media/{completed.Media!.Id}", completed.Media);
+        }).DisableAntiforgery().RequireRateLimiting("upload-session");
 
         uploads.MapPost("/media/link", async (LinkInput input, LessonCueDb db, StorageService storage,
             IHttpClientFactory clients, HttpContext context, CancellationToken ct) =>
@@ -2015,87 +2101,98 @@ public static class AdminApi
                 Folder = selection.Folder, TagsCsv = selection.TagsCsv };
             db.MediaAssets.Add(media); Audit(db, "media.link", media.Id, $"{kind}: {uri.Host}"); await db.SaveChangesAsync(ct);
             return Results.Created($"/api/v1/media/{media.Id}", media);
+        }).RequireRateLimiting("media-processing");
+
+        uploads.MapGet("/uploads", async (LessonCueDb db, UploadSessionService sessions,
+            HttpContext context, CancellationToken ct) =>
+        {
+            var ownerId = CurrentAccountId(context);
+            var recentCutoff = DateTimeOffset.UtcNow.AddDays(-1);
+            var all = await db.UploadSessions.AsNoTracking()
+                .Where(value => value.OwnerAccountId == ownerId)
+                .ToListAsync(ct);
+            var items = all.OrderByDescending(value => value.UpdatedAt).Where(value =>
+                    value.State == UploadSessionStates.Active ||
+                    value.State == UploadSessionStates.Paused ||
+                    value.State == UploadSessionStates.Failed ||
+                    value.State == UploadSessionStates.Completing ||
+                    value.UpdatedAt >= recentCutoff)
+                .Take(100);
+            return Results.Ok(items.Select(sessions.Status));
         });
 
-        uploads.MapPost("/uploads", async (string? fileName, long? totalBytes, LessonCueDb db, StorageService storage,
-            CancellationToken ct) =>
+        uploads.MapGet("/uploads/{uploadId:guid}", async (Guid uploadId, LessonCueDb db,
+            UploadSessionService sessions, HttpContext context, CancellationToken ct) =>
         {
-            if (totalBytes is null or <= 0) return Results.BadRequest(new { error = "The total upload size is required." });
-            if (await storage.EnsureAvailableAsync(db, totalBytes.Value, ct) is null) return StorageExceeded(totalBytes.Value);
-            return Results.Ok(new { uploadId = Guid.NewGuid(), fileName = Path.GetFileName(fileName ?? "upload.bin"), chunkSize = 8 * 1024 * 1024 });
+            var session = await sessions.OwnedSessionAsync(db, uploadId, CurrentAccountId(context), ct);
+            return session is null ? Results.NotFound() : Results.Ok(sessions.Status(session));
         });
 
-        uploads.MapPut("/uploads/{uploadId:guid}/chunks/{index:int}", async (Guid uploadId, int index, HttpRequest request,
-            LessonCueDb db, StorageService storage, CancellationToken ct) =>
+        uploads.MapPost("/uploads", async (UploadCreateInput input, LessonCueDb db,
+            UploadSessionService sessions, HttpContext context, CancellationToken ct) =>
         {
-            if (index < 0 || request.ContentLength is > 8 * 1024 * 1024) return Results.BadRequest(new { error = "Invalid upload chunk." });
-            var folder = Path.Combine(dataPath, "media", "temporary", uploadId.ToString("N")); Directory.CreateDirectory(folder);
-            var path = Path.Combine(folder, index.ToString("D8"));
-            var previousSize = File.Exists(path) ? new FileInfo(path).Length : 0;
-            var additional = Math.Max(0, (request.ContentLength ?? 8L * 1024 * 1024) - previousSize);
-            if (await storage.EnsureAvailableAsync(db, additional, ct) is null) return StorageExceeded(additional);
-            await using var output = File.Create(path);
-            var buffer = new byte[64 * 1024]; var total = 0L;
-            while (true)
+            var result = await sessions.CreateAsync(db, CurrentAccountId(context),
+                context.User.Identity?.Name ?? "admin",
+                context.User.FindFirstValue(ClaimTypes.Role) ?? "Viewer", input, ct);
+            if (!result.Success) return UploadError(result.StatusCode, result.Error!, result.Storage);
+            var session = result.Session!;
+            return Results.Created($"/api/v1/uploads/{session.Id}", new
             {
-                var read = await request.Body.ReadAsync(buffer, ct); if (read == 0) break;
-                total += read;
-                if (total > 8L * 1024 * 1024) { output.Close(); File.Delete(path); return Results.BadRequest(new { error = "Upload chunks cannot exceed 8 MB." }); }
-                await output.WriteAsync(buffer.AsMemory(0, read), ct);
-            }
-            return Results.NoContent();
-        }).DisableAntiforgery();
+                uploadId = session.Id,
+                session.FileName,
+                session.ChunkSize,
+                session.ChunkCount,
+                session.ExpectedLength,
+                session.ExpiresAt,
+                storageRemainingBytes = result.Storage?.RemainingBytes
+            });
+        }).RequireRateLimiting("upload-session");
 
-        uploads.MapPost("/uploads/{uploadId:guid}/complete", async (Guid uploadId, UploadCompleteInput input, LessonCueDb db, CancellationToken ct) =>
+        uploads.MapPut("/uploads/{uploadId:guid}/chunks/{index:int}", async (
+            Guid uploadId, int index, HttpRequest request, HttpContext context,
+            LessonCueDb db, UploadSessionService sessions, CancellationToken ct) =>
         {
-            var extension = Path.GetExtension(input.FileName); if (!IsSupportedMediaExtension(extension)) return Results.BadRequest(new { error = "Unsupported media type." });
-            if (input.TotalChunks is < 1 or > 100000) return Results.BadRequest(new { error = "Invalid chunk count." });
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
-            var selection = MediaTaxonomy.Validate(organization, input.Folder, input.TagsCsv);
-            if (selection.Error is not null) return Results.BadRequest(new { error = selection.Error });
-            Lesson? retentionLesson = null;
-            if (!input.Persistent)
-            {
-                if (input.LessonId is not Guid lessonId)
-                    return Results.BadRequest(new { error = "Choose the lesson this upload belongs to, or choose Keep permanently." });
-                retentionLesson = await db.Lessons.SingleOrDefaultAsync(x => x.Id == lessonId, ct);
-                if (retentionLesson is null) return Results.BadRequest(new { error = "The selected lesson does not exist." });
-            }
-            var folder = Path.Combine(dataPath, "media", "temporary", uploadId.ToString("N"));
-            for (var i = 0; i < input.TotalChunks; i++) if (!File.Exists(Path.Combine(folder, i.ToString("D8")))) return Results.BadRequest(new { error = $"Upload chunk {i} is missing." });
-            var mediaId = Guid.NewGuid(); var storedName = mediaId + extension.ToLowerInvariant(); var destination = Path.Combine(mediaPath, storedName);
-            await using (var output = File.Create(destination))
-            {
-                for (var i = 0; i < input.TotalChunks; i++)
-                {
-                    var chunkPath = Path.Combine(folder, i.ToString("D8"));
-                    await using (var chunk = File.OpenRead(chunkPath)) await chunk.CopyToAsync(output, ct);
-                    File.Delete(chunkPath);
-                }
-            }
-            Directory.Delete(folder, true);
-            string sha;
-            await using (var stream = File.OpenRead(destination))
-                sha = Convert.ToHexString(await SHA256.HashDataAsync(stream, ct)).ToLowerInvariant();
-            var existing = await db.MediaAssets.FirstOrDefaultAsync(x => x.Sha256 == sha, ct);
-            if (existing is not null)
-            {
-                File.Delete(destination);
-                if (input.Persistent) MediaRetention.KeepPermanently(existing);
-                else if (existing.StoragePolicy == MediaRetention.LessonScoped) MediaRetention.KeepForLesson(existing, retentionLesson!);
-                if (!string.IsNullOrWhiteSpace(input.Folder)) existing.Folder = selection.Folder;
-                if (!string.IsNullOrWhiteSpace(input.TagsCsv)) existing.TagsCsv = selection.TagsCsv;
-                await db.SaveChangesAsync(ct);
-                return Results.Ok(new { duplicate = true, media = existing });
-            }
-            var media = new MediaAsset { Id = mediaId, FileName = Path.GetFileName(input.FileName), ContentType = NormalizeContentType(input.FileName, input.ContentType),
-                RelativePath = storedName, Sha256 = sha, SizeBytes = new FileInfo(destination).Length, DurationMs = input.DurationMs,
-                Folder = selection.Folder, TagsCsv = selection.TagsCsv };
-            if (input.Persistent) MediaRetention.KeepPermanently(media);
-            else MediaRetention.SetNewUploadPolicy(media, retentionLesson!);
-            db.MediaAssets.Add(media); Audit(db, "media.upload.complete", media.Id, media.FileName); await db.SaveChangesAsync(ct);
-            return Results.Created($"/api/v1/media/{media.Id}", media);
+            if (request.ContentLength is null)
+                return Results.BadRequest(new { error = "Content-Length is required for every upload chunk." });
+            var result = await sessions.WriteChunkAsync(db, uploadId, CurrentAccountId(context),
+                index, request.Body, request.ContentLength.Value, ct);
+            return result.Success ? Results.NoContent() : UploadError(result.StatusCode, result.Error!);
+        }).DisableAntiforgery().RequireRateLimiting("upload-chunk");
+
+        uploads.MapPost("/uploads/{uploadId:guid}/pause", async (
+            Guid uploadId, LessonCueDb db, UploadSessionService sessions,
+            HttpContext context, CancellationToken ct) =>
+        {
+            var result = await sessions.ChangeStateAsync(db, uploadId, CurrentAccountId(context), true, ct);
+            return result.Success ? Results.Ok(sessions.Status(result.Session!)) : UploadError(result.StatusCode, result.Error!);
         });
+
+        uploads.MapPost("/uploads/{uploadId:guid}/resume", async (
+            Guid uploadId, LessonCueDb db, UploadSessionService sessions,
+            HttpContext context, CancellationToken ct) =>
+        {
+            var result = await sessions.ChangeStateAsync(db, uploadId, CurrentAccountId(context), false, ct);
+            return result.Success ? Results.Ok(sessions.Status(result.Session!)) : UploadError(result.StatusCode, result.Error!);
+        });
+
+        uploads.MapDelete("/uploads/{uploadId:guid}", async (
+            Guid uploadId, LessonCueDb db, UploadSessionService sessions,
+            HttpContext context, CancellationToken ct) =>
+        {
+            var result = await sessions.CancelAsync(db, uploadId, CurrentAccountId(context), ct);
+            return result.Success ? Results.NoContent() : UploadError(result.StatusCode, result.Error!);
+        });
+
+        uploads.MapPost("/uploads/{uploadId:guid}/complete", async (
+            Guid uploadId, UploadCompleteInput input, LessonCueDb db,
+            UploadSessionService sessions, HttpContext context, CancellationToken ct) =>
+        {
+            var result = await sessions.CompleteAsync(db, uploadId, CurrentAccountId(context), input, ct);
+            if (!result.Success) return UploadError(result.StatusCode, result.Error!);
+            return result.Duplicate
+                ? Results.Ok(new { duplicate = true, media = result.Media })
+                : Results.Created($"/api/v1/media/{result.Media!.Id}", result.Media);
+        }).RequireRateLimiting("upload-session");
 
         admin.MapGet("/screens", async (LessonCueDb db, CancellationToken ct) =>
         {
@@ -2288,6 +2385,24 @@ public static class AdminApi
                 itemId = input.ItemId, positionMs = screen.ControlPositionMs, issuedAt = screen.ControlIssuedAt, state = screen.PlaybackState });
         });
 
+        screens.MapPost("/screens/{id:guid}/assignment-check", async (Guid id, ScreenAssignmentCheckInput input,
+            LessonCueDb db, CancellationToken ct) =>
+        {
+            var screen = await db.Screens.AsNoTracking().SingleOrDefaultAsync(value => value.Id == id && !value.Revoked, ct);
+            if (screen is null) return Results.NotFound();
+            if (input.AssignedClassId is null)
+                return Results.Ok(new { platform = DisplayCapabilities.Normalize(screen.Platform),
+                    contract = DisplayCapabilities.For(screen.Platform), issues = Array.Empty<DisplayCompatibilityIssue>() });
+            if (!await db.Classes.AsNoTracking().AnyAsync(value => value.Id == input.AssignedClassId, ct))
+                return Results.BadRequest(new { error = "The selected class no longer exists." });
+            var lessons = await db.Lessons.AsNoTracking().Include(value => value.Items)
+                .ThenInclude(value => value.MediaAsset).Where(value =>
+                    value.ClassId == input.AssignedClassId && !value.Archived).AsSplitQuery().ToListAsync(ct);
+            var issues = DisplayCapabilities.AssessLessons(screen.Platform, lessons);
+            return Results.Ok(new { platform = DisplayCapabilities.Normalize(screen.Platform),
+                contract = DisplayCapabilities.For(screen.Platform), issues });
+        });
+
         screens.MapPatch("/screens/{id:guid}", async (Guid id, ScreenUpdateInput input, LessonCueDb db,
             IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
@@ -2295,7 +2410,27 @@ public static class AdminApi
             if (screen is null) return Results.NotFound();
             if (input.Name is not null) screen.Name = input.Name.Trim();
             if (input.ClearAssignment) screen.AssignedClassId = null;
-            else if (input.AssignedClassId is not null) screen.AssignedClassId = input.AssignedClassId;
+            else if (input.AssignedClassId is not null)
+            {
+                if (!await db.Classes.AsNoTracking().AnyAsync(value => value.Id == input.AssignedClassId, ct))
+                    return Results.BadRequest(new { error = "The selected class no longer exists." });
+                var lessons = await db.Lessons.AsNoTracking().Include(value => value.Items)
+                    .ThenInclude(value => value.MediaAsset).Where(value =>
+                        value.ClassId == input.AssignedClassId && !value.Archived).AsSplitQuery().ToListAsync(ct);
+                var issues = DisplayCapabilities.AssessLessons(screen.Platform, lessons);
+                if (issues.Count > 0 && !input.AllowUnsupportedContent)
+                    return Results.Conflict(new
+                    {
+                        code = "display_capability_warning",
+                        error = $"{issues.Count} lesson cue{(issues.Count == 1 ? "" : "s")} will use a safe fallback on {DisplayCapabilities.For(screen.Platform).DisplayName}.",
+                        platform = DisplayCapabilities.Normalize(screen.Platform),
+                        issues
+                    });
+                screen.AssignedClassId = input.AssignedClassId;
+                if (issues.Count > 0)
+                    Audit(db, "screen.assignment.compatibility-override", screen.Id,
+                        $"{input.AssignedClassId}:{issues.Count}");
+            }
             if (input.SignageOnly is bool signageOnly)
             {
                 if (signageOnly && !await db.Organizations.AsNoTracking().AnyAsync(value => value.SignageEnabled, ct))
@@ -2749,16 +2884,47 @@ public static class AdminApi
             CancellationToken ct) =>
         {
             var organization = await db.Organizations.FirstAsync(ct);
-            var snapshot = await storage.GetSnapshotAsync(organization.StorageLimitBytes, ct);
+            var snapshot = await storage.GetSnapshotAsync(db, ct);
             if (input.LimitBytes < 0) return Results.BadRequest(new { error = "Storage allocation cannot be negative." });
-            if (input.LimitBytes > 0 && input.LimitBytes < snapshot.UsedBytes)
-                return Results.BadRequest(new { error = $"The app already uses {snapshot.UsedBytes} bytes. The allocation cannot be lower than current usage." });
+            var committed = snapshot.UsedBytes + snapshot.ReservedBytes;
+            if (input.LimitBytes > 0 && input.LimitBytes < committed)
+                return Results.BadRequest(new
+                {
+                    error = $"The app uses or has reserved {committed} bytes. The allocation cannot be lower while uploads are active."
+                });
             if (input.LimitBytes > snapshot.MaximumAllocationBytes)
                 return Results.BadRequest(new { error = "That allocation is larger than the safely available space on this computer." });
             organization.StorageLimitBytes = input.LimitBytes;
             Audit(db, "storage.limit.update", organization.Id, input.LimitBytes == 0 ? "automatic" : input.LimitBytes.ToString());
             await db.SaveChangesAsync(ct);
-            return Results.Ok(await storage.GetSnapshotAsync(input.LimitBytes, ct));
+            return Results.Ok(await storage.GetSnapshotAsync(db, ct));
+        });
+
+        settings.MapGet("/upload-policy", async (LessonCueDb db, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            return Results.Ok(UploadQuotaPolicy.Read(organization));
+        });
+
+        settings.MapPut("/upload-policy", async (UploadQuotaPolicyInput input, LessonCueDb db,
+            CancellationToken ct) =>
+        {
+            if (input.MaxFileBytes < 0 || input.MaxDailyBytes < 0)
+                return Results.BadRequest(new { error = "Upload limits cannot be negative." });
+            if (input.MaxFileBytes > UploadQuotaPolicy.HardMaximumFileBytes)
+                return Results.BadRequest(new { error = "The maximum file-size policy cannot exceed 100 GB." });
+            if (input.MaxActiveSessionsPerUser is < 1 or > UploadQuotaPolicy.HardMaximumActiveSessions)
+                return Results.BadRequest(new { error = "Active uploads per account must be from 1 to 10." });
+            if (input.UserDailyBytes?.Values.Any(value => value <= 0) == true ||
+                input.RoleDailyBytes?.Values.Any(value => value <= 0) == true ||
+                input.ClassDailyBytes?.Values.Any(value => value <= 0) == true)
+                return Results.BadRequest(new { error = "Per-user, role, and class limits must be greater than zero." });
+            var organization = await db.Organizations.FirstAsync(ct);
+            UploadQuotaPolicy.Store(organization, input);
+            Audit(db, "storage.upload-policy.update", organization.Id,
+                $"file:{input.MaxFileBytes};day:{input.MaxDailyBytes};active:{input.MaxActiveSessionsPerUser}");
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(UploadQuotaPolicy.Read(organization));
         });
 
         settings.MapGet("/local-address", (LocalAddressService localAddress) => Results.Ok(localAddress.Status));
@@ -2825,6 +2991,28 @@ public static class AdminApi
             return await updates.StartInstallAsync(ct)
                 ? Results.Accepted(value: new { message = "The update has started. LessonCue will restart automatically." })
                 : Results.Problem("The server could not start the protected update service.", statusCode: 500);
+        });
+
+        settings.MapPost("/updates/rollback", async (UpdateService updates, LessonCueDb db,
+            CancellationToken ct) =>
+        {
+            var status = updates.Status;
+            if (!status.AutomaticInstallSupported)
+                return Results.Conflict(new { error = "Protected server operations are not configured. Run the latest Linux installer once to enable them." });
+            if (!status.RollbackSnapshotAvailable)
+                return Results.Conflict(new { error = "No verified last-known-good update snapshot is available." });
+            Audit(db, "server.update.rollback", Guid.Empty,
+                status.RollbackTargetVersion is null
+                    ? "operator requested last-known-good snapshot"
+                    : $"operator requested {status.RollbackTargetVersion}");
+            await db.SaveChangesAsync(ct);
+            return await updates.StartRollbackAsync(ct)
+                ? Results.Accepted(value: new
+                {
+                    message = "Rollback has started. LessonCue will restart using the protected snapshot.",
+                    targetVersion = status.RollbackTargetVersion
+                })
+                : Results.Problem("The server could not start the protected rollback service.", statusCode: 500);
         });
 
         userAdmin.MapGet("/users", async (LessonCueDb db, CancellationToken ct) =>
@@ -3207,39 +3395,188 @@ public static class AdminApi
             return Results.Ok(new { refreshed });
         });
 
+        backupsAdmin.MapGet("/backups/policy", async (
+            LessonCueDb db,
+            BackupPolicyService policy,
+            CancellationToken ct) =>
+        {
+            var timeZone = await db.Organizations.AsNoTracking()
+                .Select(x => x.TimeZone)
+                .FirstOrDefaultAsync(ct) ?? "UTC";
+            return Results.Ok(policy.GetStatus(timeZone));
+        });
+        backupsAdmin.MapPut("/backups/policy", async (
+            BackupPolicyInput input,
+            LessonCueDb db,
+            BackupPolicyService policy,
+            CancellationToken ct) =>
+        {
+            var timeZone = await db.Organizations.AsNoTracking()
+                .Select(x => x.TimeZone)
+                .FirstOrDefaultAsync(ct) ?? "UTC";
+            try
+            {
+                var status = await policy.UpdateAsync(input, timeZone, ct);
+                Audit(db, "backup.policy.update", Guid.Empty,
+                    $"{status.Enabled}:{status.Frequency}:{status.RetentionCount}");
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(status);
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+        backupsAdmin.MapPost("/backups/policy/run", async (
+            LessonCueDb db,
+            BackupPolicyService policy,
+            CancellationToken ct) =>
+        {
+            var timeZone = await db.Organizations.AsNoTracking()
+                .Select(x => x.TimeZone)
+                .FirstOrDefaultAsync(ct) ?? "UTC";
+            try
+            {
+                var status = await policy.RunNowAsync(timeZone, ct);
+                Audit(db, "backup.policy.run", Guid.Empty, status.LastBackupFileName);
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(status);
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+            catch (IOException ex)
+            {
+                return Results.Problem(
+                    ex.Message, statusCode: StatusCodes.Status502BadGateway);
+            }
+        });
+
         backupsAdmin.MapGet("/backups", async (LessonCueDb db, CancellationToken ct) =>
             (await db.BackupRecords.AsNoTracking().ToListAsync(ct)).OrderByDescending(x => x.CreatedAt));
-        backupsAdmin.MapPost("/backups", async (bool? full, LessonCueDb db, BackupService backups, HttpContext context, CancellationToken ct) =>
+        backupsAdmin.MapPost("/backups/{id:guid}/migration-link", async (
+            Guid id,
+            LessonCueDb db,
+            BackupService backups,
+            MigrationTransferService transfers,
+            CancellationToken ct) =>
         {
-            var record = await backups.CreateAsync(db, full == true, context.User.Identity?.Name ?? "admin", ct);
-            Audit(db, "backup.create", record.Id, record.Kind); await db.SaveChangesAsync(ct); return Results.Created($"/api/v1/backups/{record.Id}/file", record);
+            var record = await db.BackupRecords.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (record is null) return Results.NotFound();
+            var path = backups.Resolve(record.FileName);
+            if (path is null) return Results.NotFound();
+            try
+            {
+                var grant = transfers.Create(path, record.FileName);
+                Audit(db, "backup.migration-link.create", record.Id,
+                    grant.ExpiresAt.ToString("O"));
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(new
+                {
+                    grant.Token,
+                    grant.FileName,
+                    grant.ExpiresAt,
+                    endpoint = "/api/v1/migration/export"
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+        backupsAdmin.MapPost("/backups/migration/preview", async (
+            MigrationPullInput input,
+            MigrationTransferService transfers,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                return Results.Ok(await transfers.PullAsync(input, ct));
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (InvalidDataException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (HttpRequestException ex)
+            {
+                return Results.Problem(
+                    $"The destination server could not reach the source LessonCue server: {ex.Message}",
+                    statusCode: StatusCodes.Status502BadGateway);
+            }
+            catch (IOException ex)
+            {
+                return Results.Problem(
+                    ex.Message, statusCode: StatusCodes.Status502BadGateway);
+            }
+        });
+        backupsAdmin.MapPost("/backups", async (bool? full, BackupCreateInput input, LessonCueDb db,
+            BackupService backups, HttpContext context, CancellationToken ct) =>
+        {
+            if (string.IsNullOrEmpty(input.Password))
+                return Results.BadRequest(new
+                {
+                    error = "Enter a password with at least 12 characters. Exported LessonCue backups are always encrypted."
+                });
+            try
+            {
+                var record = await backups.CreateAsync(
+                    db,
+                    input.Full || full == true,
+                    context.User.Identity?.Name ?? "admin",
+                    ct,
+                    input.Password,
+                    input.SecretHandling);
+                Audit(db, "backup.create", record.Id,
+                    $"{record.Kind}:encrypted:{input.SecretHandling}");
+                await db.SaveChangesAsync(ct);
+                return Results.Created($"/api/v1/backups/{record.Id}/file", record);
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
         });
         backupsAdmin.MapGet("/backups/{id:guid}/file", async (Guid id, LessonCueDb db, BackupService backups, CancellationToken ct) =>
         {
             var record = await db.BackupRecords.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (record is null) return Results.NotFound();
-            var path = backups.Resolve(record.FileName); return path is null ? Results.NotFound() : Results.File(path, "application/zip", record.FileName);
+            var path = backups.Resolve(record.FileName);
+            if (path is null) return Results.NotFound();
+            var contentType = Path.GetExtension(record.FileName).Equals(".lcbak", StringComparison.OrdinalIgnoreCase)
+                ? "application/vnd.lessoncue.backup"
+                : "application/zip";
+            return Results.File(path, contentType, record.FileName);
         });
         backupsAdmin.MapPost("/backups/{id:guid}/verify", async (Guid id, LessonCueDb db, BackupService backups,
-            HttpContext context, CancellationToken ct) =>
+            BackupPasswordInput input, HttpContext context, CancellationToken ct) =>
         {
             var record = await db.BackupRecords.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
             if (record is null) return Results.NotFound();
             try
             {
-                var preview = await backups.VerifyStoredAsync(record, ct);
-                Audit(db, "backup.verify", record.Id, $"ok:{preview.FileCount} files");
+                var preview = await backups.VerifyStoredAsync(record, ct, input.Password);
+                Audit(db, "backup.restore-drill", record.Id, $"ok:{preview.FileCount} files");
                 await db.SaveChangesAsync(ct);
                 return Results.Ok(preview);
             }
             catch (InvalidDataException ex)
             {
-                Audit(db, "backup.verify", record.Id, "failed");
+                Audit(db, "backup.restore-drill", record.Id, "failed");
                 await db.SaveChangesAsync(ct);
                 return Results.BadRequest(new { error = ex.Message });
             }
             catch (IOException ex)
             {
-                Audit(db, "backup.verify", record.Id, "failed");
+                Audit(db, "backup.restore-drill", record.Id, "failed");
                 await db.SaveChangesAsync(ct);
                 return Results.BadRequest(new { error = ex.Message });
             }
@@ -3247,11 +3584,20 @@ public static class AdminApi
         backupsAdmin.MapPost("/backups/restore/preview", async (HttpRequest request, BackupService backups,
             CancellationToken ct) =>
         {
-            if (!request.HasFormContentType) return Results.BadRequest(new { error = "Choose a LessonCue ZIP backup." });
+            if (!request.HasFormContentType) return Results.BadRequest(new { error = "Choose a LessonCue .lcbak or ZIP backup." });
             var form = await request.ReadFormAsync(ct);
             var upload = form.Files.GetFile("file");
-            if (upload is null || upload.Length == 0) return Results.BadRequest(new { error = "Choose a non-empty LessonCue ZIP backup." });
-            try { await using var stream = upload.OpenReadStream(); return Results.Ok(await backups.StageAsync(stream, upload.FileName, upload.Length, ct)); }
+            if (upload is null || upload.Length == 0) return Results.BadRequest(new { error = "Choose a non-empty LessonCue backup." });
+            try
+            {
+                await using var stream = upload.OpenReadStream();
+                return Results.Ok(await backups.StageAsync(
+                    stream,
+                    upload.FileName,
+                    upload.Length,
+                    ct,
+                    form["password"].ToString()));
+            }
             catch (InvalidDataException ex) { return Results.BadRequest(new { error = ex.Message }); }
             catch (IOException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
@@ -3445,6 +3791,11 @@ public static class AdminApi
             ? db.AdminAccounts.SingleOrDefaultAsync(x => x.Id == id, ct)
             : Task.FromResult<AdminAccount?>(null);
 
+    private static Guid CurrentAccountId(HttpContext context) =>
+        Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var id)
+            ? id
+            : Guid.Empty;
+
     private static Task<AccountToken?> FindTokenAsync(LessonCueDb db, string raw, string purpose, CancellationToken ct)
     {
         var hash = AccountEmailService.Hash(raw);
@@ -3489,30 +3840,8 @@ public static class AdminApi
         ".ppt" or ".pptx" or ".pps" or ".ppsx" or ".pot" or ".potx" or ".odp" or ".key" or
         ".doc" or ".docx";
 
-    private static string NormalizeContentType(string fileName, string? provided)
-    {
-        if (!string.IsNullOrWhiteSpace(provided) && !provided.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase))
-            return provided;
-        return Path.GetExtension(fileName).ToLowerInvariant() switch
-        {
-            ".mp4" or ".m4v" or ".mov" or ".f4v" => "video/mp4",
-            ".mkv" => "video/x-matroska", ".webm" => "video/webm", ".avi" => "video/x-msvideo",
-            ".wmv" or ".asf" => "video/x-ms-wmv", ".mpeg" or ".mpg" or ".mpe" or ".vob" => "video/mpeg",
-            ".ts" or ".mts" or ".m2ts" => "video/mp2t", ".flv" => "video/x-flv", ".ogv" => "video/ogg",
-            ".3gp" or ".3g2" => "video/3gpp", ".mp3" => "audio/mpeg", ".m4a" or ".aac" => "audio/aac",
-            ".wav" => "audio/wav", ".jpg" or ".jpeg" => "image/jpeg", ".png" => "image/png",
-            ".webp" => "image/webp", ".pdf" => "application/pdf",
-            ".ppt" or ".pps" or ".pot" => "application/vnd.ms-powerpoint",
-            ".pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            ".ppsx" => "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
-            ".potx" => "application/vnd.openxmlformats-officedocument.presentationml.template",
-            ".odp" => "application/vnd.oasis.opendocument.presentation",
-            ".key" => "application/vnd.apple.keynote",
-            ".doc" => "application/msword",
-            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            _ => "application/octet-stream"
-        };
-    }
+    private static string NormalizeContentType(string fileName, string? _) =>
+        MediaContentInspector.ContentType(Path.GetExtension(fileName));
 
     private static MediaAssetVersion CreateArchivedVersion(MediaAsset media, string relativePath, string actor) => new()
     {
@@ -3798,4 +4127,17 @@ public static class AdminApi
     {
         error = $"Not enough LessonCue storage is available for this upload ({requestedBytes} bytes requested). Ask an administrator to increase the allocation or remove media."
     }, statusCode: StatusCodes.Status507InsufficientStorage);
+
+    private static IResult UploadError(int statusCode, string error, StorageSnapshot? storage = null) =>
+        Results.Json(new
+        {
+            error,
+            storage = storage is null ? null : new
+            {
+                storage.AllocationBytes,
+                storage.UsedBytes,
+                storage.RemainingBytes,
+                storage.DiskAvailableBytes
+            }
+        }, statusCode: statusCode);
 }

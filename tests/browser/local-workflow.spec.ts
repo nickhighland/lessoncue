@@ -41,6 +41,12 @@ function dateDaysFromNow(days: number) {
   return value.toISOString().slice(0, 10);
 }
 
+async function acceptActionDialog(page: import("@playwright/test").Page) {
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  await dialog.locator("button.primary, button.danger").click();
+}
+
 function incompatibleVideo() {
   const path = join(tmpdir(), `lessoncue-incompatible-${Date.now()}.mp4`);
   try {
@@ -53,6 +59,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const scheduleStart = dateDaysFromNow(7);
   const scheduleDate = dateDaysFromNow(14);
   const scheduleEnd = dateDaysFromNow(21);
+  const backupPassword = "LessonCue browser backup 42";
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Create your Service Admin" })).toBeVisible();
   await page.getByLabel("Organization name").fill("LessonCue Browser Test");
@@ -115,8 +122,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: "Add media" }).click();
   const videoUploadForm = page.locator("form").filter({ has: page.getByLabel("Media file") });
   await videoUploadForm.getByLabel("Media file").setInputFiles({
-    name: "needs-tv-conversion.avi",
-    mimeType: "application/octet-stream",
+    name: "needs-tv-conversion.mp4",
+    mimeType: "video/mp4",
     buffer: incompatibleVideo(),
   });
   await videoUploadForm.getByLabel("Display title").fill("Browser Compatibility Video");
@@ -124,12 +131,12 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByText("Browser Compatibility Video", { exact: true })).toBeVisible();
   await expect.poll(async () => page.evaluate(async () => {
     const items = await fetch("/api/v1/media").then(response => response.json());
-    const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.avi");
+    const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
     return `${item?.processingStatus}:${item?.compatibilityStatus}`;
   }), { timeout: 60_000 }).toBe("ready:ready");
   const playbackDelivery = await page.evaluate(async () => {
     const items = await fetch("/api/v1/media").then(response => response.json());
-    const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.avi");
+    const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
     const response = await fetch(item.playbackUrl);
     const bytes = new Uint8Array(await response.arrayBuffer());
     return { contentType: response.headers.get("content-type"), signature: String.fromCharCode(...bytes.slice(4, 8)) };
@@ -137,7 +144,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   expect(playbackDelivery).toEqual({ contentType: "video/mp4", signature: "ftyp" });
   const adaptiveProfiles = await page.evaluate(async () => {
     const media = await fetch("/api/v1/media").then(response => response.json());
-    const item = media.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.avi");
+    const item = media.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
     const queued = await fetch(`/api/v1/media/${item.id}/transcodes/all`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     return { id: item.id, queued: queued.status };
   });
@@ -282,8 +289,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await codeDialog.getByLabel("Maximum uses (leave blank for unlimited)").fill("3");
   await codeDialog.getByRole("button", { name: "Save limits" }).click();
   await expect(registrationRow).toContainText("0 of 3 uses");
-  page.once("dialog", dialog => dialog.accept());
   await registrationRow.getByRole("button", { name: "Revoke" }).click();
+  await acceptActionDialog(page);
   await expect(registrationRow).toContainText("Inactive");
   await expect(page.getByRole("button", { name: "Save provider first" })).toBeDisabled();
   await page.getByLabel("Registration mode").selectOption("approval");
@@ -334,15 +341,15 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const organizedRow = page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" });
   await organizedRow.getByRole("button", { name: "Manage versions & impact" }).click();
   await page.getByLabel("Replace current file").setInputFiles({ name: "browser-test-audio-v2.wav", mimeType: "audio/wav", buffer: silentWav(1) });
-  page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "Preview impact and replace" }).click();
+  await acceptActionDialog(page);
   await expect(page.getByText("previous version remains available", { exact: false })).toBeVisible();
   const replacedRow = page.locator(".media-table").filter({ hasText: "browser-test-audio-v2.wav" });
   await expect(replacedRow).toContainText("v2");
   await replacedRow.getByRole("button", { name: "Manage versions & impact" }).click();
   await expect(page.getByText("v1 · browser-test-audio.wav", { exact: false })).toBeVisible();
-  page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "Restore", exact: true }).click();
+  await acceptActionDialog(page);
   await expect(page.getByText("restored as a new current version", { exact: false })).toBeVisible();
   await expect(page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" })).toContainText("v3");
 
@@ -440,8 +447,10 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await troubleshootingPanel.getByRole("button", { name: "Load log" }).click();
   await expect(troubleshootingPanel.getByRole("button", { name: "Download JSON" })).toBeVisible();
   await expect(troubleshootingPanel.getByRole("heading", { name: /Activity audit/ })).toBeVisible();
+  await page.getByLabel("Encryption password").fill(backupPassword);
+  await page.getByLabel("Confirm password").fill(backupPassword);
   await page.getByRole("button", { name: "Full backup" }).click();
-  await expect(page.getByText("Full backup created.", { exact: false })).toBeVisible();
+  await expect(page.getByText("Encrypted full backup created.", { exact: false })).toBeVisible();
   const fullBackupLink = page.locator(".backup-row a").filter({ hasText: "full" });
   await expect(fullBackupLink).toBeVisible();
   const downloadPromise = page.waitForEvent("download");
@@ -464,8 +473,10 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     (await fetch("/api/v1/admin/bootstrap").then(response => response.json())).settings.requireLocalRoomControllers)).toBe(true);
 
   await page.getByRole("button", { name: /Data & recovery/ }).click();
-  await page.getByLabel("Restore a LessonCue backup").setInputFiles(backupPath!);
-  await page.getByRole("button", { name: "Validate and preview" }).click();
+  const restoreForm = page.locator("form.backup-restore-upload");
+  await restoreForm.getByLabel("Restore a LessonCue backup").setInputFiles(backupPath!);
+  await restoreForm.getByLabel("Backup password").fill(backupPassword);
+  await restoreForm.getByRole("button", { name: "Validate and preview" }).click();
   const restoreDialog = page.getByRole("dialog", { name: "Review backup restore" });
   await expect(restoreDialog).toBeVisible();
   await expect(restoreDialog.getByRole("heading", { name: "LessonCue Browser Test" })).toBeVisible();
@@ -480,7 +491,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(restoredVersionRow).toContainText("Audio/Classroom");
   await expect(restoredVersionRow).toContainText("v3");
   await expect(page.locator(".media-table").filter({ hasText: "one-page-handout.pdf" })).toBeVisible();
-  await expect(page.locator(".media-table").filter({ hasText: "needs-tv-conversion.avi" })).toContainText("TV copy ready");
+  await expect(page.locator(".media-table").filter({ hasText: "needs-tv-conversion.mp4" })).toContainText("TV copy ready");
   await expect(page.locator(".media-table").filter({ hasText: "one-page-handout — Slide 1" })).toBeVisible();
   await page.getByRole("button", { name: /Classes$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
@@ -527,7 +538,11 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
       recentErrors: [{ timestamp: new Date().toISOString(), area: "download", message: "Test retry", itemId: "queued-1" }]
     }) });
     await fetch(`/api/v1/screens/${identity.screenId}`, { method: "PATCH", headers: jsonHeaders,
-      body: JSON.stringify({ assignedClassId: adaptiveLesson.classId, allowDiagnosticScreenshots: true }) });
+      body: JSON.stringify({
+        assignedClassId: adaptiveLesson.classId,
+        allowDiagnosticScreenshots: true,
+        allowUnsupportedContent: true,
+      }) });
     const screenshotRequest = await fetch(`/api/v1/screens/${identity.screenId}/diagnostics/screenshot-request`,
       { method: "POST", headers: jsonHeaders, body: "{}" }).then(response => response.json());
     const control = await fetch(`/api/v1/screens/${identity.screenId}/control`, { headers: { Authorization: `Bearer ${identity.deviceToken}` } }).then(response => response.json());
@@ -616,8 +631,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   });
   expect(firstPermanent.path).toMatch(/^\/session\/[a-f0-9]{48}$/);
   expect((await page.request.get(firstPermanent.path.replace("/session/", "/api/v1/controller/sessions/"))).status()).toBe(200);
-  page.once("dialog", dialog => dialog.accept());
   await controllerDialog.getByRole("button", { name: "Refresh permanent QR" }).click();
+  await acceptActionDialog(page);
   const rotatedPermanent = await page.evaluate(async () => {
     const classes = await fetch("/api/v1/classes").then(response => response.json());
     return fetch(`/api/v1/controller/permanent/${classes[0].id}`).then(response => response.json());
@@ -625,8 +640,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   expect(rotatedPermanent.path).not.toBe(firstPermanent.path);
   expect((await page.request.get(firstPermanent.path.replace("/session/", "/api/v1/controller/sessions/"))).status()).toBe(404);
   expect((await page.request.get(rotatedPermanent.path.replace("/session/", "/api/v1/controller/sessions/"))).status()).toBe(200);
-  page.once("dialog", dialog => dialog.accept());
   await controllerDialog.getByRole("button", { name: "Revoke" }).click();
+  await acceptActionDialog(page);
   await expect(controllerDialog.getByRole("button", { name: "Create permanent QR" })).toBeVisible();
   expect((await page.request.get(rotatedPermanent.path.replace("/session/", "/api/v1/controller/sessions/"))).status()).toBe(404);
   await controllerDialog.getByRole("button", { name: "Save controller" }).click();
