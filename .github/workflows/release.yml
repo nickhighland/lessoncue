@@ -39,12 +39,7 @@ jobs:
           debian:trixie-slim
           bash /workspace/tests/linux-updater-transaction.sh /workspace
       - name: Exercise constrained media processing before packaging
-        run: >-
-          docker run --rm --privileged
-          --security-opt apparmor=unconfined
-          -v "${PWD}:/workspace:ro"
-          debian:trixie-slim
-          bash /workspace/tests/linux-media-worker.sh /workspace
+        run: sudo bash tests/linux-media-worker.sh "${PWD}"
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - run: docker build -f server/LessonCue.Server/Dockerfile -t lessoncue/server:release-validation .
