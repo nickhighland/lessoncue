@@ -150,6 +150,7 @@ type UpdateStatus = {
   updateAvailable: boolean;
   lastCheckedAt?: string;
   releaseUrl?: string;
+  releaseNotes?: string;
   error?: string;
   automaticInstallSupported: boolean;
   installing: boolean;
@@ -3406,7 +3407,9 @@ function ClassesView({
               })()}
             <form className="quick-create" onSubmit={createLesson}>
               <input name="title" placeholder="New lesson title" required />
+              <label className="sr-only" htmlFor="quick-create-date">Lesson date</label>
               <input
+                id="quick-create-date"
                 name="date"
                 type="date"
                 required
@@ -4063,7 +4066,10 @@ function LessonEditor({
             {canUpload && (
               <button
                 className="button primary"
-                onClick={() => setShowAdd(true)}
+                onClick={() => {
+                  setAddMode("chooser");
+                  setShowAdd(true);
+                }}
               >
                 Add media
               </button>
@@ -4696,7 +4702,10 @@ function LessonEditor({
               action={
                 <button
                   className="button primary"
-                  onClick={() => setShowAdd(true)}
+                  onClick={() => {
+                    setAddMode("chooser");
+                    setShowAdd(true);
+                  }}
                 >
                   Add media
                 </button>
@@ -5539,6 +5548,7 @@ function MediaView({
   }
   async function replaceMedia(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = new FormData(event.currentTarget);
     if (
       !manageMedia ||
       !await confirmAction(
@@ -5550,7 +5560,7 @@ function MediaView({
     try {
       await api(`/api/v1/media/${manageMedia.id}/replace`, {
         method: "POST",
-        body: new FormData(event.currentTarget),
+        body: form,
       });
       notify(
         `${manageMedia.fileName} replaced; its previous version remains available.`,
@@ -13399,6 +13409,12 @@ function Settings({
                   }
                 />
               </div>
+              {bootstrap.update.updateAvailable && bootstrap.update.releaseNotes && (
+                <div className="update-notes" aria-label="What is new in this update">
+                  <strong>What’s new in this update</strong>
+                  <p>{cleanReleaseNotes(bootstrap.update.releaseNotes)}</p>
+                </div>
+              )}
               {bootstrap.update.error && (
                 <div className="alert error" role="alert">{bootstrap.update.error}</div>
               )}
@@ -16570,6 +16586,12 @@ function quotaLimitsFromText(value: string) {
 }
 function isServiceAdminRole(role: string) {
   return role === "Service Admin" || role === "Owner";
+}
+function cleanReleaseNotes(value: string) {
+  return value
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .trim();
 }
 function initials(name: string) {
   return (
