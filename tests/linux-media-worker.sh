@@ -22,6 +22,10 @@ install -d -o root -g lessoncue -m 0755 \
 install -d -o lessoncue -g lessoncue -m 0755 \
   /var/lib/lessoncue/media/temporary \
   /var/lib/lessoncue/media/temporary/test
+# The root-launched CI harness enters Bubblewrap's user namespace without
+# host root capabilities, so its disposable write fixture must be writable
+# through normal mode bits. Production storage remains service-owned.
+chmod 0777 /var/lib/lessoncue/media/temporary/test
 printf 'trusted input\n' > /var/lib/lessoncue/input
 chown root:lessoncue /var/lib/lessoncue/input
 chmod 0640 /var/lib/lessoncue/input
