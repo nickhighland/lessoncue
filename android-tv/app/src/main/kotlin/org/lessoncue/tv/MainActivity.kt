@@ -212,8 +212,8 @@ fun LessonCueApp() {
                     diagnosticCaptureVisible = false
                 }
                 if (command.changed) {
-                    controlVersion = command.version
                     playbackControl = command
+                    var applied = false
                     when (command.action) {
                         "play" -> runCatching { api.manifest(identity) }.getOrNull()?.let { manifest ->
                             activeManifestVersion = manifest.version
@@ -228,22 +228,31 @@ fun LessonCueApp() {
                                     interruptedPlayer = requested
                                     screen = AppScreen.Library(identity, manifest)
                                 } else screen = requested
+                                applied = true
                             }
                         }
                         "stop" -> {
-                            interruptedPlayer = null
-                            runCatching { api.manifest(identity) }.getOrNull()?.let { screen = AppScreen.Library(identity, it) }
+                            runCatching { api.manifest(identity) }.getOrNull()?.let { manifest ->
+                                interruptedPlayer = null
+                                screen = AppScreen.Library(identity, manifest)
+                                applied = true
+                            }
                         }
                         "next" -> (screen as? AppScreen.Player)?.let { current ->
-                            if (current.itemIndex + 1 < current.items.size) screen = current.copy(itemIndex = current.itemIndex + 1, seekMs = 0)
+                            if (current.itemIndex + 1 < current.items.size) { screen = current.copy(itemIndex = current.itemIndex + 1, seekMs = 0); applied = true }
                         }
                         "previous" -> (screen as? AppScreen.Player)?.let { current ->
-                            screen = current.copy(itemIndex = (current.itemIndex - 1).coerceAtLeast(0), seekMs = 0)
+                            screen = current.copy(itemIndex = (current.itemIndex - 1).coerceAtLeast(0), seekMs = 0); applied = true
                         }
-                        "seek" -> (screen as? AppScreen.Player)?.let { current -> screen = current.copy(seekMs = command.positionMs ?: 0) }
-                        "pause", "resume" -> Unit
+                        "seek" -> (screen as? AppScreen.Player)?.let { current ->
+                            screen = current.copy(seekMs = command.positionMs ?: 0); applied = true
+                        }
+                        "pause", "resume" -> { applied = true }
                     }
-                    acknowledgedControlVersion = command.version
+                    if (applied) {
+                        controlVersion = command.version
+                        acknowledgedControlVersion = command.version
+                    }
                 } else controlVersion = maxOf(controlVersion, command.version)
             }
             kotlinx.coroutines.delay(750)
@@ -530,48 +539,58 @@ private fun LibraryScreen(
       displaySignage?.backgroundAudio?.let { SignageBackgroundAudio(it, displaySignage.volumePercent) }
       if (displaySignage?.zones?.isNotEmpty() == true) SignageZoneLayout(displaySignage)
       else signageEntry?.media?.let { SignageBackdrop(it) } ?: displaySignage?.media?.let { SignageBackdrop(it) }
-      Row(Modifier.fillMaxSize().background(if (displaySignage?.zones?.isNotEmpty() == true) Color(0x52000000) else Color.Transparent).padding(56.dp), horizontalArrangement = Arrangement.spacedBy(56.dp)) {
-        Column(Modifier.width(340.dp)) {
-            Text("LESSONCUE", color = Gold, letterSpacing = 3.sp)
-            Spacer(Modifier.height(20.dp))
-            Text(manifest.screenName, fontSize = 34.sp, color = Cream)
-            Text("Offline manifest ${manifest.version}", color = Muted, modifier = Modifier.padding(top = 8.dp))
-            Text("LessonCue ${BuildConfig.VERSION_NAME}", color = Muted, modifier = Modifier.padding(top = 4.dp))
-            displaySignage?.let {
-                Spacer(Modifier.height(24.dp))
-                Text(if (it.mode == "emergency") "EMERGENCY" else it.name.uppercase(), color = if (it.mode == "emergency") Coral else Gold, letterSpacing = 2.sp)
-                Text(it.message, fontSize = 24.sp, color = Cream, modifier = Modifier.padding(top = 8.dp))
+      if (manifest.playlists.isEmpty()) {
+          // Signage-only: full-screen signage with no app chrome.
+          Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.BottomEnd) {
+              if (displaySignage?.zones?.isEmpty() != false) {
+                  // When there are no structured zones, show a subtle screen-name label only.
+                  Text(manifest.screenName, color = Muted, fontSize = 14.sp)
+              }
+          }
+      } else {
+          Row(Modifier.fillMaxSize().background(if (displaySignage?.zones?.isNotEmpty() == true) Color(0x52000000) else Color.Transparent).padding(56.dp), horizontalArrangement = Arrangement.spacedBy(56.dp)) {
+            Column(Modifier.width(340.dp)) {
+                Text("LESSONCUE", color = Gold, letterSpacing = 3.sp)
+                Spacer(Modifier.height(20.dp))
+                Text(manifest.screenName, fontSize = 34.sp, color = Cream)
+                Text("Offline manifest ${manifest.version}", color = Muted, modifier = Modifier.padding(top = 8.dp))
+                Text("LessonCue ${BuildConfig.VERSION_NAME}", color = Muted, modifier = Modifier.padding(top = 4.dp))
+                displaySignage?.let {
+                    Spacer(Modifier.height(24.dp))
+                    Text(if (it.mode == "emergency") "EMERGENCY" else it.name.uppercase(), color = if (it.mode == "emergency") Coral else Gold, letterSpacing = 2.sp)
+                    Text(it.message, fontSize = 24.sp, color = Cream, modifier = Modifier.padding(top = 8.dp))
+                }
+                Spacer(Modifier.height(42.dp))
+                Text("Today's Lesson", fontSize = 20.sp, color = Muted)
+                Text("Select a lesson and press Start.", color = Cream, modifier = Modifier.padding(top = 8.dp))
+                onCheckForUpdates?.let {
+                    Spacer(Modifier.height(24.dp))
+                    Button(onClick = it) { Text("Check for updates") }
+                }
             }
-            Spacer(Modifier.height(42.dp))
-            Text("Today’s Lesson", fontSize = 20.sp, color = Muted)
-            Text("Select a lesson and press Start.", color = Cream, modifier = Modifier.padding(top = 8.dp))
-            onCheckForUpdates?.let {
-                Spacer(Modifier.height(24.dp))
-                Button(onClick = it) { Text("Check for updates") }
-            }
-        }
-        if (signage?.mode == "emergency") {
-            Box(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Emergency override active\nLesson playback resumes automatically when it ends.",
-                    color = Cream, fontSize = 28.sp)
-            }
-        } else {
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                itemsIndexed(manifest.playlists, key = { _, playlist -> playlist.id }) { index, playlist ->
-                    Surface(onClick = { onStart(playlist) }, modifier = remoteListItemModifier()
-                        .then(if (index == 0) Modifier.focusRequester(firstFocus) else Modifier)) {
-                        Row(Modifier.padding(26.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(playlist.title, fontSize = 28.sp)
-                                val readiness = if (playlist.items.all { !it.offlineEligible || it.url != null }) "Ready" else "Internet required"
-                                Text(readiness, color = if (readiness == "Ready") Mint else Coral)
+            if (signage?.mode == "emergency") {
+                Box(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Emergency override active\nLesson playback resumes automatically when it ends.",
+                        color = Cream, fontSize = 28.sp)
+                }
+            } else {
+                LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    itemsIndexed(manifest.playlists, key = { _, playlist -> playlist.id }) { index, playlist ->
+                        Surface(onClick = { onStart(playlist) }, modifier = remoteListItemModifier()
+                            .then(if (index == 0) Modifier.focusRequester(firstFocus) else Modifier)) {
+                            Row(Modifier.padding(26.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(playlist.title, fontSize = 28.sp)
+                                    val readiness = if (playlist.items.all { !it.offlineEligible || it.url != null }) "Ready" else "Internet required"
+                                    Text(readiness, color = if (readiness == "Ready") Mint else Coral)
+                                }
+                                Text("VIEW MEDIA  ›", color = Gold)
                             }
-                            Text("VIEW MEDIA  ›", color = Gold)
                         }
                     }
                 }
             }
-        }
+          }
       }
     }
 }
@@ -600,7 +619,15 @@ private fun SignageZoneLayout(signage: SignageCue) {
                     scaleX = if (zone.flipX) -1f else 1f
                     scaleY = if (zone.flipY) -1f else 1f
                 }
-                .background(parseDisplayColor(zone.backgroundColor)).clipToBounds()
+                .background(parseDisplayColor(zone.backgroundColor))
+                .clipToBounds()
+                .let { modifier ->
+                    val cornerRadiusPercent = zone.cornerRadius.coerceIn(0, 50)
+                    if (cornerRadiusPercent > 0) {
+                        val cornerDp = (maxWidth * (zone.width / 100f) * (cornerRadiusPercent / 100f)).coerceAtMost(200.dp)
+                        modifier.clip(RoundedCornerShape(cornerDp))
+                    } else modifier
+                }
             Box(modifier) {
                 zone.media?.let { SignageZoneMedia(it, zone.fit) }
                 zone.streamUrl?.takeIf { zone.type == "stream" }?.let { SignageStreamMedia(zone.id, it, zone.fit) }
@@ -617,7 +644,7 @@ private fun SignageZoneLayout(signage: SignageCue) {
                         scaleX = zone.contentScale.coerceIn(25, 100) / 100f
                         scaleY = zone.contentScale.coerceIn(25, 100) / 100f
                     }
-                    .padding((zone.contentPadding.coerceIn(0, 30) * 2).dp),
+                    .padding(maxWidth * (zone.width / 100f) * (zone.contentPadding.coerceIn(0, 30) / 100f)),
                     verticalArrangement = arrangement) {
                     zone.title?.takeIf { zone.type !in signageNonTextZoneTypes }?.let { Text(it.uppercase(), color = parseDisplayColor(zone.accentColor), fontSize = 14.sp, letterSpacing = 2.sp) }
                     if (zone.type == "clock") {
@@ -1407,8 +1434,19 @@ private fun CenterMessage(message: String) = Box(Modifier.fillMaxSize(), content
 
 private fun scheduleMediaCaches(context: android.content.Context, identity: DeviceIdentity, manifest: ScreenManifest) {
     val manager = WorkManager.getInstance(context)
-    val items = (manifest.playlists.flatMap { playlist -> playlist.items + playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) }
-        + manifest.signageSchedule.flatMap { sign -> listOfNotNull(sign.media) + sign.zones.mapNotNull { it.media } })
+    val lessonMedia = manifest.playlists.flatMap { playlist ->
+        playlist.items + playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item)
+    }
+    val signageMedia = manifest.signageSchedule.flatMap { sign ->
+        listOfNotNull(sign.media) +
+            sign.zones.mapNotNull { it.media } +
+            listOfNotNull(sign.backgroundAudio) +
+            sign.contentPlaylist?.items.orEmpty().flatMap { entry ->
+                listOfNotNull(entry.media) + entry.layout?.zones.orEmpty().mapNotNull { it.media } +
+                    listOfNotNull(entry.layout?.backgroundAudio)
+            }
+    }
+    val items = (lessonMedia + signageMedia)
         .distinctBy { it.id }.filter { it.offlineEligible && it.url != null }
     items.forEach { item ->
         val request = OneTimeWorkRequestBuilder<MediaCacheWorker>().setInputData(workDataOf(

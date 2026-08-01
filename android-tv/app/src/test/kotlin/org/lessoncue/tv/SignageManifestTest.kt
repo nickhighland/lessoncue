@@ -59,7 +59,7 @@ class SignageManifestTest {
                     "platform": "android-tv",
                     "displayName": "Android TV / Google TV / Fire TV",
                     "contractVersion": 1,
-                    "minimumClientVersion": "0.40.2",
+                    "minimumClientVersion": "0.40.4",
                     "capabilities": [{
                       "id": "signage.audience",
                       "label": "Signage audience",

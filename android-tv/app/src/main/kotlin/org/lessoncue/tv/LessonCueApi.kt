@@ -160,6 +160,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
             signage = activeSignage,
             playlists = payload.getJSONArray("playlists").mapObjects { lesson -> parsePlaylist(lesson) },
             signageSchedule = payload.optJSONArray("signageSchedule")?.mapObjects(::parseSignage) ?: activeSignage,
+            signageOnly = screen.optBoolean("signageOnly"),
             displayCapabilities = payload.optJSONObject("displayCapabilities")?.let(::parseDisplayCapabilities),
             compatibilityWarnings = payload.optJSONArray("compatibilityWarnings")?.mapObjects { item ->
                 DisplayCompatibilityWarning(
