@@ -94,7 +94,11 @@ jobs:
           curl -fL "https://github.com/yt-dlp/yt-dlp/releases/download/${YT_DLP_VERSION}/${asset}" -o package/payload/yt-dlp
           printf '%s  %s\n' "${expected}" package/payload/yt-dlp | sha256sum -c -
           chmod 0755 package/payload/yt-dlp
-          test "$(package/payload/yt-dlp --version)" = "${YT_DLP_VERSION}"
+          if [ "${{ matrix.runtime }}" = "linux-arm64" ]; then
+            file package/payload/yt-dlp | grep -Eq 'ELF 64-bit.*ARM aarch64'
+          else
+            test "$(package/payload/yt-dlp --version)" = "${YT_DLP_VERSION}"
+          fi
       - run: cp installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue.service installers/linux/lessoncue-cloudflared.service installers/linux/lessoncue-update installers/linux/lessoncue-update.service installers/linux/lessoncue-update.path installers/linux/lessoncue-update-recovery.service installers/linux/lessoncue-media-worker installers/release-signing-public.pem package/
       - run: mkdir -p package/docker
       - run: cp docker/avahi-service.xml package/docker/
