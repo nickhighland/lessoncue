@@ -47,6 +47,8 @@ STAGED=/opt/lessoncue.new
 PREVIOUS=/opt/lessoncue.previous
 FAILED=/opt/lessoncue.failed
 ROLLBACK_REJECTED=/opt/lessoncue.rollback-rejected
+MEDIA_WORKER=/usr/local/libexec/lessoncue-media-worker
+MEDIA_RENDER_RULE=/etc/udev/rules.d/99-lessoncue-render.rules
 UPDATE_TRANSACTION_ACTIVE=false
 APP_SWAPPED=false
 READINESS_ATTEMPTS="${LESSONCUE_UPDATE_READINESS_ATTEMPTS:-30}"
@@ -91,6 +93,13 @@ restore_path() {
   fi
 }
 
+refresh_render_device_rules() {
+  if command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+    udevadm trigger --subsystem-match=drm >/dev/null 2>&1 || true
+  fi
+}
+
 prepare_update_snapshot() {
   local temporary="${ROLLBACK_ROOT}.new"
   rm -rf "${temporary}"
@@ -119,6 +128,8 @@ prepare_update_snapshot() {
   snapshot_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service || return 1
   snapshot_path /etc/systemd/system/lessoncue.service || return 1
   snapshot_path /etc/systemd/system/lessoncue-cloudflared.service || return 1
+  snapshot_path "${MEDIA_WORKER}" || return 1
+  snapshot_path "${MEDIA_RENDER_RULE}" || return 1
   snapshot_path /etc/lessoncue || return 1
   printf '%s\n' "${CURRENT_VERSION:-unknown}" > "${ROLLBACK_ROOT}/from-version" || return 1
   printf '%s\n' "${VERSION:-unknown}" > "${ROLLBACK_ROOT}/to-version" || return 1
@@ -154,6 +165,9 @@ restore_update_snapshot() {
   restore_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service || restored=false
   restore_path /etc/systemd/system/lessoncue.service || restored=false
   restore_path /etc/systemd/system/lessoncue-cloudflared.service || restored=false
+  restore_path "${MEDIA_WORKER}" || restored=false
+  restore_path "${MEDIA_RENDER_RULE}" || restored=false
+  refresh_render_device_rules
   restore_path /etc/lessoncue || restored=false
   systemctl daemon-reload || restored=false
 
@@ -207,6 +221,8 @@ prepare_manual_rollback_safety() {
   snapshot_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service "${MANUAL_SAFETY_ROOT}" || return 1
   snapshot_path /etc/systemd/system/lessoncue.service "${MANUAL_SAFETY_ROOT}" || return 1
   snapshot_path /etc/systemd/system/lessoncue-cloudflared.service "${MANUAL_SAFETY_ROOT}" || return 1
+  snapshot_path "${MEDIA_WORKER}" "${MANUAL_SAFETY_ROOT}" || return 1
+  snapshot_path "${MEDIA_RENDER_RULE}" "${MANUAL_SAFETY_ROOT}" || return 1
   snapshot_path /etc/lessoncue "${MANUAL_SAFETY_ROOT}" || return 1
   printf '%s\n' "${CURRENT_VERSION:-unknown}" > "${MANUAL_SAFETY_ROOT}/version" || return 1
   printf '%s\n' "$(date --iso-8601=seconds)" > "${MANUAL_SAFETY_ROOT}/created-at" || return 1
@@ -238,6 +254,9 @@ restore_manual_rollback_safety() {
   restore_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service "${MANUAL_SAFETY_ROOT}" || restored=false
   restore_path /etc/systemd/system/lessoncue.service "${MANUAL_SAFETY_ROOT}" || restored=false
   restore_path /etc/systemd/system/lessoncue-cloudflared.service "${MANUAL_SAFETY_ROOT}" || restored=false
+  restore_path "${MEDIA_WORKER}" "${MANUAL_SAFETY_ROOT}" || restored=false
+  restore_path "${MEDIA_RENDER_RULE}" "${MANUAL_SAFETY_ROOT}" || restored=false
+  refresh_render_device_rules
   restore_path /etc/lessoncue "${MANUAL_SAFETY_ROOT}" || restored=false
   systemctl daemon-reload || restored=false
 
@@ -702,6 +721,14 @@ if [[ ! -x "${WORKDIR}/archive/payload/LessonCue.Server" ]]; then
   echo "The release archive is missing LessonCue.Server."
   exit 1
 fi
+if [[ ! -f "${WORKDIR}/archive/lessoncue-render.rules" ]]; then
+  echo "The release archive is missing the Intel render-device rule."
+  exit 1
+fi
+if [[ ! -x "${WORKDIR}/archive/lessoncue-media-worker" ]]; then
+  echo "The release archive is missing the LessonCue media worker."
+  exit 1
+fi
 
 rm -rf "${STAGED}"
 install -d "${STAGED}"
@@ -726,6 +753,11 @@ UPDATE_TRANSACTION_ACTIVE=true
 
 # Refresh protected executables and units only after the archive and rollback
 # snapshot have both passed validation.
+install -d -o root -g root -m 0755 "$(dirname "${MEDIA_WORKER}")"
+install -o root -g root -m 0755 "${WORKDIR}/archive/lessoncue-media-worker" "${MEDIA_WORKER}"
+install -d -o root -g root -m 0755 "$(dirname "${MEDIA_RENDER_RULE}")"
+install -o root -g root -m 0644 "${WORKDIR}/archive/lessoncue-render.rules" "${MEDIA_RENDER_RULE}"
+refresh_render_device_rules
 install -m 0755 "${WORKDIR}/archive/lessoncue-update" /usr/local/sbin/lessoncue-update
 install -m 0644 "${WORKDIR}/archive/lessoncue-update.service" /etc/systemd/system/lessoncue-update.service
 install -m 0644 "${WORKDIR}/archive/lessoncue-update.path" /etc/systemd/system/lessoncue-update.path

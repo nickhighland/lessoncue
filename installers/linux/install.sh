@@ -20,6 +20,10 @@ if [[ ! -x "${SOURCE_DIR}/lessoncue-media-worker" ]]; then
   echo "Missing lessoncue-media-worker. Use a complete signed release archive."
   exit 1
 fi
+if [[ ! -f "${SOURCE_DIR}/lessoncue-render.rules" ]]; then
+  echo "Missing lessoncue-render.rules. Use a complete signed release archive."
+  exit 1
+fi
 if ! command -v bwrap >/dev/null 2>&1; then
   echo "Missing bubblewrap. Install the bubblewrap package before installing LessonCue."
   exit 1
@@ -78,6 +82,58 @@ install -m 0644 "${SOURCE_DIR}/lessoncue-cloudflared.service" /etc/systemd/syste
 install -m 0755 "${SOURCE_DIR}/lessoncue-update" /usr/local/sbin/lessoncue-update
 install -d -o root -g root -m 0755 /usr/local/libexec
 install -o root -g root -m 0755 "${SOURCE_DIR}/lessoncue-media-worker" /usr/local/libexec/lessoncue-media-worker
+install -d -o root -g root -m 0755 /etc/udev/rules.d
+install -o root -g root -m 0644 "${SOURCE_DIR}/lessoncue-render.rules" /etc/udev/rules.d/99-lessoncue-render.rules
+if command -v udevadm >/dev/null 2>&1; then
+  udevadm control --reload-rules || true
+  udevadm trigger --subsystem-match=drm || true
+fi
+
+# Validate the installed sandbox before restarting the service. This catches
+# incomplete Bubblewrap/libva installations while the previous service is
+# still recoverable, instead of replacing a working server and leaving media
+# conversion broken on the next request.
+MEDIA_WORKER_PROBE_ROOT=/var/lib/lessoncue/media/temporary/.installer-worker-probe
+MEDIA_WORKER_PROBE_LOG="$(mktemp)"
+install -d -o lessoncue -g lessoncue -m 0700 "${MEDIA_WORKER_PROBE_ROOT}"
+if ! LESSONCUE_DATA_PATH=/var/lib/lessoncue \
+  /usr/local/libexec/lessoncue-media-worker \
+  --network=deny --timeout=10 --memory=268435456 --file-size=1048576 \
+  --processes=4 --write-root="${MEDIA_WORKER_PROBE_ROOT}" -- \
+  /usr/bin/true >"${MEDIA_WORKER_PROBE_LOG}" 2>&1; then
+  echo "The installed LessonCue media sandbox could not start. The previous service was left recoverable; inspect the installer output below." >&2
+  sed -n '1,120p' "${MEDIA_WORKER_PROBE_LOG}" >&2
+  rm -f "${MEDIA_WORKER_PROBE_LOG}"
+  rm -rf "${MEDIA_WORKER_PROBE_ROOT}"
+  exit 1
+fi
+rm -f "${MEDIA_WORKER_PROBE_LOG}"
+
+# If a DRM render node and FFmpeg are present, exercise the actual H.264
+# hardware path as the service account. Hardware is optional, so a failed
+# probe is reported and the server can still use its software fallback; the
+# sandbox failure above remains a hard installation error.
+if command -v runuser >/dev/null 2>&1 && command -v ffmpeg >/dev/null 2>&1; then
+  MEDIA_RENDER_NODE="$(find /dev/dri -maxdepth 1 -type c -name 'renderD[0-9]*' -print -quit 2>/dev/null || true)"
+  if [[ -n "${MEDIA_RENDER_NODE}" ]]; then
+    MEDIA_HARDWARE_PROBE_LOG="$(mktemp)"
+    if ! runuser -u lessoncue -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
+      /usr/local/libexec/lessoncue-media-worker \
+      --network=deny --timeout=30 --memory=2147483648 --file-size=1048576 \
+      --processes=32 --write-root="${MEDIA_WORKER_PROBE_ROOT}" -- \
+      /usr/bin/ffmpeg -hide_banner -loglevel error -y \
+      -vaapi_device "${MEDIA_RENDER_NODE}" \
+      -f lavfi -i color=size=64x64:rate=1:duration=1 \
+      -vf format=nv12,hwupload -c:v h264_vaapi -frames:v 1 -f null - \
+      >"${MEDIA_HARDWARE_PROBE_LOG}" 2>&1; then
+      echo "Warning: Intel H.264 hardware encoding was not available during installation; LessonCue will use software conversion until a later hardware check." >&2
+      sed -n '1,80p' "${MEDIA_HARDWARE_PROBE_LOG}" >&2
+    fi
+    rm -f "${MEDIA_HARDWARE_PROBE_LOG}"
+  fi
+fi
+rm -rf "${MEDIA_WORKER_PROBE_ROOT}"
+
 install -m 0644 "${SOURCE_DIR}/lessoncue-update.service" /etc/systemd/system/lessoncue-update.service
 install -m 0644 "${SOURCE_DIR}/lessoncue-update.path" /etc/systemd/system/lessoncue-update.path
 install -m 0644 "${SOURCE_DIR}/lessoncue-update-recovery.service" /etc/systemd/system/lessoncue-update-recovery.service

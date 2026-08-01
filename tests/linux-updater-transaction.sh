@@ -13,6 +13,8 @@ RELEASE_ROOT=/tmp/lessoncue-releases
 PACKAGE_ROOT=/tmp/lessoncue-package
 TEST_PRIVATE_KEY=/tmp/lessoncue-test-release-private.pem
 TEST_PUBLIC_KEY=/tmp/lessoncue-test-release-public.pem
+MEDIA_WORKER=/usr/local/libexec/lessoncue-media-worker
+MEDIA_RENDER_RULE=/etc/udev/rules.d/99-lessoncue-render.rules
 
 apt-get update >/dev/null
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -22,7 +24,9 @@ id lessoncue >/dev/null 2>&1 ||
   useradd --system --home /var/lib/lessoncue --shell /usr/sbin/nologin lessoncue
 
 install -d "${TEST_BIN}" /opt/lessoncue /var/lib/lessoncue/{database,config} \
-  /etc/lessoncue /etc/systemd/system /usr/local/sbin
+  /etc/lessoncue /etc/udev/rules.d /etc/systemd/system /usr/local/sbin /usr/local/libexec
+rm -f "${MEDIA_WORKER}"
+rm -f "${MEDIA_RENDER_RULE}"
 
 cat > "${TEST_BIN}/systemctl" <<'SYSTEMCTL'
 #!/usr/bin/env bash
@@ -78,6 +82,11 @@ install -d "${PACKAGE_ROOT}/payload" "${RELEASE_ROOT}/releases/download/v2.0.0"
 openssl genpkey -algorithm Ed25519 -out "${TEST_PRIVATE_KEY}" 2>/dev/null
 openssl pkey -in "${TEST_PRIVATE_KEY}" -pubout -out "${TEST_PUBLIC_KEY}" 2>/dev/null
 make_server "${PACKAGE_ROOT}/payload/LessonCue.Server" 2.0.0 NEW
+cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-media-worker" "${PACKAGE_ROOT}/lessoncue-media-worker"
+chmod 0755 "${PACKAGE_ROOT}/lessoncue-media-worker"
+cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-media-worker" "${PACKAGE_ROOT}/payload/lessoncue-media-worker"
+chmod 0755 "${PACKAGE_ROOT}/payload/lessoncue-media-worker"
+cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-render.rules" "${PACKAGE_ROOT}/lessoncue-render.rules"
 cp "${UPDATER_SOURCE}" "${PACKAGE_ROOT}/lessoncue-update"
 cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-update-recovery.service" "${PACKAGE_ROOT}/"
 for unit in lessoncue-update.service lessoncue-update.path lessoncue.service lessoncue-cloudflared.service; do
@@ -121,6 +130,8 @@ env \
 
 [[ "$(/opt/lessoncue/LessonCue.Server)" == NEW ]]
 [[ "$(/opt/lessoncue.previous/LessonCue.Server)" == OLD ]]
+test -x "${MEDIA_WORKER}"
+test -f "${MEDIA_RENDER_RULE}"
 grep -q '^GOOD original database$' /var/lib/lessoncue/update-rollback/data/database/lessoncue.db
 grep -q '"success":true' /var/lib/lessoncue/config/update-result.json
 grep -q '^2.0.0$' /var/lib/lessoncue/config/installed-version
@@ -135,6 +146,8 @@ env PATH="${TEST_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/b
 
 [[ "$(/opt/lessoncue/LessonCue.Server)" == OLD ]]
 [[ "$(/opt/lessoncue.failed/LessonCue.Server)" == NEW ]]
+test ! -e "${MEDIA_WORKER}"
+test ! -e "${MEDIA_RENDER_RULE}"
 grep -q '^GOOD original database$' /var/lib/lessoncue/database/lessoncue.db
 grep -q '^GOOD post-update database$' \
   /var/lib/lessoncue/manual-rollback-safety/data/database/lessoncue.db
@@ -161,6 +174,8 @@ fi
 rm -f /tmp/lessoncue-reject-new
 
 [[ "$(/opt/lessoncue/LessonCue.Server)" == OLD ]]
+test ! -e "${MEDIA_WORKER}"
+test ! -e "${MEDIA_RENDER_RULE}"
 grep -q '^GOOD original database$' /var/lib/lessoncue/database/lessoncue.db
 grep -q '"success":false' /var/lib/lessoncue/config/update-result.json
 test ! -e /var/lib/lessoncue/update-transaction

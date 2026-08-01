@@ -1,0 +1,4 @@
+# Keep Intel render-node access available inside LessonCue's unprivileged
+# Bubblewrap user namespace. The service account is the only added owner;
+# render nodes remain non-world-accessible.
+SUBSYSTEM=="drm", KERNEL=="renderD*", ATTRS{vendor}=="0x8086", OWNER="lessoncue", MODE="0660"
