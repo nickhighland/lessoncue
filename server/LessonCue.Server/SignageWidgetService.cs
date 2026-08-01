@@ -191,7 +191,7 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
         }
         else if (zone.Type == "calendar")
         {
-            var events = ParseCalendarEvents(payload).Take(24).ToArray();
+            var events = ParseCalendarEvents(payload, refreshedAt).Take(24).ToArray();
             items = events.Select(value => value.Title).ToArray();
             if (items.Length == 0) items = ParseJsonItems(payload);
             return new(zone.Id, title, Clean(text) ?? "", items, refreshedAt, zone.SourceUrl,
@@ -299,7 +299,7 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
             Weather: weather);
     }
 
-    private static IReadOnlyCollection<SignageCalendarEvent> ParseCalendarEvents(string payload)
+    private static IReadOnlyCollection<SignageCalendarEvent> ParseCalendarEvents(string payload, DateTimeOffset now)
     {
         var unfolded = Regex.Replace(payload, "\\r?\\n[ \\t]", "");
         var events = new List<SignageCalendarEvent>();
@@ -322,7 +322,6 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
             events.Add(new SignageCalendarEvent(title, Clean(Value("DESCRIPTION")), Clean(Value("LOCATION")),
                 ParseCalendarDate(startRaw), ParseCalendarDate(endRaw), allDay));
         }
-        var now = DateTimeOffset.UtcNow;
         return events.Where(value => (value.EndsAt ?? value.StartsAt ?? DateTimeOffset.MaxValue) >= now)
             .OrderBy(value => value.StartsAt ?? DateTimeOffset.MaxValue).ToArray();
     }
