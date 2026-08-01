@@ -71,7 +71,7 @@ public sealed class UpdateService(
                 var latest = tag?.TrimStart('v', 'V');
                 var releaseUrl = root.TryGetProperty("html_url", out var url) ? url.GetString() : null;
                 var releaseNotes = root.TryGetProperty("body", out var body)
-                    ? body.GetString()?.Trim()
+                    ? UserReleaseNotes(body.GetString())
                     : null;
                 _status = _status with
                 {
@@ -119,6 +119,21 @@ public sealed class UpdateService(
         typeof(UpdateService).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]
         ?? typeof(UpdateService).Assembly.GetName().Version?.ToString(3)
         ?? "0.0.0";
+
+    private static string? UserReleaseNotes(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return null;
+
+        const string heading = "### User changes";
+        var start = body.IndexOf(heading, StringComparison.OrdinalIgnoreCase);
+        if (start < 0) return body.Trim();
+
+        start += heading.Length;
+        while (start < body.Length && char.IsWhiteSpace(body[start])) start++;
+        var end = body.IndexOf("\n### ", start, StringComparison.OrdinalIgnoreCase);
+        var notes = (end >= 0 ? body[start..end] : body[start..]).Trim();
+        return string.IsNullOrWhiteSpace(notes) ? null : notes;
+    }
 
     private const string UpdateRequestPath = "/var/lib/lessoncue/config/update-request";
     private const string UpdateResultPath = "/var/lib/lessoncue/config/update-result.json";
