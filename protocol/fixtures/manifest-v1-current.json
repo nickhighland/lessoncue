@@ -7,7 +7,7 @@
     "platform": "android-tv",
     "displayName": "Android TV / Google TV / Fire TV",
     "contractVersion": 1,
-    "minimumClientVersion": "0.40.5",
+    "minimumClientVersion": "0.40.6",
     "capabilities": [
       {
         "id": "lesson.image",
