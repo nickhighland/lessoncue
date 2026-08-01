@@ -227,7 +227,7 @@ jobs:
           apk_sha256="$(sha256sum lessoncue-tv.apk | awk '{print $1}')"
           apk_size="$(stat -c '%s' lessoncue-tv.apk)"
           apk_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/lessoncue-tv.apk"
-          release_notes="$(bash scripts/extract-release-notes.sh "${GITHUB_REF_NAME}")"
+          release_notes="$(bash scripts/extract-release-notes.sh --user "${GITHUB_REF_NAME}")"
           jq -n \
             --arg channel "stable" \
             --arg versionName "${version_name}" \
