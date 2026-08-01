@@ -2850,8 +2850,8 @@ function ClassesView({
     try {
       const body = {
         ...values,
-        controllerColor: (values as any).controllerColor || "#2d6a4f",
-      } as any;
+        controllerColor: String(values.controllerColor || "#2d6a4f"),
+      };
       const item = await api<LessonClass>("/api/v1/classes", {
         method: "POST",
         body: JSON.stringify(body),
@@ -2918,7 +2918,7 @@ function ClassesView({
         body: JSON.stringify({
           ...values,
           controllerSlug: current.controllerSlug || controllerSlug(current),
-          controllerColor: (values as any).controllerColor || current.controllerColor,
+          controllerColor: String(values.controllerColor || current.controllerColor),
           controllerHostname: current.controllerHostname || null,
         }),
       });
