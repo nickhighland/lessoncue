@@ -1,0 +1,8 @@
+.git
+.DS_Store
+node_modules
+**/node_modules
+**/bin
+**/obj
+test-results
+playwright-report
