@@ -81,7 +81,7 @@ public static class DisplayCapabilities
             normalized,
             browser ? "Browser display" : android ? "Android TV / Google TV / Fire TV" : "Unknown display",
             ContractVersion,
-            browser ? "0.40.2" : android ? "0.40.2" : "unsupported",
+            browser ? "0.40.4" : android ? "0.40.4" : "unsupported",
             capabilities.ToArray(),
             browser
                 ? ["Playback of third-party webpages and videos still depends on their embedding and network policies."]
