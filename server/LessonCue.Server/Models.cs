@@ -858,8 +858,9 @@ public sealed record UploadQuotaPolicyInput(long MaxFileBytes = 0, long MaxDaily
     int MaxActiveSessionsPerUser = 3, Dictionary<string, long>? UserDailyBytes = null,
     Dictionary<string, long>? RoleDailyBytes = null, Dictionary<string, long>? ClassDailyBytes = null,
     List<string>? AllowedVideoCodecs = null, List<string>? AllowedAudioCodecs = null);
+public sealed record MediaRenameInput(Guid MediaId, string FileName);
 public sealed record MediaBulkInput(List<Guid> MediaIds, string? Action, DateOnly? DeleteOn = null,
-    string? Folder = null, string? TagsCsv = null, string? FileNamePrefix = null);
+    string? Folder = null, string? TagsCsv = null, List<MediaRenameInput>? Renames = null);
 public sealed record MediaOrganizeInput(string? FileName, string? Folder, string? TagsCsv);
 public sealed record MediaTaxonomyInput(List<string>? Folders, List<string>? Tags);
 public sealed record PresentationLessonInput(Guid LessonId, int ImageDurationSeconds = 10);

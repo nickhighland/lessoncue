@@ -176,12 +176,11 @@ public sealed class TroubleshootingLog : ILoggerProvider
         };
 
     private static bool IsFailure(TroubleshootingLogEntry entry) =>
-        entry.IsFailure ||
-        Enum.TryParse<LogLevel>(entry.Level, true, out var level) && level >= LogLevel.Warning ||
+        Enum.TryParse<LogLevel>(entry.Level, true, out var level) && level >= LogLevel.Error ||
         entry.Exception is not null;
 
     private static bool IsFailure(LogLevel level, Exception? exception) =>
-        level >= LogLevel.Warning || exception is not null;
+        level >= LogLevel.Error || exception is not null;
 
     private static string FailureKey(TroubleshootingLogEntry entry) =>
         $"{entry.Timestamp:O}|{entry.Category}|{entry.Event}|{entry.Message}";

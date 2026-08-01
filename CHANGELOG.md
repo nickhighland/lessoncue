@@ -4,6 +4,23 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.8 — more reliable server updates and media playback
+
+### User changes
+
+- Linux server updates now install and verify the components needed for media conversion before restarting the server.
+- Older Intel processors can use supported H.264 hardware encoding, with automatic software conversion when hardware is unavailable.
+- Media names can be replaced completely, with a clear warning when the new name is already in use.
+- Account security settings now show the authenticator option in one place.
+- Troubleshooting failures retain useful details for seven days.
+
+### Developer changes
+
+- The Linux package now installs the protected media worker and an Intel render-node udev rule, validates the sandbox before service restart, and removes both during uninstall.
+- Bubblewrap preserves legacy VAAPI driver selection, exposes the required read-only DRM topology, and maps namespaced root to the invoking service account for device access.
+- Transactional updates snapshot and restore the media worker and render-node rule alongside the application and service units.
+- Haswell validation confirmed H.264 VAAPI through Debian's `i965` driver; QSV/oneVPL remains a newer-platform path.
+
 ## v0.40.7 — safer server upgrades
 
 ### User changes

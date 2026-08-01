@@ -273,6 +273,9 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByRole("navigation", { name: "Settings sections" })).toBeVisible();
   await page.getByRole("button", { name: /Organization & accounts/ }).click();
   await expect(page.getByRole("heading", { name: "Registration & email" })).toBeVisible();
+  const mfaPanel = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: "Authenticator MFA" }) });
+  await expect(mfaPanel).toHaveCount(1);
+  await expect(mfaPanel).toBeVisible();
   await page.getByLabel("Enable Signage").check();
   await expect.poll(() => page.evaluate(async () =>
     (await fetch("/api/v1/admin/bootstrap").then(response => response.json())).settings.signageEnabled
@@ -306,6 +309,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: "Save account settings" }).click();
   await expect(page.getByText("Registration and account email settings saved.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: /Media & storage/ }).click();
+  await expect(mfaPanel).toBeHidden();
   await page.getByLabel("Approved folder paths").fill("General\nLessons\nSignage\nAudio/Classroom");
   await page.getByLabel("Approved tags").fill("Reusable\nIntro\nOutro\nReference\nWelcome");
   await page.getByRole("button", { name: "Save approved folders & tags" }).click();
@@ -336,11 +340,21 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByLabel("Select bulk-cue-two.wav").check();
   await page.getByRole("button", { name: "Rename", exact: true }).click();
   const bulkRenameDialog = page.getByRole("dialog", { name: "Rename 2 selected media items" });
-  await bulkRenameDialog.getByLabel("Name prefix").fill("Term A —");
+  await bulkRenameDialog.getByLabel("New name for bulk-cue-one.wav").fill("Term A — bulk-cue-one.wav");
+  await bulkRenameDialog.getByLabel("New name for bulk-cue-two.wav").fill("Term A — bulk-cue-two.wav");
   await bulkRenameDialog.getByRole("button", { name: "Rename selected media" }).click();
   await expect(page.getByText("2 media items renamed.", { exact: false })).toBeVisible();
   await expect(page.locator(".media-table").filter({ hasText: "Term A — bulk-cue-one.wav" })).toBeVisible();
   await expect(page.locator(".media-table").filter({ hasText: "Term A — bulk-cue-two.wav" })).toBeVisible();
+  await page.getByLabel("Select Term A — bulk-cue-one.wav").check();
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  const conflictRenameDialog = page.getByRole("dialog", { name: "Rename 1 selected media item" });
+  await conflictRenameDialog.getByLabel("New name").fill("Term A — bulk-cue-two.wav");
+  await conflictRenameDialog.getByRole("button", { name: "Rename selected media" }).click();
+  await expect(page.getByText(/already exists/, { exact: false })).toBeVisible();
+  await conflictRenameDialog.getByLabel("New name").fill("Term A — bulk-cue-one.wav");
+  await conflictRenameDialog.getByRole("button", { name: "Rename selected media" }).click();
+  await expect(page.getByText("1 media item renamed.", { exact: false })).toBeVisible();
 
   const organizedRow = page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" });
   await organizedRow.getByRole("button", { name: "Manage versions & impact" }).click();
@@ -1067,7 +1081,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.7" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.8" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
