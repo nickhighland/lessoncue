@@ -3042,6 +3042,12 @@ public static class AdminApi
             var operation = await updates.StartInstallAsync(ct);
             if (operation.Success)
                 return Results.Accepted(value: new { message = "The update has started. LessonCue will restart automatically." });
+            if (operation.FailureCode == "operation-in-progress")
+            {
+                logger.LogWarning("Update install request found another protected operation already in progress. Trace {TraceId}",
+                    context.TraceIdentifier);
+                return Results.Conflict(new { error = operation.Message, failureCode = operation.FailureCode });
+            }
 
             db.AuditEvents.Add(new AuditEvent
             {
@@ -3085,6 +3091,12 @@ public static class AdminApi
                     message = "Rollback has started. LessonCue will restart using the protected snapshot.",
                     targetVersion = status.RollbackTargetVersion
                 });
+            if (operation.FailureCode == "operation-in-progress")
+            {
+                logger.LogWarning("Rollback request found another protected operation already in progress. Trace {TraceId}",
+                    context.TraceIdentifier);
+                return Results.Conflict(new { error = operation.Message, failureCode = operation.FailureCode });
+            }
 
             db.AuditEvents.Add(new AuditEvent
             {
