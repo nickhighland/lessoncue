@@ -85,7 +85,7 @@ jobs:
       - run: npm run build:admin
       - name: Run browser tests
         env:
-          LESSONCUE_MEDIA_WORKER_SKIP_NETWORK_ISOLATION: "1"
+          LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX: "1"
         run: npm run test:e2e
 
   android-tv:
