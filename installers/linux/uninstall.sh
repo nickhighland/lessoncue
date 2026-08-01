@@ -18,6 +18,12 @@ if [[ -f /etc/avahi/avahi-daemon.conf && -f /var/lib/lessoncue/config/local-host
 fi
 rm -f /etc/systemd/system/lessoncue.service /etc/systemd/system/lessoncue-cloudflared.service /etc/systemd/system/lessoncue-update.service /etc/systemd/system/lessoncue-update.path /etc/avahi/services/lessoncue.service
 rm -f /usr/local/sbin/lessoncue-update
+rm -f /usr/local/libexec/lessoncue-media-worker
+rm -f /etc/udev/rules.d/99-lessoncue-render.rules
+if command -v udevadm >/dev/null 2>&1; then
+  udevadm control --reload-rules || true
+  udevadm trigger --subsystem-match=drm || true
+fi
 rm -f /etc/lessoncue/cloudflare-token
 rm -rf /var/cache/lessoncue
 rmdir /etc/lessoncue 2>/dev/null || true

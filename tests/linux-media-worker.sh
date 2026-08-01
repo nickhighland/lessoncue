@@ -9,7 +9,7 @@ fi
 repository="${1:-/workspace}"
 apt-get update >/dev/null
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  bubblewrap ca-certificates coreutils curl passwd util-linux >/dev/null
+  bubblewrap ca-certificates coreutils curl ffmpeg passwd util-linux >/dev/null
 id lessoncue >/dev/null 2>&1 ||
   useradd --system --home /var/lib/lessoncue --shell /usr/sbin/nologin lessoncue
 install -d -o root -g root -m 0755 /usr/local/libexec
@@ -61,6 +61,30 @@ run_worker \
   /bin/sh -c \
   'cat /var/lib/lessoncue/input > /var/lib/lessoncue/media/temporary/test/output'
 grep -q '^trusted input$' /var/lib/lessoncue/media/temporary/test/output
+
+driver_environment="$(
+  LIBVA_DRIVER_NAME=i965 run_worker \
+    --network=deny \
+    --timeout=10 \
+    --memory=268435456 \
+    --file-size=1048576 \
+    --processes=4 \
+    --write-root=/var/lib/lessoncue/media/temporary/test \
+    -- \
+    /usr/bin/env
+)"
+grep -q '^LIBVA_DRIVER_NAME=i965$' <<< "${driver_environment}"
+
+run_worker \
+  --network=deny \
+  --timeout=10 \
+  --memory=2147483648 \
+  --file-size=1048576 \
+  --processes=32 \
+  --write-root=/var/lib/lessoncue/media/temporary/test \
+  -- \
+  /usr/bin/ffmpeg -hide_banner -loglevel error -f lavfi \
+  -i color=size=64x64:rate=1:duration=1 -frames:v 1 -f null -
 
 if run_worker \
   --network=deny \

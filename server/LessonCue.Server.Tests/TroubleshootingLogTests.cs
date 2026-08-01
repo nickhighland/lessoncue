@@ -61,12 +61,15 @@ public sealed class TroubleshootingLogTests
             log.CreateLogger("Microsoft.Hosting").LogInformation("Routine framework event");
             log.CreateLogger("LessonCue.Server.Worker").LogDebug("Debug detail");
             log.CreateLogger("Microsoft.Hosting").LogWarning("Framework warning");
+            log.CreateLogger("LessonCue.Server.Worker").LogWarning(
+                new InvalidOperationException("conversion issue"), "Conversion warning");
             log.CreateLogger("LessonCue.Server.Worker").LogInformation("Application event");
 
             var entries = log.GetRecent(10);
-            Assert.Equal(2, entries.Count);
+            Assert.Equal(3, entries.Count);
             Assert.Contains(entries, entry => entry.Message == "Framework warning");
             Assert.Contains(entries, entry => entry.Message == "Application event");
+            Assert.Contains(entries, entry => entry.Message == "Conversion warning" && entry.IsFailure);
             Assert.Single(log.GetRecent(10, failuresOnly: true));
         }
         finally

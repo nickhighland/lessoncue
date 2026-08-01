@@ -133,6 +133,7 @@ public static class AudienceInteractionApi
         var sessions = await db.AudienceSessions.AsNoTracking()
             .Include(x => x.Questions.OrderBy(q => q.Position))
             .ThenInclude(x => x.Responses)
+            .AsSplitQuery()
             .ToListAsync(ct);
         return Results.Ok(sessions.OrderByDescending(x => x.UpdatedAt).Select(AdminSession));
     }
@@ -167,7 +168,7 @@ public static class AudienceInteractionApi
     {
         var error = Validate(input);
         if (error is not null) return Results.BadRequest(new { error });
-        var item = await db.AudienceSessions.Include(x => x.Questions).ThenInclude(x => x.Responses)
+        var item = await db.AudienceSessions.Include(x => x.Questions).ThenInclude(x => x.Responses).AsSplitQuery()
             .SingleOrDefaultAsync(x => x.Id == id, ct);
         if (item is null) return Results.NotFound();
         var hasResponses = item.Questions.Any(x => x.Responses.Count > 0);
@@ -193,7 +194,7 @@ public static class AudienceInteractionApi
     private static async Task<IResult> ChangeState(Guid id, string action, HttpContext context,
         LessonCueDb db, CancellationToken ct)
     {
-        var item = await db.AudienceSessions.Include(x => x.Questions).ThenInclude(x => x.Responses)
+        var item = await db.AudienceSessions.Include(x => x.Questions).ThenInclude(x => x.Responses).AsSplitQuery()
             .SingleOrDefaultAsync(x => x.Id == id, ct);
         if (item is null) return Results.NotFound();
         var now = DateTimeOffset.UtcNow;

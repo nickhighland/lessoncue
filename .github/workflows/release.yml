@@ -99,7 +99,13 @@ jobs:
           else
             test "$(package/payload/yt-dlp --version)" = "${YT_DLP_VERSION}"
           fi
-      - run: cp installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue.service installers/linux/lessoncue-cloudflared.service installers/linux/lessoncue-update installers/linux/lessoncue-update.service installers/linux/lessoncue-update.path installers/linux/lessoncue-update-recovery.service installers/linux/lessoncue-media-worker installers/release-signing-public.pem package/
+      - run: |
+          cp installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue.service installers/linux/lessoncue-cloudflared.service installers/linux/lessoncue-update installers/linux/lessoncue-update.service installers/linux/lessoncue-update.path installers/linux/lessoncue-update-recovery.service installers/linux/lessoncue-media-worker installers/linux/lessoncue-render.rules installers/release-signing-public.pem package/
+          cp installers/linux/lessoncue-media-worker package/payload/lessoncue-media-worker
+          chmod 0755 package/payload/lessoncue-media-worker
+          test -x package/lessoncue-media-worker
+          test -x package/payload/lessoncue-media-worker
+          test -f package/lessoncue-render.rules
       - run: mkdir -p package/docker
       - run: cp docker/avahi-service.xml package/docker/
       - name: Create normalized Linux archive

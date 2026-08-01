@@ -5507,7 +5507,7 @@ function MediaView({
       setBulkBusy(false);
     }
   }
-  async function prefixNames(event: FormEvent<HTMLFormElement>) {
+  async function renameMedia(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!renameTargets.length) return;
     const values = Object.fromEntries(new FormData(event.currentTarget));
@@ -5517,8 +5517,11 @@ function MediaView({
         method: "POST",
         body: JSON.stringify({
           mediaIds: renameTargets.map((item) => item.id),
-          action: "prefix-name",
-          fileNamePrefix: values.fileNamePrefix,
+          action: "rename",
+          renames: renameTargets.map((item) => ({
+            mediaId: item.id,
+            fileName: String(values[`fileName-${item.id}`] || ""),
+          })),
         }),
       });
       const count = renameTargets.length;
@@ -5862,21 +5865,28 @@ function MediaView({
           title={`Rename ${renameTargets.length} selected media item${renameTargets.length === 1 ? "" : "s"}`}
           onClose={() => !bulkBusy && setRenameTargets([])}
         >
-          <form className="stack" onSubmit={prefixNames}>
-            <Field
-              label="Name prefix"
-              hint="The prefix is added before every selected name; file extensions are preserved."
-            >
-              <input
-                name="fileNamePrefix"
-                maxLength={80}
-                required
-                autoFocus
-                placeholder="Spring term —"
-              />
-            </Field>
+          <form className="stack" onSubmit={renameMedia}>
+            {renameTargets.map((item, index) => (
+              <Field
+                key={item.id}
+                label={
+                  renameTargets.length === 1
+                    ? "New name"
+                    : `New name for ${item.fileName}`
+                }
+              >
+                <input
+                  name={`fileName-${item.id}`}
+                  maxLength={255}
+                  required
+                  autoFocus={index === 0}
+                  defaultValue={item.fileName}
+                />
+              </Field>
+            ))}
             <div className="alert">
-              Example: “video.mp4” becomes “Spring term — video.mp4”.
+              Enter the complete new name for each selected item. Names must be
+              unique within the media library.
             </div>
             <button className="button primary" disabled={bulkBusy}>
               {bulkBusy ? "Renaming…" : "Rename selected media"}
@@ -13197,16 +13207,16 @@ function Settings({
       </nav>
       <div className="settings-page" data-section={settingsSection}>
         {canManageApp && (
-          <div className="settings-grid account-settings-grid settings-panel settings-accounts">
+          <div className="settings-grid account-settings-grid">
             <RegistrationSettingsPanel
               bootstrap={bootstrap}
               notify={notify}
               refresh={refresh}
               canServiceSettings={canServiceSettings}
             />
+            {canServiceSettings && <ServiceAdminMfaPanel notify={notify} />}
           </div>
         )}
-        {canServiceSettings && <ServiceAdminMfaPanel notify={notify} />}
         {restorePreview && (
           <Modal
             title={restoreResult ? "Restore complete" : "Review backup restore"}

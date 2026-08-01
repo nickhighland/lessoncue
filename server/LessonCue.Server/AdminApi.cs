@@ -1614,9 +1614,12 @@ public static class AdminApi
             if (selection.Error is not null) return Results.BadRequest(new { error = selection.Error });
             if (input.FileName is not null)
             {
-                var name = Path.GetFileName(input.FileName.Trim());
-                if (string.IsNullOrWhiteSpace(name) || name.Length > 255)
+                var name = NormalizeMediaName(input.FileName);
+                if (name is null)
                     return Results.BadRequest(new { error = "The media name must be between 1 and 255 characters." });
+                var conflict = await FindMediaNameConflictAsync(db, [media.Id], [name], ct);
+                if (conflict is not null)
+                    return Results.Conflict(new { error = $"A media item named \u201c{conflict}\u201d already exists. Choose a different name." });
                 media.FileName = name;
             }
             if (input.Folder is not null) media.Folder = selection.Folder;
@@ -1907,24 +1910,42 @@ public static class AdminApi
                         db.AuditEvents.Add(new AuditEvent { Actor = actor, Action = "media.organize", Object = item.Id.ToString(), Summary = $"{item.FileName}: {folder}; {tags}" });
                     }
                     break;
-                case "prefix-name":
-                    var prefix = input.FileNamePrefix?.Trim();
-                    if (string.IsNullOrWhiteSpace(prefix))
-                        return Results.BadRequest(new { error = "Enter a name prefix." });
-                    if (prefix.Length > 80)
-                        return Results.BadRequest(new { error = "Name prefixes are limited to 80 characters." });
+                case "rename":
+                {
+                    var requested = input.Renames ?? [];
+                    if (requested.Count != media.Count || requested.Select(x => x.MediaId).Distinct().Count() != media.Count ||
+                        requested.Any(x => !ids.Contains(x.MediaId)))
+                        return Results.BadRequest(new { error = "Provide one new name for every selected media item." });
+
+                    var requestedById = requested.ToDictionary(x => x.MediaId);
+                    var names = new Dictionary<Guid, string>();
                     foreach (var item in media)
                     {
-                        var extension = item.SourceKind == "link" ? "" : Path.GetExtension(item.FileName);
-                        var baseName = extension.Length == 0 ? item.FileName : Path.GetFileNameWithoutExtension(item.FileName);
-                        var maximumBaseLength = Math.Max(1, 255 - extension.Length);
-                        var prefixed = $"{prefix} {baseName}";
-                        item.FileName = (prefixed.Length > maximumBaseLength ? prefixed[..maximumBaseLength].TrimEnd() : prefixed) + extension;
+                        var name = NormalizeMediaName(requestedById[item.Id].FileName);
+                        if (name is null)
+                            return Results.BadRequest(new { error = "Each media name must be between 1 and 255 characters." });
+                        names[item.Id] = name;
+                    }
+
+                    var duplicate = names.Values
+                        .GroupBy(value => value, StringComparer.OrdinalIgnoreCase)
+                        .FirstOrDefault(group => group.Count() > 1)?.First();
+                    if (duplicate is not null)
+                        return Results.Conflict(new { error = $"More than one selected item is assigned the name \u201c{duplicate}\u201d. Each media name must be unique." });
+
+                    var conflict = await FindMediaNameConflictAsync(db, ids, names.Values, ct);
+                    if (conflict is not null)
+                        return Results.Conflict(new { error = $"A media item named \u201c{conflict}\u201d already exists. Choose a different name." });
+
+                    foreach (var item in media)
+                    {
+                        item.FileName = names[item.Id];
                         db.AuditEvents.Add(new AuditEvent { Actor = actor, Action = "media.rename", Object = item.Id.ToString(), Summary = item.FileName });
                     }
                     break;
+                }
                 default:
-                    return Results.BadRequest(new { error = "Choose delete, expire, keep permanently, organize, or add a name prefix." });
+                    return Results.BadRequest(new { error = "Choose delete, expire, keep permanently, organize, or rename." });
             }
 
             await db.SaveChangesAsync(ct);
@@ -3914,6 +3935,24 @@ public static class AdminApi
 
     private static string NormalizeContentType(string fileName, string? _) =>
         MediaContentInspector.ContentType(Path.GetExtension(fileName));
+
+    private static string? NormalizeMediaName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var name = Path.GetFileName(value.Trim().Replace('\\', '/'));
+        return string.IsNullOrWhiteSpace(name) || name is "." or ".." || name.Length > 255 ? null : name;
+    }
+
+    private static async Task<string?> FindMediaNameConflictAsync(LessonCueDb db, IReadOnlyCollection<Guid> excludedIds,
+        IEnumerable<string> names, CancellationToken ct)
+    {
+        var proposed = names.ToArray();
+        if (proposed.Length == 0) return null;
+        var excluded = excludedIds.ToArray();
+        var existing = await db.MediaAssets.Where(item => !excluded.Contains(item.Id)).Select(item => item.FileName).ToListAsync(ct);
+        return proposed.Select(name => existing.FirstOrDefault(value =>
+            string.Equals(value, name, StringComparison.OrdinalIgnoreCase))).FirstOrDefault(value => value is not null);
+    }
 
     private static MediaAssetVersion CreateArchivedVersion(MediaAsset media, string relativePath, string actor) => new()
     {
