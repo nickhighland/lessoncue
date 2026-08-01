@@ -12,7 +12,7 @@ Work through this section in order. Do not declare an item complete merely becau
 
 1. [ ] **Restore core lesson, TV, and signage workflows:**
    - [x] Lessons must be selectable before and after their scheduled times.
-   - [ ] Standard Google TV and Fire TV devices must play every supported media type reliably.
+   - [ ] Files must be reliably converted so that standard Google TV and Fire TV devices can play every supported media type reliably.
    - [x] Replace the current "Add Media" flow with a simpler chooser: "Upload new media", "Add an audience poll", "Add online media or slides", and "Choose existing media". Each choice should open its own section and use a friendlier layout.
    - [x] When adding online media, include a "Do not download to local server" checkbox as a secondary option, leaving "download media locally" as the default option.
    - [x] Lessons must appear correctly in the TV app when they are properly assigned.

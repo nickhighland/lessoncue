@@ -14,6 +14,7 @@ type ConfirmRequest = {
   message: string;
   confirmLabel: string;
   destructive: boolean;
+  previousFocus: HTMLElement | null;
   resolve: (value: boolean) => void;
 };
 type TextRequest = {
@@ -24,6 +25,7 @@ type TextRequest = {
   defaultValue: string;
   confirmLabel: string;
   inputType: "text" | "url";
+  previousFocus: HTMLElement | null;
   resolve: (value: string | null) => void;
 };
 type DialogRequest = ConfirmRequest | TextRequest;
@@ -50,6 +52,9 @@ function emit() {
 
 export function confirmAction(message: string, options: ConfirmOptions = {}) {
   return new Promise<boolean>((resolve) => {
+    const previousFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
     queue.push({
       kind: "confirm",
       title: options.title || (options.destructive ? "Confirm deletion" : "Confirm action"),
@@ -57,6 +62,7 @@ export function confirmAction(message: string, options: ConfirmOptions = {}) {
       confirmLabel:
         options.confirmLabel || (options.destructive ? "Delete" : "Continue"),
       destructive: Boolean(options.destructive),
+      previousFocus,
       resolve,
     });
     emit();
@@ -65,6 +71,9 @@ export function confirmAction(message: string, options: ConfirmOptions = {}) {
 
 export function requestText(options: TextOptions) {
   return new Promise<string | null>((resolve) => {
+    const previousFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
     queue.push({
       kind: "text",
       title: options.title,
@@ -73,6 +82,7 @@ export function requestText(options: TextOptions) {
       defaultValue: options.defaultValue || "",
       confirmLabel: options.confirmLabel || "Continue",
       inputType: options.inputType || "text",
+      previousFocus,
       resolve,
     });
     emit();
@@ -89,6 +99,7 @@ function focusable(container: HTMLElement) {
 
 export function useDialogFocus<T extends HTMLElement>(
   onClose: () => void,
+  restoreFocus?: HTMLElement | null,
 ): {
   dialogRef: RefObject<T | null>;
   onDialogKeyDown: (event: KeyboardEvent<T>) => void;
@@ -99,7 +110,7 @@ export function useDialogFocus<T extends HTMLElement>(
     closeRef.current = onClose;
   }, [onClose]);
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
+    const previous = restoreFocus || (document.activeElement as HTMLElement | null);
     const dialog = dialogRef.current;
     if (dialog && !dialog.contains(document.activeElement)) {
       const target =
@@ -118,7 +129,7 @@ export function useDialogFocus<T extends HTMLElement>(
       document.removeEventListener("keydown", escape);
       if (previous?.isConnected) previous.focus();
     };
-  }, []);
+  }, [restoreFocus]);
   function onDialogKeyDown(event: KeyboardEvent<T>) {
     if (event.key !== "Tab" || !dialogRef.current) return;
     const controls = focusable(dialogRef.current);
@@ -150,6 +161,16 @@ export function AccessibleDialogHost() {
       listeners.delete(listener);
     };
   }, []);
+  useEffect(() => {
+    const app = document.querySelector<HTMLElement>(".app-shell");
+    if (!request || !app) return;
+    const previous = app.getAttribute("aria-hidden");
+    app.setAttribute("aria-hidden", "true");
+    return () => {
+      if (previous === null) app.removeAttribute("aria-hidden");
+      else app.setAttribute("aria-hidden", previous);
+    };
+  }, [request]);
   function settle(value: boolean | string | null) {
     const current = queue.shift();
     if (!current) return;
@@ -168,9 +189,19 @@ function QueuedDialog({
   request: DialogRequest;
   settle: (value: boolean | string | null) => void;
 }) {
-  const { dialogRef, onDialogKeyDown } = useDialogFocus<HTMLDivElement>(() =>
-    settle(request.kind === "confirm" ? false : null),
+  const { dialogRef, onDialogKeyDown } = useDialogFocus<HTMLDivElement>(
+    () => settle(request.kind === "confirm" ? false : null),
+    request.previousFocus,
   );
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      settle(request.kind === "confirm" ? false : null);
+      return;
+    }
+    onDialogKeyDown(event);
+  }
   const titleId = "lessoncue-action-dialog-title";
   const descriptionId = "lessoncue-action-dialog-description";
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -191,7 +222,7 @@ function QueuedDialog({
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
         tabIndex={-1}
-        onKeyDown={onDialogKeyDown}
+        onKeyDown={handleKeyDown}
       >
         <form onSubmit={submit} className="stack">
           <div className="modal-title">

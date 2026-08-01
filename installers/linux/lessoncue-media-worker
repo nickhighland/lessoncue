@@ -7,6 +7,7 @@ memory_bytes=2147483648
 file_bytes=21474836480
 processes=32
 write_roots=()
+skip_sandbox="${LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX:-0}"
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -33,7 +34,11 @@ if [[ ! "${timeout_seconds}" =~ ^[1-9][0-9]{0,5}$ ]] ||
   echo "LessonCue worker limits are invalid." >&2
   exit 64
 fi
-if ! command -v bwrap >/dev/null 2>&1; then
+if [[ "${skip_sandbox}" != 0 && "${skip_sandbox}" != 1 ]]; then
+  echo "LessonCue worker sandbox override is invalid." >&2
+  exit 64
+fi
+if [[ "${skip_sandbox}" == 0 ]] && ! command -v bwrap >/dev/null 2>&1; then
   echo "The required LessonCue media sandbox is unavailable. Install bubblewrap and run the current LessonCue installer." >&2
   exit 78
 fi
@@ -100,19 +105,21 @@ else
 fi
 
 first_write=
-for root in "${write_roots[@]}"; do
-  canonical="$(readlink -f "${root}")"
-  case "${canonical}" in
-    "${data_path}"/*|/tmp/lessoncue-*) ;;
-    *) echo "LessonCue refused an unsafe media-worker write path." >&2; exit 64 ;;
-  esac
-  if [[ ! -d "${canonical}" ]]; then
-    echo "LessonCue media-worker write path does not exist." >&2
-    exit 64
-  fi
-  sandbox+=(--bind "${canonical}" "${canonical}")
-  if [[ -z "${first_write}" ]]; then first_write="${canonical}"; fi
-done
+if ((${#write_roots[@]} > 0)); then
+  for root in "${write_roots[@]}"; do
+    canonical="$(readlink -f "${root}")"
+    case "${canonical}" in
+      "${data_path}"/*|/tmp/lessoncue-*) ;;
+      *) echo "LessonCue refused an unsafe media-worker write path." >&2; exit 64 ;;
+    esac
+    if [[ ! -d "${canonical}" ]]; then
+      echo "LessonCue media-worker write path does not exist." >&2
+      exit 64
+    fi
+    sandbox+=(--bind "${canonical}" "${canonical}")
+    if [[ -z "${first_write}" ]]; then first_write="${canonical}"; fi
+  done
+fi
 
 if [[ -n "${first_write}" ]]; then
   sandbox+=(--setenv HOME "${first_write}" --setenv XDG_CACHE_HOME "${first_write}" --chdir "${first_write}")
@@ -120,13 +127,23 @@ else
   sandbox+=(--setenv HOME /tmp --setenv XDG_CACHE_HOME /tmp --chdir /tmp)
 fi
 
-exec "${sandbox[@]}" -- \
-  /usr/bin/timeout --signal=TERM --kill-after=10s "${timeout_seconds}s" \
-  /usr/bin/prlimit \
-    "--cpu=${timeout_seconds}" \
-    "--as=${memory_bytes}" \
-    "--fsize=${file_bytes}" \
-    "--nproc=${processes}" \
-    --nofile=256 \
-    -- \
-    "$@"
+worker=(
+  /usr/bin/timeout --signal=TERM --kill-after=10s "${timeout_seconds}s"
+  /usr/bin/prlimit
+  "--cpu=${timeout_seconds}"
+  "--as=${memory_bytes}"
+  "--fsize=${file_bytes}"
+  --nofile=256
+)
+if [[ "${skip_sandbox}" == 1 ]]; then
+  # GitHub-hosted runners reject the user-namespace UID map required by
+  # Bubblewrap. Browser CI uses this explicit disposable fallback while the
+  # production service and the dedicated Linux worker job keep full sandboxing.
+  # Do not apply the per-user process limit here: unlike the isolated
+  # Bubblewrap user namespace, the disposable fallback shares the runner's
+  # process table with Playwright and the server itself.
+  worker+=(-- "$@")
+  exec "${worker[@]}"
+fi
+worker+=("--nproc=${processes}" -- "$@")
+exec "${sandbox[@]}" -- "${worker[@]}"

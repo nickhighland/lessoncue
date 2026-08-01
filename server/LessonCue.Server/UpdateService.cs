@@ -9,6 +9,7 @@ public sealed record LessonCueUpdateStatus(
     bool UpdateAvailable,
     DateTimeOffset? LastCheckedAt,
     string? ReleaseUrl,
+    string? ReleaseNotes,
     string? Error,
     bool AutomaticInstallSupported,
     bool Installing,
@@ -69,12 +70,16 @@ public sealed class UpdateService(
                 var tag = root.GetProperty("tag_name").GetString();
                 var latest = tag?.TrimStart('v', 'V');
                 var releaseUrl = root.TryGetProperty("html_url", out var url) ? url.GetString() : null;
+                var releaseNotes = root.TryGetProperty("body", out var body)
+                    ? UserReleaseNotes(body.GetString())
+                    : null;
                 _status = _status with
                 {
                     LatestVersion = latest,
                     UpdateAvailable = IsNewer(latest, _status.CurrentVersion),
                     LastCheckedAt = DateTimeOffset.UtcNow,
                     ReleaseUrl = releaseUrl,
+                    ReleaseNotes = string.IsNullOrWhiteSpace(releaseNotes) ? null : releaseNotes,
                     Error = null,
                     AutomaticInstallSupported = AutomaticInstallSupported(),
                     RollbackSnapshotAvailable = RollbackSnapshotAvailable()
@@ -115,6 +120,21 @@ public sealed class UpdateService(
         ?? typeof(UpdateService).Assembly.GetName().Version?.ToString(3)
         ?? "0.0.0";
 
+    private static string? UserReleaseNotes(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return null;
+
+        const string heading = "### User changes";
+        var start = body.IndexOf(heading, StringComparison.OrdinalIgnoreCase);
+        if (start < 0) return body.Trim();
+
+        start += heading.Length;
+        while (start < body.Length && char.IsWhiteSpace(body[start])) start++;
+        var end = body.IndexOf("\n### ", start, StringComparison.OrdinalIgnoreCase);
+        var notes = (end >= 0 ? body[start..end] : body[start..]).Trim();
+        return string.IsNullOrWhiteSpace(notes) ? null : notes;
+    }
+
     private const string UpdateRequestPath = "/var/lib/lessoncue/config/update-request";
     private const string UpdateResultPath = "/var/lib/lessoncue/config/update-result.json";
     private const string RollbackSnapshotPath = "/var/lib/lessoncue/update-rollback";
@@ -134,7 +154,7 @@ public sealed class UpdateService(
     {
         var result = ReadInstallResult();
         return new LessonCueUpdateStatus(
-            InstalledVersion(), null, false, null, null,
+            InstalledVersion(), null, false, null, null, null,
             result is { Success: false } ? result.Message : null,
             AutomaticInstallSupported(), false,
             result?.Success, result?.CompletedAt, result?.Version, result?.Message,
