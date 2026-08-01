@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Threading.RateLimiting;
 using LessonCue.Server;
@@ -332,6 +333,35 @@ app.Use(async (context, next) =>
     await next();
 });
 app.UseAuthorization();
+app.Use(async (context, next) =>
+{
+    var started = Stopwatch.GetTimestamp();
+    Exception? failure = null;
+    try
+    {
+        await next();
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+        failure = ex;
+        app.Logger.LogError(ex,
+            "HTTP request failed. {Method} {Path} returned an exception. Trace {TraceId}; user {User}",
+            context.Request.Method, context.Request.Path, context.TraceIdentifier,
+            context.User.Identity?.Name ?? "anonymous");
+        throw;
+    }
+    finally
+    {
+        var elapsedMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        if (failure is null && context.Response.StatusCode >= StatusCodes.Status400BadRequest)
+        {
+            app.Logger.LogWarning(
+                "HTTP request returned a failure status. {Method} {Path} returned {StatusCode} in {ElapsedMs:0.0} ms. Trace {TraceId}; user {User}",
+                context.Request.Method, context.Request.Path, context.Response.StatusCode, elapsedMs,
+                context.TraceIdentifier, context.User.Identity?.Name ?? "anonymous");
+        }
+    }
+});
 
 var serverId = ServerIdentity.LoadOrCreate(dataPath);
 try
