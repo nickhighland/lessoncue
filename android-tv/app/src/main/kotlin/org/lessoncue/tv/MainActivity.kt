@@ -41,6 +41,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -55,6 +56,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -639,12 +641,14 @@ private fun SignageZoneLayout(signage: SignageCue) {
                     "bottom" -> Arrangement.Bottom
                     else -> Arrangement.Center
                 }
+                val contentPadding = maxWidth * (zone.width / 100f) *
+                    (zone.contentPadding.coerceIn(0, 30) / 100f)
                 Column(Modifier.fillMaxSize()
                     .graphicsLayer {
                         scaleX = zone.contentScale.coerceIn(25, 100) / 100f
                         scaleY = zone.contentScale.coerceIn(25, 100) / 100f
                     }
-                    .padding(maxWidth * (zone.width / 100f) * (zone.contentPadding.coerceIn(0, 30) / 100f)),
+                    .padding(contentPadding),
                     verticalArrangement = arrangement) {
                     zone.title?.takeIf { zone.type !in signageNonTextZoneTypes }?.let { Text(it.uppercase(), color = parseDisplayColor(zone.accentColor), fontSize = 14.sp, letterSpacing = 2.sp) }
                     if (zone.type == "clock") {

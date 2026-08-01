@@ -16,10 +16,10 @@ install -d -o root -g root -m 0755 /usr/local/libexec
 install -o root -g root -m 0755 \
   "${repository}/installers/linux/lessoncue-media-worker" \
   /usr/local/libexec/lessoncue-media-worker
-install -d -o root -g lessoncue -m 0750 \
+install -d -o root -g lessoncue -m 0755 \
   /var/lib/lessoncue \
   /var/lib/lessoncue/media
-install -d -o lessoncue -g lessoncue -m 0750 \
+install -d -o lessoncue -g lessoncue -m 0755 \
   /var/lib/lessoncue/media/temporary \
   /var/lib/lessoncue/media/temporary/test
 printf 'trusted input\n' > /var/lib/lessoncue/input
