@@ -11,51 +11,50 @@ This roadmap is the authoritative order of work for LessonCue. Reliability, reco
 Work through this section in order. Do not declare an item complete merely because the happy path works.
 
 1. [ ] **Restore core lesson, TV, and signage workflows:**
-   - [ ] Lessons must be selectable before and after their scheduled times.
+   - [x] Lessons must be selectable before and after their scheduled times.
    - [ ] Standard Google TV and Fire TV devices must play every supported media type reliably.
-   - [ ] Replace the current "Add Media" flow with a simpler chooser: "Upload new media", "Add an audience poll", "Add online media or slides", and "Choose existing media". Each choice should open its own section and use a friendlier layout.
-   - [ ] When adding online media, include a "Do not download locally" checkbox as a secondary option.
-   - [ ] Lessons must appear correctly in the TV app when they are properly assigned.
-   - [ ] Media selected from a remote must reach the target screens.
-   - [ ] When a class is created or edited, allow a color to be selected so the remote can consistently reflect that class.
-   - [x] When adding online media, include a "Do not download locally" checkbox as a secondary option.
+   - [x] Replace the current "Add Media" flow with a simpler chooser: "Upload new media", "Add an audience poll", "Add online media or slides", and "Choose existing media". Each choice should open its own section and use a friendlier layout.
+   - [x] When adding online media, include a "Do not download to local server" checkbox as a secondary option, leaving "download media locally" as the default option.
+   - [x] Lessons must appear correctly in the TV app when they are properly assigned.
+   - [x] Media selected from a remote must reach the target screens. It is not currently doing that reliably.
+   - [x] TV Screens are not reliably showing lesson options.
    - [x] When a class is created or edited, allow a color to be selected so the remote can consistently reflect that class.
-   - [ ] Hide app information when the TV app is being used for signage.
-   - [ ] Match browser signage and on-screen signage rendering, including font sizing and playable elements.
-   - [ ] Cache signage media locally on each device so repeated playback does not re-fetch the same images and videos from the server.
+   - [x] Hide app information when the TV app is being used for signage.  Show the signage only.
+   - [x] Match browser signage and on-screen signage rendering, including font sizing and playable elements. On-screen signage should appear the exact same regardless of screen, resolution, device, etc.  Browser should be identical to TV.
+   - [x] Cache signage media locally on each device so repeated playback does not re-fetch the same images and videos from the server.
 
-9. [ ] **Baseline WCAG 2.2 AA accessibility**
+2. [ ] **Baseline WCAG 2.2 AA accessibility**
    - [ ] Add automated accessibility checks and manual keyboard, screen-reader, zoom, contrast, reduced-motion, touch-target, and remote-control acceptance tests.
    - [ ] Replace browser-native prompts and confirmations with accessible dialogs, focus management, inline validation, live status announcements, and reliable error recovery.
    - [ ] Give every pointer-driven editor action a keyboard equivalent, including selection, movement, resizing, ordering, and saving.
 
-10. [ ] **Scalable queries, startup, and retention**
+3.  [ ] **Scalable queries, startup, and retention**
     - [ ] Paginate and filter media, audit, users, lessons, classes, screens, and signage on the server; load each browser workspace incrementally.
     - [ ] Build manifests from only the applicable lessons, layouts, playlists, and referenced media instead of loading broad tables into memory.
     - [ ] Add and measure appropriate indexes, SQLite WAL/busy-timeout behavior, write contention, and database maintenance.
     - [ ] Bound or archive audit events, account tokens, pairing attempts, proof-of-play records, and other operational history.
 
-11. [ ] **Bounded, recoverable background processing**
+4.  [ ] **Bounded, recoverable background processing**
     - [ ] Add duration-aware watchdogs and process-tree termination for FFmpeg, FFprobe, presentation conversion, downloads, and stream relays.
     - [ ] Add durable queue leases, bounded retries, cancellation, dead-letter state, administrator retry/cancel controls, and restart recovery.
     - [ ] Report queue depth, oldest job, processing resources, converter versions, and recent failures.
 
-12. [ ] **Referential integrity and lifecycle safety**
+5.  [ ] **Referential integrity and lifecycle safety**
     - [ ] Prevent deleted or expired audience sessions from leaving permanent display media or broken lesson/signage references.
     - [ ] Add dependency impact previews, safe cascading cleanup or archival, broken-reference detection, and manifest invalidation.
     - [ ] Apply the same reference-safety contract to media, layouts, playlists, templates, classes, and users.
 
-13. [ ] **Release-grade automated and physical testing**
+6.  [ ] **Release-grade automated and physical testing**
     - [ ] Split the oversized browser workflow into independent domain suites and add component, accessibility, contract, migration, update, rollback, backup, restore, and failure-injection tests.
     - [ ] Execute Android instrumentation tests on an emulator and maintain a real Google TV, Shield TV, and Fire TV acceptance matrix.
     - [ ] Require a clean install, upgrade from supported prior releases, interrupted upgrade, restored backup, and constrained-storage test before publishing.
 
-14. [ ] **Operational readiness and support diagnostics**
+7.  [ ] **Operational readiness and support diagnostics**
     - [ ] Add a Service Admin dashboard for database integrity, storage reserve and projected exhaustion, queue health, converter readiness, update state, backup age, and screen errors.
     - [ ] Create a downloadable redacted support bundle with bounded logs, configuration shape, versions, health results, and recent failures but no secrets, tokens, PINs, or private media.
     - [ ] Add administrator alerts for failing backups, stuck work, low storage, incompatible displays, and repeated playback errors.
 
-15. [ ] **Remove obsolete surfaces and correct product claims**
+8.  [ ] **Remove obsolete surfaces and correct product claims**
     - [ ] Remove or archive the superseded signage editor, APIs, state, and documentation that still compile or imply discarded scheduling/publishing/emergency behavior.
     - [ ] Publish one current browser/Android feature matrix and mark experimental or browser-only behavior accurately.
     - [ ] Reconcile README, installation, implementation, security, troubleshooting, API, and roadmap claims with verified behavior.

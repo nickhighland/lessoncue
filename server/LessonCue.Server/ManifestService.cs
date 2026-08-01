@@ -22,7 +22,7 @@ public sealed class ManifestService(LessonCueDb db)
             lessonsQuery = lessonsQuery.Where(x => x.ClassId == classId);
 
         var lessons = (await lessonsQuery.Where(x => !x.Archived).OrderBy(x => x.Date).ToListAsync(cancellationToken))
-            .Where(x => (x.AvailableFrom is null || x.AvailableFrom <= now) && (x.ExpiresAt is null || x.ExpiresAt >= now)).ToList();
+            .ToList();
         var signage = organization?.SignageEnabled == true
             ? await db.SignagePlaylists.AsNoTracking().Include(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants)
                 .Where(x => x.Enabled && x.Mode == "sign").ToListAsync(cancellationToken)

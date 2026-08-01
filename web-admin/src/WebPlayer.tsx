@@ -1,7 +1,7 @@
 import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 
-const APP_VERSION = "0.40.2";
+const APP_VERSION = "0.40.4";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -1449,7 +1449,19 @@ function useDurableSignageCache(
   }, [identity?.screenId, signature]);
 }
 
-function signageMediaItems(signage: Signage) { return [signage.media, ...(signage.zones || []).map(zone => zone.media)].filter((item): item is CueItem => Boolean(item)); }
+function signageMediaItems(signage: Signage): CueItem[] {
+  const items: Array<CueItem | null | undefined> = [
+    signage.media,
+    signage.backgroundAudio,
+    ...(signage.zones || []).map(zone => zone.media),
+    ...(signage.contentPlaylist?.items || []).flatMap(entry => [
+      entry.media,
+      entry.layout?.backgroundAudio,
+      ...(entry.layout?.zones || []).map(zone => zone.media),
+    ]),
+  ];
+  return items.filter((item): item is CueItem => Boolean(item));
+}
 
 function readIdentity(): Identity | null {
   try {

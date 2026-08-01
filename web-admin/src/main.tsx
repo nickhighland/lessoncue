@@ -3609,6 +3609,7 @@ function LessonEditor({
   storage?: StorageStatus;
 }) {
   const [showAdd, setShowAdd] = useState(false);
+  const [addMode, setAddMode] = useState<"chooser" | "upload" | "poll" | "online" | "existing">("chooser");
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadControl, setUploadControl] = useState<MediaUploadControl>();
@@ -4104,333 +4105,199 @@ function LessonEditor({
       </section>
       {showAdd && canUpload && (
         <Modal
-          title="Add media to the lesson"
-          onClose={() => !uploading && setShowAdd(false)}
+          title={addMode === "chooser" ? "Add media to the lesson" : addMode === "upload" ? "Upload new media" : addMode === "poll" ? "Add an audience poll" : addMode === "online" ? "Add online media or slides" : "Choose existing media"}
+          onClose={() => { if (!uploading) { setShowAdd(false); setAddMode("chooser"); } }}
         >
-          <div className="add-media-options">
-            <section>
-              <h3>Upload from this computer</h3>
-              <p>
-                Select one file or add a complete group in order without leaving
-                this lesson. Presentations are converted locally and their
-                slides appear automatically.{" "}
-                {storage &&
-                  `${formatBytes(storage.remainingBytes)} remains available.`}
-              </p>
-              <form className="stack" onSubmit={uploadAndAdd}>
-                <Field
-                  label="Media files"
-                  hint="Supports video, audio, images, PDF, PowerPoint, OpenDocument, Keynote, and Word."
-                >
-                  <input
-                    name="files"
-                    type="file"
-                    multiple
-                    accept="video/*,audio/*,image/*,.pdf,.ppt,.pptx,.pps,.ppsx,.pot,.potx,.odp,.key,.doc,.docx"
-                    required
-                    disabled={uploading}
-                  />
-                </Field>
-                <RetentionChoices lessonDate={lesson.date} />
-                <TaxonomyFields taxonomy={taxonomy} />
-                <div className="two-fields">
-                  <Field label="Playlist role">
-                    <select name="role">
-                      <option value="lesson">Main lesson</option>
-                      <option value="preRoll">Pre-roll loop</option>
-                      <option value="countdown">
-                        Countdown video (one file)
-                      </option>
-                    </select>
-                  </Field>
-                  <Field
-                    label="Display title"
-                    hint="Used only when one non-presentation file is selected."
-                  >
-                    <input name="title" placeholder="Use filename" />
-                  </Field>
-                </div>
-                <Field
-                  label="Seconds per imported slide"
-                  hint="Used only for presentation files."
-                >
-                  <input
-                    name="slideSeconds"
-                    type="number"
-                    min="1"
-                    max="3600"
-                    defaultValue="10"
-                  />
-                </Field>
-                <button
-                  type="submit"
-                  className="button primary"
-                  disabled={uploading}
-                >
-                  {uploading
-                    ? `Uploading ${uploadProgress}%`
-                    : "Upload and add"}
+          {addMode === "chooser" ? (
+            <div className="add-media-chooser">
+              <button className="add-media-choice" onClick={() => setAddMode("upload")}>
+                <strong>Upload new media</strong>
+                <span>Select files from this computer. Presentations are converted locally.</span>
+              </button>
+              <button className="add-media-choice" onClick={() => setAddMode("poll")}>
+                <strong>Add an audience poll</strong>
+                <span>Show a voting QR code and live poll state as a lesson cue.</span>
+              </button>
+              <button className="add-media-choice" onClick={() => setAddMode("online")}>
+                <strong>Add online media or slides</strong>
+                <span>Play or download YouTube, show a webpage, or import Google Slides.</span>
+              </button>
+              {playableMedia.length > 0 && (
+                <button className="add-media-choice" onClick={() => setAddMode("existing")}>
+                  <strong>Choose existing media</strong>
+                  <span>Add media already in your library to this lesson.</span>
                 </button>
-                {uploading && uploadControl && (
-                  <div className="button-row upload-controls">
-                    <button
-                      type="button"
-                      className="button"
-                      onClick={async () => {
-                        if (uploadPaused) {
-                          await uploadControl.resume();
-                          setUploadPaused(false);
-                        } else {
-                          await uploadControl.pause();
-                          setUploadPaused(true);
-                        }
-                      }}
-                    >
-                      {uploadPaused ? "Resume upload" : "Pause upload"}
-                    </button>
-                    <button
-                      type="button"
-                      className="button danger"
-                      onClick={() => void uploadControl.cancel()}
-                    >
-                      Cancel upload
-                    </button>
-                  </div>
-                )}
-                {uploadPaused && (
-                  <div className="alert">
-                    Upload paused. Received chunks and reserved storage are kept
-                    for 24 hours.
-                  </div>
-                )}
-              </form>
-            </section>
-            <section className="online-choice audience-lesson-choice">
-              <h3>Add an audience poll</h3>
-              <p>
-                Show a voting QR code and live poll state as a cue in this
-                lesson. Open and manage responses from Audience.
-              </p>
-              {audiencePolls.length ? (
-                <form className="stack" onSubmit={addAudiencePoll}>
-                  <Field label="Audience poll">
-                    <select name="audienceSessionId" required>
-                      {audiencePolls.map((poll) => (
-                        <option key={poll.id} value={poll.id}>
-                          {poll.title} · {poll.status} · {poll.code}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <div className="two-fields">
-                    <Field label="Display title">
-                      <input name="title" placeholder="Use poll title" />
-                    </Field>
-                    <Field
-                      label="Planned duration"
-                      hint="The cue can still be advanced manually."
-                    >
-                      <input
-                        name="durationSeconds"
-                        type="number"
-                        min="5"
-                        max="3600"
-                        defaultValue="60"
-                      />
-                    </Field>
-                  </div>
-                  <div className="two-fields">
-                    <Field label="Results on screen">
-                      <label className="check-line">
-                        <input name="showResults" type="checkbox" defaultChecked />
-                        Show results when the poll permits them
-                      </label>
-                    </Field>
-                    <Field
-                      label="Result timing"
-                      hint="The delay is not identified on the displayed poll."
-                    >
-                      <select name="resultDelaySeconds" defaultValue="0">
-                        <option value="0">Real time</option>
-                        <option value="15">15-second delay</option>
-                        <option value="30">30-second delay</option>
-                        <option value="60">1-minute delay</option>
-                        <option value="120">2-minute delay</option>
-                        <option value="300">5-minute delay</option>
-                      </select>
-                    </Field>
-                  </div>
-                  <button className="button primary" disabled={uploading}>
-                    {uploading ? "Adding…" : "Add audience poll"}
-                  </button>
-                </form>
-              ) : (
-                <p className="field-help">
-                  Create an audience poll first, then return here to add it.
-                </p>
               )}
-            </section>
-            <section className="online-choice">
-              <h3>Add online media or slides</h3>
-              <p>
-                Show a webpage, play or download YouTube, or import a shared
-                Google Slides deck as local slide images.
-              </p>
-              <form className="stack" onSubmit={addOnline}>
-                <Field
-                  label={
-                    onlineMode === "slides"
-                      ? "Google Slides share URL"
-                      : "Webpage or YouTube URL"
-                  }
-                  hint={
-                    onlineMode === "slides"
-                      ? "Share the deck so anyone with the link can view it."
-                      : undefined
-                  }
-                >
-                  <input
-                    name="url"
-                    type="url"
-                    required
-                    placeholder="https://…"
-                    disabled={uploading}
-                  />
-                </Field>
-                <fieldset className="retention-options">
-                  <legend>How should LessonCue use it?</legend>
-                  <label>
-                    <input
-                      type="radio"
-                      checked={onlineMode === "online"}
-                      onChange={() => setOnlineMode("online")}
-                    />
-                    <span>
-                      <strong>Play online</strong>
-                      <small>
-                        YouTube uses an embedded player; other URLs display as
-                        webpages.
-                      </small>
-                    </span>
-                  </label>
-                  <label>
-                    <input
-                      type="radio"
-                      checked={onlineMode === "download"}
-                      onChange={() => setOnlineMode("download")}
-                    />
-                    <span>
-                      <strong>Download YouTube locally</strong>
-                      <small>
-                        Use only for video you are authorized to copy.
-                        Processing continues in the background.
-                      </small>
-                    </span>
-                  </label>
-                  <label>
-                    <input
-                      type="radio"
-                      checked={onlineMode === "slides"}
-                      onChange={() => setOnlineMode("slides")}
-                    />
-                    <span>
-                      <strong>Import Google Slides</strong>
-                      <small>
-                        Download a PDF copy and add converted slides
-                        automatically.
-                      </small>
-                    </span>
-                  </label>
-                </fieldset>
-                {onlineMode !== "online" && (
-                  <RetentionChoices lessonDate={lesson.date} />
-                )}
-                {onlineMode !== "slides" && (
-                  <label>
-                    <input type="checkbox" name="doNotDownload" />
-                    <span>
-                      <strong>Do not download locally</strong>
-                      <small>Keep this entry online-only (metadata only).</small>
-                    </span>
-                  </label>
-                )}
-                <TaxonomyFields taxonomy={taxonomy} />
-                <div className="two-fields">
-                  {onlineMode === "download" && (
-                    <Field label="Playlist role">
-                      <select name="role">
-                        <option value="lesson">Main lesson</option>
-                        <option value="preRoll">Pre-roll loop</option>
-                        <option value="countdown">Countdown video</option>
-                      </select>
-                    </Field>
-                  )}
-                  <Field label="Display title">
-                    <input
-                      name="title"
-                      maxLength={240}
-                      placeholder={
-                        onlineMode === "download"
-                          ? "YouTube video"
-                          : onlineMode === "slides"
-                            ? "Presentation title"
-                            : "Use website name"
-                      }
-                    />
-                  </Field>
-                  {onlineMode === "slides" && (
-                    <Field label="Seconds per slide">
+            </div>
+          ) : (
+            <div className="add-media-options">
+              <button className="add-media-back" onClick={() => setAddMode("chooser")} disabled={uploading}>
+                ← Back to media choices
+              </button>
+              {addMode === "upload" && (
+                <section>
+                  <h3>Upload from this computer</h3>
+                  <p>
+                    Select one file or add a complete group in order without leaving
+                    this lesson. Presentations are converted locally and their
+                    slides appear automatically.{" "}
+                    {storage &&
+                      `${formatBytes(storage.remainingBytes)} remains available.`}
+                  </p>
+                  <form className="stack" onSubmit={uploadAndAdd}>
+                    <Field
+                      label="Media files"
+                      hint="Supports video, audio, images, PDF, PowerPoint, OpenDocument, Keynote, and Word."
+                    >
                       <input
-                        name="slideSeconds"
-                        type="number"
-                        min="1"
-                        max="3600"
-                        defaultValue="10"
+                        name="files"
+                        type="file"
+                        multiple
+                        accept="video/*,audio/*,image/*,.pdf,.ppt,.pptx,.pps,.ppsx,.pot,.potx,.odp,.key,.doc,.docx"
+                        required
+                        disabled={uploading}
                       />
                     </Field>
+                    <RetentionChoices lessonDate={lesson.date} />
+                    <TaxonomyFields taxonomy={taxonomy} />
+                    <div className="two-fields">
+                      <Field label="Playlist role">
+                        <select name="role">
+                          <option value="lesson">Main lesson</option>
+                          <option value="preRoll">Pre-roll loop</option>
+                          <option value="countdown">Countdown video (one file)</option>
+                        </select>
+                      </Field>
+                      <Field label="Display title" hint="Used only when one non-presentation file is selected.">
+                        <input name="title" placeholder="Use filename" />
+                      </Field>
+                    </div>
+                    <Field label="Seconds per imported slide" hint="Used only for presentation files.">
+                      <input name="slideSeconds" type="number" min="1" max="3600" defaultValue="10" />
+                    </Field>
+                    <button type="submit" className="button primary" disabled={uploading}>
+                      {uploading ? `Uploading ${uploadProgress}%` : "Upload and add"}
+                    </button>
+                    {uploading && uploadControl && (
+                      <div className="button-row upload-controls">
+                        <button type="button" className="button" onClick={async () => {
+                          if (uploadPaused) { await uploadControl.resume(); setUploadPaused(false); }
+                          else { await uploadControl.pause(); setUploadPaused(true); }
+                        }}>{uploadPaused ? "Resume upload" : "Pause upload"}</button>
+                        <button type="button" className="button danger" onClick={() => void uploadControl.cancel()}>Cancel upload</button>
+                      </div>
+                    )}
+                    {uploadPaused && (
+                      <div className="alert">Upload paused. Received chunks and reserved storage are kept for 24 hours.</div>
+                    )}
+                  </form>
+                </section>
+              )}
+              {addMode === "poll" && (
+                <section>
+                  <h3>Add an audience poll</h3>
+                  <p>Show a voting QR code and live poll state as a cue in this lesson. Open and manage responses from Audience.</p>
+                  {audiencePolls.length ? (
+                    <form className="stack" onSubmit={addAudiencePoll}>
+                      <Field label="Audience poll">
+                        <select name="audienceSessionId" required>
+                          {audiencePolls.map((poll) => (
+                            <option key={poll.id} value={poll.id}>{poll.title} · {poll.status} · {poll.code}</option>
+                          ))}
+                        </select>
+                      </Field>
+                      <div className="two-fields">
+                        <Field label="Display title"><input name="title" placeholder="Use poll title" /></Field>
+                        <Field label="Planned duration" hint="The cue can still be advanced manually.">
+                          <input name="durationSeconds" type="number" min="5" max="3600" defaultValue="60" />
+                        </Field>
+                      </div>
+                      <div className="two-fields">
+                        <Field label="Results on screen">
+                          <label className="check-line"><input name="showResults" type="checkbox" defaultChecked />Show results when the poll permits them</label>
+                        </Field>
+                        <Field label="Result timing" hint="The delay is not identified on the displayed poll.">
+                          <select name="resultDelaySeconds" defaultValue="0">
+                            <option value="0">Real time</option>
+                            <option value="15">15-second delay</option>
+                            <option value="30">30-second delay</option>
+                            <option value="60">1-minute delay</option>
+                            <option value="120">2-minute delay</option>
+                            <option value="300">5-minute delay</option>
+                          </select>
+                        </Field>
+                      </div>
+                      <button className="button primary" disabled={uploading}>
+                        {uploading ? "Adding…" : "Add audience poll"}
+                      </button>
+                    </form>
+                  ) : (
+                    <p className="field-help">Create an audience poll first, then return here to add it.</p>
                   )}
-                </div>
-                <button className="button primary" disabled={uploading}>
-                  {uploading
-                    ? "Adding…"
-                    : onlineMode === "download"
-                      ? "Queue download and add"
-                      : onlineMode === "slides"
-                        ? "Import slides and add"
-                        : "Add online media"}
-                </button>
-              </form>
-            </section>
-            {playableMedia.length > 0 && (
-              <section className="library-choice">
-                <h3>Choose existing media</h3>
-                <form className="stack" onSubmit={addItem}>
-                  <Field label="Ready media">
-                    <select name="mediaId" required>
-                      {playableMedia.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.fileName}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <div className="two-fields">
-                    <Field label="Playlist role">
-                      <select name="role">
-                        <option value="lesson">Main lesson</option>
-                        <option value="preRoll">Pre-roll loop</option>
-                        <option value="countdown">Countdown video</option>
+                </section>
+              )}
+              {addMode === "online" && (
+                <section>
+                  <h3>Add online media or slides</h3>
+                  <p>Show a webpage, play or download YouTube, or import a shared Google Slides deck as local slide images.</p>
+                  <form className="stack" onSubmit={addOnline}>
+                    <Field label={onlineMode === "slides" ? "Google Slides share URL" : "Webpage or YouTube URL"}
+                      hint={onlineMode === "slides" ? "Share the deck so anyone with the link can view it." : undefined}>
+                      <input name="url" type="url" required placeholder="https://…" disabled={uploading} />
+                    </Field>
+                    <fieldset className="retention-options">
+                      <legend>How should LessonCue use it?</legend>
+                      <label><input type="radio" checked={onlineMode === "online"} onChange={() => setOnlineMode("online")} />
+                        <span><strong>Play online</strong><small>YouTube uses an embedded player; other URLs display as webpages.</small></span></label>
+                      <label><input type="radio" checked={onlineMode === "download"} onChange={() => setOnlineMode("download")} />
+                        <span><strong>Download YouTube locally</strong><small>Use only for video you are authorized to copy. Processing continues in the background.</small></span></label>
+                      <label><input type="radio" checked={onlineMode === "slides"} onChange={() => setOnlineMode("slides")} />
+                        <span><strong>Import Google Slides</strong><small>Download a PDF copy and add converted slides automatically.</small></span></label>
+                    </fieldset>
+                    {onlineMode !== "online" && <RetentionChoices lessonDate={lesson.date} />}
+                    {onlineMode !== "slides" && (
+                      <label><input type="checkbox" name="doNotDownload" />
+                        <span><strong>Do not download locally</strong><small>Keep this entry online-only (metadata only).</small></span></label>
+                    )}
+                    <TaxonomyFields taxonomy={taxonomy} />
+                    <div className="two-fields">
+                      {onlineMode === "download" && (
+                        <Field label="Playlist role">
+                          <select name="role"><option value="lesson">Main lesson</option><option value="preRoll">Pre-roll loop</option><option value="countdown">Countdown video</option></select>
+                        </Field>
+                      )}
+                      <Field label="Display title">
+                        <input name="title" maxLength={240} placeholder={onlineMode === "download" ? "YouTube video" : onlineMode === "slides" ? "Presentation title" : "Use website name"} />
+                      </Field>
+                      {onlineMode === "slides" && <Field label="Seconds per slide"><input name="slideSeconds" type="number" min="1" max="3600" defaultValue="10" /></Field>}
+                    </div>
+                    <button className="button primary" disabled={uploading}>
+                      {uploading ? "Adding…" : onlineMode === "download" ? "Queue download and add" : onlineMode === "slides" ? "Import slides and add" : "Add online media"}
+                    </button>
+                  </form>
+                </section>
+              )}
+              {addMode === "existing" && playableMedia.length > 0 && (
+                <section>
+                  <h3>Choose existing media</h3>
+                  <form className="stack" onSubmit={addItem}>
+                    <Field label="Ready media">
+                      <select name="mediaId" required>
+                        {playableMedia.map((m) => (<option key={m.id} value={m.id}>{m.fileName}</option>))}
                       </select>
                     </Field>
-                    <Field label="Display title">
-                      <input name="title" placeholder="Use media filename" />
-                    </Field>
-                  </div>
-                  <button className="button">Add existing media</button>
-                </form>
-              </section>
-            )}
+                    <div className="two-fields">
+                      <Field label="Playlist role">
+                        <select name="role"><option value="lesson">Main lesson</option><option value="preRoll">Pre-roll loop</option><option value="countdown">Countdown video</option></select>
+                      </Field>
+                      <Field label="Display title"><input name="title" placeholder="Use media filename" /></Field>
+                    </div>
+                    <button className="button">Add existing media</button>
+                  </form>
+                </section>
+              )}
           </div>
+          )}
         </Modal>
       )}
       {previewItem && (

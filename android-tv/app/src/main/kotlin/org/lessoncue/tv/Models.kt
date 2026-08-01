@@ -124,7 +124,8 @@ data class DisplayCompatibilityWarning(val code: String, val title: String, val 
 data class ScreenManifest(val version: Int, val screenName: String, val signage: List<SignageCue>,
     val playlists: List<LessonPlaylist>, val signageSchedule: List<SignageCue> = signage,
     val displayCapabilities: DisplayCapabilityContract? = null,
-    val compatibilityWarnings: List<DisplayCompatibilityWarning> = emptyList())
+    val compatibilityWarnings: List<DisplayCompatibilityWarning> = emptyList(),
+    val signageOnly: Boolean = false)
 
 data class ControlCommand(
     val changed: Boolean,
