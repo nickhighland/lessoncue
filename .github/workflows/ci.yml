@@ -66,6 +66,7 @@ jobs:
       - name: Exercise filesystem, network, and time isolation
         run: >-
           docker run --rm --privileged
+          --security-opt apparmor=unconfined
           -v "${PWD}:/workspace:ro"
           debian:trixie-slim
           bash /workspace/tests/linux-media-worker.sh /workspace
