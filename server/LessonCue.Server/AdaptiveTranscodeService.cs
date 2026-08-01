@@ -172,7 +172,9 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
         { variant.Status = "failed"; variant.Error = "The universal playback source is not ready."; await db.SaveChangesAsync(ct); return; }
         var sourceRoot = useCompatibility ? paths.Compatibility : paths.Originals;
         var source = Path.GetFullPath(Path.Combine(sourceRoot, useCompatibility ? media.CompatibilityPath! : media.RelativePath));
-        var work = Path.Combine(Path.GetTempPath(), $"lessoncue-transcode-{Guid.NewGuid():N}.mp4");
+        var workRoot = Path.Combine(Path.GetTempPath(), $"lessoncue-transcode-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workRoot);
+        var work = Path.Combine(workRoot, "output.mp4");
         variant.Status = "converting"; variant.StartedAt = DateTimeOffset.UtcNow; variant.Error = null;
         variant.TranscodeEngine = null;
         await db.SaveChangesAsync(ct);
@@ -213,7 +215,11 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
             variant.Status = "failed"; variant.Error = Concise(ex.Message); variant.CompletedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct); logger.LogWarning(ex, "Could not create {Profile} for {Media}", variant.Profile, media.FileName);
         }
-        finally { TryDelete(work); }
+        finally
+        {
+            TryDelete(work);
+            try { if (Directory.Exists(workRoot)) Directory.Delete(workRoot, true); } catch { }
+        }
     }
 
     private static string Escape(string value) => value.Replace("\"", "\\\"");
