@@ -2515,16 +2515,18 @@ public static class AdminApi
         {
             var failureFilter = failuresOnly == true;
             var safeLimit = Math.Clamp(limit ?? (failureFilter ? 10_000 : 500), 1, failureFilter ? 10_000 : 2_000);
-            var audit = await db.AuditEvents.AsNoTracking().OrderByDescending(x => x.Id).Take(safeLimit).ToListAsync(ct);
+            var auditQuery = db.AuditEvents.AsNoTracking();
             if (failureFilter)
             {
-                audit = audit.Where(item =>
-                    item.Result.Contains("fail", StringComparison.OrdinalIgnoreCase) ||
-                    item.Action.Contains("fail", StringComparison.OrdinalIgnoreCase) ||
-                    item.Action.Contains("error", StringComparison.OrdinalIgnoreCase) ||
-                    item.Summary?.Contains("fail", StringComparison.OrdinalIgnoreCase) == true ||
-                    item.Summary?.Contains("error", StringComparison.OrdinalIgnoreCase) == true).ToList();
+                auditQuery = auditQuery.Where(item =>
+                    EF.Functions.Like(item.Result, "%fail%") ||
+                    EF.Functions.Like(item.Result, "%error%") ||
+                    EF.Functions.Like(item.Action, "%fail%") ||
+                    EF.Functions.Like(item.Action, "%error%") ||
+                    item.Summary != null &&
+                    (EF.Functions.Like(item.Summary, "%fail%") || EF.Functions.Like(item.Summary, "%error%")));
             }
+            var audit = await auditQuery.OrderByDescending(x => x.Id).Take(safeLimit).ToListAsync(ct);
             return Results.Ok(new
             {
                 generatedAt = DateTimeOffset.UtcNow,
