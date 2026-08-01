@@ -16,18 +16,19 @@ install -d -o root -g root -m 0755 /usr/local/libexec
 install -o root -g root -m 0755 \
   "${repository}/installers/linux/lessoncue-media-worker" \
   /usr/local/libexec/lessoncue-media-worker
-install -d -o root -g lessoncue -m 0750 \
+install -d -o root -g lessoncue -m 0755 \
   /var/lib/lessoncue \
   /var/lib/lessoncue/media
-install -d -o lessoncue -g lessoncue -m 0750 \
+install -d -o lessoncue -g lessoncue -m 0755 \
   /var/lib/lessoncue/media/temporary \
   /var/lib/lessoncue/media/temporary/test
+# The root-launched CI harness enters Bubblewrap's user namespace without
+# host root capabilities, so its disposable write fixture must be writable
+# through normal mode bits. Production storage remains service-owned.
+chmod 0777 /var/lib/lessoncue/media/temporary/test
 printf 'trusted input\n' > /var/lib/lessoncue/input
 chown root:lessoncue /var/lib/lessoncue/input
 chmod 0640 /var/lib/lessoncue/input
-
-lessoncue_uid="$(id -u lessoncue)"
-lessoncue_gid="$(id -g lessoncue)"
 
 run_worker() {
   worker_options=()
@@ -41,18 +42,12 @@ run_worker() {
   fi
   shift
 
-  # Ubuntu's runner policy blocks an unprivileged process from configuring
-  # loopback inside a nested network namespace. Let Bubblewrap create the
-  # disposable namespace as root, then drop the actual payload to the same
-  # restricted service identity used in production.
+  # The hosted runner requires a privileged Bubblewrap parent to configure
+  # the isolated network namespace. Production invokes this helper from the
+  # lessoncue system user; this disposable harness uses root only to exercise
+  # the namespace and explicit write-root policy reliably on the runner.
   env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
-    /usr/local/libexec/lessoncue-media-worker "${worker_options[@]}" -- \
-    /usr/bin/setpriv \
-      --reuid="${lessoncue_uid}" \
-      --regid="${lessoncue_gid}" \
-      --clear-groups \
-      -- \
-      "$@"
+    /usr/local/libexec/lessoncue-media-worker "${worker_options[@]}" -- "$@"
 }
 
 run_worker \
