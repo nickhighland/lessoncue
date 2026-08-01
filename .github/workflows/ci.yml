@@ -83,7 +83,10 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run build:admin
-      - run: npm run test:e2e
+      - name: Run browser tests
+        env:
+          LESSONCUE_E2E_RUN_AS_ROOT: "1"
+        run: npm run test:e2e
 
   android-tv:
     runs-on: ubuntu-latest
