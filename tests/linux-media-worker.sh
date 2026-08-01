@@ -38,10 +38,11 @@ run_worker() {
   fi
   shift
 
-  # Run the worker as the same restricted service identity used in
-  # production. Bubblewrap then creates its disposable namespaces without
-  # trying to map an unrelated host UID into the user namespace.
-  runuser -u lessoncue -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
+  # The hosted runner requires a privileged Bubblewrap parent to configure
+  # the isolated network namespace. Production invokes this helper from the
+  # lessoncue system user; this disposable harness uses root only to exercise
+  # the namespace and explicit write-root policy reliably on the runner.
+  env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
     /usr/local/libexec/lessoncue-media-worker "${worker_options[@]}" -- "$@"
 }
 
