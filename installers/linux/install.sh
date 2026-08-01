@@ -52,6 +52,24 @@ if [[ ! -f "${PORT_FILE}" ]]; then
 fi
 HTTP_PORT="$(cat "${PORT_FILE}")"
 
+# Re-running the installer is the supported repair and upgrade path. Stop an
+# already-running server before replacing its executable; Linux rejects writes
+# to a live executable with `Text file busy`. If a later installer step fails,
+# make a best effort to bring the existing service back online.
+SERVICE_WAS_ACTIVE=false
+restart_service_after_failure() {
+  local exit_code=$?
+  if [[ "${exit_code}" -ne 0 && "${SERVICE_WAS_ACTIVE}" == true ]]; then
+    systemctl start lessoncue.service || true
+  fi
+  exit "${exit_code}"
+}
+trap restart_service_after_failure EXIT
+if systemctl is-active --quiet lessoncue.service; then
+  SERVICE_WAS_ACTIVE=true
+  systemctl stop lessoncue.service
+fi
+
 install -d /opt/lessoncue
 cp -a "${PAYLOAD_DIR}/." /opt/lessoncue/
 chown -R root:root /opt/lessoncue
@@ -103,6 +121,7 @@ systemctl enable --now lessoncue-update.path
 systemctl enable lessoncue-update-recovery.service
 systemctl enable lessoncue
 systemctl restart lessoncue
+trap - EXIT
 INSTALLED_VERSION="$("${PAYLOAD_DIR}/LessonCue.Server" --version 2>/dev/null || printf 'unknown')"
 printf '%s\n' "${INSTALLED_VERSION}" > /var/lib/lessoncue/config/installed-version
 chown lessoncue:lessoncue /var/lib/lessoncue/config/installed-version
