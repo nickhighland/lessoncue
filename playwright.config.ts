@@ -3,7 +3,7 @@ import { defineConfig } from "@playwright/test";
 const e2eDataPath = "/tmp/lessoncue-e2e";
 const runServerAsRoot = process.env.LESSONCUE_E2E_RUN_AS_ROOT === "1";
 const prepareData = runServerAsRoot
-  ? `sudo -n rm -rf ${e2eDataPath} && sudo -n mkdir -p ${e2eDataPath}/media/{originals,thumbnails,compatibility,temporary} && sudo -n chmod 0777 ${e2eDataPath}/media/{thumbnails,compatibility,temporary}`
+  ? `sudo -n rm -rf ${e2eDataPath} && sudo -n mkdir -p ${e2eDataPath}/media/originals ${e2eDataPath}/media/thumbnails ${e2eDataPath}/media/compatibility ${e2eDataPath}/media/temporary && sudo -n chmod 0777 ${e2eDataPath}/media/thumbnails ${e2eDataPath}/media/compatibility ${e2eDataPath}/media/temporary`
   : `rm -rf ${e2eDataPath}`;
 const launchServer = runServerAsRoot
   ? `sudo -n env LESSONCUE_DATA_PATH=${e2eDataPath} ASPNETCORE_URLS=http://127.0.0.1:5117 DOTNET_CLI_TELEMETRY_OPTOUT=1 dotnet run --project server/LessonCue.Server/LessonCue.Server.csproj --configuration Release`
