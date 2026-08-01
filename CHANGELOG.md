@@ -4,6 +4,16 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.7 — safer server upgrades
+
+### User changes
+
+- Re-running the Linux installer on an existing server now completes safely, so repairs and upgrades do not fail while the server is running.
+
+### Developer changes
+
+- The Linux installer stops the active LessonCue service before replacing its executable and restores service availability if installation exits early.
+
 ## v0.40.6 — more dependable updates and clearer diagnostics
 
 ### User changes
