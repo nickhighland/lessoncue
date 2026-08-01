@@ -9,6 +9,7 @@ public sealed record LessonCueUpdateStatus(
     bool UpdateAvailable,
     DateTimeOffset? LastCheckedAt,
     string? ReleaseUrl,
+    string? ReleaseNotes,
     string? Error,
     bool AutomaticInstallSupported,
     bool Installing,
@@ -69,12 +70,16 @@ public sealed class UpdateService(
                 var tag = root.GetProperty("tag_name").GetString();
                 var latest = tag?.TrimStart('v', 'V');
                 var releaseUrl = root.TryGetProperty("html_url", out var url) ? url.GetString() : null;
+                var releaseNotes = root.TryGetProperty("body", out var body)
+                    ? body.GetString()?.Trim()
+                    : null;
                 _status = _status with
                 {
                     LatestVersion = latest,
                     UpdateAvailable = IsNewer(latest, _status.CurrentVersion),
                     LastCheckedAt = DateTimeOffset.UtcNow,
                     ReleaseUrl = releaseUrl,
+                    ReleaseNotes = string.IsNullOrWhiteSpace(releaseNotes) ? null : releaseNotes,
                     Error = null,
                     AutomaticInstallSupported = AutomaticInstallSupported(),
                     RollbackSnapshotAvailable = RollbackSnapshotAvailable()
@@ -134,7 +139,7 @@ public sealed class UpdateService(
     {
         var result = ReadInstallResult();
         return new LessonCueUpdateStatus(
-            InstalledVersion(), null, false, null, null,
+            InstalledVersion(), null, false, null, null, null,
             result is { Success: false } ? result.Message : null,
             AutomaticInstallSupported(), false,
             result?.Success, result?.CompletedAt, result?.Version, result?.Message,

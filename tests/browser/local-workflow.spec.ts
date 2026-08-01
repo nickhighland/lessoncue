@@ -80,8 +80,9 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByRole("heading", { name: "Sample Lesson" })).toBeVisible();
 
   await page.getByRole("button", { name: "Add media" }).click();
-  const uploadForm = page.locator("form").filter({ has: page.getByLabel("Media file") });
-  await uploadForm.getByLabel("Media file").setInputFiles({
+  await page.getByRole("button", { name: "Upload new media" }).click();
+  const uploadForm = page.locator("form").filter({ has: page.getByLabel("Media files") });
+  await uploadForm.getByLabel("Media files").setInputFiles({
     name: "browser-test-audio.wav",
     mimeType: "audio/wav",
     buffer: silentWav(),
@@ -98,6 +99,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByText("Browser Test Audio", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Add media" }).click();
+  await page.getByRole("button", { name: "Upload new media" }).click();
   const multiUploadForm = page.locator("form").filter({ has: page.getByLabel("Media files") });
   await multiUploadForm.getByLabel("Media files").setInputFiles([
     { name: "bulk-cue-one.wav", mimeType: "audio/wav", buffer: silentWav(1) },
@@ -120,8 +122,9 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   })).toBe("65,65");
 
   await page.getByRole("button", { name: "Add media" }).click();
-  const videoUploadForm = page.locator("form").filter({ has: page.getByLabel("Media file") });
-  await videoUploadForm.getByLabel("Media file").setInputFiles({
+  await page.getByRole("button", { name: "Upload new media" }).click();
+  const videoUploadForm = page.locator("form").filter({ has: page.getByLabel("Media files") });
+  await videoUploadForm.getByLabel("Media files").setInputFiles({
     name: "needs-tv-conversion.mp4",
     mimeType: "video/mp4",
     buffer: incompatibleVideo(),
@@ -241,6 +244,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   });
 
   await page.getByRole("button", { name: "Add media" }).click();
+  await page.getByRole("button", { name: "Add online media or slides" }).click();
   const onlineForm = page.locator("form").filter({ has: page.getByLabel("Webpage or YouTube URL") });
   await onlineForm.getByLabel("Webpage or YouTube URL").fill("https://example.org/learning");
   await onlineForm.getByLabel("Display title").fill("Online Learning Page");
@@ -497,7 +501,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
   await expect(page.getByText("one-page-handout — Slide 1", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Add media" }).click();
-  const lessonMediaDialog = page.getByRole("dialog", { name: "Add media to the lesson" });
+  await page.getByRole("button", { name: "Upload new media" }).click();
+  const lessonMediaDialog = page.getByRole("dialog", { name: "Upload new media" });
   await lessonMediaDialog.getByLabel("Media files").setInputFiles({
     name: "lesson-direct-deck.pdf", mimeType: "application/pdf", buffer: onePagePdf("Direct lesson presentation"),
   });
@@ -1062,7 +1067,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.4" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.5" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
@@ -1114,7 +1119,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: /Learning Lab/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
   await page.getByRole("button", { name: "Add media" }).click();
-  const lessonAudienceForm = page.locator(".audience-lesson-choice");
+  await page.getByRole("button", { name: "Add an audience poll" }).click();
+  const lessonAudienceForm = page.getByRole("dialog", { name: "Add an audience poll" });
   await expect(lessonAudienceForm.getByLabel("Audience poll")).toContainText("Browser audience poll");
   await lessonAudienceForm.getByLabel("Display title").fill("Live class poll");
   await lessonAudienceForm.getByLabel("Planned duration").fill("90");

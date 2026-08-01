@@ -10,7 +10,7 @@
     "platform": "android-tv",
     "displayName": "Future Android display",
     "contractVersion": 1,
-    "minimumClientVersion": "0.40.4",
+    "minimumClientVersion": "0.40.5",
     "capabilities": [],
     "limitations": [],
     "futureCapabilityMetadata": "ignored"
