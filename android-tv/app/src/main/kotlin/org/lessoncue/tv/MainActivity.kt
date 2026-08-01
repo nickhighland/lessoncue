@@ -611,6 +611,7 @@ private fun synchronizedSignageIndex(entries: List<SignagePlaylistEntry>): Int {
 @Composable
 private fun SignageZoneLayout(signage: SignageCue) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
+        val availableWidth = maxWidth
         signage.zones.filterNot { it.hidden }.sortedBy { it.zIndex }.forEach { zone ->
             val modifier = Modifier.offset(maxWidth * (zone.x / 100f), maxHeight * (zone.y / 100f))
                 .size(maxWidth * (zone.width / 100f), maxHeight * (zone.height / 100f))
@@ -641,7 +642,7 @@ private fun SignageZoneLayout(signage: SignageCue) {
                     "bottom" -> Arrangement.Bottom
                     else -> Arrangement.Center
                 }
-                val contentPadding = maxWidth * (zone.width / 100f) *
+                val contentPadding = availableWidth * (zone.width / 100f) *
                     (zone.contentPadding.coerceIn(0, 30) / 100f)
                 Column(Modifier.fillMaxSize()
                     .graphicsLayer {
