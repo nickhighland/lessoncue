@@ -133,15 +133,17 @@ worker=(
   "--cpu=${timeout_seconds}"
   "--as=${memory_bytes}"
   "--fsize=${file_bytes}"
-  "--nproc=${processes}"
   --nofile=256
-  --
-  "$@"
 )
 if [[ "${skip_sandbox}" == 1 ]]; then
   # GitHub-hosted runners reject the user-namespace UID map required by
   # Bubblewrap. Browser CI uses this explicit disposable fallback while the
   # production service and the dedicated Linux worker job keep full sandboxing.
+  # Do not apply the per-user process limit here: unlike the isolated
+  # Bubblewrap user namespace, the disposable fallback shares the runner's
+  # process table with Playwright and the server itself.
+  worker+=(-- "$@")
   exec "${worker[@]}"
 fi
+worker+=("--nproc=${processes}" -- "$@")
 exec "${sandbox[@]}" -- "${worker[@]}"
