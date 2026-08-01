@@ -77,18 +77,40 @@ sandbox=(
   --ro-bind-try /usr/lib64 /usr/lib64
   --symlink usr/lib64 /lib64
   --ro-bind-try /etc/fonts /etc/fonts
+  # Debian and Ubuntu libraries may resolve through /etc/alternatives (for
+  # example libblas.so.3, which FFmpeg can load through libswscale).
+  --ro-bind-try /etc/alternatives /etc/alternatives
   --ro-bind-try /etc/passwd /etc/passwd
   --ro-bind-try /etc/group /etc/group
   --ro-bind-try /etc/ld.so.cache /etc/ld.so.cache
   --ro-bind-try /etc/localtime /etc/localtime
-  --ro-bind-try /sys/class/drm /sys/class/drm
-  --ro-bind-try /sys/dev/char /sys/dev/char
+  # libva follows DRM sysfs links from /sys/class/drm into /sys/devices. Bind
+  # only those read-only topology paths instead of exposing all of sysfs.
+  --ro-bind-try /sys/class /sys/class
+  --ro-bind-try /sys/dev /sys/dev
+  --ro-bind-try /sys/devices /sys/devices
   --proc /proc
   --dev /dev
   --dev-bind-try /dev/dri /dev/dri
+  # An unprivileged user namespace cannot map the host's video/render group
+  # IDs. Namespace root maps back to the invoking service account, so it can
+  # open the bound DRM node without granting host root privileges.
+  --uid 0
+  --gid 0
   --tmpfs /tmp
   --ro-bind "${data_path}" "${data_path}"
 )
+
+# The legacy i965 path is required by Haswell and earlier Intel graphics. The
+# parent process may select it for the probe and real conversion; preserve the
+# VA-API selection after Bubblewrap's --clearenv instead of silently falling
+# back to the newer iHD driver.
+if [[ -n "${LIBVA_DRIVER_NAME:-}" ]]; then
+  sandbox+=(--setenv LIBVA_DRIVER_NAME "${LIBVA_DRIVER_NAME}")
+fi
+if [[ -n "${LIBVA_DRIVERS_PATH:-}" ]]; then
+  sandbox+=(--setenv LIBVA_DRIVERS_PATH "${LIBVA_DRIVERS_PATH}")
+fi
 
 if [[ -d /opt/lessoncue ]]; then
   sandbox+=(--ro-bind /opt/lessoncue /opt/lessoncue)

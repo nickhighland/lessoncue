@@ -36,7 +36,18 @@ public static class ConstrainedProcessRunner
     {
         var start = BuildStartInfo(executable, arguments, options);
         using var process = new Process { StartInfo = start };
-        process.Start();
+        if (OperatingSystem.IsLinux() && !File.Exists(start.FileName))
+            throw new InvalidOperationException(
+                $"The LessonCue media worker is missing at '{start.FileName}'. Run the current Linux installer or install the latest LessonCue update to repair the server.");
+        try
+        {
+            process.Start();
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (OperatingSystem.IsLinux())
+        {
+            throw new InvalidOperationException(
+                $"The LessonCue media worker could not start at '{start.FileName}'. Run the current Linux installer or install the latest LessonCue update to repair the server. {ex.Message}", ex);
+        }
         using var windowsJob = WindowsProcessJob.CreateAndAssign(process, options);
 
         var stdout = ReadBoundedAsync(process.StandardOutput, options.MaximumCapturedCharacters);
@@ -116,9 +127,19 @@ public static class ConstrainedProcessRunner
         ConstrainedProcessOptions options)
     {
         executable = ResolveRestrictedWindowsTool(executable);
-        var helper = Environment.GetEnvironmentVariable("LESSONCUE_MEDIA_WORKER_PATH");
-        if (string.IsNullOrWhiteSpace(helper)) helper = "/usr/local/libexec/lessoncue-media-worker";
         var useSandbox = OperatingSystem.IsLinux();
+        var helper = Environment.GetEnvironmentVariable("LESSONCUE_MEDIA_WORKER_PATH");
+        if (useSandbox && string.IsNullOrWhiteSpace(helper))
+        {
+            helper = "/usr/local/libexec/lessoncue-media-worker";
+            // The first update after the worker was introduced is run by an
+            // older updater that only replaces /opt/lessoncue. Use the copy
+            // bundled in that payload until the next update repairs the
+            // protected system location.
+            var bundledHelper = Path.Combine(AppContext.BaseDirectory, "lessoncue-media-worker");
+            if (!File.Exists(helper) && File.Exists(bundledHelper)) helper = bundledHelper;
+        }
+        if (string.IsNullOrWhiteSpace(helper)) helper = "/usr/local/libexec/lessoncue-media-worker";
         var start = new ProcessStartInfo(useSandbox ? helper : executable)
         {
             RedirectStandardOutput = true,
