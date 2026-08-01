@@ -1,5 +1,14 @@
 import { defineConfig } from "@playwright/test";
 
+const e2eDataPath = "/tmp/lessoncue-e2e";
+const runServerAsRoot = process.env.LESSONCUE_E2E_RUN_AS_ROOT === "1";
+const prepareData = runServerAsRoot
+  ? `sudo -n rm -rf ${e2eDataPath} && sudo -n mkdir -p ${e2eDataPath}/media/{originals,thumbnails,compatibility,temporary} && sudo -n chmod 0777 ${e2eDataPath}/media/{thumbnails,compatibility,temporary}`
+  : `rm -rf ${e2eDataPath}`;
+const launchServer = runServerAsRoot
+  ? `sudo -n env LESSONCUE_DATA_PATH=${e2eDataPath} ASPNETCORE_URLS=http://127.0.0.1:5117 DOTNET_CLI_TELEMETRY_OPTOUT=1 dotnet run --project server/LessonCue.Server/LessonCue.Server.csproj --configuration Release`
+  : `LESSONCUE_DATA_PATH=${e2eDataPath} ASPNETCORE_URLS=http://127.0.0.1:5117 DOTNET_CLI_TELEMETRY_OPTOUT=1 dotnet run --project server/LessonCue.Server/LessonCue.Server.csproj --configuration Release`;
+
 export default defineConfig({
   testDir: "tests/browser",
   fullyParallel: false,
@@ -13,7 +22,11 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "rm -rf /tmp/lessoncue-e2e && LESSONCUE_DATA_PATH=/tmp/lessoncue-e2e ASPNETCORE_URLS=http://127.0.0.1:5117 DOTNET_CLI_TELEMETRY_OPTOUT=1 dotnet run --project server/LessonCue.Server/LessonCue.Server.csproj --configuration Release",
+    // GitHub-hosted Linux runners do not grant the unprivileged job enough
+    // capability to configure Bubblewrap's isolated loopback network. The
+    // CI-only root launch keeps the production service path unchanged while
+    // exercising the same media worker and sandbox in a disposable data path.
+    command: `${prepareData} && ${launchServer}`,
     url: "http://127.0.0.1:5117/health",
     timeout: 120_000,
     reuseExistingServer: false,
