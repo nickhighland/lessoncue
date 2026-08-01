@@ -7,6 +7,7 @@ memory_bytes=2147483648
 file_bytes=21474836480
 processes=32
 write_roots=()
+skip_network_isolation="${LESSONCUE_MEDIA_WORKER_SKIP_NETWORK_ISOLATION:-0}"
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -31,6 +32,10 @@ if [[ ! "${timeout_seconds}" =~ ^[1-9][0-9]{0,5}$ ]] ||
    [[ ! "${file_bytes}" =~ ^[1-9][0-9]{6,}$ ]] ||
    [[ ! "${processes}" =~ ^[1-9][0-9]{0,2}$ ]]; then
   echo "LessonCue worker limits are invalid." >&2
+  exit 64
+fi
+if [[ "${skip_network_isolation}" != 0 && "${skip_network_isolation}" != 1 ]]; then
+  echo "LessonCue worker network-isolation override is invalid." >&2
   exit 64
 fi
 if ! command -v bwrap >/dev/null 2>&1; then
@@ -96,7 +101,14 @@ if [[ "${network}" == allow ]]; then
     --ro-bind-try /etc/nsswitch.conf /etc/nsswitch.conf
   )
 else
-  sandbox+=(--unshare-net)
+  if [[ "${skip_network_isolation}" == 1 ]]; then
+    # GitHub-hosted runners do not grant an unprivileged job the capability
+    # needed to configure this namespace. The browser CI job uses this
+    # explicit, disposable fallback; installed services keep full isolation.
+    :
+  else
+    sandbox+=(--unshare-net)
+  fi
 fi
 
 first_write=
