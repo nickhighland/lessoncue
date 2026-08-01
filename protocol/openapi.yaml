@@ -1259,7 +1259,7 @@ paths:
       description: Requires updates.manage. Starts the protected native Linux updater.
       responses:
         '202': { description: "Update installation started" }
-        '409': { description: "No update is available or automatic installation is not configured" }
+        '409': { description: "No update is available, automatic installation is not configured, or another protected operation is already in progress" }
   /api/v1/pairing/status:
     get:
       operationId: getPairingStatus

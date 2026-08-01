@@ -36,6 +36,7 @@ public sealed class UpdateService(
     ILogger<UpdateService> logger) : BackgroundService
 {
     private readonly SemaphoreSlim _checkGate = new(1, 1);
+    private readonly SemaphoreSlim _operationGate = new(1, 1);
     private LessonCueUpdateStatus _status = InitialStatus();
 
     public LessonCueUpdateStatus Status
@@ -105,6 +106,7 @@ public sealed class UpdateService(
 
     public async Task<LessonCueUpdateOperationResult> StartInstallAsync(CancellationToken ct = default)
     {
+        RefreshInstallResult();
         return await SignalProtectedOperationAsync(
             $"update:{DateTimeOffset.UtcNow:O}",
             "update",
@@ -113,6 +115,7 @@ public sealed class UpdateService(
 
     public async Task<LessonCueUpdateOperationResult> StartRollbackAsync(CancellationToken ct = default)
     {
+        RefreshInstallResult();
         if (!RollbackSnapshotAvailable())
         {
             const string message = "No verified last-known-good update snapshot is available.";
@@ -215,22 +218,30 @@ public sealed class UpdateService(
         string operation,
         CancellationToken ct)
     {
-        if (_status.Installing)
+        if (!await _operationGate.WaitAsync(0, ct))
         {
             const string message = "Another protected LessonCue operation is already in progress.";
             logger.LogWarning("Protected {Operation} rejected: {Message}", operation, message);
             return new LessonCueUpdateOperationResult(false, message, "operation-in-progress");
         }
 
-        var supportError = AutomaticInstallSupportError();
-        if (supportError is not null)
-        {
-            logger.LogWarning("Protected {Operation} rejected: {Reason}", operation, supportError);
-            return new LessonCueUpdateOperationResult(false, supportError, "protected-operation-unavailable");
-        }
-
         try
         {
+            RefreshInstallResult();
+            if (_status.Installing)
+            {
+                const string message = "Another protected LessonCue operation is already in progress.";
+                logger.LogWarning("Protected {Operation} rejected: {Message}", operation, message);
+                return new LessonCueUpdateOperationResult(false, message, "operation-in-progress");
+            }
+
+            var supportError = AutomaticInstallSupportError();
+            if (supportError is not null)
+            {
+                logger.LogWarning("Protected {Operation} rejected: {Reason}", operation, supportError);
+                return new LessonCueUpdateOperationResult(false, supportError, "protected-operation-unavailable");
+            }
+
             if (File.Exists(UpdateResultPath))
             {
                 File.Delete(UpdateResultPath);
@@ -247,6 +258,10 @@ public sealed class UpdateService(
             logger.LogError(ex, "Could not queue protected LessonCue {Operation} in {RequestPath}", operation, UpdateRequestPath);
             _status = _status with { Error = message };
             return new LessonCueUpdateOperationResult(false, message, "request-file-write-failed");
+        }
+        finally
+        {
+            _operationGate.Release();
         }
     }
 
