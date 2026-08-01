@@ -2918,7 +2918,7 @@ function ClassesView({
         body: JSON.stringify({
           ...values,
           controllerSlug: current.controllerSlug || controllerSlug(current),
-          controllerColor: current.controllerColor,
+          controllerColor: (values as any).controllerColor || current.controllerColor,
           controllerHostname: current.controllerHostname || null,
         }),
       });
@@ -3841,7 +3841,8 @@ function LessonEditor({
   async function addOnline(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const download = onlineMode === "download";
+    const doNotDownload = form.get("doNotDownload") === "on";
+    const download = onlineMode === "download" && !doNotDownload;
     const importPresentation = onlineMode === "slides";
     setUploading(true);
     try {
@@ -4343,6 +4344,15 @@ function LessonEditor({
                 </fieldset>
                 {onlineMode !== "online" && (
                   <RetentionChoices lessonDate={lesson.date} />
+                )}
+                {onlineMode !== "slides" && (
+                  <label>
+                    <input type="checkbox" name="doNotDownload" />
+                    <span>
+                      <strong>Do not download locally</strong>
+                      <small>Keep this entry online-only (metadata only).</small>
+                    </span>
+                  </label>
                 )}
                 <TaxonomyFields taxonomy={taxonomy} />
                 <div className="two-fields">
@@ -5825,7 +5835,8 @@ function MediaView({
   async function addLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const download = linkMode === "download";
+    const doNotDownload = form.get("doNotDownload") === "on";
+    const download = linkMode === "download" && !doNotDownload;
     const importPresentation = linkMode === "slides";
     const persistent =
       linkMode === "online" || linkStoragePolicy === "persistent";
@@ -6233,6 +6244,15 @@ function MediaView({
                 </span>
               </label>
             </fieldset>
+            {linkMode !== "slides" && (
+              <label>
+                <input type="checkbox" name="doNotDownload" />
+                <span>
+                  <strong>Do not download locally</strong>
+                  <small>Keep this entry online-only (metadata only).</small>
+                </span>
+              </label>
+            )}
             {linkMode !== "online" && (
               <fieldset className="retention-options">
                 <legend>How long should LessonCue keep the local copy?</legend>
