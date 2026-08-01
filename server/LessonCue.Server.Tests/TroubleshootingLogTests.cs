@@ -1,5 +1,6 @@
 using LessonCue.Server;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 using Xunit;
 
 namespace LessonCue.Server.Tests;
@@ -28,6 +29,9 @@ public sealed class TroubleshootingLogTests
                 Assert.DoesNotContain("exception-secret", combined);
                 Assert.Contains("Authorization: [redacted]", combined);
                 Assert.Contains("\"password\":\"[redacted]\"", combined);
+                Assert.Contains(entries, entry => entry.IsFailure);
+                Assert.Contains(entries, entry => !entry.IsFailure);
+                Assert.Contains(entries, entry => entry.Details?.Contains("InvalidOperationException", StringComparison.Ordinal) == true);
             }
 
             var stored = File.ReadAllText(Path.Combine(root, "logs", "troubleshooting.jsonl"));
@@ -39,6 +43,7 @@ public sealed class TroubleshootingLogTests
 
             using var reloaded = new TroubleshootingLog(root);
             Assert.Equal(2, reloaded.GetRecent(10).Count);
+            Assert.Single(reloaded.GetRecent(10, failuresOnly: true));
         }
         finally
         {
@@ -62,6 +67,41 @@ public sealed class TroubleshootingLogTests
             Assert.Equal(2, entries.Count);
             Assert.Contains(entries, entry => entry.Message == "Framework warning");
             Assert.Contains(entries, entry => entry.Message == "Application event");
+            Assert.Single(log.GetRecent(10, failuresOnly: true));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void RetainsFailuresBeyondRoutineLimitAndExpiresThemAfterSevenDays()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"lessoncue-troubleshooting-log-{Guid.NewGuid():N}");
+        try
+        {
+            using (var log = new TroubleshootingLog(root))
+            {
+                var logger = log.CreateLogger("LessonCue.Server.UpdateService");
+                logger.LogError(new IOException("request file was not writable"), "Protected update failed");
+                for (var index = 0; index < 2_100; index++)
+                    logger.LogInformation("Routine event {Index}", index);
+
+                Assert.Equal(2_000, log.GetRecent(2_000).Count);
+                Assert.Single(log.GetRecent(10, failuresOnly: true));
+            }
+
+            var failurePath = Path.Combine(root, "logs", "troubleshooting-failures.jsonl");
+            var expired = new TroubleshootingLogEntry(
+                DateTimeOffset.UtcNow.AddDays(-8), "Error", "UpdateService", "old", "Expired failure",
+                "old exception", "System.Exception", "old details", true);
+            File.AppendAllText(failurePath, JsonSerializer.Serialize(expired) + Environment.NewLine);
+
+            using var reloaded = new TroubleshootingLog(root);
+            var failures = reloaded.GetRecent(10, failuresOnly: true);
+            Assert.Single(failures);
+            Assert.DoesNotContain(failures, entry => entry.Message == "Expired failure");
         }
         finally
         {

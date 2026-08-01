@@ -14,7 +14,7 @@ const fallbackManifest = {
     platform: "web-player",
     displayName: "Browser display",
     contractVersion: 1,
-    minimumClientVersion: "0.40.5",
+    minimumClientVersion: "0.40.6",
     capabilities: [],
     limitations: [],
   },

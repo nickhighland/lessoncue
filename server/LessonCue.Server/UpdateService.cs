@@ -26,6 +26,11 @@ public sealed record LessonCueUpdateResult(
     string? Message,
     DateTimeOffset? CompletedAt);
 
+public sealed record LessonCueUpdateOperationResult(
+    bool Success,
+    string Message,
+    string? FailureCode = null);
+
 public sealed class UpdateService(
     IHttpClientFactory clients,
     ILogger<UpdateService> logger) : BackgroundService
@@ -84,6 +89,9 @@ public sealed class UpdateService(
                     AutomaticInstallSupported = AutomaticInstallSupported(),
                     RollbackSnapshotAvailable = RollbackSnapshotAvailable()
                 };
+                logger.LogInformation(
+                    "LessonCue update check completed. Current version {CurrentVersion}; latest version {LatestVersion}; update available {UpdateAvailable}",
+                    _status.CurrentVersion, _status.LatestVersion ?? "unknown", _status.UpdateAvailable);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -95,20 +103,25 @@ public sealed class UpdateService(
         finally { _checkGate.Release(); }
     }
 
-    public async Task<bool> StartInstallAsync(CancellationToken ct = default)
+    public async Task<LessonCueUpdateOperationResult> StartInstallAsync(CancellationToken ct = default)
     {
         return await SignalProtectedOperationAsync(
             $"update:{DateTimeOffset.UtcNow:O}",
-            "Could not signal the protected LessonCue update service",
+            "update",
             ct);
     }
 
-    public async Task<bool> StartRollbackAsync(CancellationToken ct = default)
+    public async Task<LessonCueUpdateOperationResult> StartRollbackAsync(CancellationToken ct = default)
     {
-        if (!RollbackSnapshotAvailable()) return false;
+        if (!RollbackSnapshotAvailable())
+        {
+            const string message = "No verified last-known-good update snapshot is available.";
+            logger.LogWarning("Protected rollback rejected: {Message}", message);
+            return new LessonCueUpdateOperationResult(false, message, "rollback-snapshot-unavailable");
+        }
         return await SignalProtectedOperationAsync(
             $"rollback:{DateTimeOffset.UtcNow:O}",
-            "Could not signal the protected LessonCue rollback service",
+            "rollback",
             ct);
     }
 
@@ -139,10 +152,18 @@ public sealed class UpdateService(
     private const string UpdateResultPath = "/var/lib/lessoncue/config/update-result.json";
     private const string RollbackSnapshotPath = "/var/lib/lessoncue/update-rollback";
 
-    private static bool AutomaticInstallSupported() =>
-        OperatingSystem.IsLinux() && Directory.Exists(Path.GetDirectoryName(UpdateRequestPath)) &&
-        File.Exists("/etc/systemd/system/lessoncue-update.service") &&
-        File.Exists("/etc/systemd/system/lessoncue-update.path");
+    private static bool AutomaticInstallSupported() => AutomaticInstallSupportError() is null;
+
+    private static string? AutomaticInstallSupportError()
+    {
+        if (!OperatingSystem.IsLinux()) return "Protected server updates are available only on the native Linux installation.";
+        if (!Directory.Exists(Path.GetDirectoryName(UpdateRequestPath)))
+            return "The LessonCue configuration directory is missing.";
+        if (!File.Exists("/etc/systemd/system/lessoncue-update.service") ||
+            !File.Exists("/etc/systemd/system/lessoncue-update.path"))
+            return "The protected LessonCue update service is not installed. Run the current Linux installer once.";
+        return null;
+    }
 
     private static bool RollbackSnapshotAvailable() =>
         OperatingSystem.IsLinux() &&
@@ -168,6 +189,7 @@ public sealed class UpdateService(
         {
             _status = _status with
             {
+                AutomaticInstallSupported = AutomaticInstallSupported(),
                 RollbackSnapshotAvailable = RollbackSnapshotAvailable(),
                 RollbackTargetVersion = RollbackTargetVersion()
             };
@@ -182,17 +204,31 @@ public sealed class UpdateService(
             LastInstallVersion = result.Version,
             LastInstallMessage = result.Message,
             Error = result.Success ? _status.Error : result.Message,
+            AutomaticInstallSupported = AutomaticInstallSupported(),
             RollbackSnapshotAvailable = RollbackSnapshotAvailable(),
             RollbackTargetVersion = RollbackTargetVersion()
         };
     }
 
-    private async Task<bool> SignalProtectedOperationAsync(
+    private async Task<LessonCueUpdateOperationResult> SignalProtectedOperationAsync(
         string request,
-        string errorMessage,
+        string operation,
         CancellationToken ct)
     {
-        if (!AutomaticInstallSupported() || _status.Installing) return false;
+        if (_status.Installing)
+        {
+            const string message = "Another protected LessonCue operation is already in progress.";
+            logger.LogWarning("Protected {Operation} rejected: {Message}", operation, message);
+            return new LessonCueUpdateOperationResult(false, message, "operation-in-progress");
+        }
+
+        var supportError = AutomaticInstallSupportError();
+        if (supportError is not null)
+        {
+            logger.LogWarning("Protected {Operation} rejected: {Reason}", operation, supportError);
+            return new LessonCueUpdateOperationResult(false, supportError, "protected-operation-unavailable");
+        }
+
         try
         {
             if (File.Exists(UpdateResultPath))
@@ -202,12 +238,15 @@ public sealed class UpdateService(
 
             await File.WriteAllTextAsync(UpdateRequestPath, request, ct);
             _status = _status with { Installing = true, Error = null };
-            return true;
+            logger.LogInformation("Queued protected LessonCue {Operation} in {RequestPath}", operation, UpdateRequestPath);
+            return new LessonCueUpdateOperationResult(true, $"The protected LessonCue {operation} has been queued.");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, errorMessage);
-            return false;
+            var message = $"LessonCue could not queue the protected {operation}. Run the current Linux installer once to repair updater permissions, then try again.";
+            logger.LogError(ex, "Could not queue protected LessonCue {Operation} in {RequestPath}", operation, UpdateRequestPath);
+            _status = _status with { Error = message };
+            return new LessonCueUpdateOperationResult(false, message, "request-file-write-failed");
         }
     }
 
