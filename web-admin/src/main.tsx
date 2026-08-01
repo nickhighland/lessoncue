@@ -791,12 +791,15 @@ type TroubleshootingEntry = {
   event: string;
   message: string;
   exception?: string;
+  exceptionType?: string;
+  details?: string;
+  isFailure: boolean;
 };
 type TroubleshootingLog = {
   generatedAt: string;
   runtime: TroubleshootingEntry[];
   audit: Audit[];
-  retention: { runtimeEntries: number; file: string };
+  retention: { runtimeEntries: number; failureRetentionDays: number; file: string };
 };
 type View =
   | "dashboard"
@@ -885,8 +888,17 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     const problem = (await response
       .json()
       .catch(() => ({}))) as Record<string, unknown>;
+    const message = String(
+      problem.error || problem.title || `Request failed (${response.status})`,
+    );
+    const detail = String(problem.detail || "");
+    const failureId = String(problem.failureId || "");
+    const suffix = [
+      detail && detail !== message ? detail : "",
+      failureId ? `Reference: ${failureId}` : "",
+    ].filter(Boolean).join(" ");
     throw new ApiError(
-      String(problem.error || `Request failed (${response.status})`),
+      suffix ? `${message} ${suffix}` : message,
       response.status,
       problem,
     );
@@ -12188,12 +12200,15 @@ function TroubleshootingLogPanel({
 }) {
   const [report, setReport] = useState<TroubleshootingLog>();
   const [query, setQuery] = useState("");
+  const [failuresOnly, setFailuresOnly] = useState(false);
   const [loading, setLoading] = useState(false);
-  const load = async () => {
+  const load = async (failureMode = failuresOnly) => {
     setLoading(true);
     try {
+      const params = new URLSearchParams({ limit: failureMode ? "10000" : "1000" });
+      if (failureMode) params.set("failuresOnly", "true");
       setReport(
-        await api<TroubleshootingLog>("/api/v1/troubleshooting-log?limit=1000"),
+        await api<TroubleshootingLog>(`/api/v1/troubleshooting-log?${params}`),
       );
     } catch (cause) {
       notify(errorText(cause));
@@ -12215,18 +12230,21 @@ function TroubleshootingLogPanel({
   };
   const term = query.trim().toLowerCase();
   const runtime = (report?.runtime || []).filter(
-    (entry) =>
-      !term ||
-      `${entry.level} ${entry.category} ${entry.event} ${entry.message} ${entry.exception || ""}`
-        .toLowerCase()
-        .includes(term),
+    (entry) => {
+      const searchable = `${entry.level} ${entry.category} ${entry.event} ${entry.message} ${entry.exception || ""}`
+        .toLowerCase();
+      return (!failuresOnly || entry.isFailure) && (!term || searchable.includes(term));
+    },
   );
   const audit = (report?.audit || []).filter(
-    (entry) =>
-      !term ||
-      `${entry.actor} ${entry.action} ${entry.object} ${entry.result} ${entry.summary || ""}`
-        .toLowerCase()
-        .includes(term),
+    (entry) => {
+      const searchable = `${entry.actor} ${entry.action} ${entry.object} ${entry.result} ${entry.summary || ""}`
+        .toLowerCase();
+      return (
+        (!failuresOnly || /fail|error|exception|denied|timeout/i.test(searchable)) &&
+        (!term || searchable.includes(term))
+      );
+    },
   );
   return (
     <section className="panel wide-settings settings-panel settings-data">
@@ -12237,13 +12255,14 @@ function TroubleshootingLogPanel({
           <p className="settings-copy">
             Review local runtime events and the durable activity audit.
             Sensitive credential values are redacted before they are saved or
-            shown.
+            shown. Failures are retained separately for seven days so they are
+            still available after routine events rotate out.
           </p>
         </div>
         <span className="update-state current">Private server diagnostics</span>
       </div>
       <div className="head-actions">
-        <button className="button primary" onClick={load} disabled={loading}>
+        <button className="button primary" onClick={() => void load()} disabled={loading}>
           {loading ? "Loading…" : report ? "Refresh log" : "Load log"}
         </button>
         {report && (
@@ -12262,9 +12281,21 @@ function TroubleshootingLogPanel({
                 placeholder="Example: transcode, failed, email"
               />
             </Field>
+            <label className="check-row troubleshooting-filter">
+              <input
+                type="checkbox"
+                checked={failuresOnly}
+                onChange={(event) => {
+                  const next = event.target.checked;
+                  setFailuresOnly(next);
+                  if (report) void load(next);
+                }}
+              />
+              Show failures only
+            </label>
             <Definition
               label="Retention"
-              value={`${report.retention.runtimeEntries.toLocaleString()} entries · ${report.retention.file}`}
+              value={`${report.retention.runtimeEntries.toLocaleString()} routine entries · ${report.retention.failureRetentionDays} days of failures`}
             />
           </div>
           <div className="settings-subsection">
@@ -12275,12 +12306,20 @@ function TroubleshootingLogPanel({
                   <div key={`${entry.timestamp}-${index}`}>
                     <span>
                       <strong>
+                        {entry.isFailure ? "Failure · " : ""}
                         {entry.level} · {entry.category}
                       </strong>
                       <small>
                         {entry.event}: {entry.message}
-                        {entry.exception ? ` — ${entry.exception}` : ""}
+                        {entry.exceptionType ? ` — ${entry.exceptionType}` : ""}
+                        {entry.exception ? `: ${entry.exception}` : ""}
                       </small>
+                      {entry.details && (
+                        <details className="troubleshooting-details">
+                          <summary>Technical details</summary>
+                          <pre>{entry.details}</pre>
+                        </details>
+                      )}
                     </span>
                     <small>{new Date(entry.timestamp).toLocaleString()}</small>
                   </div>

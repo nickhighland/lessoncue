@@ -2510,17 +2510,32 @@ public static class AdminApi
         settings.MapGet("/organization", async (LessonCueDb db, CancellationToken ct) =>
             await db.Organizations.AsNoTracking().FirstAsync(ct));
 
-        settings.MapGet("/troubleshooting-log", async (int? limit, LessonCueDb db, TroubleshootingLog log,
+        settings.MapGet("/troubleshooting-log", async (int? limit, bool? failuresOnly, LessonCueDb db, TroubleshootingLog log,
             CancellationToken ct) =>
         {
-            var safeLimit = Math.Clamp(limit ?? 500, 1, 2_000);
+            var failureFilter = failuresOnly == true;
+            var safeLimit = Math.Clamp(limit ?? (failureFilter ? 10_000 : 500), 1, failureFilter ? 10_000 : 2_000);
             var audit = await db.AuditEvents.AsNoTracking().OrderByDescending(x => x.Id).Take(safeLimit).ToListAsync(ct);
+            if (failureFilter)
+            {
+                audit = audit.Where(item =>
+                    item.Result.Contains("fail", StringComparison.OrdinalIgnoreCase) ||
+                    item.Action.Contains("fail", StringComparison.OrdinalIgnoreCase) ||
+                    item.Action.Contains("error", StringComparison.OrdinalIgnoreCase) ||
+                    item.Summary?.Contains("fail", StringComparison.OrdinalIgnoreCase) == true ||
+                    item.Summary?.Contains("error", StringComparison.OrdinalIgnoreCase) == true).ToList();
+            }
             return Results.Ok(new
             {
                 generatedAt = DateTimeOffset.UtcNow,
-                runtime = log.GetRecent(safeLimit),
+                runtime = log.GetRecent(safeLimit, failureFilter),
                 audit = audit.OrderByDescending(x => x.Timestamp),
-                retention = new { runtimeEntries = 2_000, file = "last 4 MB plus the prior rotated file" }
+                retention = new
+                {
+                    runtimeEntries = 2_000,
+                    failureRetentionDays = 7,
+                    file = "routine events: last 4 MB plus the prior rotated file; failures: separate seven-day store"
+                }
             });
         });
 
@@ -2980,21 +2995,55 @@ public static class AdminApi
             Results.Ok(await updates.CheckAsync(true, ct)));
 
         updatesAdmin.MapPost("/updates/install", async (UpdateService updates, LessonCueDb db, HttpContext context,
-            CancellationToken ct) =>
+            ILogger<UpdateService> logger, CancellationToken ct) =>
         {
             var status = await updates.CheckAsync(true, ct);
-            if (!status.UpdateAvailable) return Results.Conflict(new { error = "LessonCue is already up to date." });
+            logger.LogInformation(
+                "Update install request received. Trace {TraceId}; current version {CurrentVersion}; latest version {LatestVersion}; available {UpdateAvailable}",
+                context.TraceIdentifier, status.CurrentVersion, status.LatestVersion ?? "unknown", status.UpdateAvailable);
+            if (!status.UpdateAvailable)
+            {
+                logger.LogWarning("Update install request rejected because no newer release is available. Trace {TraceId}",
+                    context.TraceIdentifier);
+                return Results.Conflict(new { error = "LessonCue is already up to date.", failureCode = "no-update-available" });
+            }
             if (!status.AutomaticInstallSupported)
-                return Results.Conflict(new { error = "Automatic installation is not configured on this server. Run the latest Linux installer once to enable it." });
+            {
+                const string message = "Automatic installation is not configured on this server. Run the latest Linux installer once to enable it.";
+                logger.LogWarning("Update install request rejected because automatic installation is unavailable. Trace {TraceId}",
+                    context.TraceIdentifier);
+                return Results.Conflict(new { error = message, failureCode = "protected-operation-unavailable" });
+            }
             Audit(db, "server.update.start", Guid.Empty, $"{status.CurrentVersion} to {status.LatestVersion}");
             await db.SaveChangesAsync(ct);
-            return await updates.StartInstallAsync(ct)
-                ? Results.Accepted(value: new { message = "The update has started. LessonCue will restart automatically." })
-                : Results.Problem("The server could not start the protected update service.", statusCode: 500);
+            var operation = await updates.StartInstallAsync(ct);
+            if (operation.Success)
+                return Results.Accepted(value: new { message = "The update has started. LessonCue will restart automatically." });
+
+            db.AuditEvents.Add(new AuditEvent
+            {
+                Actor = "admin",
+                Action = "server.update.failed",
+                Object = Guid.Empty.ToString(),
+                Result = "failed",
+                Summary = operation.FailureCode ?? operation.Message
+            });
+            await db.SaveChangesAsync(ct);
+            logger.LogError("Update install request could not be queued. Trace {TraceId}; failure code {FailureCode}; message {Message}",
+                context.TraceIdentifier, operation.FailureCode ?? "unknown", operation.Message);
+            return Results.Problem(
+                title: "LessonCue update could not be started",
+                detail: $"{operation.Message} Failure reference: {context.TraceIdentifier}",
+                statusCode: StatusCodes.Status500InternalServerError,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["failureId"] = context.TraceIdentifier,
+                    ["failureCode"] = operation.FailureCode
+                });
         });
 
         settings.MapPost("/updates/rollback", async (UpdateService updates, LessonCueDb db,
-            CancellationToken ct) =>
+            HttpContext context, ILogger<UpdateService> logger, CancellationToken ct) =>
         {
             var status = updates.Status;
             if (!status.AutomaticInstallSupported)
@@ -3006,13 +3055,34 @@ public static class AdminApi
                     ? "operator requested last-known-good snapshot"
                     : $"operator requested {status.RollbackTargetVersion}");
             await db.SaveChangesAsync(ct);
-            return await updates.StartRollbackAsync(ct)
-                ? Results.Accepted(value: new
+            var operation = await updates.StartRollbackAsync(ct);
+            if (operation.Success)
+                return Results.Accepted(value: new
                 {
                     message = "Rollback has started. LessonCue will restart using the protected snapshot.",
                     targetVersion = status.RollbackTargetVersion
-                })
-                : Results.Problem("The server could not start the protected rollback service.", statusCode: 500);
+                });
+
+            db.AuditEvents.Add(new AuditEvent
+            {
+                Actor = "admin",
+                Action = "server.update.rollback-failed",
+                Object = Guid.Empty.ToString(),
+                Result = "failed",
+                Summary = operation.FailureCode ?? operation.Message
+            });
+            await db.SaveChangesAsync(ct);
+            logger.LogError("Rollback request could not be queued. Trace {TraceId}; failure code {FailureCode}; message {Message}",
+                context.TraceIdentifier, operation.FailureCode ?? "unknown", operation.Message);
+            return Results.Problem(
+                title: "LessonCue rollback could not be started",
+                detail: $"{operation.Message} Failure reference: {context.TraceIdentifier}",
+                statusCode: StatusCodes.Status500InternalServerError,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["failureId"] = context.TraceIdentifier,
+                    ["failureCode"] = operation.FailureCode
+                });
         });
 
         userAdmin.MapGet("/users", async (LessonCueDb db, CancellationToken ct) =>
