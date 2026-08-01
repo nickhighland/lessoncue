@@ -26,9 +26,33 @@ printf 'trusted input\n' > /var/lib/lessoncue/input
 chown root:lessoncue /var/lib/lessoncue/input
 chmod 0640 /var/lib/lessoncue/input
 
+lessoncue_uid="$(id -u lessoncue)"
+lessoncue_gid="$(id -g lessoncue)"
+
 run_worker() {
-  runuser -u lessoncue -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
-    /usr/local/libexec/lessoncue-media-worker "$@"
+  worker_options=()
+  while [[ "$#" -gt 0 && "$1" != "--" ]]; do
+    worker_options+=("$1")
+    shift
+  done
+  if [[ "$#" -eq 0 ]]; then
+    echo "The media-worker test did not receive a command." >&2
+    exit 1
+  fi
+  shift
+
+  # Ubuntu's runner policy blocks an unprivileged process from configuring
+  # loopback inside a nested network namespace. Let Bubblewrap create the
+  # disposable namespace as root, then drop the actual payload to the same
+  # restricted service identity used in production.
+  env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
+    /usr/local/libexec/lessoncue-media-worker "${worker_options[@]}" -- \
+    /usr/bin/setpriv \
+      --reuid="${lessoncue_uid}" \
+      --regid="${lessoncue_gid}" \
+      --clear-groups \
+      -- \
+      "$@"
 }
 
 run_worker \
