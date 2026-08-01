@@ -53,6 +53,7 @@ UPDATE_TRANSACTION_ACTIVE=false
 APP_SWAPPED=false
 READINESS_ATTEMPTS="${LESSONCUE_UPDATE_READINESS_ATTEMPTS:-30}"
 READINESS_DELAY_SECONDS="${LESSONCUE_UPDATE_READINESS_DELAY_SECONDS:-2}"
+UPDATE_RESULT_WRITTEN=false
 if [[ ! "${READINESS_ATTEMPTS}" =~ ^[1-9][0-9]*$ ]]; then READINESS_ATTEMPTS=30; fi
 if [[ ! "${READINESS_DELAY_SECONDS}" =~ ^[0-9]+$ ]]; then READINESS_DELAY_SECONDS=2; fi
 
@@ -69,6 +70,26 @@ write_update_result() {
     "${success}" "${escaped_version}" "${escaped_message}" "$(date --iso-8601=seconds)" > "${temporary}"
   install -o lessoncue -g lessoncue -m 0600 "${temporary}" "${result}"
   rm -f "${temporary}"
+  UPDATE_RESULT_WRITTEN=true
+}
+
+is_update_request() {
+  [[ "${REQUEST}" == update:* || "${REQUEST}" == rollback:* ]]
+}
+
+protected_operation_name() {
+  if [[ "${REQUEST}" == rollback:* ]]; then
+    printf 'rollback'
+  else
+    printf 'update'
+  fi
+}
+
+fail_update() {
+  local message="$1"
+  echo "${message}"
+  write_update_result false "${VERSION:-unknown}" "${message}" || true
+  exit 1
 }
 
 snapshot_path() {
@@ -320,10 +341,18 @@ perform_manual_rollback() {
 
 handle_update_error() {
   local code="$1"
+  local operation message
+  set +e
   if [[ "${UPDATE_TRANSACTION_ACTIVE}" == true ]]; then
     echo "The update was interrupted. Restoring the complete pre-update snapshot."
     restore_update_snapshot || true
   fi
+  if is_update_request && [[ "${UPDATE_RESULT_WRITTEN}" != true ]]; then
+    operation="$(protected_operation_name)"
+    message="The protected ${operation} failed before it could complete (exit code ${code}). Inspect journalctl -u lessoncue-update.service for the failing command."
+    write_update_result false "${VERSION:-unknown}" "${message}" || true
+  fi
+  set -e
   exit "${code}"
 }
 
@@ -674,7 +703,7 @@ fi
 case "$(uname -m)" in
   x86_64|amd64) RUNTIME=linux-x64 ;;
   aarch64|arm64) RUNTIME=linux-arm64 ;;
-  *) echo "Unsupported CPU architecture: $(uname -m)"; exit 1 ;;
+  *) fail_update "Unsupported CPU architecture: $(uname -m)" ;;
 esac
 
 CURRENT_VERSION="$(cat /var/lib/lessoncue/config/installed-version 2>/dev/null || true)"
@@ -700,34 +729,28 @@ curl -fL "${REPOSITORY}/releases/download/${VERSION}/SHA256SUMS" -o "${WORKDIR}/
 curl -fL "${REPOSITORY}/releases/download/${VERSION}/SHA256SUMS.sig" -o "${WORKDIR}/SHA256SUMS.sig"
 RELEASE_PUBLIC_KEY="${LESSONCUE_RELEASE_PUBLIC_KEY:-/etc/lessoncue/release-signing-public.pem}"
 if [[ ! -f "${RELEASE_PUBLIC_KEY}" ]]; then
-  echo "The pinned LessonCue release-signing public key is missing. Run the current SSH installer once before using browser updates."
-  exit 1
+  fail_update "The pinned LessonCue release-signing public key is missing. Run the current SSH installer once before using browser updates."
 fi
 if ! openssl pkeyutl -verify -pubin -inkey "${RELEASE_PUBLIC_KEY}" \
   -rawin -in "${WORKDIR}/SHA256SUMS" \
   -sigfile "${WORKDIR}/SHA256SUMS.sig"; then
-  echo "LessonCue rejected this release because its Ed25519 signature is invalid."
-  exit 1
+  fail_update "LessonCue rejected this release because its Ed25519 signature is invalid."
 fi
 if ! grep -F "  ${ASSET}" "${WORKDIR}/SHA256SUMS" > "${WORKDIR}/asset.sha256"; then
-  echo "The release does not contain a checksum for ${ASSET}."
-  exit 1
+  fail_update "The release does not contain a checksum for ${ASSET}."
 fi
 (cd "${WORKDIR}" && sha256sum -c asset.sha256)
 
 mkdir "${WORKDIR}/archive"
 tar -xzf "${WORKDIR}/${ASSET}" -C "${WORKDIR}/archive"
 if [[ ! -x "${WORKDIR}/archive/payload/LessonCue.Server" ]]; then
-  echo "The release archive is missing LessonCue.Server."
-  exit 1
+  fail_update "The release archive is missing LessonCue.Server."
 fi
 if [[ ! -f "${WORKDIR}/archive/lessoncue-render.rules" ]]; then
-  echo "The release archive is missing the Intel render-device rule."
-  exit 1
+  fail_update "The release archive is missing the Intel render-device rule."
 fi
 if [[ ! -x "${WORKDIR}/archive/lessoncue-media-worker" ]]; then
-  echo "The release archive is missing the LessonCue media worker."
-  exit 1
+  fail_update "The release archive is missing the LessonCue media worker."
 fi
 
 rm -rf "${STAGED}"

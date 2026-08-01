@@ -115,6 +115,8 @@ if env \
   exit 1
 fi
 [[ "$(/opt/lessoncue/LessonCue.Server)" == OLD ]]
+grep -q '"success":false' /var/lib/lessoncue/config/update-result.json
+grep -q 'Ed25519 signature is invalid' /var/lib/lessoncue/config/update-result.json
 test ! -e /var/lib/lessoncue/update-transaction
 mv /tmp/valid-release-signature \
   "${RELEASE_ROOT}/releases/download/v2.0.0/SHA256SUMS.sig"
