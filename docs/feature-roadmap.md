@@ -18,6 +18,8 @@ Work through this section in order. Do not declare an item complete merely becau
    - [ ] Lessons must appear correctly in the TV app when they are properly assigned.
    - [ ] Media selected from a remote must reach the target screens.
    - [ ] When a class is created or edited, allow a color to be selected so the remote can consistently reflect that class.
+   - [x] When adding online media, include a "Do not download locally" checkbox as a secondary option.
+   - [x] When a class is created or edited, allow a color to be selected so the remote can consistently reflect that class.
    - [ ] Hide app information when the TV app is being used for signage.
    - [ ] Match browser signage and on-screen signage rendering, including font sizing and playable elements.
    - [ ] Cache signage media locally on each device so repeated playback does not re-fetch the same images and videos from the server.
