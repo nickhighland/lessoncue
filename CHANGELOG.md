@@ -4,6 +4,20 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.9 — clearer update recovery
+
+### User changes
+
+- If a server update is already running, LessonCue now reports that clearly instead of showing a generic server error.
+- Failed update attempts retain a useful explanation so administrators know what to fix before trying again.
+- A failed update no longer leaves the update screen stuck in an endless installing state.
+
+### Developer changes
+
+- The Linux updater records failures that happen before transaction setup, including signature and package validation failures.
+- Update and rollback requests are serialized in the web process, and expected operation contention returns HTTP 409 instead of HTTP 500.
+- Regression coverage verifies that an invalid release signature produces a durable failure result for the server UI.
+
 ## v0.40.8 — more reliable server updates and media playback
 
 ### User changes
