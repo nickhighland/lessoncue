@@ -105,6 +105,7 @@ cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-render.rules" "${PACKAGE_ROOT}
 cp "${UPDATER_SOURCE}" "${PACKAGE_ROOT}/lessoncue-update"
 cp "${REPOSITORY_ROOT}/installers/linux/repair-updater.sh" "${PACKAGE_ROOT}/repair-updater.sh"
 cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-update-recovery.service" "${PACKAGE_ROOT}/"
+cp "${TEST_PUBLIC_KEY}" "${PACKAGE_ROOT}/release-signing-public.pem"
 for unit in lessoncue-update.service lessoncue-update.path lessoncue.service lessoncue-cloudflared.service; do
   printf 'new %s\n' "${unit}" > "${PACKAGE_ROOT}/${unit}"
 done
