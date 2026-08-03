@@ -92,11 +92,20 @@ cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-update-recovery.service" "${PA
 for unit in lessoncue-update.service lessoncue-update.path lessoncue.service lessoncue-cloudflared.service; do
   printf 'new %s\n' "${unit}" > "${PACKAGE_ROOT}/${unit}"
 done
+case "$(uname -m)" in
+  x86_64|amd64) TEST_RUNTIME=linux-x64 ;;
+  aarch64|arm64) TEST_RUNTIME=linux-arm64 ;;
+  *)
+    echo "Unsupported test CPU architecture: $(uname -m)"
+    exit 1
+    ;;
+esac
+TEST_ASSET="LessonCue-Server-${TEST_RUNTIME}.tar.gz"
 tar -C "${PACKAGE_ROOT}" -czf \
-  "${RELEASE_ROOT}/releases/download/v2.0.0/LessonCue-Server-linux-x64.tar.gz" .
+  "${RELEASE_ROOT}/releases/download/v2.0.0/${TEST_ASSET}" .
 (
   cd "${RELEASE_ROOT}/releases/download/v2.0.0"
-  sha256sum LessonCue-Server-linux-x64.tar.gz > SHA256SUMS
+  sha256sum "${TEST_ASSET}" > SHA256SUMS
   openssl pkeyutl -sign -inkey "${TEST_PRIVATE_KEY}" -rawin \
     -in SHA256SUMS -out SHA256SUMS.sig
 )

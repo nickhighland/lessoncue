@@ -216,10 +216,12 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await runCue.getByLabel("Teacher / volunteer notes").fill("Pause for questions before continuing.");
   await runCue.getByLabel("Teacher / volunteer notes").press("Tab");
   await expect(page.getByText("Playlist saved.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: /Lesson settings/ }).click();
   await page.getByLabel("Substitute or teacher instructions").fill("Check the room display before participants arrive.");
   await page.getByLabel("Optional pre-roll livestream monitor").fill("https://example.org/private-monitor");
   await page.getByRole("button", { name: "Save lesson settings" }).click();
   await expect(page.getByText("Lesson schedule saved.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: /Playback sequence/ }).click();
   await page.getByRole("button", { name: "Print run sheet" }).click();
   const runSheet = page.getByRole("dialog", { name: "Run sheet: Sample Lesson" });
   await expect(runSheet.getByText("Check the room display before participants arrive.")).toBeVisible();
@@ -264,6 +266,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: "Agenda", exact: true }).click();
 
   await page.getByRole("button", { name: /Media Library$/ }).click();
+  await page.getByRole("button", { name: "List view" }).click();
   const audioRow = page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" });
   await expect(audioRow).toBeVisible();
   await expect(audioRow.getByRole("button", { name: /Deletes/ })).toBeVisible();
@@ -319,6 +322,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     body: JSON.stringify({ url: "https://example.org/rejected", title: "Rejected", folder: "Unapproved", tagsCsv: "Reusable" })
   })).status)).toBe(400);
   await page.getByRole("button", { name: /Media Library$/ }).click();
+  await page.getByRole("button", { name: "List view" }).click();
 
   await audioRow.getByRole("button", { name: "Manage versions & impact" }).click();
   await expect(page.getByRole("heading", { name: "Manage: browser-test-audio.wav" })).toBeVisible();
@@ -386,6 +390,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   }), { timeout: 30_000 }).toBe("ready");
   await page.reload();
   await page.getByRole("button", { name: /Media Library$/ }).click();
+  await page.getByRole("button", { name: "List view" }).click();
   const convertedPdfRow = page.locator(".media-table").filter({ hasText: "one-page-handout.pdf" });
   await convertedPdfRow.getByRole("button", { name: "Manage versions & impact" }).click();
   await expect(page.getByText("1 screen-ready slides", { exact: false })).toBeVisible();
@@ -505,6 +510,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: "Reload restored LessonCue" }).click();
   await expect(page.getByText("LessonCue Browser Test", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /Media Library$/ }).click();
+  await page.getByRole("button", { name: "List view" }).click();
   const restoredVersionRow = page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" });
   await expect(restoredVersionRow).toContainText("Audio/Classroom");
   await expect(restoredVersionRow).toContainText("v3");
