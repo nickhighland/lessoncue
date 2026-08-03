@@ -40,6 +40,13 @@ jobs:
           -v "${PWD}:/workspace:ro"
           debian:trixie-slim
           bash /workspace/tests/linux-updater-transaction.sh /workspace
+      - name: Exercise media-worker isolation before packaging
+        run: >-
+          docker run --rm --privileged
+          -e LESSONCUE_MEDIA_WORKER_TEST_SKIP=1
+          -v "${PWD}:/workspace:ro"
+          debian:trixie-slim
+          bash /workspace/tests/linux-media-worker.sh /workspace
       - run: npx playwright install --with-deps chromium
       - name: Run browser tests
         env:
