@@ -61,12 +61,13 @@ data class SignageContentPlaylist(val id: String, val name: String, val playback
     val synchronization: String, val version: Int, val items: List<SignagePlaylistEntry>)
 data class SignagePlaylistEntry(val id: String, val kind: String, val title: String?, val durationSeconds: Int,
     val transition: String, val media: CueItem? = null, val layout: SignagePlaylistLayout? = null,
-    val sourceUrl: String? = null)
+    val sourceUrl: String? = null, val hidden: Boolean = false)
 data class SignagePlaylistLayout(val id: String, val name: String, val backgroundColor: String,
     val zones: List<SignageZone>, val backgroundAudio: CueItem? = null)
 
 data class SignageCalendarEvent(val title: String, val description: String? = null,
-    val location: String? = null, val startsAt: Instant? = null, val allDay: Boolean = false)
+    val location: String? = null, val startsAt: Instant? = null, val endsAt: Instant? = null,
+    val allDay: Boolean = false)
 data class SignageWeatherSnapshot(val temperature: Double? = null, val feelsLike: Double? = null,
     val high: Double? = null, val low: Double? = null, val precipitation: Double? = null,
     val humidity: Double? = null, val wind: Double? = null, val temperatureUnit: String? = null,
@@ -85,7 +86,7 @@ data class SignageZone(val id: String, val type: String, val title: String?, val
     val underline: Boolean = false, val lineHeightPercent: Int = 120, val textAlign: String = "left",
     val strokeColor: String = "#ffffff", val strokeWidth: Int = 0, val cornerRadius: Int = 0,
     val qrValue: String? = null, val qrLabelTop: String? = null, val qrLabelBottom: String? = null,
-    val qrLabelLeft: String? = null, val qrLabelRight: String? = null, val qrPlacement: String = "center", val tickerSpeed: Int = 60,
+    val qrLabelLeft: String? = null, val qrLabelRight: String? = null, val qrPlacement: String = "center", val qrSizePercent: Int = 42, val tickerSpeed: Int = 60,
     val counterTargetAt: Instant? = null, val counterRepeatWeekly: Boolean = false,
     val clockDisplay: String = "both", val clockTimeFormat: String = "12h",
     val clockDateFormat: String = "long", val clockOrder: String = "time-date",

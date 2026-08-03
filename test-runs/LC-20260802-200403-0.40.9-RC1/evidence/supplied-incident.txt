@@ -1,0 +1,6 @@
+Source: user-supplied task brief
+
+Reported message:
+LessonCue update could not be started. Another protected LessonCue operation is already in progress. Failure reference: 0HNNFS12D541V:0000000D. Reference: 0HNNFS12D541V:0000000D
+
+No screenshot, browser session metadata, affected-server host, role, or exact occurrence timestamp was supplied.

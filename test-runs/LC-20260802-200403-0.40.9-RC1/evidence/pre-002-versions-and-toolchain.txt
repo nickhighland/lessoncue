@@ -1,0 +1,417 @@
+=== timestamps ===
+2026-08-02T20:06:34-0400
+2026-08-03T00:06:34Z
+=== git ===
+fd46c3ea0ffd3746f20ab48e792670f9f7e8a473
+ui-overhaul
+ M android-tv/app/src/main/kotlin/org/lessoncue/tv/LessonCueApi.kt
+ M android-tv/app/src/main/kotlin/org/lessoncue/tv/MainActivity.kt
+ M android-tv/app/src/main/kotlin/org/lessoncue/tv/Models.kt
+ M android-tv/app/src/main/kotlin/org/lessoncue/tv/UpdateScreen.kt
+ M web-admin/src/WebPlayer.tsx
+?? docs/qa-regression-smoke-and-troubleshooting-plan.md
+?? test-runs/
+ .../main/kotlin/org/lessoncue/tv/LessonCueApi.kt   |   5 +-
+ .../main/kotlin/org/lessoncue/tv/MainActivity.kt   | 374 ++++++++++++++-------
+ .../app/src/main/kotlin/org/lessoncue/tv/Models.kt |   7 +-
+ .../main/kotlin/org/lessoncue/tv/UpdateScreen.kt   |  27 +-
+ web-admin/src/WebPlayer.tsx                        |  16 +-
+ 5 files changed, 293 insertions(+), 136 deletions(-)
+=== expected source files ===
+--- server/LessonCue.Server/LessonCue.Server.csproj ---
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <Version>0.40.9</Version>
+    <Deterministic>true</Deterministic>
+    <DeterministicSourcePaths>true</DeterministicSourcePaths>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>
+--- android-tv/app/build.gradle.kts ---
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val releaseKeystorePath = providers.environmentVariable("LESSONCUE_ANDROID_KEYSTORE_PATH").orNull
+val releaseKeystorePassword = providers.environmentVariable("LESSONCUE_ANDROID_KEYSTORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("LESSONCUE_ANDROID_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("LESSONCUE_ANDROID_KEY_PASSWORD").orNull
+val releaseSigningConfigured = listOf(
+    releaseKeystorePath, releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword
+).all { !it.isNullOrBlank() }
+
+android {
+    namespace = "org.lessoncue.tv"
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = "org.lessoncue.tv"
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 68
+        versionName = "0.40.9"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("boolean", "UPDATE_ENABLED", "false")
+        buildConfigField(
+            "String",
+            "UPDATE_MANIFEST_URL",
+            "\"https://github.com/nickhighland/lessoncue/releases/latest/download/update.json\""
+        )
+        buildConfigField("String", "UPDATE_CHANNEL", "\"stable\"")
+        buildConfigField(
+            "String",
+            "UPDATE_ALLOWED_HOSTS",
+            "\"github.com,objects.githubusercontent.com,release-assets.githubusercontent.com\""
+        )
+        buildConfigField(
+            "String",
+            "UPDATE_SIGNING_CERT_SHA256",
+            "\"E875F8F9F4E80494DF1658D5E59662BE1048D7CD5D53DB2131103051352F64AE\""
+        )
+    }
+
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("lessoncueRelease") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("sideload") {
+            dimension = "distribution"
+            resValue("string", "app_name", "LessonCue Sideload")
+            buildConfigField("boolean", "UPDATE_ENABLED", "true")
+        }
+        create("store") {
+            dimension = "distribution"
+            resValue("string", "app_name", "LessonCue")
+            buildConfigField("boolean", "UPDATE_ENABLED", "false")
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            if (releaseSigningConfigured) signingConfig = signingConfigs.getByName("lessoncueRelease")
+        }
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+        resValues = true
+    }
+    sourceSets.getByName("test").resources.srcDir(rootProject.file("../protocol/fixtures"))
+    packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+}
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.17.0")
+    implementation("androidx.activity:activity-compose:1.12.4")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.10.0")
+    implementation("androidx.tv:tv-foundation:1.0.0")
+    implementation("androidx.tv:tv-material:1.0.1")
+    implementation("androidx.media3:media3-exoplayer:1.10.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.10.1")
+    implementation("androidx.media3:media3-ui:1.10.1")
+    implementation("androidx.datastore:datastore-preferences:1.2.1")
+    implementation("androidx.work:work-runtime-ktx:2.11.1")
+    implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("com.google.zxing:core:3.5.4")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250517")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.10.5")
+    debugImplementation("androidx.compose.ui:ui-test-manifest:1.10.5")
+}
+--- web-admin/src/WebPlayer.tsx ---
+4:const APP_VERSION = "0.40.9";
+417:            appVersion: APP_VERSION,
+623:        body: JSON.stringify({ deviceName, platform: "web-player", appVersion: APP_VERSION }),
+--- package.json ---
+{
+  "name": "lessoncue",
+  "version": "0.40.9",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "npm run dev:admin",
+    "build": "npm run build:admin",
+    "dev:admin": "vite --config web-admin/vite.config.ts",
+    "build:admin": "vite build --config web-admin/vite.config.ts",
+    "typecheck:admin": "tsc -p web-admin/tsconfig.json",
+    "test": "npm run typecheck:admin && npm run build:admin",
+    "test:protocol": "node scripts/validate-protocol-contract.mjs",
+    "test:e2e": "playwright test",
+    "test:a11y": "playwright test tests/browser/zz-accessibility.spec.ts",
+    "lint": "eslint \"web-admin/**/*.{ts,tsx}\"",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@microsoft/signalr": "^9.0.6",
+    "hls.js": "^1.6.16",
+    "qrcode": "^1.5.4",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
+    "@axe-core/playwright": "^4.12.1",
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.61.1",
+    "@types/node": "22.19.19",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "eslint": "^10.8.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "16.5.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "^8.65.0",
+    "vite": "8.1.4"
+  },
+  "type": "module"
+}
+--- package-lock.json ---
+{
+  "name": "lessoncue",
+  "version": "0.40.9",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "lessoncue",
+      "version": "0.40.9",
+      "dependencies": {
+        "@microsoft/signalr": "^9.0.6",
+        "hls.js": "^1.6.16",
+        "qrcode": "^1.5.4",
+        "react": "19.2.6",
+        "react-dom": "19.2.6"
+      },
+      "devDependencies": {
+        "@apidevtools/swagger-parser": "^12.1.0",
+        "@axe-core/playwright": "^4.12.1",
+        "@eslint/js": "^10.0.1",
+        "@playwright/test": "^1.61.1",
+        "@types/node": "22.19.19",
+        "@types/qrcode": "^1.5.6",
+        "@types/react": "19.2.14",
+        "@types/react-dom": "19.2.3",
+        "@vitejs/plugin-react": "6.0.2",
+        "ajv": "^8.20.0",
+        "ajv-formats": "^3.0.1",
+        "eslint": "^10.8.0",
+        "eslint-plugin-react-hooks": "^7.1.1",
+        "globals": "16.5.0",
+        "typescript": "5.9.3",
+        "typescript-eslint": "^8.65.0",
+        "vite": "8.1.4"
+      },
+      "engines": {
+        "node": ">=22.13.0"
+      }
+    },
+    "node_modules/@apidevtools/json-schema-ref-parser": {
+      "version": "14.0.1",
+      "resolved": "https://registry.npmjs.org/@apidevtools/json-schema-ref-parser/-/json-schema-ref-parser-14.0.1.tgz",
+      "integrity": "sha512-Oc96zvmxx1fqoSEdUmfmvvb59/KDOnUoJ7s2t7bISyAn0XEz57LCCw8k2Y4Pf3mwKaZLMciESALORLgfe2frCw==",
+      "dev": true,
+      "license": "MIT",
+      "dependencies": {
+        "@types/json-schema": "^7.0.15",
+        "js-yaml": "^4.1.0"
+      },
+      "engines": {
+        "node": ">= 16"
+      },
+      "funding": {
+        "url": "https://github.com/sponsors/philsturgeon"
+      }
+    },
+    "node_modules/@apidevtools/openapi-schemas": {
+      "version": "2.1.0",
+      "resolved": "https://registry.npmjs.org/@apidevtools/openapi-schemas/-/openapi-schemas-2.1.0.tgz",
+      "integrity": "sha512-Zc1AlqrJlX3SlpupFGpiLi2EbteyP7fXmUOGup6/DnkRgjP9bgMM/ag+n91rsv0U1Gpz0H3VILA/o3bW7Ua6BQ==",
+      "dev": true,
+      "license": "MIT",
+      "engines": {
+        "node": ">=10"
+      }
+    },
+    "node_modules/@apidevtools/swagger-methods": {
+      "version": "3.0.2",
+      "resolved": "https://registry.npmjs.org/@apidevtools/swagger-methods/-/swagger-methods-3.0.2.tgz",
+      "integrity": "sha512-QAkD5kK2b1WfjDS/UQn/qQkbwF31uqRjPTrsCs5ZG9BQGAkjwvqGFjjPqAuzac/IYzpPtRzjCP1WrTuAIjMrXg==",
+      "dev": true,
+      "license": "MIT"
+    },
+    "node_modules/@apidevtools/swagger-parser": {
+      "version": "12.1.0",
+      "resolved": "https://registry.npmjs.org/@apidevtools/swagger-parser/-/swagger-parser-12.1.0.tgz",
+      "integrity": "sha512-e5mJoswsnAX0jG+J09xHFYQXb/bUc5S3pLpMxUuRUA2H8T2kni3yEoyz2R3Dltw5f4A6j6rPNMpWTK+iVDFlng==",
+      "dev": true,
+      "license": "MIT",
+      "dependencies": {
+        "@apidevtools/json-schema-ref-parser": "14.0.1",
+        "@apidevtools/openapi-schemas": "^2.1.0",
+        "@apidevtools/swagger-methods": "^3.0.2",
+        "ajv": "^8.17.1",
+        "ajv-draft-04": "^1.0.0",
+        "call-me-maybe": "^1.0.2"
+      },
+      "peerDependencies": {
+        "openapi-types": ">=7"
+      }
+    },
+    "node_modules/@axe-core/playwright": {
+      "version": "4.12.1",
+      "resolved": "https://registry.npmjs.org/@axe-core/playwright/-/playwright-4.12.1.tgz",
+      "integrity": "sha512-rMd7xriptqKpP+w5265i4Hdkv2X5kbu6uiBi/B2I7uf3hieRBM3qDCfaKPtxfiYb2mKXfF+yLODJwIx+Jv1GDw==",
+      "dev": true,
+      "license": "MPL-2.0",
+      "dependencies": {
+        "axe-core": "~4.12.1"
+      },
+      "peerDependencies": {
+        "playwright-core": ">= 1.0.0"
+      }
+    },
+    "node_modules/@babel/code-frame": {
+      "version": "7.29.7",
+      "resolved": "https://registry.npmjs.org/@babel/code-frame/-/code-frame-7.29.7.tgz",
+      "integrity": "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==",
+      "dev": true,
+      "license": "MIT",
+      "dependencies": {
+        "@babel/helper-validator-identifier": "^7.29.7",
+        "js-tokens": "^4.0.0",
+        "picocolors": "^1.1.1"
+      },
+      "engines": {
+        "node": ">=6.9.0"
+      }
+    },
+    "node_modules/@babel/compat-data": {
+      "version": "7.29.7",
+      "resolved": "https://registry.npmjs.org/@babel/compat-data/-/compat-data-7.29.7.tgz",
+      "integrity": "sha512-locTkQyKvwIEgBzVrn8693ebc97F2U8ZHjbXwDXJ5Fn2TCpNwTlKcaKLkdHop5c/icOFE7qt7Q9JC5hnKNa6Gg==",
+      "dev": true,
+      "license": "MIT",
+      "engines": {
+        "node": ">=6.9.0"
+      }
+    },
+    "node_modules/@babel/core": {
+      "version": "7.29.7",
+      "resolved": "https://registry.npmjs.org/@babel/core/-/core-7.29.7.tgz",
+      "integrity": "sha512-RgHBCvtjbOK2gXSNBNIkNoEc9qoVEtau3hj8gEqKQuL3HZAibKarWFEI3Lfm6EYKkLalOh8eSrj9b+ch9H/VBA==",
+      "dev": true,
+      "license": "MIT",
+      "dependencies": {
+        "@babel/code-frame": "^7.29.7",
+        "@babel/generator": "^7.29.7",
+        "@babel/helper-compilation-targets": "^7.29.7",
+        "@babel/helper-module-transforms": "^7.29.7",
+        "@babel/helpers": "^7.29.7",
+        "@babel/parser": "^7.29.7",
+        "@babel/template": "^7.29.7",
+        "@babel/traverse": "^7.29.7",
+        "@babel/types": "^7.29.7",
+        "@jridgewell/remapping": "^2.3.5",
+        "convert-source-map": "^2.0.0",
+        "debug": "^4.1.0",
+        "gensync": "^1.0.0-beta.2",
+        "json5": "^2.2.3",
+        "semver": "^6.3.1"
+      },
+      "engines": {
+        "node": ">=6.9.0"
+      },
+      "funding": {
+        "type": "opencollective",
+        "url": "https://opencollective.com/babel"
+      }
+    },
+    "node_modules/@babel/generator": {
+      "version": "7.29.7",
+      "resolved": "https://registry.npmjs.org/@babel/generator/-/generator-7.29.7.tgz",
+      "integrity": "sha512-DkXD5OJQaAQIdZ1bt3UZdEnHAn9Imd3IVBdX03UFe+ony9Ojw5pzr9YVKGDY1jt+Gcn/FnGkNf8r+Vj5NOJWtQ==",
+      "dev": true,
+      "license": "MIT",
+      "dependencies": {
+        "@babel/parser": "^7.29.7",
+        "@babel/types": "^7.29.7",
+        "@jridgewell/gen-mapping": "^0.3.12",
+        "@jridgewell/trace-mapping": "^0.3.28",
+        "jsesc": "^3.0.2"
+      },
+      "engines": {
+        "node": ">=6.9.0"
+      }
+    },
+    "node_modules/@babel/helper-compilation-targets": {
+      "version": "7.29.7",
+      "resolved": "https://registry.npmjs.org/@babel/helper-compilation-targets/-/helper-compilation-targets-7.29.7.tgz",
+MISSING pnpm-lock.yaml
+MISSING yarn.lock
+MISSING gradlew
+MISSING android-tv/gradlew
+=== commands ===
+node: /opt/homebrew/bin/node
+v26.5.0
+npm: /opt/homebrew/bin/npm
+11.17.0
+npx: /opt/homebrew/bin/npx
+11.17.0
+pnpm: /Users/nickhighland/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm
+11.9.0
+yarn: unavailable
+dotnet: /opt/homebrew/bin/dotnet
+10.0.301
+java: /usr/bin/java
+openjdk 25.0.2 2026-01-20 LTS
+OpenJDK Runtime Environment Temurin-25.0.2+10 (build 25.0.2+10-LTS)
+OpenJDK 64-Bit Server VM Temurin-25.0.2+10 (build 25.0.2+10-LTS, mixed mode, sharing)
+javac: /usr/bin/javac
+javac 25.0.2
+gradle: /opt/homebrew/bin/gradle
+
+------------------------------------------------------------
+Gradle 9.6.1
+------------------------------------------------------------
+adb: unavailable
+docker: /usr/local/bin/docker
+Docker version 29.2.1, build a5c7197
+podman: unavailable
+gh: /opt/homebrew/bin/gh
+gh version 2.87.3 (2026-02-23)
+https://github.com/cli/cli/releases/tag/v2.87.3
+=== macOS ===
+ProductName:		macOS
+ProductVersion:		26.5.2
+BuildVersion:		25F84

@@ -1,0 +1,30 @@
+=== local timestamp ===
+date: illegal option -- -
+usage: date [-jnRu] [-I[date|hours|minutes|seconds|ns]] [-f input_fmt]
+            [ -z output_zone ] [-r filename|seconds] [-v[+|-]val[y|m|w|d|H|M|S]]
+            [[[[mm]dd]HH]MM[[cc]yy][.SS] | new_date] [+output_fmt]
+date: illegal option -- -
+usage: date [-jnRu] [-I[date|hours|minutes|seconds|ns]] [-f input_fmt]
+            [ -z output_zone ] [-r filename|seconds] [-v[+|-]val[y|m|w|d|H|M|S]]
+            [[[[mm]dd]HH]MM[[cc]yy][.SS] | new_date] [+output_fmt]
+=== server binary version ===
+zsh:1: command not found: timeout
+=== installed-version ===
+zsh:1: command not found: timeout
+=== readiness ===
+zsh:1: command not found: timeout
+
+=== service state ===
+zsh:1: command not found: timeout
+=== service enabled ===
+zsh:1: command not found: timeout
+=== protected paths ===
+zsh:1: command not found: timeout
+zsh:1: command not found: timeout
+zsh:1: command not found: timeout
+=== locks ===
+=== exact trace in service journal ===
+=== updater journals ===
+zsh:1: command not found: timeout
+=== path/updater/recovery recent journal ===
+zsh:1: command not found: timeout

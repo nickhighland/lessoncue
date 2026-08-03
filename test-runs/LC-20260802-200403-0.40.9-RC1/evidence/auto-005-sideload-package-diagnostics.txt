@@ -1,0 +1,6 @@
+=== all LessonCue package entries ===
+=== uninstalled package entries ===
+=== package manager path/status ===
+=== package sessions ===
+=== staging/data paths (read-only) ===
+ls: /data/app-staging: Permission denied

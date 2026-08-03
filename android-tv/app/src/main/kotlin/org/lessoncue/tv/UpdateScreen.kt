@@ -24,7 +24,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Button
 import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
@@ -150,8 +149,8 @@ fun UpdateAvailableBanner(
                 Text("LessonCue ${state.manifest.versionName} is available", color = UpdateMint, fontSize = 21.sp)
                 Text("Playback can continue. Review and install when convenient.", color = UpdateCream, fontSize = 17.sp)
             }
-            Button(onClick = onReview) { Text("Review update") }
-            Button(onClick = onLater) { Text("Later") }
+            LessonCueButton(onClick = onReview) { Text("Review update") }
+            LessonCueButton(onClick = onLater) { Text("Later") }
         }
     }
 }
@@ -232,36 +231,36 @@ private fun ActionRow(
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
         when (state) {
             is UpdateUiState.Idle -> Unit
-            is UpdateUiState.Checking -> Button(onClick = onClose, modifier = Modifier.focusRequester(firstFocus)) {
+            is UpdateUiState.Checking -> LessonCueButton(onClick = onClose, modifier = Modifier.focusRequester(firstFocus)) {
                 Text("Close")
             }
-            is UpdateUiState.Current -> Button(onClick = onClose, modifier = Modifier.focusRequester(firstFocus)) {
+            is UpdateUiState.Current -> LessonCueButton(onClick = onClose, modifier = Modifier.focusRequester(firstFocus)) {
                 Text("Continue")
             }
             is UpdateUiState.Available -> {
-                Button(onClick = onDownload, modifier = Modifier.focusRequester(firstFocus)) {
+                LessonCueButton(onClick = onDownload, modifier = Modifier.focusRequester(firstFocus)) {
                     Text("Download and update")
                 }
-                if (!blocking) Button(onClick = onLater) { Text("Later") }
+                if (!blocking) LessonCueButton(onClick = onLater) { Text("Later") }
             }
-            is UpdateUiState.Downloading -> Button(
+            is UpdateUiState.Downloading -> LessonCueButton(
                 onClick = onCancelDownload,
                 modifier = Modifier.focusRequester(firstFocus)
             ) {
                 Text("Cancel download")
             }
             is UpdateUiState.PermissionRequired -> {
-                Button(onClick = onOpenPermissionSettings, modifier = Modifier.focusRequester(firstFocus)) {
+                LessonCueButton(onClick = onOpenPermissionSettings, modifier = Modifier.focusRequester(firstFocus)) {
                     Text("Open Android settings")
                 }
-                Button(onClick = onRetry) { Text("Check permission again") }
-                if (!blocking) Button(onClick = onLater) { Text("Later") }
+                LessonCueButton(onClick = onRetry) { Text("Check permission again") }
+                if (!blocking) LessonCueButton(onClick = onLater) { Text("Later") }
             }
             is UpdateUiState.Installing -> Unit
             is UpdateUiState.Error -> {
-                Button(onClick = onRetry, modifier = Modifier.focusRequester(firstFocus)) { Text("Retry") }
-                if (state.manifest != null && !blocking) Button(onClick = onLater) { Text("Later") }
-                else if (!blocking) Button(onClick = onClose) { Text("Close") }
+                LessonCueButton(onClick = onRetry, modifier = Modifier.focusRequester(firstFocus)) { Text("Retry") }
+                if (state.manifest != null && !blocking) LessonCueButton(onClick = onLater) { Text("Later") }
+                else if (!blocking) LessonCueButton(onClick = onClose) { Text("Close") }
             }
         }
     }

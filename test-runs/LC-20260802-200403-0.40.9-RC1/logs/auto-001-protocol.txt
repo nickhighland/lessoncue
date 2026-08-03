@@ -1,0 +1,9 @@
+command: npm run test:protocol
+start_local: 2026-08-02T20:12:06-0400
+
+> lessoncue@0.40.9 test:protocol
+> node scripts/validate-protocol-contract.mjs
+
+Protocol contract valid: 2 manifest fixtures, 119 OpenAPI paths, 15 signage element types, 4 roles.
+finish_local: 2026-08-02T20:12:07-0400
+exit_code: 0
