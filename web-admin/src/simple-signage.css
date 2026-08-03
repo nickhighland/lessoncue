@@ -1517,6 +1517,8 @@
   gap: 12px;
   overflow-x: auto;
   padding: 30px 2px 10px;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
   scrollbar-color: #d5b476 transparent;
 }
 
