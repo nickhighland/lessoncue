@@ -4,7 +4,7 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
-## v0.40.12 — reliable Linux installer validation
+## v0.40.13 — reliable Linux installer validation
 
 ### User changes
 
@@ -15,7 +15,8 @@ administrator installs an update.
 
 - The installer Bubblewrap probe runs as `lessoncue`, matching the systemd service identity and user-namespace mapping.
 - Linux media-worker regression coverage exercises a service-owned 0700 probe directory.
-- Release metadata and Android version code advance to 0.40.12 and 71.
+- Browser validation now targets the unique playback heading when the same title is also shown in media metadata.
+- Release metadata and Android version code advance to 0.40.13 and 72.
 
 ## v0.40.11 — recoverable protected updates
 

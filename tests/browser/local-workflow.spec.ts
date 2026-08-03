@@ -1081,13 +1081,13 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     return { screenId: identity.screenId, lessonId: lesson.id, itemId: item.id, version: command.version, status: response.status };
   });
   expect(browserPlayback.status).toBe(202);
-  await expect(page.getByText("Browser Test Audio", { exact: true })).toBeVisible();
+  await expect(page.getByText("Browser Test Audio", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: /Start browser playback/ })).toBeVisible();
   await expect.poll(() => page.evaluate(async ({ screenId, version }) => {
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.12" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.13" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
