@@ -14,8 +14,8 @@ public sealed class UpdateServiceTests
         Assert.Equal(expected, UpdateService.IsNewer(latest, current));
 
     [Theory]
-    [InlineData("0.40.17", "update:v0.40.17:2026-08-03T12:34:56.0000000+00:00")]
-    [InlineData("v0.40.17", "update:v0.40.17:2026-08-03T12:34:56.0000000+00:00")]
+    [InlineData("0.40.18", "update:v0.40.18:2026-08-03T12:34:56.0000000+00:00")]
+    [InlineData("v0.40.18", "update:v0.40.18:2026-08-03T12:34:56.0000000+00:00")]
     [InlineData(null, "update:2026-08-03T12:34:56.0000000+00:00")]
     [InlineData("invalid", "update:2026-08-03T12:34:56.0000000+00:00")]
     public void BuildsPinnedUpdateRequestsWhenAReleaseVersionIsKnown(string? version, string expected)

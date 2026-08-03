@@ -11,7 +11,7 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     --version)
       if [[ "$#" -lt 2 ]]; then
-        echo "--version requires a release tag such as v0.40.17."
+        echo "--version requires a release tag such as v0.40.18."
         exit 1
       fi
       requested_version="$2"

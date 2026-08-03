@@ -4,7 +4,7 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
-## v0.40.17 — self-repairing protected updates
+## v0.40.18 — self-repairing protected updates
 
 ### User changes
 
@@ -16,7 +16,7 @@ administrator installs an update.
 
 - The updater securely hands off to a checksum- and signature-verified release candidate while the original process retains the operation lock.
 - Linux transaction tests cover release-updater handoff, pinned request versions, updater replacement, rollback, and snapshot failure diagnostics.
-- Release metadata and Android version code advance to 0.40.17 and 76.
+- Release metadata and Android version code advance to 0.40.18 and 77.
 
 ## v0.40.16 — reliable protected update diagnostics
 
