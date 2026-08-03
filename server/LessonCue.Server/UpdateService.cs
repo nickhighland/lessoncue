@@ -109,7 +109,7 @@ public sealed class UpdateService(
     {
         RefreshInstallResult();
         return await SignalProtectedOperationAsync(
-            $"update:{DateTimeOffset.UtcNow:O}",
+            BuildUpdateRequest(_status.LatestVersion, DateTimeOffset.UtcNow),
             "update",
             ct);
     }
@@ -131,6 +131,14 @@ public sealed class UpdateService(
 
     public static bool IsNewer(string? candidate, string current) =>
         Version.TryParse(candidate, out var latest) && Version.TryParse(current, out var installed) && latest > installed;
+
+    public static string BuildUpdateRequest(string? targetVersion, DateTimeOffset requestedAt)
+    {
+        var normalized = targetVersion?.Trim().TrimStart('v', 'V');
+        return Version.TryParse(normalized, out _)
+            ? $"update:v{normalized}:{requestedAt:O}"
+            : $"update:{requestedAt:O}";
+    }
 
     public static string InstalledVersion() =>
         typeof(UpdateService).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]

@@ -17,7 +17,7 @@ Paste these two commands into the SSH session. They install the small download p
 ```bash
 sudo apt-get update
 sudo apt-get install -y curl ca-certificates
-curl -fsSL https://raw.githubusercontent.com/nickhighland/lessoncue/main/installers/linux/install-latest.sh | bash
+curl -fsSL https://github.com/nickhighland/lessoncue/releases/latest/download/install-lessoncue.sh | bash
 ```
 
 The final message says `LessonCue is ready` and prints `http://lessoncue.local` plus a numeric fallback such as `http://192.168.4.75`. The SSH connection can then be closed; systemd keeps LessonCue running and starts it again after reboot.

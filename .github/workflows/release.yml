@@ -33,7 +33,7 @@ jobs:
       - run: npm test
       - run: dotnet restore server/LessonCue.Server.Tests/LessonCue.Server.Tests.csproj
       - run: dotnet test server/LessonCue.Server.Tests/LessonCue.Server.Tests.csproj -c Release --no-restore
-      - run: bash -n installers/linux/install-latest.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue-update tests/linux-updater-transaction.sh
+      - run: bash -n installers/linux/install-latest.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue-update installers/linux/repair-updater.sh tests/linux-updater-transaction.sh
       - name: Exercise transactional Linux updates before packaging
         run: >-
           docker run --rm
@@ -107,7 +107,7 @@ jobs:
             test "$(package/payload/yt-dlp --version)" = "${YT_DLP_VERSION}"
           fi
       - run: |
-          cp installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue.service installers/linux/lessoncue-cloudflared.service installers/linux/lessoncue-update installers/linux/lessoncue-update.service installers/linux/lessoncue-update.path installers/linux/lessoncue-update-recovery.service installers/linux/lessoncue-media-worker installers/linux/lessoncue-render.rules installers/release-signing-public.pem package/
+          cp installers/linux/install.sh installers/linux/uninstall.sh installers/linux/repair-updater.sh installers/linux/lessoncue.service installers/linux/lessoncue-cloudflared.service installers/linux/lessoncue-update installers/linux/lessoncue-update.service installers/linux/lessoncue-update.path installers/linux/lessoncue-update-recovery.service installers/linux/lessoncue-media-worker installers/linux/lessoncue-render.rules installers/release-signing-public.pem package/
           cp installers/linux/lessoncue-media-worker package/payload/lessoncue-media-worker
           chmod 0755 package/payload/lessoncue-media-worker
           test -x package/lessoncue-media-worker
@@ -301,6 +301,7 @@ jobs:
         run: |
           bash scripts/extract-release-notes.sh "${GITHUB_REF_NAME}" > release/RELEASE-NOTES.md
           cp CHANGELOG.md release/CHANGELOG.md
+          cp installers/linux/install-latest.sh release/install-lessoncue.sh
       - name: Install checksum-pinned Trivy
         run: bash scripts/install-trivy.sh "${RUNNER_TEMP}/lessoncue-security"
       - name: Generate release SBOM and third-party inventory
