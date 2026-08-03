@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { confirmAction, requestText } from "./AccessibleDialogs";
 import "./simple-signage.css";
 import {
@@ -2067,68 +2067,90 @@ function PlaylistTimeline({
       </div>
     );
   return (
-    <div className="playlist-timeline">
+    <section className="playlist-timeline" aria-label="Horizontal signage playlist">
       <div className="timeline-loop-arrow">LOOPS BACK TO START ↻</div>
-      {playlist.items.map((item, index) => {
-        const asset = media.find((value) => value.id === item.mediaAssetId);
-        return (
-          <button
-            className={`timeline-item ${selectedItemId === item.id ? "selected" : ""}`}
-            onClick={() => onSelect(item.id)}
-            key={item.id}
-          >
-            <div className="timeline-thumb">
-              {asset?.thumbnailUrl ? (
-                <img src={asset.thumbnailUrl} alt="" />
-              ) : (
-                <span>{item.kind === "web" ? "⌘" : "▶"}</span>
-              )}
-              <b>{index + 1}</b>
-            </div>
-            <span>
-              <strong>{item.title || asset?.fileName || "Untitled"}</strong>
-              <small>
-                {item.durationSeconds}s · {item.transition} ·{" "}
-                {item.muted ? "muted" : `${item.volumePercent}%`}
-              </small>
-            </span>
-            <div className="timeline-actions">
-              <i
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (index === 0) return;
-                  const next = [...playlist.items];
-                  [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                  onChange(next);
-                }}
-              >
-                ↑
-              </i>
-              <i
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (index === playlist.items.length - 1) return;
-                  const next = [...playlist.items];
-                  [next[index], next[index + 1]] = [next[index + 1], next[index]];
-                  onChange(next);
-                }}
-              >
-                ↓
-              </i>
-              <i
-                className="remove"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onChange(playlist.items.filter((entry) => entry.id !== item.id));
-                }}
-              >
-                ×
-              </i>
-            </div>
-          </button>
-        );
-      })}
-    </div>
+      <div className="playlist-timeline-track">
+        {playlist.items.map((item, index) => {
+          const asset = media.find((value) => value.id === item.mediaAssetId);
+          const moveItem = (direction: -1 | 1) => {
+            const nextIndex = index + direction;
+            if (nextIndex < 0 || nextIndex >= playlist.items.length) return;
+            const next = [...playlist.items];
+            [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+            onChange(next);
+          };
+          const removeItem = () => onChange(playlist.items.filter((entry) => entry.id !== item.id));
+          const activateAction = (event: KeyboardEvent<HTMLElement>, action: () => void) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            event.stopPropagation();
+            action();
+          };
+          return (
+            <button
+              className={`timeline-item ${selectedItemId === item.id ? "selected" : ""}`}
+              onClick={() => onSelect(item.id)}
+              key={item.id}
+            >
+              <div className="timeline-thumb">
+                {asset?.thumbnailUrl ? (
+                  <img src={asset.thumbnailUrl} alt="" />
+                ) : (
+                  <span>{item.kind === "web" ? "⌘" : "▶"}</span>
+                )}
+                <b>{index + 1}</b>
+              </div>
+              <span>
+                <strong>{item.title || asset?.fileName || "Untitled"}</strong>
+                <small>
+                  {item.durationSeconds}s · {item.transition} ·{" "}
+                  {item.muted ? "muted" : `${item.volumePercent}%`}
+                </small>
+              </span>
+              <div className="timeline-actions">
+                <i
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Move ${item.title || asset?.fileName || "item"} earlier`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    moveItem(-1);
+                  }}
+                  onKeyDown={(event) => activateAction(event, () => moveItem(-1))}
+                >
+                  ↑
+                </i>
+                <i
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Move ${item.title || asset?.fileName || "item"} later`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    moveItem(1);
+                  }}
+                  onKeyDown={(event) => activateAction(event, () => moveItem(1))}
+                >
+                  ↓
+                </i>
+                <i
+                  className="remove"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Remove ${item.title || asset?.fileName || "item"}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    removeItem();
+                  }}
+                  onKeyDown={(event) => activateAction(event, removeItem)}
+                >
+                  ×
+                </i>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -2158,7 +2180,7 @@ function MediaTray({
     <section className="signage-media-tray">
       <header>
         <div>
-          <strong>Add content</strong>
+          <strong>Library</strong>
           <small>Click an item to add it to the end of the loop.</small>
         </div>
         <div className="signage-media-tray-actions">
