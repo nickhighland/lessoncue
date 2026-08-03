@@ -4,6 +4,21 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.10 — a clearer lesson workflow
+
+### User changes
+
+- The administration sidebar is organized into clearer sections, with faster dashboard actions for common tasks.
+- Lesson editing now separates lesson settings from the playback sequence, making run-of-show changes easier to review.
+- The Media Library supports both grid and list views for visual browsing or detailed management.
+- Administration dialogs and navigation labels have improved contrast and accessibility behavior.
+
+### Developer changes
+
+- Browser coverage follows the tabbed lesson editor and explicit Media Library view modes.
+- The Linux updater transaction fixture selects the correct release asset on both x64 and arm64 runners.
+- Release metadata and Android version code advance to 0.40.10 and 69.
+
 ## v0.40.9 — clearer update recovery
 
 ### User changes
