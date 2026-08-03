@@ -64,7 +64,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Exercise filesystem, network, and time isolation
-        run: sudo bash tests/linux-media-worker.sh "${PWD}"
+        run: >-
+          docker run --rm --privileged
+          -e LESSONCUE_MEDIA_WORKER_TEST_SKIP=1
+          -v "${PWD}:/workspace:ro"
+          debian:trixie-slim
+          bash /workspace/tests/linux-media-worker.sh /workspace
 
   browser-e2e:
     runs-on: ubuntu-latest
