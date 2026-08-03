@@ -4,6 +4,19 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.15 — horizontal lesson and signage builders
+
+### User changes
+
+- Lesson editing now uses one clean surface with lesson details above the playback sequence.
+- Transition Options and Playback Options stay collapsed until they are needed.
+- Lesson and signage playlists now use horizontal cards with a media library shelf.
+
+### Developer changes
+
+- Browser coverage follows the consolidated lesson editor and horizontal signage playlist.
+- Release metadata and Android version code advance to 0.40.15 and 74.
+
 ## v0.40.14 — reliable uploads on port 80 servers
 
 ### User changes
