@@ -1,0 +1,4 @@
+start_local: 2026-08-02T20:27:26-0400
+reboot_sent_local: 2026-08-02T20:27:28-0400
+poll=1 boot=
+poll=2 boot=

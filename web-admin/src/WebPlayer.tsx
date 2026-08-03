@@ -1,7 +1,7 @@
 import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 
-const APP_VERSION = "0.40.9";
+const APP_VERSION = "0.40.10";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -1178,13 +1178,19 @@ function SignageCalendar({ zone }: { zone: SignageZone }) {
   return <ol className="signage-calendar-list">
     {events.map((event, index) => {
       const starts = event.startsAt ? new Date(event.startsAt) : undefined;
+      const ends = event.endsAt ? new Date(event.endsAt) : undefined;
+      const dateText = starts && fields.has("date")
+        ? starts.toLocaleDateString([], { month: "long", day: "numeric" })
+        : "";
+      const timeText = starts && fields.has("time") && !event.allDay
+        ? `${starts.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${ends && ends.toDateString() === starts.toDateString() ? ` - ${ends.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}`
+        : "";
       return <li key={`${zone.id}-event-${index}`}>
-        {(fields.has("date") || fields.has("time")) && starts && <time dateTime={event.startsAt}>
-          {fields.has("date") ? starts.toLocaleDateString([], { month: "short", day: "numeric" }) : ""}
-          {fields.has("date") && fields.has("time") ? " · " : ""}
-          {fields.has("time") && !event.allDay ? starts.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
+        {fields.has("title") && <b style={{ color: zone.accentColor }}>{event.title}</b>}
+        {(dateText || timeText) && <time dateTime={event.startsAt}>
+          {dateText && <span>{dateText}</span>}
+          {timeText && <span>{timeText}</span>}
         </time>}
-        {fields.has("title") && <b>{event.title}</b>}
         {fields.has("description") && event.description && <span>{event.description}</span>}
         {fields.has("location") && event.location && <small>{event.location}</small>}
       </li>;

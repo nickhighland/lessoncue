@@ -234,6 +234,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         qrLabelLeft = item.optString("qrLabelLeft").takeIf { it.isNotBlank() && it != "null" },
         qrLabelRight = item.optString("qrLabelRight").takeIf { it.isNotBlank() && it != "null" },
         qrPlacement = item.optString("qrPlacement", "center"),
+        qrSizePercent = item.optInt("qrSizePercent", 42),
         tickerSpeed = item.optInt("tickerSpeed", 60),
         counterTargetAt = parseOptionalInstant(item.optString("counterTargetAt")),
         counterRepeatWeekly = item.optBoolean("counterRepeatWeekly"),
@@ -280,6 +281,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
                 description = event.optString("description").takeIf { value -> value.isNotBlank() && value != "null" },
                 location = event.optString("location").takeIf { value -> value.isNotBlank() && value != "null" },
                 startsAt = parseOptionalInstant(event.optString("startsAt")),
+                endsAt = parseOptionalInstant(event.optString("endsAt")),
                 allDay = event.optBoolean("allDay")
             ) }.orEmpty(),
             weather = cached.optJSONObject("weather")?.let { weather -> SignageWeatherSnapshot(
@@ -311,7 +313,8 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
                 id = layout.getString("id"), name = layout.optString("name"), backgroundColor = layout.optString("backgroundColor", "#25302d"),
                 zones = layout.optJSONArray("zones")?.mapObjects(::parseSignageZone).orEmpty(),
                 backgroundAudio = layout.optJSONObject("backgroundAudio")?.let(::parseItem)
-            ) }, sourceUrl = entry.optString("sourceUrl").takeIf { it.isNotBlank() && it != "null" }
+            ) }, sourceUrl = entry.optString("sourceUrl").takeIf { it.isNotBlank() && it != "null" },
+            hidden = entry.optBoolean("hidden", false)
         ) }.orEmpty()
     )
 

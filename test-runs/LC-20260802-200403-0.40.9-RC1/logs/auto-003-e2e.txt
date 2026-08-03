@@ -1,0 +1,498 @@
+command: env LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX=1 npm run test:e2e
+start_local: 2026-08-02T20:14:09-0400
+
+> lessoncue@0.40.9 test:e2e
+> playwright test
+
+[WebServer] warn: Microsoft.EntityFrameworkCore.Query[10103]
+[WebServer]       The query uses the 'First'/'FirstOrDefault' operator without 'OrderBy' and filter operators. This may lead to unpredictable results.
+[WebServer] warn: Microsoft.AspNetCore.DataProtection.KeyManagement.XmlKeyManager[35]
+[WebServer]       No XML encryptor configured. Key {c314fc4e-7213-4f58-ba32-b56054cdfa5e} may be persisted to storage in unencrypted form.
+[WebServer] warn: Microsoft.EntityFrameworkCore.Query[10103]
+[WebServer]       The query uses the 'First'/'FirstOrDefault' operator without 'OrderBy' and filter operators. This may lead to unpredictable results.
+[WebServer] warn: Microsoft.EntityFrameworkCore.Query[10103]
+[WebServer]       The query uses the 'First'/'FirstOrDefault' operator without 'OrderBy' and filter operators. This may lead to unpredictable results.
+[WebServer] info: Microsoft.Hosting.Lifetime[14]
+[WebServer]       Now listening on: http://127.0.0.1:5117
+[WebServer] info: Microsoft.Hosting.Lifetime[0]
+[WebServer]       Application started. Press Ctrl+C to shut down.
+[WebServer] info: Microsoft.Hosting.Lifetime[0]
+[WebServer]       Hosting environment: Production
+[WebServer] info: Microsoft.Hosting.Lifetime[0]
+[WebServer]       Content root path: /Users/nickhighland/Documents/Video Viewer/server/LessonCue.Server
+
+Running 7 tests using 1 worker
+
+(node:49072) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. POST /api/v1/tv/status returned 400 in 11.2 ms. Trace 0HNNGUGJ1H4TO:00000004; user anonymous
+  ✓  1 tests/browser/display-conformance.spec.ts:68:3 › browser accepts committed protocol fixture: manifest-v1-minimum.json (418ms)
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. POST /api/v1/tv/status returned 400 in 0.5 ms. Trace 0HNNGUGJ1H4TQ:00000004; user anonymous
+  ✓  2 tests/browser/display-conformance.spec.ts:68:3 › browser accepts committed protocol fixture: manifest-v1-current.json (173ms)
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. POST /api/v1/tv/status returned 400 in 0.4 ms. Trace 0HNNGUGJ1H4TT:00000003; user anonymous
+  ✓  3 tests/browser/display-conformance.spec.ts:68:3 › browser accepts committed protocol fixture: manifest-v1-future-additive.json (155ms)
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. POST /api/v1/tv/status returned 400 in 0.2 ms. Trace 0HNNGUGJ1H4TU:00000004; user anonymous
+  ✓  4 tests/browser/display-conformance.spec.ts:87:1 › browser renders the declared safe fallback and preserves navigation (413ms)
+[WebServer] warn: Microsoft.EntityFrameworkCore.Query[10103]
+[WebServer]       The query uses the 'First'/'FirstOrDefault' operator without 'OrderBy' and filter operators. This may lead to unpredictable results.
+[WebServer] warn: Microsoft.EntityFrameworkCore.Query[10103]
+[WebServer]       The query uses the 'First'/'FirstOrDefault' operator without 'OrderBy' and filter operators. This may lead to unpredictable results.
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 3.7 ms. Trace 0HNNGUGJ1H4U4:00000002; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.2 ms. Trace 0HNNGUGJ1H4U5:00000004; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.3 ms. Trace 0HNNGUGJ1H4U2:00000007; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U3:00000007; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.2 ms. Trace 0HNNGUGJ1H4U4:0000000B; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.8 ms. Trace 0HNNGUGJ1H4U4:0000000D; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U0:00000020; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U3:00000014; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U3:00000016; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U5:00000019; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.3 ms. Trace 0HNNGUGJ1H4U0:00000027; user browser-admin
+[WebServer] warn: Microsoft.EntityFrameworkCore.Query[10103]
+[WebServer]       The query uses the 'First'/'FirstOrDefault' operator without 'OrderBy' and filter operators. This may lead to unpredictable results.
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.8 ms. Trace 0HNNGUGJ1H4U2:0000001A; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U3:0000001E; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 1.3 ms. Trace 0HNNGUGJ1H4U4:0000001C; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U4:0000001E; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.3 ms. Trace 0HNNGUGJ1H4U0:00000036; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U1:0000002A; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U1:0000002C; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U0:0000003C; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U0:0000003E; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U2:0000002B; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U5:0000003E; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U2:0000002E; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U4:00000031; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U5:00000044; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U5:00000046; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.2 ms. Trace 0HNNGUGJ1H4U1:0000003D; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 3.8 ms. Trace 0HNNGUGJ1H4U1:0000003F; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUGJ1H4U4:00000037; user browser-admin
+[WebServer] info: System.Net.Http.HttpClient.updates.LogicalHandler[100]
+[WebServer]       Start processing HTTP request GET https://api.github.com/repos/nickhighland/lessoncue/releases/latest
+[WebServer] info: System.Net.Http.HttpClient.updates.ClientHandler[100]
+[WebServer]       Sending HTTP request GET https://api.github.com/repos/nickhighland/lessoncue/releases/latest
+[WebServer] info: System.Net.Http.HttpClient.updates.ClientHandler[101]
+[WebServer]       Received HTTP response headers after 358.8897ms - 200
+[WebServer] info: System.Net.Http.HttpClient.updates.LogicalHandler[101]
+[WebServer]       End processing HTTP request after 364.7535ms - 200
+[WebServer] info: LessonCue.Server.UpdateService[0]
+[WebServer]       LessonCue update check completed. Current version 0.40.9; latest version 0.40.9; update available False
+  ✘  5 tests/browser/local-workflow.spec.ts:58:1 › fresh local server supports setup, direct lesson upload, retention, and online media (21.2s)
+(node:49145) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.6 ms. Trace 0HNNGUGJ1H4UD:00000002; user browser-admin
+  ✘  6 tests/browser/zz-accessibility.spec.ts:54:1 › primary administration paths meet the automated WCAG 2.2 AA baseline (1.3s)
+(node:49157) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.3 ms. Trace 0HNNGUGJ1H4UK:00000002; user browser-admin
+  ✘  7 tests/browser/zz-accessibility.spec.ts:75:1 › confirmation dialogs trap focus, close with Escape, and restore focus (1.5s)
+
+
+  1) tests/browser/local-workflow.spec.ts:58:1 › fresh local server supports setup, direct lesson upload, retention, and online media 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: locator('.media-table').filter({ hasText: 'browser-test-audio.wav' })
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 10000ms
+      - waiting for locator('.media-table').filter({ hasText: 'browser-test-audio.wav' })
+
+
+      266 |   await page.getByRole("button", { name: /Media Library$/ }).click();
+      267 |   const audioRow = page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" });
+    > 268 |   await expect(audioRow).toBeVisible();
+          |                          ^
+      269 |   await expect(audioRow.getByRole("button", { name: /Deletes/ })).toBeVisible();
+      270 |   await expect(page.locator(".media-table").filter({ hasText: "Online Learning Page" })).toBeVisible();
+      271 |
+        at /Users/nickhighland/Documents/Video Viewer/tests/browser/local-workflow.spec.ts:268:26
+
+    Error Context: test-results/local-workflow-fresh-local-0ce3e--retention-and-online-media/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/local-workflow-fresh-local-0ce3e--retention-and-online-media/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/local-workflow-fresh-local-0ce3e--retention-and-online-media/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) tests/browser/zz-accessibility.spec.ts:54:1 › primary administration paths meet the automated WCAG 2.2 AA baseline 
+
+    Error: dashboard accessibility violations:
+    color-contrast: Elements must meet minimum color contrast ratio thresholds
+      .nav-section:nth-child(1) > .nav-section-label — Fix any of the following:
+      Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1
+      .nav-section:nth-child(2) > .nav-section-label — Fix any of the following:
+      Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1
+      .nav-section:nth-child(3) > .nav-section-label — Fix any of the following:
+      Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  -   1
+    + Received  + 128
+
+    - Array []
+    + Array [
+    +   Object {
+    +     "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+    +     "help": "Elements must meet minimum color contrast ratio thresholds",
+    +     "helpUrl": "https://dequeuniversity.com/rules/axe/4.12/color-contrast?application=playwright",
+    +     "id": "color-contrast",
+    +     "impact": "serious",
+    +     "nodes": Array [
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": Object {
+    +               "bgColor": "#25302d",
+    +               "contrastRatio": 2.85,
+    +               "expectedContrastRatio": "4.5:1",
+    +               "fgColor": "#5e7870",
+    +               "fontSize": "6.8pt (9px)",
+    +               "fontWeight": "bold",
+    +               "messageKey": null,
+    +             },
+    +             "id": "color-contrast",
+    +             "impact": "serious",
+    +             "message": "Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<aside class=\"sidebar\">",
+    +                 "target": Array [
+    +                   "aside",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1",
+    +         "html": "<div class=\"nav-section-label\">Teaching</div>",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           ".nav-section:nth-child(1) > .nav-section-label",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": Object {
+    +               "bgColor": "#25302d",
+    +               "contrastRatio": 2.85,
+    +               "expectedContrastRatio": "4.5:1",
+    +               "fgColor": "#5e7870",
+    +               "fontSize": "6.8pt (9px)",
+    +               "fontWeight": "bold",
+    +               "messageKey": null,
+    +             },
+    +             "id": "color-contrast",
+    +             "impact": "serious",
+    +             "message": "Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<aside class=\"sidebar\">",
+    +                 "target": Array [
+    +                   "aside",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1",
+    +         "html": "<div class=\"nav-section-label\">Media &amp; Devices</div>",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           ".nav-section:nth-child(2) > .nav-section-label",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": Object {
+    +               "bgColor": "#25302d",
+    +               "contrastRatio": 2.85,
+    +               "expectedContrastRatio": "4.5:1",
+    +               "fgColor": "#5e7870",
+    +               "fontSize": "6.8pt (9px)",
+    +               "fontWeight": "bold",
+    +               "messageKey": null,
+    +             },
+    +             "id": "color-contrast",
+    +             "impact": "serious",
+    +             "message": "Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<aside class=\"sidebar\">",
+    +                 "target": Array [
+    +                   "aside",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1",
+    +         "html": "<div class=\"nav-section-label\">Administration</div>",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           ".nav-section:nth-child(3) > .nav-section-label",
+    +         ],
+    +       },
+    +     ],
+    +     "tags": Array [
+    +       "cat.color",
+    +       "wcag2aa",
+    +       "wcag143",
+    +       "TTv5",
+    +       "TT13.c",
+    +       "EN-301-549",
+    +       "EN-9.1.4.3",
+    +       "ACT",
+    +       "RGAAv4",
+    +       "RGAA-3.2.1",
+    +     ],
+    +   },
+    + ]
+
+      18 |       )
+      19 |       .join("\n")}`,
+    > 20 |   ).toEqual([]);
+         |     ^
+      21 | }
+      22 |
+      23 | async function authenticate(page: Page) {
+        at scan (/Users/nickhighland/Documents/Video Viewer/tests/browser/zz-accessibility.spec.ts:20:5)
+        at /Users/nickhighland/Documents/Video Viewer/tests/browser/zz-accessibility.spec.ts:60:3
+
+    Error Context: test-results/zz-accessibility-primary-a-07ca0-omated-WCAG-2-2-AA-baseline/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/zz-accessibility-primary-a-07ca0-omated-WCAG-2-2-AA-baseline/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/zz-accessibility-primary-a-07ca0-omated-WCAG-2-2-AA-baseline/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) tests/browser/zz-accessibility.spec.ts:75:1 › confirmation dialogs trap focus, close with Escape, and restore focus 
+
+    Error: confirmation dialog accessibility violations:
+    color-contrast: Elements must meet minimum color contrast ratio thresholds
+      .nav-section:nth-child(1) > .nav-section-label — Fix any of the following:
+      Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1
+      .nav-section:nth-child(2) > .nav-section-label — Fix any of the following:
+      Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1
+      .nav-section:nth-child(3) > .nav-section-label — Fix any of the following:
+      Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  -   1
+    + Received  + 128
+
+    - Array []
+    + Array [
+    +   Object {
+    +     "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+    +     "help": "Elements must meet minimum color contrast ratio thresholds",
+    +     "helpUrl": "https://dequeuniversity.com/rules/axe/4.12/color-contrast?application=playwright",
+    +     "id": "color-contrast",
+    +     "impact": "serious",
+    +     "nodes": Array [
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": Object {
+    +               "bgColor": "#25302d",
+    +               "contrastRatio": 2.85,
+    +               "expectedContrastRatio": "4.5:1",
+    +               "fgColor": "#5e7870",
+    +               "fontSize": "6.8pt (9px)",
+    +               "fontWeight": "bold",
+    +               "messageKey": null,
+    +             },
+    +             "id": "color-contrast",
+    +             "impact": "serious",
+    +             "message": "Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<aside class=\"sidebar\">",
+    +                 "target": Array [
+    +                   ".sidebar",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1",
+    +         "html": "<div class=\"nav-section-label\">Teaching</div>",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           ".nav-section:nth-child(1) > .nav-section-label",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": Object {
+    +               "bgColor": "#25302d",
+    +               "contrastRatio": 2.85,
+    +               "expectedContrastRatio": "4.5:1",
+    +               "fgColor": "#5e7870",
+    +               "fontSize": "6.8pt (9px)",
+    +               "fontWeight": "bold",
+    +               "messageKey": null,
+    +             },
+    +             "id": "color-contrast",
+    +             "impact": "serious",
+    +             "message": "Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<aside class=\"sidebar\">",
+    +                 "target": Array [
+    +                   ".sidebar",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1",
+    +         "html": "<div class=\"nav-section-label\">Media &amp; Devices</div>",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           ".nav-section:nth-child(2) > .nav-section-label",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": Object {
+    +               "bgColor": "#25302d",
+    +               "contrastRatio": 2.85,
+    +               "expectedContrastRatio": "4.5:1",
+    +               "fgColor": "#5e7870",
+    +               "fontSize": "6.8pt (9px)",
+    +               "fontWeight": "bold",
+    +               "messageKey": null,
+    +             },
+    +             "id": "color-contrast",
+    +             "impact": "serious",
+    +             "message": "Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<aside class=\"sidebar\">",
+    +                 "target": Array [
+    +                   ".sidebar",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has insufficient color contrast of 2.85 (foreground color: #5e7870, background color: #25302d, font size: 6.8pt (9px), font weight: bold). Expected contrast ratio of 4.5:1",
+    +         "html": "<div class=\"nav-section-label\">Administration</div>",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           ".nav-section:nth-child(3) > .nav-section-label",
+    +         ],
+    +       },
+    +     ],
+    +     "tags": Array [
+    +       "cat.color",
+    +       "wcag2aa",
+    +       "wcag143",
+    +       "TTv5",
+    +       "TT13.c",
+    +       "EN-301-549",
+    +       "EN-9.1.4.3",
+    +       "ACT",
+    +       "RGAAv4",
+    +       "RGAA-3.2.1",
+    +     ],
+    +   },
+    + ]
+
+      18 |       )
+      19 |       .join("\n")}`,
+    > 20 |   ).toEqual([]);
+         |     ^
+      21 | }
+      22 |
+      23 | async function authenticate(page: Page) {
+        at scan (/Users/nickhighland/Documents/Video Viewer/tests/browser/zz-accessibility.spec.ts:20:5)
+        at /Users/nickhighland/Documents/Video Viewer/tests/browser/zz-accessibility.spec.ts:92:3
+
+    Error Context: test-results/zz-accessibility-confirmat-1275a-th-Escape-and-restore-focus/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/zz-accessibility-confirmat-1275a-th-Escape-and-restore-focus/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/zz-accessibility-confirmat-1275a-th-Escape-and-restore-focus/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3 failed
+    tests/browser/local-workflow.spec.ts:58:1 › fresh local server supports setup, direct lesson upload, retention, and online media 
+    tests/browser/zz-accessibility.spec.ts:54:1 › primary administration paths meet the automated WCAG 2.2 AA baseline 
+    tests/browser/zz-accessibility.spec.ts:75:1 › confirmation dialogs trap focus, close with Escape, and restore focus 
+  4 passed (34.0s)
+finish_local: 2026-08-02T20:14:43-0400
+exit_code: 1

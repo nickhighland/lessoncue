@@ -1,0 +1,222 @@
+start_local: 2026-08-02T20:20:11-0400
+ANDROID_HOME=/Users/nickhighland/Library/Android/sdk
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preSideloadDebugBuild UP-TO-DATE
+> Task :app:generateSideloadDebugBuildConfig
+> Task :app:generateSideloadDebugResValues
+> Task :app:generateSideloadDebugResources
+> Task :app:packageSideloadDebugResources
+> Task :app:processSideloadDebugNavigationResources
+> Task :app:javaPreCompileSideloadDebug
+> Task :app:parseSideloadDebugLocalResources
+> Task :app:mapSideloadDebugSourceSetPaths
+> Task :app:generateSideloadDebugRFile
+> Task :app:compileSideloadDebugNavigationResources
+> Task :app:checkSideloadDebugAarMetadata
+> Task :app:createSideloadDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksSideloadDebug
+> Task :app:mergeSideloadDebugResources
+> Task :app:processSideloadDebugMainManifest
+> Task :app:processSideloadDebugManifest
+> Task :app:preSideloadDebugUnitTestBuild UP-TO-DATE
+> Task :app:preStoreDebugBuild UP-TO-DATE
+> Task :app:javaPreCompileSideloadDebugUnitTest
+> Task :app:generateStoreDebugBuildConfig
+> Task :app:generateStoreDebugResValues
+> Task :app:generateStoreDebugResources
+> Task :app:packageStoreDebugResources
+> Task :app:processStoreDebugNavigationResources
+> Task :app:parseStoreDebugLocalResources
+> Task :app:javaPreCompileStoreDebug
+> Task :app:mapStoreDebugSourceSetPaths
+> Task :app:generateStoreDebugRFile
+> Task :app:checkStoreDebugAarMetadata
+> Task :app:compileStoreDebugNavigationResources
+> Task :app:createStoreDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksStoreDebug
+> Task :app:processStoreDebugMainManifest
+> Task :app:processStoreDebugManifest
+> Task :app:preStoreDebugUnitTestBuild UP-TO-DATE
+> Task :app:processSideloadDebugManifestForPackage
+> Task :app:javaPreCompileStoreDebugUnitTest
+> Task :app:mergeStoreDebugResources
+> Task :app:preSideloadDebugAndroidTestBuild SKIPPED
+> Task :app:generateSideloadDebugAndroidTestResValues
+> Task :app:extractProguardFiles
+> Task :app:preStoreDebugAndroidTestBuild SKIPPED
+> Task :app:generateStoreDebugAndroidTestResValues
+> Task :app:mergeSideloadDebugNativeDebugMetadata NO-SOURCE
+> Task :app:generateSideloadDebugAssets UP-TO-DATE
+> Task :app:mergeSideloadDebugAssets
+> Task :app:compressSideloadDebugAssets
+> Task :app:processSideloadDebugResources
+> Task :app:generateSideloadDebugGlobalSynthetics
+> Task :app:desugarSideloadDebugFileDependencies
+> Task :app:mergeSideloadDebugJniLibFolders
+> Task :app:validateSigningSideloadDebug
+> Task :app:writeSideloadDebugAppMetadata
+> Task :app:mergeSideloadDebugNativeLibs
+> Task :app:writeSideloadDebugSigningConfigVersions
+> Task :app:mergeStoreDebugNativeDebugMetadata NO-SOURCE
+> Task :app:generateStoreDebugAssets UP-TO-DATE
+> Task :app:mergeStoreDebugAssets
+> Task :app:compressStoreDebugAssets
+
+> Task :app:stripSideloadDebugDebugSymbols
+Unable to strip the following libraries, packaging them as they are: libandroidx.graphics.path.so, libdatastore_shared_counter.so. Run with --info option to learn more.
+
+> Task :app:checkSideloadDebugDuplicateClasses
+> Task :app:generateStoreDebugGlobalSynthetics
+> Task :app:mergeLibDexSideloadDebug
+> Task :app:desugarStoreDebugFileDependencies
+> Task :app:checkStoreDebugDuplicateClasses
+> Task :app:mergeStoreDebugJniLibFolders
+> Task :app:mergeLibDexStoreDebug
+> Task :app:processStoreDebugManifestForPackage
+> Task :app:mergeStoreDebugNativeLibs
+> Task :app:validateSigningStoreDebug
+> Task :app:writeStoreDebugAppMetadata
+
+> Task :app:stripStoreDebugDebugSymbols
+Unable to strip the following libraries, packaging them as they are: libandroidx.graphics.path.so, libdatastore_shared_counter.so. Run with --info option to learn more.
+
+> Task :app:writeStoreDebugSigningConfigVersions
+> Task :app:processSideloadDebugAndroidTestManifest
+> Task :app:generateSideloadDebugAndroidTestBuildConfig
+> Task :app:generateSideloadDebugAndroidTestResources
+> Task :app:packageSideloadDebugAndroidTestResources
+> Task :app:processSideloadDebugAndroidTestNavigationResources
+> Task :app:generateSideloadDebugAndroidTestAssets UP-TO-DATE
+> Task :app:javaPreCompileSideloadDebugAndroidTest
+> Task :app:parseSideloadDebugAndroidTestLocalResources
+> Task :app:mergeSideloadDebugAndroidTestAssets
+> Task :app:compressSideloadDebugAndroidTestAssets
+> Task :app:generateSideloadDebugAndroidTestRFile
+> Task :app:processStoreDebugResources
+> Task :app:generateSideloadDebugAndroidTestGlobalSynthetics
+> Task :app:desugarSideloadDebugAndroidTestFileDependencies
+> Task :app:checkSideloadDebugAndroidTestDuplicateClasses
+> Task :app:checkSideloadDebugAndroidTestAarMetadata
+> Task :app:mapSideloadDebugAndroidTestSourceSetPaths
+> Task :app:compileSideloadDebugAndroidTestNavigationResources
+> Task :app:mergeLibDexSideloadDebugAndroidTest
+> Task :app:mergeSideloadDebugAndroidTestJniLibFolders
+> Task :app:mergeSideloadDebugAndroidTestNativeLibs NO-SOURCE
+> Task :app:stripSideloadDebugAndroidTestDebugSymbols NO-SOURCE
+> Task :app:validateSigningSideloadDebugAndroidTest
+> Task :app:writeSideloadDebugAndroidTestSigningConfigVersions
+> Task :app:processStoreDebugAndroidTestManifest
+> Task :app:mergeSideloadDebugAndroidTestResources
+> Task :app:generateStoreDebugAndroidTestBuildConfig
+> Task :app:generateStoreDebugAndroidTestResources
+> Task :app:packageStoreDebugAndroidTestResources
+> Task :app:processSideloadDebugAndroidTestResources
+> Task :app:processStoreDebugAndroidTestNavigationResources
+> Task :app:mergeExtDexSideloadDebugAndroidTest
+> Task :app:generateStoreDebugAndroidTestAssets UP-TO-DATE
+> Task :app:javaPreCompileStoreDebugAndroidTest
+> Task :app:parseStoreDebugAndroidTestLocalResources
+> Task :app:mergeStoreDebugAndroidTestAssets
+> Task :app:compressStoreDebugAndroidTestAssets
+> Task :app:generateStoreDebugAndroidTestRFile
+> Task :app:generateStoreDebugAndroidTestGlobalSynthetics
+> Task :app:desugarStoreDebugAndroidTestFileDependencies
+> Task :app:checkStoreDebugAndroidTestDuplicateClasses
+> Task :app:checkStoreDebugAndroidTestAarMetadata
+> Task :app:mapStoreDebugAndroidTestSourceSetPaths
+> Task :app:mergeLibDexStoreDebugAndroidTest
+> Task :app:compileStoreDebugAndroidTestNavigationResources
+> Task :app:mergeStoreDebugAndroidTestJniLibFolders
+> Task :app:mergeStoreDebugAndroidTestNativeLibs NO-SOURCE
+> Task :app:stripStoreDebugAndroidTestDebugSymbols NO-SOURCE
+> Task :app:validateSigningStoreDebugAndroidTest
+> Task :app:writeStoreDebugAndroidTestSigningConfigVersions
+> Task :app:mergeStoreDebugAndroidTestResources
+> Task :app:mergeExtDexStoreDebugAndroidTest
+> Task :app:processStoreDebugAndroidTestResources
+> Task :app:mergeExtDexSideloadDebug
+> Task :app:mergeExtDexStoreDebug
+> Task :app:compileSideloadDebugKotlin
+> Task :app:compileStoreDebugKotlin
+> Task :app:compileSideloadDebugJavaWithJavac
+> Task :app:processSideloadDebugJavaRes
+> Task :app:bundleSideloadDebugClassesToRuntimeJar
+> Task :app:bundleSideloadDebugClassesToCompileJar
+> Task :app:compileStoreDebugJavaWithJavac
+> Task :app:processStoreDebugJavaRes
+> Task :app:bundleStoreDebugClassesToRuntimeJar
+> Task :app:bundleStoreDebugClassesToCompileJar
+> Task :app:generateSideloadDebugAndroidTestLintModel
+> Task :app:generateSideloadDebugLintReportModel
+> Task :app:generateSideloadDebugUnitTestLintModel
+> Task :app:generateStoreDebugAndroidTestLintModel
+> Task :app:generateStoreDebugLintReportModel
+> Task :app:generateStoreDebugUnitTestLintModel
+> Task :app:compileSideloadDebugUnitTestKotlin
+> Task :app:compileStoreDebugUnitTestKotlin
+> Task :app:dexBuilderSideloadDebug
+> Task :app:compileSideloadDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :app:processSideloadDebugUnitTestJavaRes
+> Task :app:testSideloadDebugUnitTest
+> Task :app:compileStoreDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :app:processStoreDebugUnitTestJavaRes
+> Task :app:testStoreDebugUnitTest
+> Task :app:mergeProjectDexSideloadDebug
+> Task :app:lintAnalyzeSideloadDebugAndroidTest
+> Task :app:mergeSideloadDebugJavaResource
+> Task :app:lintAnalyzeSideloadDebugUnitTest
+> Task :app:dexBuilderStoreDebug
+> Task :app:mergeProjectDexStoreDebug
+> Task :app:packageSideloadDebug
+> Task :app:createSideloadDebugApkListingFileRedirect
+> Task :app:assembleSideloadDebug
+> Task :app:mergeStoreDebugJavaResource
+> Task :app:packageStoreDebug
+> Task :app:createStoreDebugApkListingFileRedirect
+> Task :app:assembleStoreDebug
+> Task :app:compileStoreDebugAndroidTestKotlin
+> Task :app:compileSideloadDebugAndroidTestKotlin
+> Task :app:compileStoreDebugAndroidTestJavaWithJavac
+> Task :app:lintAnalyzeStoreDebugAndroidTest
+> Task :app:compileSideloadDebugAndroidTestJavaWithJavac
+> Task :app:dexBuilderSideloadDebugAndroidTest
+> Task :app:processSideloadDebugAndroidTestJavaRes
+> Task :app:mergeProjectDexSideloadDebugAndroidTest
+> Task :app:dexBuilderStoreDebugAndroidTest
+> Task :app:processStoreDebugAndroidTestJavaRes
+> Task :app:mergeSideloadDebugAndroidTestJavaResource
+> Task :app:mergeProjectDexStoreDebugAndroidTest
+> Task :app:packageSideloadDebugAndroidTest
+> Task :app:createSideloadDebugAndroidTestApkListingFileRedirect
+> Task :app:assembleSideloadDebugAndroidTest
+> Task :app:mergeStoreDebugAndroidTestJavaResource
+> Task :app:packageStoreDebugAndroidTest
+> Task :app:createStoreDebugAndroidTestApkListingFileRedirect
+> Task :app:assembleStoreDebugAndroidTest
+> Task :app:lintAnalyzeStoreDebugUnitTest
+> Task :app:lintAnalyzeSideloadDebug
+> Task :app:lintAnalyzeStoreDebug
+
+> Task :app:lintReportSideloadDebug
+Wrote HTML report to file:///Users/nickhighland/Documents/Video%20Viewer/android-tv/app/build/reports/lint-results-sideloadDebug.html
+
+> Task :app:lintSideloadDebug
+
+> Task :app:lintReportStoreDebug
+Wrote HTML report to file:///Users/nickhighland/Documents/Video%20Viewer/android-tv/app/build/reports/lint-results-storeDebug.html
+
+> Task :app:lintStoreDebug
+
+[Incubating] Problems report is available at: file:///Users/nickhighland/Documents/Video%20Viewer/android-tv/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.6.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 43s
+171 actionable tasks: 171 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.6.1/userguide/configuration_cache_enabling.html
+finish_local: 2026-08-02T20:20:55-0400
+exit_code: 0
