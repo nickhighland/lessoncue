@@ -4,6 +4,18 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.19 — reliable SQLite snapshot verification
+
+### User changes
+
+- Linux updates no longer reject a valid protected snapshot when SQLite creates temporary WAL bookkeeping files during its integrity check.
+
+### Developer changes
+
+- Database integrity checks run against a disposable verification copy, preserving the byte-for-byte rollback snapshot for comparison and restoration.
+- Linux transaction coverage reproduces SQLite read-only WAL/SHM side effects and confirms they never enter protected snapshots.
+- Release metadata and Android version code advance to 0.40.19 and 78.
+
 ## v0.40.18 — self-repairing protected updates
 
 ### User changes

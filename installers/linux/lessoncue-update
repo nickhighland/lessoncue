@@ -116,6 +116,22 @@ snapshot_failure() {
   return 1
 }
 
+# SQLite can create -wal and -shm sidecars even when a database is opened in
+# read-only mode. Run integrity checks against a disposable copy so validating
+# a protected snapshot can never change the snapshot that will be compared or
+# restored.
+verify_database_copy() {
+  local source_directory="$1" verifier="$2" verification_directory result=0
+  verification_directory="$(mktemp -d /var/lib/lessoncue/.database-verification.XXXXXXXX)" || return 1
+  if ! cp -a "${source_directory}/." "${verification_directory}/"; then
+    result=1
+  elif ! "${verifier}" --verify-database "${verification_directory}/lessoncue.db"; then
+    result=1
+  fi
+  if ! rm -rf -- "${verification_directory}"; then result=1; fi
+  return "${result}"
+}
+
 snapshot_path() {
   local source="$1" root="${2:-${ROLLBACK_ROOT}}" relative="${1#/}" destination="${2:-${ROLLBACK_ROOT}}/system/${1#/}"
   if [[ -e "${source}" || -L "${source}" ]]; then
@@ -179,7 +195,7 @@ prepare_update_snapshot() {
     snapshot_failure "the protected snapshot is missing the database file"
     return 1
   fi
-  if ! "${STAGED}/LessonCue.Server" --verify-database "${temporary}/data/database/lessoncue.db"; then
+  if ! verify_database_copy "${temporary}/data/database" "${STAGED}/LessonCue.Server"; then
     snapshot_failure "the staged server rejected the protected database snapshot"
     return 1
   fi
@@ -294,7 +310,7 @@ prepare_manual_rollback_safety() {
   if [[ -d /var/lib/lessoncue/database ]]; then cp -a /var/lib/lessoncue/database "${temporary}/data/database" || return 1; fi
   if [[ -d /var/lib/lessoncue/config ]]; then cp -a /var/lib/lessoncue/config "${temporary}/data/config" || return 1; fi
   if [[ ! -f "${temporary}/data/database/lessoncue.db" ]] ||
-     ! /opt/lessoncue/LessonCue.Server --verify-database "${temporary}/data/database/lessoncue.db"; then
+     ! verify_database_copy "${temporary}/data/database" /opt/lessoncue/LessonCue.Server; then
     return 1
   fi
   if ! diff -qr /var/lib/lessoncue/database "${temporary}/data/database" >/dev/null ||
@@ -386,7 +402,7 @@ perform_manual_rollback() {
     CURRENT_VERSION="$(/opt/lessoncue/LessonCue.Server --version 2>/dev/null || printf 'unknown')"
   fi
   VERSION="$(cat "${ROLLBACK_ROOT}/from-version" 2>/dev/null || printf 'unknown')"
-  if ! /opt/lessoncue/LessonCue.Server --verify-database "${ROLLBACK_ROOT}/data/database/lessoncue.db"; then
+  if ! verify_database_copy "${ROLLBACK_ROOT}/data/database" /opt/lessoncue/LessonCue.Server; then
     write_update_result false "${VERSION}" "The protected rollback database failed its integrity check. The current installation was not changed."
     return 1
   fi

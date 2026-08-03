@@ -64,7 +64,14 @@ make_server() {
 #!/usr/bin/env bash
 case "\${1:-}" in
   --verify-database)
-    grep -q '^GOOD ' "\${2:-}" ;;
+    if grep -q '^GOOD ' "\${2:-}"; then
+      # Model Microsoft.Data.Sqlite opening a WAL-mode database read-only. It
+      # creates sidecars even though the database contents are not changed.
+      : > "\${2}-wal"
+      : > "\${2}-shm"
+    else
+      exit 1
+    fi ;;
   --version)
     printf '%s\\n' '${version}' ;;
   *)
@@ -203,6 +210,8 @@ grep -q 'Handing the protected operation to the verified release updater before 
 test -x "${MEDIA_WORKER}"
 test -f "${MEDIA_RENDER_RULE}"
 grep -q '^GOOD original database$' /var/lib/lessoncue/update-rollback/data/database/lessoncue.db
+test ! -e /var/lib/lessoncue/update-rollback/data/database/lessoncue.db-wal
+test ! -e /var/lib/lessoncue/update-rollback/data/database/lessoncue.db-shm
 grep -q '"success":true' /var/lib/lessoncue/config/update-result.json
 grep -q '^2.0.0$' /var/lib/lessoncue/config/installed-version
 test ! -e /var/lib/lessoncue/update-transaction
@@ -221,6 +230,8 @@ test ! -e "${MEDIA_RENDER_RULE}"
 grep -q '^GOOD original database$' /var/lib/lessoncue/database/lessoncue.db
 grep -q '^GOOD post-update database$' \
   /var/lib/lessoncue/manual-rollback-safety/data/database/lessoncue.db
+test ! -e /var/lib/lessoncue/manual-rollback-safety/data/database/lessoncue.db-wal
+test ! -e /var/lib/lessoncue/manual-rollback-safety/data/database/lessoncue.db-shm
 grep -q '"success":true' /var/lib/lessoncue/config/update-result.json
 test ! -e /var/lib/lessoncue/update-transaction
 
