@@ -4,6 +4,19 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.11 — recoverable protected updates
+
+### User changes
+
+- Concurrent protected update requests now record a clear durable result instead of leaving the Software updates screen stuck in progress.
+- A request that loses the updater lock is safely discarded while the active operation continues.
+
+### Developer changes
+
+- The Linux updater writes a failure result and consumes duplicate requests when another updater process owns the lock.
+- The disposable transaction regression covers lock contention on both x64 and arm64 runners.
+- Release metadata and Android version code advance to 0.40.11 and 70.
+
 ## v0.40.10 — a clearer lesson workflow
 
 ### User changes

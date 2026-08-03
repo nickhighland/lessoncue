@@ -19,8 +19,34 @@ if id lessoncue >/dev/null 2>&1; then
   done
 fi
 
+REQUEST_PATH=/var/lib/lessoncue/config/update-request
+UPDATE_RESULT_PATH=/var/lib/lessoncue/config/update-result.json
+UPDATE_RESULT_WRITTEN=false
+
+write_update_result() {
+  local success="$1" version="$2" message="$3"
+  local temporary escaped_version escaped_message
+  escaped_version="${version//\\/\\\\}"
+  escaped_version="${escaped_version//\"/\\\"}"
+  escaped_message="${message//\\/\\\\}"
+  escaped_message="${escaped_message//\"/\\\"}"
+  escaped_message="${escaped_message//$'\n'/\\n}"
+  temporary="$(mktemp)"
+  printf '{"success":%s,"version":"%s","message":"%s","completedAt":"%s"}\n' \
+    "${success}" "${escaped_version}" "${escaped_message}" "$(date --iso-8601=seconds)" > "${temporary}"
+  install -o lessoncue -g lessoncue -m 0600 "${temporary}" "${UPDATE_RESULT_PATH}"
+  rm -f "${temporary}"
+  UPDATE_RESULT_WRITTEN=true
+}
+
 exec 9>/run/lessoncue-update.lock
 if ! flock -n 9; then
+  REQUEST="$(head -n 1 "${REQUEST_PATH}" 2>/dev/null || true)"
+  if [[ "${REQUEST}" == update:* || "${REQUEST}" == rollback:* ]]; then
+    write_update_result false "unknown" \
+      "Another protected LessonCue operation is already in progress. This request was not started; try again after the active operation finishes."
+    rm -f "${REQUEST_PATH}"
+  fi
   echo "Another LessonCue update is already running."
   exit 0
 fi
@@ -32,7 +58,6 @@ if [[ "$(uname -m)" =~ ^(x86_64|amd64)$ ]] && id lessoncue >/dev/null 2>&1; then
   done
 fi
 
-REQUEST_PATH=/var/lib/lessoncue/config/update-request
 if [[ "${RECOVERY_ONLY}" == true ]]; then
   REQUEST=""
 else
@@ -53,25 +78,8 @@ UPDATE_TRANSACTION_ACTIVE=false
 APP_SWAPPED=false
 READINESS_ATTEMPTS="${LESSONCUE_UPDATE_READINESS_ATTEMPTS:-30}"
 READINESS_DELAY_SECONDS="${LESSONCUE_UPDATE_READINESS_DELAY_SECONDS:-2}"
-UPDATE_RESULT_WRITTEN=false
 if [[ ! "${READINESS_ATTEMPTS}" =~ ^[1-9][0-9]*$ ]]; then READINESS_ATTEMPTS=30; fi
 if [[ ! "${READINESS_DELAY_SECONDS}" =~ ^[0-9]+$ ]]; then READINESS_DELAY_SECONDS=2; fi
-
-write_update_result() {
-  local success="$1" version="$2" message="$3"
-  local result=/var/lib/lessoncue/config/update-result.json temporary escaped_version escaped_message
-  escaped_version="${version//\\/\\\\}"
-  escaped_version="${escaped_version//\"/\\\"}"
-  escaped_message="${message//\\/\\\\}"
-  escaped_message="${escaped_message//\"/\\\"}"
-  escaped_message="${escaped_message//$'\n'/\\n}"
-  temporary="$(mktemp)"
-  printf '{"success":%s,"version":"%s","message":"%s","completedAt":"%s"}\n' \
-    "${success}" "${escaped_version}" "${escaped_message}" "$(date --iso-8601=seconds)" > "${temporary}"
-  install -o lessoncue -g lessoncue -m 0600 "${temporary}" "${result}"
-  rm -f "${temporary}"
-  UPDATE_RESULT_WRITTEN=true
-}
 
 is_update_request() {
   [[ "${REQUEST}" == update:* || "${REQUEST}" == rollback:* ]]
