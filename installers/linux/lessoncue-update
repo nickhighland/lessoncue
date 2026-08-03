@@ -74,6 +74,7 @@ FAILED=/opt/lessoncue.failed
 ROLLBACK_REJECTED=/opt/lessoncue.rollback-rejected
 MEDIA_WORKER=/usr/local/libexec/lessoncue-media-worker
 MEDIA_RENDER_RULE=/etc/udev/rules.d/99-lessoncue-render.rules
+SNAPSHOT_FAILURE_REASON=""
 UPDATE_TRANSACTION_ACTIVE=false
 APP_SWAPPED=false
 READINESS_ATTEMPTS="${LESSONCUE_UPDATE_READINESS_ATTEMPTS:-30}"
@@ -100,14 +101,28 @@ fail_update() {
   exit 1
 }
 
+snapshot_failure() {
+  SNAPSHOT_FAILURE_REASON="$1"
+  return 1
+}
+
 snapshot_path() {
   local source="$1" root="${2:-${ROLLBACK_ROOT}}" relative="${1#/}" destination="${2:-${ROLLBACK_ROOT}}/system/${1#/}"
   if [[ -e "${source}" || -L "${source}" ]]; then
-    mkdir -p "$(dirname "${destination}")"
-    cp -a "${source}" "${destination}"
+    if ! mkdir -p "$(dirname "${destination}")"; then
+      snapshot_failure "could not create the protected snapshot directory for ${source}"
+      return 1
+    fi
+    if ! cp -a "${source}" "${destination}"; then
+      snapshot_failure "could not copy protected path ${source}"
+      return 1
+    fi
   else
-    mkdir -p "${root}/missing/$(dirname "${relative}")"
-    : > "${root}/missing/${relative}"
+    if ! mkdir -p "${root}/missing/$(dirname "${relative}")" ||
+       ! : > "${root}/missing/${relative}"; then
+      snapshot_failure "could not record missing protected path ${source}"
+      return 1
+    fi
   fi
 }
 
@@ -131,38 +146,73 @@ refresh_render_device_rules() {
 
 prepare_update_snapshot() {
   local temporary="${ROLLBACK_ROOT}.new"
-  rm -rf "${temporary}"
-  install -d -o root -g root -m 0700 "${temporary}/data" || return 1
-  if [[ -d /var/lib/lessoncue/database ]]; then cp -a /var/lib/lessoncue/database "${temporary}/data/database" || return 1; fi
-  if [[ -d /var/lib/lessoncue/config ]]; then cp -a /var/lib/lessoncue/config "${temporary}/data/config" || return 1; fi
-  if [[ ! -f "${temporary}/data/database/lessoncue.db" ]] ||
-     ! "${STAGED}/LessonCue.Server" --verify-database "${temporary}/data/database/lessoncue.db"; then
+  SNAPSHOT_FAILURE_REASON=""
+  if ! rm -rf "${temporary}"; then
+    snapshot_failure "could not clear the temporary protected snapshot directory"
+    return 1
+  fi
+  if ! install -d -o root -g root -m 0700 "${temporary}/data"; then
+    snapshot_failure "could not create the temporary protected snapshot directory"
+    return 1
+  fi
+  if [[ -d /var/lib/lessoncue/database ]] &&
+     ! cp -a /var/lib/lessoncue/database "${temporary}/data/database"; then
+    snapshot_failure "could not copy the database into the protected snapshot"
+    return 1
+  fi
+  if [[ -d /var/lib/lessoncue/config ]] &&
+     ! cp -a /var/lib/lessoncue/config "${temporary}/data/config"; then
+    snapshot_failure "could not copy the configuration into the protected snapshot"
+    return 1
+  fi
+  if [[ ! -f "${temporary}/data/database/lessoncue.db" ]]; then
+    snapshot_failure "the protected snapshot is missing the database file"
+    return 1
+  fi
+  if ! "${STAGED}/LessonCue.Server" --verify-database "${temporary}/data/database/lessoncue.db"; then
+    snapshot_failure "the staged server rejected the protected database snapshot"
     return 1
   fi
   if [[ -d /var/lib/lessoncue/database ]] &&
      ! diff -qr /var/lib/lessoncue/database "${temporary}/data/database" >/dev/null; then
+    snapshot_failure "the database changed or could not be compared while snapshotting"
     return 1
   fi
   if [[ -d /var/lib/lessoncue/config ]] &&
      ! diff -qr /var/lib/lessoncue/config "${temporary}/data/config" >/dev/null; then
+    snapshot_failure "the configuration changed or could not be compared while snapshotting"
     return 1
   fi
-  rm -rf "${ROLLBACK_ROOT}"
-  mv "${temporary}" "${ROLLBACK_ROOT}" || return 1
-
-  snapshot_path /usr/local/sbin/lessoncue-update || return 1
-  snapshot_path /etc/systemd/system/lessoncue-update.service || return 1
-  snapshot_path /etc/systemd/system/lessoncue-update.path || return 1
-  snapshot_path /etc/systemd/system/lessoncue-update-recovery.service || return 1
-  snapshot_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service || return 1
-  snapshot_path /etc/systemd/system/lessoncue.service || return 1
-  snapshot_path /etc/systemd/system/lessoncue-cloudflared.service || return 1
-  snapshot_path "${MEDIA_WORKER}" || return 1
-  snapshot_path "${MEDIA_RENDER_RULE}" || return 1
-  snapshot_path /etc/lessoncue || return 1
-  printf '%s\n' "${CURRENT_VERSION:-unknown}" > "${ROLLBACK_ROOT}/from-version" || return 1
-  printf '%s\n' "${VERSION:-unknown}" > "${ROLLBACK_ROOT}/to-version" || return 1
-  printf '%s\n' "$(date --iso-8601=seconds)" > "${ROLLBACK_ROOT}/created-at" || return 1
+  snapshot_path /usr/local/sbin/lessoncue-update "${temporary}" || return 1
+  snapshot_path /etc/systemd/system/lessoncue-update.service "${temporary}" || return 1
+  snapshot_path /etc/systemd/system/lessoncue-update.path "${temporary}" || return 1
+  snapshot_path /etc/systemd/system/lessoncue-update-recovery.service "${temporary}" || return 1
+  snapshot_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service "${temporary}" || return 1
+  snapshot_path /etc/systemd/system/lessoncue.service "${temporary}" || return 1
+  snapshot_path /etc/systemd/system/lessoncue-cloudflared.service "${temporary}" || return 1
+  snapshot_path "${MEDIA_WORKER}" "${temporary}" || return 1
+  snapshot_path "${MEDIA_RENDER_RULE}" "${temporary}" || return 1
+  snapshot_path /etc/lessoncue "${temporary}" || return 1
+  if ! printf '%s\n' "${CURRENT_VERSION:-unknown}" > "${temporary}/from-version"; then
+    snapshot_failure "could not write the protected snapshot source version"
+    return 1
+  fi
+  if ! printf '%s\n' "${VERSION:-unknown}" > "${temporary}/to-version"; then
+    snapshot_failure "could not write the protected snapshot target version"
+    return 1
+  fi
+  if ! date --iso-8601=seconds > "${temporary}/created-at"; then
+    snapshot_failure "could not write the protected snapshot timestamp"
+    return 1
+  fi
+  if ! rm -rf "${ROLLBACK_ROOT}"; then
+    snapshot_failure "could not clear the previous protected snapshot"
+    return 1
+  fi
+  if ! mv "${temporary}" "${ROLLBACK_ROOT}"; then
+    snapshot_failure "could not finalize the protected snapshot directory"
+    return 1
+  fi
 }
 
 restore_update_snapshot() {
@@ -769,10 +819,13 @@ chown -R root:root "${STAGED}"
 # Stop all writers before taking a consistent database/configuration snapshot.
 systemctl stop lessoncue.service
 if ! prepare_update_snapshot; then
-  rm -rf "${ROLLBACK_ROOT}" "${ROLLBACK_ROOT}.new"
+  snapshot_reason="${SNAPSHOT_FAILURE_REASON:-an unknown protected snapshot step failed}"
+  echo "Pre-update snapshot failed: ${snapshot_reason}" >&2
+  rm -rf "${ROLLBACK_ROOT}.new" ||
+    echo "Pre-update snapshot cleanup also failed." >&2
   systemctl start lessoncue.service || true
   write_update_result false "${VERSION}" \
-    "LessonCue could not create and verify the required pre-update snapshot. The existing installation was not changed."
+    "LessonCue could not create and verify the required pre-update snapshot. Snapshot detail: ${snapshot_reason}. The existing installation was not changed."
   echo "The update was cancelled because the pre-update snapshot could not be created."
   exit 1
 fi

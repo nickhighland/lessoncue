@@ -4,6 +4,17 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.16 — reliable protected update diagnostics
+
+### User changes
+
+- Failed native updates now report the exact protected snapshot phase that needs attention while leaving the existing installation unchanged.
+
+### Developer changes
+
+- Linux snapshot creation now validates and reports every copy, comparison, rename, and metadata-write step.
+- Release metadata and Android version code advance to 0.40.16 and 75.
+
 ## v0.40.15 — horizontal lesson and signage builders
 
 ### User changes

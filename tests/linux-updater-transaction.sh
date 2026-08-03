@@ -49,6 +49,15 @@ exec /usr/bin/curl "$@"
 CURL
 chmod 0755 "${TEST_BIN}/curl"
 
+cat > "${TEST_BIN}/diff" <<'DIFF'
+#!/usr/bin/env bash
+if [[ "${LESSONCUE_FAIL_SNAPSHOT:-}" == 1 ]]; then
+  exit 2
+fi
+exec /usr/bin/diff "$@"
+DIFF
+chmod 0755 "${TEST_BIN}/diff"
+
 make_server() {
   local path="$1" version="$2" marker="$3"
   cat > "${path}" <<SERVER
@@ -224,5 +233,28 @@ env PATH="${TEST_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/b
 grep -q '^GOOD original database$' /var/lib/lessoncue/database/lessoncue.db
 grep -q '"success":false' /var/lib/lessoncue/config/update-result.json
 test ! -e /var/lib/lessoncue/update-transaction
+
+# A snapshot comparison failure must identify the phase and leave the
+# installed application, data, and prior rollback snapshot untouched.
+printf 'GOOD snapshot-failure database\n' > /var/lib/lessoncue/database/lessoncue.db
+chown lessoncue:lessoncue /var/lib/lessoncue/database/lessoncue.db
+printf 'update:test-snapshot-failure\n' > /var/lib/lessoncue/config/update-request
+chown lessoncue:lessoncue /var/lib/lessoncue/config/update-request
+if env \
+  PATH="${TEST_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  LESSONCUE_UPDATE_REPOSITORY="file://${RELEASE_ROOT}" \
+  LESSONCUE_UPDATE_VERSION=v2.0.0 \
+  LESSONCUE_RELEASE_PUBLIC_KEY="${TEST_PUBLIC_KEY}" \
+  LESSONCUE_FAIL_SNAPSHOT=1 \
+  /usr/local/sbin/lessoncue-update; then
+  echo "The updater accepted a deliberately failed snapshot comparison."
+  exit 1
+fi
+[[ "$(/opt/lessoncue/LessonCue.Server)" == OLD ]]
+grep -q '^GOOD snapshot-failure database$' /var/lib/lessoncue/database/lessoncue.db
+grep -q 'Snapshot detail: the database changed or could not be compared while snapshotting' \
+  /var/lib/lessoncue/config/update-result.json
+test ! -e /var/lib/lessoncue/update-transaction
+grep -q '^GOOD original database$' /var/lib/lessoncue/update-rollback/data/database/lessoncue.db
 
 echo "LessonCue release update, operator rollback, and interrupted-update recovery passed."
