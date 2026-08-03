@@ -21,6 +21,14 @@ curl -fsS http://127.0.0.1/health/ready && echo
 
 Do not manually delete `/opt/lessoncue.previous`, `/var/lib/lessoncue/update-rollback`, or an active transaction marker while recovery is pending. If the current server works but an operator-requested rollback was rejected, LessonCue restores the pre-rollback safety snapshot automatically and records that outcome in Settings.
 
+If an older installation repeatedly reports that it could not create the required pre-update snapshot, repair only the protected updater from the newest signed release, then retry from **Settings → Software updates**:
+
+```bash
+curl -fsSL https://github.com/nickhighland/lessoncue/releases/latest/download/install-lessoncue.sh | bash -s -- --repair-updater
+```
+
+This verifies the release's Ed25519 signature and archive checksum before executing the signed repair helper. It replaces the root-owned updater and its systemd units while leaving the LessonCue application, database, configuration, and media in place. Future updates hand the operation to the verified updater bundled in the target release before snapshotting, preventing the same bootstrap failure from recurring.
+
 ## LessonCue started in recovery mode
 
 If the browser says **LessonCue is protecting your data**, the process is alive but the database could not be opened, created, or upgraded safely. Normal API, background processing, pairing, and media routes are disabled. `/health/live` returns 200 with `safeMode: true`; `/health/ready`, `/health`, and `/recovery/status` return 503 so a load balancer or protected updater never mistakes recovery mode for a successful start.

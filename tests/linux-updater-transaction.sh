@@ -85,7 +85,13 @@ printf 'old updater path\n' > /etc/systemd/system/lessoncue-update.path
 printf 'old server unit\n' > /etc/systemd/system/lessoncue.service
 printf 'old tunnel unit\n' > /etc/systemd/system/lessoncue-cloudflared.service
 printf 'protected token\n' > /etc/lessoncue/example
-install -m 0755 "${UPDATER_SOURCE}" /usr/local/sbin/lessoncue-update
+# Model an older installed updater that already understands signed handoff but
+# is byte-for-byte different from the updater in the new release. This proves
+# the protected operation executes the verified release candidate before it
+# starts snapshotting and then installs that candidate on success.
+cp "${UPDATER_SOURCE}" /tmp/lessoncue-legacy-updater
+printf '\n# legacy updater fixture\n' >> /tmp/lessoncue-legacy-updater
+install -m 0755 /tmp/lessoncue-legacy-updater /usr/local/sbin/lessoncue-update
 
 install -d "${PACKAGE_ROOT}/payload" "${RELEASE_ROOT}/releases/download/v2.0.0"
 openssl genpkey -algorithm Ed25519 -out "${TEST_PRIVATE_KEY}" 2>/dev/null
@@ -97,6 +103,7 @@ cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-media-worker" "${PACKAGE_ROOT}
 chmod 0755 "${PACKAGE_ROOT}/payload/lessoncue-media-worker"
 cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-render.rules" "${PACKAGE_ROOT}/lessoncue-render.rules"
 cp "${UPDATER_SOURCE}" "${PACKAGE_ROOT}/lessoncue-update"
+cp "${REPOSITORY_ROOT}/installers/linux/repair-updater.sh" "${PACKAGE_ROOT}/repair-updater.sh"
 cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-update-recovery.service" "${PACKAGE_ROOT}/"
 for unit in lessoncue-update.service lessoncue-update.path lessoncue.service lessoncue-cloudflared.service; do
   printf 'new %s\n' "${unit}" > "${PACKAGE_ROOT}/${unit}"
@@ -121,6 +128,26 @@ tar -C "${PACKAGE_ROOT}" -czf \
 
 cp "${RELEASE_ROOT}/releases/download/v2.0.0/SHA256SUMS.sig" /tmp/valid-release-signature
 printf 'tampered' >> "${RELEASE_ROOT}/releases/download/v2.0.0/SHA256SUMS.sig"
+
+# Bootstrap context is accepted only from the root-owned, mode-0700 work
+# directory pattern created by the parent updater. A forged context must fail
+# without deleting or changing the supplied path.
+install -d -o root -g root -m 0700 /tmp/untrusted-lessoncue-bootstrap
+printf 'keep me\n' > /tmp/untrusted-lessoncue-bootstrap/sentinel
+if env \
+  PATH="${TEST_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  LESSONCUE_UPDATE_BOOTSTRAPPED=true \
+  LESSONCUE_UPDATE_REQUEST='update:v2.0.0:test' \
+  LESSONCUE_UPDATE_VERIFIED_WORKDIR=/tmp/untrusted-lessoncue-bootstrap \
+  LESSONCUE_UPDATE_VERSION=v2.0.0 \
+  LESSONCUE_RELEASE_PUBLIC_KEY="${TEST_PUBLIC_KEY}" \
+  /usr/local/sbin/lessoncue-update; then
+  echo "The updater accepted an unsafe forged bootstrap context."
+  exit 1
+fi
+test -f /tmp/untrusted-lessoncue-bootstrap/sentinel
+grep -q 'unsafe protected bootstrap work directory' /var/lib/lessoncue/config/update-result.json
+
 printf 'update:test-invalid-signature\n' > /var/lib/lessoncue/config/update-request
 chown lessoncue:lessoncue /var/lib/lessoncue/config/update-request
 if env \
@@ -159,17 +186,19 @@ grep -q 'Another protected LessonCue operation is already in progress' \
 test ! -e /var/lib/lessoncue/config/update-request
 [[ "$(/opt/lessoncue/LessonCue.Server)" == OLD ]]
 
-printf 'update:test\n' > /var/lib/lessoncue/config/update-request
+printf 'update:v2.0.0:test\n' > /var/lib/lessoncue/config/update-request
 chown lessoncue:lessoncue /var/lib/lessoncue/config/update-request
 env \
   PATH="${TEST_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
   LESSONCUE_UPDATE_REPOSITORY="file://${RELEASE_ROOT}" \
-  LESSONCUE_UPDATE_VERSION=v2.0.0 \
   LESSONCUE_RELEASE_PUBLIC_KEY="${TEST_PUBLIC_KEY}" \
-  /usr/local/sbin/lessoncue-update
+  /usr/local/sbin/lessoncue-update | tee /tmp/lessoncue-bootstrap-output
 
 [[ "$(/opt/lessoncue/LessonCue.Server)" == NEW ]]
 [[ "$(/opt/lessoncue.previous/LessonCue.Server)" == OLD ]]
+cmp -s "${UPDATER_SOURCE}" /usr/local/sbin/lessoncue-update
+grep -q 'Handing the protected operation to the verified release updater before snapshotting' \
+  /tmp/lessoncue-bootstrap-output
 test -x "${MEDIA_WORKER}"
 test -f "${MEDIA_RENDER_RULE}"
 grep -q '^GOOD original database$' /var/lib/lessoncue/update-rollback/data/database/lessoncue.db
@@ -256,5 +285,35 @@ grep -q 'Snapshot detail: the database changed or could not be compared while sn
   /var/lib/lessoncue/config/update-result.json
 test ! -e /var/lib/lessoncue/update-transaction
 grep -q '^GOOD original database$' /var/lib/lessoncue/update-rollback/data/database/lessoncue.db
+
+# The separately signed repair helper must replace only the protected updater
+# and its units. It is the one-time bridge for installations whose legacy
+# updater predates the verified candidate handoff above.
+app_before="$(sha256sum /opt/lessoncue/LessonCue.Server)"
+database_before="$(sha256sum /var/lib/lessoncue/database/lessoncue.db)"
+if cmp -s "${UPDATER_SOURCE}" /usr/local/sbin/lessoncue-update; then
+  echo "The updater-only repair fixture was not in its legacy state."
+  exit 1
+fi
+exec 8>/run/lessoncue-update.lock
+flock -n 8
+if PATH="${TEST_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  "${PACKAGE_ROOT}/repair-updater.sh" v2.0.0 > /tmp/lessoncue-repair-lock-output 2>&1; then
+  echo "Updater-only repair ignored a protected-operation lock."
+  exit 1
+fi
+flock -u 8
+exec 8>&-
+grep -q 'Another protected LessonCue operation is active' /tmp/lessoncue-repair-lock-output
+if cmp -s "${UPDATER_SOURCE}" /usr/local/sbin/lessoncue-update; then
+  echo "Updater-only repair changed the updater while the operation lock was held."
+  exit 1
+fi
+PATH="${TEST_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  "${PACKAGE_ROOT}/repair-updater.sh" v2.0.0 | tee /tmp/lessoncue-repair-output
+cmp -s "${UPDATER_SOURCE}" /usr/local/sbin/lessoncue-update
+[[ "$(sha256sum /opt/lessoncue/LessonCue.Server)" == "${app_before}" ]]
+[[ "$(sha256sum /var/lib/lessoncue/database/lessoncue.db)" == "${database_before}" ]]
+grep -q 'application, database, and media were not replaced' /tmp/lessoncue-repair-output
 
 echo "LessonCue release update, operator rollback, and interrupted-update recovery passed."

@@ -22,6 +22,7 @@ fi
 REQUEST_PATH=/var/lib/lessoncue/config/update-request
 UPDATE_RESULT_PATH=/var/lib/lessoncue/config/update-result.json
 UPDATE_RESULT_WRITTEN=false
+BOOTSTRAP_ACTIVE="${LESSONCUE_UPDATE_BOOTSTRAPPED:-false}"
 
 write_update_result() {
   local success="$1" version="$2" message="$3"
@@ -39,16 +40,18 @@ write_update_result() {
   UPDATE_RESULT_WRITTEN=true
 }
 
-exec 9>/run/lessoncue-update.lock
-if ! flock -n 9; then
-  REQUEST="$(head -n 1 "${REQUEST_PATH}" 2>/dev/null || true)"
-  if [[ "${REQUEST}" == update:* || "${REQUEST}" == rollback:* ]]; then
-    write_update_result false "unknown" \
-      "Another protected LessonCue operation is already in progress. This request was not started; try again after the active operation finishes."
-    rm -f "${REQUEST_PATH}"
+if [[ "${BOOTSTRAP_ACTIVE}" != true ]]; then
+  exec 9>/run/lessoncue-update.lock
+  if ! flock -n 9; then
+    REQUEST="$(head -n 1 "${REQUEST_PATH}" 2>/dev/null || true)"
+    if [[ "${REQUEST}" == update:* || "${REQUEST}" == rollback:* ]]; then
+      write_update_result false "unknown" \
+        "Another protected LessonCue operation is already in progress. This request was not started; try again after the active operation finishes."
+      rm -f "${REQUEST_PATH}"
+    fi
+    echo "Another LessonCue update is already running."
+    exit 0
   fi
-  echo "Another LessonCue update is already running."
-  exit 0
 fi
 RECOVERY_ONLY=false
 if [[ "${1:-}" == "--recover" ]]; then RECOVERY_ONLY=true; fi
@@ -58,7 +61,14 @@ if [[ "$(uname -m)" =~ ^(x86_64|amd64)$ ]] && id lessoncue >/dev/null 2>&1; then
   done
 fi
 
-if [[ "${RECOVERY_ONLY}" == true ]]; then
+if [[ "${BOOTSTRAP_ACTIVE}" == true ]]; then
+  REQUEST="${LESSONCUE_UPDATE_REQUEST:-}"
+  if [[ "${REQUEST}" != update:* || -z "${LESSONCUE_UPDATE_VERIFIED_WORKDIR:-}" ]]; then
+    write_update_result false "unknown" \
+      "The verified release updater could not resume because its protected bootstrap context was incomplete."
+    exit 1
+  fi
+elif [[ "${RECOVERY_ONLY}" == true ]]; then
   REQUEST=""
 else
   REQUEST="$(head -n 1 "${REQUEST_PATH}" 2>/dev/null || true)"
@@ -773,18 +783,40 @@ if [[ -z "${CURRENT_VERSION}" ]]; then CURRENT_VERSION=unknown; fi
 REPOSITORY="${LESSONCUE_UPDATE_REPOSITORY:-https://github.com/nickhighland/lessoncue}"
 if [[ -n "${LESSONCUE_UPDATE_VERSION:-}" ]]; then
   VERSION="${LESSONCUE_UPDATE_VERSION}"
+elif [[ "${REQUEST}" =~ ^update:(v?[0-9]+\.[0-9]+\.[0-9]+)(:|$) ]]; then
+  VERSION="${BASH_REMATCH[1]}"
+  if [[ "${VERSION}" != v* ]]; then VERSION="v${VERSION}"; fi
 else
   VERSION_URL="$(curl -fsSL -o /dev/null -w '%{url_effective}' "${REPOSITORY}/releases/latest")"
   VERSION="${VERSION_URL##*/}"
 fi
+if [[ "${VERSION}" != v* ]]; then VERSION="v${VERSION}"; fi
+if [[ ! "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
+  fail_update "LessonCue rejected the requested release version because it was not a valid version tag."
+fi
 ASSET="LessonCue-Server-${RUNTIME}.tar.gz"
-WORKDIR="$(mktemp -d)"
+if [[ "${BOOTSTRAP_ACTIVE}" == true ]]; then
+  WORKDIR="${LESSONCUE_UPDATE_VERIFIED_WORKDIR}"
+  if [[ ! "${WORKDIR}" =~ ^/var/lib/lessoncue/\.update\.[0-9A-Za-z]+$ ]] ||
+     [[ ! -d "${WORKDIR}" || -L "${WORKDIR}" ]] ||
+     [[ "$(stat -c '%u:%a' -- "${WORKDIR}" 2>/dev/null || true)" != "0:700" ]]; then
+    fail_update "The verified release updater rejected an unsafe protected bootstrap work directory."
+  fi
+  echo "Continuing LessonCue ${VERSION} with the verified release updater..."
+else
+  WORKDIR="$(mktemp -d /var/lib/lessoncue/.update.XXXXXXXX)"
+fi
 trap 'rm -rf "${WORKDIR}" "${STAGED}"' EXIT
 
-echo "Downloading LessonCue ${VERSION} for ${RUNTIME}..."
-curl -fL "${REPOSITORY}/releases/download/${VERSION}/${ASSET}" -o "${WORKDIR}/${ASSET}"
-curl -fL "${REPOSITORY}/releases/download/${VERSION}/SHA256SUMS" -o "${WORKDIR}/SHA256SUMS"
-curl -fL "${REPOSITORY}/releases/download/${VERSION}/SHA256SUMS.sig" -o "${WORKDIR}/SHA256SUMS.sig"
+if [[ "${BOOTSTRAP_ACTIVE}" != true ]]; then
+  echo "Downloading LessonCue ${VERSION} for ${RUNTIME}..."
+  curl -fL "${REPOSITORY}/releases/download/${VERSION}/${ASSET}" -o "${WORKDIR}/${ASSET}"
+  curl -fL "${REPOSITORY}/releases/download/${VERSION}/SHA256SUMS" -o "${WORKDIR}/SHA256SUMS"
+  curl -fL "${REPOSITORY}/releases/download/${VERSION}/SHA256SUMS.sig" -o "${WORKDIR}/SHA256SUMS.sig"
+elif [[ ! -f "${WORKDIR}/${ASSET}" || ! -f "${WORKDIR}/SHA256SUMS" ||
+        ! -f "${WORKDIR}/SHA256SUMS.sig" || ! -d "${WORKDIR}/archive" ]]; then
+  fail_update "The verified release updater could not resume because its downloaded release bundle was incomplete."
+fi
 RELEASE_PUBLIC_KEY="${LESSONCUE_RELEASE_PUBLIC_KEY:-/etc/lessoncue/release-signing-public.pem}"
 if [[ ! -f "${RELEASE_PUBLIC_KEY}" ]]; then
   fail_update "The pinned LessonCue release-signing public key is missing. Run the current SSH installer once before using browser updates."
@@ -799,8 +831,10 @@ if ! grep -F "  ${ASSET}" "${WORKDIR}/SHA256SUMS" > "${WORKDIR}/asset.sha256"; t
 fi
 (cd "${WORKDIR}" && sha256sum -c asset.sha256)
 
-mkdir "${WORKDIR}/archive"
-tar -xzf "${WORKDIR}/${ASSET}" -C "${WORKDIR}/archive"
+if [[ "${BOOTSTRAP_ACTIVE}" != true ]]; then
+  mkdir "${WORKDIR}/archive"
+  tar -xzf "${WORKDIR}/${ASSET}" -C "${WORKDIR}/archive"
+fi
 if [[ ! -x "${WORKDIR}/archive/payload/LessonCue.Server" ]]; then
   fail_update "The release archive is missing LessonCue.Server."
 fi
@@ -809,6 +843,31 @@ if [[ ! -f "${WORKDIR}/archive/lessoncue-render.rules" ]]; then
 fi
 if [[ ! -x "${WORKDIR}/archive/lessoncue-media-worker" ]]; then
   fail_update "The release archive is missing the LessonCue media worker."
+fi
+if [[ ! -x "${WORKDIR}/archive/lessoncue-update" ]]; then
+  fail_update "The release archive is missing the protected LessonCue updater."
+fi
+
+# The signed archive may contain a newer updater than the one systemd started.
+# Run that verified candidate directly from the release bundle before taking
+# any snapshot. The parent keeps the operation lock, and the candidate reuses
+# the already verified bundle and original request. It remains temporary until
+# the protected transaction installs it or reports a precise failure.
+if [[ "${BOOTSTRAP_ACTIVE}" != true ]] &&
+   ! cmp -s "${WORKDIR}/archive/lessoncue-update" /usr/local/sbin/lessoncue-update; then
+  echo "Handing the protected operation to the verified release updater before snapshotting..."
+  if LESSONCUE_UPDATE_BOOTSTRAPPED=true \
+     LESSONCUE_UPDATE_REQUEST="${REQUEST}" \
+     LESSONCUE_UPDATE_VERIFIED_WORKDIR="${WORKDIR}" \
+     LESSONCUE_UPDATE_VERSION="${VERSION}" \
+     LESSONCUE_UPDATE_REPOSITORY="${REPOSITORY}" \
+     LESSONCUE_RELEASE_PUBLIC_KEY="${RELEASE_PUBLIC_KEY}" \
+     "${WORKDIR}/archive/lessoncue-update"; then
+    exit 0
+  else
+    bootstrap_exit=$?
+    exit "${bootstrap_exit}"
+  fi
 fi
 
 rm -rf "${STAGED}"
