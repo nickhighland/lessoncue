@@ -4,6 +4,18 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.14 — reliable uploads on port 80 servers
+
+### User changes
+
+- PNG and other media uploads now process correctly when the Linux server listens on port 80.
+
+### Developer changes
+
+- Media workers clear inherited service capabilities before starting Bubblewrap.
+- The Linux installer verifies that the required `setpriv` capability-isolation utility is installed.
+- Release metadata and Android version code advance to 0.40.14 and 73.
+
 ## v0.40.13 — reliable Linux installer validation
 
 ### User changes
