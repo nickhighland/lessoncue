@@ -130,6 +130,26 @@ test ! -e /var/lib/lessoncue/update-transaction
 mv /tmp/valid-release-signature \
   "${RELEASE_ROOT}/releases/download/v2.0.0/SHA256SUMS.sig"
 
+# A second systemd invocation can race the active updater while the path unit
+# is still delivering a request. It must leave a durable result and consume
+# the duplicate request so the web server cannot remain stuck in Installing.
+printf 'update:test-lock-contention\n' > /var/lib/lessoncue/config/update-request
+chown lessoncue:lessoncue /var/lib/lessoncue/config/update-request
+exec 8>/run/lessoncue-update.lock
+flock -n 8
+env \
+  PATH="${TEST_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  LESSONCUE_UPDATE_REPOSITORY="file://${RELEASE_ROOT}" \
+  LESSONCUE_UPDATE_VERSION=v2.0.0 \
+  LESSONCUE_RELEASE_PUBLIC_KEY="${TEST_PUBLIC_KEY}" \
+  /usr/local/sbin/lessoncue-update
+flock -u 8
+exec 8>&-
+grep -q 'Another protected LessonCue operation is already in progress' \
+  /var/lib/lessoncue/config/update-result.json
+test ! -e /var/lib/lessoncue/config/update-request
+[[ "$(/opt/lessoncue/LessonCue.Server)" == OLD ]]
+
 printf 'update:test\n' > /var/lib/lessoncue/config/update-request
 chown lessoncue:lessoncue /var/lib/lessoncue/config/update-request
 env \
