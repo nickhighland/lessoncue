@@ -4673,7 +4673,7 @@ function LessonEditor({
             <label className="playlist-select-all">
               <input type="checkbox" checked={allCuesSelected} onChange={toggleAllCues} /> Select all cues
             </label>
-            <div className="playlist lesson-playlist-track" aria-label="Horizontal playback sequence">
+            <section className="playlist lesson-playlist-track" aria-label="Horizontal playback sequence">
               {items.map((item, index) => (
                 <PlaylistCueRow
                   key={item.id}
@@ -4689,7 +4689,7 @@ function LessonEditor({
                   onRemove={removeItem}
                 />
               ))}
-            </div>
+            </section>
           </>
         ) : (
           <Empty
