@@ -28,6 +28,10 @@ if ! command -v bwrap >/dev/null 2>&1; then
   echo "Missing bubblewrap. Install the bubblewrap package before installing LessonCue."
   exit 1
 fi
+if ! command -v runuser >/dev/null 2>&1; then
+  echo "Missing runuser. Install util-linux and rerun the LessonCue installer."
+  exit 1
+fi
 
 id lessoncue >/dev/null 2>&1 || useradd --system --home /var/lib/lessoncue --shell /usr/sbin/nologin lessoncue
 for device_group in render video; do
@@ -96,7 +100,10 @@ fi
 MEDIA_WORKER_PROBE_ROOT=/var/lib/lessoncue/media/temporary/.installer-worker-probe
 MEDIA_WORKER_PROBE_LOG="$(mktemp)"
 install -d -o lessoncue -g lessoncue -m 0700 "${MEDIA_WORKER_PROBE_ROOT}"
-if ! LESSONCUE_DATA_PATH=/var/lib/lessoncue \
+# Run the probe as the same account as the systemd service. Bubblewrap maps
+# namespace root back to its invoking account, so a root-launched probe cannot
+# enter this service-owned 0700 directory even though production can.
+if ! runuser -u lessoncue -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
   /usr/local/libexec/lessoncue-media-worker \
   --network=deny --timeout=10 --memory=268435456 --file-size=1048576 \
   --processes=4 --write-root="${MEDIA_WORKER_PROBE_ROOT}" -- \
