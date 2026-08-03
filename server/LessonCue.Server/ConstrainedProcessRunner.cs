@@ -31,14 +31,17 @@ public sealed record ConstrainedProcessOptions(
 
 public static class ConstrainedProcessRunner
 {
+    private static readonly string[] LinuxCapabilityDropperPaths = ["/usr/bin/setpriv", "/bin/setpriv"];
+
     public static async Task<string> RunAsync(string executable, IReadOnlyList<string> arguments,
         ConstrainedProcessOptions options, CancellationToken ct = default)
     {
-        var start = BuildStartInfo(executable, arguments, options);
+        var linuxWorker = OperatingSystem.IsLinux() ? ResolveLinuxMediaWorkerPath() : null;
+        var start = BuildStartInfo(executable, arguments, options, linuxWorker);
         using var process = new Process { StartInfo = start };
-        if (OperatingSystem.IsLinux() && !File.Exists(start.FileName))
+        if (linuxWorker is not null && !File.Exists(linuxWorker))
             throw new InvalidOperationException(
-                $"The LessonCue media worker is missing at '{start.FileName}'. Run the current Linux installer or install the latest LessonCue update to repair the server.");
+                $"The LessonCue media worker is missing at '{linuxWorker}'. Run the current Linux installer or install the latest LessonCue update to repair the server.");
         try
         {
             process.Start();
@@ -126,21 +129,17 @@ public static class ConstrainedProcessRunner
     public static ProcessStartInfo BuildStartInfo(string executable, IReadOnlyList<string> arguments,
         ConstrainedProcessOptions options)
     {
+        var linuxWorker = OperatingSystem.IsLinux() ? ResolveLinuxMediaWorkerPath() : null;
+        return BuildStartInfo(executable, arguments, options, linuxWorker);
+    }
+
+    private static ProcessStartInfo BuildStartInfo(string executable, IReadOnlyList<string> arguments,
+        ConstrainedProcessOptions options, string? linuxWorker)
+    {
         executable = ResolveRestrictedWindowsTool(executable);
         var useSandbox = OperatingSystem.IsLinux();
-        var helper = Environment.GetEnvironmentVariable("LESSONCUE_MEDIA_WORKER_PATH");
-        if (useSandbox && string.IsNullOrWhiteSpace(helper))
-        {
-            helper = "/usr/local/libexec/lessoncue-media-worker";
-            // The first update after the worker was introduced is run by an
-            // older updater that only replaces /opt/lessoncue. Use the copy
-            // bundled in that payload until the next update repairs the
-            // protected system location.
-            var bundledHelper = Path.Combine(AppContext.BaseDirectory, "lessoncue-media-worker");
-            if (!File.Exists(helper) && File.Exists(bundledHelper)) helper = bundledHelper;
-        }
-        if (string.IsNullOrWhiteSpace(helper)) helper = "/usr/local/libexec/lessoncue-media-worker";
-        var start = new ProcessStartInfo(useSandbox ? helper : executable)
+        var helper = linuxWorker;
+        var start = new ProcessStartInfo(useSandbox ? ResolveLinuxCapabilityDropperPath() : executable)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -149,6 +148,16 @@ public static class ConstrainedProcessRunner
         };
         if (useSandbox)
         {
+            // The systemd service uses CAP_NET_BIND_SERVICE to listen on port
+            // 80. Bubblewrap rejects a non-root process with inherited
+            // permitted capabilities, so clear the ambient and inheritable
+            // sets before exec-ing the worker. The exec boundary then gives
+            // Bubblewrap an empty permitted set while the server retains its
+            // listener capability.
+            start.ArgumentList.Add("--ambient-caps=-all");
+            start.ArgumentList.Add("--inh-caps=-all");
+            start.ArgumentList.Add("--");
+            start.ArgumentList.Add(helper!);
             start.ArgumentList.Add(options.AllowNetwork ? "--network=allow" : "--network=deny");
             start.ArgumentList.Add($"--timeout={Math.Max(1, (int)Math.Ceiling(options.Timeout.TotalSeconds))}");
             start.ArgumentList.Add($"--memory={options.MemoryBytes}");
@@ -164,6 +173,24 @@ public static class ConstrainedProcessRunner
             start.Environment[pair.Key] = pair.Value;
         return start;
     }
+
+    private static string ResolveLinuxMediaWorkerPath()
+    {
+        var helper = Environment.GetEnvironmentVariable("LESSONCUE_MEDIA_WORKER_PATH");
+        if (!string.IsNullOrWhiteSpace(helper)) return helper;
+
+        helper = "/usr/local/libexec/lessoncue-media-worker";
+        // The first update after the worker was introduced is run by an older
+        // updater that only replaces /opt/lessoncue. Use the copy bundled in
+        // that payload until the next update repairs the protected location.
+        var bundledHelper = Path.Combine(AppContext.BaseDirectory, "lessoncue-media-worker");
+        return !File.Exists(helper) && File.Exists(bundledHelper) ? bundledHelper : helper;
+    }
+
+    private static string ResolveLinuxCapabilityDropperPath() =>
+        LinuxCapabilityDropperPaths.FirstOrDefault(File.Exists) ??
+        throw new InvalidOperationException(
+            "The Linux capability isolation utility is missing. Install util-linux and run the current LessonCue installer to repair the server.");
 
     private static string ResolveRestrictedWindowsTool(string executable)
     {

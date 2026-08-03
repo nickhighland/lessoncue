@@ -38,7 +38,12 @@ public sealed class ConstrainedProcessRunnerTests
 
         if (OperatingSystem.IsLinux())
         {
-            Assert.EndsWith("lessoncue-media-worker", start.FileName);
+            Assert.EndsWith("setpriv", start.FileName);
+            Assert.Equal("--ambient-caps=-all", start.ArgumentList[0]);
+            Assert.Equal("--inh-caps=-all", start.ArgumentList[1]);
+            var setprivSeparator = start.ArgumentList.IndexOf("--");
+            Assert.True(setprivSeparator >= 0);
+            Assert.EndsWith("lessoncue-media-worker", start.ArgumentList[setprivSeparator + 1]);
             Assert.Contains("--network=deny", start.ArgumentList);
             Assert.Contains("--timeout=42", start.ArgumentList);
             Assert.Contains("--memory=123000000", start.ArgumentList);

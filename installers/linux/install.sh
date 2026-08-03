@@ -32,6 +32,10 @@ if ! command -v runuser >/dev/null 2>&1; then
   echo "Missing runuser. Install util-linux and rerun the LessonCue installer."
   exit 1
 fi
+if ! command -v setpriv >/dev/null 2>&1; then
+  echo "Missing setpriv. Install util-linux and rerun the LessonCue installer."
+  exit 1
+fi
 
 id lessoncue >/dev/null 2>&1 || useradd --system --home /var/lib/lessoncue --shell /usr/sbin/nologin lessoncue
 for device_group in render video; do
