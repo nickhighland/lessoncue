@@ -3708,6 +3708,7 @@ function LessonEditor({
       ? "advanced"
       : "simple",
   );
+  const [activeEditorTab, setActiveEditorTab] = useState<"settings" | "playlist">("playlist");
   const items = [...lesson.items].sort((a, b) => a.position - b.position);
   useEffect(() => {
     if (!showAdd) return;
@@ -4484,171 +4485,131 @@ function LessonEditor({
           </form>
         </Modal>
       )}
-      <div className="editor-grid">
+      <div className="editor-tabs">
+        <button
+          className={activeEditorTab === "settings" ? "active" : ""}
+          onClick={() => setActiveEditorTab("settings")}
+        >
+          <span className="editor-step">1</span>
+          <div>
+            <strong>Lesson settings</strong>
+            <small>Title, date, timing, notes</small>
+          </div>
+        </button>
+        <button
+          className={activeEditorTab === "playlist" ? "active" : ""}
+          onClick={() => setActiveEditorTab("playlist")}
+        >
+          <span className="editor-step">2</span>
+          <div>
+            <strong>Playback sequence</strong>
+            <small>{items.length} cue{items.length !== 1 ? "s" : ""} · {formatFriendlyDuration(plannedDurationMs)}</small>
+          </div>
+        </button>
+      </div>
+      {activeEditorTab === "settings" && (
         <section className="panel schedule-panel">
           <h2>Lesson settings</h2>
           <form className="stack" onSubmit={updateLesson}>
             <Field label="Lesson title">
-              <input name="title" defaultValue={lesson.title} required />
-            </Field>
-            <Field label="Lesson date">
-              <input
-                name="date"
-                type="date"
-                defaultValue={lesson.date}
-                required
-              />
-            </Field>
-            <Field
-              label="Pre-roll begins"
-              hint="Paired screens automatically start looping pre-roll at this time."
-            >
-              <input
-                name="preRollStartsAt"
-                type="datetime-local"
-                defaultValue={toLocalInput(lesson.preRollStartsAt)}
-              />
-            </Field>
-            <Field
-              label="Designated class start"
-              hint="The countdown begins exactly one countdown-video duration before this time."
-            >
-              <input
-                name="designatedStartAt"
-                type="datetime-local"
-                defaultValue={toLocalInput(lesson.designatedStartAt)}
-              />
-            </Field>
-            <Field
-              label="Substitute or teacher instructions"
-              hint="Shown on the phone controller and printed run sheet, never on the audience display."
-            >
-              <textarea
-                name="substituteNotes"
-                rows={4}
-                maxLength={8000}
-                defaultValue={lesson.substituteNotes}
-                placeholder="Room setup, handoff details, or what a substitute should know"
-              />
-            </Field>
-            <Field
-              label="Optional pre-roll livestream monitor"
-              hint="During pre-roll, the phone controller can display this HTTP/HTTPS camera or stream page. It is never sent to the audience display."
-            >
-              <input
-                name="preRollMonitorUrl"
-                type="url"
-                maxLength={2000}
-                defaultValue={lesson.preRollMonitorUrl || ""}
-                placeholder="https://camera.example.org/view"
-              />
+              <input name="title" defaultValue={lesson.title} required autoFocus />
             </Field>
             <div className="two-fields">
-              <Field label="Whole-lesson volume">
-                <div className="unit-input">
-                  <input
-                    name="volumePercent"
-                    type="number"
-                    min="0"
-                    max="150"
-                    defaultValue={lesson.volumePercent ?? 100}
-                  />
-                  <span>%</span>
-                </div>
-              </Field>
-              <label className="check-card">
+              <Field label="Lesson date">
                 <input
-                  type="checkbox"
-                  name="muted"
-                  defaultChecked={lesson.muted}
+                  name="date"
+                  type="date"
+                  defaultValue={lesson.date}
+                  required
                 />
-                <span>
-                  <strong>Mute whole lesson</strong>
-                  <small>All cue audio stays silent.</small>
-                </span>
-              </label>
+              </Field>
+              <Field
+                label="Designated class start"
+                hint="Countdown begins one countdown-video duration before this time."
+              >
+                <input
+                  name="designatedStartAt"
+                  type="datetime-local"
+                  defaultValue={toLocalInput(lesson.designatedStartAt)}
+                />
+              </Field>
             </div>
+            <div className="two-fields">
+              <Field
+                label="Pre-roll begins"
+                hint="Screens auto-start looping pre-roll at this time."
+              >
+                <input
+                  name="preRollStartsAt"
+                  type="datetime-local"
+                  defaultValue={toLocalInput(lesson.preRollStartsAt)}
+                />
+              </Field>
+              <div className="two-fields">
+                <Field label="Whole-lesson volume">
+                  <div className="unit-input">
+                    <input name="volumePercent" type="number" min="0" max="150" defaultValue={lesson.volumePercent ?? 100} />
+                    <span>%</span>
+                  </div>
+                </Field>
+                <label className="check-card">
+                  <input type="checkbox" name="muted" defaultChecked={lesson.muted} />
+                  <span><strong>Mute</strong><small>All cues silent</small></span>
+                </label>
+              </div>
+            </div>
+            <Field
+              label="Substitute or teacher instructions"
+              hint="Shown on the phone controller and printed run sheet."
+            >
+              <textarea name="substituteNotes" rows={4} maxLength={8000} defaultValue={lesson.substituteNotes} placeholder="Room setup, handoff details, or what a substitute should know" />
+            </Field>
+            <Field label="Optional pre-roll livestream monitor" hint="Phone-controller camera or stream page during pre-roll.">
+              <input name="preRollMonitorUrl" type="url" maxLength={2000} defaultValue={lesson.preRollMonitorUrl || ""} placeholder="https://camera.example.org/view" />
+            </Field>
             <label className="switch-row">
-              <input
-                type="checkbox"
-                name="preRollEnabled"
-                defaultChecked={lesson.preRollEnabled}
-              />
+              <input type="checkbox" name="preRollEnabled" defaultChecked={lesson.preRollEnabled} />
               <span />
               <div>
                 <strong>Enable pre-roll</strong>
-                <small>
-                  Loop all pre-roll items until the countdown or class begins.
-                </small>
+                <small>Loop pre-roll items until countdown or class begins.</small>
               </div>
             </label>
+            <div className="run-timing-summary">
+              <div>
+                <span>ESTIMATED RUN TIME</span>
+                <strong>{formatFriendlyDuration(plannedDurationMs)}</strong>
+                <small>{flexibleDurationMs ? `${formatFriendlyDuration(flexibleDurationMs)} marked flexible` : "No flexible-time cues"}</small>
+              </div>
+              <div>
+                <span>PLANNED FINISH</span>
+                <strong>{plannedEnd ? plannedEnd.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Set a start time"}</strong>
+                <small>{lessonItems.some((item) => cuePlannedDurationMs(item) === 0) ? "Unknown-duration cues not included" : `${lessonItems.length} main cues`}</small>
+              </div>
+            </div>
+            {plannedEnd && plannedEnd.getTime() < Date.now() && (
+              <div className="alert warning">This lesson's planned finish has passed.</div>
+            )}
+            {conflicts.length > 0 && (
+              <div className="alert error"><strong>Schedule conflict:</strong> {conflicts.map((item) => `${item.className} — ${item.title}`).join(", ")} overlaps this lesson's estimated window.</div>
+            )}
+            <div className="timing-explain">
+              <span>◷</span>
+              <div>
+                <strong>{countdown && lesson.designatedStartAt ? `Countdown begins ${formatDuration(countdown.durationMs || countdown.mediaDurationMs)} before class` : "Countdown is optional"}</strong>
+                <p>Assign one video as the countdown. Its duration determines when it starts automatically.</p>
+              </div>
+            </div>
             <button className="button primary">Save lesson settings</button>
           </form>
-          <div className="run-timing-summary">
-            <div>
-              <span>ESTIMATED RUN TIME</span>
-              <strong>{formatFriendlyDuration(plannedDurationMs)}</strong>
-              <small>
-                {flexibleDurationMs
-                  ? `${formatFriendlyDuration(flexibleDurationMs)} marked flexible`
-                  : "No flexible-time cues"}
-              </small>
-            </div>
-            <div>
-              <span>PLANNED FINISH</span>
-              <strong>
-                {plannedEnd
-                  ? plannedEnd.toLocaleTimeString([], {
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })
-                  : "Set a start time"}
-              </strong>
-              <small>
-                {lessonItems.some((item) => cuePlannedDurationMs(item) === 0)
-                  ? "Unknown-duration cues are not included"
-                  : `${lessonItems.length} main cues`}
-              </small>
-            </div>
-          </div>
-          {plannedEnd && plannedEnd.getTime() < Date.now() && (
-            <div className="alert warning">
-              This lesson's planned finish has passed. Check the live controller
-              for the current remaining time.
-            </div>
-          )}
-          {conflicts.length > 0 && (
-            <div className="alert error">
-              <strong>Schedule conflict:</strong>{" "}
-              {conflicts
-                .map((item) => `${item.className} — ${item.title}`)
-                .join(", ")}{" "}
-              overlaps this lesson's estimated window.
-            </div>
-          )}
-          <div className="timing-explain">
-            <span>◷</span>
-            <div>
-              <strong>
-                {countdown && lesson.designatedStartAt
-                  ? `Countdown begins ${formatDuration(countdown.durationMs || countdown.mediaDurationMs)} before class`
-                  : "Countdown is optional"}
-              </strong>
-              <p>
-                Assign one video as the countdown. Its full duration determines
-                when it starts automatically.
-              </p>
-            </div>
-          </div>
         </section>
-        <section className="panel playlist-panel">
+      )}
+      {activeEditorTab === "playlist" && (
+        <section className="panel playlist-panel playlist-panel-wide">
           <div className="panel-heading">
             <div>
               <h2>Playback sequence</h2>
-              <p>
-                Pre-roll loops, countdown runs once, then lesson media plays in
-                order.
-              </p>
+              <p>Pre-roll loops, countdown runs once, then lesson media plays in order.</p>
             </div>
             <span className="pill">{items.length} items</span>
           </div>
@@ -4665,11 +4626,7 @@ function LessonEditor({
           {selectedCues.length > 0 && (
             <form className="cue-bulk-actions" onSubmit={applyCueBulk}>
               <strong>{selectedCues.length} selected</strong>
-              <select
-                aria-label="Bulk cue action"
-                value={cueBulkAction}
-                onChange={(event) => setCueBulkAction(event.target.value)}
-              >
+              <select aria-label="Bulk cue action" value={cueBulkAction} onChange={(event) => setCueBulkAction(event.target.value)}>
                 <option value="role">Set role</option>
                 <option value="volume">Set volume</option>
                 <option value="end-behavior">Set end behavior</option>
@@ -4681,78 +4638,21 @@ function LessonEditor({
                 <select name="role" aria-label="Role for selected cues">
                   <option value="lesson">Main lesson</option>
                   <option value="preRoll">Pre-roll</option>
-                  {selectedCues.length === 1 && (
-                    <option value="countdown">Countdown</option>
-                  )}
+                  {selectedCues.length === 1 && <option value="countdown">Countdown</option>}
                 </select>
               )}
-              {cueBulkAction === "volume" && (
-                <label>
-                  Volume{" "}
-                  <input
-                    name="volumePercent"
-                    type="number"
-                    min="0"
-                    max="150"
-                    required
-                    defaultValue="100"
-                  />
-                  %
-                </label>
-              )}
-              {cueBulkAction === "end-behavior" && (
-                <select
-                  name="endBehavior"
-                  aria-label="End behavior for selected cues"
-                >
-                  <option value="advance">Advance</option>
-                  <option value="loop">Loop</option>
-                  <option value="pause">Pause on final frame</option>
-                  <option value="stop">Stop</option>
-                </select>
-              )}
-              {cueBulkAction === "allow-skip" && (
-                <select
-                  name="allowSkip"
-                  aria-label="Skipping for selected cues"
-                >
-                  <option value="true">Allow skip</option>
-                  <option value="false">Do not allow skip</option>
-                </select>
-              )}
-              {cueBulkAction === "prefix-title" && (
-                <input
-                  name="titlePrefix"
-                  maxLength={80}
-                  required
-                  placeholder="Title prefix"
-                  aria-label="Prefix for selected cue titles"
-                />
-              )}
-              <button
-                className={`button ${cueBulkAction === "delete" ? "danger" : "primary"}`}
-                disabled={cueBulkBusy}
-              >
-                {cueBulkBusy ? "Applying…" : "Apply"}
-              </button>
-              <button
-                className="button"
-                type="button"
-                onClick={() => setSelectedCueIds(new Set())}
-              >
-                Clear
-              </button>
+              {cueBulkAction === "volume" && <label>Volume <input name="volumePercent" type="number" min="0" max="150" required defaultValue="100" />%</label>}
+              {cueBulkAction === "end-behavior" && <select name="endBehavior" aria-label="End behavior"><option value="advance">Advance</option><option value="loop">Loop</option><option value="pause">Pause on final frame</option><option value="stop">Stop</option></select>}
+              {cueBulkAction === "allow-skip" && <select name="allowSkip" aria-label="Skipping"><option value="true">Allow skip</option><option value="false">Do not allow skip</option></select>}
+              {cueBulkAction === "prefix-title" && <input name="titlePrefix" maxLength={80} required placeholder="Title prefix" aria-label="Prefix for cue titles" />}
+              <button className={`button ${cueBulkAction === "delete" ? "danger" : "primary"}`} disabled={cueBulkBusy}>{cueBulkBusy ? "Applying…" : "Apply"}</button>
+              <button className="button" type="button" onClick={() => setSelectedCueIds(new Set())}>Clear</button>
             </form>
           )}
           {items.length ? (
             <div className="playlist">
               <label className="playlist-select-all">
-                <input
-                  type="checkbox"
-                  checked={allCuesSelected}
-                  onChange={toggleAllCues}
-                />{" "}
-                Select all cues
+                <input type="checkbox" checked={allCuesSelected} onChange={toggleAllCues} /> Select all cues
               </label>
               {items.map((item, index) => (
                 <PlaylistCueRow
@@ -4775,20 +4675,14 @@ function LessonEditor({
               title="This playlist is empty"
               body="Add videos, audio, or images from your local media library."
               action={
-                <button
-                  className="button primary"
-                  onClick={() => {
-                    setAddMode("chooser");
-                    setShowAdd(true);
-                  }}
-                >
+                <button className="button primary" onClick={() => { setAddMode("chooser"); setShowAdd(true); }}>
                   Add media
                 </button>
               }
             />
           )}
         </section>
-      </div>
+      )}
     </>
   );
 }

@@ -1,0 +1,29 @@
+=== host ===
+Darwin Nicks-MBP 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:18:58 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6000 arm64
+=== local/UTC timestamps ===
+2026-08-02T20:05:29-0400
+2026-08-03T00:05:29Z
+=== available incident tools ===
+/usr/bin/curl
+/usr/bin/sudo
+=== server binary version ===
+zsh:1: no such file or directory: /opt/lessoncue/LessonCue.Server
+=== installed-version ===
+sudo: a password is required
+=== readiness ===
+curl: (7) Failed to connect to 127.0.0.1 port 80 after 0 ms: Couldn't connect to server
+
+=== service state ===
+sudo: a password is required
+=== service enabled ===
+sudo: a password is required
+=== protected paths ===
+sudo: a password is required
+sudo: a password is required
+sudo: a password is required
+=== locks ===
+=== exact trace in service journal ===
+=== updater journals ===
+sudo: a password is required
+=== path/updater/recovery recent journal ===
+sudo: a password is required

@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,6 +38,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.relocation.BringIntoViewRequester
@@ -90,6 +92,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
@@ -98,6 +101,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import coil.compose.AsyncImage
+import coil.imageLoader
+import coil.request.ImageRequest
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.MultiFormatWriter
@@ -298,13 +303,13 @@ fun LessonCueApp() {
           Box(Modifier.fillMaxSize()) {
             when (val current = screen) {
                 AppScreen.Loading -> CenterMessage("Searching for LessonCue…")
-                is AppScreen.Connect -> ConnectScreen(current.message) { address ->
+                is AppScreen.Connect -> ConnectScreen(current.message) { address, deviceName ->
                     scope.launch {
                         runCatching {
                             val (api, name) = findLessonCueServer(
                                 context, address, context.filesDir.resolve("manifest.json")
                             )
-                            val request = api.requestPairing(Build.MODEL)
+                            val request = api.requestPairing(deviceName)
                             screen = AppScreen.EnterPin(api, request, name)
                         }.onFailure { screen = AppScreen.Connect(it.message) }
                     }
@@ -467,13 +472,23 @@ private suspend fun captureDiagnosticScreenshot(activity: ComponentActivity): By
 }
 
 @Composable
-private fun ConnectScreen(message: String?, onConnect: (String) -> Unit) {
+private fun ConnectScreen(message: String?, onConnect: (String, String) -> Unit) {
     var address by remember { mutableStateOf("http://lessoncue.local") }
+    var deviceName by remember { mutableStateOf(defaultDeviceName()) }
     FormLayout("Connect this TV", "LessonCue will try this address, then search the local network automatically.") {
+        Text("Device name", color = Cream, fontSize = 20.sp)
+        InputBox(deviceName) { deviceName = it.take(MAX_DEVICE_NAME_LENGTH) }
+        Spacer(Modifier.height(20.dp))
+        Text("Server address", color = Cream, fontSize = 20.sp)
         InputBox(address) { address = it }
         message?.let { Text(it, color = Coral, modifier = Modifier.padding(top = 12.dp)) }
         Spacer(Modifier.height(20.dp))
-        Button(onClick = { onConnect(address) }) { Text("Find server") }
+        LessonCueButton(
+            onClick = {
+                onConnect(address, deviceName.trim().ifBlank { defaultDeviceName() })
+            },
+            enabled = deviceName.isNotBlank()
+        ) { Text("Find server") }
     }
 }
 
@@ -506,7 +521,7 @@ private fun PinScreen(serverName: String, onConfirm: (String) -> Unit) {
     FormLayout(serverName, "Enter the six-digit PIN shown in LessonCue Settings → Pair a screen.") {
         InputBox(pin, singleLine = true) { pin = it.filter(Char::isDigit).take(6) }
         Spacer(Modifier.height(20.dp))
-        Button(onClick = { if (pin.length == 6) onConfirm(pin) }, enabled = pin.length == 6) { Text("Pair TV") }
+        LessonCueButton(onClick = { if (pin.length == 6) onConfirm(pin) }, enabled = pin.length == 6) { Text("Pair TV") }
     }
 }
 
@@ -518,14 +533,19 @@ private fun LibraryScreen(
 ) {
     val signage = manifest.signage.firstOrNull { it.mode == "emergency" } ?: manifest.signage.firstOrNull()
     if (signage?.displayPower == "off") { Box(Modifier.fillMaxSize().background(Color.Black)); return }
-    val signageEntries = signage?.contentPlaylist?.items.orEmpty()
+    val signageEntries = signage?.contentPlaylist?.items.orEmpty().filter(::isRenderableSignageEntry)
     var signageEntryIndex by remember(signage?.contentPlaylist?.id, signage?.contentPlaylist?.version) {
         mutableIntStateOf(if (signage?.contentPlaylist?.synchronization == "screen") 0 else synchronizedSignageIndex(signageEntries))
     }
-    LaunchedEffect(signage?.contentPlaylist?.id, signage?.contentPlaylist?.version, signageEntryIndex) {
+    val signageEntrySchedule = signageEntries.map { "${it.id}:${it.durationSeconds}" }
+    LaunchedEffect(signage?.contentPlaylist?.id, signage?.contentPlaylist?.version, signageEntrySchedule) {
         if (signageEntries.isNotEmpty()) {
-            kotlinx.coroutines.delay(signageEntries[signageEntryIndex % signageEntries.size].durationSeconds.coerceAtLeast(1) * 1_000L)
-            signageEntryIndex = (signageEntryIndex + 1) % signageEntries.size
+            var nextIndex = signageEntryIndex % signageEntries.size
+            while (true) {
+                kotlinx.coroutines.delay(signageEntries[nextIndex].durationSeconds.coerceAtLeast(1) * 1_000L)
+                nextIndex = (nextIndex + 1) % signageEntries.size
+                signageEntryIndex = nextIndex
+            }
         }
     }
     val signageEntry = signageEntries.getOrNull(signageEntryIndex % maxOf(1, signageEntries.size))
@@ -538,9 +558,12 @@ private fun LibraryScreen(
         if (manifest.playlists.isNotEmpty()) runCatching { firstFocus.requestFocus() }
     }
     Box(Modifier.fillMaxSize().background(displaySignage?.backgroundColor?.let(::parseDisplayColor) ?: Navy)) {
+      SignageImagePreload(signageEntries)
       displaySignage?.backgroundAudio?.let { SignageBackgroundAudio(it, displaySignage.volumePercent) }
       if (displaySignage?.zones?.isNotEmpty() == true) SignageZoneLayout(displaySignage)
-      else signageEntry?.media?.let { SignageBackdrop(it) } ?: displaySignage?.media?.let { SignageBackdrop(it) }
+      else signageEntry?.media?.let { SignageBackdrop(it) }
+          ?: signageEntry?.sourceUrl?.let { SignageWebZone(it) }
+          ?: displaySignage?.media?.let { SignageBackdrop(it) }
       if (manifest.playlists.isEmpty()) {
           // Signage-only: full-screen signage with no app chrome.
           Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.BottomEnd) {
@@ -555,8 +578,6 @@ private fun LibraryScreen(
                 Text("LESSONCUE", color = Gold, letterSpacing = 3.sp)
                 Spacer(Modifier.height(20.dp))
                 Text(manifest.screenName, fontSize = 34.sp, color = Cream)
-                Text("Offline manifest ${manifest.version}", color = Muted, modifier = Modifier.padding(top = 8.dp))
-                Text("LessonCue ${BuildConfig.VERSION_NAME}", color = Muted, modifier = Modifier.padding(top = 4.dp))
                 displaySignage?.let {
                     Spacer(Modifier.height(24.dp))
                     Text(if (it.mode == "emergency") "EMERGENCY" else it.name.uppercase(), color = if (it.mode == "emergency") Coral else Gold, letterSpacing = 2.sp)
@@ -567,7 +588,7 @@ private fun LibraryScreen(
                 Text("Select a lesson and press Start.", color = Cream, modifier = Modifier.padding(top = 8.dp))
                 onCheckForUpdates?.let {
                     Spacer(Modifier.height(24.dp))
-                    Button(onClick = it) { Text("Check for updates") }
+                    LessonCueButton(onClick = it) { Text("Check for updates") }
                 }
             }
             if (signage?.mode == "emergency") {
@@ -582,7 +603,7 @@ private fun LibraryScreen(
                             .then(if (index == 0) Modifier.focusRequester(firstFocus) else Modifier)) {
                             Row(Modifier.padding(26.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
-                                    Text(playlist.title, fontSize = 28.sp)
+                                    Text(playlist.title, fontSize = 28.sp, color = Cream)
                                     val readiness = if (playlist.items.all { !it.offlineEligible || it.url != null }) "Ready" else "Internet required"
                                     Text(readiness, color = if (readiness == "Ready") Mint else Coral)
                                 }
@@ -608,10 +629,30 @@ private fun synchronizedSignageIndex(entries: List<SignagePlaylistEntry>): Int {
     return 0
 }
 
+private fun isRenderableSignageEntry(entry: SignagePlaylistEntry): Boolean =
+    !entry.hidden && (entry.layout != null || entry.media?.url != null || !entry.sourceUrl.isNullOrBlank())
+
+@Composable
+private fun SignageImagePreload(entries: List<SignagePlaylistEntry>) {
+    val context = LocalContext.current
+    val imageSources = remember(entries) {
+        entries.flatMap { it.mediaItems() }
+            .filter { it.type == "image" || it.contentType?.startsWith("image/") == true }
+            .mapNotNull { it.url }.distinct()
+    }
+    DisposableEffect(imageSources) {
+        val requests = imageSources.map { source ->
+            context.imageLoader.enqueue(ImageRequest.Builder(context).data(source).build())
+        }
+        onDispose { requests.forEach { it.dispose() } }
+    }
+}
+
 @Composable
 private fun SignageZoneLayout(signage: SignageCue) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val availableWidth = maxWidth
+        val designScale = (availableWidth.value / 1920f).coerceIn(.25f, 1f)
         signage.zones.filterNot { it.hidden }.sortedBy { it.zIndex }.forEach { zone ->
             val modifier = Modifier.offset(maxWidth * (zone.x / 100f), maxHeight * (zone.y / 100f))
                 .size(maxWidth * (zone.width / 100f), maxHeight * (zone.height / 100f))
@@ -623,6 +664,7 @@ private fun SignageZoneLayout(signage: SignageCue) {
                     scaleY = if (zone.flipY) -1f else 1f
                 }
                 .background(parseDisplayColor(zone.backgroundColor))
+                .border(2.dp, parseDisplayColor(zone.accentColor))
                 .clipToBounds()
                 .let { modifier ->
                     val cornerRadiusPercent = zone.cornerRadius.coerceIn(0, 50)
@@ -644,39 +686,40 @@ private fun SignageZoneLayout(signage: SignageCue) {
                 }
                 val contentPadding = availableWidth * (zone.width / 100f) *
                     (zone.contentPadding.coerceIn(0, 30) / 100f)
+                val horizontalAlignment = signageHorizontalAlignment(zone.textAlign)
                 Column(Modifier.fillMaxSize()
                     .graphicsLayer {
                         scaleX = zone.contentScale.coerceIn(25, 100) / 100f
                         scaleY = zone.contentScale.coerceIn(25, 100) / 100f
                     }
                     .padding(contentPadding),
-                    verticalArrangement = arrangement) {
-                    zone.title?.takeIf { zone.type !in signageNonTextZoneTypes }?.let { Text(it.uppercase(), color = parseDisplayColor(zone.accentColor), fontSize = 14.sp, letterSpacing = 2.sp) }
+                    horizontalAlignment = horizontalAlignment, verticalArrangement = arrangement) {
+                    zone.title?.takeIf { zone.type !in signageNonTextZoneTypes }?.let { Text(it.uppercase(), color = parseDisplayColor(zone.accentColor), fontSize = signageSp(14, designScale), letterSpacing = (2f * designScale).sp, modifier = Modifier.fillMaxWidth(), textAlign = signageTextAlignment(zone.textAlign)) }
                     if (zone.type == "clock") {
-                        SignageClock(zone)
+                        SignageClock(zone, designScale)
                     } else if (zone.type == "weather") {
-                        SignageWeather(zone)
+                        SignageWeather(zone, designScale)
                     } else if (zone.type == "calendar") {
-                        SignageCalendar(zone)
+                        SignageCalendar(zone, designScale)
                     } else if (zone.type == "qr" || zone.type == "wifi") {
-                        zone.qrValue?.let { SignageQrCode(it, zone) }
+                        zone.qrValue?.let { SignageQrCode(it, zone, designScale) }
                     } else if (zone.type == "counter") {
-                        SignageCounter(zone)
+                        SignageCounter(zone, designScale)
                     } else if (zone.type !in signageNonTextZoneTypes) {
                         val body = zone.cached?.text?.ifBlank { null } ?: zone.content
                         body?.let { Text(signageText(zone, it), color = parseDisplayColor(zone.textColor),
-                            fontSize = zone.fontSize.coerceIn(8, 180).sp,
-                            lineHeight = (zone.fontSize.coerceIn(8, 180) * zone.lineHeightPercent.coerceIn(80, 300) / 100f).sp,
+                            fontSize = signageSp(zone.fontSize.coerceIn(8, 180), designScale),
+                            lineHeight = signageSp(zone.fontSize.coerceIn(8, 180) * zone.lineHeightPercent.coerceIn(80, 300) / 100f, designScale),
                             fontFamily = signageFontFamily(zone.fontFamily),
                             fontWeight = FontWeight(zone.fontWeight.coerceIn(100, 900)),
                             fontStyle = if (zone.italic) FontStyle.Italic else FontStyle.Normal,
                             textDecoration = if (zone.underline) TextDecoration.Underline else TextDecoration.None,
-                            textAlign = when (zone.textAlign) { "center" -> TextAlign.Center; "right" -> TextAlign.Right; "justify" -> TextAlign.Justify; else -> TextAlign.Left },
-                            modifier = if (zone.type == "ticker") Modifier.fillMaxWidth().basicMarquee(
+                            textAlign = signageTextAlignment(zone.textAlign),
+                            modifier = Modifier.fillMaxWidth().let { base -> if (zone.type == "ticker") base.basicMarquee(
                                 iterations = Int.MAX_VALUE,
                                 velocity = (zone.tickerSpeed.coerceIn(10, 300) / 2f).dp
-                            ) else Modifier) }
-                        zone.cached?.items?.take(8)?.forEach { Text("• $it", color = parseDisplayColor(zone.textColor), fontSize = 18.sp, modifier = Modifier.padding(top = 7.dp)) }
+                            ) else base }) }
+                        zone.cached?.items?.take(8)?.forEach { Text("• $it", color = parseDisplayColor(zone.textColor), fontSize = signageSp(18, designScale), modifier = Modifier.fillMaxWidth().padding(top = 7.dp), textAlign = signageTextAlignment(zone.textAlign)) }
                     }
                 }
                 if (zone.renderSupport == "fallback") {
@@ -699,8 +742,24 @@ private fun SignageZoneLayout(signage: SignageCue) {
     }
 }
 
+private fun signageHorizontalAlignment(value: String): androidx.compose.ui.Alignment.Horizontal = when (value) {
+    "center" -> Alignment.CenterHorizontally
+    "right" -> Alignment.End
+    else -> Alignment.Start
+}
+
+private fun signageTextAlignment(value: String): TextAlign = when (value) {
+    "center" -> TextAlign.Center
+    "right" -> TextAlign.Right
+    "justify" -> TextAlign.Justify
+    else -> TextAlign.Left
+}
+
+private fun signageSp(value: Number, scale: Float): TextUnit =
+    maxOf(8f, value.toFloat() * scale).sp
+
 private val signageWebZoneTypes = setOf("webpage", "customHtml")
-private val signageNonTextZoneTypes = signageWebZoneTypes + setOf("qr", "wifi", "presentation", "stream")
+private val signageNonTextZoneTypes = signageWebZoneTypes + setOf("qr", "wifi", "presentation", "stream", "weather")
 
 private fun signageFontFamily(value: String?) = when (value?.lowercase()) {
     "georgia", "serif" -> FontFamily.Serif
@@ -729,7 +788,7 @@ private fun signageText(zone: SignageZone, fallback: String) = runCatching {
 }.getOrElse { buildAnnotatedString { append(fallback) } }
 
 @Composable
-private fun SignageCounter(zone: SignageZone) {
+private fun SignageCounter(zone: SignageZone, designScale: Float) {
     var now by remember(zone.id) { mutableStateOf(Instant.now()) }
     LaunchedEffect(zone.id, zone.counterTargetAt) {
         while (true) {
@@ -752,12 +811,12 @@ private fun SignageCounter(zone: SignageZone) {
     }
     val text = countdown?.let { value -> zone.content?.replace("[countdown]", value) ?: value }
         ?: (zone.content ?: "Countdown")
-    Text(text, color = parseDisplayColor(zone.textColor), fontSize = zone.fontSize.coerceIn(8, 180).sp,
+    Text(text, color = parseDisplayColor(zone.textColor), fontSize = signageSp(zone.fontSize.coerceIn(8, 180), designScale),
         fontFamily = signageFontFamily(zone.fontFamily), fontWeight = FontWeight(zone.fontWeight.coerceIn(100, 900)))
 }
 
 @Composable
-private fun SignageQrCode(value: String, zone: SignageZone) {
+private fun SignageQrCode(value: String, zone: SignageZone, designScale: Float) {
     val bitmap = remember(value) {
         runCatching {
             val matrix = MultiFormatWriter().encode(value, BarcodeFormat.QR_CODE, 480, 480,
@@ -769,28 +828,50 @@ private fun SignageQrCode(value: String, zone: SignageZone) {
             }.asImageBitmap()
         }.getOrNull()
     }
-    bitmap?.let {
-        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            zone.qrLabelTop?.let { label -> Text(label, color = parseDisplayColor(zone.textColor), textAlign = TextAlign.Center) }
-            Row(Modifier.weight(1f).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                val leftAligned = zone.qrPlacement == "left"
-                val rightAligned = zone.qrPlacement == "right"
-                if (!leftAligned) zone.qrLabelLeft?.let { label -> Text(label, color = parseDisplayColor(zone.textColor), modifier = Modifier.padding(end = 8.dp), textAlign = TextAlign.Right) }
-                Image(bitmap = it, contentDescription = "QR code", modifier = Modifier.weight(if (leftAligned || rightAligned) .42f else 1f).fillMaxSize().aspectRatio(1f))
-                if (!rightAligned) zone.qrLabelRight?.let { label -> Text(label, color = parseDisplayColor(zone.textColor), modifier = Modifier.padding(start = 8.dp), textAlign = TextAlign.Left) }
+    bitmap?.let { image ->
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val placement = zone.qrPlacement
+            val hasOuterLabels = !zone.qrLabelTop.isNullOrBlank() || !zone.qrLabelBottom.isNullOrBlank()
+            val qrFraction = zone.qrSizePercent.coerceIn(20, 90) / 100f
+            val qrSize = minOf(maxWidth * qrFraction, maxHeight * if (hasOuterLabels) .72f else .98f)
+            val labelStyle = signageSp(zone.fontSize.coerceIn(12, 96), designScale)
+            val label: @Composable (String?, TextAlign, Modifier) -> Unit = { value, align, modifier ->
+                value?.takeIf(String::isNotBlank)?.let { Text(it, color = parseDisplayColor(zone.textColor), fontSize = labelStyle,
+                    lineHeight = (labelStyle.value * 1.1f).sp, textAlign = align, modifier = modifier) }
             }
-            zone.qrLabelBottom?.let { label -> Text(label, color = parseDisplayColor(zone.textColor), textAlign = TextAlign.Center) }
+            Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                label(zone.qrLabelTop, TextAlign.Center, Modifier.fillMaxWidth())
+                Row(Modifier.weight(1f).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center) {
+                    when (placement) {
+                        "left" -> {
+                            Image(bitmap = image, contentDescription = "QR code", contentScale = ContentScale.Fit, modifier = Modifier.size(qrSize))
+                            label(zone.qrLabelRight, TextAlign.Left, Modifier.weight(1f).padding(start = 8.dp))
+                        }
+                        "right" -> {
+                            label(zone.qrLabelLeft, TextAlign.Right, Modifier.weight(1f).padding(end = 8.dp))
+                            Image(bitmap = image, contentDescription = "QR code", contentScale = ContentScale.Fit, modifier = Modifier.size(qrSize))
+                        }
+                        else -> {
+                            label(zone.qrLabelLeft, TextAlign.Right, Modifier.weight(1f).padding(end = 8.dp))
+                            Image(bitmap = image, contentDescription = "QR code", contentScale = ContentScale.Fit, modifier = Modifier.size(qrSize))
+                            label(zone.qrLabelRight, TextAlign.Left, Modifier.weight(1f).padding(start = 8.dp))
+                        }
+                    }
+                }
+                label(zone.qrLabelBottom, TextAlign.Center, Modifier.fillMaxWidth())
+            }
         }
     }
 }
 
 @Composable
-private fun SignageWeather(zone: SignageZone) {
+private fun SignageWeather(zone: SignageZone, designScale: Float) {
     val snapshot = zone.cached?.weather
     val fields = zone.weatherFields.split(',').map(String::trim).filter(String::isNotBlank).toSet()
     val unit = snapshot?.temperatureUnit ?: if (zone.weatherUnits == "celsius") "°C" else "°F"
     val condition = snapshot?.conditions ?: zone.cached?.text.orEmpty()
-    val icon = when ((zone.cached?.icon ?: condition).lowercase()) {
+    val icon = zone.cached?.icon?.takeIf(String::isNotBlank) ?: when (condition.lowercase()) {
         in listOf("clear", "sunny", "sun") -> "☀"
         in listOf("partly-cloudy", "partly cloudy") -> "⛅"
         in listOf("rain", "rainy", "showers") -> "🌧"
@@ -799,7 +880,7 @@ private fun SignageWeather(zone: SignageZone) {
         else -> "☁"
     }
     val details = buildList {
-        if ("feelsLike" in fields && snapshot?.feelsLike != null) add("Feels ${snapshot.feelsLike.toInt()}$unit")
+        if ("feelsLike" in fields && snapshot?.feelsLike != null) add("Feels like ${snapshot.feelsLike.toInt()}$unit")
         if ("high" in fields && snapshot?.high != null) add("High ${snapshot.high.toInt()}$unit")
         if ("low" in fields && snapshot?.low != null) add("Low ${snapshot.low.toInt()}$unit")
         if ("precipitation" in fields && snapshot?.precipitation != null) add("Precipitation ${snapshot.precipitation.toInt()}%")
@@ -812,70 +893,79 @@ private fun SignageWeather(zone: SignageZone) {
     val iconContent: @Composable () -> Unit = {
         if ("icon" in fields) Text(icon,
             color = if (zone.weatherIconStyle == "white") Color.White else parseDisplayColor(zone.accentColor),
-            fontSize = zone.weatherIconSize.coerceIn(20, 180).sp)
+            fontSize = signageSp(zone.weatherIconSize.coerceIn(20, 180), designScale), lineHeight = signageSp(zone.weatherIconSize, designScale))
+    }
+    val title: @Composable () -> Unit = {
+        Text(zone.title ?: zone.cached?.title ?: zone.weatherLocation.orEmpty(),
+            color = parseDisplayColor(zone.textColor), fontSize = signageSp(zone.weatherTitleSize.coerceIn(8, 100), designScale),
+            fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+    }
+    val detailsContent: @Composable () -> Unit = {
+        if (details.isNotEmpty()) Text(details.joinToString("  •  "), color = parseDisplayColor(zone.textColor),
+            fontSize = signageSp(zone.weatherDetailsSize.coerceIn(8, 100), designScale),
+            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
     }
     val values: @Composable () -> Unit = {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(zone.weatherLocation ?: zone.title ?: zone.cached?.title.orEmpty(),
-                color = parseDisplayColor(zone.textColor), fontSize = zone.weatherTitleSize.coerceIn(8, 100).sp,
-                fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.wrapContentWidth()) {
             if ("temperature" in fields && snapshot?.temperature != null)
                 Text("${snapshot.temperature.toInt()}$unit", color = parseDisplayColor(zone.textColor),
-                    fontSize = zone.weatherTemperatureSize.coerceIn(16, 180).sp, fontWeight = FontWeight.Bold)
+                    fontSize = signageSp(zone.weatherTemperatureSize.coerceIn(16, 180), designScale), fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center)
             if ("conditions" in fields && condition.isNotBlank())
                 Text(condition, color = parseDisplayColor(zone.textColor),
-                    fontSize = zone.weatherDetailsSize.coerceIn(8, 100).sp, textAlign = TextAlign.Center)
-            if (details.isNotEmpty())
-                Text(details.joinToString("  •  "), color = parseDisplayColor(zone.textColor),
-                    fontSize = zone.weatherDetailsSize.coerceIn(8, 100).sp, textAlign = TextAlign.Center)
+                    fontSize = signageSp(zone.weatherDetailsSize.coerceIn(8, 100), designScale), textAlign = TextAlign.Center)
+            detailsContent()
         }
     }
     when (zone.weatherLayout) {
         "icon-top" -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center) { iconContent(); values() }
-        "icon-right" -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically) { values(); Spacer(Modifier.width(18.dp)); iconContent() }
-        "compact" -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically) { iconContent(); Spacer(Modifier.width(12.dp)); values() }
-        else -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically) { iconContent(); Spacer(Modifier.width(18.dp)); values() }
+            verticalArrangement = Arrangement.Center) { title(); iconContent(); values() }
+        "icon-right" -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center) { title(); Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) { values(); Spacer(Modifier.width(18.dp)); iconContent() } }
+        "compact" -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center) { Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) { iconContent(); Spacer(Modifier.width(12.dp)); title(); Spacer(Modifier.width(12.dp)); values() }; detailsContent() }
+        else -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center) { title(); Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) { iconContent(); Spacer(Modifier.width(18.dp)); values() } }
     }
 }
 
 @Composable
-private fun SignageCalendar(zone: SignageZone) {
+private fun SignageCalendar(zone: SignageZone, designScale: Float) {
     val fields = zone.calendarFields.split(',').map(String::trim).filter(String::isNotBlank).toSet()
     val available = zone.cached?.events.orEmpty()
     val events = if (zone.calendarMaxItems > 0) available.take(zone.calendarMaxItems) else available
     if (events.isEmpty()) {
         Text(zone.cached?.text?.ifBlank { null } ?: zone.content ?: "No upcoming events",
-            color = parseDisplayColor(zone.textColor), fontSize = zone.fontSize.coerceIn(8, 180).sp,
-            textAlign = TextAlign.Center)
+            color = parseDisplayColor(zone.textColor), fontSize = signageSp(zone.fontSize.coerceIn(8, 180), designScale),
+            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
         return
     }
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
         events.forEach { event ->
-            val date = event.startsAt?.atZone(java.time.ZoneId.systemDefault())
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.Top) {
-                if (date != null && ("date" in fields || "time" in fields)) {
-                    val dateText = buildList {
-                        if ("date" in fields) add(date.format(DateTimeFormatter.ofPattern("MMM d")))
-                        if ("time" in fields && !event.allDay) add(date.format(DateTimeFormatter.ofPattern("h:mm a")))
-                    }.joinToString(" · ")
-                    Text(dateText, color = parseDisplayColor(zone.accentColor),
-                        fontSize = zone.fontSize.coerceIn(8, 180).times(.55f).sp,
-                        modifier = Modifier.width(120.dp))
-                }
-                Column(Modifier.weight(1f)) {
-                    if ("title" in fields) Text(event.title, color = parseDisplayColor(zone.textColor),
-                        fontSize = zone.fontSize.coerceIn(8, 180).times(.65f).sp, fontWeight = FontWeight.Bold)
+            val starts = event.startsAt?.atZone(java.time.ZoneId.systemDefault())
+            val ends = event.endsAt?.atZone(java.time.ZoneId.systemDefault())
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                Box(Modifier.width(3.dp).height(35.dp).background(parseDisplayColor(zone.accentColor)))
+                Column(Modifier.weight(1f).padding(start = 7.dp)) {
+                    if ("title" in fields) Text(event.title, color = parseDisplayColor(zone.accentColor),
+                        fontSize = signageSp(zone.fontSize.coerceIn(8, 180), designScale), fontWeight = FontWeight.Bold,
+                        maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    if (starts != null && ("date" in fields || "time" in fields)) {
+                        if ("date" in fields) Text(starts.format(DateTimeFormatter.ofPattern("MMMM d")), color = parseDisplayColor(zone.textColor),
+                            fontSize = signageSp(zone.fontSize * .62f, designScale), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        if ("time" in fields && !event.allDay) {
+                            val timeText = starts.format(DateTimeFormatter.ofPattern("h:mm a")) +
+                                if (ends != null && ends.toLocalDate() == starts.toLocalDate()) " - ${ends.format(DateTimeFormatter.ofPattern("h:mm a"))}" else ""
+                            Text(timeText, color = parseDisplayColor(zone.textColor), fontSize = signageSp(zone.fontSize * .62f, designScale),
+                                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        }
+                    }
                     if ("description" in fields && !event.description.isNullOrBlank())
-                        Text(event.description, color = parseDisplayColor(zone.textColor),
-                            fontSize = zone.fontSize.coerceIn(8, 180).times(.45f).sp)
+                        Text(event.description, color = parseDisplayColor(zone.textColor), fontSize = signageSp(zone.fontSize * .45f, designScale), maxLines = 2,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     if ("location" in fields && !event.location.isNullOrBlank())
-                        Text(event.location, color = parseDisplayColor(zone.accentColor),
-                            fontSize = zone.fontSize.coerceIn(8, 180).times(.42f).sp)
+                        Text(event.location, color = parseDisplayColor(zone.accentColor), fontSize = signageSp(zone.fontSize * .42f, designScale), maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
             }
         }
@@ -883,7 +973,7 @@ private fun SignageCalendar(zone: SignageZone) {
 }
 
 @Composable
-private fun SignageClock(zone: SignageZone) {
+private fun SignageClock(zone: SignageZone, designScale: Float) {
     var now by remember(zone.id) { mutableStateOf(ZonedDateTime.now()) }
     LaunchedEffect(zone.id) { while (true) { kotlinx.coroutines.delay(1_000); now = ZonedDateTime.now() } }
     var timePattern = when (zone.clockTimeFormat) {
@@ -901,16 +991,22 @@ private fun SignageClock(zone: SignageZone) {
     }
     if (!zone.clockShowWeekday) datePattern = datePattern.replace("EEEE, ", "").replace("EEE, ", "")
     if (!zone.clockShowYear) datePattern = datePattern.replace(", yyyy", "").replace("/yyyy", "")
+    val textAlignment = signageTextAlignment(zone.textAlign)
+    val horizontalAlignment = signageHorizontalAlignment(zone.textAlign)
     val time: @Composable () -> Unit = { Text(now.format(DateTimeFormatter.ofPattern(timePattern)),
-        color = parseDisplayColor(zone.textColor), fontSize = zone.clockTimeFontSize.coerceIn(8, 180).sp) }
+        color = parseDisplayColor(zone.textColor), fontSize = signageSp(zone.clockTimeFontSize.coerceIn(8, 180), designScale),
+        modifier = Modifier.fillMaxWidth(), textAlign = textAlignment) }
     val date: @Composable () -> Unit = { Text(now.format(DateTimeFormatter.ofPattern(datePattern)),
-        color = parseDisplayColor(zone.textColor), fontSize = zone.clockDateFontSize.coerceIn(8, 180).sp) }
-    when (zone.clockDisplay) {
-        "time" -> time()
-        "date" -> date()
-        else -> if (zone.clockOrder == "inline") {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) { time(); date() }
-        } else if (zone.clockOrder == "date-time") { date(); time() } else { time(); date() }
+        color = parseDisplayColor(zone.textColor), fontSize = signageSp(zone.clockDateFontSize.coerceIn(8, 180), designScale),
+        modifier = Modifier.fillMaxWidth(), textAlign = textAlignment) }
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = horizontalAlignment) {
+        when (zone.clockDisplay) {
+            "time" -> time()
+            "date" -> date()
+            else -> if (zone.clockOrder == "inline") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = when (zone.textAlign) { "center" -> Arrangement.Center; "right" -> Arrangement.End; else -> Arrangement.Start }, verticalAlignment = Alignment.CenterVertically) { time(); date() }
+            } else if (zone.clockOrder == "date-time") { date(); time() } else { time(); date() }
+        }
     }
 }
 
@@ -930,13 +1026,18 @@ private fun SignageWebZone(source: String) {
 
 @Composable
 private fun SignagePresentationZone(zone: SignageZone) {
-    val entries = zone.contentPlaylist?.items.orEmpty()
+    val entries = zone.contentPlaylist?.items.orEmpty().filter(::isRenderableSignageEntry)
     var index by remember(zone.contentPlaylist?.id, zone.contentPlaylist?.version) { mutableIntStateOf(0) }
     var streamLive by remember(zone.id, zone.streamUrl) { mutableStateOf(false) }
-    LaunchedEffect(zone.contentPlaylist?.id, zone.contentPlaylist?.version, index, streamLive) {
+    val entrySchedule = entries.map { "${it.id}:${it.durationSeconds}" }
+    LaunchedEffect(zone.contentPlaylist?.id, zone.contentPlaylist?.version, entrySchedule, streamLive) {
         if (entries.isNotEmpty() && !streamLive) {
-            kotlinx.coroutines.delay(entries[index % entries.size].durationSeconds.coerceAtLeast(1) * 1_000L)
-            index = (index + 1) % entries.size
+            var nextIndex = index % entries.size
+            while (true) {
+                kotlinx.coroutines.delay(entries[nextIndex].durationSeconds.coerceAtLeast(1) * 1_000L)
+                nextIndex = (nextIndex + 1) % entries.size
+                index = nextIndex
+            }
         }
     }
     val entry = entries.getOrNull(index % maxOf(1, entries.size))
@@ -1059,7 +1160,7 @@ private fun LessonDetailScreen(playlist: LessonPlaylist, onBack: () -> Unit,
             Text("Use Up/Down to scroll every cue. Press Select to start at that item.", color = Muted,
                 modifier = Modifier.padding(top = 12.dp))
             Spacer(Modifier.height(28.dp))
-            Button(onClick = onBack) { Text("‹ Back to lessons") }
+            LessonCueButton(onClick = onBack) { Text("‹ Back to lessons") }
         }
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             itemsIndexed(allItems, key = { _, item -> item.id }) { index, item ->
@@ -1069,7 +1170,7 @@ private fun LessonDetailScreen(playlist: LessonPlaylist, onBack: () -> Unit,
                     Row(Modifier.padding(horizontal = 24.dp, vertical = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("${index + 1}", color = Gold, fontSize = 20.sp, modifier = Modifier.width(46.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(item.title, fontSize = 25.sp)
+                            Text(item.title, fontSize = 25.sp, color = Cream)
                             Text("$role · ${item.type.uppercase()}", color = Muted, fontSize = 16.sp)
                         }
                         Text("PLAY  ›", color = Gold)
@@ -1135,9 +1236,9 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         Box(Modifier.fillMaxSize().then(fallbackRemote)) {
             FormLayout(item.title, item.fallbackMessage ?: "This item is not supported by this display.") {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (index > 0) Button(onClick = { onNext(index - 1) }) { Text("Previous") }
-                    if (index + 1 < items.size) Button(onClick = { onNext(index + 1) }) { Text("Next") }
-                    Button(onClick = onExit) { Text("Back to lesson") }
+                    if (index > 0) LessonCueButton(onClick = { onNext(index - 1) }) { Text("Previous") }
+                    if (index + 1 < items.size) LessonCueButton(onClick = { onNext(index + 1) }) { Text("Next") }
+                    LessonCueButton(onClick = onExit) { Text("Back to lesson") }
                 }
             }
         }
@@ -1151,7 +1252,7 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         LaunchedEffect(item?.id) { onTelemetry(PlaybackTelemetry("error", playlist.id, item?.id,
             error = "This item is not available on the server.")) }
         FormLayout(item?.title ?: "Nothing to play", "This item is not available on the server.") {
-            Button(onClick = onExit) { Text("Back to lesson") }
+            LessonCueButton(onClick = onExit) { Text("Back to lesson") }
         }
         return
     }
@@ -1208,7 +1309,7 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
                 modifier = Modifier.fillMaxSize().onSizeChanged { visualSize = it }.cueVisual(item, visualOpacity, visualSize))
             if (item.notes.isNotBlank()) Text(item.notes, color = Cream, fontSize = 20.sp,
                 modifier = Modifier.align(Alignment.BottomStart).padding(28.dp).background(Navy.copy(alpha = .9f)).padding(16.dp))
-            Button(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd).padding(28.dp)) { Text("Exit") }
+            LessonCueButton(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd).padding(28.dp)) { Text("Exit") }
         }
         return
     }
@@ -1309,7 +1410,7 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         }
         if (item.notes.isNotBlank()) Text(item.notes, color = Cream, fontSize = 20.sp,
             modifier = Modifier.align(Alignment.BottomStart).padding(28.dp).background(Navy.copy(alpha = .9f)).padding(16.dp))
-        Button(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd).padding(28.dp)) { Text("Exit") }
+        LessonCueButton(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd).padding(28.dp)) { Text("Exit") }
     }
 }
 
@@ -1389,7 +1490,7 @@ private fun OnlineMediaScreen(lessonId: String, items: List<CueItem>, index: Int
             Spacer(Modifier.width(18.dp))
             Text(if (item.linkKind == "youtube") "YouTube · online" else "Webpage · online", color = Muted)
         }
-        Button(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd).padding(28.dp)) { Text("Exit") }
+        LessonCueButton(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd).padding(28.dp)) { Text("Exit") }
     }
 }
 
@@ -1422,6 +1523,31 @@ private fun FormLayout(title: String, subtitle: String, content: @Composable Col
 }
 
 @Composable
+internal fun LessonCueButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        colors = ButtonDefaults.colors(
+            containerColor = ButtonSurface,
+            contentColor = Cream,
+            focusedContainerColor = SelectedButton,
+            focusedContentColor = Navy,
+            pressedContainerColor = SelectedButton,
+            pressedContentColor = Navy,
+            disabledContainerColor = DisabledButtonSurface,
+            disabledContentColor = DisabledButtonText
+        ),
+        content = content
+    )
+}
+
+@Composable
 private fun InputBox(value: String, singleLine: Boolean = true, onChange: (String) -> Unit) {
     BasicTextField(
         value = value,
@@ -1443,13 +1569,9 @@ private fun scheduleMediaCaches(context: android.content.Context, identity: Devi
         playlist.items + playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item)
     }
     val signageMedia = manifest.signageSchedule.flatMap { sign ->
-        listOfNotNull(sign.media) +
-            sign.zones.mapNotNull { it.media } +
-            listOfNotNull(sign.backgroundAudio) +
-            sign.contentPlaylist?.items.orEmpty().flatMap { entry ->
-                listOfNotNull(entry.media) + entry.layout?.zones.orEmpty().mapNotNull { it.media } +
-                    listOfNotNull(entry.layout?.backgroundAudio)
-            }
+        listOfNotNull(sign.media, sign.backgroundAudio) +
+            sign.zones.flatMap { it.mediaItems() } +
+            sign.contentPlaylist?.items.orEmpty().flatMap { it.mediaItems() }
     }
     val items = (lessonMedia + signageMedia)
         .distinctBy { it.id }.filter { it.offlineEligible && it.url != null }
@@ -1460,6 +1582,23 @@ private fun scheduleMediaCaches(context: android.content.Context, identity: Devi
         )).build()
         manager.enqueueUniqueWork("lessoncue-media-${item.id}-${item.sha256?.take(12) ?: "current"}",
             ExistingWorkPolicy.KEEP, request)
+    }
+}
+
+private fun SignagePlaylistEntry.mediaItems(depth: Int = 0): List<CueItem> {
+    if (depth > 4) return listOfNotNull(media, layout?.backgroundAudio)
+    return buildList {
+        media?.let(::add)
+        layout?.backgroundAudio?.let(::add)
+        layout?.zones.orEmpty().forEach { addAll(it.mediaItems(depth + 1)) }
+    }
+}
+
+private fun SignageZone.mediaItems(depth: Int = 0): List<CueItem> {
+    if (depth > 4) return listOfNotNull(media)
+    return buildList {
+        media?.let(::add)
+        contentPlaylist?.items.orEmpty().forEach { addAll(it.mediaItems(depth + 1)) }
     }
 }
 
@@ -1503,3 +1642,12 @@ private val Muted = Color(0xFFA9B3C2)
 private val Gold = Color(0xFFFFB664)
 private val Coral = Color(0xFFFF7A6E)
 private val Mint = Color(0xFF58D6A9)
+private val ButtonSurface = Color(0xFF263852)
+private val SelectedButton = Color(0xFFFCBB65)
+private val DisabledButtonSurface = Color(0xFF334155)
+private val DisabledButtonText = Color(0xFF8793A3)
+
+private const val MAX_DEVICE_NAME_LENGTH = 100
+
+private fun defaultDeviceName(): String = (Build.MODEL.takeIf { it.isNotBlank() } ?: "LessonCue TV")
+    .take(MAX_DEVICE_NAME_LENGTH)

@@ -1,0 +1,47 @@
+start_local: 2026-08-02T20:17:21-0400
+=== java ===
+openjdk version "25.0.2" 2026-01-20 LTS
+OpenJDK Runtime Environment Temurin-25.0.2+10 (build 25.0.2+10-LTS)
+OpenJDK 64-Bit Server VM Temurin-25.0.2+10 (build 25.0.2+10-LTS, mixed mode, sharing)
+=== gradle ===
+
+------------------------------------------------------------
+Gradle 9.6.1
+------------------------------------------------------------
+
+Build time:    2026-06-26 14:25:50 UTC
+Revision:      309d128bd9fe8c0b71311878fc660b9cbaa07c51
+
+Kotlin:        2.3.21
+Groovy:        4.0.32
+Ant:           Apache Ant(TM) version 1.10.17 compiled on April 6 2026
+Launcher JVM:  26.0.1 (Homebrew 26.0.1)
+Daemon JVM:    /opt/homebrew/Cellar/openjdk/26.0.1/libexec/openjdk.jdk/Contents/Home (no Daemon JVM specified, using current Java home)
+OS:            Mac OS X 26.5.2 aarch64
+
+=== command ===
+gradle -p android-tv :app:testSideloadDebugUnitTest :app:testStoreDebugUnitTest :app:lintSideloadDebug :app:lintStoreDebug :app:assembleSideloadDebug :app:assembleStoreDebug :app:assembleSideloadDebugAndroidTest :app:assembleStoreDebugAndroidTest
+
+[Incubating] Problems report is available at: file:///Users/nickhighland/Documents/Video%20Viewer/android-tv/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Could not determine the dependencies of task ':app:testSideloadDebugUnitTest'.
+> SDK location not found. Define a valid SDK location with an ANDROID_HOME environment variable or by setting the sdk.dir path in your project's local properties file at '/Users/nickhighland/Documents/Video Viewer/android-tv/local.properties'.
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.6.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 1s
+finish_local: 2026-08-02T20:17:23-0400
+exit_code: 1

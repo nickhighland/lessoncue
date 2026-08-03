@@ -410,6 +410,38 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .schedule-panel { padding: 24px; }
 .schedule-panel h2 { margin-bottom: 20px; }
 
+/* ── Tabbed Editor ───── */
+.editor-tabs {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  margin-bottom: 20px;
+}
+.editor-tabs button {
+  display: flex; align-items: center; gap: 14px; width: 100%;
+  border: 1.5px solid var(--line); border-radius: var(--radius-lg);
+  padding: 16px 20px; color: var(--ink); background: #fff;
+  text-align: left; cursor: pointer; transition: all 0.15s ease;
+  font: inherit; box-shadow: var(--shadow-sm);
+}
+.editor-tabs button:hover { border-color: #cdd3cd; box-shadow: var(--shadow-md); }
+.editor-tabs button.active {
+  border-color: var(--green); background: #f4faf6;
+  box-shadow: 0 0 0 2px #3a8b6620;
+}
+.editor-step {
+  display: grid; place-items: center; width: 36px; height: 36px;
+  border-radius: 50%; background: #e8ede7; color: var(--muted);
+  font-size: 15px; font-weight: 800; flex-shrink: 0;
+}
+.editor-tabs button.active .editor-step {
+  background: var(--green); color: #fff;
+}
+.editor-tabs button strong { display: block; font-size: 13px; }
+.editor-tabs button small { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
+.playlist-panel-wide { max-width: none; }
+@media (max-width: 760px) {
+  .editor-tabs { grid-template-columns: 1fr; }
+}
+
 .switch-row { display: grid; grid-template-columns: 38px 1fr; gap: 10px; align-items: center; cursor: pointer; }
 .switch-row input { display: none; }
 .switch-row > span { grid-row: 1 / span 2; width: 38px; height: 22px; border-radius: 15px; background: #aeb9b4; position: relative; transition: 0.2s; }
