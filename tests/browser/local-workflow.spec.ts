@@ -222,8 +222,16 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByText("Playback Options", { exact: true }).click();
   await page.getByLabel("Substitute or teacher instructions").fill("Check the room display before participants arrive.");
   await page.getByLabel("Optional pre-roll livestream monitor").fill("https://example.org/private-monitor");
+  const saveSchedule = page.waitForResponse(response =>
+    response.request().method() === "PUT" && response.url().includes("/api/v1/lessons/") && response.ok(),
+  );
   await page.getByRole("button", { name: "Save lesson settings" }).click();
-  await expect(page.getByText("Lesson schedule saved.", { exact: false })).toBeVisible();
+  await saveSchedule;
+  await expect.poll(() => page.evaluate(async () => {
+    const lessons = await fetch("/api/v1/lessons").then(response => response.json());
+    const lesson = lessons.find((item: { title: string }) => item.title === "Sample Lesson");
+    return { substituteNotes: lesson?.substituteNotes, preRollMonitorUrl: lesson?.preRollMonitorUrl };
+  })).toEqual({ substituteNotes: "Check the room display before participants arrive.", preRollMonitorUrl: "https://example.org/private-monitor" });
   await expect(page.getByRole("heading", { name: "Playback sequence" })).toBeVisible();
   await page.getByRole("button", { name: "Print run sheet" }).click();
   const runSheet = page.getByRole("dialog", { name: "Run sheet: Sample Lesson" });
