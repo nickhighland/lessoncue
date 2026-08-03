@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 
@@ -153,6 +154,7 @@ public sealed class UpdateService(
 
     private const string UpdateRequestPath = "/var/lib/lessoncue/config/update-request";
     private const string UpdateResultPath = "/var/lib/lessoncue/config/update-result.json";
+    private const string UpdateTransactionPath = "/var/lib/lessoncue/update-transaction";
     private const string RollbackSnapshotPath = "/var/lib/lessoncue/update-rollback";
 
     private static bool AutomaticInstallSupported() => AutomaticInstallSupportError() is null;
@@ -190,6 +192,15 @@ public sealed class UpdateService(
         var result = ReadInstallResult();
         if (result is null)
         {
+            if (_status.Installing &&
+                !File.Exists(UpdateRequestPath) &&
+                !File.Exists(UpdateTransactionPath) &&
+                !ProtectedUpdaterActive())
+            {
+                const string message = "The previous protected LessonCue operation stopped before recording a result. It is safe to try again.";
+                logger.LogWarning("Clearing stale protected operation state: {Message}", message);
+                _status = _status with { Installing = false, Error = message };
+            }
             _status = _status with
             {
                 AutomaticInstallSupported = AutomaticInstallSupported(),
@@ -211,6 +222,39 @@ public sealed class UpdateService(
             RollbackSnapshotAvailable = RollbackSnapshotAvailable(),
             RollbackTargetVersion = RollbackTargetVersion()
         };
+    }
+
+    private static bool ProtectedUpdaterActive()
+    {
+        if (!OperatingSystem.IsLinux()) return false;
+
+        try
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "/usr/bin/systemctl",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+            process.StartInfo.ArgumentList.Add("is-active");
+            process.StartInfo.ArgumentList.Add("--quiet");
+            process.StartInfo.ArgumentList.Add("lessoncue-update.service");
+            if (!process.Start()) return true;
+            if (!process.WaitForExit(1000))
+            {
+                process.Kill(entireProcessTree: true);
+                return true;
+            }
+            return process.ExitCode == 0;
+        }
+        catch
+        {
+            // If the service state cannot be read, keep the lock fail-closed.
+            return true;
+        }
     }
 
     private async Task<LessonCueUpdateOperationResult> SignalProtectedOperationAsync(
