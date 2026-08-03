@@ -2180,33 +2180,39 @@ function Shell({
     setView,
   ]);
 
-  const nav: [View, string, string][] = [
-    ["dashboard", "⌂", "Dashboard"],
+  const navItems: { key: View; icon: string; label: string }[] = [
+    { key: "dashboard", icon: "⌂", label: "Dashboard" },
     ...(canControl
-      ? ([["controller", "⌁", "Controller"]] as [View, string, string][])
+      ? [{ key: "controller" as View, icon: "⌁", label: "Controller" }]
       : []),
     ...(canPlan
-      ? ([
-          ["classes", "▤", "Classes"],
-          ["templates", "↻", "Templates"],
-          ["audience", "◉", "Audience"],
-        ] as [View, string, string][])
+      ? [
+          { key: "classes" as View, icon: "▤", label: "Classes" },
+          { key: "templates" as View, icon: "↻", label: "Templates" },
+          { key: "audience" as View, icon: "◉", label: "Audience" },
+        ]
       : []),
-    ["calendar", "□", "Calendar"],
-    ["media", "▶", "Media Library"],
-    ["screens", "▣", "Screens"],
+    { key: "calendar" as View, icon: "□", label: "Calendar" },
+    { key: "media" as View, icon: "▶", label: "Media Library" },
+    { key: "screens" as View, icon: "▣", label: "Screens" },
     ...(canPlan && bootstrap?.settings.signageEnabled
-      ? ([["signage", "◇", "Signage"]] as [View, string, string][])
+      ? [{ key: "signage" as View, icon: "◇", label: "Signage" }]
       : []),
     ...(canManageUsers
-      ? ([["users", "♙", "Users"]] as [View, string, string][])
+      ? [{ key: "users" as View, icon: "♙", label: "Users" }]
       : []),
     ...(canManageAppSettings ||
     canManageServiceSettings ||
     canManageBackups ||
     canManageUpdates
-      ? ([["settings", "⚙", "Settings"]] as [View, string, string][])
+      ? [{ key: "settings" as View, icon: "⚙", label: "Settings" }]
       : []),
+  ];
+  const nav = navItems.map((item) => [item.key, item.icon, item.label] as [View, string, string]);
+  const navSections: { label: string; keys: View[] }[] = [
+    { label: "Teaching", keys: ["dashboard", "controller", "classes", "templates", "audience", "calendar"] },
+    { label: "Media & Devices", keys: ["media", "screens", "signage"] },
+    { label: "Administration", keys: ["users", "settings"] },
   ];
   useEffect(() => {
     document.getElementById("main-content")?.focus();
@@ -2227,29 +2233,38 @@ function Shell({
               <span>{bootstrap?.organization || "Local server"}</span>
             </div>
           </div>
+          {canUpload && bootstrap && (
+            <div className="sidebar-storage-badge">
+              <span className="storage-badge-icon">↥</span>
+              <div>
+                <strong>{formatBytes(bootstrap.storage.remainingBytes)}</strong>
+                <small>upload space free</small>
+              </div>
+            </div>
+          )}
           <nav>
-            {nav.map(([key, icon, label]) => (
-              <button
-                key={key}
-                className={view === key ? "active" : ""}
-                onClick={() => setView(key)}
-                aria-current={view === key ? "page" : undefined}
-              >
-                <span>{icon}</span>
-                {label}
-              </button>
-            ))}
+            {navSections.map((section) => {
+              const sectionItems = navItems.filter((item) => section.keys.includes(item.key));
+              if (!sectionItems.length) return null;
+              return (
+                <div key={section.label} className="nav-section">
+                  <div className="nav-section-label">{section.label}</div>
+                  {sectionItems.map(({ key, icon, label }) => (
+                    <button
+                      key={key}
+                      className={view === key ? "active" : ""}
+                      onClick={() => setView(key)}
+                      aria-current={view === key ? "page" : undefined}
+                    >
+                      <span className="nav-icon">{icon}</span>
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
           </nav>
           <div className="sidebar-foot">
-            {canUpload && bootstrap && (
-              <div className="storage-mini">
-                <span>Upload space</span>
-                <strong>
-                  {formatBytes(bootstrap.storage.remainingBytes)} free
-                </strong>
-                <StorageMeter storage={bootstrap.storage} />
-              </div>
-            )}
             <div className="server-online">
               <span className="status-dot" />
               <div>
@@ -2644,21 +2659,46 @@ function Dashboard({
     .filter((l) => new Date(`${l.date}T23:59:59`) >= new Date())
     .slice(0, 5);
   const online = screens.filter((s) => s.online).length;
+  const recentLessons = [...lessons]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 5);
   return (
     <>
       <PageHead
         eyebrow="OVERVIEW"
         title={`Good ${dayPart()}.`}
-        detail={`${bootstrap.organization} is running entirely on this local server.`}
-        action={
-          <button
-            className="button primary"
-            onClick={() => onNavigate("classes")}
-          >
-            Build a lesson
-          </button>
-        }
+        detail={`${bootstrap.organization} runs entirely on this local server.`}
       />
+      <div className="dashboard-quick-actions">
+        <button className="dashboard-action-card" onClick={() => onNavigate("classes")}>
+          <div className="action-icon">▤</div>
+          <div>
+            <strong>Classes</strong>
+            <small>Plan lessons &amp; playlists</small>
+          </div>
+        </button>
+        <button className="dashboard-action-card" onClick={() => onNavigate("media")}>
+          <div className="action-icon">↥</div>
+          <div>
+            <strong>Upload Media</strong>
+            <small>Add videos, audio, slides</small>
+          </div>
+        </button>
+        <button className="dashboard-action-card" onClick={() => onNavigate("screens")}>
+          <div className="action-icon">▣</div>
+          <div>
+            <strong>Screens</strong>
+            <small>{online} of {bootstrap.counts.screens} online</small>
+          </div>
+        </button>
+        <button className="dashboard-action-card" onClick={() => onNavigate("controller")}>
+          <div className="action-icon">⌁</div>
+          <div>
+            <strong>Controller</strong>
+            <small>Playback &amp; remote control</small>
+          </div>
+        </button>
+      </div>
       <div className="stats-grid">
         <Stat
           label="Classes"
@@ -2690,7 +2730,7 @@ function Dashboard({
         <section className="panel">
           <PanelTitle
             title="Upcoming lessons"
-            action="Manage classes"
+            action="View all"
             onClick={() => onNavigate("classes")}
           />
           {upcoming.length ? (
@@ -2712,13 +2752,18 @@ function Dashboard({
             <Empty
               title="No upcoming lessons"
               body="Create a lesson inside one of your classes."
+              action={
+                <button className="button primary" onClick={() => onNavigate("classes")}>
+                  Create first class
+                </button>
+              }
             />
           )}
         </section>
         <section className="panel">
           <PanelTitle
             title="Screen health"
-            action="View screens"
+            action="View all"
             onClick={() => onNavigate("screens")}
           />
           {screens.filter((s) => !s.revoked).length ? (
@@ -2753,6 +2798,24 @@ function Dashboard({
           )}
         </section>
       </div>
+      {recentLessons.length > 0 && (
+        <section className="panel" style={{marginTop: 20}}>
+          <div className="panel-title">
+            <h2>Recent activity</h2>
+          </div>
+          <div className="activity-timeline">
+            {recentLessons.map((l) => (
+              <div className="activity-item" key={l.id}>
+                <div className="activity-dot" />
+                <div>
+                  <strong>{l.title}</strong>
+                  <small>{l.className} · {formatDate(l.date)} · {l.items.length} items</small>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </>
   );
 }
@@ -3645,6 +3708,7 @@ function LessonEditor({
       ? "advanced"
       : "simple",
   );
+  const [activeEditorTab, setActiveEditorTab] = useState<"settings" | "playlist">("playlist");
   const items = [...lesson.items].sort((a, b) => a.position - b.position);
   useEffect(() => {
     if (!showAdd) return;
@@ -4421,171 +4485,131 @@ function LessonEditor({
           </form>
         </Modal>
       )}
-      <div className="editor-grid">
+      <div className="editor-tabs">
+        <button
+          className={activeEditorTab === "settings" ? "active" : ""}
+          onClick={() => setActiveEditorTab("settings")}
+        >
+          <span className="editor-step">1</span>
+          <div>
+            <strong>Lesson settings</strong>
+            <small>Title, date, timing, notes</small>
+          </div>
+        </button>
+        <button
+          className={activeEditorTab === "playlist" ? "active" : ""}
+          onClick={() => setActiveEditorTab("playlist")}
+        >
+          <span className="editor-step">2</span>
+          <div>
+            <strong>Playback sequence</strong>
+            <small>{items.length} cue{items.length !== 1 ? "s" : ""} · {formatFriendlyDuration(plannedDurationMs)}</small>
+          </div>
+        </button>
+      </div>
+      {activeEditorTab === "settings" && (
         <section className="panel schedule-panel">
           <h2>Lesson settings</h2>
           <form className="stack" onSubmit={updateLesson}>
             <Field label="Lesson title">
-              <input name="title" defaultValue={lesson.title} required />
-            </Field>
-            <Field label="Lesson date">
-              <input
-                name="date"
-                type="date"
-                defaultValue={lesson.date}
-                required
-              />
-            </Field>
-            <Field
-              label="Pre-roll begins"
-              hint="Paired screens automatically start looping pre-roll at this time."
-            >
-              <input
-                name="preRollStartsAt"
-                type="datetime-local"
-                defaultValue={toLocalInput(lesson.preRollStartsAt)}
-              />
-            </Field>
-            <Field
-              label="Designated class start"
-              hint="The countdown begins exactly one countdown-video duration before this time."
-            >
-              <input
-                name="designatedStartAt"
-                type="datetime-local"
-                defaultValue={toLocalInput(lesson.designatedStartAt)}
-              />
-            </Field>
-            <Field
-              label="Substitute or teacher instructions"
-              hint="Shown on the phone controller and printed run sheet, never on the audience display."
-            >
-              <textarea
-                name="substituteNotes"
-                rows={4}
-                maxLength={8000}
-                defaultValue={lesson.substituteNotes}
-                placeholder="Room setup, handoff details, or what a substitute should know"
-              />
-            </Field>
-            <Field
-              label="Optional pre-roll livestream monitor"
-              hint="During pre-roll, the phone controller can display this HTTP/HTTPS camera or stream page. It is never sent to the audience display."
-            >
-              <input
-                name="preRollMonitorUrl"
-                type="url"
-                maxLength={2000}
-                defaultValue={lesson.preRollMonitorUrl || ""}
-                placeholder="https://camera.example.org/view"
-              />
+              <input name="title" defaultValue={lesson.title} required autoFocus />
             </Field>
             <div className="two-fields">
-              <Field label="Whole-lesson volume">
-                <div className="unit-input">
-                  <input
-                    name="volumePercent"
-                    type="number"
-                    min="0"
-                    max="150"
-                    defaultValue={lesson.volumePercent ?? 100}
-                  />
-                  <span>%</span>
-                </div>
-              </Field>
-              <label className="check-card">
+              <Field label="Lesson date">
                 <input
-                  type="checkbox"
-                  name="muted"
-                  defaultChecked={lesson.muted}
+                  name="date"
+                  type="date"
+                  defaultValue={lesson.date}
+                  required
                 />
-                <span>
-                  <strong>Mute whole lesson</strong>
-                  <small>All cue audio stays silent.</small>
-                </span>
-              </label>
+              </Field>
+              <Field
+                label="Designated class start"
+                hint="Countdown begins one countdown-video duration before this time."
+              >
+                <input
+                  name="designatedStartAt"
+                  type="datetime-local"
+                  defaultValue={toLocalInput(lesson.designatedStartAt)}
+                />
+              </Field>
             </div>
+            <div className="two-fields">
+              <Field
+                label="Pre-roll begins"
+                hint="Screens auto-start looping pre-roll at this time."
+              >
+                <input
+                  name="preRollStartsAt"
+                  type="datetime-local"
+                  defaultValue={toLocalInput(lesson.preRollStartsAt)}
+                />
+              </Field>
+              <div className="two-fields">
+                <Field label="Whole-lesson volume">
+                  <div className="unit-input">
+                    <input name="volumePercent" type="number" min="0" max="150" defaultValue={lesson.volumePercent ?? 100} />
+                    <span>%</span>
+                  </div>
+                </Field>
+                <label className="check-card">
+                  <input type="checkbox" name="muted" defaultChecked={lesson.muted} />
+                  <span><strong>Mute</strong><small>All cues silent</small></span>
+                </label>
+              </div>
+            </div>
+            <Field
+              label="Substitute or teacher instructions"
+              hint="Shown on the phone controller and printed run sheet."
+            >
+              <textarea name="substituteNotes" rows={4} maxLength={8000} defaultValue={lesson.substituteNotes} placeholder="Room setup, handoff details, or what a substitute should know" />
+            </Field>
+            <Field label="Optional pre-roll livestream monitor" hint="Phone-controller camera or stream page during pre-roll.">
+              <input name="preRollMonitorUrl" type="url" maxLength={2000} defaultValue={lesson.preRollMonitorUrl || ""} placeholder="https://camera.example.org/view" />
+            </Field>
             <label className="switch-row">
-              <input
-                type="checkbox"
-                name="preRollEnabled"
-                defaultChecked={lesson.preRollEnabled}
-              />
+              <input type="checkbox" name="preRollEnabled" defaultChecked={lesson.preRollEnabled} />
               <span />
               <div>
                 <strong>Enable pre-roll</strong>
-                <small>
-                  Loop all pre-roll items until the countdown or class begins.
-                </small>
+                <small>Loop pre-roll items until countdown or class begins.</small>
               </div>
             </label>
+            <div className="run-timing-summary">
+              <div>
+                <span>ESTIMATED RUN TIME</span>
+                <strong>{formatFriendlyDuration(plannedDurationMs)}</strong>
+                <small>{flexibleDurationMs ? `${formatFriendlyDuration(flexibleDurationMs)} marked flexible` : "No flexible-time cues"}</small>
+              </div>
+              <div>
+                <span>PLANNED FINISH</span>
+                <strong>{plannedEnd ? plannedEnd.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Set a start time"}</strong>
+                <small>{lessonItems.some((item) => cuePlannedDurationMs(item) === 0) ? "Unknown-duration cues not included" : `${lessonItems.length} main cues`}</small>
+              </div>
+            </div>
+            {plannedEnd && plannedEnd.getTime() < Date.now() && (
+              <div className="alert warning">This lesson's planned finish has passed.</div>
+            )}
+            {conflicts.length > 0 && (
+              <div className="alert error"><strong>Schedule conflict:</strong> {conflicts.map((item) => `${item.className} — ${item.title}`).join(", ")} overlaps this lesson's estimated window.</div>
+            )}
+            <div className="timing-explain">
+              <span>◷</span>
+              <div>
+                <strong>{countdown && lesson.designatedStartAt ? `Countdown begins ${formatDuration(countdown.durationMs || countdown.mediaDurationMs)} before class` : "Countdown is optional"}</strong>
+                <p>Assign one video as the countdown. Its duration determines when it starts automatically.</p>
+              </div>
+            </div>
             <button className="button primary">Save lesson settings</button>
           </form>
-          <div className="run-timing-summary">
-            <div>
-              <span>ESTIMATED RUN TIME</span>
-              <strong>{formatFriendlyDuration(plannedDurationMs)}</strong>
-              <small>
-                {flexibleDurationMs
-                  ? `${formatFriendlyDuration(flexibleDurationMs)} marked flexible`
-                  : "No flexible-time cues"}
-              </small>
-            </div>
-            <div>
-              <span>PLANNED FINISH</span>
-              <strong>
-                {plannedEnd
-                  ? plannedEnd.toLocaleTimeString([], {
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })
-                  : "Set a start time"}
-              </strong>
-              <small>
-                {lessonItems.some((item) => cuePlannedDurationMs(item) === 0)
-                  ? "Unknown-duration cues are not included"
-                  : `${lessonItems.length} main cues`}
-              </small>
-            </div>
-          </div>
-          {plannedEnd && plannedEnd.getTime() < Date.now() && (
-            <div className="alert warning">
-              This lesson's planned finish has passed. Check the live controller
-              for the current remaining time.
-            </div>
-          )}
-          {conflicts.length > 0 && (
-            <div className="alert error">
-              <strong>Schedule conflict:</strong>{" "}
-              {conflicts
-                .map((item) => `${item.className} — ${item.title}`)
-                .join(", ")}{" "}
-              overlaps this lesson's estimated window.
-            </div>
-          )}
-          <div className="timing-explain">
-            <span>◷</span>
-            <div>
-              <strong>
-                {countdown && lesson.designatedStartAt
-                  ? `Countdown begins ${formatDuration(countdown.durationMs || countdown.mediaDurationMs)} before class`
-                  : "Countdown is optional"}
-              </strong>
-              <p>
-                Assign one video as the countdown. Its full duration determines
-                when it starts automatically.
-              </p>
-            </div>
-          </div>
         </section>
-        <section className="panel playlist-panel">
+      )}
+      {activeEditorTab === "playlist" && (
+        <section className="panel playlist-panel playlist-panel-wide">
           <div className="panel-heading">
             <div>
               <h2>Playback sequence</h2>
-              <p>
-                Pre-roll loops, countdown runs once, then lesson media plays in
-                order.
-              </p>
+              <p>Pre-roll loops, countdown runs once, then lesson media plays in order.</p>
             </div>
             <span className="pill">{items.length} items</span>
           </div>
@@ -4602,11 +4626,7 @@ function LessonEditor({
           {selectedCues.length > 0 && (
             <form className="cue-bulk-actions" onSubmit={applyCueBulk}>
               <strong>{selectedCues.length} selected</strong>
-              <select
-                aria-label="Bulk cue action"
-                value={cueBulkAction}
-                onChange={(event) => setCueBulkAction(event.target.value)}
-              >
+              <select aria-label="Bulk cue action" value={cueBulkAction} onChange={(event) => setCueBulkAction(event.target.value)}>
                 <option value="role">Set role</option>
                 <option value="volume">Set volume</option>
                 <option value="end-behavior">Set end behavior</option>
@@ -4618,78 +4638,21 @@ function LessonEditor({
                 <select name="role" aria-label="Role for selected cues">
                   <option value="lesson">Main lesson</option>
                   <option value="preRoll">Pre-roll</option>
-                  {selectedCues.length === 1 && (
-                    <option value="countdown">Countdown</option>
-                  )}
+                  {selectedCues.length === 1 && <option value="countdown">Countdown</option>}
                 </select>
               )}
-              {cueBulkAction === "volume" && (
-                <label>
-                  Volume{" "}
-                  <input
-                    name="volumePercent"
-                    type="number"
-                    min="0"
-                    max="150"
-                    required
-                    defaultValue="100"
-                  />
-                  %
-                </label>
-              )}
-              {cueBulkAction === "end-behavior" && (
-                <select
-                  name="endBehavior"
-                  aria-label="End behavior for selected cues"
-                >
-                  <option value="advance">Advance</option>
-                  <option value="loop">Loop</option>
-                  <option value="pause">Pause on final frame</option>
-                  <option value="stop">Stop</option>
-                </select>
-              )}
-              {cueBulkAction === "allow-skip" && (
-                <select
-                  name="allowSkip"
-                  aria-label="Skipping for selected cues"
-                >
-                  <option value="true">Allow skip</option>
-                  <option value="false">Do not allow skip</option>
-                </select>
-              )}
-              {cueBulkAction === "prefix-title" && (
-                <input
-                  name="titlePrefix"
-                  maxLength={80}
-                  required
-                  placeholder="Title prefix"
-                  aria-label="Prefix for selected cue titles"
-                />
-              )}
-              <button
-                className={`button ${cueBulkAction === "delete" ? "danger" : "primary"}`}
-                disabled={cueBulkBusy}
-              >
-                {cueBulkBusy ? "Applying…" : "Apply"}
-              </button>
-              <button
-                className="button"
-                type="button"
-                onClick={() => setSelectedCueIds(new Set())}
-              >
-                Clear
-              </button>
+              {cueBulkAction === "volume" && <label>Volume <input name="volumePercent" type="number" min="0" max="150" required defaultValue="100" />%</label>}
+              {cueBulkAction === "end-behavior" && <select name="endBehavior" aria-label="End behavior"><option value="advance">Advance</option><option value="loop">Loop</option><option value="pause">Pause on final frame</option><option value="stop">Stop</option></select>}
+              {cueBulkAction === "allow-skip" && <select name="allowSkip" aria-label="Skipping"><option value="true">Allow skip</option><option value="false">Do not allow skip</option></select>}
+              {cueBulkAction === "prefix-title" && <input name="titlePrefix" maxLength={80} required placeholder="Title prefix" aria-label="Prefix for cue titles" />}
+              <button className={`button ${cueBulkAction === "delete" ? "danger" : "primary"}`} disabled={cueBulkBusy}>{cueBulkBusy ? "Applying…" : "Apply"}</button>
+              <button className="button" type="button" onClick={() => setSelectedCueIds(new Set())}>Clear</button>
             </form>
           )}
           {items.length ? (
             <div className="playlist">
               <label className="playlist-select-all">
-                <input
-                  type="checkbox"
-                  checked={allCuesSelected}
-                  onChange={toggleAllCues}
-                />{" "}
-                Select all cues
+                <input type="checkbox" checked={allCuesSelected} onChange={toggleAllCues} /> Select all cues
               </label>
               {items.map((item, index) => (
                 <PlaylistCueRow
@@ -4712,20 +4675,14 @@ function LessonEditor({
               title="This playlist is empty"
               body="Add videos, audio, or images from your local media library."
               action={
-                <button
-                  className="button primary"
-                  onClick={() => {
-                    setAddMode("chooser");
-                    setShowAdd(true);
-                  }}
-                >
+                <button className="button primary" onClick={() => { setAddMode("chooser"); setShowAdd(true); }}>
                   Add media
                 </button>
               }
             />
           )}
         </section>
-      </div>
+      )}
     </>
   );
 }
@@ -5327,6 +5284,7 @@ function MediaView({
   const [bulkBusy, setBulkBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [folderFilter, setFolderFilter] = useState("");
+  const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
   const [organizeTargets, setOrganizeTargets] = useState<Media[]>([]);
   const [renameTargets, setRenameTargets] = useState<Media[]>([]);
   const [manageMedia, setManageMedia] = useState<Media>();
@@ -6215,12 +6173,17 @@ function MediaView({
       {media.length > 0 && (
         <section className="media-filters">
           <Field label="Search media">
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Name, folder, or tag"
-            />
+            <div className="search-input-wrapper">
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Name, folder, or tag"
+              />
+              {search && (
+                <button type="button" className="search-clear" onClick={() => setSearch("")} aria-label="Clear search">×</button>
+              )}
+            </div>
           </Field>
           <Field label="Folder">
             <select
@@ -6235,12 +6198,28 @@ function MediaView({
               ))}
             </select>
           </Field>
-          <span>
-            {filteredMedia.length} of {media.length} items
-          </span>
+          <div className="media-filters-right">
+            <span>
+              {filteredMedia.length} of {media.length} items
+            </span>
+            <div className="view-toggle">
+              <button
+                className={viewMode === "grid" ? "active" : ""}
+                onClick={() => setViewMode("grid")}
+                aria-label="Grid view"
+                title="Grid view"
+              >⊞</button>
+              <button
+                className={viewMode === "list" ? "active" : ""}
+                onClick={() => setViewMode("list")}
+                aria-label="List view"
+                title="List view"
+              >☰</button>
+            </div>
+          </div>
         </section>
       )}
-      {filteredMedia.length > 0 && (
+      {viewMode === "grid" && filteredMedia.length > 0 && (
         <section className="media-preview-grid" aria-label="Media previews">
           {filteredMedia.map((item) => (
             <button
@@ -6271,7 +6250,7 @@ function MediaView({
           ))}
         </section>
       )}
-      {canUpload && selectedMedia.length > 0 && (
+      {viewMode === "list" && canUpload && selectedMedia.length > 0 && (
         <section className="bulk-actions" aria-label="Bulk media actions">
           <strong>{selectedMedia.length} selected</strong>
           <span>
@@ -6317,6 +6296,7 @@ function MediaView({
           </div>
         </section>
       )}
+      {viewMode === "list" && (
       <section className="panel">
         <div className="media-table table-head">
           <label className="media-select">
@@ -6439,6 +6419,7 @@ function MediaView({
           />
         )}
       </section>
+      )}
     </>
   );
 }

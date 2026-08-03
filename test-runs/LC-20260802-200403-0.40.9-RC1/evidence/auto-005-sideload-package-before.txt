@@ -1,0 +1,7 @@
+timestamp_local: 2026-08-02T20:26:49-0400
+List of devices attached
+emulator-5554          device product:sdk_google_atv64_amati_arm64 model:sdk_google_atv64_amati_arm64 device:emu64a transport_id:2
+
+=== package metadata ===
+=== package path ===
+=== version/installer lines ===

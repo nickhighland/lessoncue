@@ -1,0 +1,137 @@
+[WebServer] warn: Microsoft.EntityFrameworkCore.Query[10103]
+[WebServer]       The query uses the 'First'/'FirstOrDefault' operator without 'OrderBy' and filter operators. This may lead to unpredictable results.
+[WebServer] warn: Microsoft.AspNetCore.DataProtection.KeyManagement.XmlKeyManager[35]
+[WebServer]       No XML encryptor configured. Key {a64b1b90-29db-4d23-9bdf-bcfdaae54f90} may be persisted to storage in unencrypted form.
+[WebServer] warn: Microsoft.EntityFrameworkCore.Query[10103]
+[WebServer]       The query uses the 'First'/'FirstOrDefault' operator without 'OrderBy' and filter operators. This may lead to unpredictable results.
+[WebServer] warn: Microsoft.EntityFrameworkCore.Query[10103]
+[WebServer]       The query uses the 'First'/'FirstOrDefault' operator without 'OrderBy' and filter operators. This may lead to unpredictable results.
+[WebServer] info: Microsoft.Hosting.Lifetime[14]
+[WebServer]       Now listening on: http://127.0.0.1:5117
+[WebServer] info: Microsoft.Hosting.Lifetime[0]
+[WebServer]       Application started. Press Ctrl+C to shut down.
+[WebServer] info: Microsoft.Hosting.Lifetime[0]
+[WebServer]       Hosting environment: Production
+[WebServer] info: Microsoft.Hosting.Lifetime[0]
+[WebServer]       Content root path: /Users/nickhighland/Documents/Video Viewer/server/LessonCue.Server
+
+Running 1 test using 1 worker
+
+(node:47748) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] warn: Microsoft.EntityFrameworkCore.Query[10103]
+[WebServer]       The query uses the 'First'/'FirstOrDefault' operator without 'OrderBy' and filter operators. This may lead to unpredictable results.
+[WebServer] warn: Microsoft.EntityFrameworkCore.Query[10103]
+[WebServer]       The query uses the 'First'/'FirstOrDefault' operator without 'OrderBy' and filter operators. This may lead to unpredictable results.
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 2.6 ms. Trace 0HNNGUDT1B65S:00000002; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.2 ms. Trace 0HNNGUDT1B65S:00000005; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.7 ms. Trace 0HNNGUDT1B65R:00000005; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUDT1B65R:00000007; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.3 ms. Trace 0HNNGUDT1B65Q:00000007; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.2 ms. Trace 0HNNGUDT1B65S:00000012; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUDT1B65S:00000014; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.7 ms. Trace 0HNNGUDT1B65Q:00000011; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUDT1B65Q:00000013; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUDT1B65S:0000001A; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.2 ms. Trace 0HNNGUDT1B65O:00000021; user browser-admin
+[WebServer] warn: Microsoft.EntityFrameworkCore.Query[10103]
+[WebServer]       The query uses the 'First'/'FirstOrDefault' operator without 'OrderBy' and filter operators. This may lead to unpredictable results.
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUDT1B65O:00000023; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUDT1B65R:0000001E; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.3 ms. Trace 0HNNGUDT1B65P:0000001D; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 1.0 ms. Trace 0HNNGUDT1B65R:00000023; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.3 ms. Trace 0HNNGUDT1B65S:00000025; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUDT1B65S:00000027; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUDT1B65P:00000024; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.2 ms. Trace 0HNNGUDT1B65P:00000026; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.2 ms. Trace 0HNNGUDT1B65P:00000028; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUDT1B65O:00000036; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUDT1B65Q:00000042; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 1.1 ms. Trace 0HNNGUDT1B65P:00000030; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUDT1B65O:0000003B; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 1.2 ms. Trace 0HNNGUDT1B65R:00000037; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.3 ms. Trace 0HNNGUDT1B65Q:00000049; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUDT1B65O:00000041; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUDT1B65P:0000003B; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.1 ms. Trace 0HNNGUDT1B65S:0000003B; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.2 ms. Trace 0HNNGUDT1B65R:00000042; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/signage returned 404 in 0.4 ms. Trace 0HNNGUDT1B65R:00000045; user browser-admin
+[WebServer] info: System.Net.Http.HttpClient.updates.LogicalHandler[100]
+[WebServer]       Start processing HTTP request GET https://api.github.com/repos/nickhighland/lessoncue/releases/latest
+[WebServer] info: System.Net.Http.HttpClient.updates.ClientHandler[100]
+[WebServer]       Sending HTTP request GET https://api.github.com/repos/nickhighland/lessoncue/releases/latest
+[WebServer] info: System.Net.Http.HttpClient.updates.ClientHandler[101]
+[WebServer]       Received HTTP response headers after 239.5624ms - 200
+[WebServer] info: System.Net.Http.HttpClient.updates.LogicalHandler[101]
+[WebServer]       End processing HTTP request after 245.7984ms - 200
+[WebServer] info: LessonCue.Server.UpdateService[0]
+[WebServer]       LessonCue update check completed. Current version 0.40.9; latest version 0.40.9; update available False
+  ✘  1 tests/browser/local-workflow.spec.ts:58:1 › fresh local server supports setup, direct lesson upload, retention, and online media (21.5s)
+
+
+  1) tests/browser/local-workflow.spec.ts:58:1 › fresh local server supports setup, direct lesson upload, retention, and online media 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: locator('.media-table').filter({ hasText: 'browser-test-audio.wav' })
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 10000ms
+      - waiting for locator('.media-table').filter({ hasText: 'browser-test-audio.wav' })
+
+
+      266 |   await page.getByRole("button", { name: /Media Library$/ }).click();
+      267 |   const audioRow = page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" });
+    > 268 |   await expect(audioRow).toBeVisible();
+          |                          ^
+      269 |   await expect(audioRow.getByRole("button", { name: /Deletes/ })).toBeVisible();
+      270 |   await expect(page.locator(".media-table").filter({ hasText: "Online Learning Page" })).toBeVisible();
+      271 |
+        at /Users/nickhighland/Documents/Video Viewer/tests/browser/local-workflow.spec.ts:268:26
+
+    Error Context: test-results/local-workflow-fresh-local-0ce3e--retention-and-online-media/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/local-workflow-fresh-local-0ce3e--retention-and-online-media/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/local-workflow-fresh-local-0ce3e--retention-and-online-media/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    tests/browser/local-workflow.spec.ts:58:1 › fresh local server supports setup, direct lesson upload, retention, and online media 

@@ -1,0 +1,34 @@
+command: npm run lint
+start_local: 2026-08-02T20:12:07-0400
+
+> lessoncue@0.40.9 lint
+> eslint "web-admin/**/*.{ts,tsx}"
+
+[BABEL] Note: The code generator has deoptimised the styling of /Users/nickhighland/Documents/Video Viewer/web-admin/src/main.tsx as it exceeds the max of 500KB.
+
+/Users/nickhighland/Documents/Video Viewer/web-admin/src/AudienceInteraction.tsx
+  153:6  warning  React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array                      react-hooks/exhaustive-deps
+  164:6  warning  React Hook useEffect has a missing dependency: 'selected'. Either include it or remove the dependency array                  react-hooks/exhaustive-deps
+  758:6  warning  React Hook useEffect has missing dependencies: 'initialCode' and 'join'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+  763:6  warning  React Hook useEffect has missing dependencies: 'join' and 'session'. Either include them or remove the dependency array      react-hooks/exhaustive-deps
+
+/Users/nickhighland/Documents/Video Viewer/web-admin/src/SignageStudio.tsx
+   171:37   warning  React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array    react-hooks/exhaustive-deps
+   951:37   warning  React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array    react-hooks/exhaustive-deps
+   968:37   warning  React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array    react-hooks/exhaustive-deps
+  1014:6    warning  React Hook useEffect has a missing dependency: 'active'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  1074:108  warning  React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array    react-hooks/exhaustive-deps
+  1093:140  warning  React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array    react-hooks/exhaustive-deps
+
+/Users/nickhighland/Documents/Video Viewer/web-admin/src/SimpleSignage.tsx
+  570:6  warning  React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/nickhighland/Documents/Video Viewer/web-admin/src/WebPlayer.tsx
+  722:9  warning  The 'items' logical expression could make the dependencies of useEffect Hook (at line 742) change on every render. To fix this, wrap the initialization of 'items' in its own useMemo() Hook  react-hooks/exhaustive-deps
+  736:6  warning  React Hook useEffect has a missing dependency: 'items'. Either include it or remove the dependency array                                                                                      react-hooks/exhaustive-deps
+  879:9  warning  The 'items' logical expression could make the dependencies of useEffect Hook (at line 888) change on every render. To fix this, wrap the initialization of 'items' in its own useMemo() Hook  react-hooks/exhaustive-deps
+
+✖ 14 problems (0 errors, 14 warnings)
+
+finish_local: 2026-08-02T20:12:17-0400
+exit_code: 0
