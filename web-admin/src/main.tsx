@@ -2180,33 +2180,39 @@ function Shell({
     setView,
   ]);
 
-  const nav: [View, string, string][] = [
-    ["dashboard", "⌂", "Dashboard"],
+  const navItems: { key: View; icon: string; label: string }[] = [
+    { key: "dashboard", icon: "⌂", label: "Dashboard" },
     ...(canControl
-      ? ([["controller", "⌁", "Controller"]] as [View, string, string][])
+      ? [{ key: "controller" as View, icon: "⌁", label: "Controller" }]
       : []),
     ...(canPlan
-      ? ([
-          ["classes", "▤", "Classes"],
-          ["templates", "↻", "Templates"],
-          ["audience", "◉", "Audience"],
-        ] as [View, string, string][])
+      ? [
+          { key: "classes" as View, icon: "▤", label: "Classes" },
+          { key: "templates" as View, icon: "↻", label: "Templates" },
+          { key: "audience" as View, icon: "◉", label: "Audience" },
+        ]
       : []),
-    ["calendar", "□", "Calendar"],
-    ["media", "▶", "Media Library"],
-    ["screens", "▣", "Screens"],
+    { key: "calendar" as View, icon: "□", label: "Calendar" },
+    { key: "media" as View, icon: "▶", label: "Media Library" },
+    { key: "screens" as View, icon: "▣", label: "Screens" },
     ...(canPlan && bootstrap?.settings.signageEnabled
-      ? ([["signage", "◇", "Signage"]] as [View, string, string][])
+      ? [{ key: "signage" as View, icon: "◇", label: "Signage" }]
       : []),
     ...(canManageUsers
-      ? ([["users", "♙", "Users"]] as [View, string, string][])
+      ? [{ key: "users" as View, icon: "♙", label: "Users" }]
       : []),
     ...(canManageAppSettings ||
     canManageServiceSettings ||
     canManageBackups ||
     canManageUpdates
-      ? ([["settings", "⚙", "Settings"]] as [View, string, string][])
+      ? [{ key: "settings" as View, icon: "⚙", label: "Settings" }]
       : []),
+  ];
+  const nav = navItems.map((item) => [item.key, item.icon, item.label] as [View, string, string]);
+  const navSections: { label: string; keys: View[] }[] = [
+    { label: "Teaching", keys: ["dashboard", "controller", "classes", "templates", "audience", "calendar"] },
+    { label: "Media & Devices", keys: ["media", "screens", "signage"] },
+    { label: "Administration", keys: ["users", "settings"] },
   ];
   useEffect(() => {
     document.getElementById("main-content")?.focus();
@@ -2227,29 +2233,38 @@ function Shell({
               <span>{bootstrap?.organization || "Local server"}</span>
             </div>
           </div>
+          {canUpload && bootstrap && (
+            <div className="sidebar-storage-badge">
+              <span className="storage-badge-icon">↥</span>
+              <div>
+                <strong>{formatBytes(bootstrap.storage.remainingBytes)}</strong>
+                <small>upload space free</small>
+              </div>
+            </div>
+          )}
           <nav>
-            {nav.map(([key, icon, label]) => (
-              <button
-                key={key}
-                className={view === key ? "active" : ""}
-                onClick={() => setView(key)}
-                aria-current={view === key ? "page" : undefined}
-              >
-                <span>{icon}</span>
-                {label}
-              </button>
-            ))}
+            {navSections.map((section) => {
+              const sectionItems = navItems.filter((item) => section.keys.includes(item.key));
+              if (!sectionItems.length) return null;
+              return (
+                <div key={section.label} className="nav-section">
+                  <div className="nav-section-label">{section.label}</div>
+                  {sectionItems.map(({ key, icon, label }) => (
+                    <button
+                      key={key}
+                      className={view === key ? "active" : ""}
+                      onClick={() => setView(key)}
+                      aria-current={view === key ? "page" : undefined}
+                    >
+                      <span className="nav-icon">{icon}</span>
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
           </nav>
           <div className="sidebar-foot">
-            {canUpload && bootstrap && (
-              <div className="storage-mini">
-                <span>Upload space</span>
-                <strong>
-                  {formatBytes(bootstrap.storage.remainingBytes)} free
-                </strong>
-                <StorageMeter storage={bootstrap.storage} />
-              </div>
-            )}
             <div className="server-online">
               <span className="status-dot" />
               <div>
@@ -2644,21 +2659,46 @@ function Dashboard({
     .filter((l) => new Date(`${l.date}T23:59:59`) >= new Date())
     .slice(0, 5);
   const online = screens.filter((s) => s.online).length;
+  const recentLessons = [...lessons]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 5);
   return (
     <>
       <PageHead
         eyebrow="OVERVIEW"
         title={`Good ${dayPart()}.`}
-        detail={`${bootstrap.organization} is running entirely on this local server.`}
-        action={
-          <button
-            className="button primary"
-            onClick={() => onNavigate("classes")}
-          >
-            Build a lesson
-          </button>
-        }
+        detail={`${bootstrap.organization} runs entirely on this local server.`}
       />
+      <div className="dashboard-quick-actions">
+        <button className="dashboard-action-card" onClick={() => onNavigate("classes")}>
+          <div className="action-icon">▤</div>
+          <div>
+            <strong>Classes</strong>
+            <small>Plan lessons &amp; playlists</small>
+          </div>
+        </button>
+        <button className="dashboard-action-card" onClick={() => onNavigate("media")}>
+          <div className="action-icon">↥</div>
+          <div>
+            <strong>Upload Media</strong>
+            <small>Add videos, audio, slides</small>
+          </div>
+        </button>
+        <button className="dashboard-action-card" onClick={() => onNavigate("screens")}>
+          <div className="action-icon">▣</div>
+          <div>
+            <strong>Screens</strong>
+            <small>{online} of {bootstrap.counts.screens} online</small>
+          </div>
+        </button>
+        <button className="dashboard-action-card" onClick={() => onNavigate("controller")}>
+          <div className="action-icon">⌁</div>
+          <div>
+            <strong>Controller</strong>
+            <small>Playback &amp; remote control</small>
+          </div>
+        </button>
+      </div>
       <div className="stats-grid">
         <Stat
           label="Classes"
@@ -2690,7 +2730,7 @@ function Dashboard({
         <section className="panel">
           <PanelTitle
             title="Upcoming lessons"
-            action="Manage classes"
+            action="View all"
             onClick={() => onNavigate("classes")}
           />
           {upcoming.length ? (
@@ -2712,13 +2752,18 @@ function Dashboard({
             <Empty
               title="No upcoming lessons"
               body="Create a lesson inside one of your classes."
+              action={
+                <button className="button primary" onClick={() => onNavigate("classes")}>
+                  Create first class
+                </button>
+              }
             />
           )}
         </section>
         <section className="panel">
           <PanelTitle
             title="Screen health"
-            action="View screens"
+            action="View all"
             onClick={() => onNavigate("screens")}
           />
           {screens.filter((s) => !s.revoked).length ? (
@@ -2753,6 +2798,24 @@ function Dashboard({
           )}
         </section>
       </div>
+      {recentLessons.length > 0 && (
+        <section className="panel" style={{marginTop: 20}}>
+          <div className="panel-title">
+            <h2>Recent activity</h2>
+          </div>
+          <div className="activity-timeline">
+            {recentLessons.map((l) => (
+              <div className="activity-item" key={l.id}>
+                <div className="activity-dot" />
+                <div>
+                  <strong>{l.title}</strong>
+                  <small>{l.className} · {formatDate(l.date)} · {l.items.length} items</small>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </>
   );
 }
@@ -5327,6 +5390,7 @@ function MediaView({
   const [bulkBusy, setBulkBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [folderFilter, setFolderFilter] = useState("");
+  const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
   const [organizeTargets, setOrganizeTargets] = useState<Media[]>([]);
   const [renameTargets, setRenameTargets] = useState<Media[]>([]);
   const [manageMedia, setManageMedia] = useState<Media>();
@@ -6215,12 +6279,17 @@ function MediaView({
       {media.length > 0 && (
         <section className="media-filters">
           <Field label="Search media">
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Name, folder, or tag"
-            />
+            <div className="search-input-wrapper">
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Name, folder, or tag"
+              />
+              {search && (
+                <button type="button" className="search-clear" onClick={() => setSearch("")} aria-label="Clear search">×</button>
+              )}
+            </div>
           </Field>
           <Field label="Folder">
             <select
@@ -6235,12 +6304,28 @@ function MediaView({
               ))}
             </select>
           </Field>
-          <span>
-            {filteredMedia.length} of {media.length} items
-          </span>
+          <div className="media-filters-right">
+            <span>
+              {filteredMedia.length} of {media.length} items
+            </span>
+            <div className="view-toggle">
+              <button
+                className={viewMode === "grid" ? "active" : ""}
+                onClick={() => setViewMode("grid")}
+                aria-label="Grid view"
+                title="Grid view"
+              >⊞</button>
+              <button
+                className={viewMode === "list" ? "active" : ""}
+                onClick={() => setViewMode("list")}
+                aria-label="List view"
+                title="List view"
+              >☰</button>
+            </div>
+          </div>
         </section>
       )}
-      {filteredMedia.length > 0 && (
+      {viewMode === "grid" && filteredMedia.length > 0 && (
         <section className="media-preview-grid" aria-label="Media previews">
           {filteredMedia.map((item) => (
             <button
@@ -6271,7 +6356,7 @@ function MediaView({
           ))}
         </section>
       )}
-      {canUpload && selectedMedia.length > 0 && (
+      {viewMode === "list" && canUpload && selectedMedia.length > 0 && (
         <section className="bulk-actions" aria-label="Bulk media actions">
           <strong>{selectedMedia.length} selected</strong>
           <span>
@@ -6317,6 +6402,7 @@ function MediaView({
           </div>
         </section>
       )}
+      {viewMode === "list" && (
       <section className="panel">
         <div className="media-table table-head">
           <label className="media-select">
@@ -6439,6 +6525,7 @@ function MediaView({
           />
         )}
       </section>
+      )}
     </>
   );
 }
