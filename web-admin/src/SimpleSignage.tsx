@@ -2067,67 +2067,69 @@ function PlaylistTimeline({
       </div>
     );
   return (
-    <div className="playlist-timeline">
+    <div className="playlist-timeline" aria-label="Horizontal signage playlist">
       <div className="timeline-loop-arrow">LOOPS BACK TO START ↻</div>
-      {playlist.items.map((item, index) => {
-        const asset = media.find((value) => value.id === item.mediaAssetId);
-        return (
-          <button
-            className={`timeline-item ${selectedItemId === item.id ? "selected" : ""}`}
-            onClick={() => onSelect(item.id)}
-            key={item.id}
-          >
-            <div className="timeline-thumb">
-              {asset?.thumbnailUrl ? (
-                <img src={asset.thumbnailUrl} alt="" />
-              ) : (
-                <span>{item.kind === "web" ? "⌘" : "▶"}</span>
-              )}
-              <b>{index + 1}</b>
-            </div>
-            <span>
-              <strong>{item.title || asset?.fileName || "Untitled"}</strong>
-              <small>
-                {item.durationSeconds}s · {item.transition} ·{" "}
-                {item.muted ? "muted" : `${item.volumePercent}%`}
-              </small>
-            </span>
-            <div className="timeline-actions">
-              <i
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (index === 0) return;
-                  const next = [...playlist.items];
-                  [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                  onChange(next);
-                }}
-              >
-                ↑
-              </i>
-              <i
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (index === playlist.items.length - 1) return;
-                  const next = [...playlist.items];
-                  [next[index], next[index + 1]] = [next[index + 1], next[index]];
-                  onChange(next);
-                }}
-              >
-                ↓
-              </i>
-              <i
-                className="remove"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onChange(playlist.items.filter((entry) => entry.id !== item.id));
-                }}
-              >
-                ×
-              </i>
-            </div>
-          </button>
-        );
-      })}
+      <div className="playlist-timeline-track">
+        {playlist.items.map((item, index) => {
+          const asset = media.find((value) => value.id === item.mediaAssetId);
+          return (
+            <button
+              className={`timeline-item ${selectedItemId === item.id ? "selected" : ""}`}
+              onClick={() => onSelect(item.id)}
+              key={item.id}
+            >
+              <div className="timeline-thumb">
+                {asset?.thumbnailUrl ? (
+                  <img src={asset.thumbnailUrl} alt="" />
+                ) : (
+                  <span>{item.kind === "web" ? "⌘" : "▶"}</span>
+                )}
+                <b>{index + 1}</b>
+              </div>
+              <span>
+                <strong>{item.title || asset?.fileName || "Untitled"}</strong>
+                <small>
+                  {item.durationSeconds}s · {item.transition} ·{" "}
+                  {item.muted ? "muted" : `${item.volumePercent}%`}
+                </small>
+              </span>
+              <div className="timeline-actions">
+                <i
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (index === 0) return;
+                    const next = [...playlist.items];
+                    [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                    onChange(next);
+                  }}
+                >
+                  ↑
+                </i>
+                <i
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (index === playlist.items.length - 1) return;
+                    const next = [...playlist.items];
+                    [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                    onChange(next);
+                  }}
+                >
+                  ↓
+                </i>
+                <i
+                  className="remove"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onChange(playlist.items.filter((entry) => entry.id !== item.id));
+                  }}
+                >
+                  ×
+                </i>
+              </div>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -2158,7 +2160,7 @@ function MediaTray({
     <section className="signage-media-tray">
       <header>
         <div>
-          <strong>Add content</strong>
+          <strong>Library</strong>
           <small>Click an item to add it to the end of the loop.</small>
         </div>
         <div className="signage-media-tray-actions">

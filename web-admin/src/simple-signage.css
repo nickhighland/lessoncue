@@ -1498,3 +1498,126 @@
     width: 100%;
   }
 }
+
+/* ── Horizontal signage playlist ───────────────────────────────────────── */
+.playlist-timeline {
+  min-height: 0;
+  padding: 16px 16px 48px;
+  overflow: hidden;
+}
+
+.timeline-loop-arrow {
+  top: 16px;
+  right: 18px;
+  bottom: auto;
+}
+
+.playlist-timeline-track {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 30px 2px 10px;
+  scrollbar-color: #d5b476 transparent;
+}
+
+.playlist-timeline .timeline-item {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 112px minmax(38px, auto) auto;
+  align-items: start;
+  flex: 0 0 224px;
+  width: 224px;
+  gap: 9px;
+  margin: 0;
+  padding: 9px;
+  background: #fff;
+  scroll-snap-align: start;
+}
+
+.playlist-timeline .timeline-thumb {
+  width: 100%;
+  height: 112px;
+}
+
+.playlist-timeline .timeline-item > span {
+  min-width: 0;
+}
+
+.playlist-timeline .timeline-item > span strong {
+  overflow: hidden;
+  min-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-timeline .timeline-item > span small {
+  white-space: nowrap;
+}
+
+.playlist-timeline .timeline-actions {
+  justify-content: flex-end;
+}
+
+.signage-media-tray {
+  padding: 16px;
+}
+
+.signage-media-tray header {
+  margin-bottom: 14px;
+  border-bottom: 1px solid #ece5d7;
+  padding-bottom: 11px;
+}
+
+.signage-media-tray > div {
+  gap: 10px;
+  padding-bottom: 2px;
+}
+
+.signage-media-tray > div button {
+  width: 112px;
+  flex-basis: 112px;
+  grid-template-rows: 72px 28px;
+  padding: 4px;
+}
+
+.signage-media-tray img,
+.signage-media-tray > div button > span {
+  height: 72px;
+}
+
+@media (max-width: 760px) {
+  .playlist-timeline {
+    padding: 12px 10px 40px;
+  }
+
+  .timeline-loop-arrow {
+    position: static;
+    margin: 0 3px 9px;
+    text-align: right;
+  }
+
+  .playlist-timeline-track {
+    padding: 0 0 8px;
+  }
+
+  .playlist-timeline .timeline-item {
+    flex-basis: min(240px, calc(100vw - 52px));
+    width: min(240px, calc(100vw - 52px));
+  }
+
+  .signage-media-tray header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .signage-media-tray-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .signage-media-tray-actions select {
+    flex: 1 1 180px;
+    max-width: none;
+  }
+}
