@@ -144,7 +144,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .sidebar nav { flex: 1; overflow-y: auto; margin-top: 8px; padding: 0 2px; }
 .nav-section { margin-bottom: 4px; }
 .nav-section-label {
-  padding: 8px 14px 4px; color: #5e7870; font-size: 9px;
+  padding: 8px 14px 4px; color: #90a8a3; font-size: 9px;
   font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase;
 }
 .sidebar nav button {
@@ -1064,6 +1064,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   box-shadow: 0 28px 80px #0008; animation: modalIn 0.15s ease;
 }
 @keyframes modalIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.action-dialog-backdrop, .action-dialog { animation: none; }
 .modal-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
 .modal-title h2 { margin: 0; }
 .modal-title button { border: 0; background: none; font-size: 24px; color: var(--muted); padding: 4px 8px; border-radius: 6px; transition: color 0.12s ease; }
