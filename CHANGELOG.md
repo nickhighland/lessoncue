@@ -4,6 +4,21 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.23 — clearer lesson playback builder
+
+### User changes
+
+- Removed the redundant “Preview with Trims & Fades” strip from the lesson playback builder.
+- Playback sections now use high-contrast blue Pre-Roll, purple Countdown, red Main Lesson, and teal Post Lesson colors.
+- Each cue’s left category rail matches its playback section, including in the Total view.
+- Lesson cards stay compact with consistent previews, dedicated Notes/duration/Advanced Options footer controls, and clearer still-slide duration behavior.
+
+### Developer changes
+
+- Shared section color tokens now drive both section tabs and per-role cue rails, preventing Total view from flattening all cue colors.
+- Still-image cues omit video-only trim/fade controls while videos retain the visual editor.
+- Release metadata advances to 0.40.23 and Android version code 82.
+
 ## v0.40.22 — media-processing validation repair
 
 ### User changes

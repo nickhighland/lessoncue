@@ -4778,16 +4778,6 @@ function LessonEditor({
             </button>
           </div>
         </div>
-        {items.length > 0 && (
-          <div className="preview-strip">
-            <span>PREVIEW WITH TRIMS & FADES</span>
-            {items.map((item) => (
-              <button key={item.id} onClick={() => setPreviewItem(item)}>
-                ▶ {item.title}
-              </button>
-            ))}
-          </div>
-        )}
         {selectedCues.length > 0 && (
           <form className="cue-bulk-actions" onSubmit={applyCueBulk}>
             <strong>{selectedCues.length} selected</strong>
@@ -5110,7 +5100,7 @@ function PlaylistCueRow({
         )}
       </div>
       <div className="item-main">
-        <div>
+        <div className="cue-card-heading">
           <span className={`role ${item.role}`}>{roleName(item.role)}</span>
           <strong>{item.title}</strong>
         </div>
@@ -5186,10 +5176,12 @@ function PlaylistCueRow({
               <div><CueIcon name="options" /><span><strong>Advanced Options</strong><small>{item.title}</small></span></div>
               <button type="button" aria-label="Close Advanced Options" onClick={() => setOpenPanel(undefined)}><CueIcon name="close" /></button>
             </header>
-            <div className="cue-tool-row" aria-label="Cue quick actions">
-              <button type="button" onClick={() => { setOpenPanel(undefined); onTimeline(); }}>
-                <CueIcon name="timeline" /><span><strong>Trim & fades</strong><small>Visual editor</small></span>
-              </button>
+            <div className={`cue-tool-row ${item.type === "image" ? "cue-tool-row-no-trim" : ""}`} aria-label="Cue quick actions">
+              {item.type !== "image" && (
+                <button type="button" onClick={() => { setOpenPanel(undefined); onTimeline(); }}>
+                  <CueIcon name="timeline" /><span><strong>Trim & fades</strong><small>Visual editor</small></span>
+                </button>
+              )}
               <label>
                 <input aria-label="Mute cue" type="checkbox" checked={item.muted} onChange={(event) => onChange(item, { muted: event.target.checked })} />
                 <CueIcon name="mute" /><span><strong>Mute</strong><small>Silence cue</small></span>
@@ -5293,31 +5285,33 @@ function PlaylistCueRow({
                   </div>
                 </Field>
               )}
-              <Field
-                label="Expected lesson duration"
-                hint="Optional estimate for an untimed still or slide."
-              >
-                <div className="unit-input">
-                  <input
-                    type="number"
-                    min="1"
-                    max="3600"
-                    placeholder="Untimed"
-                    value={estimateSeconds}
-                    onChange={(event) => setEstimateSeconds(event.target.value)}
-                    onBlur={() => {
-                      if (!estimateSeconds.trim()) {
-                        onChange(item, { clearEstimatedDuration: true });
-                        return;
-                      }
-                      const value = Math.max(1, Math.min(3600, Number(estimateSeconds) || 1));
-                      setEstimateSeconds(String(value));
-                      onChange(item, { estimatedDurationSeconds: value });
-                    }}
-                  />
-                  <span>sec</span>
-                </div>
-              </Field>
+              {!timedStill && (
+                <Field
+                  label="Anticipated Slide Duration"
+                  hint="Optional estimate for an untimed still or slide."
+                >
+                  <div className="unit-input">
+                    <input
+                      type="number"
+                      min="1"
+                      max="3600"
+                      placeholder="Untimed"
+                      value={estimateSeconds}
+                      onChange={(event) => setEstimateSeconds(event.target.value)}
+                      onBlur={() => {
+                        if (!estimateSeconds.trim()) {
+                          onChange(item, { clearEstimatedDuration: true });
+                          return;
+                        }
+                        const value = Math.max(1, Math.min(3600, Number(estimateSeconds) || 1));
+                        setEstimateSeconds(String(value));
+                        onChange(item, { estimatedDurationSeconds: value });
+                      }}
+                    />
+                    <span>sec</span>
+                  </div>
+                </Field>
+              )}
             </div>
           )}
         </div>
@@ -16837,7 +16831,7 @@ function signageTargets(item: Signage) {
   return targets.length ? targets.join(" · ") : "All screens";
 }
 function formatDuration(ms?: number) {
-  if (ms === undefined || ms === null) return "Duration unknown";
+  if (ms === undefined || ms === null) return "0:00";
   const seconds = Math.round(ms / 1000);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
@@ -17079,7 +17073,7 @@ function cueDurationLabel(item: PlaylistItem) {
   if (item.type === "image") {
     if (item.imageDurationSeconds != null) return formatDuration(item.imageDurationSeconds * 1000);
     if (item.estimatedDurationSeconds != null) return `~${formatDuration(item.estimatedDurationSeconds * 1000)}`;
-    return "Untimed";
+    return formatDuration();
   }
   return formatDuration(item.durationMs || item.mediaDurationMs);
 }
