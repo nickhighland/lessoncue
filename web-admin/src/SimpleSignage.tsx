@@ -771,7 +771,15 @@ export function SimpleSignage({
     event: ReactPointerEvent<HTMLButtonElement>,
     item: Media,
   ) {
-    if (event.pointerType === "mouse" || !event.isPrimary) return;
+    if (!event.isPrimary) return;
+    if (event.pointerType === "mouse") {
+      // Some Chromium/Linux drag paths do not deliver React's dragstart event
+      // reliably. Seed the same short-lived identity from pointerdown so the
+      // timeline drop/dragend fallback can still resolve the media item.
+      draggedMediaIdRef.current = item.id;
+      draggedMediaExpiresAtRef.current = Date.now() + 2000;
+      return;
+    }
     pointerMediaDrag.current = {
       mediaId: item.id,
       pointerId: event.pointerId,
@@ -885,7 +893,9 @@ export function SimpleSignage({
   }
 
   function finishMediaDrag(event: ReactDragEvent<HTMLButtonElement>) {
-    const item = readyMedia.find((candidate) => candidate.id === draggedMediaIdRef.current);
+    const mediaId =
+      draggedMediaIdRef.current || event.currentTarget.dataset.mediaId;
+    const item = readyMedia.find((candidate) => candidate.id === mediaId);
     if (item && mediaDragEnteredTimelineRef.current && mediaDropIndex != null) {
       suppressMediaClickUntil.current = Date.now() + 500;
       addMedia(item, mediaDropIndex);
@@ -2735,6 +2745,7 @@ function MediaTray({
             onPointerDown={(event) => onPointerDown(event, item)}
             onDragStart={(event) => onDragStart(event, item)}
             onDragEnd={onDragEnd}
+            data-media-id={item.id}
             draggable
             aria-label={`Add or drag ${item.fileName} to the signage playlist`}
             key={item.id}
