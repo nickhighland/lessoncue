@@ -4,6 +4,11 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.29 — native signage drag-and-drop bridge
+
+- Handle ready-media drops through the browser's native capture-phase drag events so the first item can be dropped into an empty signage playlist reliably across Chromium/Linux environments.
+- Prevent duplicate inserts while preserving click-to-add, touch dragging, timeline insertion, duration controls, notes, and item settings.
+
 ## v0.40.28 — hardened signage drag-and-drop
 
 - Make ready-media drag-and-drop reliable in hosted Chromium/Linux browsers, including the first item dropped into an empty signage playlist.

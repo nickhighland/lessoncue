@@ -556,6 +556,7 @@ export function SimpleSignage({
   const draggedMediaIdRef = useRef<string | undefined>(undefined);
   const draggedMediaExpiresAtRef = useRef(0);
   const mediaDragEnteredTimelineRef = useRef(false);
+  const mediaDragCommittedRef = useRef(false);
   const [mediaDropIndex, setMediaDropIndex] = useState<number>();
   const pointerMediaDrag = useRef<{
     mediaId: string;
@@ -767,6 +768,96 @@ export function SimpleSignage({
     addMediaRef.current = addMedia;
   });
 
+  function commitMediaDrop(mediaId: string | undefined, index: number) {
+    if (!mediaId || mediaDragCommittedRef.current) return false;
+    const item = readyMediaRef.current.find((candidate) => candidate.id === mediaId);
+    if (!item) return false;
+    mediaDragCommittedRef.current = true;
+    suppressMediaClickUntil.current = Date.now() + 500;
+    addMediaRef.current(item, index);
+    return true;
+  }
+
+  useEffect(() => {
+    if (tab !== "playlists") return;
+    const indexAtPoint = (target: EventTarget | null, clientX: number) => {
+      const element = target instanceof Element ? target : undefined;
+      const timeline = element?.closest<HTMLElement>(".playlist-timeline");
+      if (!timeline) return undefined;
+      const card = element?.closest<HTMLElement>(".signage-timeline-card");
+      if (!card) return playlistDraft?.items.length || 0;
+      const index = Number(card.dataset.signageIndex);
+      if (!Number.isInteger(index)) return undefined;
+      const bounds = card.getBoundingClientRect();
+      return clientX < bounds.left + bounds.width / 2 ? index : index + 1;
+    };
+    const begin = (event: DragEvent) => {
+      const source =
+        event.target instanceof Element
+          ? event.target.closest<HTMLButtonElement>("[data-media-id]")
+          : undefined;
+      const mediaId = source?.dataset.mediaId;
+      if (!mediaId) return;
+      draggedMediaIdRef.current = mediaId;
+      draggedMediaExpiresAtRef.current = Number.POSITIVE_INFINITY;
+      mediaDragCommittedRef.current = false;
+      mediaDragEnteredTimelineRef.current = false;
+      setDraggedMediaId(mediaId);
+      setMediaDropIndex(playlistDraft?.items.length || 0);
+      event.dataTransfer?.setData("application/x-lessoncue-signage-media-id", mediaId);
+      event.dataTransfer?.setData("text/plain", mediaId);
+    };
+    const over = (event: DragEvent) => {
+      if (!draggedMediaIdRef.current) return;
+      const index = indexAtPoint(event.target, event.clientX);
+      if (index == null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      mediaDragEnteredTimelineRef.current = true;
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      setMediaDropIndex(index);
+    };
+    const drop = (event: DragEvent) => {
+      if (!draggedMediaIdRef.current) return;
+      const index = indexAtPoint(event.target, event.clientX);
+      if (index == null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      const mediaId =
+        event.dataTransfer?.getData("application/x-lessoncue-signage-media-id") ||
+        event.dataTransfer?.getData("text/plain") ||
+        draggedMediaIdRef.current;
+      commitMediaDrop(mediaId, index);
+      draggedMediaIdRef.current = undefined;
+      draggedMediaExpiresAtRef.current = 0;
+      mediaDragEnteredTimelineRef.current = false;
+      setDraggedMediaId(undefined);
+      setMediaDropIndex(undefined);
+    };
+    const end = () => {
+      const mediaId = draggedMediaIdRef.current;
+      if (mediaId && mediaDragEnteredTimelineRef.current && mediaDropIndex != null)
+        commitMediaDrop(mediaId, mediaDropIndex);
+      draggedMediaIdRef.current = undefined;
+      draggedMediaExpiresAtRef.current = 0;
+      mediaDragEnteredTimelineRef.current = false;
+      mediaDragCommittedRef.current = false;
+      setDraggedMediaId(undefined);
+      setMediaDropIndex(undefined);
+    };
+    document.addEventListener("dragstart", begin, true);
+    document.addEventListener("dragover", over, true);
+    document.addEventListener("drop", drop, true);
+    document.addEventListener("dragend", end, true);
+    return () => {
+      document.removeEventListener("dragstart", begin, true);
+      document.removeEventListener("dragover", over, true);
+      document.removeEventListener("drop", drop, true);
+      document.removeEventListener("dragend", end, true);
+    };
+  }, [mediaDropIndex, playlistDraft?.items.length, tab]);
+
   function beginMediaPointerDrag(
     event: ReactPointerEvent<HTMLButtonElement>,
     item: Media,
@@ -778,6 +869,7 @@ export function SimpleSignage({
       // timeline drop/dragend fallback can still resolve the media item.
       draggedMediaIdRef.current = item.id;
       draggedMediaExpiresAtRef.current = Date.now() + 2000;
+      mediaDragCommittedRef.current = false;
       return;
     }
     pointerMediaDrag.current = {
@@ -789,6 +881,7 @@ export function SimpleSignage({
     };
     draggedMediaIdRef.current = item.id;
     draggedMediaExpiresAtRef.current = Number.POSITIVE_INFINITY;
+    mediaDragCommittedRef.current = false;
     setDraggedMediaId(item.id);
     setMediaDropIndex(playlistDraft?.items.length || 0);
   }
@@ -818,8 +911,7 @@ export function SimpleSignage({
       setDraggedMediaId(undefined);
       setMediaDropIndex(undefined);
       if (!cancelled && drag.moved && item && index != null) {
-        suppressMediaClickUntil.current = Date.now() + 500;
-        addMediaRef.current(item, index);
+        commitMediaDrop(item.id, index);
       }
     };
     const move = (event: PointerEvent) => {
@@ -855,6 +947,7 @@ export function SimpleSignage({
     mediaDragEnteredTimelineRef.current = false;
     draggedMediaIdRef.current = item.id;
     draggedMediaExpiresAtRef.current = Number.POSITIVE_INFINITY;
+    mediaDragCommittedRef.current = false;
     setDraggedMediaId(item.id);
     setMediaDropIndex(playlistDraft?.items.length || 0);
     event.dataTransfer.effectAllowed = "copy";
@@ -886,24 +979,20 @@ export function SimpleSignage({
     mediaDragEnteredTimelineRef.current = false;
     setDraggedMediaId(undefined);
     setMediaDropIndex(undefined);
-    if (item) {
-      suppressMediaClickUntil.current = Date.now() + 500;
-      addMedia(item, index);
-    }
+    if (item) commitMediaDrop(item.id, index);
   }
 
   function finishMediaDrag(event: ReactDragEvent<HTMLButtonElement>) {
     const mediaId =
       draggedMediaIdRef.current || event.currentTarget.dataset.mediaId;
     const item = readyMedia.find((candidate) => candidate.id === mediaId);
-    if (item && mediaDragEnteredTimelineRef.current && mediaDropIndex != null) {
-      suppressMediaClickUntil.current = Date.now() + 500;
-      addMedia(item, mediaDropIndex);
-    }
+    if (item && mediaDragEnteredTimelineRef.current && mediaDropIndex != null)
+      commitMediaDrop(item.id, mediaDropIndex);
     pointerMediaDrag.current = undefined;
     if (draggedMediaIdRef.current)
       draggedMediaExpiresAtRef.current = Date.now() + 2000;
     mediaDragEnteredTimelineRef.current = false;
+    mediaDragCommittedRef.current = false;
     setDraggedMediaId(undefined);
     setMediaDropIndex(undefined);
     void event;
