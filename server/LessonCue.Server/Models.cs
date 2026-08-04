@@ -168,7 +168,8 @@ public sealed class LessonTemplateItem
     public long? EndMs { get; set; }
     public int VolumePercent { get; set; } = 100;
     public int? ImageDurationSeconds { get; set; }
-    [MaxLength(24)] public string EndBehavior { get; set; } = "advance";
+    public int? EstimatedDurationSeconds { get; set; }
+    [MaxLength(24)] public string EndBehavior { get; set; } = "pause";
     public bool AllowSkip { get; set; } = true;
     [MaxLength(2000)] public string Notes { get; set; } = "";
     public int FadeInMs { get; set; }
@@ -231,7 +232,8 @@ public sealed class PlaylistItem
     public long? EndMs { get; set; }
     public int VolumePercent { get; set; } = 100;
     public int? ImageDurationSeconds { get; set; }
-    [MaxLength(24)] public string EndBehavior { get; set; } = "advance";
+    public int? EstimatedDurationSeconds { get; set; }
+    [MaxLength(24)] public string EndBehavior { get; set; } = "pause";
     public bool AllowSkip { get; set; } = true;
     [MaxLength(2000)] public string Notes { get; set; } = "";
     public int FadeInMs { get; set; }
@@ -667,7 +669,7 @@ public sealed record LessonInput(Guid ClassId, DateOnly Date, string Title, Date
     string? SubstituteNotes = null, string? PreRollMonitorUrl = null);
 public sealed record PlaylistItemInput(string Title, string Type, string? Role, decimal Position,
     Guid? MediaId, long? DurationMs, long StartMs, long? EndMs, int VolumePercent,
-    int? ImageDurationSeconds, string? EndBehavior, bool AllowSkip, string? FitMode = null,
+    int? ImageDurationSeconds, int? EstimatedDurationSeconds, string? EndBehavior, bool AllowSkip, string? FitMode = null,
     int RotationDegrees = 0, int CropLeftPercent = 0, int CropTopPercent = 0,
     int CropRightPercent = 0, int CropBottomPercent = 0, bool Muted = false,
     int PlaybackRatePercent = 100, int RepeatCount = 1, string? BackgroundColor = null,
@@ -738,7 +740,8 @@ public sealed record LessonUpdateInput(string? Title, DateOnly? Date, DateTimeOf
     string? PreRollMonitorUrl = null, bool ClearPreRollMonitorUrl = false);
 public sealed record PlaylistItemUpdateInput(string? Title, string? Type, string? Role, Guid? MediaId,
     long? DurationMs, long? StartMs, long? EndMs, int? VolumePercent, int? ImageDurationSeconds,
-    string? EndBehavior, bool? AllowSkip, bool ClearEndMs = false, string? Notes = null,
+    int? EstimatedDurationSeconds, string? EndBehavior, bool? AllowSkip, bool ClearEndMs = false,
+    bool ClearImageDuration = false, bool ClearEstimatedDuration = false, string? Notes = null,
     int? FadeInMs = null, int? FadeOutMs = null, bool? NormalizeAudio = null,
     List<CuePointInput>? CuePoints = null, string? FitMode = null, int? RotationDegrees = null,
     int? CropLeftPercent = null, int? CropTopPercent = null, int? CropRightPercent = null,
@@ -863,7 +866,7 @@ public sealed record MediaBulkInput(List<Guid> MediaIds, string? Action, DateOnl
     string? Folder = null, string? TagsCsv = null, List<MediaRenameInput>? Renames = null);
 public sealed record MediaOrganizeInput(string? FileName, string? Folder, string? TagsCsv);
 public sealed record MediaTaxonomyInput(List<string>? Folders, List<string>? Tags);
-public sealed record PresentationLessonInput(Guid LessonId, int ImageDurationSeconds = 10);
+public sealed record PresentationLessonInput(Guid LessonId, int? ImageDurationSeconds = null);
 public sealed record LessonTemplateFromLessonInput(Guid LessonId, string Name, string? Description = null);
 public sealed record LessonTemplateReplaceInput(Guid LessonId);
 public sealed record LessonTemplateUpdateInput(string Name, string? Description, string? DefaultTitle,

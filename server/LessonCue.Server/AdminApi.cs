@@ -813,6 +813,7 @@ public static class AdminApi
                     item.EndMs,
                     item.VolumePercent,
                     item.ImageDurationSeconds,
+                    item.EstimatedDurationSeconds,
                     item.EndBehavior,
                     item.AllowSkip,
                     item.Notes,
@@ -941,7 +942,8 @@ public static class AdminApi
                     LessonId = copy.Id, Title = sourceItem.Title, Type = sourceItem.Type, Role = sourceItem.Role,
                     Position = sourceItem.Position, MediaAssetId = sourceItem.MediaAssetId, DurationMs = sourceItem.DurationMs,
                     StartMs = sourceItem.StartMs, EndMs = sourceItem.EndMs, VolumePercent = sourceItem.VolumePercent,
-                    ImageDurationSeconds = sourceItem.ImageDurationSeconds, EndBehavior = sourceItem.EndBehavior,
+                    ImageDurationSeconds = sourceItem.ImageDurationSeconds, EstimatedDurationSeconds = sourceItem.EstimatedDurationSeconds,
+                    EndBehavior = sourceItem.EndBehavior,
                     AllowSkip = sourceItem.AllowSkip, Notes = sourceItem.Notes, FadeInMs = sourceItem.FadeInMs,
                     FadeOutMs = sourceItem.FadeOutMs, NormalizeAudio = sourceItem.NormalizeAudio,
                     CuePointsJson = sourceItem.CuePointsJson, FitMode = sourceItem.FitMode,
@@ -1098,7 +1100,7 @@ public static class AdminApi
                 {
                     item.Id, item.Title, item.Type, item.Role, item.Position, item.MediaAssetId,
                     mediaFileName = item.MediaAsset != null ? item.MediaAsset.FileName : null,
-                    item.DurationMs, item.StartMs, item.EndMs, item.VolumePercent, item.ImageDurationSeconds,
+                    item.DurationMs, item.StartMs, item.EndMs, item.VolumePercent, item.ImageDurationSeconds, item.EstimatedDurationSeconds,
                     item.EndBehavior, item.AllowSkip, item.Notes, item.FadeInMs, item.FadeOutMs,
                     item.NormalizeAudio, item.CuePointsJson, item.FitMode, item.RotationDegrees,
                     item.CropLeftPercent, item.CropTopPercent, item.CropRightPercent, item.CropBottomPercent,
@@ -1262,8 +1264,10 @@ public static class AdminApi
                 input.PlaybackRatePercent, input.RepeatCount, input.BackgroundColor ?? "#000000",
                 input.TransitionStyle ?? "cut", input.TransitionDurationMs);
             if (playbackError is not null) return Results.BadRequest(new { error = playbackError });
+            var role = NormalizeRole(input.Role);
+            var endBehavior = input.EndBehavior ?? DefaultEndBehavior(role);
             var timingError = ValidateCueTiming(input.StartMs, input.EndMs, input.ImageDurationSeconds,
-                input.EndBehavior ?? "advance");
+                input.EstimatedDurationSeconds, endBehavior);
             if (timingError is not null) return Results.BadRequest(new { error = timingError });
             MediaAsset? itemMedia = null;
             if (input.MediaId is Guid mediaId)
@@ -1271,7 +1275,6 @@ public static class AdminApi
                 itemMedia = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == mediaId, ct);
                 if (itemMedia is null) return Results.BadRequest(new { error = "The selected media file does not exist." });
             }
-            var role = NormalizeRole(input.Role);
             var item = new PlaylistItem
             {
                 LessonId = lessonId,
@@ -1285,7 +1288,8 @@ public static class AdminApi
                 EndMs = input.EndMs,
                 VolumePercent = input.VolumePercent,
                 ImageDurationSeconds = input.ImageDurationSeconds,
-                EndBehavior = input.EndBehavior ?? "advance",
+                EstimatedDurationSeconds = input.EstimatedDurationSeconds,
+                EndBehavior = endBehavior,
                 AllowSkip = input.AllowSkip,
                 FitMode = input.FitMode ?? "fit",
                 RotationDegrees = input.RotationDegrees,
@@ -1319,7 +1323,7 @@ public static class AdminApi
             {
                 item.Id, item.Title, item.Type, item.Role, item.Position, item.MediaAssetId,
                 item.DurationMs, item.StartMs, item.EndMs, item.VolumePercent,
-                item.ImageDurationSeconds, item.EndBehavior, item.AllowSkip, item.FitMode,
+                item.ImageDurationSeconds, item.EstimatedDurationSeconds, item.EndBehavior, item.AllowSkip, item.FitMode,
                 item.RotationDegrees, item.CropLeftPercent, item.CropTopPercent, item.CropRightPercent,
                 item.CropBottomPercent, item.Muted, item.PlaybackRatePercent, item.RepeatCount,
                 item.BackgroundColor, item.TransitionStyle, item.TransitionDurationMs, item.FlexibleTime
@@ -1338,23 +1342,29 @@ public static class AdminApi
                 input.RepeatCount ?? item.RepeatCount, input.BackgroundColor ?? item.BackgroundColor,
                 input.TransitionStyle ?? item.TransitionStyle, input.TransitionDurationMs ?? item.TransitionDurationMs);
             if (playbackError is not null) return Results.BadRequest(new { error = playbackError });
+            var nextImageDuration = input.ClearImageDuration ? null : input.ImageDurationSeconds ?? item.ImageDurationSeconds;
+            var nextEstimatedDuration = input.ClearEstimatedDuration ? null : input.EstimatedDurationSeconds ?? item.EstimatedDurationSeconds;
+            var nextRole = input.Role is null ? item.Role : NormalizeRole(input.Role);
+            var nextEndBehavior = input.EndBehavior ?? (input.Role is null ? item.EndBehavior : DefaultEndBehavior(nextRole));
             var timingError = ValidateCueTiming(input.StartMs ?? item.StartMs,
                 input.ClearEndMs ? null : input.EndMs ?? item.EndMs,
-                input.ImageDurationSeconds ?? item.ImageDurationSeconds,
-                input.EndBehavior ?? item.EndBehavior);
+                nextImageDuration, nextEstimatedDuration, nextEndBehavior);
             if (timingError is not null) return Results.BadRequest(new { error = timingError });
             if (input.Title is not null) item.Title = input.Title.Trim();
             if (input.Type is not null) item.Type = input.Type;
             var wasCountdown = item.Lesson.CountdownItemId == item.Id || item.Role == "countdown";
-            if (input.Role is not null) item.Role = NormalizeRole(input.Role);
+            if (input.Role is not null) item.Role = nextRole;
             if (input.MediaId is not null) item.MediaAssetId = input.MediaId;
             if (input.DurationMs is not null) item.DurationMs = input.DurationMs;
             if (input.StartMs is not null) item.StartMs = input.StartMs.Value;
             if (input.ClearEndMs) item.EndMs = null;
             else if (input.EndMs is not null) item.EndMs = input.EndMs;
             if (input.VolumePercent is not null) item.VolumePercent = Math.Clamp(input.VolumePercent.Value, 0, 150);
-            if (input.ImageDurationSeconds is not null) item.ImageDurationSeconds = input.ImageDurationSeconds;
-            if (input.EndBehavior is not null) item.EndBehavior = input.EndBehavior;
+            if (input.ClearImageDuration) item.ImageDurationSeconds = null;
+            else if (input.ImageDurationSeconds is not null) item.ImageDurationSeconds = input.ImageDurationSeconds;
+            if (input.ClearEstimatedDuration) item.EstimatedDurationSeconds = null;
+            else if (input.EstimatedDurationSeconds is not null) item.EstimatedDurationSeconds = input.EstimatedDurationSeconds;
+            if (input.EndBehavior is not null || input.Role is not null) item.EndBehavior = nextEndBehavior;
             if (input.AllowSkip is not null) item.AllowSkip = input.AllowSkip.Value;
             if (input.Notes is not null) item.Notes = input.Notes.Trim();
             if (input.FadeInMs is not null) item.FadeInMs = Math.Clamp(input.FadeInMs.Value, 0, 30_000);
@@ -1448,12 +1458,17 @@ public static class AdminApi
                     db.PlaylistItems.RemoveRange(items);
                     break;
                 case "role":
-                    if (input.Role is not ("lesson" or "preRoll" or "countdown"))
-                        return Results.BadRequest(new { error = "Choose main lesson, pre-roll, or countdown." });
+                    if (input.Role is not ("lesson" or "preRoll" or "countdown" or "postLesson"))
+                        return Results.BadRequest(new { error = "Choose main lesson, pre-roll, countdown, or post-lesson." });
                     var role = NormalizeRole(input.Role);
                     if (role == "countdown" && items.Count != 1)
                         return Results.BadRequest(new { error = "A lesson can have only one countdown. Select exactly one item." });
-                    foreach (var item in items) item.Role = role;
+                    foreach (var item in items)
+                    {
+                        item.Role = role;
+                        if (role is "preRoll" or "postLesson") item.EndBehavior = "loop";
+                        else if (item.EndBehavior == "loop") item.EndBehavior = "pause";
+                    }
                     if (role == "countdown")
                     {
                         var item = items[0];
@@ -1614,9 +1629,9 @@ public static class AdminApi
             if (selection.Error is not null) return Results.BadRequest(new { error = selection.Error });
             if (input.FileName is not null)
             {
-                var name = NormalizeMediaName(input.FileName);
+                var name = NormalizeMediaName(input.FileName, media.FileName);
                 if (name is null)
-                    return Results.BadRequest(new { error = "The media name must be between 1 and 255 characters." });
+                    return Results.BadRequest(new { error = "The media name must be between 1 and 255 characters and keep its existing file extension." });
                 var conflict = await FindMediaNameConflictAsync(db, [media.Id], [name], ct);
                 if (conflict is not null)
                     return Results.Conflict(new { error = $"A media item named \u201c{conflict}\u201d already exists. Choose a different name." });
@@ -1675,7 +1690,11 @@ public static class AdminApi
                 string.IsNullOrWhiteSpace(media.RelativePath))
                 return Results.BadRequest(new { error = "Choose a locally stored PDF, PowerPoint, OpenDocument Presentation, Keynote, or Word file." });
             media.ConversionLessonId = lesson.Id;
-            media.ConversionSlideDurationSeconds = Math.Clamp(input.ImageDurationSeconds, 1, 3600);
+            // A missing slide duration means the generated stills remain on the
+            // last frame until the remote queues the next cue. Keep 0 as the
+            // persisted sentinel so existing installations do not need a risky
+            // SQLite column rebuild just to opt into untimed slides.
+            media.ConversionSlideDurationSeconds = Math.Clamp(input.ImageDurationSeconds ?? 0, 0, 3600);
             if (media.ConversionStatus == "ready" && PresentationConversion.SlideIds(media).Count > 0)
             {
                 var count = await PresentationConversion.AddToLessonAsync(db, media, lesson,
@@ -1921,9 +1940,9 @@ public static class AdminApi
                     var names = new Dictionary<Guid, string>();
                     foreach (var item in media)
                     {
-                        var name = NormalizeMediaName(requestedById[item.Id].FileName);
+                        var name = NormalizeMediaName(requestedById[item.Id].FileName, item.FileName);
                         if (name is null)
-                            return Results.BadRequest(new { error = "Each media name must be between 1 and 255 characters." });
+                            return Results.BadRequest(new { error = "Each media name must be between 1 and 255 characters and keep its existing file extension." });
                         names[item.Id] = name;
                     }
 
@@ -3948,11 +3967,22 @@ public static class AdminApi
     private static string NormalizeContentType(string fileName, string? _) =>
         MediaContentInspector.ContentType(Path.GetExtension(fileName));
 
-    private static string? NormalizeMediaName(string? value)
+    private static string? NormalizeMediaName(string? value, string originalName)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
         var name = Path.GetFileName(value.Trim().Replace('\\', '/'));
-        return string.IsNullOrWhiteSpace(name) || name is "." or ".." || name.Length > 255 ? null : name;
+        if (string.IsNullOrWhiteSpace(name) || name is "." or "..") return null;
+        var originalExtension = Path.GetExtension(originalName);
+        var requestedExtension = Path.GetExtension(name);
+        if (!string.IsNullOrEmpty(originalExtension))
+        {
+            if (!string.IsNullOrEmpty(requestedExtension) &&
+                !string.Equals(requestedExtension, originalExtension, StringComparison.OrdinalIgnoreCase))
+                return null;
+            if (string.IsNullOrEmpty(requestedExtension)) name += originalExtension;
+        }
+        else if (!string.IsNullOrEmpty(requestedExtension)) return null;
+        return name.Length > 255 ? null : name;
     }
 
     private static async Task<string?> FindMediaNameConflictAsync(LessonCueDb db, IReadOnlyCollection<Guid> excludedIds,
@@ -4059,7 +4089,9 @@ public static class AdminApi
         foreach (var lesson in lessons) lesson.Version++;
     }
 
-    private static string NormalizeRole(string? role) => role is "preRoll" or "countdown" ? role : "lesson";
+    private static string NormalizeRole(string? role) => role is "preRoll" or "countdown" or "postLesson" ? role : "lesson";
+
+    private static string DefaultEndBehavior(string role) => role is "preRoll" or "postLesson" ? "loop" : "pause";
 
     private static bool TryMonitorUrl(string? value, out string? normalized)
     {
@@ -4078,7 +4110,8 @@ public static class AdminApi
         LessonId = lessonId, Title = source.Title, Type = source.Type, Role = source.Role,
         Position = source.Position, MediaAssetId = source.MediaAssetId, DurationMs = source.DurationMs,
         StartMs = source.StartMs, EndMs = source.EndMs, VolumePercent = source.VolumePercent,
-        ImageDurationSeconds = source.ImageDurationSeconds, EndBehavior = source.EndBehavior,
+        ImageDurationSeconds = source.ImageDurationSeconds, EstimatedDurationSeconds = source.EstimatedDurationSeconds,
+        EndBehavior = source.EndBehavior,
         AllowSkip = source.AllowSkip, Notes = source.Notes, FadeInMs = source.FadeInMs,
         FadeOutMs = source.FadeOutMs, NormalizeAudio = source.NormalizeAudio,
         CuePointsJson = source.CuePointsJson, FitMode = source.FitMode,
@@ -4107,12 +4140,15 @@ public static class AdminApi
         return null;
     }
 
-    private static string? ValidateCueTiming(long startMs, long? endMs, int? imageDurationSeconds, string endBehavior)
+    private static string? ValidateCueTiming(long startMs, long? endMs, int? imageDurationSeconds,
+        int? estimatedDurationSeconds, string endBehavior)
     {
         if (startMs < 0) return "Trim start cannot be negative.";
         if (endMs is not null && endMs <= startMs) return "Trim end must be after trim start.";
         if (imageDurationSeconds is not null && imageDurationSeconds is < 1 or > 3_600)
             return "Still and slide duration must be from 1 second to 1 hour.";
+        if (estimatedDurationSeconds is not null && estimatedDurationSeconds is < 1 or > 3_600)
+            return "Estimated still duration must be from 1 second to 1 hour.";
         if (endBehavior is not ("advance" or "loop" or "pause" or "stop" or "menu" or "playlistLoop"))
             return "Choose a supported end behavior.";
         return null;

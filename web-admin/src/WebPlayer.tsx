@@ -1,7 +1,7 @@
-import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
 
-const APP_VERSION = "0.40.18";
+const APP_VERSION = "0.40.21";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -21,6 +21,7 @@ export type CueItem = {
   endMs?: number;
   volumePercent: number;
   imageDurationSeconds?: number;
+  estimatedDurationSeconds?: number;
   endBehavior: string;
   allowSkip: boolean;
   sourceKind?: string;
@@ -55,6 +56,7 @@ type Playlist = {
   preRollStartsAt?: string;
   countdown?: { enabled: boolean; itemId: string; durationMs: number; startAt?: string; item: CueItem };
   preRoll?: { enabled: boolean; loop: boolean; items: CueItem[] };
+  postLesson?: { enabled: boolean; loop: boolean; items: CueItem[] };
   items: CueItem[];
 };
 export type SignageContentPlaylist = { id: string; name: string; playbackMode: string; synchronization: string; version: number; items: SignagePlaylistEntry[] };
@@ -146,7 +148,7 @@ type ActivePlayback = {
   items: CueItem[];
   index: number;
   seekMs: number;
-  mode: "lesson" | "preroll" | "countdown";
+  mode: "lesson" | "preroll" | "countdown" | "postLesson";
 };
 type PlaybackStatus = {
   state: string;
@@ -242,7 +244,7 @@ export function WebPlayerApp() {
       case "play": {
         const playlist = sourceManifest?.playlists.find(item => item.playlistId === command.lessonId);
         if (!playlist) throw new Error("The requested lesson is not available to this screen.");
-        const allItems = [...(playlist.preRoll?.items || []), ...(playlist.countdown ? [playlist.countdown.item] : []), ...playlist.items];
+        const allItems = [...(playlist.preRoll?.items || []), ...(playlist.countdown ? [playlist.countdown.item] : []), ...playlist.items, ...(playlist.postLesson?.items || [])];
         const selected = command.itemId ? allItems.findIndex(item => item.itemId === command.itemId) : -1;
         startPlayback(playlist, selected >= 0 ? allItems : playlist.items, selected >= 0 ? selected : 0, command.positionMs || 0);
         break;
@@ -298,10 +300,16 @@ export function WebPlayerApp() {
       return;
     }
     repeatProgressRef.current = { itemId: "", completed: 0 };
-    if (item.endBehavior === "loop") {
+    const sectionLoop = current.mode === "preroll" || current.mode === "postLesson";
+    if (sectionLoop) {
+      setActive({ ...current, index: current.index + 1 < current.items.length ? current.index + 1 : 0, seekMs: 0 });
+      setUnlockNonce(value => value + 1);
+    } else if (current.mode === "lesson" && current.index === current.items.length - 1 && current.playlist.postLesson?.items.length) {
+      startPlayback(current.playlist, current.playlist.postLesson.items, 0, 0, "postLesson");
+    } else if (item.endBehavior === "loop") {
       setActive({ ...current, seekMs: 0 });
       setUnlockNonce(value => value + 1);
-    } else if (item.endBehavior === "playlistLoop" || current.mode === "preroll" && current.index === current.items.length - 1) {
+    } else if (item.endBehavior === "playlistLoop") {
       setActive({ ...current, index: 0, seekMs: 0 });
     } else if (item.endBehavior === "advance" && current.index + 1 < current.items.length) {
       moveTo(current.index + 1);
@@ -578,7 +586,7 @@ export function WebPlayerApp() {
       onPlay={playlist => startPlayback(playlist, playlist.items)} />}
 
     {active && controlsVisible && <div className="web-player-overlay">
-      <div><span>{active.mode === "preroll" ? "PRE-ROLL" : active.mode === "countdown" ? "COUNTDOWN" : "NOW PLAYING"}</span><strong>{currentItem?.title}</strong><small>{active.playlist.title} · {active.index + 1} of {active.items.length}</small></div>
+      <div><span>{active.mode === "preroll" ? "PRE-ROLL" : active.mode === "countdown" ? "COUNTDOWN" : active.mode === "postLesson" ? "POST-LESSON" : "NOW PLAYING"}</span><strong>{currentItem?.title}</strong><small>{active.playlist.title} · {active.index + 1} of {active.items.length}</small></div>
       <div className="web-player-transport">
         <button aria-label="Previous media" onClick={() => moveTo(Math.max(0, active.index - 1))}>‹‹</button>
         <button aria-label={paused ? "Resume" : "Pause"} onClick={() => { setPaused(value => !value); setUnlockNonce(value => value + 1); }}>{paused ? "▶" : "Ⅱ"}</button>
@@ -719,7 +727,8 @@ function PlayerLibrary({ manifest, connection, permanentSign, onPlay }: {
 }
 
 function SignageExperience({ signage, children }: { signage: Signage; children: ReactNode }) {
-  const items = signage.contentPlaylist?.items.filter(item => !item.hidden) || [];
+  const playlistItems = signage.contentPlaylist?.items;
+  const items = useMemo(() => playlistItems?.filter(item => !item.hidden) || [], [playlistItems]);
   const [index, setIndex] = useState(0);
   const [interacting, setInteracting] = useState(false);
   const timeoutRef = useRef<number>(0);
@@ -733,7 +742,7 @@ function SignageExperience({ signage, children }: { signage: Signage; children: 
     }
     const timer = window.setTimeout(() => setIndex(nextIndex), 0);
     return () => window.clearTimeout(timer);
-  }, [signage.contentPlaylist?.id, signage.contentPlaylist?.version, signage.contentPlaylist?.synchronization]);
+  }, [signage.contentPlaylist?.id, signage.contentPlaylist?.version, signage.contentPlaylist?.synchronization, items]);
   useEffect(() => {
     if (!items.length || interacting) return;
     const current = items[index % items.length];
@@ -876,7 +885,8 @@ function mediaTransform(zone: SignageZone) {
 }
 
 function SignagePresentation({ zone, signage }: { zone: SignageZone; signage: Signage }) {
-  const items = zone.contentPlaylist?.items.filter(item => !item.hidden) || [];
+  const playlistItems = zone.contentPlaylist?.items;
+  const items = useMemo(() => playlistItems?.filter(item => !item.hidden) || [], [playlistItems]);
   const [index, setIndex] = useState(0);
   const [streamLive, setStreamLive] = useState(false);
   const streamOverrideActive = useScheduledStreamOverride(zone);
@@ -1242,9 +1252,9 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
       if (!paused) position += now - previous;
       previous = now;
       setImagePosition(position);
-      setOpacity(visualOpacity(item, position, duration));
+      setOpacity(visualOpacity(item, position, duration ?? Number.MAX_SAFE_INTEGER));
       onStatus({ state: paused ? "paused" : "playing", lessonId: playlist.playlistId, itemId: item.itemId, positionMs: Math.round(position), durationMs: duration, volumePercent: item.volumePercent });
-      if (position >= duration) {
+      if (duration != null && position >= duration) {
         window.clearInterval(timer);
         onEnded();
       }
@@ -1303,11 +1313,12 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
     const media = mediaRef.current;
     if (!media) return;
     const position = Math.max(0, (media.currentTime * 1_000) - item.startMs);
-    const resolvedDuration = duration || Math.max(0, media.duration * 1_000 - item.startMs);
-    const fade = fadeOpacity(item, position, resolvedDuration);
-    setOpacity(visualOpacity(item, position, resolvedDuration));
+    const resolvedDuration = duration ?? (Number.isFinite(media.duration) ? Math.max(0, media.duration * 1_000 - item.startMs) : undefined);
+    const visualDuration = resolvedDuration ?? Number.MAX_SAFE_INTEGER;
+    const fade = fadeOpacity(item, position, visualDuration);
+    setOpacity(visualOpacity(item, position, visualDuration));
     media.volume = item.muted ? 0 : Math.min(1, Math.max(0, item.volumePercent / 100) * fade);
-    onStatus({ state: media.paused ? "paused" : "playing", lessonId: playlist.playlistId, itemId: item.itemId, positionMs: Math.round(position), durationMs: Math.round(resolvedDuration), volumePercent: item.volumePercent });
+    onStatus({ state: media.paused ? "paused" : "playing", lessonId: playlist.playlistId, itemId: item.itemId, positionMs: Math.round(position), durationMs: resolvedDuration == null ? undefined : Math.round(resolvedDuration), volumePercent: item.volumePercent });
     if (item.endMs && media.currentTime * 1_000 >= item.endMs) {
       media.pause();
       onEnded();
@@ -1492,10 +1503,11 @@ function schedulePhase(playlist: Playlist): { kind: "idle" | "preroll" | "countd
   return playlist.preRoll?.items.length && now >= preRollStart ? { kind: "preroll", seekMs: 0 } : { kind: "idle", seekMs: 0 };
 }
 
-function effectiveDuration(item: CueItem) {
+function effectiveDuration(item: CueItem): number | undefined {
   if (item.endMs != null) return Math.max(0, item.endMs - item.startMs);
   if (item.durationMs != null) return Math.max(0, item.durationMs - item.startMs);
-  return Math.max(1, item.imageDurationSeconds || 10) * 1_000;
+  if (item.imageDurationSeconds != null) return Math.max(1, item.imageDurationSeconds) * 1_000;
+  return undefined;
 }
 
 function fadeOpacity(item: CueItem, position: number, duration: number) {
@@ -1536,6 +1548,7 @@ function manifestItemCount(manifest?: Manifest) {
     ...playlist.items,
     ...(playlist.preRoll?.items || []),
     ...(playlist.countdown ? [playlist.countdown.item] : []),
+    ...(playlist.postLesson?.items || []),
   ]) || [];
   const signageItems = manifest?.signageSchedule?.flatMap(sign => sign.media ? [sign.media] : []) || [];
   return new Set([...lessonItems, ...signageItems].map(item => item.itemId)).size;

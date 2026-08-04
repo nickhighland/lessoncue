@@ -59,8 +59,8 @@ test("primary administration paths meet the automated WCAG 2.2 AA baseline", asy
 
   await scan(page, "dashboard");
 
-  await page.getByRole("button", { name: /Classes$/ }).click();
-  await expect(page.getByRole("heading", { name: "Classes & lessons" })).toBeVisible();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
+  await expect(page.getByRole("heading", { name: "Lessons" })).toBeVisible();
   await scan(page, "classes");
 
   await page.getByRole("button", { name: /Media Library$/ }).click();
@@ -76,7 +76,7 @@ test("confirmation dialogs trap focus, close with Escape, and restore focus", as
   page,
 }) => {
   await authenticate(page);
-  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.locator(".class-list button").first().click();
   await page.getByRole("button", { name: "Edit class" }).click();
   const deleteButton = page.getByRole("button", {

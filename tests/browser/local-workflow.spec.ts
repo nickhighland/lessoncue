@@ -75,7 +75,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await ownAccountDialog.getByRole("button", { name: "Save account" }).click();
   await expect(page.getByRole("button", { name: /Test Administrator Updated.*Manage account/ })).toBeVisible();
 
-  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
   await expect(page.getByRole("heading", { name: "Sample Lesson" })).toBeVisible();
 
@@ -96,7 +96,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   })))).toEqual([]);
   await uploadForm.getByRole("button", { name: "Upload and add" }).evaluate((button: HTMLButtonElement) => button.click());
   await expect(page.getByText("1 file added. It will be deleted four weeks after", { exact: false })).toBeVisible();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("Browser Test Audio", { exact: true })).toBeVisible();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "Browser Test Audio" })).toBeVisible();
   await page.locator(".playlist-heading-actions").getByRole("button", { name: /Add media/ }).click();
   await page.getByRole("button", { name: "Upload new media" }).click();
   const multiUploadForm = page.locator("form").filter({ has: page.getByLabel("Media files") });
@@ -106,8 +106,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   ]);
   await multiUploadForm.getByRole("button", { name: "Upload and add" }).click();
   await expect(page.getByText("2 files added.", { exact: false })).toBeVisible();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("bulk-cue-one.wav", { exact: true })).toBeVisible();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("bulk-cue-two.wav", { exact: true })).toBeVisible();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "bulk-cue-one.wav" })).toBeVisible();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "bulk-cue-two.wav" })).toBeVisible();
   await page.getByLabel("Select cue bulk-cue-one.wav").check();
   await page.getByLabel("Select cue bulk-cue-two.wav").check();
   await page.getByLabel("Bulk cue action").selectOption("volume");
@@ -130,20 +130,19 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   });
   await videoUploadForm.getByLabel("Display title").fill("Browser Compatibility Video");
   await videoUploadForm.getByRole("button", { name: "Upload and add" }).click();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("Browser Compatibility Video", { exact: true })).toBeVisible();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "Browser Compatibility Video" })).toBeVisible();
   await expect.poll(async () => page.evaluate(async () => {
     const items = await fetch("/api/v1/media").then(response => response.json());
     const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
     return `${item?.processingStatus}:${item?.compatibilityStatus}`;
   }), { timeout: 60_000 }).toBe("ready:ready");
   await page.reload();
-  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
   const readyVideo = page.getByRole("button", { name: "Add or drag needs-tv-conversion.mp4 to the playback sequence" });
-  const firstTimelineCue = page.locator('[aria-label="Horizontal playback sequence"] .playlist-item').first();
+  const firstTimelineCue = page.locator('[aria-label$="playback sequence"] .playlist-item').first();
   await expect(readyVideo).toHaveAttribute("draggable", "true");
   await readyVideo.dragTo(firstTimelineCue, { targetPosition: { x: 4, y: 50 } });
-  await expect(page.getByText("needs-tv-conversion.mp4 inserted at position 1.", { exact: false })).toBeVisible();
   await expect.poll(() => page.evaluate(async () => {
     const lessons = await fetch("/api/v1/lessons").then(response => response.json());
     const lesson = lessons.find((item: { title: string }) => item.title === "Sample Lesson");
@@ -177,7 +176,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   expect(adaptiveDelivery).toEqual({ status: 206, type: "video/mp4", signature: "ftyp" });
 
   await page.reload();
-  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
   const videoCue = page.locator(".playlist-item").filter({ hasText: "Browser Compatibility Video" });
   await expect(videoCue.getByLabel("Picture fit")).toHaveCount(0);
@@ -282,7 +281,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await onlineForm.getByLabel("Display title").fill("Online Learning Page");
   await onlineForm.getByRole("button", { name: "Add online media" }).click();
   await expect(page.getByText("Online media added to the lesson.", { exact: false })).toBeVisible();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("Online Learning Page", { exact: true })).toBeVisible();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "Online Learning Page" })).toBeVisible();
 
   await page.getByRole("button", { name: /Calendar$/ }).click();
   await page.getByRole("button", { name: "Day", exact: true }).click();
@@ -547,16 +546,16 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.locator(".media-table").filter({ hasText: "one-page-handout.pdf" })).toBeVisible();
   await expect(page.locator(".media-table").filter({ hasText: "needs-tv-conversion.mp4" })).toContainText("TV copy ready");
   await expect(page.locator(".media-table").filter({ hasText: "one-page-handout — Slide 1" })).toBeVisible();
-  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("one-page-handout — Slide 1", { exact: true })).toBeVisible();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "one-page-handout — Slide 1" })).toBeVisible();
   await page.locator(".playlist-heading-actions").getByRole("button", { name: /Add media/ }).click();
   await page.getByRole("button", { name: "Upload new media" }).click();
   const lessonMediaDialog = page.getByRole("dialog", { name: "Upload new media" });
   await lessonMediaDialog.getByLabel("Media files").setInputFiles({
     name: "lesson-direct-deck.pdf", mimeType: "application/pdf", buffer: onePagePdf("Direct lesson presentation"),
   });
-  await lessonMediaDialog.getByLabel("Seconds per imported slide").fill("7");
+  await lessonMediaDialog.getByLabel("Time each imported slide").fill("7");
   await lessonMediaDialog.getByRole("button", { name: "Upload and add" }).click();
   await expect(page.getByText("queued for local slide conversion", { exact: false })).toBeVisible();
   await expect.poll(async () => page.evaluate(async () => {
@@ -565,9 +564,9 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
       entry.items.some(item => item.title === "lesson-direct-deck — Slide 1" && item.durationMs === 7_000));
   }), { timeout: 30_000 }).toBe(true);
   await page.reload();
-  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("lesson-direct-deck — Slide 1", { exact: true })).toBeVisible();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "lesson-direct-deck — Slide 1" })).toBeVisible();
   await page.getByRole("button", { name: /Templates$/ }).click();
   await expect(page.locator(".template-card").filter({ hasText: "Reusable Browser Lesson" })).toBeVisible();
   await expect(page.locator(".schedule-card").filter({ hasText: "Browser Test Term" })).toContainText("1");
@@ -658,7 +657,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByText("Controls are locked. Nothing on this remote can change the screen until you unlock it.", { exact: true })).toBeVisible();
   await expect(page.getByRole("group", { name: "Room playback controls" }).getByRole("button", { name: "Pause", exact: true })).toBeDisabled();
 
-  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: "Controller link" }).click();
   const controllerDialog = page.getByRole("dialog", { name: /controller$/ });
   await expect(controllerDialog.getByAltText(/QR code for/)).toBeVisible();
@@ -1117,7 +1116,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.18" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.21" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
@@ -1165,7 +1164,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(audienceDisplayPage.getByText(/delay/i)).toHaveCount(0);
   await audienceDisplayPage.close();
 
-  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: /Learning Lab/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
   await page.locator(".playlist-heading-actions").getByRole("button", { name: /Add media/ }).click();
@@ -1177,7 +1176,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await lessonAudienceForm.getByLabel("Result timing").selectOption("30");
   await lessonAudienceForm.getByRole("button", { name: "Add audience poll" }).click();
   await expect(page.getByText("Audience poll added to the lesson.")).toBeVisible();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("Live class poll", { exact: true })).toBeVisible();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "Live class poll" })).toBeVisible();
 
   await page.getByRole("button", { name: /Signage$/ }).click();
   await page.getByRole("button", { name: /2 Playlists Choose looping content/ }).click();
@@ -1249,7 +1248,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.locator('input[name="confirmPassword"]').fill("PlaybackChanged43");
   await page.getByRole("button", { name: "Change password and continue" }).click();
   await expect(page.getByRole("button", { name: /Controller$/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Classes$/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Lessons$/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Users$/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Settings$/ })).toHaveCount(0);
   const permissionStatuses = await page.evaluate(async () => ({

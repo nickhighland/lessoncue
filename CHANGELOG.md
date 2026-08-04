@@ -4,6 +4,23 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.21 — compact lesson builder and reliable media workflows
+
+### User changes
+
+- Lessons now use compact horizontal timeline cards with visual previews, notes, durations, and Advanced Options menus.
+- Playback is organized into Pre-Roll, Countdown, Main Lesson, Post Lesson, and Total sections, with looping pre-roll/post-lesson media and drag-and-drop Ready media.
+- Still images and slides can remain untimed while carrying an optional expected lesson-duration estimate; new cues pause at the last frame by default.
+- Media Library renaming preserves file extensions, and media-type filtering makes large libraries easier to browse.
+- Linux media uploads now process correctly on installations affected by Bubblewrap capability restrictions.
+
+### Developer changes
+
+- Added section-aware manifest playback for post-lesson loops across the web player and Android TV client.
+- Repaired visual trim/fade pointer interaction and added a pointer fallback for reliable timeline drag insertion.
+- Added extension-preserving rename validation, untimed presentation conversion, and protected media-worker capability isolation.
+- Release metadata and Android version code advance to 0.40.21 and 80.
+
 ## v0.40.20 — compact lesson timeline controls
 
 ### User changes
