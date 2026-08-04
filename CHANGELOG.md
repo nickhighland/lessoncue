@@ -4,6 +4,11 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.26 — signage drag-and-drop release fix
+
+- Preserve the active media identifier across the browser drag lifecycle so dragging ready media into an empty signage playlist reliably creates the first timeline card.
+- Keep the existing signage horizontal timeline, duration controls, notes, and item settings behavior unchanged.
+
 ## v0.40.25 — Android TV redesign and media workflow reliability
 
 ### User changes

@@ -553,6 +553,7 @@ export function SimpleSignage({
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState("All changes saved");
   const [draggedMediaId, setDraggedMediaId] = useState<string>();
+  const draggedMediaIdRef = useRef<string | undefined>(undefined);
   const [mediaDropIndex, setMediaDropIndex] = useState<number>();
   const pointerMediaDrag = useRef<{
     mediaId: string;
@@ -776,6 +777,7 @@ export function SimpleSignage({
       startY: event.clientY,
       moved: false,
     };
+    draggedMediaIdRef.current = item.id;
     setDraggedMediaId(item.id);
     setMediaDropIndex(playlistDraft?.items.length || 0);
   }
@@ -801,6 +803,7 @@ export function SimpleSignage({
         (candidate) => candidate.id === drag.mediaId,
       );
       pointerMediaDrag.current = undefined;
+      draggedMediaIdRef.current = undefined;
       setDraggedMediaId(undefined);
       setMediaDropIndex(undefined);
       if (!cancelled && drag.moved && item && index != null) {
@@ -838,6 +841,7 @@ export function SimpleSignage({
     item: Media,
   ) {
     pointerMediaDrag.current = undefined;
+    draggedMediaIdRef.current = item.id;
     setDraggedMediaId(item.id);
     setMediaDropIndex(playlistDraft?.items.length || 0);
     event.dataTransfer.effectAllowed = "copy";
@@ -858,8 +862,10 @@ export function SimpleSignage({
     const mediaId =
       event.dataTransfer.getData("application/x-lessoncue-signage-media-id") ||
       event.dataTransfer.getData("text/plain") ||
+      draggedMediaIdRef.current ||
       draggedMediaId;
     const item = readyMedia.find((candidate) => candidate.id === mediaId);
+    draggedMediaIdRef.current = undefined;
     setDraggedMediaId(undefined);
     setMediaDropIndex(undefined);
     if (item) {
@@ -870,6 +876,7 @@ export function SimpleSignage({
 
   function finishMediaDrag() {
     pointerMediaDrag.current = undefined;
+    draggedMediaIdRef.current = undefined;
     setDraggedMediaId(undefined);
     setMediaDropIndex(undefined);
   }
