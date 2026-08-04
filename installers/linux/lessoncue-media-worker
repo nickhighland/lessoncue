@@ -59,6 +59,9 @@ sandbox=(
   --unshare-ipc
   --unshare-uts
   --unshare-cgroup-try
+  # Keep the sandbox payload capability-free even if bwrap was installed with
+  # stale file capabilities by an older package or hardening recipe.
+  --cap-drop ALL
   --clearenv
   --setenv PATH /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
   --setenv LC_ALL C

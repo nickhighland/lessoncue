@@ -93,6 +93,8 @@ public sealed class ManifestService(LessonCueDb db)
             : (DateTimeOffset?)null;
         var preRollItems = ordered.Where(x => x.Role == "preRoll")
             .Select(x => MapItem(x, screen, lesson.VolumePercent, lesson.Muted)).ToArray();
+        var postLessonItems = ordered.Where(x => x.Role == "postLesson")
+            .Select(x => MapItem(x, screen, lesson.VolumePercent, lesson.Muted)).ToArray();
 
         return new
         {
@@ -119,6 +121,12 @@ public sealed class ManifestService(LessonCueDb db)
                 enabled = true,
                 loop = true,
                 items = preRollItems
+            },
+            postLesson = postLessonItems.Length == 0 ? null : new
+            {
+                enabled = true,
+                loop = true,
+                items = postLessonItems
             },
             items = ordered.Where(x => x.Role == "lesson")
                 .Select(x => MapItem(x, screen, lesson.VolumePercent, lesson.Muted)).ToArray()
@@ -178,6 +186,7 @@ public sealed class ManifestService(LessonCueDb db)
             configuredVolumePercent = item.VolumePercent,
             item.Muted,
             item.ImageDurationSeconds,
+            item.EstimatedDurationSeconds,
             item.EndBehavior,
             item.AllowSkip,
             offlineEligible = media?.OfflineEligible ?? false,

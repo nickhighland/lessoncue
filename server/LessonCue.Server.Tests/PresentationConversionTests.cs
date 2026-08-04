@@ -41,6 +41,32 @@ public sealed class PresentationConversionTests
         Assert.True(await db.AuditEvents.AnyAsync(x => x.Action == "presentation.add-to-lesson", ct));
     }
 
+    [Fact]
+    public async Task MissingSlideDurationCreatesUntimedStillCues()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(ct);
+        var options = new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options;
+        await using var db = new LessonCueDb(options);
+        await db.Database.EnsureCreatedAsync(ct);
+        var lessonClass = new LessonClass { Name = "Training" };
+        var lesson = new Lesson { ClassId = lessonClass.Id, Date = new DateOnly(2026, 9, 11), Title = "Untimed deck" };
+        var slide = new MediaAsset { FileName = "Deck — Slide 1", RelativePath = "slide-1.png",
+            SourceKind = "presentation-slide", StoragePolicy = MediaRetention.LessonScoped };
+        var source = new MediaAsset { FileName = "Deck.pdf", RelativePath = "deck.pdf", ConversionStatus = "ready",
+            ConvertedSlidesJson = JsonSerializer.Serialize(new[] { slide.Id }) };
+        db.AddRange(lessonClass, lesson, slide, source);
+        await db.SaveChangesAsync(ct);
+
+        await PresentationConversion.AddToLessonAsync(db, source, lesson, null, "owner", ct);
+
+        var item = await db.PlaylistItems.SingleAsync(ct);
+        Assert.Null(item.DurationMs);
+        Assert.Null(item.ImageDurationSeconds);
+        Assert.Equal("pause", item.EndBehavior);
+    }
+
     [Theory]
     [InlineData("slides.pdf")]
     [InlineData("legacy.ppt")]

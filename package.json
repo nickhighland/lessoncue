@@ -1,6 +1,6 @@
 {
   "name": "lessoncue",
-  "version": "0.40.20",
+  "version": "0.40.21",
   "private": true,
   "engines": {
     "node": ">=22.13.0"

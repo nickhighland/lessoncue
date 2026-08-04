@@ -319,7 +319,7 @@ type PlaylistItem = {
   id: string;
   title: string;
   type: string;
-  role: "lesson" | "preRoll" | "countdown";
+  role: "lesson" | "preRoll" | "countdown" | "postLesson";
   position: number;
   mediaAssetId?: string;
   mediaFileName?: string;
@@ -345,6 +345,7 @@ type PlaylistItem = {
   playbackRatePercent: number;
   repeatCount: number;
   imageDurationSeconds?: number;
+  estimatedDurationSeconds?: number;
   backgroundColor: string;
   transitionStyle: "cut" | "fade-black";
   transitionDurationMs: number;
@@ -2189,7 +2190,7 @@ function Shell({
       : []),
     ...(canPlan
       ? [
-          { key: "classes" as View, icon: "▤", label: "Classes" },
+          { key: "classes" as View, icon: "▤", label: "Lessons" },
           { key: "templates" as View, icon: "↻", label: "Templates" },
           { key: "audience" as View, icon: "◉", label: "Audience" },
         ]
@@ -2675,7 +2676,7 @@ function Dashboard({
         <button className="dashboard-action-card" onClick={() => onNavigate("classes")}>
           <div className="action-icon">▤</div>
           <div>
-            <strong>Classes</strong>
+            <strong>Lessons</strong>
             <small>Plan lessons &amp; playlists</small>
           </div>
         </button>
@@ -3155,7 +3156,7 @@ function ClassesView({
     <>
       <PageHead
         eyebrow="PROGRAMMING"
-        title="Classes & lessons"
+        title="Lessons"
         detail="Schedule lessons and compose exactly what your screens will play."
         action={
           <button
@@ -3707,7 +3708,18 @@ function LessonEditor({
   const [relocateAction, setRelocateAction] = useState<"copy" | "move">("copy");
   const [draggedLibraryMediaId, setDraggedLibraryMediaId] = useState<string>();
   const [libraryDropIndex, setLibraryDropIndex] = useState<number>();
+  const [activeSequenceSection, setActiveSequenceSection] = useState<"total" | PlaylistItem["role"]>("total");
   const items = [...lesson.items].sort((a, b) => a.position - b.position);
+  const libraryDropIndexRef = useRef<number | undefined>(undefined);
+  const libraryPointerDragRef = useRef<{
+    mediaId: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | undefined>(undefined);
+  const libraryDropHandledRef = useRef(false);
+  const suppressLibraryClickUntilRef = useRef(0);
   useEffect(() => {
     if (!showAdd) return;
     void api<AudiencePollOption[]>("/api/v1/audience/admin/sessions")
@@ -3716,6 +3728,15 @@ function LessonEditor({
   }, [showAdd]);
   const countdown = items.find((i) => i.role === "countdown");
   const lessonItems = items.filter((item) => item.role === "lesson");
+  const sequenceSections: { role: PlaylistItem["role"]; label: string; loop?: boolean }[] = [
+    { role: "preRoll", label: "Pre-Roll", loop: true },
+    { role: "countdown", label: "Countdown" },
+    { role: "lesson", label: "Main Lesson" },
+    { role: "postLesson", label: "Post Lesson", loop: true },
+  ];
+  const visibleSequenceItems = items
+    .map((item, globalIndex) => ({ item, globalIndex }))
+    .filter(({ item }) => activeSequenceSection === "total" || item.role === activeSequenceSection);
   const plannedDurationMs = lessonItems.reduce(
     (total, item) => total + cuePlannedDurationMs(item),
     0,
@@ -3750,6 +3771,10 @@ function LessonEditor({
         item.sourceKind === "link") &&
       item.processingStatus === "ready",
   );
+  const playableMediaRef = useRef(playableMedia);
+  useEffect(() => {
+    playableMediaRef.current = playableMedia;
+  }, [playableMedia]);
   async function updateLesson(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget));
@@ -3816,8 +3841,9 @@ function LessonEditor({
         startMs: 0,
         endMs: null,
         volumePercent: 100,
-        imageDurationSeconds: type === "image" ? 10 : null,
-        endBehavior: role === "preRoll" ? "loop" : "advance",
+        imageDurationSeconds: null,
+        estimatedDurationSeconds: null,
+        endBehavior: defaultEndBehaviorForRole(role),
         allowSkip: true,
       }),
     });
@@ -3842,11 +3868,27 @@ function LessonEditor({
     if (index >= items.length) return items[items.length - 1].position + 1000;
     return (items[index - 1].position + items[index].position) / 2;
   }
+  async function moveVisible(index: number, delta: number) {
+    const targetIndex = index + delta;
+    if (index < 0 || targetIndex < 0 || targetIndex >= visibleSequenceItems.length) return;
+    const reordered = [...items];
+    const sourceGlobalIndex = visibleSequenceItems[index].globalIndex;
+    const targetGlobalIndex = visibleSequenceItems[targetIndex].globalIndex;
+    [reordered[sourceGlobalIndex], reordered[targetGlobalIndex]] = [
+      reordered[targetGlobalIndex],
+      reordered[sourceGlobalIndex],
+    ];
+    await api(`/api/v1/lessons/${lesson.id}/reorder`, {
+      method: "POST",
+      body: JSON.stringify({ itemIds: reordered.map((item) => item.id) }),
+    });
+    refresh();
+  }
   async function addLibraryMedia(asset: Media, index = items.length) {
     try {
       await addAssetToLesson(
         asset,
-        "lesson",
+        activeSequenceSection === "total" ? "lesson" : activeSequenceSection,
         undefined,
         positionForLibraryDrop(index),
       );
@@ -3860,39 +3902,129 @@ function LessonEditor({
       notify(errorText(e));
     }
   }
-  function libraryDragStart(event: ReactDragEvent<HTMLButtonElement>, asset: Media) {
+  const addLibraryMediaRef = useRef(addLibraryMedia);
+  useEffect(() => {
+    addLibraryMediaRef.current = addLibraryMedia;
+  });
+  function libraryDropIndexAtPoint(clientX: number, clientY: number) {
+    const target = document.elementFromPoint(clientX, clientY);
+    const card = target?.closest<HTMLElement>(".playlist-item");
+    if (!card) return undefined;
+    const cardIndex = Number(card.dataset.sequenceIndex);
+    if (!Number.isInteger(cardIndex)) return undefined;
+    const bounds = card.getBoundingClientRect();
+    return clientX < bounds.left + bounds.width / 2 ? cardIndex : cardIndex + 1;
+  }
+  function beginLibraryPointerDrag(event: ReactPointerEvent<HTMLButtonElement>, asset: Media) {
+    if ((event.pointerType === "mouse" && event.button !== 0) || !event.isPrimary) return;
+    libraryDropHandledRef.current = false;
+    libraryPointerDragRef.current = {
+      mediaId: asset.id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    };
+    event.currentTarget.draggable = false;
+    libraryDropIndexRef.current = items.length;
     setDraggedLibraryMediaId(asset.id);
+    setLibraryDropIndex(items.length);
+  }
+  useEffect(() => {
+    if (!draggedLibraryMediaId) return;
+    const finishPointerDrag = (event: PointerEvent, cancelled = false) => {
+      const drag = libraryPointerDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const index = libraryDropIndexAtPoint(event.clientX, event.clientY) ?? libraryDropIndexRef.current;
+      const asset = playableMediaRef.current.find((item) => item.id === drag.mediaId);
+      const shouldDrop = drag.moved && !cancelled && !libraryDropHandledRef.current && asset && index != null;
+      libraryPointerDragRef.current = undefined;
+      setDraggedLibraryMediaId(undefined);
+      libraryDropIndexRef.current = undefined;
+      setLibraryDropIndex(undefined);
+      if (shouldDrop) {
+        libraryDropHandledRef.current = true;
+        suppressLibraryClickUntilRef.current = Date.now() + 500;
+        void addLibraryMediaRef.current?.(asset, index);
+      }
+    };
+    const handlePointerMove = (event: PointerEvent) => {
+      const drag = libraryPointerDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6) return;
+      drag.moved = true;
+      event.preventDefault();
+      const index = libraryDropIndexAtPoint(event.clientX, event.clientY);
+      if (index == null) return;
+      libraryDropIndexRef.current = index;
+      setLibraryDropIndex(index);
+    };
+    const handlePointerUp = (event: PointerEvent) => finishPointerDrag(event);
+    const handlePointerCancel = (event: PointerEvent) => finishPointerDrag(event, true);
+    document.addEventListener("pointermove", handlePointerMove, { passive: false });
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handlePointerCancel);
+    return () => {
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handlePointerCancel);
+    };
+  }, [draggedLibraryMediaId]);
+  function libraryDragStart(event: ReactDragEvent<HTMLButtonElement>, asset: Media) {
+    libraryPointerDragRef.current = undefined;
+    libraryDropHandledRef.current = false;
+    setDraggedLibraryMediaId(asset.id);
+    libraryDropIndexRef.current = items.length;
     setLibraryDropIndex(items.length);
     event.dataTransfer.effectAllowed = "copy";
     event.dataTransfer.setData("application/x-lessoncue-media-id", asset.id);
     event.dataTransfer.setData("text/plain", asset.id);
   }
   function libraryDragOver(event: ReactDragEvent<HTMLElement>, index: number) {
-    if (!draggedLibraryMediaId && !event.dataTransfer.types.includes("application/x-lessoncue-media-id")) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
     const card = (event.target as HTMLElement).closest<HTMLElement>(".playlist-item");
     if (!card) {
-      setLibraryDropIndex(items.length ? index : 0);
+      const nextIndex = items.length ? index : 0;
+      libraryDropIndexRef.current = nextIndex;
+      setLibraryDropIndex(nextIndex);
       return;
     }
     const bounds = card.getBoundingClientRect();
-    setLibraryDropIndex(event.clientX < bounds.left + bounds.width / 2 ? index : index + 1);
+    const nextIndex = event.clientX < bounds.left + bounds.width / 2 ? index : index + 1;
+    libraryDropIndexRef.current = nextIndex;
+    setLibraryDropIndex(nextIndex);
   }
   async function libraryDrop(event: ReactDragEvent<HTMLElement>) {
     event.preventDefault();
+    if (libraryDropHandledRef.current) return;
     const mediaId =
       event.dataTransfer.getData("application/x-lessoncue-media-id") ||
       event.dataTransfer.getData("text/plain") ||
       draggedLibraryMediaId;
     const asset = playableMedia.find((item) => item.id === mediaId);
-    const index = libraryDropIndex ?? items.length;
+    const card = (event.target as HTMLElement).closest<HTMLElement>(".playlist-item");
+    let index = libraryDropIndexRef.current ?? libraryDropIndex;
+    if (card) {
+      const cardIndex = Number(card.dataset.sequenceIndex);
+      if (Number.isInteger(cardIndex)) {
+        const bounds = card.getBoundingClientRect();
+        index = event.clientX < bounds.left + bounds.width / 2 ? cardIndex : cardIndex + 1;
+      }
+    }
+    index ??= items.length;
+    libraryDropHandledRef.current = true;
+    suppressLibraryClickUntilRef.current = Date.now() + 500;
+    libraryPointerDragRef.current = undefined;
     setDraggedLibraryMediaId(undefined);
+    libraryDropIndexRef.current = undefined;
     setLibraryDropIndex(undefined);
     if (asset) await addLibraryMedia(asset, index);
   }
   function libraryDragEnd() {
+    libraryPointerDragRef.current = undefined;
     setDraggedLibraryMediaId(undefined);
+    libraryDropIndexRef.current = undefined;
     setLibraryDropIndex(undefined);
   }
   async function uploadAndAdd(event: FormEvent<HTMLFormElement>) {
@@ -3903,6 +4035,11 @@ function LessonEditor({
       .filter((item): item is File => item instanceof File && item.size > 0);
     if (!files.length) return;
     const role = String(form.get("role") || "lesson");
+    const slideDurationValue = form.get("slideSeconds");
+    const slideDuration =
+      typeof slideDurationValue === "string" && slideDurationValue.trim()
+        ? Number(slideDurationValue)
+        : null;
     if (role === "countdown" && files.length > 1) {
       notify(
         "Choose one file when adding a countdown; a lesson can have only one countdown.",
@@ -3944,7 +4081,7 @@ function LessonEditor({
             method: "POST",
             body: JSON.stringify({
               lessonId: lesson.id,
-              imageDurationSeconds: Number(form.get("slideSeconds") || 10),
+              imageDurationSeconds: Number.isFinite(slideDuration) ? slideDuration : null,
             }),
           });
         } else {
@@ -3981,6 +4118,11 @@ function LessonEditor({
     const doNotDownload = form.get("doNotDownload") === "on";
     const download = onlineMode === "download" && !doNotDownload;
     const importPresentation = onlineMode === "slides";
+    const slideDurationValue = form.get("slideSeconds");
+    const slideDuration =
+      typeof slideDurationValue === "string" && slideDurationValue.trim()
+        ? Number(slideDurationValue)
+        : null;
     setUploading(true);
     try {
       const persistent =
@@ -4003,7 +4145,7 @@ function LessonEditor({
           method: "POST",
           body: JSON.stringify({
             lessonId: lesson.id,
-            imageDurationSeconds: Number(form.get("slideSeconds") || 10),
+            imageDurationSeconds: Number.isFinite(slideDuration) ? slideDuration : null,
           }),
         });
       else
@@ -4084,20 +4226,6 @@ function LessonEditor({
     )
       return;
     await api(`/api/v1/playlist-items/${id}`, { method: "DELETE" });
-    refresh();
-  }
-  async function move(index: number, delta: number) {
-    const reordered = [...items];
-    const target = index + delta;
-    if (target < 0 || target >= items.length) return;
-    [reordered[index], reordered[target]] = [
-      reordered[target],
-      reordered[index],
-    ];
-    await api(`/api/v1/lessons/${lesson.id}/reorder`, {
-      method: "POST",
-      body: JSON.stringify({ itemIds: reordered.map((i) => i.id) }),
-    });
     refresh();
   }
   function toggleCue(id: string) {
@@ -4273,14 +4401,15 @@ function LessonEditor({
                           <option value="lesson">Main lesson</option>
                           <option value="preRoll">Pre-roll loop</option>
                           <option value="countdown">Countdown video (one file)</option>
+                          <option value="postLesson">Post-lesson loop</option>
                         </select>
                       </Field>
                       <Field label="Display title" hint="Used only when one non-presentation file is selected.">
                         <input name="title" placeholder="Use filename" />
                       </Field>
                     </div>
-                    <Field label="Seconds per imported slide" hint="Used only for presentation files.">
-                      <input name="slideSeconds" type="number" min="1" max="3600" defaultValue="10" />
+                    <Field label="Time each imported slide" hint="Optional. Leave blank to keep each slide untimed until the remote queues the next cue.">
+                      <input name="slideSeconds" type="number" min="1" max="3600" placeholder="Untimed" />
                     </Field>
                     <button type="submit" className="button primary" disabled={uploading}>
                       {uploading ? `Uploading ${uploadProgress}%` : "Upload and add"}
@@ -4370,13 +4499,13 @@ function LessonEditor({
                     <div className="two-fields">
                       {onlineMode === "download" && (
                         <Field label="Playlist role">
-                          <select name="role"><option value="lesson">Main lesson</option><option value="preRoll">Pre-roll loop</option><option value="countdown">Countdown video</option></select>
+                          <select name="role"><option value="lesson">Main lesson</option><option value="preRoll">Pre-roll loop</option><option value="countdown">Countdown video</option><option value="postLesson">Post-lesson loop</option></select>
                         </Field>
                       )}
                       <Field label="Display title">
                         <input name="title" maxLength={240} placeholder={onlineMode === "download" ? "YouTube video" : onlineMode === "slides" ? "Presentation title" : "Use website name"} />
                       </Field>
-                      {onlineMode === "slides" && <Field label="Seconds per slide"><input name="slideSeconds" type="number" min="1" max="3600" defaultValue="10" /></Field>}
+                      {onlineMode === "slides" && <Field label="Time each slide" hint="Optional; blank keeps imported slides untimed."><input name="slideSeconds" type="number" min="1" max="3600" placeholder="Untimed" /></Field>}
                     </div>
                     <button className="button primary" disabled={uploading}>
                       {uploading ? "Adding…" : onlineMode === "download" ? "Queue download and add" : onlineMode === "slides" ? "Import slides and add" : "Add online media"}
@@ -4395,7 +4524,7 @@ function LessonEditor({
                     </Field>
                     <div className="two-fields">
                       <Field label="Playlist role">
-                        <select name="role"><option value="lesson">Main lesson</option><option value="preRoll">Pre-roll loop</option><option value="countdown">Countdown video</option></select>
+                        <select name="role"><option value="lesson">Main lesson</option><option value="preRoll">Pre-roll loop</option><option value="countdown">Countdown video</option><option value="postLesson">Post-lesson loop</option></select>
                       </Field>
                       <Field label="Display title"><input name="title" placeholder="Use media filename" /></Field>
                     </div>
@@ -4640,7 +4769,7 @@ function LessonEditor({
           <div>
             <span className="section-label">PLAYLIST BUILDER</span>
             <h2>Playback sequence</h2>
-            <p>Arrange pre-roll, countdown, and lesson media in the order the room will see it.</p>
+            <p>Arrange pre-roll, countdown, main lesson, and post-lesson media in the order the room will see it.</p>
           </div>
           <div className="playlist-heading-actions">
             <span className="pill">{items.length} items</span>
@@ -4675,10 +4804,11 @@ function LessonEditor({
                 <option value="lesson">Main lesson</option>
                 <option value="preRoll">Pre-roll</option>
                 {selectedCues.length === 1 && <option value="countdown">Countdown</option>}
+                <option value="postLesson">Post-lesson loop</option>
               </select>
             )}
             {cueBulkAction === "volume" && <label>Volume <input name="volumePercent" type="number" min="0" max="150" required defaultValue="100" />%</label>}
-            {cueBulkAction === "end-behavior" && <select name="endBehavior" aria-label="End behavior"><option value="advance">Advance</option><option value="loop">Loop</option><option value="pause">Pause on final frame</option><option value="stop">Stop</option></select>}
+            {cueBulkAction === "end-behavior" && <select name="endBehavior" aria-label="End behavior"><option value="pause">Pause at last frame</option><option value="advance">Play next cue</option><option value="loop">Loop continuously</option><option value="stop">Stop playback</option></select>}
             {cueBulkAction === "allow-skip" && <select name="allowSkip" aria-label="Skipping"><option value="true">Allow skip</option><option value="false">Do not allow skip</option></select>}
             {cueBulkAction === "prefix-title" && <input name="titlePrefix" maxLength={80} required placeholder="Title prefix" aria-label="Prefix for cue titles" />}
             <button className={`button ${cueBulkAction === "delete" ? "danger" : "primary"}`} disabled={cueBulkBusy}>{cueBulkBusy ? "Applying…" : "Apply"}</button>
@@ -4687,40 +4817,91 @@ function LessonEditor({
         )}
         {items.length ? (
           <>
+            <div className="lesson-sequence-tabs" role="tablist" aria-label="Playback sections">
+              {sequenceSections.map((section) => {
+                const count = items.filter((item) => item.role === section.role).length;
+                return (
+                  <button
+                    type="button"
+                    key={section.role}
+                    role="tab"
+                    aria-selected={activeSequenceSection === section.role}
+                    className={`sequence-tab section-${section.role} ${activeSequenceSection === section.role ? "active" : ""}`}
+                    onClick={() => setActiveSequenceSection(section.role)}
+                  >
+                    {section.label} ({count}){section.loop ? " (loop)" : ""}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeSequenceSection === "total"}
+                className={`sequence-tab section-total ${activeSequenceSection === "total" ? "active" : ""}`}
+                onClick={() => setActiveSequenceSection("total")}
+              >
+                Total ({items.length})
+              </button>
+            </div>
             <label className="playlist-select-all">
               <input type="checkbox" checked={allCuesSelected} onChange={toggleAllCues} /> Select all cues
             </label>
-            <section
-              className={`playlist lesson-playlist-track ${draggedLibraryMediaId ? "is-library-dragging" : ""}`}
-              aria-label="Horizontal playback sequence"
-              onDragOver={(event) => {
-                if (!(event.target as HTMLElement).closest(".playlist-item")) libraryDragOver(event, items.length);
-              }}
-              onDrop={libraryDrop}
-            >
-              {items.map((item, index) => (
-                <PlaylistCueRow
-                  key={item.id}
-                  item={item}
-                  index={index}
-                  total={items.length}
-                  dropEdge={
-                    libraryDropIndex === index
-                      ? "before"
-                      : index === items.length - 1 && libraryDropIndex === items.length
-                        ? "after"
-                        : undefined
+            {visibleSequenceItems.length ? (
+              <section
+                className={`playlist lesson-playlist-track section-${activeSequenceSection} ${draggedLibraryMediaId ? "is-library-dragging" : ""}`}
+                aria-label={`${activeSequenceSection === "total" ? "Total" : roleName(activeSequenceSection)} playback sequence`}
+                onDragOver={(event) => {
+                  if (!(event.target as HTMLElement).closest(".playlist-item")) {
+                    const last = visibleSequenceItems.at(-1);
+                    libraryDragOver(event, last ? last.globalIndex + 1 : items.length);
                   }
-                  selected={selectedCueIds.has(item.id)}
-                  onSelected={() => toggleCue(item.id)}
-                  onMove={move}
-                  onChange={changeItem}
-                  onTimeline={() => setPreviewItem(item)}
-                  onRemove={removeItem}
-                  onLibraryDragOver={(event) => libraryDragOver(event, index)}
+                }}
+                onDrop={libraryDrop}
+              >
+                {visibleSequenceItems.map(({ item, globalIndex }, index) => (
+                  <PlaylistCueRow
+                    key={item.id}
+                    item={item}
+                    media={media.find((asset) => asset.id === item.mediaAssetId)}
+                    index={index}
+                    sequenceIndex={globalIndex}
+                    total={visibleSequenceItems.length}
+                    dropEdge={
+                      libraryDropIndex === globalIndex
+                        ? "before"
+                        : index === visibleSequenceItems.length - 1 && libraryDropIndex === globalIndex + 1
+                          ? "after"
+                          : undefined
+                    }
+                    selected={selectedCueIds.has(item.id)}
+                    onSelected={() => toggleCue(item.id)}
+                    onMove={moveVisible}
+                    onChange={changeItem}
+                    onTimeline={() => setPreviewItem(item)}
+                    onRemove={removeItem}
+                    onLibraryDragOver={(event) => libraryDragOver(event, globalIndex)}
+                    onLibraryDrop={libraryDrop}
+                  />
+                ))}
+              </section>
+            ) : (
+              <section
+                className={`lesson-empty-drop-target ${draggedLibraryMediaId ? "is-library-dragging" : ""} ${libraryDropIndex === items.length ? "is-drop-ready" : ""}`}
+                aria-label={`${activeSequenceSection === "total" ? "Playback" : roleName(activeSequenceSection)} empty playback drop target`}
+                onDragOver={(event) => libraryDragOver(event, items.length)}
+                onDrop={libraryDrop}
+              >
+                <Empty
+                  title={`No ${(activeSequenceSection === "total" ? "playback" : roleName(activeSequenceSection).toLowerCase())} cues yet`}
+                  body="Drag ready media here, or click a library item to add it to the lesson."
+                  action={
+                    <button className="button primary" onClick={() => { setAddMode("chooser"); setShowAdd(true); }}>
+                      Add media
+                    </button>
+                  }
                 />
-              ))}
-            </section>
+              </section>
+            )}
           </>
         ) : (
           <section
@@ -4761,10 +4942,14 @@ function LessonEditor({
               <button
                 className={`lesson-library-card ${draggedLibraryMediaId === asset.id ? "is-dragging" : ""}`}
                 key={asset.id}
-                draggable
+                draggable={draggedLibraryMediaId !== asset.id}
+                onPointerDown={(event) => beginLibraryPointerDrag(event, asset)}
                 onDragStart={(event) => libraryDragStart(event, asset)}
                 onDragEnd={libraryDragEnd}
-                onClick={() => void addLibraryMedia(asset)}
+                onClick={() => {
+                  if (Date.now() < suppressLibraryClickUntilRef.current) return;
+                  void addLibraryMedia(asset);
+                }}
                 aria-label={`Add or drag ${asset.fileName} to the playback sequence`}
               >
                 <span className="lesson-library-thumb">
@@ -4800,7 +4985,9 @@ function CueIcon({ name }: { name: "notes" | "options" | "timeline" | "mute" | "
 
 function PlaylistCueRow({
   item,
+  media,
   index,
+  sequenceIndex,
   total,
   dropEdge,
   selected,
@@ -4810,9 +4997,12 @@ function PlaylistCueRow({
   onTimeline,
   onRemove,
   onLibraryDragOver,
+  onLibraryDrop,
 }: {
   item: PlaylistItem;
+  media?: Media;
   index: number;
+  sequenceIndex: number;
   total: number;
   onMove: (index: number, delta: number) => void | Promise<void>;
   onChange: (
@@ -4825,12 +5015,23 @@ function PlaylistCueRow({
   onTimeline: () => void;
   onRemove: (id: string) => void | Promise<void>;
   onLibraryDragOver: (event: ReactDragEvent<HTMLElement>) => void;
+  onLibraryDrop: (event: ReactDragEvent<HTMLElement>) => void | Promise<void>;
 }) {
   const visual = item.type === "video" || item.type === "image";
+  const [timedStill, setTimedStill] = useState(item.imageDurationSeconds != null);
+  const [stillSeconds, setStillSeconds] = useState(String(item.imageDurationSeconds ?? 10));
+  const [estimateSeconds, setEstimateSeconds] = useState(
+    item.estimatedDurationSeconds == null ? "" : String(item.estimatedDurationSeconds),
+  );
   const [openPanel, setOpenPanel] = useState<"notes" | "advanced">();
   const [panelPosition, setPanelPosition] = useState({ top: 16, left: 16 });
   const panelRef = useRef<HTMLElement>(null);
   const actionDockRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    setTimedStill(item.imageDurationSeconds != null);
+    setStillSeconds(String(item.imageDurationSeconds ?? 10));
+    setEstimateSeconds(item.estimatedDurationSeconds == null ? "" : String(item.estimatedDurationSeconds));
+  }, [item.id, item.imageDurationSeconds, item.estimatedDurationSeconds]);
   useEffect(() => {
     if (!openPanel) return;
     const closeOnOutsideClick = (event: PointerEvent) => {
@@ -4871,7 +5072,10 @@ function PlaylistCueRow({
   return (
     <article
       className={`playlist-item ${item.role} ${selected ? "selected" : ""} ${dropEdge ? `drop-${dropEdge}` : ""}`}
+      data-sequence-index={sequenceIndex}
+      onDragEnter={onLibraryDragOver}
       onDragOver={onLibraryDragOver}
+      onDrop={onLibraryDrop}
     >
       <label className="media-select">
         <input
@@ -4898,40 +5102,48 @@ function PlaylistCueRow({
           ↓
         </button>
       </div>
-      <div className="media-thumb">
-        {item.type === "video" ? "▶" : item.type === "audio" ? "♫" : "▧"}
+      <div className="media-thumb cue-visual-thumb">
+        {media?.thumbnailUrl ? (
+          <img src={media.thumbnailUrl} alt="" />
+        ) : (
+          item.type === "video" ? "▶" : item.type === "audio" ? "♫" : "▧"
+        )}
       </div>
       <div className="item-main">
         <div>
           <span className={`role ${item.role}`}>{roleName(item.role)}</span>
           <strong>{item.title}</strong>
         </div>
-        <small>
-          {item.mediaFileName || item.type} ·{" "}
-          {formatDuration(item.durationMs || item.mediaDurationMs)}
+        <small className="cue-meta">
+          {item.mediaFileName || item.type}
         </small>
-        <div className="cue-action-dock" ref={actionDockRef} role="group" aria-label={`Options for ${item.title}`}>
-          <button
-            type="button"
-            className={openPanel === "notes" ? "active" : ""}
-            aria-label={`Notes for ${item.title}`}
-            aria-expanded={openPanel === "notes"}
-            title="Notes"
-            onClick={(event) => togglePanel("notes", event)}
-          >
-            <CueIcon name="notes" />
-            {item.notes && <i aria-hidden="true" />}
-          </button>
-          <button
-            type="button"
-            className={openPanel === "advanced" ? "active" : ""}
-            aria-label={`Advanced Options for ${item.title}`}
-            aria-expanded={openPanel === "advanced"}
-            title="Advanced Options"
-            onClick={(event) => togglePanel("advanced", event)}
-          >
-            <CueIcon name="options" />
-          </button>
+        <div className="cue-card-footer">
+          <div className="cue-action-dock" ref={actionDockRef} role="group" aria-label={`Options for ${item.title}`}>
+            <button
+              type="button"
+              className={openPanel === "notes" ? "active" : ""}
+              aria-label={`Notes for ${item.title}`}
+              aria-expanded={openPanel === "notes"}
+              title="Lesson notes"
+              onClick={(event) => togglePanel("notes", event)}
+            >
+              <CueIcon name="notes" />
+              {item.notes && <i aria-hidden="true" />}
+            </button>
+            <span className="cue-duration" aria-label={`Duration ${cueDurationLabel(item)}`}>
+              {cueDurationLabel(item)}
+            </span>
+            <button
+              type="button"
+              className={openPanel === "advanced" ? "active" : ""}
+              aria-label={`Advanced Options for ${item.title}`}
+              aria-expanded={openPanel === "advanced"}
+              title="Advanced Options"
+              onClick={(event) => togglePanel("advanced", event)}
+            >
+              <CueIcon name="options" />
+            </button>
+          </div>
         </div>
         {openPanel === "notes" && (
           <section
@@ -5001,17 +5213,18 @@ function PlaylistCueRow({
               <option value="preRoll">Pre-roll</option>
               <option value="countdown">Countdown</option>
               <option value="lesson">Main lesson</option>
+              <option value="postLesson">Post-lesson</option>
             </select>
           </Field>
           <Field label="At the end">
             <select
               aria-label="End behavior"
-              value={item.endBehavior}
+              value={item.endBehavior || defaultEndBehaviorForRole(item.role)}
               onChange={(e) => onChange(item, { endBehavior: e.target.value })}
             >
+              <option value="pause">Pause at last frame</option>
               <option value="advance">Play next cue</option>
               <option value="loop">Loop continuously</option>
-              <option value="pause">Pause on final frame</option>
               <option value="stop">Stop playback</option>
             </select>
           </Field>
@@ -5043,22 +5256,69 @@ function PlaylistCueRow({
             </Field>
           )}
           {item.type === "image" && (
-            <Field label="Still/slide duration">
-              <div className="unit-input">
+            <div className="still-duration-options">
+              <label className="check-line">
                 <input
-                  type="number"
-                  min="1"
-                  max="3600"
-                  defaultValue={item.imageDurationSeconds || 10}
-                  onBlur={(e) =>
-                    onChange(item, {
-                      imageDurationSeconds: Number(e.target.value),
-                    })
-                  }
+                  type="checkbox"
+                  checked={timedStill}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setTimedStill(next);
+                    onChange(
+                      item,
+                      next
+                        ? { imageDurationSeconds: Math.max(1, Number(stillSeconds) || 10) }
+                        : { clearImageDuration: true },
+                    );
+                  }}
                 />
-                <span>sec</span>
-              </div>
-            </Field>
+                Time this still / slide
+              </label>
+              {timedStill && (
+                <Field label="Still/slide duration">
+                  <div className="unit-input">
+                    <input
+                      type="number"
+                      min="1"
+                      max="3600"
+                      value={stillSeconds}
+                      onChange={(event) => setStillSeconds(event.target.value)}
+                      onBlur={() => {
+                        const value = Math.max(1, Math.min(3600, Number(stillSeconds) || 10));
+                        setStillSeconds(String(value));
+                        onChange(item, { imageDurationSeconds: value });
+                      }}
+                    />
+                    <span>sec</span>
+                  </div>
+                </Field>
+              )}
+              <Field
+                label="Expected lesson duration"
+                hint="Optional estimate for an untimed still or slide."
+              >
+                <div className="unit-input">
+                  <input
+                    type="number"
+                    min="1"
+                    max="3600"
+                    placeholder="Untimed"
+                    value={estimateSeconds}
+                    onChange={(event) => setEstimateSeconds(event.target.value)}
+                    onBlur={() => {
+                      if (!estimateSeconds.trim()) {
+                        onChange(item, { clearEstimatedDuration: true });
+                        return;
+                      }
+                      const value = Math.max(1, Math.min(3600, Number(estimateSeconds) || 1));
+                      setEstimateSeconds(String(value));
+                      onChange(item, { estimatedDurationSeconds: value });
+                    }}
+                  />
+                  <span>sec</span>
+                </div>
+              </Field>
+            </div>
           )}
         </div>
         {visual && (
@@ -5467,6 +5727,7 @@ function MediaView({
   const [bulkBusy, setBulkBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [folderFilter, setFolderFilter] = useState("");
+  const [mediaTypeFilter, setMediaTypeFilter] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
   const [organizeTargets, setOrganizeTargets] = useState<Media[]>([]);
   const [renameTargets, setRenameTargets] = useState<Media[]>([]);
@@ -5476,7 +5737,7 @@ function MediaView({
   const [conversionLessonId, setConversionLessonId] = useState(
     firstUpcoming?.id || "",
   );
-  const [slideSeconds, setSlideSeconds] = useState(10);
+  const [slideSeconds, setSlideSeconds] = useState<number | "">("");
   useEffect(() => {
     if (
       !media.some(
@@ -5519,6 +5780,7 @@ function MediaView({
   const filteredMedia = media.filter(
     (item) =>
       (!folderFilter || item.folder === folderFilter) &&
+      (!mediaTypeFilter || mediaCategory(item) === mediaTypeFilter) &&
       (!normalizedSearch ||
         `${item.fileName} ${item.folder} ${item.tagsCsv}`
           .toLowerCase()
@@ -5783,7 +6045,7 @@ function MediaView({
           method: "POST",
           body: JSON.stringify({
             lessonId: conversionLessonId,
-            imageDurationSeconds: slideSeconds,
+            imageDurationSeconds: slideSeconds === "" ? null : slideSeconds,
           }),
         },
       );
@@ -6016,18 +6278,24 @@ function MediaView({
                     : `New name for ${item.fileName}`
                 }
               >
-                <input
-                  name={`fileName-${item.id}`}
-                  maxLength={255}
-                  required
-                  autoFocus={index === 0}
-                  defaultValue={item.fileName}
-                />
+                <div className="locked-extension-input">
+                  <input
+                    name={`fileName-${item.id}`}
+                    maxLength={255}
+                    required
+                    autoFocus={index === 0}
+                    defaultValue={mediaNameStem(item.fileName)}
+                    aria-label={`New name for ${item.fileName}`}
+                  />
+                  {mediaFileExtension(item.fileName) && (
+                    <span>{mediaFileExtension(item.fileName)}</span>
+                  )}
+                </div>
               </Field>
             ))}
             <div className="alert">
-              Enter the complete new name for each selected item. Names must be
-              unique within the media library.
+              Enter the new name without changing the locked file extension.
+              Names must be unique within the media library.
             </div>
             <button className="button primary" disabled={bulkBusy}>
               {bulkBusy ? "Renaming…" : "Rename selected media"}
@@ -6047,12 +6315,17 @@ function MediaView({
           <form className="stack" onSubmit={saveOrganization}>
             {organizeTargets.length === 1 && (
               <Field label="Display name">
-                <input
-                  name="fileName"
-                  defaultValue={organizeTargets[0].fileName}
-                  maxLength={255}
-                  required
-                />
+                <div className="locked-extension-input">
+                  <input
+                    name="fileName"
+                    defaultValue={mediaNameStem(organizeTargets[0].fileName)}
+                    maxLength={255}
+                    required
+                  />
+                  {mediaFileExtension(organizeTargets[0].fileName) && (
+                    <span>{mediaFileExtension(organizeTargets[0].fileName)}</span>
+                  )}
+                </div>
               </Field>
             )}
             <TaxonomyFields
@@ -6381,6 +6654,21 @@ function MediaView({
               ))}
             </select>
           </Field>
+          <Field label="Media type">
+            <select
+              value={mediaTypeFilter}
+              onChange={(e) => setMediaTypeFilter(e.target.value)}
+            >
+              <option value="">All media types</option>
+              <option value="video">Video</option>
+              <option value="image">Image</option>
+              <option value="audio">Audio</option>
+              <option value="presentation">Presentation</option>
+              <option value="pdf">PDF</option>
+              <option value="website">Website</option>
+              <option value="other">Other</option>
+            </select>
+          </Field>
           <div className="media-filters-right">
             <span>
               {filteredMedia.length} of {media.length} items
@@ -6630,7 +6918,7 @@ function MediaManagerModal({
   lessons: Lesson[];
   busy: boolean;
   conversionLessonId: string;
-  slideSeconds: number;
+  slideSeconds: number | "";
   onClose: () => void;
   onOrganize: () => void;
   onReprocess: () => void;
@@ -6640,7 +6928,7 @@ function MediaManagerModal({
   onConvert: () => void;
   onAddSlides: () => void;
   onConversionLesson: (id: string) => void;
-  onSlideSeconds: (seconds: number) => void;
+  onSlideSeconds: (seconds: number | "") => void;
 }) {
   const converting =
     media.conversionStatus === "pending" ||
@@ -6815,15 +7103,16 @@ function MediaManagerModal({
                     ))}
                   </select>
                 </Field>
-                <Field label="Seconds per slide">
+                <Field label="Time each slide" hint="Optional; blank keeps the slide sequence untimed.">
                   <input
                     type="number"
                     min="1"
                     max="3600"
+                    placeholder="Untimed"
                     value={slideSeconds}
-                    onChange={(event) =>
-                      onSlideSeconds(Number(event.target.value))
-                    }
+                    onChange={(event) => onSlideSeconds(
+                      event.target.value === "" ? "" : Number(event.target.value),
+                    )}
                   />
                 </Field>
                 <button
@@ -15209,6 +15498,7 @@ function TimelineEditor({
   );
   const player = useRef<HTMLMediaElement>(null);
   const timeline = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ kind: "trim" | "fade"; edge: "start" | "end" | "in" | "out" } | undefined>(undefined);
   const source = media?.playbackUrl || media?.downloadUrl;
   const startPercent = (start / duration) * 100;
   const endPercent = (end / duration) * 100;
@@ -15274,15 +15564,9 @@ function TimelineEditor({
     edge: "start" | "end",
   ) {
     event.preventDefault();
+    dragRef.current = { kind: "trim", edge };
     event.currentTarget.setPointerCapture(event.pointerId);
     seek(pointerValue(event.clientX), edge);
-  }
-  function dragTrim(
-    event: React.PointerEvent<HTMLButtonElement>,
-    edge: "start" | "end",
-  ) {
-    if (event.currentTarget.hasPointerCapture(event.pointerId))
-      seek(pointerValue(event.clientX), edge);
   }
   function nudgeTrim(
     event: React.KeyboardEvent<HTMLButtonElement>,
@@ -15301,6 +15585,7 @@ function TimelineEditor({
     edge: "in" | "out",
   ) {
     event.preventDefault();
+    dragRef.current = { kind: "fade", edge };
     event.currentTarget.setPointerCapture(event.pointerId);
     changeFade(
       edge === "in"
@@ -15309,17 +15594,19 @@ function TimelineEditor({
       edge,
     );
   }
-  function dragFade(
-    event: React.PointerEvent<HTMLButtonElement>,
-    edge: "in" | "out",
-  ) {
-    if (event.currentTarget.hasPointerCapture(event.pointerId))
-      changeFade(
-        edge === "in"
-          ? pointerValue(event.clientX) - start
-          : end - pointerValue(event.clientX),
-        edge,
-      );
+  function dragPointer(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const value = pointerValue(event.clientX);
+    if (drag.kind === "trim") {
+      seek(value, drag.edge as "start" | "end");
+    } else {
+      const edge = drag.edge as "in" | "out";
+      changeFade(edge === "in" ? value - start : end - value, edge);
+    }
+  }
+  function endPointer() {
+    dragRef.current = undefined;
   }
   function nudgeFade(
     event: React.KeyboardEvent<HTMLButtonElement>,
@@ -15444,6 +15731,9 @@ function TimelineEditor({
         ref={timeline}
         className="timeline-art"
         aria-label="Media filmstrip, waveform, selected playback area, fade regions, cue markers, and draggable trim handles"
+        onPointerMove={dragPointer}
+        onPointerUp={endPointer}
+        onPointerCancel={endPointer}
       >
         {media.filmstripUrl && (
           <img src={media.filmstripUrl} alt="Video filmstrip" />
@@ -15492,7 +15782,6 @@ function TimelineEditor({
           style={{ left: `${startPercent}%` }}
           aria-label={`Trim in at ${formatPreciseTime(start)}. Drag to adjust.`}
           onPointerDown={(event) => beginTrim(event, "start")}
-          onPointerMove={(event) => dragTrim(event, "start")}
           onKeyDown={(event) => nudgeTrim(event, "start")}
         >
           <span>IN</span>
@@ -15503,7 +15792,6 @@ function TimelineEditor({
           style={{ left: `${endPercent}%` }}
           aria-label={`Trim out at ${formatPreciseTime(end)}. Drag to adjust.`}
           onPointerDown={(event) => beginTrim(event, "end")}
-          onPointerMove={(event) => dragTrim(event, "end")}
           onKeyDown={(event) => nudgeTrim(event, "end")}
         >
           <span>OUT</span>
@@ -15514,7 +15802,6 @@ function TimelineEditor({
           style={{ left: `${startPercent + (fadeIn / duration) * 100}%` }}
           aria-label={`Fade in over ${fadeIn.toFixed(1)} seconds. Drag to adjust.`}
           onPointerDown={(event) => beginFade(event, "in")}
-          onPointerMove={(event) => dragFade(event, "in")}
           onKeyDown={(event) => nudgeFade(event, "in")}
         >
           <span />
@@ -15525,7 +15812,6 @@ function TimelineEditor({
           style={{ left: `${endPercent - (fadeOut / duration) * 100}%` }}
           aria-label={`Fade out over ${fadeOut.toFixed(1)} seconds. Drag to adjust.`}
           onPointerDown={(event) => beginFade(event, "out")}
-          onPointerMove={(event) => dragFade(event, "out")}
           onKeyDown={(event) => nudgeFade(event, "out")}
         >
           <span />
@@ -16136,10 +16422,12 @@ function Status({ online }: { online: boolean }) {
 function RoleSummary({ items }: { items: PlaylistItem[] }) {
   const pre = items.filter((i) => i.role === "preRoll").length;
   const countdown = items.some((i) => i.role === "countdown");
+  const post = items.filter((i) => i.role === "postLesson").length;
   return (
     <span className="role-summary">
       {pre > 0 && <i>Pre-roll ×{pre}</i>}
       {countdown && <i>Countdown</i>}
+      {post > 0 && <i>Post-lesson ×{post}</i>}
     </span>
   );
 }
@@ -16556,7 +16844,7 @@ function formatDuration(ms?: number) {
 function cuePlannedDurationMs(item: PlaylistItem) {
   const base =
     item.type === "image"
-      ? Math.max(0, (item.imageDurationSeconds || 10) * 1000)
+      ? Math.max(0, (item.imageDurationSeconds ?? item.estimatedDurationSeconds ?? 0) * 1000)
       : Math.max(
           0,
           (item.endMs ?? item.mediaDurationMs ?? item.durationMs ?? 0) -
@@ -16680,6 +16968,28 @@ function friendlyType(type: string) {
   if (type.includes("pdf")) return "PDF";
   return "Document";
 }
+function mediaCategory(item: Media) {
+  const fileName = item.fileName.toLowerCase();
+  const contentType = item.contentType.toLowerCase();
+  if (item.sourceKind === "link" && item.linkKind === "webpage") return "website";
+  if (item.sourceKind === "link" && item.linkKind === "youtube") return "video";
+  if (contentType.startsWith("video/")) return "video";
+  if (contentType.startsWith("image/")) return "image";
+  if (contentType.startsWith("audio/")) return "audio";
+  if (fileName.endsWith(".pdf") || contentType === "application/pdf") return "pdf";
+  if (isPresentationFileName(item.fileName) || /presentation|powerpoint|keynote|wordprocessingml|msword|opendocument/.test(contentType)) return "presentation";
+  if (item.sourceKind === "link") return "website";
+  return "other";
+}
+function mediaNameStem(fileName: string) {
+  const extension = mediaFileExtension(fileName);
+  return extension ? fileName.slice(0, -extension.length) : fileName;
+}
+function mediaFileExtension(fileName: string) {
+  const base = fileName.split(/[\\/]/).pop() || fileName;
+  const index = base.lastIndexOf(".");
+  return index > 0 ? base.slice(index) : "";
+}
 function isPresentationFileName(fileName: string) {
   return /\.(pdf|ppt|pptx|pps|ppsx|pot|potx|odp|key|doc|docx)$/i.test(fileName);
 }
@@ -16758,7 +17068,20 @@ function roleName(role: PlaylistItem["role"]) {
     ? "PRE-ROLL"
     : role === "countdown"
       ? "COUNTDOWN"
-      : "LESSON";
+      : role === "postLesson"
+        ? "POST-LESSON"
+        : "LESSON";
+}
+function defaultEndBehaviorForRole(role: string) {
+  return role === "preRoll" || role === "postLesson" ? "loop" : "pause";
+}
+function cueDurationLabel(item: PlaylistItem) {
+  if (item.type === "image") {
+    if (item.imageDurationSeconds != null) return formatDuration(item.imageDurationSeconds * 1000);
+    if (item.estimatedDurationSeconds != null) return `~${formatDuration(item.estimatedDurationSeconds * 1000)}`;
+    return "Untimed";
+  }
+  return formatDuration(item.durationMs || item.mediaDurationMs);
 }
 function toLocalInput(value?: string) {
   if (!value) return "";

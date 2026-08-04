@@ -330,6 +330,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
             )
         }
         val preRoll = json.optJSONObject("preRoll")?.let { PreRollCue(it.getJSONArray("items").mapObjects(::parseItem)) }
+        val postLesson = json.optJSONObject("postLesson")?.let { PreRollCue(it.getJSONArray("items").mapObjects(::parseItem)) }
         return LessonPlaylist(
             id = json.getString("playlistId"),
             title = json.getString("title"),
@@ -337,6 +338,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
             preRollStartsAt = parseOptionalInstant(json.optString("preRollStartsAt")),
             countdown = countdown,
             preRoll = preRoll,
+            postLesson = postLesson,
             items = json.getJSONArray("items").mapObjects(::parseItem)
         )
     }
@@ -360,6 +362,7 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         notes = json.optString("notes", ""),
         flexibleTime = json.optBoolean("flexibleTime", false),
         imageDurationSeconds = json.optInt("imageDurationSeconds").takeIf { json.has("imageDurationSeconds") && !json.isNull("imageDurationSeconds") },
+        estimatedDurationSeconds = json.optInt("estimatedDurationSeconds").takeIf { json.has("estimatedDurationSeconds") && !json.isNull("estimatedDurationSeconds") },
         fadeInMs = json.optInt("fadeInMs", 0),
         fadeOutMs = json.optInt("fadeOutMs", 0),
         fitMode = json.optString("fitMode", "fit"),

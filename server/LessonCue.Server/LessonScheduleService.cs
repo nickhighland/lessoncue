@@ -210,7 +210,8 @@ public static class LessonScheduleService
     {
         TemplateId = templateId, Title = source.Title, Type = source.Type, Role = source.Role, Position = source.Position,
         MediaAssetId = source.MediaAssetId, DurationMs = source.DurationMs, StartMs = source.StartMs, EndMs = source.EndMs,
-        VolumePercent = source.VolumePercent, ImageDurationSeconds = source.ImageDurationSeconds, EndBehavior = source.EndBehavior,
+        VolumePercent = source.VolumePercent, ImageDurationSeconds = source.ImageDurationSeconds,
+        EstimatedDurationSeconds = source.EstimatedDurationSeconds, EndBehavior = source.EndBehavior,
         AllowSkip = source.AllowSkip, Notes = source.Notes, FadeInMs = source.FadeInMs, FadeOutMs = source.FadeOutMs,
         NormalizeAudio = source.NormalizeAudio, CuePointsJson = source.CuePointsJson, FitMode = source.FitMode,
         RotationDegrees = source.RotationDegrees, CropLeftPercent = source.CropLeftPercent,
@@ -238,7 +239,8 @@ public static class LessonScheduleService
     {
         LessonId = lessonId, Title = source.Title, Type = source.Type, Role = source.Role, Position = source.Position,
         MediaAssetId = source.MediaAssetId, DurationMs = source.DurationMs, StartMs = source.StartMs, EndMs = source.EndMs,
-        VolumePercent = source.VolumePercent, ImageDurationSeconds = source.ImageDurationSeconds, EndBehavior = source.EndBehavior,
+        VolumePercent = source.VolumePercent, ImageDurationSeconds = source.ImageDurationSeconds,
+        EstimatedDurationSeconds = source.EstimatedDurationSeconds, EndBehavior = source.EndBehavior,
         AllowSkip = source.AllowSkip, Notes = source.Notes, FadeInMs = source.FadeInMs, FadeOutMs = source.FadeOutMs,
         NormalizeAudio = source.NormalizeAudio, CuePointsJson = source.CuePointsJson, FitMode = source.FitMode,
         RotationDegrees = source.RotationDegrees, CropLeftPercent = source.CropLeftPercent,

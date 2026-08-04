@@ -91,7 +91,7 @@ grep -q '^trusted input$' /var/lib/lessoncue/media/temporary/test/output
 # root-launched Bubblewrap invocation that cannot enter the service-owned path.
 service_probe_root=/var/lib/lessoncue/media/temporary/.installer-worker-probe
 install -d -o lessoncue -g lessoncue -m 0700 "${service_probe_root}"
-runuser -u lessoncue -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
+runuser -u lessoncue -- setpriv --no-new-privs --bounding-set=-all -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
   /usr/local/libexec/lessoncue-media-worker \
   --network=deny --timeout=10 --memory=268435456 --file-size=1048576 \
   --processes=4 --write-root="${service_probe_root}" -- \

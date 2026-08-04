@@ -148,14 +148,16 @@ public static class ConstrainedProcessRunner
         };
         if (useSandbox)
         {
-            // The systemd service uses CAP_NET_BIND_SERVICE to listen on port
-            // 80. Bubblewrap rejects a non-root process with inherited
-            // permitted capabilities, so clear the ambient and inheritable
-            // sets before exec-ing the worker. The exec boundary then gives
-            // Bubblewrap an empty permitted set while the server retains its
-            // listener capability.
+            // The systemd service keeps CAP_NET_BIND_SERVICE for port 80.
+            // Drop every capability at the worker boundary, including the
+            // bounding set, so Bubblewrap takes its normal unprivileged user
+            // namespace path instead of trying to mount /proc with inherited
+            // service capabilities. --no-new-privs also makes stale file
+            // capabilities on distro-installed bwrap harmless.
             start.ArgumentList.Add("--ambient-caps=-all");
             start.ArgumentList.Add("--inh-caps=-all");
+            start.ArgumentList.Add("--bounding-set=-all");
+            start.ArgumentList.Add("--no-new-privs");
             start.ArgumentList.Add("--");
             start.ArgumentList.Add(helper!);
             start.ArgumentList.Add(options.AllowNetwork ? "--network=allow" : "--network=deny");

@@ -635,7 +635,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .media-preview-grid small { margin-top: 4px; color: var(--green); font-size: 9px; font-weight: 700; }
 
 .media-filters {
-  display: grid; grid-template-columns: minmax(220px, 1fr) minmax(170px, 0.45fr) auto;
+  display: grid; grid-template-columns: minmax(220px, 1fr) minmax(150px, 0.55fr) minmax(150px, 0.55fr) auto;
   align-items: end; gap: 12px; margin-bottom: 16px; padding: 15px 18px;
   border: 1px solid var(--line); border-radius: 12px; background: #fff;
   box-shadow: var(--shadow-sm);
@@ -669,6 +669,13 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
   border: 0; background: none; color: var(--muted); font-size: 18px;
   padding: 4px 8px; border-radius: 4px; cursor: pointer; line-height: 1;
+}
+.locked-extension-input { display: flex; align-items: stretch; min-width: 0; }
+.locked-extension-input input { min-width: 0; border-radius: 7px 0 0 7px; }
+.locked-extension-input > span {
+  display: inline-flex; align-items: center; border: 1px solid var(--line); border-left: 0;
+  border-radius: 0 7px 7px 0; padding: 0 10px; color: var(--muted); background: #f2f5f1;
+  font-size: 11px; font-weight: 800;
 }
 .search-clear:hover { color: var(--ink); background: #f0f0eb; }
 .media-manage { display: block; margin-top: 5px; border: 0; border-bottom: 1.5px dashed currentColor; padding: 0; color: var(--green); background: none; font-size: 8px; font-weight: 800; }
@@ -1506,6 +1513,21 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .trim-handle { position: absolute; z-index: 8; top: 0; bottom: 0; width: 25px; margin-left: -12px; border: 0; padding: 0; color: #fff; background: transparent; cursor: ew-resize; touch-action: none; }
 .trim-handle::before { content: ""; position: absolute; top: 0; bottom: 0; left: 10px; width: 5px; border-inline: 1px solid #fff8; background: var(--gold); box-shadow: 0 0 8px #0009; }
 .trim-handle span { position: absolute; top: 7px; left: 50%; min-width: 28px; transform: translateX(-50%); padding: 3px 5px; border-radius: 4px; color: #182018; background: var(--gold); font-size: 7px; font-weight: 950; box-shadow: 0 2px 5px #0008; }
+.fade-handle {
+  position: absolute; z-index: 7; top: 0; bottom: 0; width: 24px; margin-left: -12px;
+  border: 0; padding: 0; background: transparent; cursor: ew-resize; touch-action: none;
+}
+.fade-handle::before {
+  position: absolute; top: 18px; bottom: 18px; left: 10px; width: 4px; border: 1px solid #d7fbff;
+  border-radius: 99px; background: #1babc0; box-shadow: 0 0 8px #003d4688; content: "";
+}
+.fade-handle span {
+  position: absolute; top: 7px; left: 50%; width: 10px; height: 10px; transform: translateX(-50%);
+  border: 2px solid #e6fdff; border-radius: 50%; background: #168ba0; box-shadow: 0 2px 5px #0008;
+}
+.fade-handle.active::before, .fade-handle:focus-visible::before { background: #0b7183; box-shadow: 0 0 0 2px #baf7ff, 0 0 8px #0009; }
+.timeline-marker { position: absolute; z-index: 10; top: 0; bottom: 0; width: 18px; margin-left: -9px; border: 0; padding: 0; background: transparent; cursor: pointer; }
+.timeline-marker span { position: absolute; top: 0; bottom: 0; left: 8px; width: 2px; background: #fff; box-shadow: 0 0 0 1px #183c2d, 0 0 5px #0008; }
 .document-preview, .preview-unavailable { display: grid; justify-items: center; padding: 55px 28px; text-align: center; }
 .document-preview > span { font-size: 58px; color: #d4b36e; }
 .document-preview strong, .preview-unavailable strong { margin-top: 10px; }
@@ -2054,6 +2076,45 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   padding: 12px 0 0;
 }
 
+.lesson-sequence-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 14px 24px 0;
+  scrollbar-width: thin;
+}
+.sequence-tab {
+  flex: 1 0 170px;
+  min-width: 150px;
+  border: 1px solid #d2ddd5;
+  border-radius: 999px;
+  padding: 9px 13px;
+  color: var(--ink);
+  background: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color .12s ease, background .12s ease, color .12s ease, box-shadow .12s ease;
+}
+.sequence-tab:hover, .sequence-tab:focus-visible { border-color: currentColor; box-shadow: 0 3px 10px #183a2714; }
+.sequence-tab.active { color: #fff; border-color: transparent; box-shadow: 0 3px 10px #183a2726; }
+.sequence-tab.section-preRoll { color: #9b6a05; }
+.sequence-tab.section-preRoll.active { color: #fff; background: #c99016; }
+.sequence-tab.section-countdown { color: #704c9c; }
+.sequence-tab.section-countdown.active { color: #fff; background: #8864b3; }
+.sequence-tab.section-lesson { color: #24724b; }
+.sequence-tab.section-lesson.active { color: #fff; background: #2d8b5a; }
+.sequence-tab.section-postLesson { color: #a95737; }
+.sequence-tab.section-postLesson.active { color: #fff; background: #c76c45; }
+.sequence-tab.section-total { color: var(--deep); }
+.sequence-tab.section-total.active { color: #fff; background: var(--deep); }
+.lesson-playlist-track.section-preRoll > .playlist-item { border-left-color: #c99016; }
+.lesson-playlist-track.section-countdown > .playlist-item { border-left-color: #8864b3; }
+.lesson-playlist-track.section-lesson > .playlist-item { border-left-color: #2d8b5a; }
+.lesson-playlist-track.section-postLesson > .playlist-item { border-left-color: #c76c45; }
+
 .lesson-playlist-track {
   display: flex;
   align-items: stretch;
@@ -2079,6 +2140,36 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   background: #fcfcf9;
   scroll-snap-align: start;
 }
+
+.lesson-playlist-track > .playlist-item {
+  grid-template-columns: 18px 22px minmax(0, 1fr) 22px;
+  grid-template-rows: auto auto;
+  flex-basis: 252px;
+  min-height: 226px;
+  gap: 8px;
+  padding: 10px;
+}
+.lesson-playlist-track .media-select { grid-column: 1; grid-row: 2; padding-top: 5px; }
+.lesson-playlist-track .order-controls { grid-column: 2; grid-row: 2; }
+.lesson-playlist-track .media-thumb {
+  grid-column: 1 / -1; grid-row: 1; width: 100%; height: 112px; border-radius: 7px;
+}
+.lesson-playlist-track .item-main { grid-column: 3; grid-row: 2; align-self: stretch; display: grid; grid-template-rows: auto auto 1fr; min-width: 0; }
+.lesson-playlist-track .item-main > div:first-child { min-width: 0; }
+.lesson-playlist-track .delete-button { grid-column: 4; grid-row: 2; padding-top: 3px; }
+.cue-visual-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.cue-meta { overflow: hidden; margin-top: 4px; text-overflow: ellipsis; white-space: nowrap; }
+.cue-card-footer { display: flex; align-items: end; min-width: 0; }
+.cue-action-dock { width: 100%; justify-content: space-between; gap: 6px; margin-top: 8px; }
+.cue-action-dock > button { width: 29px; height: 29px; border-radius: 7px; }
+.cue-action-dock > button .cue-icon { width: 15px; height: 15px; }
+.cue-duration {
+  min-width: 0; margin: 0 auto; border: 1px solid #e16749; border-radius: 4px;
+  padding: 2px 5px; color: #121212; background: #fff; font-size: 16px; font-weight: 950;
+  line-height: 1; text-align: center; white-space: nowrap;
+}
+.still-duration-options { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(150px, 1fr) repeat(2, minmax(0, 1fr)); align-items: end; gap: 9px; }
+.still-duration-options > .check-line { align-self: end; min-height: 39px; }
 
 .lesson-playlist-track .media-select {
   grid-column: 1;
@@ -2198,6 +2289,53 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   border: 1px solid #fff;
   border-radius: 50%;
   background: var(--gold);
+}
+
+/* Keep the timeline cards visual-first: the preview spans the card, while
+   selection, ordering, actions, and the remove control share one compact row. */
+.lesson-playlist-track > .playlist-item .media-select {
+  grid-column: 1;
+  grid-row: 2;
+  padding-top: 5px;
+}
+.lesson-playlist-track > .playlist-item .order-controls {
+  grid-column: 2;
+  grid-row: 2;
+}
+.lesson-playlist-track > .playlist-item .media-thumb {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  width: 100%;
+  height: 112px;
+  border-radius: 7px;
+}
+.lesson-playlist-track > .playlist-item .item-main {
+  grid-column: 3;
+  grid-row: 2;
+  align-self: stretch;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  min-width: 0;
+}
+.lesson-playlist-track > .playlist-item .delete-button {
+  grid-column: 4;
+  grid-row: 2;
+  align-self: start;
+  padding-top: 3px;
+}
+.lesson-playlist-track > .playlist-item .cue-action-dock {
+  width: 100%;
+  gap: 6px;
+  margin-top: 8px;
+}
+.lesson-playlist-track > .playlist-item .cue-action-dock > button {
+  width: 29px;
+  height: 29px;
+  border-radius: 7px;
+}
+.lesson-playlist-track > .playlist-item .cue-action-dock > button .cue-icon {
+  width: 15px;
+  height: 15px;
 }
 
 .cue-icon {
@@ -2634,4 +2772,6 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   .cue-advanced-popover .advanced-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .still-duration-options { grid-template-columns: 1fr; }
+  .still-duration-options > .check-line { min-height: auto; }
 }

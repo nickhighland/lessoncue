@@ -107,7 +107,7 @@ install -d -o lessoncue -g lessoncue -m 0700 "${MEDIA_WORKER_PROBE_ROOT}"
 # Run the probe as the same account as the systemd service. Bubblewrap maps
 # namespace root back to its invoking account, so a root-launched probe cannot
 # enter this service-owned 0700 directory even though production can.
-if ! runuser -u lessoncue -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
+if ! runuser -u lessoncue -- setpriv --no-new-privs --bounding-set=-all -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
   /usr/local/libexec/lessoncue-media-worker \
   --network=deny --timeout=10 --memory=268435456 --file-size=1048576 \
   --processes=4 --write-root="${MEDIA_WORKER_PROBE_ROOT}" -- \
@@ -128,7 +128,7 @@ if command -v runuser >/dev/null 2>&1 && command -v ffmpeg >/dev/null 2>&1; then
   MEDIA_RENDER_NODE="$(find /dev/dri -maxdepth 1 -type c -name 'renderD[0-9]*' -print -quit 2>/dev/null || true)"
   if [[ -n "${MEDIA_RENDER_NODE}" ]]; then
     MEDIA_HARDWARE_PROBE_LOG="$(mktemp)"
-    if ! runuser -u lessoncue -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
+    if ! runuser -u lessoncue -- setpriv --no-new-privs --bounding-set=-all -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
       /usr/local/libexec/lessoncue-media-worker \
       --network=deny --timeout=30 --memory=2147483648 --file-size=1048576 \
       --processes=32 --write-root="${MEDIA_WORKER_PROBE_ROOT}" -- \

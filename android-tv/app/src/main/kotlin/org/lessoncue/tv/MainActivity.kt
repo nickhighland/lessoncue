@@ -227,7 +227,7 @@ fun LessonCueApp() {
                             totalManifestItems = manifest.itemCount()
                             val playlist = manifest.playlists.firstOrNull { it.id == command.lessonId }
                             if (playlist != null) {
-                                val allItems = playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) + playlist.items
+                            val allItems = playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) + playlist.items + playlist.postLesson?.items.orEmpty()
                                 val selected = command.itemId?.let { id -> allItems.indexOfFirst { it.id == id } }?.takeIf { it >= 0 }
                                 val requested = if (selected != null) AppScreen.Player(playlist, allItems, selected)
                                     else AppScreen.Player(playlist)
@@ -415,7 +415,14 @@ fun LessonCueApp() {
                             api.cachedManifest() ?: ScreenManifest(1, "LessonCue", emptyList(), listOf(current.playlist))
                         }
                         playbackTelemetry = PlaybackTelemetry()
-                        screen = AppScreen.Library(identity, manifest)
+                        val postLesson = loopingPreRoll(current.playlist.postLesson?.items.orEmpty())
+                        screen = if (postLesson.isNotEmpty() && current.items == current.playlist.items) {
+                            AppScreen.Player(current.playlist, postLesson)
+                        } else if (postLesson.isNotEmpty() && current.items == postLesson) {
+                            AppScreen.Player(current.playlist, postLesson)
+                        } else {
+                            AppScreen.Library(identity, manifest)
+                        }
                     } },
                     onNext = { next -> screen = current.copy(itemIndex = next, seekMs = 0) })
                 }
@@ -1144,9 +1151,10 @@ private fun parseDisplayColor(value: String): Color = runCatching {
 @Composable
 private fun LessonDetailScreen(playlist: LessonPlaylist, onBack: () -> Unit,
     onPlay: (List<CueItem>, Int) -> Unit) {
-    val allItems = playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) + playlist.items
+    val allItems = playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) + playlist.items + playlist.postLesson?.items.orEmpty()
     val preRollIds = playlist.preRoll?.items.orEmpty().map { it.id }.toSet()
     val countdownId = playlist.countdown?.item?.id
+    val postLessonIds = playlist.postLesson?.items.orEmpty().map { it.id }.toSet()
     val firstFocus = remember { FocusRequester() }
     BackHandler(onBack = onBack)
     LaunchedEffect(playlist.id, allItems.size) {
@@ -1164,7 +1172,7 @@ private fun LessonDetailScreen(playlist: LessonPlaylist, onBack: () -> Unit,
         }
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             itemsIndexed(allItems, key = { _, item -> item.id }) { index, item ->
-                val role = when (item.id) { countdownId -> "COUNTDOWN"; in preRollIds -> "PRE-ROLL"; else -> "LESSON" }
+                val role = when (item.id) { countdownId -> "COUNTDOWN"; in preRollIds -> "PRE-ROLL"; in postLessonIds -> "POST-LESSON"; else -> "LESSON" }
                 Surface(onClick = { onPlay(allItems, index) }, modifier = remoteListItemModifier()
                     .then(if (index == 0) Modifier.focusRequester(firstFocus) else Modifier)) {
                     Row(Modifier.padding(horizontal = 24.dp, vertical = 20.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1263,7 +1271,7 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
     var visualSize by remember(item.id) { mutableStateOf(IntSize.Zero) }
     var repeatCompleted by remember(item.id) { mutableIntStateOf(0) }
     if (item.type == "image") {
-        val duration = (item.imageDurationSeconds ?: 10).coerceAtLeast(1) * 1_000L
+        val duration = item.imageDurationSeconds?.coerceAtLeast(1)?.times(1_000L) ?: Long.MAX_VALUE
         var position by remember(item.id, seekMs) { mutableLongStateOf(seekMs.coerceIn(0, duration)) }
         var playing by remember(item.id) { mutableStateOf(true) }
         val remoteModifier = playbackRemoteModifier(item.id) { action ->
@@ -1286,7 +1294,7 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
                     visualOpacity = cueOpacity(item, position, duration)
                     if (telemetryElapsed == 0L) {
                         onTelemetry(PlaybackTelemetry(if (playing) "playing" else "paused",
-                            playlist.id, item.id, position, duration, item.volumePercent))
+                            playlist.id, item.id, position, duration.takeUnless { it == Long.MAX_VALUE }, item.volumePercent))
                     }
                     kotlinx.coroutines.delay(50)
                     if (playing) position = (position + (50 * (item.playbackRatePercent.coerceIn(25, 400) / 100f)).toLong()).coerceAtMost(duration)
@@ -1301,7 +1309,8 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
             }
             if (item.endBehavior == "advance" && index + 1 < items.size) onNext(index + 1)
             else if (item.endBehavior == "playlistLoop") onNext(0)
-            else if (item.endBehavior != "pause") onFinished()
+            else if (item.endBehavior != "pause" ||
+                (index == items.lastIndex && items == playlist.items && playlist.postLesson?.items?.isNotEmpty() == true)) onFinished()
         }
         Box(Modifier.fillMaxSize().background(cueBackground(item)).then(remoteModifier)) {
             AsyncImage(model = cached ?: item.url, contentDescription = item.title,
@@ -1384,7 +1393,7 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
                         else when (item.endBehavior) {
                         "advance" -> if (index + 1 < items.size) onNext(index + 1) else onFinished()
                         "playlistLoop" -> onNext(0)
-                        "pause" -> player.pause()
+                        "pause" -> if (index == items.lastIndex && items == playlist.items && playlist.postLesson?.items?.isNotEmpty() == true) onFinished() else player.pause()
                         else -> onFinished()
                         }
                     }
@@ -1508,7 +1517,7 @@ private fun loopingPreRoll(items: List<CueItem>) = items.mapIndexed { index, ite
 private const val REMOTE_SEEK_STEP_MS = 5_000L
 
 private fun ScreenManifest.itemCount() = (playlists.flatMap { playlist ->
-    playlist.items + playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item)
+    playlist.items + playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) + playlist.postLesson?.items.orEmpty()
 } + signageSchedule.flatMap { sign -> listOfNotNull(sign.media) + sign.zones.mapNotNull { it.media } }).distinctBy { it.id }.size
 
 @Composable
@@ -1566,7 +1575,7 @@ private fun CenterMessage(message: String) = Box(Modifier.fillMaxSize(), content
 private fun scheduleMediaCaches(context: android.content.Context, identity: DeviceIdentity, manifest: ScreenManifest) {
     val manager = WorkManager.getInstance(context)
     val lessonMedia = manifest.playlists.flatMap { playlist ->
-        playlist.items + playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item)
+        playlist.items + playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) + playlist.postLesson?.items.orEmpty()
     }
     val signageMedia = manifest.signageSchedule.flatMap { sign ->
         listOfNotNull(sign.media, sign.backgroundAudio) +

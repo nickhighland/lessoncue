@@ -39,7 +39,7 @@ public static class PresentationConversion
     }
 
     public static async Task<int> AddToLessonAsync(LessonCueDb db, MediaAsset source, Lesson lesson,
-        int imageDurationSeconds, string actor, CancellationToken ct = default)
+        int? imageDurationSeconds, string actor, CancellationToken ct = default)
     {
         var ids = SlideIds(source);
         if (source.ConversionStatus != "ready" || ids.Count == 0)
@@ -50,7 +50,9 @@ public static class PresentationConversion
             throw new InvalidOperationException("One or more converted slide files are missing. Convert the source again.");
         var position = await db.PlaylistItems.Where(x => x.LessonId == lesson.Id)
             .Select(x => (decimal?)x.Position).MaxAsync(ct) ?? 0;
-        var seconds = Math.Clamp(imageDurationSeconds, 1, 3600);
+        var seconds = imageDurationSeconds is > 0
+            ? Math.Clamp(imageDurationSeconds.Value, 1, 3600)
+            : (int?)null;
         foreach (var id in ids)
         {
             var slide = byId[id];
@@ -63,7 +65,7 @@ public static class PresentationConversion
                 Role = "lesson",
                 Position = position,
                 MediaAssetId = slide.Id,
-                DurationMs = seconds * 1000L,
+                DurationMs = seconds is int value ? value * 1000L : null,
                 ImageDurationSeconds = seconds
             });
             if (slide.StoragePolicy == MediaRetention.LessonScoped) MediaRetention.KeepForLesson(slide, lesson);
