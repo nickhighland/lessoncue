@@ -36,7 +36,9 @@ public static class ConstrainedProcessRunner
     public static async Task<string> RunAsync(string executable, IReadOnlyList<string> arguments,
         ConstrainedProcessOptions options, CancellationToken ct = default)
     {
-        var linuxWorker = OperatingSystem.IsLinux() ? ResolveLinuxMediaWorkerPath() : null;
+        var linuxWorker = OperatingSystem.IsLinux() && !ShouldSkipLinuxSandbox()
+            ? ResolveLinuxMediaWorkerPath()
+            : null;
         var start = BuildStartInfo(executable, arguments, options, linuxWorker);
         using var process = new Process { StartInfo = start };
         if (linuxWorker is not null && !File.Exists(linuxWorker))
@@ -129,7 +131,9 @@ public static class ConstrainedProcessRunner
     public static ProcessStartInfo BuildStartInfo(string executable, IReadOnlyList<string> arguments,
         ConstrainedProcessOptions options)
     {
-        var linuxWorker = OperatingSystem.IsLinux() ? ResolveLinuxMediaWorkerPath() : null;
+        var linuxWorker = OperatingSystem.IsLinux() && !ShouldSkipLinuxSandbox()
+            ? ResolveLinuxMediaWorkerPath()
+            : null;
         return BuildStartInfo(executable, arguments, options, linuxWorker);
     }
 
@@ -137,7 +141,7 @@ public static class ConstrainedProcessRunner
         ConstrainedProcessOptions options, string? linuxWorker)
     {
         executable = ResolveRestrictedWindowsTool(executable);
-        var useSandbox = OperatingSystem.IsLinux();
+        var useSandbox = OperatingSystem.IsLinux() && linuxWorker is not null;
         var helper = linuxWorker;
         var start = new ProcessStartInfo(useSandbox ? ResolveLinuxCapabilityDropperPath() : executable)
         {
@@ -188,6 +192,15 @@ public static class ConstrainedProcessRunner
         var bundledHelper = Path.Combine(AppContext.BaseDirectory, "lessoncue-media-worker");
         return !File.Exists(helper) && File.Exists(bundledHelper) ? bundledHelper : helper;
     }
+
+    private static bool ShouldSkipLinuxSandbox() =>
+        // Release/CI validation can explicitly opt out on runners where
+        // setpriv cannot change the capability bounding set. Production keeps
+        // the protected worker boundary unless this opt-out is set.
+        string.Equals(
+            Environment.GetEnvironmentVariable("LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX"),
+            "1",
+            StringComparison.Ordinal);
 
     private static string ResolveLinuxCapabilityDropperPath() =>
         LinuxCapabilityDropperPaths.FirstOrDefault(File.Exists) ??

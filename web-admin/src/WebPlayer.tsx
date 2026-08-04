@@ -1,7 +1,7 @@
 import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
 
-const APP_VERSION = "0.40.21";
+const APP_VERSION = "0.40.22";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };

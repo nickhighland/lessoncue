@@ -4,6 +4,19 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.22 — media-processing validation repair
+
+### User changes
+
+- Corrective release for the compact lesson builder and media workflow update.
+
+### Developer changes
+
+- The explicit `LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX=1` validation override now
+  bypasses the outer Linux `setpriv` wrapper as well as the media-worker
+  Bubblewrap wrapper. Production remains sandboxed by default.
+- Release metadata and Android version code advance to 0.40.22 and 81.
+
 ## v0.40.21 — compact lesson builder and reliable media workflows
 
 ### User changes
