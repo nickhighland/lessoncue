@@ -863,15 +863,6 @@ export function SimpleSignage({
     item: Media,
   ) {
     if (!event.isPrimary) return;
-    if (event.pointerType === "mouse") {
-      // Some Chromium/Linux drag paths do not deliver React's dragstart event
-      // reliably. Seed the same short-lived identity from pointerdown so the
-      // timeline drop/dragend fallback can still resolve the media item.
-      draggedMediaIdRef.current = item.id;
-      draggedMediaExpiresAtRef.current = Date.now() + 2000;
-      mediaDragCommittedRef.current = false;
-      return;
-    }
     pointerMediaDrag.current = {
       mediaId: item.id,
       pointerId: event.pointerId,
@@ -908,6 +899,9 @@ export function SimpleSignage({
       );
       pointerMediaDrag.current = undefined;
       draggedMediaIdRef.current = undefined;
+      draggedMediaExpiresAtRef.current = 0;
+      mediaDragEnteredTimelineRef.current = false;
+      mediaDragCommittedRef.current = false;
       setDraggedMediaId(undefined);
       setMediaDropIndex(undefined);
       if (!cancelled && drag.moved && item && index != null) {
