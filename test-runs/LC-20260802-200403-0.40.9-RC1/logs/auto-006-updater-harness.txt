@@ -1,0 +1,7 @@
+start_local: 2026-08-02T20:30:06-0400
+Docker version 29.2.1, build a5c7197
+=== command ===
+docker run --rm -v "${PWD}:/workspace:ro" debian:trixie-slim bash /workspace/tests/linux-updater-transaction.sh /workspace
+Cannot connect to the Docker daemon at unix:///Users/nickhighland/.docker/run/docker.sock. Is the docker daemon running?
+finish_local: 2026-08-02T20:30:06-0400
+exit_code: 1

@@ -1,0 +1,18 @@
+captured_local: 2026-08-02T21:02:26-0400
+row_count: 100
+status_counts:
+  BLOCKED: 82
+  FAIL: 7
+  PASS: 11
+duplicate_ids:
+  none
+missing_authoritative_ids:
+defect_files:
+  DEFECT-001.md
+  DEFECT-002.md
+  DEFECT-003.md
+  DEFECT-004.md
+  DEFECT-005.md
+  DEFECT-006.md
+source_changes_outside_run_artifacts:
+  none

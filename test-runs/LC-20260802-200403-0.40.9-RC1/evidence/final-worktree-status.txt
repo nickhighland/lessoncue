@@ -1,0 +1,14 @@
+captured_local: 2026-08-02T21:04:14-0400
+=== HEAD ===
+041e5499d9967c6003be404798b123a25d22fb5f
+041e5499d9967c6003be404798b123a25d22fb5f
+2026-08-02 20:27:35 -0400
+Workflow redesign: tabbed lesson editor, collapsible sidebar sections, dashboard quick actions, grid/list media toggle
+=== source diff names outside run artifacts ===
+none
+=== diff check ===
+=== adb devices ===
+List of devices attached
+
+=== Docker ===
+server=29.2.1 name=docker-desktop

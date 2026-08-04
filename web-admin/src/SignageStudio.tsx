@@ -46,6 +46,7 @@ type PlaylistEntry = {
   id: string; kind: "layout" | "media" | "app" | "web" | "nested" | "tag" | "cloud" | "csv"; title?: string;
   layoutId?: string; mediaAssetId?: string; nestedPlaylistId?: string; appType?: string; sourceUrl?: string;
   durationSeconds: number; transition: "cut" | "fade" | "slide" | "zoom"; hidden: boolean; transparent: boolean; tagsCsv?: string;
+  notes?: string;
 };
 type StudioPlaylist = {
   id: string; name: string; folder: string; playbackMode: "ordered" | "random" | "tag" | "interactive";

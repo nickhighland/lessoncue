@@ -1,0 +1,173 @@
+captured_local: 2026-08-02T20:48:47-0400
+source_commit: fd46c3ea0ffd3746f20ab48e792670f9f7e8a473
+required production artifacts: lessoncue-tv.apk, update.json, store APK/AAB
+available artifacts are debug-only build outputs below.
+
+=== android-tv/app/build/outputs/apk/sideload/debug/app-sideload-debug.apk ===
+5e1ae5ca731323c964f226005e6f34cfa19aff2faafca58975aea6d593af31da  android-tv/app/build/outputs/apk/sideload/debug/app-sideload-debug.apk
+bytes=15495913
+package: name='org.lessoncue.tv' versionCode='68' versionName='0.40.9' platformBuildVersionName='16' platformBuildVersionCode='36' compileSdkVersion='36' compileSdkVersionCodename='16'
+minSdkVersion:'26'
+targetSdkVersion:'36'
+uses-permission: name='android.permission.INTERNET'
+uses-permission: name='android.permission.ACCESS_NETWORK_STATE'
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::loadLibrary has been called by org.conscrypt.NativeLibraryUtil in an unnamed module (file:/Users/nickhighland/Library/Android/sdk/build-tools/36.0.0/lib/apksigner.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): false
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: C=US, O=Android, CN=Android Debug
+Signer #1 certificate SHA-256 digest: f2dd8723c0016f20cbed260c88547c68dff314d4a09906f1eac0533721989d4f
+Signer #1 certificate SHA-1 digest: 642a4efa91345e7067644e556b32cd84d96a6ab2
+Signer #1 certificate MD5 digest: 166d476fb6622baa746c600100e20e78
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 2048
+Signer #1 public key SHA-256 digest: c49d35bb8e72d71c501871dc85f7a3dbec633f103fc15d723cf6cb719ab280d1
+Signer #1 public key SHA-1 digest: ce247c43c835f3c5f3d2566f167ef3fd5ba1af83
+Signer #1 public key MD5 digest: bfa28244871671dea3eb531598dbea39
+
+=== android-tv/app/build/outputs/apk/store/debug/app-store-debug.apk ===
+8600170de7927b0778ca2330e2d40edbe74b83928d200941a5b23e6a041fd96e  android-tv/app/build/outputs/apk/store/debug/app-store-debug.apk
+bytes=15495833
+package: name='org.lessoncue.tv' versionCode='68' versionName='0.40.9' platformBuildVersionName='16' platformBuildVersionCode='36' compileSdkVersion='36' compileSdkVersionCodename='16'
+minSdkVersion:'26'
+targetSdkVersion:'36'
+uses-permission: name='android.permission.INTERNET'
+uses-permission: name='android.permission.ACCESS_NETWORK_STATE'
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::loadLibrary has been called by org.conscrypt.NativeLibraryUtil in an unnamed module (file:/Users/nickhighland/Library/Android/sdk/build-tools/36.0.0/lib/apksigner.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): false
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: C=US, O=Android, CN=Android Debug
+Signer #1 certificate SHA-256 digest: f2dd8723c0016f20cbed260c88547c68dff314d4a09906f1eac0533721989d4f
+Signer #1 certificate SHA-1 digest: 642a4efa91345e7067644e556b32cd84d96a6ab2
+Signer #1 certificate MD5 digest: 166d476fb6622baa746c600100e20e78
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 2048
+Signer #1 public key SHA-256 digest: c49d35bb8e72d71c501871dc85f7a3dbec633f103fc15d723cf6cb719ab280d1
+Signer #1 public key SHA-1 digest: ce247c43c835f3c5f3d2566f167ef3fd5ba1af83
+Signer #1 public key MD5 digest: bfa28244871671dea3eb531598dbea39
+
+=== source update policy ===
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val releaseKeystorePath = providers.environmentVariable("LESSONCUE_ANDROID_KEYSTORE_PATH").orNull
+val releaseKeystorePassword = providers.environmentVariable("LESSONCUE_ANDROID_KEYSTORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("LESSONCUE_ANDROID_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("LESSONCUE_ANDROID_KEY_PASSWORD").orNull
+val releaseSigningConfigured = listOf(
+    releaseKeystorePath, releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword
+).all { !it.isNullOrBlank() }
+
+android {
+    namespace = "org.lessoncue.tv"
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = "org.lessoncue.tv"
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 68
+        versionName = "0.40.9"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("boolean", "UPDATE_ENABLED", "false")
+        buildConfigField(
+            "String",
+            "UPDATE_MANIFEST_URL",
+            "\"https://github.com/nickhighland/lessoncue/releases/latest/download/update.json\""
+        )
+        buildConfigField("String", "UPDATE_CHANNEL", "\"stable\"")
+        buildConfigField(
+            "String",
+            "UPDATE_ALLOWED_HOSTS",
+            "\"github.com,objects.githubusercontent.com,release-assets.githubusercontent.com\""
+        )
+        buildConfigField(
+            "String",
+            "UPDATE_SIGNING_CERT_SHA256",
+            "\"E875F8F9F4E80494DF1658D5E59662BE1048D7CD5D53DB2131103051352F64AE\""
+        )
+    }
+
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("lessoncueRelease") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("sideload") {
+            dimension = "distribution"
+            resValue("string", "app_name", "LessonCue Sideload")
+            buildConfigField("boolean", "UPDATE_ENABLED", "true")
+        }
+        create("store") {
+            dimension = "distribution"
+            resValue("string", "app_name", "LessonCue")
+            buildConfigField("boolean", "UPDATE_ENABLED", "false")
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            if (releaseSigningConfigured) signingConfig = signingConfigs.getByName("lessoncueRelease")
+        }
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+        resValues = true
+    }
+    sourceSets.getByName("test").resources.srcDir(rootProject.file("../protocol/fixtures"))
+    packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+}
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.17.0")
+    implementation("androidx.activity:activity-compose:1.12.4")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.10.0")
+    implementation("androidx.tv:tv-foundation:1.0.0")
+    implementation("androidx.tv:tv-material:1.0.1")
+    implementation("androidx.media3:media3-exoplayer:1.10.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.10.1")
+    implementation("androidx.media3:media3-ui:1.10.1")
+    implementation("androidx.datastore:datastore-preferences:1.2.1")
+    implementation("androidx.work:work-runtime-ktx:2.11.1")
+    implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("com.google.zxing:core:3.5.4")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250517")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.10.5")
+    debugImplementation("androidx.compose.ui:ui-test-manifest:1.10.5")
+}
+
+=== repository artifact search ===

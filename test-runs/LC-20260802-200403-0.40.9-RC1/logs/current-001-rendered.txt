@@ -1,0 +1,16 @@
+command: node --test tests/rendered-html.test.mjs
+start_local: 2026-08-02T20:52:57-0400
+✔ server-renders the LessonCue lesson editor (64.223291ms)
+✔ ships the product-specific social card and removes the starter preview (1.781458ms)
+✔ includes phase-two deployment reliability workflows (0.736209ms)
+✔ includes phases three through six (0.54175ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 163.906708
+finish_local: 2026-08-02T20:52:57-0400
+exit_code: 0

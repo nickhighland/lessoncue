@@ -1,0 +1,77 @@
+command: env ANDROID_HOME=/Users/nickhighland/Library/Android/sdk ANDROID_SDK_ROOT=/Users/nickhighland/Library/Android/sdk gradle -p android-tv :app:testSideloadDebugUnitTest :app:testStoreDebugUnitTest
+start_local: 2026-08-02T20:36:47-0400
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preSideloadDebugBuild UP-TO-DATE
+> Task :app:generateSideloadDebugBuildConfig UP-TO-DATE
+> Task :app:generateSideloadDebugResValues UP-TO-DATE
+> Task :app:generateSideloadDebugResources UP-TO-DATE
+> Task :app:packageSideloadDebugResources UP-TO-DATE
+> Task :app:processSideloadDebugNavigationResources UP-TO-DATE
+> Task :app:parseSideloadDebugLocalResources UP-TO-DATE
+> Task :app:generateSideloadDebugRFile UP-TO-DATE
+> Task :app:compileSideloadDebugKotlin UP-TO-DATE
+> Task :app:javaPreCompileSideloadDebug UP-TO-DATE
+> Task :app:compileSideloadDebugJavaWithJavac UP-TO-DATE
+> Task :app:checkSideloadDebugAarMetadata UP-TO-DATE
+> Task :app:mapSideloadDebugSourceSetPaths UP-TO-DATE
+> Task :app:compileSideloadDebugNavigationResources UP-TO-DATE
+> Task :app:mergeSideloadDebugResources UP-TO-DATE
+> Task :app:createSideloadDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksSideloadDebug UP-TO-DATE
+> Task :app:processSideloadDebugMainManifest UP-TO-DATE
+> Task :app:processSideloadDebugManifest UP-TO-DATE
+> Task :app:processSideloadDebugManifestForPackage UP-TO-DATE
+> Task :app:processSideloadDebugResources UP-TO-DATE
+> Task :app:bundleSideloadDebugClassesToRuntimeJar UP-TO-DATE
+> Task :app:bundleSideloadDebugClassesToCompileJar UP-TO-DATE
+> Task :app:preSideloadDebugUnitTestBuild UP-TO-DATE
+> Task :app:compileSideloadDebugUnitTestKotlin UP-TO-DATE
+> Task :app:javaPreCompileSideloadDebugUnitTest UP-TO-DATE
+> Task :app:compileSideloadDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :app:processSideloadDebugJavaRes UP-TO-DATE
+> Task :app:processSideloadDebugUnitTestJavaRes UP-TO-DATE
+> Task :app:testSideloadDebugUnitTest UP-TO-DATE
+> Task :app:preStoreDebugBuild UP-TO-DATE
+> Task :app:generateStoreDebugBuildConfig UP-TO-DATE
+> Task :app:generateStoreDebugResValues UP-TO-DATE
+> Task :app:generateStoreDebugResources UP-TO-DATE
+> Task :app:packageStoreDebugResources UP-TO-DATE
+> Task :app:processStoreDebugNavigationResources UP-TO-DATE
+> Task :app:parseStoreDebugLocalResources UP-TO-DATE
+> Task :app:generateStoreDebugRFile UP-TO-DATE
+> Task :app:compileStoreDebugKotlin UP-TO-DATE
+> Task :app:javaPreCompileStoreDebug UP-TO-DATE
+> Task :app:compileStoreDebugJavaWithJavac UP-TO-DATE
+> Task :app:checkStoreDebugAarMetadata UP-TO-DATE
+> Task :app:mapStoreDebugSourceSetPaths UP-TO-DATE
+> Task :app:compileStoreDebugNavigationResources UP-TO-DATE
+> Task :app:mergeStoreDebugResources UP-TO-DATE
+> Task :app:createStoreDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksStoreDebug UP-TO-DATE
+> Task :app:processStoreDebugMainManifest UP-TO-DATE
+> Task :app:processStoreDebugManifest UP-TO-DATE
+> Task :app:processStoreDebugManifestForPackage UP-TO-DATE
+> Task :app:processStoreDebugResources UP-TO-DATE
+> Task :app:bundleStoreDebugClassesToRuntimeJar UP-TO-DATE
+> Task :app:bundleStoreDebugClassesToCompileJar UP-TO-DATE
+> Task :app:preStoreDebugUnitTestBuild UP-TO-DATE
+> Task :app:compileStoreDebugUnitTestKotlin UP-TO-DATE
+> Task :app:javaPreCompileStoreDebugUnitTest UP-TO-DATE
+> Task :app:compileStoreDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :app:processStoreDebugJavaRes UP-TO-DATE
+> Task :app:processStoreDebugUnitTestJavaRes UP-TO-DATE
+> Task :app:testStoreDebugUnitTest UP-TO-DATE
+
+[Incubating] Problems report is available at: file:///Users/nickhighland/Documents/Video%20Viewer/android-tv/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.6.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 1s
+54 actionable tasks: 54 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.6.1/userguide/configuration_cache_enabling.html
+finish_local: 2026-08-02T20:36:48-0400
+exit_code: 0
