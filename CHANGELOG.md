@@ -4,6 +4,19 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.20 — compact lesson timeline controls
+
+### User changes
+
+- Lesson timeline cards now stay compact with dedicated Notes and Advanced Options buttons for each cue.
+- Ready media can be dragged to any position in the lesson timeline, with click-to-add still available.
+
+### Developer changes
+
+- Added accessible cue popovers for notes, playback settings, precision timing, and visual trim/fade controls.
+- Added browser coverage for drag insertion, cue popovers, notes persistence, and existing advanced playback workflows.
+- Release metadata and Android version code advance to 0.40.20 and 79.
+
 ## v0.40.19 — reliable SQLite snapshot verification
 
 ### User changes

@@ -1,8 +1,10 @@
 import {
   Component,
   CSSProperties,
+  DragEvent as ReactDragEvent,
   FormEvent,
   KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
   ReactNode,
   useCallback,
@@ -3703,11 +3705,8 @@ function LessonEditor({
   const [showRunSheet, setShowRunSheet] = useState(false);
   const [showRelocate, setShowRelocate] = useState(false);
   const [relocateAction, setRelocateAction] = useState<"copy" | "move">("copy");
-  const [editingMode, setEditingMode] = useState<"simple" | "advanced">(() =>
-    localStorage.getItem("lessoncue.lesson-editor.mode") === "advanced"
-      ? "advanced"
-      : "simple",
-  );
+  const [draggedLibraryMediaId, setDraggedLibraryMediaId] = useState<string>();
+  const [libraryDropIndex, setLibraryDropIndex] = useState<number>();
   const items = [...lesson.items].sort((a, b) => a.position - b.position);
   useEffect(() => {
     if (!showAdd) return;
@@ -3837,14 +3836,64 @@ function LessonEditor({
       notify(errorText(e));
     }
   }
-  async function addLibraryMedia(asset: Media) {
+  function positionForLibraryDrop(index: number) {
+    if (!items.length) return 1000;
+    if (index <= 0) return items[0].position - 1000;
+    if (index >= items.length) return items[items.length - 1].position + 1000;
+    return (items[index - 1].position + items[index].position) / 2;
+  }
+  async function addLibraryMedia(asset: Media, index = items.length) {
     try {
-      await addAssetToLesson(asset, "lesson");
+      await addAssetToLesson(
+        asset,
+        "lesson",
+        undefined,
+        positionForLibraryDrop(index),
+      );
       refresh();
-      notify(`${asset.fileName} added to the lesson.`);
+      notify(
+        index < items.length
+          ? `${asset.fileName} inserted at position ${index + 1}.`
+          : `${asset.fileName} added to the lesson.`,
+      );
     } catch (e) {
       notify(errorText(e));
     }
+  }
+  function libraryDragStart(event: ReactDragEvent<HTMLButtonElement>, asset: Media) {
+    setDraggedLibraryMediaId(asset.id);
+    setLibraryDropIndex(items.length);
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData("application/x-lessoncue-media-id", asset.id);
+    event.dataTransfer.setData("text/plain", asset.id);
+  }
+  function libraryDragOver(event: ReactDragEvent<HTMLElement>, index: number) {
+    if (!draggedLibraryMediaId && !event.dataTransfer.types.includes("application/x-lessoncue-media-id")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    const card = (event.target as HTMLElement).closest<HTMLElement>(".playlist-item");
+    if (!card) {
+      setLibraryDropIndex(items.length ? index : 0);
+      return;
+    }
+    const bounds = card.getBoundingClientRect();
+    setLibraryDropIndex(event.clientX < bounds.left + bounds.width / 2 ? index : index + 1);
+  }
+  async function libraryDrop(event: ReactDragEvent<HTMLElement>) {
+    event.preventDefault();
+    const mediaId =
+      event.dataTransfer.getData("application/x-lessoncue-media-id") ||
+      event.dataTransfer.getData("text/plain") ||
+      draggedLibraryMediaId;
+    const asset = playableMedia.find((item) => item.id === mediaId);
+    const index = libraryDropIndex ?? items.length;
+    setDraggedLibraryMediaId(undefined);
+    setLibraryDropIndex(undefined);
+    if (asset) await addLibraryMedia(asset, index);
+  }
+  function libraryDragEnd() {
+    setDraggedLibraryMediaId(undefined);
+    setLibraryDropIndex(undefined);
   }
   async function uploadAndAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -4161,38 +4210,6 @@ function LessonEditor({
           </div>
         }
       />
-      <section className="editor-mode-switch" aria-label="Lesson editor mode">
-        <div>
-          <strong>
-            {editingMode === "simple" ? "Simple editing" : "Advanced editing"}
-          </strong>
-          <small>
-            {editingMode === "simple"
-              ? "Everyday playback controls without technical detail."
-              : "Crop, rotation, speed, repeats, precise timing, fades, and transitions."}
-          </small>
-        </div>
-        <div role="group" aria-label="Choose editor mode">
-          <button
-            className={editingMode === "simple" ? "active" : ""}
-            onClick={() => {
-              setEditingMode("simple");
-              localStorage.setItem("lessoncue.lesson-editor.mode", "simple");
-            }}
-          >
-            Simple
-          </button>
-          <button
-            className={editingMode === "advanced" ? "active" : ""}
-            onClick={() => {
-              setEditingMode("advanced");
-              localStorage.setItem("lessoncue.lesson-editor.mode", "advanced");
-            }}
-          >
-            Advanced
-          </button>
-        </div>
-      </section>
       {showAdd && canUpload && (
         <Modal
           title={addMode === "chooser" ? "Add media to the lesson" : addMode === "upload" ? "Upload new media" : addMode === "poll" ? "Add an audience poll" : addMode === "online" ? "Add online media or slides" : "Choose existing media"}
@@ -4673,41 +4690,62 @@ function LessonEditor({
             <label className="playlist-select-all">
               <input type="checkbox" checked={allCuesSelected} onChange={toggleAllCues} /> Select all cues
             </label>
-            <section className="playlist lesson-playlist-track" aria-label="Horizontal playback sequence">
+            <section
+              className={`playlist lesson-playlist-track ${draggedLibraryMediaId ? "is-library-dragging" : ""}`}
+              aria-label="Horizontal playback sequence"
+              onDragOver={(event) => {
+                if (!(event.target as HTMLElement).closest(".playlist-item")) libraryDragOver(event, items.length);
+              }}
+              onDrop={libraryDrop}
+            >
               {items.map((item, index) => (
                 <PlaylistCueRow
                   key={item.id}
                   item={item}
                   index={index}
                   total={items.length}
-                  advanced={editingMode === "advanced"}
+                  dropEdge={
+                    libraryDropIndex === index
+                      ? "before"
+                      : index === items.length - 1 && libraryDropIndex === items.length
+                        ? "after"
+                        : undefined
+                  }
                   selected={selectedCueIds.has(item.id)}
                   onSelected={() => toggleCue(item.id)}
                   onMove={move}
                   onChange={changeItem}
                   onTimeline={() => setPreviewItem(item)}
                   onRemove={removeItem}
+                  onLibraryDragOver={(event) => libraryDragOver(event, index)}
                 />
               ))}
             </section>
           </>
         ) : (
-          <Empty
-            title="This playlist is empty"
-            body="Add videos, audio, or images from your local media library."
-            action={
-              <button className="button primary" onClick={() => { setAddMode("chooser"); setShowAdd(true); }}>
-                Add media
-              </button>
-            }
-          />
+          <section
+            className={`lesson-empty-drop-target ${draggedLibraryMediaId ? "is-library-dragging" : ""} ${libraryDropIndex === 0 ? "is-drop-ready" : ""}`}
+            aria-label="Empty playback sequence drop target"
+            onDragOver={(event) => libraryDragOver(event, 0)}
+            onDrop={libraryDrop}
+          >
+            <Empty
+              title="This playlist is empty"
+              body="Drag ready media here, or choose a file to begin the lesson."
+              action={
+                <button className="button primary" onClick={() => { setAddMode("chooser"); setShowAdd(true); }}>
+                  Add media
+                </button>
+              }
+            />
+          </section>
         )}
         <section className="lesson-library" aria-label="Lesson media library">
           <div className="lesson-library-heading">
             <div>
               <span className="section-label">LIBRARY</span>
               <h3>Ready media</h3>
-              <small>Click a file to add it to the end of the lesson sequence.</small>
+              <small>Drag a file onto any timeline position, or click it to append.</small>
             </div>
             <button className="button" onClick={() => { setAddMode("chooser"); setShowAdd(true); }}>
               ＋ Upload or choose
@@ -4720,7 +4758,15 @@ function LessonEditor({
               <small>Images, video, audio, slides, and links</small>
             </button>
             {playableMedia.map((asset) => (
-              <button className="lesson-library-card" key={asset.id} onClick={() => void addLibraryMedia(asset)}>
+              <button
+                className={`lesson-library-card ${draggedLibraryMediaId === asset.id ? "is-dragging" : ""}`}
+                key={asset.id}
+                draggable
+                onDragStart={(event) => libraryDragStart(event, asset)}
+                onDragEnd={libraryDragEnd}
+                onClick={() => void addLibraryMedia(asset)}
+                aria-label={`Add or drag ${asset.fileName} to the playback sequence`}
+              >
                 <span className="lesson-library-thumb">
                   {asset.thumbnailUrl ? <img src={asset.thumbnailUrl} alt="" /> : <b>{asset.contentType.startsWith("audio/") ? "♫" : asset.sourceKind === "link" ? "⌘" : "▶"}</b>}
                 </span>
@@ -4735,17 +4781,35 @@ function LessonEditor({
   );
 }
 
+function CueIcon({ name }: { name: "notes" | "options" | "timeline" | "mute" | "clock" | "skip" | "close" }) {
+  const paths: Record<typeof name, ReactNode> = {
+    notes: <><path d="M5 5.5h14v10H9l-4 3v-13Z" /><path d="M8.5 9h7M8.5 12h5" /></>,
+    options: <><path d="M4 7h10M17 7h3M4 17h3M10 17h10M14 4v6M7 14v6" /></>,
+    timeline: <><path d="M4 6h16M4 18h16M7 6v12M17 6v12" /><path d="m10 12 4-2.5v5L10 12Z" /></>,
+    mute: <><path d="m5 10 4-3v10l-4-3H2v-4h3Z" /><path d="m14 10 6 6M20 10l-6 6" /></>,
+    clock: <><circle cx="12" cy="12" r="8" /><path d="M12 8v5l3 2" /></>,
+    skip: <><path d="m6 7 7 5-7 5V7ZM15 7v10" /></>,
+    close: <path d="m7 7 10 10M17 7 7 17" />,
+  };
+  return (
+    <svg className="cue-icon" viewBox="0 0 24 24" aria-hidden="true">
+      {paths[name]}
+    </svg>
+  );
+}
+
 function PlaylistCueRow({
   item,
   index,
   total,
-  advanced,
+  dropEdge,
   selected,
   onSelected,
   onMove,
   onChange,
   onTimeline,
   onRemove,
+  onLibraryDragOver,
 }: {
   item: PlaylistItem;
   index: number;
@@ -4755,16 +4819,59 @@ function PlaylistCueRow({
     item: PlaylistItem,
     changes: Record<string, unknown>,
   ) => void | Promise<void>;
-  advanced: boolean;
+  dropEdge?: "before" | "after";
   selected: boolean;
   onSelected: () => void;
   onTimeline: () => void;
   onRemove: (id: string) => void | Promise<void>;
+  onLibraryDragOver: (event: ReactDragEvent<HTMLElement>) => void;
 }) {
   const visual = item.type === "video" || item.type === "image";
+  const [openPanel, setOpenPanel] = useState<"notes" | "advanced">();
+  const [panelPosition, setPanelPosition] = useState({ top: 16, left: 16 });
+  const panelRef = useRef<HTMLElement>(null);
+  const actionDockRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!openPanel) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (panelRef.current?.contains(target) || actionDockRef.current?.contains(target)) return;
+      setOpenPanel(undefined);
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setOpenPanel(undefined);
+    };
+    const closeOnResize = () => setOpenPanel(undefined);
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", closeOnResize);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", closeOnResize);
+    };
+  }, [openPanel]);
+  function togglePanel(panel: "notes" | "advanced", event: ReactMouseEvent<HTMLButtonElement>) {
+    if (openPanel === panel) {
+      setOpenPanel(undefined);
+      return;
+    }
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const width = panel === "advanced" ? Math.min(560, window.innerWidth - 24) : Math.min(360, window.innerWidth - 24);
+    const height = panel === "advanced" ? Math.min(620, window.innerHeight * 0.72) : 260;
+    const below = bounds.bottom + 8;
+    setPanelPosition({
+      left: Math.max(12, Math.min(bounds.left, window.innerWidth - width - 12)),
+      top: below + height <= window.innerHeight - 12
+        ? below
+        : Math.max(12, bounds.top - height - 8),
+    });
+    setOpenPanel(panel);
+  }
   return (
     <article
-      className={`playlist-item ${item.role} ${selected ? "selected" : ""}`}
+      className={`playlist-item ${item.role} ${selected ? "selected" : ""} ${dropEdge ? `drop-${dropEdge}` : ""}`}
+      onDragOver={onLibraryDragOver}
     >
       <label className="media-select">
         <input
@@ -4803,9 +4910,87 @@ function PlaylistCueRow({
           {item.mediaFileName || item.type} ·{" "}
           {formatDuration(item.durationMs || item.mediaDurationMs)}
         </small>
-        <button className="timeline-edit" onClick={onTimeline}>
-          ▥ Visually trim both ends & edit fades
-        </button>
+        <div className="cue-action-dock" ref={actionDockRef} role="group" aria-label={`Options for ${item.title}`}>
+          <button
+            type="button"
+            className={openPanel === "notes" ? "active" : ""}
+            aria-label={`Notes for ${item.title}`}
+            aria-expanded={openPanel === "notes"}
+            title="Notes"
+            onClick={(event) => togglePanel("notes", event)}
+          >
+            <CueIcon name="notes" />
+            {item.notes && <i aria-hidden="true" />}
+          </button>
+          <button
+            type="button"
+            className={openPanel === "advanced" ? "active" : ""}
+            aria-label={`Advanced Options for ${item.title}`}
+            aria-expanded={openPanel === "advanced"}
+            title="Advanced Options"
+            onClick={(event) => togglePanel("advanced", event)}
+          >
+            <CueIcon name="options" />
+          </button>
+        </div>
+        {openPanel === "notes" && (
+          <section
+            className="cue-popover cue-notes-popover"
+            ref={panelRef}
+            style={panelPosition}
+            role="dialog"
+            aria-label={`Notes for ${item.title}`}
+          >
+            <header>
+              <div><CueIcon name="notes" /><span><strong>Notes</strong><small>{item.title}</small></span></div>
+              <button type="button" aria-label="Close notes" onClick={() => setOpenPanel(undefined)}><CueIcon name="close" /></button>
+            </header>
+            <Field
+              label="Teacher / volunteer notes"
+              hint="Shown beside this cue on the phone controller and printed run sheet."
+            >
+              <textarea
+                rows={5}
+                maxLength={2000}
+                defaultValue={item.notes || ""}
+                placeholder="What the operator should say or do"
+                onBlur={(event) =>
+                  event.target.value !== item.notes &&
+                  onChange(item, { notes: event.target.value })
+                }
+              />
+            </Field>
+          </section>
+        )}
+        {openPanel === "advanced" && (
+          <section
+            className="cue-popover cue-advanced-popover"
+            ref={panelRef}
+            style={panelPosition}
+            role="dialog"
+            aria-label={`Advanced Options for ${item.title}`}
+          >
+            <header>
+              <div><CueIcon name="options" /><span><strong>Advanced Options</strong><small>{item.title}</small></span></div>
+              <button type="button" aria-label="Close Advanced Options" onClick={() => setOpenPanel(undefined)}><CueIcon name="close" /></button>
+            </header>
+            <div className="cue-tool-row" aria-label="Cue quick actions">
+              <button type="button" onClick={() => { setOpenPanel(undefined); onTimeline(); }}>
+                <CueIcon name="timeline" /><span><strong>Trim & fades</strong><small>Visual editor</small></span>
+              </button>
+              <label>
+                <input aria-label="Mute cue" type="checkbox" checked={item.muted} onChange={(event) => onChange(item, { muted: event.target.checked })} />
+                <CueIcon name="mute" /><span><strong>Mute</strong><small>Silence cue</small></span>
+              </label>
+              <label>
+                <input aria-label="Flexible timing" type="checkbox" checked={item.flexibleTime} onChange={(event) => onChange(item, { flexibleTime: event.target.checked })} />
+                <CueIcon name="clock" /><span><strong>Flexible</strong><small>Timing may vary</small></span>
+              </label>
+              <label>
+                <input aria-label="Allow volunteers to skip this cue" type="checkbox" checked={item.allowSkip} onChange={(event) => onChange(item, { allowSkip: event.target.checked })} />
+                <CueIcon name="skip" /><span><strong>Skippable</strong><small>Volunteer control</small></span>
+              </label>
+            </div>
         <div className="item-options simple-cue-controls">
           <Field label="Role">
             <select
@@ -4875,40 +5060,7 @@ function PlaylistCueRow({
               </div>
             </Field>
           )}
-          <label className="compact-check">
-            <input
-              type="checkbox"
-              checked={item.muted}
-              onChange={(e) => onChange(item, { muted: e.target.checked })}
-            />{" "}
-            Mute cue
-          </label>
-          <label className="compact-check">
-            <input
-              type="checkbox"
-              checked={item.flexibleTime}
-              onChange={(e) =>
-                onChange(item, { flexibleTime: e.target.checked })
-              }
-            />{" "}
-            Flexible timing
-          </label>
         </div>
-        <Field
-          label="Teacher / volunteer notes"
-          hint="Shown beside this cue on the phone controller and printed run sheet."
-        >
-          <textarea
-            rows={2}
-            maxLength={2000}
-            defaultValue={item.notes || ""}
-            placeholder="What the operator should say or do"
-            onBlur={(e) =>
-              e.target.value !== item.notes &&
-              onChange(item, { notes: e.target.value })
-            }
-          />
-        </Field>
         {visual && (
           <div className="cue-appearance-summary">
             <i style={{ background: item.backgroundColor || "#000000" }} />
@@ -4923,9 +5075,8 @@ function PlaylistCueRow({
             </span>
           </div>
         )}
-        {advanced && (
           <details className="item-advanced" open>
-            <summary>Advanced cue controls</summary>
+            <summary>Precision playback controls</summary>
             <div className="advanced-grid">
               <Field label="Display title">
                 <input
@@ -5147,25 +5298,8 @@ function PlaylistCueRow({
                   }
                 />
               </Field>
-              <Field label="Volunteer notes">
-                <input
-                  defaultValue={item.notes || ""}
-                  placeholder="Shown during playback"
-                  onBlur={(e) => onChange(item, { notes: e.target.value })}
-                />
-              </Field>
             </div>
             <div className="advanced-checks">
-              <label className="check-line">
-                <input
-                  type="checkbox"
-                  checked={item.allowSkip}
-                  onChange={(e) =>
-                    onChange(item, { allowSkip: e.target.checked })
-                  }
-                />{" "}
-                Allow volunteers to skip this cue
-              </label>
               <label className="check-line">
                 <input
                   type="checkbox"
@@ -5178,6 +5312,7 @@ function PlaylistCueRow({
               </label>
             </div>
           </details>
+          </section>
         )}
       </div>
       <button

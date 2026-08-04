@@ -97,7 +97,6 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await uploadForm.getByRole("button", { name: "Upload and add" }).evaluate((button: HTMLButtonElement) => button.click());
   await expect(page.getByText("1 file added. It will be deleted four weeks after", { exact: false })).toBeVisible();
   await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("Browser Test Audio", { exact: true })).toBeVisible();
-
   await page.locator(".playlist-heading-actions").getByRole("button", { name: /Add media/ }).click();
   await page.getByRole("button", { name: "Upload new media" }).click();
   const multiUploadForm = page.locator("form").filter({ has: page.getByLabel("Media files") });
@@ -137,6 +136,20 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
     return `${item?.processingStatus}:${item?.compatibilityStatus}`;
   }), { timeout: 60_000 }).toBe("ready:ready");
+  await page.reload();
+  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
+  const readyVideo = page.getByRole("button", { name: "Add or drag needs-tv-conversion.mp4 to the playback sequence" });
+  const firstTimelineCue = page.locator('[aria-label="Horizontal playback sequence"] .playlist-item').first();
+  await expect(readyVideo).toHaveAttribute("draggable", "true");
+  await readyVideo.dragTo(firstTimelineCue, { targetPosition: { x: 4, y: 50 } });
+  await expect(page.getByText("needs-tv-conversion.mp4 inserted at position 1.", { exact: false })).toBeVisible();
+  await expect.poll(() => page.evaluate(async () => {
+    const lessons = await fetch("/api/v1/lessons").then(response => response.json());
+    const lesson = lessons.find((item: { title: string }) => item.title === "Sample Lesson");
+    const ordered = [...lesson.items].sort((a: { position: number }, b: { position: number }) => a.position - b.position);
+    return `${ordered[0]?.title}:${ordered.filter((item: { title: string }) => item.title === "needs-tv-conversion.mp4").length}`;
+  })).toBe("needs-tv-conversion.mp4:1");
   const playbackDelivery = await page.evaluate(async () => {
     const items = await fetch("/api/v1/media").then(response => response.json());
     const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
@@ -167,7 +180,9 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: /Classes$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
   const videoCue = page.locator(".playlist-item").filter({ hasText: "Browser Compatibility Video" });
-  await page.getByRole("button", { name: "Advanced", exact: true }).click();
+  await expect(videoCue.getByLabel("Picture fit")).toHaveCount(0);
+  await videoCue.getByRole("button", { name: "Advanced Options for Browser Compatibility Video" }).click();
+  await expect(page.getByRole("dialog", { name: "Advanced Options for Browser Compatibility Video" })).toBeVisible();
   await videoCue.getByLabel("Picture fit").selectOption("fill");
   await expect(page.getByText("Playlist saved.", { exact: false })).toBeVisible();
   await videoCue.getByLabel("Rotate").selectOption("90");
@@ -176,7 +191,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await videoCue.getByLabel("Play count before ending").fill("2");
   await videoCue.getByLabel("Play count before ending").press("Tab");
   await videoCue.getByLabel("Transition").selectOption("fade-black");
-  await videoCue.getByRole("button", { name: "▥ Visually trim both ends & edit fades" }).click();
+  await videoCue.getByRole("button", { name: "Trim & fades" }).click();
   await expect(page.getByRole("heading", { name: "Visual timeline & fades: Browser Compatibility Video" })).toBeVisible();
   await expect(page.locator(".trim-handle.trim-start")).toBeVisible();
   await expect(page.locator(".trim-handle.trim-end")).toBeVisible();
@@ -211,8 +226,12 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   })).toBe("fill:90:125:2:fade-black");
 
   const runCue = page.locator(".playlist-item").filter({ hasText: "Browser Compatibility Video" });
+  await runCue.getByRole("button", { name: "Advanced Options for Browser Compatibility Video" }).click();
   await runCue.getByLabel("Flexible timing").evaluate((input: HTMLInputElement) => input.click());
   await expect(page.getByText("Playlist saved.", { exact: false })).toBeVisible();
+  await runCue.getByRole("button", { name: "Close Advanced Options" }).click();
+  await runCue.getByRole("button", { name: "Notes for Browser Compatibility Video" }).click();
+  await expect(page.getByRole("dialog", { name: "Notes for Browser Compatibility Video" })).toBeVisible();
   await runCue.getByLabel("Teacher / volunteer notes").fill("Pause for questions before continuing.");
   await runCue.getByLabel("Teacher / volunteer notes").press("Tab");
   await expect(page.getByText("Playlist saved.", { exact: false })).toBeVisible();
