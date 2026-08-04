@@ -4,6 +4,12 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.27 — signage drag-and-drop release fix
+
+- Preserve the active media identifier across the browser drag lifecycle so dragging ready media into an empty signage playlist reliably creates the first timeline card.
+- Commit the drop from the drag-end event as a browser compatibility fallback when a hosted browser omits the expected drop callback.
+- Keep the existing signage horizontal timeline, duration controls, notes, and item settings behavior unchanged.
+
 ## v0.40.26 — signage drag-and-drop release fix
 
 - Preserve the active media identifier across the browser drag lifecycle so dragging ready media into an empty signage playlist reliably creates the first timeline card.
