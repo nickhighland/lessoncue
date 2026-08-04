@@ -4,6 +4,20 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.24 — grouped playback sections
+
+### User changes
+
+- Total playback now always presents Pre-Roll, Countdown, Main Lesson, and Post Lesson in playback order.
+- Each playback section has a distinct shaded background, including visible empty drop zones for new lessons.
+- Ready media can be dragged directly into an empty section or inserted within an existing section.
+
+### Developer changes
+
+- Total-view rendering groups cues by role instead of relying on interleaved global positions.
+- Drag-and-drop insertion preserves the selected section role and calculates positions within that section.
+- Release metadata advances to 0.40.24 and Android version code 83.
+
 ## v0.40.23 — clearer lesson playback builder
 
 ### User changes

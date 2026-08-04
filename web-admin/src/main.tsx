@@ -3711,6 +3711,7 @@ function LessonEditor({
   const [activeSequenceSection, setActiveSequenceSection] = useState<"total" | PlaylistItem["role"]>("total");
   const items = [...lesson.items].sort((a, b) => a.position - b.position);
   const libraryDropIndexRef = useRef<number | undefined>(undefined);
+  const libraryDropRoleRef = useRef<PlaylistItem["role"] | undefined>(undefined);
   const libraryPointerDragRef = useRef<{
     mediaId: string;
     pointerId: number;
@@ -3734,9 +3735,17 @@ function LessonEditor({
     { role: "lesson", label: "Main Lesson" },
     { role: "postLesson", label: "Post Lesson", loop: true },
   ];
-  const visibleSequenceItems = items
-    .map((item, globalIndex) => ({ item, globalIndex }))
-    .filter(({ item }) => activeSequenceSection === "total" || item.role === activeSequenceSection);
+  const sequenceGroups = sequenceSections.map((section) => ({
+    ...section,
+    items: items
+      .map((item, globalIndex) => ({ item, globalIndex }))
+      .filter(({ item }) => item.role === section.role),
+  }));
+  const activeSequenceItems = activeSequenceSection === "total"
+    ? sequenceGroups.flatMap((group) => group.items)
+    : sequenceGroups.find((group) => group.role === activeSequenceSection)?.items || [];
+  const visibleSequenceItems = activeSequenceItems;
+  const activeSectionRole: PlaylistItem["role"] = activeSequenceSection === "total" ? "lesson" : activeSequenceSection;
   const plannedDurationMs = lessonItems.reduce(
     (total, item) => total + cuePlannedDurationMs(item),
     0,
@@ -3862,18 +3871,44 @@ function LessonEditor({
       notify(errorText(e));
     }
   }
-  function positionForLibraryDrop(index: number) {
+  function positionForLibraryDrop(index: number, role?: PlaylistItem["role"]) {
+    if (role) {
+      const roleItems = items.filter((item) => item.role === role);
+      if (roleItems.length) {
+        if (index <= 0) return roleItems[0].position - 1000;
+        if (index >= roleItems.length) return roleItems[roleItems.length - 1].position + 1000;
+        return (roleItems[index - 1].position + roleItems[index].position) / 2;
+      }
+      const roleIndex = sequenceSections.findIndex((section) => section.role === role);
+      const previousItems = sequenceSections
+        .slice(0, roleIndex)
+        .flatMap((section) => items.filter((item) => item.role === section.role));
+      const nextItems = sequenceSections
+        .slice(roleIndex + 1)
+        .flatMap((section) => items.filter((item) => item.role === section.role));
+      const previousPosition = previousItems.length
+        ? Math.max(...previousItems.map((item) => item.position))
+        : undefined;
+      const nextPosition = nextItems.length
+        ? Math.min(...nextItems.map((item) => item.position))
+        : undefined;
+      if (previousPosition != null && nextPosition != null && nextPosition > previousPosition) {
+        return (previousPosition + nextPosition) / 2;
+      }
+      if (previousPosition != null) return previousPosition + 1000;
+      if (nextPosition != null) return nextPosition - 1000;
+    }
     if (!items.length) return 1000;
     if (index <= 0) return items[0].position - 1000;
     if (index >= items.length) return items[items.length - 1].position + 1000;
     return (items[index - 1].position + items[index].position) / 2;
   }
-  async function moveVisible(index: number, delta: number) {
+  async function moveVisible(index: number, delta: number, sequence = visibleSequenceItems) {
     const targetIndex = index + delta;
-    if (index < 0 || targetIndex < 0 || targetIndex >= visibleSequenceItems.length) return;
+    if (index < 0 || targetIndex < 0 || targetIndex >= sequence.length) return;
     const reordered = [...items];
-    const sourceGlobalIndex = visibleSequenceItems[index].globalIndex;
-    const targetGlobalIndex = visibleSequenceItems[targetIndex].globalIndex;
+    const sourceGlobalIndex = sequence[index].globalIndex;
+    const targetGlobalIndex = sequence[targetIndex].globalIndex;
     [reordered[sourceGlobalIndex], reordered[targetGlobalIndex]] = [
       reordered[targetGlobalIndex],
       reordered[sourceGlobalIndex],
@@ -3884,13 +3919,14 @@ function LessonEditor({
     });
     refresh();
   }
-  async function addLibraryMedia(asset: Media, index = items.length) {
+  async function addLibraryMedia(asset: Media, index = items.length, roleOverride?: PlaylistItem["role"]) {
     try {
+      const role = roleOverride || (activeSequenceSection === "total" ? "lesson" : activeSequenceSection);
       await addAssetToLesson(
         asset,
-        activeSequenceSection === "total" ? "lesson" : activeSequenceSection,
+        role,
         undefined,
-        positionForLibraryDrop(index),
+        positionForLibraryDrop(index, role),
       );
       refresh();
       notify(
@@ -3909,6 +3945,9 @@ function LessonEditor({
   function libraryDropIndexAtPoint(clientX: number, clientY: number) {
     const target = document.elementFromPoint(clientX, clientY);
     const card = target?.closest<HTMLElement>(".playlist-item");
+    const dropZone = target?.closest<HTMLElement>("[data-sequence-role]");
+    const role = card?.dataset.sequenceRole || dropZone?.dataset.sequenceRole;
+    if (role) libraryDropRoleRef.current = role as PlaylistItem["role"];
     if (!card) return undefined;
     const cardIndex = Number(card.dataset.sequenceIndex);
     if (!Number.isInteger(cardIndex)) return undefined;
@@ -3927,6 +3966,7 @@ function LessonEditor({
     };
     event.currentTarget.draggable = false;
     libraryDropIndexRef.current = items.length;
+    libraryDropRoleRef.current = activeSequenceSection === "total" ? undefined : activeSequenceSection;
     setDraggedLibraryMediaId(asset.id);
     setLibraryDropIndex(items.length);
   }
@@ -3938,14 +3978,16 @@ function LessonEditor({
       const index = libraryDropIndexAtPoint(event.clientX, event.clientY) ?? libraryDropIndexRef.current;
       const asset = playableMediaRef.current.find((item) => item.id === drag.mediaId);
       const shouldDrop = drag.moved && !cancelled && !libraryDropHandledRef.current && asset && index != null;
+      const role = libraryDropRoleRef.current;
       libraryPointerDragRef.current = undefined;
       setDraggedLibraryMediaId(undefined);
       libraryDropIndexRef.current = undefined;
+      libraryDropRoleRef.current = undefined;
       setLibraryDropIndex(undefined);
       if (shouldDrop) {
         libraryDropHandledRef.current = true;
         suppressLibraryClickUntilRef.current = Date.now() + 500;
-        void addLibraryMediaRef.current?.(asset, index);
+        void addLibraryMediaRef.current?.(asset, index, role);
       }
     };
     const handlePointerMove = (event: PointerEvent) => {
@@ -3975,15 +4017,18 @@ function LessonEditor({
     libraryDropHandledRef.current = false;
     setDraggedLibraryMediaId(asset.id);
     libraryDropIndexRef.current = items.length;
+    libraryDropRoleRef.current = activeSequenceSection === "total" ? undefined : activeSequenceSection;
     setLibraryDropIndex(items.length);
     event.dataTransfer.effectAllowed = "copy";
     event.dataTransfer.setData("application/x-lessoncue-media-id", asset.id);
     event.dataTransfer.setData("text/plain", asset.id);
   }
-  function libraryDragOver(event: ReactDragEvent<HTMLElement>, index: number) {
+  function libraryDragOver(event: ReactDragEvent<HTMLElement>, index: number, roleOverride?: PlaylistItem["role"]) {
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
     const card = (event.target as HTMLElement).closest<HTMLElement>(".playlist-item");
+    const role = roleOverride || card?.dataset.sequenceRole || (activeSequenceSection === "total" ? undefined : activeSequenceSection);
+    if (role) libraryDropRoleRef.current = role as PlaylistItem["role"];
     if (!card) {
       const nextIndex = items.length ? index : 0;
       libraryDropIndexRef.current = nextIndex;
@@ -3995,7 +4040,7 @@ function LessonEditor({
     libraryDropIndexRef.current = nextIndex;
     setLibraryDropIndex(nextIndex);
   }
-  async function libraryDrop(event: ReactDragEvent<HTMLElement>) {
+  async function libraryDrop(event: ReactDragEvent<HTMLElement>, roleOverride?: PlaylistItem["role"]) {
     event.preventDefault();
     if (libraryDropHandledRef.current) return;
     const mediaId =
@@ -4004,6 +4049,7 @@ function LessonEditor({
       draggedLibraryMediaId;
     const asset = playableMedia.find((item) => item.id === mediaId);
     const card = (event.target as HTMLElement).closest<HTMLElement>(".playlist-item");
+    const role = roleOverride || card?.dataset.sequenceRole || libraryDropRoleRef.current || (activeSequenceSection === "total" ? undefined : activeSequenceSection);
     let index = libraryDropIndexRef.current ?? libraryDropIndex;
     if (card) {
       const cardIndex = Number(card.dataset.sequenceIndex);
@@ -4018,13 +4064,15 @@ function LessonEditor({
     libraryPointerDragRef.current = undefined;
     setDraggedLibraryMediaId(undefined);
     libraryDropIndexRef.current = undefined;
+    libraryDropRoleRef.current = undefined;
     setLibraryDropIndex(undefined);
-    if (asset) await addLibraryMedia(asset, index);
+    if (asset) await addLibraryMedia(asset, index, role as PlaylistItem["role"] | undefined);
   }
   function libraryDragEnd() {
     libraryPointerDragRef.current = undefined;
     setDraggedLibraryMediaId(undefined);
     libraryDropIndexRef.current = undefined;
+    libraryDropRoleRef.current = undefined;
     setLibraryDropIndex(undefined);
   }
   async function uploadAndAdd(event: FormEvent<HTMLFormElement>) {
@@ -4306,6 +4354,33 @@ function LessonEditor({
     } catch (error) {
       notify(errorText(error));
     }
+  }
+  function renderSequenceItems(entries: typeof visibleSequenceItems, role: PlaylistItem["role"]) {
+    return entries.map(({ item }, index) => (
+      <PlaylistCueRow
+        key={item.id}
+        item={item}
+        media={media.find((asset) => asset.id === item.mediaAssetId)}
+        index={index}
+        sequenceIndex={index}
+        total={entries.length}
+        dropEdge={
+          libraryDropIndex === index
+            ? "before"
+            : index === entries.length - 1 && libraryDropIndex === index + 1
+              ? "after"
+              : undefined
+        }
+        selected={selectedCueIds.has(item.id)}
+        onSelected={() => toggleCue(item.id)}
+        onMove={(rowIndex, delta) => moveVisible(rowIndex, delta, entries)}
+        onChange={changeItem}
+        onTimeline={() => setPreviewItem(item)}
+        onRemove={removeItem}
+        onLibraryDragOver={(event) => libraryDragOver(event, index, role)}
+        onLibraryDrop={(event) => libraryDrop(event, role)}
+      />
+    ));
   }
   return (
     <>
@@ -4805,112 +4880,108 @@ function LessonEditor({
             <button className="button" type="button" onClick={() => setSelectedCueIds(new Set())}>Clear</button>
           </form>
         )}
-        {items.length ? (
-          <>
-            <div className="lesson-sequence-tabs" role="tablist" aria-label="Playback sections">
-              {sequenceSections.map((section) => {
-                const count = items.filter((item) => item.role === section.role).length;
-                return (
-                  <button
-                    type="button"
-                    key={section.role}
-                    role="tab"
-                    aria-selected={activeSequenceSection === section.role}
-                    className={`sequence-tab section-${section.role} ${activeSequenceSection === section.role ? "active" : ""}`}
-                    onClick={() => setActiveSequenceSection(section.role)}
-                  >
-                    {section.label} ({count}){section.loop ? " (loop)" : ""}
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeSequenceSection === "total"}
-                className={`sequence-tab section-total ${activeSequenceSection === "total" ? "active" : ""}`}
-                onClick={() => setActiveSequenceSection("total")}
-              >
-                Total ({items.length})
-              </button>
-            </div>
-            <label className="playlist-select-all">
-              <input type="checkbox" checked={allCuesSelected} onChange={toggleAllCues} /> Select all cues
-            </label>
-            {visibleSequenceItems.length ? (
-              <section
-                className={`playlist lesson-playlist-track section-${activeSequenceSection} ${draggedLibraryMediaId ? "is-library-dragging" : ""}`}
-                aria-label={`${activeSequenceSection === "total" ? "Total" : roleName(activeSequenceSection)} playback sequence`}
-                onDragOver={(event) => {
-                  if (!(event.target as HTMLElement).closest(".playlist-item")) {
-                    const last = visibleSequenceItems.at(-1);
-                    libraryDragOver(event, last ? last.globalIndex + 1 : items.length);
-                  }
-                }}
-                onDrop={libraryDrop}
-              >
-                {visibleSequenceItems.map(({ item, globalIndex }, index) => (
-                  <PlaylistCueRow
-                    key={item.id}
-                    item={item}
-                    media={media.find((asset) => asset.id === item.mediaAssetId)}
-                    index={index}
-                    sequenceIndex={globalIndex}
-                    total={visibleSequenceItems.length}
-                    dropEdge={
-                      libraryDropIndex === globalIndex
-                        ? "before"
-                        : index === visibleSequenceItems.length - 1 && libraryDropIndex === globalIndex + 1
-                          ? "after"
-                          : undefined
-                    }
-                    selected={selectedCueIds.has(item.id)}
-                    onSelected={() => toggleCue(item.id)}
-                    onMove={moveVisible}
-                    onChange={changeItem}
-                    onTimeline={() => setPreviewItem(item)}
-                    onRemove={removeItem}
-                    onLibraryDragOver={(event) => libraryDragOver(event, globalIndex)}
-                    onLibraryDrop={libraryDrop}
-                  />
-                ))}
-              </section>
-            ) : (
-              <section
-                className={`lesson-empty-drop-target ${draggedLibraryMediaId ? "is-library-dragging" : ""} ${libraryDropIndex === items.length ? "is-drop-ready" : ""}`}
-                aria-label={`${activeSequenceSection === "total" ? "Playback" : roleName(activeSequenceSection)} empty playback drop target`}
-                onDragOver={(event) => libraryDragOver(event, items.length)}
-                onDrop={libraryDrop}
-              >
-                <Empty
-                  title={`No ${(activeSequenceSection === "total" ? "playback" : roleName(activeSequenceSection).toLowerCase())} cues yet`}
-                  body="Drag ready media here, or click a library item to add it to the lesson."
-                  action={
-                    <button className="button primary" onClick={() => { setAddMode("chooser"); setShowAdd(true); }}>
-                      Add media
-                    </button>
-                  }
-                />
-              </section>
-            )}
-          </>
-        ) : (
-          <section
-            className={`lesson-empty-drop-target ${draggedLibraryMediaId ? "is-library-dragging" : ""} ${libraryDropIndex === 0 ? "is-drop-ready" : ""}`}
-            aria-label="Empty playback sequence drop target"
-            onDragOver={(event) => libraryDragOver(event, 0)}
-            onDrop={libraryDrop}
-          >
-            <Empty
-              title="This playlist is empty"
-              body="Drag ready media here, or choose a file to begin the lesson."
-              action={
-                <button className="button primary" onClick={() => { setAddMode("chooser"); setShowAdd(true); }}>
-                  Add media
+        <>
+          <div className="lesson-sequence-tabs" role="tablist" aria-label="Playback sections">
+            {sequenceSections.map((section) => {
+              const count = items.filter((item) => item.role === section.role).length;
+              return (
+                <button
+                  type="button"
+                  key={section.role}
+                  role="tab"
+                  aria-selected={activeSequenceSection === section.role}
+                  className={`sequence-tab section-${section.role} ${activeSequenceSection === section.role ? "active" : ""}`}
+                  onClick={() => setActiveSequenceSection(section.role)}
+                >
+                  {section.label} ({count}){section.loop ? " (loop)" : ""}
                 </button>
-              }
-            />
-          </section>
-        )}
+              );
+            })}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSequenceSection === "total"}
+              className={`sequence-tab section-total ${activeSequenceSection === "total" ? "active" : ""}`}
+              onClick={() => setActiveSequenceSection("total")}
+            >
+              Total ({items.length})
+            </button>
+          </div>
+          <label className="playlist-select-all">
+            <input type="checkbox" checked={allCuesSelected} onChange={toggleAllCues} /> Select all cues
+          </label>
+          {activeSequenceSection === "total" ? (
+            <div
+              className={`lesson-total-sequence ${draggedLibraryMediaId ? "is-library-dragging" : ""}`}
+              aria-label="Total playback sequence grouped by section"
+            >
+              {sequenceGroups.map((group) => (
+                <section
+                  key={group.role}
+                  className={`lesson-sequence-group section-${group.role} ${group.items.length ? "has-items" : "is-empty"}`}
+                  data-sequence-role={group.role}
+                  aria-label={`${group.label} playback section`}
+                >
+                  {group.items.length ? (
+                    <div
+                      className={`playlist lesson-playlist-track section-${group.role} ${draggedLibraryMediaId ? "is-library-dragging" : ""}`}
+                      aria-label={`${group.label} playback sequence`}
+                      onDragOver={(event) => {
+                        if (!(event.target as HTMLElement).closest(".playlist-item")) {
+                          libraryDragOver(event, group.items.length, group.role);
+                        }
+                      }}
+                      onDrop={(event) => libraryDrop(event, group.role)}
+                    >
+                      {renderSequenceItems(group.items, group.role)}
+                    </div>
+                  ) : (
+                    <section
+                      className={`lesson-empty-drop-target ${draggedLibraryMediaId ? "is-library-dragging" : ""} ${libraryDropIndex === 0 ? "is-drop-ready" : ""}`}
+                      data-sequence-role={group.role}
+                      aria-label={`Drop media into empty ${group.label} section`}
+                      title={`Drop media into ${group.label}`}
+                      onDragOver={(event) => libraryDragOver(event, 0, group.role)}
+                      onDrop={(event) => libraryDrop(event, group.role)}
+                    />
+                  )}
+                </section>
+              ))}
+            </div>
+          ) : visibleSequenceItems.length ? (
+            <section
+              className={`playlist lesson-playlist-track section-${activeSectionRole} ${draggedLibraryMediaId ? "is-library-dragging" : ""}`}
+              data-sequence-role={activeSectionRole}
+              aria-label={`${roleName(activeSectionRole)} playback sequence`}
+              onDragOver={(event) => {
+                if (!(event.target as HTMLElement).closest(".playlist-item")) {
+                  libraryDragOver(event, visibleSequenceItems.length, activeSectionRole);
+                }
+              }}
+              onDrop={(event) => libraryDrop(event, activeSectionRole)}
+            >
+              {renderSequenceItems(visibleSequenceItems, activeSectionRole)}
+            </section>
+          ) : (
+            <section
+              className={`lesson-empty-drop-target ${draggedLibraryMediaId ? "is-library-dragging" : ""} ${libraryDropIndex === 0 ? "is-drop-ready" : ""}`}
+              data-sequence-role={activeSectionRole}
+              aria-label={`Drop media into empty ${roleName(activeSectionRole)} section`}
+              onDragOver={(event) => libraryDragOver(event, 0, activeSectionRole)}
+              onDrop={(event) => libraryDrop(event, activeSectionRole)}
+            >
+              <Empty
+                title={`No ${roleName(activeSectionRole).toLowerCase()} cues yet`}
+                body="Drag ready media here, or click a library item to add it to the lesson."
+                action={
+                  <button className="button primary" onClick={() => { setAddMode("chooser"); setShowAdd(true); }}>
+                    Add media
+                  </button>
+                }
+              />
+            </section>
+          )}
+        </>
         <section className="lesson-library" aria-label="Lesson media library">
           <div className="lesson-library-heading">
             <div>
@@ -5063,6 +5134,7 @@ function PlaylistCueRow({
     <article
       className={`playlist-item ${item.role} ${selected ? "selected" : ""} ${dropEdge ? `drop-${dropEdge}` : ""}`}
       data-sequence-index={sequenceIndex}
+      data-sequence-role={item.role}
       onDragEnter={onLibraryDragOver}
       onDragOver={onLibraryDragOver}
       onDrop={onLibraryDrop}
