@@ -554,6 +554,8 @@ export function SimpleSignage({
   const [saved, setSaved] = useState("All changes saved");
   const [draggedMediaId, setDraggedMediaId] = useState<string>();
   const draggedMediaIdRef = useRef<string | undefined>(undefined);
+  const draggedMediaExpiresAtRef = useRef(0);
+  const mediaDragEnteredTimelineRef = useRef(false);
   const [mediaDropIndex, setMediaDropIndex] = useState<number>();
   const pointerMediaDrag = useRef<{
     mediaId: string;
@@ -778,6 +780,7 @@ export function SimpleSignage({
       moved: false,
     };
     draggedMediaIdRef.current = item.id;
+    draggedMediaExpiresAtRef.current = Number.POSITIVE_INFINITY;
     setDraggedMediaId(item.id);
     setMediaDropIndex(playlistDraft?.items.length || 0);
   }
@@ -841,7 +844,9 @@ export function SimpleSignage({
     item: Media,
   ) {
     pointerMediaDrag.current = undefined;
+    mediaDragEnteredTimelineRef.current = false;
     draggedMediaIdRef.current = item.id;
+    draggedMediaExpiresAtRef.current = Number.POSITIVE_INFINITY;
     setDraggedMediaId(item.id);
     setMediaDropIndex(playlistDraft?.items.length || 0);
     event.dataTransfer.effectAllowed = "copy";
@@ -852,6 +857,7 @@ export function SimpleSignage({
   function mediaDragOver(event: ReactDragEvent<HTMLElement>, index: number) {
     event.preventDefault();
     event.stopPropagation();
+    mediaDragEnteredTimelineRef.current = true;
     event.dataTransfer.dropEffect = "copy";
     setMediaDropIndex(index);
   }
@@ -862,10 +868,14 @@ export function SimpleSignage({
     const mediaId =
       event.dataTransfer.getData("application/x-lessoncue-signage-media-id") ||
       event.dataTransfer.getData("text/plain") ||
-      draggedMediaIdRef.current ||
+      (Date.now() <= draggedMediaExpiresAtRef.current
+        ? draggedMediaIdRef.current
+        : undefined) ||
       draggedMediaId;
     const item = readyMedia.find((candidate) => candidate.id === mediaId);
     draggedMediaIdRef.current = undefined;
+    draggedMediaExpiresAtRef.current = 0;
+    mediaDragEnteredTimelineRef.current = false;
     setDraggedMediaId(undefined);
     setMediaDropIndex(undefined);
     if (item) {
@@ -874,11 +884,19 @@ export function SimpleSignage({
     }
   }
 
-  function finishMediaDrag() {
+  function finishMediaDrag(event: ReactDragEvent<HTMLButtonElement>) {
+    const item = readyMedia.find((candidate) => candidate.id === draggedMediaIdRef.current);
+    if (item && mediaDragEnteredTimelineRef.current && mediaDropIndex != null) {
+      suppressMediaClickUntil.current = Date.now() + 500;
+      addMedia(item, mediaDropIndex);
+    }
     pointerMediaDrag.current = undefined;
-    draggedMediaIdRef.current = undefined;
+    if (draggedMediaIdRef.current)
+      draggedMediaExpiresAtRef.current = Date.now() + 2000;
+    mediaDragEnteredTimelineRef.current = false;
     setDraggedMediaId(undefined);
     setMediaDropIndex(undefined);
+    void event;
   }
 
   async function addWebPage() {
@@ -2639,7 +2657,7 @@ function MediaTray({
   onAdd: (media: Media) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>, media: Media) => void;
   onDragStart: (event: ReactDragEvent<HTMLButtonElement>, media: Media) => void;
-  onDragEnd: () => void;
+  onDragEnd: (event: ReactDragEvent<HTMLButtonElement>) => void;
   onAddWeb: () => void;
   onAddAudience: (
     poll: AudienceSession,
