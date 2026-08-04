@@ -13,6 +13,10 @@
   --section-countdown: #7c3aed;
   --section-lesson: #dc2626;
   --section-post-lesson: #0f766e;
+  --section-pre-roll-tint: #bfdbfe;
+  --section-countdown-tint: #c4b5fd;
+  --section-lesson-tint: #e5c4cf;
+  --section-post-lesson-tint: #b9dccf;
   --mint: #e8f3ed;
   --cream: #ffffff;
   --gold: #d88c1e;
@@ -2735,6 +2739,71 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   border-color: var(--gold);
   background: #fff9ed;
 }
+
+.lesson-total-sequence {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 10px 18px 16px;
+  scrollbar-color: #c5d2c9 transparent;
+}
+
+.lesson-sequence-group {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+  min-height: 180px;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.lesson-sequence-group.section-preRoll { background: var(--section-pre-roll-tint); }
+.lesson-sequence-group.section-countdown { background: var(--section-countdown-tint); }
+.lesson-sequence-group.section-lesson { background: var(--section-lesson-tint); }
+.lesson-sequence-group.section-postLesson { background: var(--section-post-lesson-tint); }
+
+.lesson-sequence-group.is-empty {
+  width: 162px;
+  min-width: 162px;
+}
+
+.lesson-sequence-group .lesson-playlist-track {
+  width: max-content;
+  min-width: 0;
+  padding: 0;
+  overflow: visible;
+  scroll-snap-type: none;
+}
+
+.lesson-total-sequence .lesson-playlist-track.is-library-dragging {
+  background: transparent;
+}
+
+.lesson-sequence-group.is-empty .lesson-empty-drop-target {
+  display: flex;
+  width: 100%;
+  min-height: 164px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+}
+
+.lesson-sequence-group.is-empty .lesson-empty-drop-target.is-library-dragging {
+  background: #ffffff22;
+}
+
+.lesson-sequence-group.is-empty .lesson-empty-drop-target.is-drop-ready {
+  border: 3px dashed currentColor;
+  background: #ffffff35;
+}
+
+.lesson-sequence-group.section-preRoll .lesson-empty-drop-target { color: var(--section-pre-roll); }
+.lesson-sequence-group.section-countdown .lesson-empty-drop-target { color: var(--section-countdown); }
+.lesson-sequence-group.section-lesson .lesson-empty-drop-target { color: var(--section-lesson); }
+.lesson-sequence-group.section-postLesson .lesson-empty-drop-target { color: var(--section-post-lesson); }
 
 .lesson-library {
   border-top: 1px solid var(--line);
