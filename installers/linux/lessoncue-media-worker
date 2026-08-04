@@ -38,6 +38,22 @@ if [[ "${skip_sandbox}" != 0 && "${skip_sandbox}" != 1 ]]; then
   echo "LessonCue worker sandbox override is invalid." >&2
   exit 64
 fi
+
+# The service needs CAP_NET_BIND_SERVICE to open port 80, but media tools must
+# never inherit a usable capability. ConstrainedProcessRunner clears the
+# ambient and inheritable sets before exec; a normal exec then clears effective
+# and permitted capabilities too. Keep this assertion next to the sandbox so a
+# future service or launcher change fails closed instead of running a privileged
+# converter. The root-only isolation harness is intentionally exempt.
+if [[ "${EUID}" -ne 0 && -r /proc/self/status ]]; then
+  for capability_set in CapInh CapPrm CapEff CapAmb; do
+    capability_value="$(awk -v name="${capability_set}:" '$1 == name { print $2 }' /proc/self/status)"
+    if [[ -z "${capability_value}" || ! "${capability_value}" =~ ^0+$ ]]; then
+      echo "LessonCue refused to start a media tool with inherited Linux capabilities." >&2
+      exit 78
+    fi
+  done
+fi
 if [[ "${skip_sandbox}" == 0 ]] && ! command -v bwrap >/dev/null 2>&1; then
   echo "The required LessonCue media sandbox is unavailable. Install bubblewrap and run the current LessonCue installer." >&2
   exit 78

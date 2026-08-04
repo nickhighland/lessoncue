@@ -153,14 +153,16 @@ public static class ConstrainedProcessRunner
         if (useSandbox)
         {
             // The systemd service keeps CAP_NET_BIND_SERVICE for port 80.
-            // Drop every capability at the worker boundary, including the
-            // bounding set, so Bubblewrap takes its normal unprivileged user
-            // namespace path instead of trying to mount /proc with inherited
-            // service capabilities. --no-new-privs also makes stale file
-            // capabilities on distro-installed bwrap harmless.
+            // Clear the ambient and inheritable sets before exec so the worker
+            // starts without effective or permitted capabilities and
+            // Bubblewrap takes its normal unprivileged user-namespace path.
+            // An unprivileged service process cannot modify the kernel
+            // capability bounding set, even to remove entries, so asking
+            // setpriv to do that aborts before the worker can start.
+            // --no-new-privs prevents the worker or bwrap from regaining a
+            // capability through a setuid bit or stale file capabilities.
             start.ArgumentList.Add("--ambient-caps=-all");
             start.ArgumentList.Add("--inh-caps=-all");
-            start.ArgumentList.Add("--bounding-set=-all");
             start.ArgumentList.Add("--no-new-privs");
             start.ArgumentList.Add("--");
             start.ArgumentList.Add(helper!);

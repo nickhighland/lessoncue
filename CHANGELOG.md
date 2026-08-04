@@ -4,6 +4,23 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.25 — Android TV redesign and media workflow reliability
+
+### User changes
+
+- Android TV now has a calm, remote-friendly LessonCue interface with branded connection, pairing, lesson library, cue timeline, and playback screens.
+- Lesson detail shows the next lesson clearly, preserves cue order, supports starting from any cue, and keeps playback controls available through a temporary overlay.
+- Signage playback preserves emergency, offline, and display-power behavior while sharing the improved playback presentation.
+- Linux media uploads avoid the capability configuration that caused Bubblewrap and `setpriv` processing failures on restricted installations.
+- Signage playlist items now retain operator notes.
+
+### Developer changes
+
+- Added centralized Android TV colors, spacing, focus treatment, cue models, playback overlay behavior, and screen-level tests.
+- Added 720p and 1080p visual verification for the primary Android TV screens.
+- Hardened media-worker capability isolation by clearing ambient and inheritable capabilities without attempting an unprivileged bounding-set mutation.
+- Release metadata advances to 0.40.25 and Android version code 84.
+
 ## v0.40.24 — grouped playback sections
 
 ### User changes

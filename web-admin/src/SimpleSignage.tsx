@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import { confirmAction, requestText } from "./AccessibleDialogs";
 import "./simple-signage.css";
 import {
@@ -14,8 +22,10 @@ type Media = {
   id: string;
   fileName: string;
   contentType: string;
+  durationMs?: number;
   thumbnailUrl?: string;
   downloadUrl: string;
+  processingStatus?: string;
 };
 
 type Screen = {
@@ -138,6 +148,7 @@ type PlaylistItem = {
   fadeInMs: number;
   fadeOutMs: number;
   fit: string;
+  notes?: string;
 };
 
 type Playlist = {
@@ -212,6 +223,16 @@ async function audienceSessions(): Promise<AudienceSession[]> {
 
 function id(prefix: string) {
   return `${prefix}-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+}
+
+function signageDurationLabel(seconds: number) {
+  const value = Math.max(0, Math.round(Number.isFinite(seconds) ? seconds : 0));
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  const remainder = value % 60;
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
+    : `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
 function localDateTimeValue(value?: string) {
@@ -531,6 +552,16 @@ export function SimpleSignage({
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState("All changes saved");
+  const [draggedMediaId, setDraggedMediaId] = useState<string>();
+  const [mediaDropIndex, setMediaDropIndex] = useState<number>();
+  const pointerMediaDrag = useRef<{
+    mediaId: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | undefined>(undefined);
+  const suppressMediaClickUntil = useRef(0);
 
   async function load(prefer?: {
     layoutId?: string;
@@ -581,6 +612,13 @@ export function SimpleSignage({
       : layoutDraft;
   const activeAssignments =
     tab === "signs" ? signDraft?.playlistAssignments || {} : {};
+  const readyMedia = media.filter(
+    (item) => !item.processingStatus || item.processingStatus === "ready",
+  );
+  const readyMediaRef = useRef(readyMedia);
+  useEffect(() => {
+    readyMediaRef.current = readyMedia;
+  }, [readyMedia]);
 
   function markChanged() {
     setSaved("Unsaved changes");
@@ -688,13 +726,18 @@ export function SimpleSignage({
     }
   }
 
-  function addMedia(item: Media) {
+  function addMedia(item: Media, requestedIndex?: number) {
     const entry: PlaylistItem = {
       id: id("slide"),
       kind: "media",
       title: item.fileName,
       mediaAssetId: item.id,
-      durationSeconds: item.contentType.startsWith("video/") ? 30 : 10,
+      durationSeconds:
+        item.contentType.startsWith("video/") && item.durationMs
+          ? Math.max(1, Math.round(item.durationMs / 1000))
+          : item.contentType.startsWith("video/")
+            ? 30
+            : 10,
       transition: "fade",
       volumePercent: 100,
       muted: false,
@@ -702,11 +745,133 @@ export function SimpleSignage({
       fadeOutMs: 500,
       fit: "contain",
     };
-    setPlaylistDraft((current) =>
-      current ? { ...current, items: [...current.items, entry] } : current,
-    );
+    setPlaylistDraft((current) => {
+      if (!current) return current;
+      const next = [...current.items];
+      const index = Math.max(
+        0,
+        Math.min(requestedIndex ?? next.length, next.length),
+      );
+      next.splice(index, 0, entry);
+      return { ...current, items: next };
+    });
     setSelectedItemId(entry.id);
     markChanged();
+  }
+
+  const addMediaRef = useRef(addMedia);
+  useEffect(() => {
+    addMediaRef.current = addMedia;
+  });
+
+  function beginMediaPointerDrag(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    item: Media,
+  ) {
+    if (event.pointerType === "mouse" || !event.isPrimary) return;
+    pointerMediaDrag.current = {
+      mediaId: item.id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    };
+    setDraggedMediaId(item.id);
+    setMediaDropIndex(playlistDraft?.items.length || 0);
+  }
+
+  useEffect(() => {
+    if (!draggedMediaId || !pointerMediaDrag.current) return;
+    const dropIndexAtPoint = (clientX: number, clientY: number) => {
+      const target = document.elementFromPoint(clientX, clientY);
+      const timeline = target?.closest<HTMLElement>(".playlist-timeline");
+      if (!timeline) return undefined;
+      const card = target?.closest<HTMLElement>(".signage-timeline-card");
+      if (!card) return playlistDraft?.items.length || 0;
+      const index = Number(card.dataset.signageIndex);
+      if (!Number.isInteger(index)) return undefined;
+      const bounds = card.getBoundingClientRect();
+      return clientX < bounds.left + bounds.width / 2 ? index : index + 1;
+    };
+    const finish = (event: PointerEvent, cancelled = false) => {
+      const drag = pointerMediaDrag.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const index = dropIndexAtPoint(event.clientX, event.clientY);
+      const item = readyMediaRef.current.find(
+        (candidate) => candidate.id === drag.mediaId,
+      );
+      pointerMediaDrag.current = undefined;
+      setDraggedMediaId(undefined);
+      setMediaDropIndex(undefined);
+      if (!cancelled && drag.moved && item && index != null) {
+        suppressMediaClickUntil.current = Date.now() + 500;
+        addMediaRef.current(item, index);
+      }
+    };
+    const move = (event: PointerEvent) => {
+      const drag = pointerMediaDrag.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      if (
+        !drag.moved &&
+        Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6
+      )
+        return;
+      drag.moved = true;
+      event.preventDefault();
+      const index = dropIndexAtPoint(event.clientX, event.clientY);
+      if (index != null) setMediaDropIndex(index);
+    };
+    const up = (event: PointerEvent) => finish(event);
+    const cancel = (event: PointerEvent) => finish(event, true);
+    document.addEventListener("pointermove", move, { passive: false });
+    document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", cancel);
+    return () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", cancel);
+    };
+  }, [draggedMediaId, playlistDraft?.items.length]);
+
+  function beginMediaDrag(
+    event: ReactDragEvent<HTMLButtonElement>,
+    item: Media,
+  ) {
+    pointerMediaDrag.current = undefined;
+    setDraggedMediaId(item.id);
+    setMediaDropIndex(playlistDraft?.items.length || 0);
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData("application/x-lessoncue-signage-media-id", item.id);
+    event.dataTransfer.setData("text/plain", item.id);
+  }
+
+  function mediaDragOver(event: ReactDragEvent<HTMLElement>, index: number) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    setMediaDropIndex(index);
+  }
+
+  function dropMedia(event: ReactDragEvent<HTMLElement>, index: number) {
+    event.preventDefault();
+    event.stopPropagation();
+    const mediaId =
+      event.dataTransfer.getData("application/x-lessoncue-signage-media-id") ||
+      event.dataTransfer.getData("text/plain") ||
+      draggedMediaId;
+    const item = readyMedia.find((candidate) => candidate.id === mediaId);
+    setDraggedMediaId(undefined);
+    setMediaDropIndex(undefined);
+    if (item) {
+      suppressMediaClickUntil.current = Date.now() + 500;
+      addMedia(item, index);
+    }
+  }
+
+  function finishMediaDrag() {
+    pointerMediaDrag.current = undefined;
+    setDraggedMediaId(undefined);
+    setMediaDropIndex(undefined);
   }
 
   async function addWebPage() {
@@ -1009,7 +1174,11 @@ export function SimpleSignage({
               playlist={playlistDraft}
               media={media}
               selectedItemId={selectedItemId}
+              draggedMediaId={draggedMediaId}
+              mediaDropIndex={mediaDropIndex}
               onSelect={setSelectedItemId}
+              onMediaDragOver={mediaDragOver}
+              onMediaDrop={dropMedia}
               onChange={(items) => {
                 setPlaylistDraft((current) =>
                   current ? { ...current, items } : current,
@@ -1042,9 +1211,16 @@ export function SimpleSignage({
           )}
           {tab === "playlists" && (
             <MediaTray
-              media={media}
+              media={readyMedia}
               audiencePolls={audiencePolls}
-              onAdd={addMedia}
+              draggedMediaId={draggedMediaId}
+              onAdd={(item) => {
+                if (Date.now() < suppressMediaClickUntil.current) return;
+                addMedia(item);
+              }}
+              onPointerDown={beginMediaPointerDrag}
+              onDragStart={beginMediaDrag}
+              onDragEnd={finishMediaDrag}
               onAddWeb={addWebPage}
               onAddAudience={addAudiencePollToPlaylist}
             />
@@ -2038,18 +2214,328 @@ function QrLabelControls({ selected, updateZone }: { selected: Zone; updateZone:
   </fieldset>;
 }
 
+type SignageCueIconName = "notes" | "options" | "close";
+
+function SignageCueIcon({ name }: { name: SignageCueIconName }) {
+  const paths: Record<SignageCueIconName, ReactNode> = {
+    notes: (
+      <>
+        <path d="M5 5.5h14v10H9l-4 3v-13Z" />
+        <path d="M8.5 9h7M8.5 12h5" />
+      </>
+    ),
+    options: (
+      <>
+        <path d="M4 7h10M17 7h3M4 17h3M10 17h10M14 4v6M7 14v6" />
+      </>
+    ),
+    close: <path d="m7 7 10 10M17 7 7 17" />,
+  };
+  return (
+    <svg className="signage-cue-icon" viewBox="0 0 24 24" aria-hidden="true">
+      {paths[name]}
+    </svg>
+  );
+}
+
+function SignageTimelineCard({
+  item,
+  asset,
+  index,
+  total,
+  selected,
+  dropEdge,
+  onSelect,
+  onMove,
+  onUpdate,
+  onRemove,
+  onMediaDragOver,
+  onMediaDrop,
+}: {
+  item: PlaylistItem;
+  asset?: Media;
+  index: number;
+  total: number;
+  selected: boolean;
+  dropEdge?: "before" | "after";
+  onSelect: () => void;
+  onMove: (direction: -1 | 1) => void;
+  onUpdate: (patch: Partial<PlaylistItem>) => void;
+  onRemove: () => void;
+  onMediaDragOver: (event: ReactDragEvent<HTMLElement>, index: number) => void;
+  onMediaDrop: (event: ReactDragEvent<HTMLElement>, index: number) => void;
+}) {
+  const title = item.title || asset?.fileName || "Untitled";
+  const [openPanel, setOpenPanel] = useState<"notes" | "settings">();
+  const [panelPosition, setPanelPosition] = useState({ top: 16, left: 16 });
+  const panelRef = useRef<HTMLElement>(null);
+  const footerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!openPanel) return;
+    const outside = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (panelRef.current?.contains(target) || footerRef.current?.contains(target))
+        return;
+      setOpenPanel(undefined);
+    };
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setOpenPanel(undefined);
+    };
+    const resize = () => setOpenPanel(undefined);
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    window.addEventListener("resize", resize);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+      window.removeEventListener("resize", resize);
+    };
+  }, [openPanel]);
+
+  function togglePanel(
+    panel: "notes" | "settings",
+    event: ReactMouseEvent<HTMLButtonElement>,
+  ) {
+    event.stopPropagation();
+    onSelect();
+    if (openPanel === panel) {
+      setOpenPanel(undefined);
+      return;
+    }
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const width = Math.min(panel === "settings" ? 430 : 340, window.innerWidth - 24);
+    const height = panel === "settings" ? Math.min(560, window.innerHeight * 0.72) : 250;
+    const below = bounds.bottom + 8;
+    setPanelPosition({
+      left: Math.max(12, Math.min(bounds.left, window.innerWidth - width - 12)),
+      top:
+        below + height <= window.innerHeight - 12
+          ? below
+          : Math.max(12, bounds.top - height - 8),
+    });
+    setOpenPanel(panel);
+  }
+
+  function dropIndex(event: ReactDragEvent<HTMLElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return event.clientX < bounds.left + bounds.width / 2 ? index : index + 1;
+  }
+
+  return (
+    <article
+      className={`signage-timeline-card ${selected ? "selected" : ""} ${dropEdge ? `drop-${dropEdge}` : ""}`}
+      data-signage-index={index}
+      role="listitem"
+      aria-current={selected ? "true" : undefined}
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+      onDragOver={(event) => onMediaDragOver(event, dropIndex(event))}
+      onDrop={(event) => onMediaDrop(event, dropIndex(event))}
+    >
+      <div className="signage-card-overlay">
+        <button
+          type="button"
+          disabled={!index}
+          aria-label={`Move ${title} earlier`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onMove(-1);
+          }}
+        >
+          ←
+        </button>
+        <span>{index + 1}</span>
+        <button
+          type="button"
+          disabled={index === total - 1}
+          aria-label={`Move ${title} later`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onMove(1);
+          }}
+        >
+          →
+        </button>
+      </div>
+      <button
+        type="button"
+        className="signage-card-remove"
+        aria-label={`Remove ${title}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onRemove();
+        }}
+      >
+        ×
+      </button>
+      <div className="timeline-thumb signage-card-thumb">
+        {asset?.thumbnailUrl ? (
+          <img src={asset.thumbnailUrl} alt="" />
+        ) : (
+          <span>{item.kind === "web" ? "⌘" : asset?.contentType.startsWith("audio/") ? "♫" : "▶"}</span>
+        )}
+      </div>
+      <strong className="signage-card-title" title={title}>{title}</strong>
+      <div className="signage-card-footer" ref={footerRef} role="group" aria-label={`Options for ${title}`}>
+        <button
+          type="button"
+          className={openPanel === "notes" ? "active" : ""}
+          aria-label={`Notes for ${title}`}
+          aria-expanded={openPanel === "notes"}
+          title="Production notes"
+          onClick={(event) => togglePanel("notes", event)}
+        >
+          <SignageCueIcon name="notes" />
+          {item.notes && <i aria-hidden="true" />}
+        </button>
+        <span aria-label={`Duration ${signageDurationLabel(item.durationSeconds)}`}>
+          {signageDurationLabel(item.durationSeconds)}
+        </span>
+        <button
+          type="button"
+          className={openPanel === "settings" ? "active" : ""}
+          aria-label={`Settings for ${title}`}
+          aria-expanded={openPanel === "settings"}
+          title="Item settings"
+          onClick={(event) => togglePanel("settings", event)}
+        >
+          <SignageCueIcon name="options" />
+        </button>
+      </div>
+      {openPanel === "notes" && (
+        <section
+          className="signage-cue-popover signage-notes-popover"
+          ref={panelRef}
+          style={panelPosition}
+          role="dialog"
+          aria-label={`Notes for ${title}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <header>
+            <span><SignageCueIcon name="notes" /><strong>Production notes</strong></span>
+            <button type="button" aria-label="Close notes" onClick={() => setOpenPanel(undefined)}><SignageCueIcon name="close" /></button>
+          </header>
+          <label>
+            Notes for staff
+            <textarea
+              rows={5}
+              maxLength={2000}
+              defaultValue={item.notes || ""}
+              placeholder="Setup, messaging, or handoff details"
+              onBlur={(event) => onUpdate({ notes: event.target.value })}
+            />
+          </label>
+          <small>Saved with the playlist; never displayed on the sign.</small>
+        </section>
+      )}
+      {openPanel === "settings" && (
+        <section
+          className="signage-cue-popover signage-settings-popover"
+          ref={panelRef}
+          style={panelPosition}
+          role="dialog"
+          aria-label={`Settings for ${title}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <header>
+            <span><SignageCueIcon name="options" /><strong>Item settings</strong></span>
+            <button type="button" aria-label="Close settings" onClick={() => setOpenPanel(undefined)}><SignageCueIcon name="close" /></button>
+          </header>
+          <label>
+            Title
+            <input value={item.title || ""} onChange={(event) => onUpdate({ title: event.target.value })} />
+          </label>
+          <div className="signage-settings-grid">
+            <label>
+              Time on screen
+              <span className="suffix-input">
+                <input
+                  type="number"
+                  min="1"
+                  max="86400"
+                  value={item.durationSeconds}
+                  onChange={(event) => onUpdate({ durationSeconds: Math.max(1, Number(event.target.value) || 1) })}
+                />
+                <span>sec</span>
+              </span>
+            </label>
+            <label>
+              Transition
+              <select value={item.transition} onChange={(event) => onUpdate({ transition: event.target.value })}>
+                <option value="cut">Cut</option>
+                <option value="fade">Fade</option>
+                <option value="slide">Slide</option>
+                <option value="zoom">Zoom</option>
+              </select>
+            </label>
+            <label>
+              Fade in
+              <span className="suffix-input">
+                <input type="number" min="0" max="30" step=".1" value={item.fadeInMs / 1000}
+                  onChange={(event) => onUpdate({ fadeInMs: Math.round(Math.max(0, Number(event.target.value)) * 1000) })} />
+                <span>sec</span>
+              </span>
+            </label>
+            <label>
+              Fade out
+              <span className="suffix-input">
+                <input type="number" min="0" max="30" step=".1" value={item.fadeOutMs / 1000}
+                  onChange={(event) => onUpdate({ fadeOutMs: Math.round(Math.max(0, Number(event.target.value)) * 1000) })} />
+                <span>sec</span>
+              </span>
+            </label>
+            <label>
+              Volume
+              <span className="suffix-input">
+                <input type="number" min="0" max="100" value={item.muted ? 0 : item.volumePercent}
+                  onChange={(event) => {
+                    const volume = Math.max(0, Math.min(100, Number(event.target.value) || 0));
+                    onUpdate({ volumePercent: volume, muted: volume === 0 });
+                  }} />
+                <span>%</span>
+              </span>
+            </label>
+            <label>
+              Picture fit
+              <select value={item.fit} onChange={(event) => onUpdate({ fit: event.target.value })}>
+                <option value="contain">Fit entire item</option>
+                <option value="cover">Fill area and crop</option>
+                <option value="fill">Stretch to fill</option>
+              </select>
+            </label>
+          </div>
+        </section>
+      )}
+    </article>
+  );
+}
+
 function PlaylistTimeline({
   playlist,
   media,
   selectedItemId,
+  draggedMediaId,
+  mediaDropIndex,
   onSelect,
   onChange,
+  onMediaDragOver,
+  onMediaDrop,
 }: {
   playlist?: Playlist;
   media: Media[];
   selectedItemId?: string;
+  draggedMediaId?: string;
+  mediaDropIndex?: number;
   onSelect: (id: string) => void;
   onChange: (items: PlaylistItem[]) => void;
+  onMediaDragOver: (event: ReactDragEvent<HTMLElement>, index: number) => void;
+  onMediaDrop: (event: ReactDragEvent<HTMLElement>, index: number) => void;
 }) {
   if (!playlist)
     return (
@@ -2058,98 +2544,73 @@ function PlaylistTimeline({
         <h2>Choose a playlist</h2>
       </div>
     );
-  if (!playlist.items.length)
-    return (
-      <div className="playlist-empty">
-        <span>＋</span>
-        <h2>Add media to this loop</h2>
-        <p>Choose an image, video, presentation, or web page below.</p>
-      </div>
+  const patchItem = (itemId: string, patch: Partial<PlaylistItem>) =>
+    onChange(
+      playlist.items.map((item) =>
+        item.id === itemId ? { ...item, ...patch } : item,
+      ),
     );
   return (
-    <section className="playlist-timeline" aria-label="Horizontal signage playlist">
+    <section
+      className={`playlist-timeline ${!playlist.items.length ? "is-empty" : ""} ${draggedMediaId ? "is-library-dragging" : ""}`}
+      aria-label="Horizontal signage playlist"
+      onDragOver={(event) => {
+        if (!(event.target as HTMLElement).closest(".signage-timeline-card"))
+          onMediaDragOver(event, playlist.items.length);
+      }}
+      onDrop={(event) => onMediaDrop(event, mediaDropIndex ?? playlist.items.length)}
+    >
       <div className="timeline-loop-arrow">LOOPS BACK TO START ↻</div>
-      <div className="playlist-timeline-track">
-        {playlist.items.map((item, index) => {
-          const asset = media.find((value) => value.id === item.mediaAssetId);
-          const moveItem = (direction: -1 | 1) => {
-            const nextIndex = index + direction;
-            if (nextIndex < 0 || nextIndex >= playlist.items.length) return;
-            const next = [...playlist.items];
-            [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
-            onChange(next);
-          };
-          const removeItem = () => onChange(playlist.items.filter((entry) => entry.id !== item.id));
-          const activateAction = (event: KeyboardEvent<HTMLElement>, action: () => void) => {
-            if (event.key !== "Enter" && event.key !== " ") return;
-            event.preventDefault();
-            event.stopPropagation();
-            action();
-          };
-          return (
-            <button
-              className={`timeline-item ${selectedItemId === item.id ? "selected" : ""}`}
-              onClick={() => onSelect(item.id)}
-              key={item.id}
-            >
-              <div className="timeline-thumb">
-                {asset?.thumbnailUrl ? (
-                  <img src={asset.thumbnailUrl} alt="" />
-                ) : (
-                  <span>{item.kind === "web" ? "⌘" : "▶"}</span>
-                )}
-                <b>{index + 1}</b>
-              </div>
-              <span>
-                <strong>{item.title || asset?.fileName || "Untitled"}</strong>
-                <small>
-                  {item.durationSeconds}s · {item.transition} ·{" "}
-                  {item.muted ? "muted" : `${item.volumePercent}%`}
-                </small>
-              </span>
-              <div className="timeline-actions">
-                <i
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Move ${item.title || asset?.fileName || "item"} earlier`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    moveItem(-1);
-                  }}
-                  onKeyDown={(event) => activateAction(event, () => moveItem(-1))}
-                >
-                  ↑
-                </i>
-                <i
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Move ${item.title || asset?.fileName || "item"} later`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    moveItem(1);
-                  }}
-                  onKeyDown={(event) => activateAction(event, () => moveItem(1))}
-                >
-                  ↓
-                </i>
-                <i
-                  className="remove"
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Remove ${item.title || asset?.fileName || "item"}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    removeItem();
-                  }}
-                  onKeyDown={(event) => activateAction(event, removeItem)}
-                >
-                  ×
-                </i>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+      {playlist.items.length ? (
+        <div className="playlist-timeline-track" role="list" aria-label="Signage playlist items">
+          {playlist.items.map((item, index) => {
+            const asset = media.find((value) => value.id === item.mediaAssetId);
+            const moveItem = (direction: -1 | 1) => {
+              const nextIndex = index + direction;
+              if (nextIndex < 0 || nextIndex >= playlist.items.length) return;
+              const next = [...playlist.items];
+              [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+              onChange(next);
+            };
+            return (
+              <SignageTimelineCard
+                key={item.id}
+                item={item}
+                asset={asset}
+                index={index}
+                total={playlist.items.length}
+                selected={selectedItemId === item.id}
+                dropEdge={
+                  mediaDropIndex === index
+                    ? "before"
+                    : index === playlist.items.length - 1 && mediaDropIndex === index + 1
+                      ? "after"
+                      : undefined
+                }
+                onSelect={() => onSelect(item.id)}
+                onMove={moveItem}
+                onUpdate={(patch) => patchItem(item.id, patch)}
+                onRemove={() => onChange(playlist.items.filter((entry) => entry.id !== item.id))}
+                onMediaDragOver={onMediaDragOver}
+                onMediaDrop={onMediaDrop}
+              />
+            );
+          })}
+        </div>
+      ) : (
+        <div
+          className={`playlist-empty-drop-target ${draggedMediaId ? "is-library-dragging" : ""} ${mediaDropIndex === 0 ? "is-drop-ready" : ""}`}
+          onDragOver={(event) => onMediaDragOver(event, 0)}
+          onDrop={(event) => onMediaDrop(event, 0)}
+        >
+          <div className="playlist-empty-slots" aria-hidden="true">
+            {Array.from({ length: 5 }, (_, index) => <i key={index} />)}
+          </div>
+          <span>＋</span>
+          <h2>Drop ready media into this loop</h2>
+          <p>Or click an image, video, presentation, audio file, or webpage below.</p>
+        </div>
+      )}
     </section>
   );
 }
@@ -2157,13 +2618,21 @@ function PlaylistTimeline({
 function MediaTray({
   media,
   audiencePolls,
+  draggedMediaId,
   onAdd,
+  onPointerDown,
+  onDragStart,
+  onDragEnd,
   onAddWeb,
   onAddAudience,
 }: {
   media: Media[];
   audiencePolls: AudienceSession[];
+  draggedMediaId?: string;
   onAdd: (media: Media) => void;
+  onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>, media: Media) => void;
+  onDragStart: (event: ReactDragEvent<HTMLButtonElement>, media: Media) => void;
+  onDragEnd: () => void;
   onAddWeb: () => void;
   onAddAudience: (
     poll: AudienceSession,
@@ -2180,8 +2649,8 @@ function MediaTray({
     <section className="signage-media-tray">
       <header>
         <div>
-          <strong>Library</strong>
-          <small>Click an item to add it to the end of the loop.</small>
+          <strong>Ready media</strong>
+          <small>Drag a file onto any timeline position, or click it to append.</small>
         </div>
         <div className="signage-media-tray-actions">
           <select
@@ -2235,13 +2704,25 @@ function MediaTray({
       </header>
       <div>
         {media.slice(0, 20).map((item) => (
-          <button onClick={() => onAdd(item)} key={item.id}>
-            {item.thumbnailUrl ? (
-              <img src={item.thumbnailUrl} alt="" />
-            ) : (
-              <span>▶</span>
-            )}
-            <small>{item.fileName}</small>
+          <button
+            className={draggedMediaId === item.id ? "is-dragging" : ""}
+            onClick={() => onAdd(item)}
+            onPointerDown={(event) => onPointerDown(event, item)}
+            onDragStart={(event) => onDragStart(event, item)}
+            onDragEnd={onDragEnd}
+            draggable
+            aria-label={`Add or drag ${item.fileName} to the signage playlist`}
+            key={item.id}
+          >
+            <span className="signage-library-thumb">
+              {item.thumbnailUrl ? (
+                <img src={item.thumbnailUrl} alt="" />
+              ) : (
+                <b>{item.contentType.startsWith("audio/") ? "♫" : "▶"}</b>
+              )}
+            </span>
+            <strong>{item.fileName}</strong>
+            <small>{item.contentType.split("/")[0]}</small>
           </button>
         ))}
       </div>
@@ -2301,6 +2782,16 @@ function PlaylistInspector({
             <input
               value={selected.title || ""}
               onChange={(event) => updateItem({ title: event.target.value })}
+            />
+          </label>
+          <label>
+            Production notes
+            <textarea
+              rows={3}
+              maxLength={2000}
+              value={selected.notes || ""}
+              placeholder="Setup, messaging, or handoff details"
+              onChange={(event) => updateItem({ notes: event.target.value })}
             />
           </label>
           <div className="two-control">

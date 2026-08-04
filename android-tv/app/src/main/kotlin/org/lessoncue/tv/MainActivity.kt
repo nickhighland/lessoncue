@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -72,7 +73,10 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontStyle
@@ -158,6 +162,7 @@ fun LessonCueApp() {
     var diagnosticCaptureVisible by remember { mutableStateOf(false) }
     var handledScreenshotRequest by remember { mutableStateOf<String?>(null) }
     var interruptedPlayer by remember { mutableStateOf<AppScreen.Player?>(null) }
+    var connectionMode by remember { mutableStateOf(ConnectionMode.Offline) }
 
     DisposableEffect(updateManager) {
         onDispose { updateManager.close() }
@@ -175,6 +180,7 @@ fun LessonCueApp() {
                     context, identity, context.filesDir.resolve("manifest.json")
                 )
                 if (resolvedIdentity.serverUrl != identity.serverUrl) store.save(resolvedIdentity)
+                connectionMode = ConnectionMode.Online
                 activeIdentity = resolvedIdentity
                 activeManifestVersion = manifest.version
                 totalManifestItems = manifest.itemCount()
@@ -182,6 +188,7 @@ fun LessonCueApp() {
             }
                 .getOrElse {
                     LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json")).cachedManifest()?.let { cached ->
+                        connectionMode = ConnectionMode.Cached
                         activeIdentity = identity
                         activeManifestVersion = cached.version
                         AppScreen.Library(identity, cached)
@@ -270,7 +277,10 @@ fun LessonCueApp() {
         val identity = activeIdentity ?: return@LaunchedEffect
         val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
         while (true) {
-            runCatching { api.manifest(identity) }.getOrNull()?.let { latest ->
+            val refresh = runCatching { api.manifest(identity) }
+            refresh.onFailure { connectionMode = ConnectionMode.Cached }
+            refresh.getOrNull()?.let { latest ->
+                connectionMode = ConnectionMode.Online
                 activeManifestVersion = latest.version
                 totalManifestItems = latest.itemCount()
                 scheduleMediaCaches(context, identity, latest)
@@ -299,10 +309,10 @@ fun LessonCueApp() {
     }
 
     MaterialTheme {
-        Surface(modifier = Modifier.fillMaxSize(), colors = androidx.tv.material3.SurfaceDefaults.colors(containerColor = Navy)) {
+        Surface(modifier = Modifier.fillMaxSize(), colors = androidx.tv.material3.SurfaceDefaults.colors(containerColor = LessonCueTvColors.Background)) {
           Box(Modifier.fillMaxSize()) {
             when (val current = screen) {
-                AppScreen.Loading -> CenterMessage("Searching for LessonCue…")
+                AppScreen.Loading -> LoadingScreen()
                 is AppScreen.Connect -> ConnectScreen(current.message) { address, deviceName ->
                     scope.launch {
                         runCatching {
@@ -314,12 +324,16 @@ fun LessonCueApp() {
                         }.onFailure { screen = AppScreen.Connect(it.message) }
                     }
                 }
-                is AppScreen.EnterPin -> PinScreen(current.serverName) { pin ->
+                is AppScreen.EnterPin -> PinScreen(
+                    serverName = current.serverName,
+                    onBack = { screen = AppScreen.Connect() }
+                ) { pin ->
                     scope.launch {
                         runCatching {
                             val identity = current.api.confirmPairing(current.requestId, pin)
                             store.save(identity)
                             val manifest = current.api.manifest(identity)
+                            connectionMode = ConnectionMode.Online
                             activeIdentity = identity
                             activeManifestVersion = manifest.version
                             totalManifestItems = manifest.itemCount()
@@ -351,6 +365,8 @@ fun LessonCueApp() {
                     }
                     LibraryScreen(
                         current.manifest,
+                        current.identity,
+                        connectionMode,
                         onStart = { playlist -> screen = AppScreen.LessonDetail(current.identity, current.manifest, playlist) },
                         onCheckForUpdates = (updateManager::checkManually).takeIf { BuildConfig.UPDATE_ENABLED }
                     )
@@ -372,7 +388,7 @@ fun LessonCueApp() {
                             kotlinx.coroutines.delay(1_000)
                         }
                     }
-                    LessonDetailScreen(current.playlist,
+                    LessonDetailScreen(current.playlist, current.manifest.screenName, connectionMode,
                         onBack = { screen = AppScreen.Library(current.identity, current.manifest) },
                         onPlay = { items, index -> screen = AppScreen.Player(current.playlist, items, index) })
                 }
@@ -427,8 +443,17 @@ fun LessonCueApp() {
                     onNext = { next -> screen = current.copy(itemIndex = next, seekMs = 0) })
                 }
             }
-            if (diagnosticCaptureVisible) Text("DIAGNOSTIC SCREENSHOT · ADMIN REQUEST",
-                color = Cream, fontSize = 18.sp, modifier = Modifier.align(Alignment.TopEnd).background(Coral).padding(14.dp))
+            if (diagnosticCaptureVisible) {
+                Column(
+                    Modifier.align(Alignment.TopEnd).padding(28.dp)
+                        .background(LessonCueTvColors.Background.copy(alpha = .96f), RoundedCornerShape(14.dp))
+                        .border(2.dp, Coral, RoundedCornerShape(14.dp)).padding(horizontal = 20.dp, vertical = 14.dp)
+                ) {
+                    Text("ADMIN DIAGNOSTIC CAPTURE", color = Coral, fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Text("A temporary screenshot was requested", color = Cream, fontSize = 14.sp)
+                }
+            }
             val passiveUpdate = (updateState as? UpdateUiState.Available)
                 ?.takeIf { !it.blocking && !it.manualPresentation }
             if (passiveUpdate != null) {
@@ -482,20 +507,52 @@ private suspend fun captureDiagnosticScreenshot(activity: ComponentActivity): By
 private fun ConnectScreen(message: String?, onConnect: (String, String) -> Unit) {
     var address by remember { mutableStateOf("http://lessoncue.local") }
     var deviceName by remember { mutableStateOf(defaultDeviceName()) }
-    FormLayout("Connect this TV", "LessonCue will try this address, then search the local network automatically.") {
-        Text("Device name", color = Cream, fontSize = 20.sp)
-        InputBox(deviceName) { deviceName = it.take(MAX_DEVICE_NAME_LENGTH) }
-        Spacer(Modifier.height(20.dp))
-        Text("Server address", color = Cream, fontSize = 20.sp)
-        InputBox(address) { address = it }
-        message?.let { Text(it, color = Coral, modifier = Modifier.padding(top = 12.dp)) }
-        Spacer(Modifier.height(20.dp))
-        LessonCueButton(
-            onClick = {
-                onConnect(address, deviceName.trim().ifBlank { defaultDeviceName() })
-            },
-            enabled = deviceName.isNotBlank()
-        ) { Text("Find server") }
+    FormLayout("Connect this TV", "Link this display to the LessonCue server on your local network.") {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("DEVICE NAME", color = Muted, fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Spacer(Modifier.height(8.dp))
+                TvTextField(
+                    deviceName,
+                    { deviceName = it.take(MAX_DEVICE_NAME_LENGTH) },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "Room or display name"
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Text("SERVER ADDRESS", color = Muted, fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Spacer(Modifier.height(8.dp))
+                TvTextField(
+                    address,
+                    { address = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "http://192.168.1.25"
+                )
+            }
+        }
+        message?.let {
+            Spacer(Modifier.height(18.dp))
+            Box(
+                Modifier.fillMaxWidth().background(Coral.copy(alpha = .12f), RoundedCornerShape(14.dp))
+                    .border(1.dp, Coral.copy(alpha = .55f), RoundedCornerShape(14.dp)).padding(18.dp)
+            ) {
+                Text(it, color = Cream, fontSize = 17.sp)
+            }
+        }
+        Spacer(Modifier.height(26.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "LessonCue will also search the local network automatically.",
+                color = Muted,
+                fontSize = 16.sp,
+                modifier = Modifier.weight(1f)
+            )
+            LessonCueButton(
+                onClick = { onConnect(address, deviceName.trim().ifBlank { defaultDeviceName() }) },
+                enabled = deviceName.isNotBlank(),
+                modifier = Modifier.width(220.dp).height(62.dp)
+            ) { Text("Find server", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+        }
     }
 }
 
@@ -523,22 +580,44 @@ private suspend fun reconnectSavedServer(context: android.content.Context, ident
 }
 
 @Composable
-private fun PinScreen(serverName: String, onConfirm: (String) -> Unit) {
+internal fun PinScreen(serverName: String, onBack: () -> Unit, onConfirm: (String) -> Unit) {
     var pin by remember { mutableStateOf("") }
-    FormLayout(serverName, "Enter the six-digit PIN shown in LessonCue Settings → Pair a screen.") {
-        InputBox(pin, singleLine = true) { pin = it.filter(Char::isDigit).take(6) }
-        Spacer(Modifier.height(20.dp))
-        LessonCueButton(onClick = { if (pin.length == 6) onConfirm(pin) }, enabled = pin.length == 6) { Text("Pair TV") }
+    BackHandler(onBack = onBack)
+    FormLayout("Pair this TV", "Connected to $serverName. Enter the six-digit PIN shown in LessonCue.") {
+        TvTextField(
+            value = pin,
+            onValueChange = { pin = it.filter(Char::isDigit).take(6) },
+            modifier = Modifier.fillMaxWidth(.7f),
+            numeric = true,
+            placeholder = "•  •  •  •  •  •"
+        )
+        Spacer(Modifier.height(18.dp))
+        Text(
+            if (pin.length == 6) "PIN complete" else "${6 - pin.length} digits remaining",
+            color = if (pin.length == 6) Mint else Muted,
+            fontSize = 16.sp
+        )
+        Spacer(Modifier.height(28.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            LessonCueButton(onClick = { if (pin.length == 6) onConfirm(pin) }, enabled = pin.length == 6,
+                modifier = Modifier.width(210.dp).height(62.dp)) {
+                Text("Pair TV", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+            LessonCueButton(onClick = onBack, modifier = Modifier.width(160.dp).height(62.dp)) { Text("Back") }
+        }
     }
 }
 
 @Composable
-private fun LibraryScreen(
+internal fun LibraryScreen(
     manifest: ScreenManifest,
+    identity: DeviceIdentity,
+    connectionMode: ConnectionMode,
     onStart: (LessonPlaylist) -> Unit,
     onCheckForUpdates: (() -> Unit)?
 ) {
     val signage = manifest.signage.firstOrNull { it.mode == "emergency" } ?: manifest.signage.firstOrNull()
+    val interactionMode = manifest.libraryInteractionMode()
     if (signage?.displayPower == "off") { Box(Modifier.fillMaxSize().background(Color.Black)); return }
     val signageEntries = signage?.contentPlaylist?.items.orEmpty().filter(::isRenderableSignageEntry)
     var signageEntryIndex by remember(signage?.contentPlaylist?.id, signage?.contentPlaylist?.version) {
@@ -560,9 +639,27 @@ private fun LibraryScreen(
         signage?.copy(name = layout.name, backgroundColor = layout.backgroundColor, zones = layout.zones,
             backgroundAudio = layout.backgroundAudio)
     } ?: signage
+    val context = LocalContext.current
+    val inputModeManager = LocalInputModeManager.current
     val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(manifest.version, manifest.playlists.size) {
-        if (manifest.playlists.isNotEmpty()) runCatching { firstFocus.requestFocus() }
+    val lessonIds = manifest.playlists.map { it.id }
+    val defaultPreferredIndex = preferredLessonIndex(manifest.playlists, Instant.now())
+    var focusedLessonId by remember {
+        mutableStateOf(manifest.playlists.getOrNull(defaultPreferredIndex)?.id)
+    }
+    val preferredIndex = retainedLessonIndex(manifest.playlists, focusedLessonId, Instant.now())
+    val featured = manifest.playlists.getOrNull(preferredIndex)
+    val lessonListState = rememberLazyListState(initialFirstVisibleItemIndex = preferredIndex.coerceAtLeast(0))
+    LaunchedEffect(lessonIds, preferredIndex, interactionMode) {
+        if (preferredIndex >= 0 && interactionMode == LibraryInteractionMode.Lessons) {
+            if (focusedLessonId !in lessonIds) {
+                focusedLessonId = manifest.playlists[preferredIndex].id
+            }
+            inputModeManager.requestInputMode(InputMode.Keyboard)
+            lessonListState.scrollToItem(preferredIndex)
+            kotlinx.coroutines.delay(80)
+            firstFocus.requestFocus()
+        }
     }
     Box(Modifier.fillMaxSize().background(displaySignage?.backgroundColor?.let(::parseDisplayColor) ?: Navy)) {
       SignageImagePreload(signageEntries)
@@ -571,7 +668,7 @@ private fun LibraryScreen(
       else signageEntry?.media?.let { SignageBackdrop(it) }
           ?: signageEntry?.sourceUrl?.let { SignageWebZone(it) }
           ?: displaySignage?.media?.let { SignageBackdrop(it) }
-      if (manifest.playlists.isEmpty()) {
+      if (interactionMode == LibraryInteractionMode.SignageOnly) {
           // Signage-only: full-screen signage with no app chrome.
           Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.BottomEnd) {
               if (displaySignage?.zones?.isEmpty() != false) {
@@ -580,48 +677,174 @@ private fun LibraryScreen(
               }
           }
       } else {
-          Row(Modifier.fillMaxSize().background(if (displaySignage?.zones?.isNotEmpty() == true) Color(0x52000000) else Color.Transparent).padding(56.dp), horizontalArrangement = Arrangement.spacedBy(56.dp)) {
-            Column(Modifier.width(340.dp)) {
-                Text("LESSONCUE", color = Gold, letterSpacing = 3.sp)
-                Spacer(Modifier.height(20.dp))
-                Text(manifest.screenName, fontSize = 34.sp, color = Cream)
-                displaySignage?.let {
-                    Spacer(Modifier.height(24.dp))
-                    Text(if (it.mode == "emergency") "EMERGENCY" else it.name.uppercase(), color = if (it.mode == "emergency") Coral else Gold, letterSpacing = 2.sp)
-                    Text(it.message, fontSize = 24.sp, color = Cream, modifier = Modifier.padding(top = 8.dp))
-                }
-                Spacer(Modifier.height(42.dp))
-                Text("Today's Lesson", fontSize = 20.sp, color = Muted)
-                Text("Select a lesson and press Start.", color = Cream, modifier = Modifier.padding(top = 8.dp))
-                onCheckForUpdates?.let {
-                    Spacer(Modifier.height(24.dp))
-                    LessonCueButton(onClick = it) { Text("Check for updates") }
-                }
-            }
-            if (signage?.mode == "emergency") {
-                Box(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Emergency override active\nLesson playback resumes automatically when it ends.",
-                        color = Cream, fontSize = 28.sp)
-                }
-            } else {
-                LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    itemsIndexed(manifest.playlists, key = { _, playlist -> playlist.id }) { index, playlist ->
-                        Surface(onClick = { onStart(playlist) }, modifier = remoteListItemModifier()
-                            .then(if (index == 0) Modifier.focusRequester(firstFocus) else Modifier)) {
-                            Row(Modifier.padding(26.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(playlist.title, fontSize = 28.sp, color = Cream)
-                                    val readiness = if (playlist.items.all { !it.offlineEligible || it.url != null }) "Ready" else "Internet required"
-                                    Text(readiness, color = if (readiness == "Ready") Mint else Coral)
-                                }
-                                Text("VIEW MEDIA  ›", color = Gold)
-                            }
-                        }
-                    }
-                }
-            }
+          Column(
+              Modifier.fillMaxSize().background(LessonCueTvColors.BlackScrim)
+                  .padding(horizontal = LessonCueTvDimens.ScreenHorizontal, vertical = 30.dp)
+          ) {
+              TvHeader(manifest.screenName, connectionMode)
+              Spacer(Modifier.height(26.dp))
+              if (interactionMode == LibraryInteractionMode.Emergency) {
+                  TvPanel(Modifier.fillMaxWidth().weight(1f)) {
+                      Column(
+                          Modifier.fillMaxSize().padding(52.dp),
+                          verticalArrangement = Arrangement.Center,
+                          horizontalAlignment = Alignment.CenterHorizontally
+                      ) {
+                          StatusBadge("EMERGENCY OVERRIDE", Coral)
+                          Spacer(Modifier.height(20.dp))
+                          Text(signage?.message?.ifBlank { signage.name }.orEmpty(), color = Cream, fontSize = 38.sp,
+                              fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                          Spacer(Modifier.height(18.dp))
+                          Text("Lesson controls are temporarily unavailable. Interrupted playback will resume automatically.",
+                              color = Muted, fontSize = 21.sp, textAlign = TextAlign.Center)
+                      }
+                  }
+              } else {
+                  Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+                      featured?.let { playlist ->
+                          FeaturedLessonPanel(
+                              playlist = playlist,
+                              readiness = mediaReadiness(context, playlist),
+                              modifier = Modifier.weight(1.75f).fillMaxSize(),
+                              onOpen = { onStart(playlist) }
+                          )
+                      }
+                      TvPanel(Modifier.weight(1f).fillMaxSize()) {
+                          Column(Modifier.fillMaxSize().padding(24.dp)) {
+                              Text("Today's lessons", color = Cream, fontSize = 29.sp, fontWeight = FontWeight.Bold)
+                              Text("Choose a lesson to preview its cues.", color = Muted, fontSize = 16.sp)
+                              Spacer(Modifier.height(18.dp))
+                              LazyColumn(Modifier.weight(1f), state = lessonListState,
+                                  verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                  itemsIndexed(manifest.playlists, key = { _, playlist -> playlist.id }) { index, playlist ->
+                                      val readiness = mediaReadiness(context, playlist)
+                                      FocusedTvCard(
+                                          onClick = { onStart(playlist) },
+                                          onFocused = { focusedLessonId = playlist.id },
+                                          initialFocusRequester = firstFocus.takeIf { index == preferredIndex },
+                                          selected = playlist.id == focusedLessonId,
+                                          modifier = remoteListItemModifier().testTag("lesson-card-${playlist.id}")
+                                      ) {
+                                          Row(
+                                              Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 15.dp),
+                                              verticalAlignment = Alignment.CenterVertically
+                                          ) {
+                                              Column(Modifier.weight(1f)) {
+                                                  playlist.designatedStartAt?.let {
+                                                      Text(formatLessonTime(it), color = Gold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                                  }
+                                                  Text(playlist.title, color = Cream, fontSize = 21.sp, fontWeight = FontWeight.Bold,
+                                                      maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                                  Text("${playlist.timeline().size} cues", color = Muted, fontSize = 14.sp)
+                                              }
+                                              Text(readiness.shortLabel, color = readiness.color, fontSize = 12.sp,
+                                                  fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
+                                          }
+                                      }
+                                  }
+                              }
+                              onCheckForUpdates?.let {
+                                  Spacer(Modifier.height(10.dp))
+                                  LessonCueButton(onClick = it, modifier = Modifier.align(Alignment.End)) {
+                                      Text("Updates", fontSize = 14.sp)
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+              Spacer(Modifier.height(22.dp))
+              val allLessonItems = manifest.playlists.flatMap { it.timeline().map(TimelineCue::item) }.distinctBy { it.id }
+              val cachedCount = allLessonItems.count { cachedMediaFile(context, it) != null }
+              RemoteHintStrip(
+                  statusContent = {
+                      Column {
+                          Text("$cachedCount / ${allLessonItems.size}", color = Mint, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                          Text("MEDIA CACHED", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                      }
+                      Column {
+                          Text(identity.serverUrl.removePrefix("http://").removePrefix("https://").uppercase(), color = Cream,
+                              fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                          Text("SERVER", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                      }
+                      Column {
+                          Text(BuildConfig.VERSION_NAME, color = Mint, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                          Text("APP VERSION", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                      }
+                  },
+                  hints = listOf("↑ ↓" to "Choose lesson", "●" to "Open", "↶" to "Back"),
+                  modifier = Modifier.fillMaxWidth()
+              )
           }
       }
+    }
+}
+
+private data class MediaReadiness(val label: String, val shortLabel: String, val color: Color)
+
+@Composable
+private fun FeaturedLessonPanel(
+    playlist: LessonPlaylist,
+    readiness: MediaReadiness,
+    modifier: Modifier,
+    onOpen: () -> Unit
+) {
+    val previewItem = playlist.items.firstOrNull()
+        ?: playlist.countdown?.item
+        ?: playlist.preRoll?.items?.firstOrNull()
+    TvPanel(modifier) {
+        Row(Modifier.fillMaxSize().padding(24.dp), horizontalArrangement = Arrangement.spacedBy(26.dp)) {
+            CuePreview(
+                item = previewItem,
+                modifier = Modifier.weight(.95f).fillMaxSize(),
+                selectedLabel = "UP NEXT"
+            )
+            Column(Modifier.weight(1.15f).fillMaxSize(), verticalArrangement = Arrangement.Center) {
+                StatusBadge(beginsInLabel(playlist, Instant.now()), Gold)
+                Spacer(Modifier.height(8.dp))
+                Text(playlist.title, color = Cream, fontSize = 30.sp, fontWeight = FontWeight.Bold,
+                    maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                val metadata = buildList {
+                    playlist.designatedStartAt?.let { add(formatLessonTime(it)) }
+                    playlist.estimatedDurationMs().takeIf { it > 0 }?.let { add(formatDuration(it)) }
+                    add("${playlist.timeline().size} cues")
+                }.joinToString("  •  ")
+                Text(metadata, color = Muted, fontSize = 16.sp)
+                Spacer(Modifier.height(10.dp))
+                Text(readiness.label, color = readiness.color, fontSize = 15.sp, maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Spacer(Modifier.height(10.dp))
+                LessonCueButton(onClick = onOpen, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+                    Text("▶   Open lesson", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+private fun formatLessonTime(value: Instant): String = DateTimeFormatter.ofPattern("h:mm a")
+    .withZone(java.time.ZoneId.systemDefault()).format(value)
+
+private fun cachedMediaFile(context: android.content.Context, item: CueItem): java.io.File? =
+    context.filesDir.resolve("media").resolve(item.cacheFileName()).takeIf { it.exists() }
+        ?: context.filesDir.resolve("media").resolve("${item.id}.bin").takeIf { it.exists() }
+
+private fun mediaReadiness(context: android.content.Context, playlist: LessonPlaylist): MediaReadiness {
+    val items = playlist.timeline().map(TimelineCue::item)
+    if (items.isEmpty()) return MediaReadiness("This lesson does not contain media yet.", "NO MEDIA", Muted)
+    val offlineItems = items.filter { it.offlineEligible }
+    val cached = offlineItems.count { cachedMediaFile(context, it) != null }
+    val onlineOnly = items.count { !it.offlineEligible && (it.playbackUrl != null || it.url != null) }
+    return when {
+        offlineItems.isNotEmpty() && cached == offlineItems.size && onlineOnly == 0 ->
+            MediaReadiness("All media is downloaded and ready for offline playback.", "READY OFFLINE", Mint)
+        offlineItems.isNotEmpty() && cached < offlineItems.size ->
+            MediaReadiness("$cached/${offlineItems.size} media items cached. Downloading the remaining media.",
+                "$cached/${offlineItems.size} CACHED", Gold)
+        onlineOnly > 0 ->
+            MediaReadiness("$onlineOnly ${if (onlineOnly == 1) "item requires" else "items require"} an internet connection.",
+                "$onlineOnly ONLINE", Coral)
+        else -> MediaReadiness("Media is available from the LessonCue server.", "READY", Mint)
     }
 }
 
@@ -1149,45 +1372,177 @@ private fun parseDisplayColor(value: String): Color = runCatching {
 }.getOrDefault(Navy)
 
 @Composable
-private fun LessonDetailScreen(playlist: LessonPlaylist, onBack: () -> Unit,
-    onPlay: (List<CueItem>, Int) -> Unit) {
-    val allItems = playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) + playlist.items + playlist.postLesson?.items.orEmpty()
-    val preRollIds = playlist.preRoll?.items.orEmpty().map { it.id }.toSet()
-    val countdownId = playlist.countdown?.item?.id
-    val postLessonIds = playlist.postLesson?.items.orEmpty().map { it.id }.toSet()
-    val firstFocus = remember { FocusRequester() }
-    BackHandler(onBack = onBack)
-    LaunchedEffect(playlist.id, allItems.size) {
-        if (allItems.isNotEmpty()) runCatching { firstFocus.requestFocus() }
+internal fun LessonDetailScreen(
+    playlist: LessonPlaylist,
+    screenName: String,
+    connectionMode: ConnectionMode,
+    onBack: () -> Unit,
+    onPlay: (List<CueItem>, Int) -> Unit
+) {
+    val context = LocalContext.current
+    val inputModeManager = LocalInputModeManager.current
+    val timeline = playlist.timeline()
+    val allItems = timeline.map(TimelineCue::item)
+    val initialIndex = playlist.initialCueIndex()
+    var selectedCueId by remember(playlist.id) {
+        mutableStateOf(timeline.getOrNull(initialIndex)?.item?.id)
     }
-    Row(Modifier.fillMaxSize().padding(56.dp), horizontalArrangement = Arrangement.spacedBy(56.dp)) {
-        Column(Modifier.width(340.dp)) {
-            Text("LESSON MEDIA", color = Gold, letterSpacing = 3.sp)
-            Spacer(Modifier.height(20.dp))
-            Text(playlist.title, fontSize = 34.sp, color = Cream)
-            Text("Use Up/Down to scroll every cue. Press Select to start at that item.", color = Muted,
-                modifier = Modifier.padding(top = 12.dp))
-            Spacer(Modifier.height(28.dp))
-            LessonCueButton(onClick = onBack) { Text("‹ Back to lessons") }
+    val selectedIndex = timeline.indexOfFirst { it.item.id == selectedCueId }
+        .takeIf { it >= 0 } ?: initialIndex
+    val selected = timeline.getOrNull(selectedIndex)
+    val firstFocus = remember(playlist.id) { FocusRequester() }
+    val cueListState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex.coerceAtLeast(0))
+    BackHandler(onBack = onBack)
+    LaunchedEffect(playlist.id, initialIndex) {
+        if (initialIndex >= 0) {
+            inputModeManager.requestInputMode(InputMode.Keyboard)
+            cueListState.scrollToItem(initialIndex)
+            kotlinx.coroutines.delay(80)
+            firstFocus.requestFocus()
         }
-        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            itemsIndexed(allItems, key = { _, item -> item.id }) { index, item ->
-                val role = when (item.id) { countdownId -> "COUNTDOWN"; in preRollIds -> "PRE-ROLL"; in postLessonIds -> "POST-LESSON"; else -> "LESSON" }
-                Surface(onClick = { onPlay(allItems, index) }, modifier = remoteListItemModifier()
-                    .then(if (index == 0) Modifier.focusRequester(firstFocus) else Modifier)) {
-                    Row(Modifier.padding(horizontal = 24.dp, vertical = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("${index + 1}", color = Gold, fontSize = 20.sp, modifier = Modifier.width(46.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(item.title, fontSize = 25.sp, color = Cream)
-                            Text("$role · ${item.type.uppercase()}", color = Muted, fontSize = 16.sp)
+    }
+    Column(
+        Modifier.fillMaxSize().background(LessonCueTvColors.Background)
+            .padding(horizontal = LessonCueTvDimens.ScreenHorizontal, vertical = 22.dp)
+    ) {
+        TvHeader(screenName, connectionMode)
+        Spacer(Modifier.height(14.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            LessonCueButton(
+                onClick = onBack,
+                modifier = Modifier.width(220.dp).height(44.dp).testTag("back-to-lessons")
+            ) {
+                Text("‹  Back to lessons", fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(20.dp))
+            Column(Modifier.weight(1f)) {
+                Text(playlist.title, color = Cream, fontSize = 30.sp, fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Text("Select a cue to start from that point.", color = Muted, fontSize = 15.sp)
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+            TvPanel(Modifier.weight(1.45f).fillMaxSize()) {
+                if (selected == null) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No media has been added to this lesson.", color = Muted, fontSize = 23.sp)
+                    }
+                } else {
+                    Row(Modifier.fillMaxSize().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        CuePreview(
+                            selected.item,
+                            Modifier.weight(1.08f).fillMaxSize(),
+                            selectedLabel = "SELECTED CUE"
+                        )
+                        Column(Modifier.weight(.92f).fillMaxSize(), verticalArrangement = Arrangement.Center) {
+                            StatusBadge(selected.role.label, cueRoleColor(selected.role))
+                            Spacer(Modifier.height(4.dp))
+                            Text(selected.item.title, color = Cream, fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                                maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                "${selected.item.type.replaceFirstChar { it.uppercase() }}  •  ${formatDuration(selected.item.effectiveDurationMs())}",
+                                color = Muted,
+                                fontSize = 16.sp,
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            Text(cueAvailabilityLabel(context, selected.item), color = cueAvailabilityColor(context, selected.item),
+                                fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Spacer(Modifier.height(5.dp))
+                            LessonCueButton(
+                                onClick = { onPlay(allItems, selectedIndex) },
+                                modifier = Modifier.fillMaxWidth().height(40.dp)
+                            ) {
+                                Text("▶  Play from here", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            LessonCueButton(
+                                onClick = { onPlay(allItems, 0) },
+                                modifier = Modifier.fillMaxWidth().height(34.dp)
+                            ) { Text("Start from beginning", fontSize = 14.sp, fontWeight = FontWeight.Bold) }
                         }
-                        Text("PLAY  ›", color = Gold)
                     }
                 }
             }
-            if (allItems.isEmpty()) item { Text("No media has been added to this lesson.", color = Muted, fontSize = 24.sp) }
+            Column(Modifier.weight(.95f).fillMaxSize()) {
+                Text("Cue timeline", color = Cream, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                Text("Pre-roll, countdown, lesson, and post-lesson media", color = Muted, fontSize = 15.sp)
+                Spacer(Modifier.height(14.dp))
+                LazyColumn(Modifier.weight(1f), state = cueListState, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    itemsIndexed(timeline, key = { _, cue -> cue.item.id }) { index, cue ->
+                        FocusedTvCard(
+                            onClick = { onPlay(allItems, index) },
+                            onFocused = { selectedCueId = cue.item.id },
+                            initialFocusRequester = firstFocus.takeIf { index == initialIndex },
+                            selected = cue.item.id == selectedCueId,
+                            modifier = remoteListItemModifier().testTag("cue-card-${cue.item.id}")
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    Modifier.size(52.dp).background(
+                                        if (cue.item.id == selectedCueId) cueRoleColor(cue.role) else LessonCueTvColors.Border,
+                                        RoundedCornerShape(12.dp)
+                                    ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("${index + 1}".padStart(2, '0'), color = if (cue.item.id == selectedCueId) Navy else Cream,
+                                        fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(Modifier.width(14.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(cue.item.title, color = Cream, fontSize = 19.sp, fontWeight = FontWeight.Bold,
+                                        maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                    Text("${cue.role.label}  •  ${cue.item.type.uppercase()}", color = cueRoleColor(cue.role),
+                                        fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Text(formatDuration(cue.item.effectiveDurationMs()), color = Cream, fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
         }
+        Spacer(Modifier.height(12.dp))
+        RemoteHintStrip(
+            statusContent = {
+                StatusBadge(
+                    if (timeline.all { cachedMediaFile(context, it.item) != null || !it.item.offlineEligible }) "ALL MEDIA READY"
+                    else "MEDIA CACHING",
+                    if (timeline.all { cachedMediaFile(context, it.item) != null || !it.item.offlineEligible }) Mint else Gold
+                )
+            },
+            hints = listOf("↑ ↓" to "Move through cues", "●" to "Play selected cue", "◀" to "Return to lessons"),
+            modifier = Modifier.fillMaxWidth()
+        )
     }
+}
+
+private fun cueRoleColor(role: CueRole): Color = when (role) {
+    CueRole.PreRoll -> Color(0xFF48A8FF)
+    CueRole.Countdown -> Color(0xFFA879FF)
+    CueRole.Lesson -> LessonCueTvColors.FocusOrange
+    CueRole.PostLesson -> Color(0xFF3DD6C5)
+}
+
+private fun cueAvailabilityLabel(context: android.content.Context, item: CueItem): String = when {
+    cachedMediaFile(context, item) != null -> "Downloaded and ready"
+    item.offlineEligible -> "Downloading for offline playback"
+    item.playbackUrl != null -> "Internet connection required"
+    item.url != null -> "Available from LessonCue server"
+    else -> "Media unavailable"
+}
+
+private fun cueAvailabilityColor(context: android.content.Context, item: CueItem): Color = when {
+    cachedMediaFile(context, item) != null -> Mint
+    item.offlineEligible -> Gold
+    item.url == null && item.playbackUrl == null -> Coral
+    else -> Muted
 }
 
 @Composable
@@ -1232,36 +1587,33 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
             onTelemetry(PlaybackTelemetry("unavailable", playlist.id, item.id,
                 error = item.fallbackMessage ?: "This item is not supported by this display."))
         }
-        val fallbackRemote = playbackRemoteModifier(item.id) { action ->
-            when (action) {
-                PlaybackRemoteAction.Previous, PlaybackRemoteAction.Rewind ->
-                    if (index > 0) onNext(index - 1)
-                PlaybackRemoteAction.Next, PlaybackRemoteAction.FastForward ->
-                    if (index + 1 < items.size) onNext(index + 1)
-                else -> Unit
-            }
-        }
-        Box(Modifier.fillMaxSize().then(fallbackRemote)) {
-            FormLayout(item.title, item.fallbackMessage ?: "This item is not supported by this display.") {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (index > 0) LessonCueButton(onClick = { onNext(index - 1) }) { Text("Previous") }
-                    if (index + 1 < items.size) LessonCueButton(onClick = { onNext(index + 1) }) { Text("Next") }
-                    LessonCueButton(onClick = onExit) { Text("Back to lesson") }
-                }
-            }
-        }
+        UnavailableMediaScreen(
+            title = item.title,
+            message = item.fallbackMessage ?: "This item cannot be displayed on this TV.",
+            hasPrevious = index > 0,
+            hasNext = index + 1 < items.size,
+            onPrevious = { onNext(index - 1) },
+            onNext = { onNext(index + 1) },
+            onExit = onExit
+        )
         return
     }
     if (item?.playbackUrl != null && item.linkKind in setOf("youtube", "embedded", "webpage", "external")) {
-        OnlineMediaScreen(playlist.id, items, index, item, control, onTelemetry, onExit, onNext)
+        OnlineMediaScreen(playlist, items, index, item, control, onTelemetry, onExit, onNext)
         return
     }
     if (item?.url == null) {
         LaunchedEffect(item?.id) { onTelemetry(PlaybackTelemetry("error", playlist.id, item?.id,
             error = "This item is not available on the server.")) }
-        FormLayout(item?.title ?: "Nothing to play", "This item is not available on the server.") {
-            LessonCueButton(onClick = onExit) { Text("Back to lesson") }
-        }
+        UnavailableMediaScreen(
+            title = item?.title ?: "Nothing to play",
+            message = "This item is not available on the LessonCue server.",
+            hasPrevious = index > 0,
+            hasNext = index + 1 < items.size,
+            onPrevious = { onNext(index - 1) },
+            onNext = { onNext(index + 1) },
+            onExit = onExit
+        )
         return
     }
     val context = LocalContext.current
@@ -1270,11 +1622,31 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
     var visualOpacity by remember(item.id) { mutableStateOf(if (item.fadeInMs > 0) 0f else 1f) }
     var visualSize by remember(item.id) { mutableStateOf(IntSize.Zero) }
     var repeatCompleted by remember(item.id) { mutableIntStateOf(0) }
+    var lastOverlayInteraction by remember(item.id) { mutableLongStateOf(System.currentTimeMillis()) }
+    var overlayClock by remember(item.id) { mutableLongStateOf(System.currentTimeMillis()) }
+    fun revealOverlay() {
+        val now = System.currentTimeMillis()
+        lastOverlayInteraction = now
+        overlayClock = now
+    }
+    LaunchedEffect(item.id) {
+        while (true) {
+            overlayClock = System.currentTimeMillis()
+            kotlinx.coroutines.delay(250)
+        }
+    }
     if (item.type == "image") {
         val duration = item.imageDurationSeconds?.coerceAtLeast(1)?.times(1_000L) ?: Long.MAX_VALUE
         var position by remember(item.id, seekMs) { mutableLongStateOf(seekMs.coerceIn(0, duration)) }
         var playing by remember(item.id) { mutableStateOf(true) }
+        LaunchedEffect(control?.version) {
+            when (control?.action) {
+                "pause" -> { playing = false; revealOverlay() }
+                "resume" -> { playing = true; revealOverlay() }
+            }
+        }
         val remoteModifier = playbackRemoteModifier(item.id) { action ->
+            revealOverlay()
             when (action) {
                 PlaybackRemoteAction.Previous -> onNext((index - 1).coerceAtLeast(0))
                 PlaybackRemoteAction.Next -> if (index + 1 < items.size) onNext(index + 1)
@@ -1316,9 +1688,26 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
             AsyncImage(model = cached ?: item.url, contentDescription = item.title,
                 contentScale = if (item.fitMode == "fill") ContentScale.Crop else ContentScale.Fit,
                 modifier = Modifier.fillMaxSize().onSizeChanged { visualSize = it }.cueVisual(item, visualOpacity, visualSize))
-            if (item.notes.isNotBlank()) Text(item.notes, color = Cream, fontSize = 20.sp,
-                modifier = Modifier.align(Alignment.BottomStart).padding(28.dp).background(Navy.copy(alpha = .9f)).padding(16.dp))
-            LessonCueButton(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd).padding(28.dp)) { Text("Exit") }
+            PlaybackOverlay(
+                visible = shouldShowPlaybackOverlay(lastOverlayInteraction, overlayClock, playing),
+                lessonTitle = playlist.title,
+                item = item,
+                itemIndex = index,
+                itemCount = items.size,
+                positionMs = position,
+                durationMs = duration.takeUnless { it == Long.MAX_VALUE },
+                playing = playing,
+                availabilityLabel = if (cached != null) "OFFLINE COPY" else "SERVER MEDIA",
+                actions = PlaybackOverlayActions(
+                    previous = { revealOverlay(); if (index > 0) onNext(index - 1) },
+                    rewind = { revealOverlay(); position = (position - REMOTE_SEEK_STEP_MS).coerceAtLeast(0) },
+                    togglePlayPause = { revealOverlay(); playing = !playing },
+                    fastForward = { revealOverlay(); position = (position + REMOTE_SEEK_STEP_MS).coerceAtMost(duration) },
+                    next = { revealOverlay(); if (index + 1 < items.size) onNext(index + 1) },
+                    exit = onExit
+                ),
+                modifier = Modifier.fillMaxSize()
+            )
         }
         return
     }
@@ -1336,7 +1725,11 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
             playWhenReady = true
         }
     }
+    var playerState by remember(item.id) { mutableStateOf("loading") }
+    var playerPosition by remember(item.id) { mutableLongStateOf(seekMs.coerceAtLeast(0)) }
+    var playerDuration by remember(item.id) { mutableStateOf<Long?>(item.effectiveDurationMs()) }
     val remoteModifier = playbackRemoteModifier(item.id) { action ->
+        revealOverlay()
         when (action) {
             PlaybackRemoteAction.Previous -> onNext((index - 1).coerceAtLeast(0))
             PlaybackRemoteAction.Next -> if (index + 1 < items.size) onNext(index + 1)
@@ -1371,6 +1764,9 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
                 player.playbackState == Player.STATE_READY -> "paused"
                 else -> "loading"
             }
+            playerState = state
+            playerPosition = position
+            playerDuration = duration.takeUnless { it == C.TIME_UNSET }
             onTelemetry(PlaybackTelemetry(state, playlist.id, item.id, position,
                 duration.takeUnless { it == C.TIME_UNSET }, item.volumePercent, player.playerError?.message))
             kotlinx.coroutines.delay(500)
@@ -1378,8 +1774,8 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
     }
     LaunchedEffect(control?.version) {
         when (control?.action) {
-            "pause" -> player.pause()
-            "resume" -> player.play()
+            "pause" -> { player.pause(); revealOverlay() }
+            "resume" -> { player.play(); revealOverlay() }
         }
     }
     DisposableEffect(player) {
@@ -1412,25 +1808,85 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
                 resizeMode = if (item.fitMode == "fill") AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
             } },
             modifier = Modifier.fillMaxSize().onSizeChanged { visualSize = it }.cueVisual(item, visualOpacity, visualSize))
-        Row(Modifier.align(Alignment.TopStart).padding(28.dp).background(Navy.copy(alpha = .82f)).padding(16.dp)) {
-            Text(item.title, color = Cream)
-            Spacer(Modifier.width(28.dp))
-            Text("${index + 1} / ${items.size}", color = Muted)
+        PlaybackOverlay(
+            visible = shouldShowPlaybackOverlay(
+                lastOverlayInteraction,
+                overlayClock,
+                playing = playerState == "playing",
+                hasError = playerState == "error"
+            ),
+            lessonTitle = playlist.title,
+            item = item,
+            itemIndex = index,
+            itemCount = items.size,
+            positionMs = playerPosition,
+            durationMs = playerDuration,
+            playing = playerState == "playing",
+            availabilityLabel = if (cached != null) "OFFLINE COPY" else "SERVER MEDIA",
+            actions = PlaybackOverlayActions(
+                previous = { revealOverlay(); if (index > 0) onNext(index - 1) },
+                rewind = { revealOverlay(); player.seekTo((player.currentPosition - REMOTE_SEEK_STEP_MS).coerceAtLeast(0)) },
+                togglePlayPause = { revealOverlay(); if (player.playWhenReady) player.pause() else player.play() },
+                fastForward = {
+                    revealOverlay()
+                    val maximum = player.duration.takeIf { it != C.TIME_UNSET && it >= 0 } ?: Long.MAX_VALUE
+                    player.seekTo((player.currentPosition + REMOTE_SEEK_STEP_MS).coerceAtMost(maximum))
+                },
+                next = { revealOverlay(); if (index + 1 < items.size) onNext(index + 1) },
+                exit = onExit
+            ),
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
+
+@Composable
+private fun UnavailableMediaScreen(
+    title: String,
+    message: String,
+    hasPrevious: Boolean,
+    hasNext: Boolean,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onExit: () -> Unit
+) {
+    val initialFocus = remember(title, hasNext) { FocusRequester() }
+    LaunchedEffect(title, hasNext) { runCatching { initialFocus.requestFocus() } }
+    FormLayout(title, message) {
+        StatusBadge("MEDIA UNAVAILABLE", Coral)
+        Spacer(Modifier.height(26.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (hasPrevious) LessonCueButton(onClick = onPrevious) { Text("Previous") }
+            if (hasNext) LessonCueButton(onClick = onNext, modifier = Modifier.focusRequester(initialFocus)) { Text("Next") }
+            LessonCueButton(
+                onClick = onExit,
+                modifier = if (!hasNext) Modifier.focusRequester(initialFocus) else Modifier
+            ) { Text("Back to lesson") }
         }
-        if (item.notes.isNotBlank()) Text(item.notes, color = Cream, fontSize = 20.sp,
-            modifier = Modifier.align(Alignment.BottomStart).padding(28.dp).background(Navy.copy(alpha = .9f)).padding(16.dp))
-        LessonCueButton(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd).padding(28.dp)) { Text("Exit") }
     }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun OnlineMediaScreen(lessonId: String, items: List<CueItem>, index: Int, item: CueItem,
+private fun OnlineMediaScreen(playlist: LessonPlaylist, items: List<CueItem>, index: Int, item: CueItem,
     control: ControlCommand?, onTelemetry: (PlaybackTelemetry) -> Unit, onExit: () -> Unit,
     onNext: (Int) -> Unit) {
     val context = LocalContext.current
     var locallyPaused by remember(item.id) { mutableStateOf(false) }
     var visualSize by remember(item.id) { mutableStateOf(IntSize.Zero) }
+    var lastOverlayInteraction by remember(item.id) { mutableLongStateOf(System.currentTimeMillis()) }
+    var overlayClock by remember(item.id) { mutableLongStateOf(System.currentTimeMillis()) }
+    fun revealOverlay() {
+        val now = System.currentTimeMillis()
+        lastOverlayInteraction = now
+        overlayClock = now
+    }
+    LaunchedEffect(item.id) {
+        while (true) {
+            overlayClock = System.currentTimeMillis()
+            kotlinx.coroutines.delay(250)
+        }
+    }
     val webView = remember(item.id) {
         WebView(context).apply {
             settings.javaScriptEnabled = item.linkKind != "webpage"
@@ -1444,6 +1900,7 @@ private fun OnlineMediaScreen(lessonId: String, items: List<CueItem>, index: Int
         }
     }
     val remoteModifier = playbackRemoteModifier(item.id) { action ->
+        revealOverlay()
         when (action) {
             PlaybackRemoteAction.Previous -> onNext((index - 1).coerceAtLeast(0))
             PlaybackRemoteAction.Next -> if (index + 1 < items.size) onNext(index + 1)
@@ -1472,10 +1929,12 @@ private fun OnlineMediaScreen(lessonId: String, items: List<CueItem>, index: Int
         when (control?.action) {
             "pause" -> {
                 locallyPaused = true
+                revealOverlay()
                 webView.evaluateMediaScript("if(v){v.pause();}")
             }
             "resume" -> {
                 locallyPaused = false
+                revealOverlay()
                 webView.onResume()
                 webView.evaluateMediaScript("if(v){v.play();}")
             }
@@ -1484,7 +1943,7 @@ private fun OnlineMediaScreen(lessonId: String, items: List<CueItem>, index: Int
     LaunchedEffect(item.id, control?.version, locallyPaused) {
         webView.evaluateMediaScript("if(v){v.playbackRate=${item.playbackRatePercent.coerceIn(25, 400) / 100.0};v.muted=${item.muted};v.volume=${(item.volumePercent / 100.0).coerceIn(0.0, 1.0)};}")
         onTelemetry(PlaybackTelemetry(if (locallyPaused) "paused" else "playing",
-            lessonId, item.id, volumePercent = item.volumePercent))
+            playlist.id, item.id, volumePercent = item.volumePercent))
     }
     DisposableEffect(webView) { onDispose { webView.stopLoading(); webView.destroy() } }
     Box(Modifier.fillMaxSize().background(cueBackground(item)).then(remoteModifier)) {
@@ -1494,12 +1953,30 @@ private fun OnlineMediaScreen(lessonId: String, items: List<CueItem>, index: Int
                 isFocusableInTouchMode = false
             }
         }, modifier = Modifier.fillMaxSize().onSizeChanged { visualSize = it }.cueVisual(item, 1f, visualSize))
-        Row(Modifier.align(Alignment.TopStart).padding(28.dp).background(Navy.copy(alpha = .82f)).padding(16.dp)) {
-            Text(item.title, color = Cream)
-            Spacer(Modifier.width(18.dp))
-            Text(if (item.linkKind == "youtube") "YouTube · online" else "Webpage · online", color = Muted)
-        }
-        LessonCueButton(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd).padding(28.dp)) { Text("Exit") }
+        PlaybackOverlay(
+            visible = shouldShowPlaybackOverlay(lastOverlayInteraction, overlayClock, playing = !locallyPaused),
+            lessonTitle = playlist.title,
+            item = item,
+            itemIndex = index,
+            itemCount = items.size,
+            positionMs = 0,
+            durationMs = item.effectiveDurationMs(),
+            playing = !locallyPaused,
+            availabilityLabel = "ONLINE MEDIA",
+            actions = PlaybackOverlayActions(
+                previous = { revealOverlay(); if (index > 0) onNext(index - 1) },
+                rewind = { revealOverlay(); webView.evaluateMediaScript("if(v){v.currentTime=Math.max(0,v.currentTime-${REMOTE_SEEK_STEP_MS / 1_000.0});}") },
+                togglePlayPause = {
+                    revealOverlay()
+                    locallyPaused = !locallyPaused
+                    webView.evaluateMediaScript("if(v){if(v.paused){v.play();}else{v.pause();}}")
+                },
+                fastForward = { revealOverlay(); webView.evaluateMediaScript("if(v){v.currentTime=Math.min(v.duration||Infinity,v.currentTime+${REMOTE_SEEK_STEP_MS / 1_000.0});}") },
+                next = { revealOverlay(); if (index + 1 < items.size) onNext(index + 1) },
+                exit = onExit
+            ),
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }
 
@@ -1522,12 +1999,19 @@ private fun ScreenManifest.itemCount() = (playlists.flatMap { playlist ->
 
 @Composable
 private fun FormLayout(title: String, subtitle: String, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 96.dp, vertical = 72.dp)) {
-        Text("LESSONCUE", color = Gold, letterSpacing = 3.sp)
-        Spacer(Modifier.height(36.dp))
-        Text(title, fontSize = 44.sp, color = Cream)
-        Text(subtitle, fontSize = 20.sp, color = Muted, modifier = Modifier.padding(top = 12.dp, bottom = 28.dp))
-        content()
+    Column(
+        Modifier.fillMaxSize().background(LessonCueTvColors.Background)
+            .padding(horizontal = 82.dp, vertical = 54.dp)
+    ) {
+        LessonCueWordmark()
+        Spacer(Modifier.height(30.dp))
+        TvPanel(Modifier.fillMaxWidth().weight(1f)) {
+            Column(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 38.dp)) {
+                Text(title, fontSize = 40.sp, color = Cream, fontWeight = FontWeight.Bold)
+                Text(subtitle, fontSize = 19.sp, color = Muted, modifier = Modifier.padding(top = 9.dp, bottom = 30.dp))
+                content()
+            }
+        }
     }
 }
 
@@ -1557,19 +2041,29 @@ internal fun LessonCueButton(
 }
 
 @Composable
-private fun InputBox(value: String, singleLine: Boolean = true, onChange: (String) -> Unit) {
-    BasicTextField(
-        value = value,
-        onValueChange = onChange,
-        singleLine = singleLine,
-        textStyle = androidx.compose.ui.text.TextStyle(color = Cream, fontSize = 24.sp),
-        modifier = Modifier.fillMaxWidth(.66f).background(Slate).padding(18.dp)
-    )
-}
-
-@Composable
-private fun CenterMessage(message: String) = Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-    Text(message, fontSize = 30.sp, color = Cream)
+private fun LoadingScreen() {
+    var dots by remember { mutableIntStateOf(1) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(450)
+            dots = dots % 3 + 1
+        }
+    }
+    Column(
+        Modifier.fillMaxSize().background(LessonCueTvColors.Background),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        LessonCueWordmark()
+        Spacer(Modifier.height(34.dp))
+        Text("Connecting to LessonCue", fontSize = 32.sp, color = Cream, fontWeight = FontWeight.Bold)
+        Text("Searching for the local server${".".repeat(dots)}", fontSize = 18.sp, color = Muted,
+            modifier = Modifier.padding(top = 10.dp))
+        Spacer(Modifier.height(26.dp))
+        Box(Modifier.width(240.dp).height(5.dp).background(Slate, RoundedCornerShape(50))) {
+            Box(Modifier.fillMaxWidth(dots / 3f).height(5.dp).background(Gold, RoundedCornerShape(50)))
+        }
+    }
 }
 
 private fun scheduleMediaCaches(context: android.content.Context, identity: DeviceIdentity, manifest: ScreenManifest) {
@@ -1643,18 +2137,6 @@ private fun Modifier.cueVisual(item: CueItem, opacity: Float, size: IntSize): Mo
         translationY = (item.cropBottomPercent - item.cropTopPercent) / 200f * size.height * scaleY
     )
 }
-
-private val Navy = Color(0xFF08111F)
-private val Slate = Color(0xFF182438)
-private val Cream = Color(0xFFF7F2E8)
-private val Muted = Color(0xFFA9B3C2)
-private val Gold = Color(0xFFFFB664)
-private val Coral = Color(0xFFFF7A6E)
-private val Mint = Color(0xFF58D6A9)
-private val ButtonSurface = Color(0xFF263852)
-private val SelectedButton = Color(0xFFFCBB65)
-private val DisabledButtonSurface = Color(0xFF334155)
-private val DisabledButtonText = Color(0xFF8793A3)
 
 private const val MAX_DEVICE_NAME_LENGTH = 100
 

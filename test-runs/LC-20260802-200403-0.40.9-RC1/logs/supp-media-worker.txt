@@ -1,0 +1,5 @@
+command: docker run --rm -v "${PWD}:/workspace:ro" debian:trixie-slim bash /workspace/tests/linux-media-worker.sh /workspace
+start_local: 2026-08-02T20:40:56-0400
+bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged user namespaces. See <https://deb.li/bubblewrap> or <file:///usr/share/doc/bubblewrap/README.Debian.gz>.
+finish_local: 2026-08-02T20:41:22-0400
+exit_code: 1

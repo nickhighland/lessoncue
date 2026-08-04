@@ -828,7 +828,7 @@ public sealed record SignageContentPlaylistItemInput(string Id, string Kind, str
     string? AppType = null, string? SourceUrl = null, int DurationSeconds = 10,
     string? Transition = null, bool Hidden = false, bool Transparent = false, string? TagsCsv = null,
     int VolumePercent = 100, bool Muted = false, int FadeInMs = 0, int FadeOutMs = 0,
-    string? Fit = null);
+    string? Fit = null, string? Notes = null);
 public sealed record SignageContentPlaylistInput(string Name, string? Folder, string? PlaybackMode,
     string? Synchronization, List<SignageContentPlaylistItemInput>? Items);
 public sealed record SignagePlaylistSaveInput(Guid? Id, SignageContentPlaylistInput Playlist);

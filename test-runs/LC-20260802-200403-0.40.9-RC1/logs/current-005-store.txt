@@ -1,0 +1,98 @@
+retry_command: gradle -p android-tv :app:connectedStoreDebugAndroidTest
+retry_start_local: 2026-08-02T20:57:15-0400
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preStoreDebugBuild UP-TO-DATE
+> Task :app:generateStoreDebugBuildConfig UP-TO-DATE
+> Task :app:generateStoreDebugResValues UP-TO-DATE
+> Task :app:generateStoreDebugResources UP-TO-DATE
+> Task :app:packageStoreDebugResources UP-TO-DATE
+> Task :app:processStoreDebugNavigationResources UP-TO-DATE
+> Task :app:parseStoreDebugLocalResources UP-TO-DATE
+> Task :app:generateStoreDebugRFile UP-TO-DATE
+> Task :app:compileStoreDebugKotlin UP-TO-DATE
+> Task :app:javaPreCompileStoreDebug UP-TO-DATE
+> Task :app:compileStoreDebugJavaWithJavac UP-TO-DATE
+> Task :app:checkStoreDebugAarMetadata UP-TO-DATE
+> Task :app:mapStoreDebugSourceSetPaths UP-TO-DATE
+> Task :app:compileStoreDebugNavigationResources UP-TO-DATE
+> Task :app:mergeStoreDebugResources UP-TO-DATE
+> Task :app:createStoreDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksStoreDebug UP-TO-DATE
+> Task :app:processStoreDebugMainManifest UP-TO-DATE
+> Task :app:processStoreDebugManifest UP-TO-DATE
+> Task :app:processStoreDebugManifestForPackage UP-TO-DATE
+> Task :app:processStoreDebugResources UP-TO-DATE
+> Task :app:bundleStoreDebugClassesToCompileJar UP-TO-DATE
+> Task :app:preStoreDebugAndroidTestBuild SKIPPED
+> Task :app:processStoreDebugAndroidTestManifest UP-TO-DATE
+> Task :app:generateStoreDebugAndroidTestBuildConfig UP-TO-DATE
+> Task :app:generateStoreDebugAndroidTestResValues UP-TO-DATE
+> Task :app:generateStoreDebugAndroidTestResources UP-TO-DATE
+> Task :app:packageStoreDebugAndroidTestResources UP-TO-DATE
+> Task :app:processStoreDebugAndroidTestNavigationResources UP-TO-DATE
+> Task :app:parseStoreDebugAndroidTestLocalResources UP-TO-DATE
+> Task :app:generateStoreDebugAndroidTestRFile UP-TO-DATE
+> Task :app:compileStoreDebugAndroidTestKotlin UP-TO-DATE
+> Task :app:javaPreCompileStoreDebugAndroidTest UP-TO-DATE
+> Task :app:compileStoreDebugAndroidTestJavaWithJavac UP-TO-DATE
+> Task :app:generateStoreDebugAssets UP-TO-DATE
+> Task :app:mergeStoreDebugAssets UP-TO-DATE
+> Task :app:compressStoreDebugAssets UP-TO-DATE
+> Task :app:generateStoreDebugGlobalSynthetics UP-TO-DATE
+> Task :app:checkStoreDebugDuplicateClasses UP-TO-DATE
+> Task :app:desugarStoreDebugFileDependencies UP-TO-DATE
+> Task :app:mergeExtDexStoreDebug UP-TO-DATE
+> Task :app:mergeLibDexStoreDebug UP-TO-DATE
+> Task :app:dexBuilderStoreDebug UP-TO-DATE
+> Task :app:mergeProjectDexStoreDebug UP-TO-DATE
+> Task :app:processStoreDebugJavaRes UP-TO-DATE
+> Task :app:mergeStoreDebugJavaResource UP-TO-DATE
+> Task :app:mergeStoreDebugJniLibFolders UP-TO-DATE
+> Task :app:mergeStoreDebugNativeLibs UP-TO-DATE
+> Task :app:stripStoreDebugDebugSymbols UP-TO-DATE
+> Task :app:validateSigningStoreDebug UP-TO-DATE
+> Task :app:writeStoreDebugAppMetadata UP-TO-DATE
+> Task :app:writeStoreDebugSigningConfigVersions UP-TO-DATE
+> Task :app:packageStoreDebug UP-TO-DATE
+> Task :app:createStoreDebugApkListingFileRedirect UP-TO-DATE
+> Task :app:generateStoreDebugAndroidTestAssets UP-TO-DATE
+> Task :app:mergeStoreDebugAndroidTestAssets UP-TO-DATE
+> Task :app:compressStoreDebugAndroidTestAssets UP-TO-DATE
+> Task :app:generateStoreDebugAndroidTestGlobalSynthetics UP-TO-DATE
+> Task :app:checkStoreDebugAndroidTestDuplicateClasses UP-TO-DATE
+> Task :app:desugarStoreDebugAndroidTestFileDependencies UP-TO-DATE
+> Task :app:mergeExtDexStoreDebugAndroidTest UP-TO-DATE
+> Task :app:mergeLibDexStoreDebugAndroidTest UP-TO-DATE
+> Task :app:checkStoreDebugAndroidTestAarMetadata UP-TO-DATE
+> Task :app:mapStoreDebugAndroidTestSourceSetPaths UP-TO-DATE
+> Task :app:compileStoreDebugAndroidTestNavigationResources UP-TO-DATE
+> Task :app:mergeStoreDebugAndroidTestResources UP-TO-DATE
+> Task :app:processStoreDebugAndroidTestResources UP-TO-DATE
+> Task :app:dexBuilderStoreDebugAndroidTest UP-TO-DATE
+> Task :app:mergeProjectDexStoreDebugAndroidTest UP-TO-DATE
+> Task :app:processStoreDebugAndroidTestJavaRes UP-TO-DATE
+> Task :app:mergeStoreDebugAndroidTestJavaResource UP-TO-DATE
+> Task :app:mergeStoreDebugAndroidTestJniLibFolders UP-TO-DATE
+> Task :app:mergeStoreDebugAndroidTestNativeLibs NO-SOURCE
+> Task :app:stripStoreDebugAndroidTestDebugSymbols NO-SOURCE
+> Task :app:validateSigningStoreDebugAndroidTest UP-TO-DATE
+> Task :app:writeStoreDebugAndroidTestSigningConfigVersions UP-TO-DATE
+> Task :app:packageStoreDebugAndroidTest UP-TO-DATE
+> Task :app:createStoreDebugAndroidTestApkListingFileRedirect UP-TO-DATE
+Starting 8 tests on Television_1080p(AVD) - 16
+Finished 8 tests on Television_1080p(AVD) - 16
+> Task :app:connectedStoreDebugAndroidTest
+
+[Incubating] Problems report is available at: file:///Users/nickhighland/Documents/Video%20Viewer/android-tv/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.6.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 12s
+73 actionable tasks: 1 executed, 72 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.6.1/userguide/configuration_cache_enabling.html
+retry_finish_local: 2026-08-02T20:57:27-0400
+retry_exit_code: 0

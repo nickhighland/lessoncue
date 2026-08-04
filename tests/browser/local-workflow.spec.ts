@@ -808,13 +808,36 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: /2 Playlists Choose looping content/ }).click();
   await page.getByRole("button", { name: /New playlist/ }).click();
   await page.getByLabel("Playlist name").fill("Browser continuous loop");
-  await page.locator(".signage-media-tray button").filter({ hasText: "browser-test-audio.wav" }).click();
+  const readySignageVideo = page.getByRole("button", {
+    name: "Add or drag needs-tv-conversion.mp4 to the signage playlist",
+  });
+  await expect(readySignageVideo).toHaveAttribute("draggable", "true");
+  await readySignageVideo.dragTo(page.locator(".playlist-empty-drop-target"));
+  await expect(page.locator(".signage-timeline-card")).toHaveCount(1);
+  const readySignageAudio = page.getByRole("button", {
+    name: "Add or drag browser-test-audio.wav to the signage playlist",
+  });
+  await readySignageAudio.dragTo(page.locator(".signage-timeline-card"), { targetPosition: { x: 4, y: 70 } });
   await page.getByLabel("Time on screen").fill("18");
   await page.getByLabel("Fade in").fill("1.2");
   await page.getByLabel("Fade out").fill("1.5");
+  const signageAudioCard = page.locator(".signage-timeline-card").filter({ hasText: "browser-test-audio.wav" });
+  await expect(signageAudioCard).toHaveCSS("width", "156px");
+  await expect(signageAudioCard.getByLabel("Duration 0:18")).toBeVisible();
+  await signageAudioCard.getByLabel("Notes for browser-test-audio.wav").click();
+  const signageNotes = page.getByRole("dialog", { name: "Notes for browser-test-audio.wav" });
+  await signageNotes.getByLabel("Notes for staff").fill("Lobby welcome rotation");
+  await signageNotes.getByRole("button", { name: "Close notes" }).click();
+  await expect(page.locator(".signage-timeline-card")).toHaveCount(2);
+  await expect(page.locator(".signage-timeline-card").first()).toContainText("browser-test-audio.wav");
   await expect(page.getByText("LOOPS BACK TO START ↻")).toBeVisible();
   await page.getByRole("button", { name: /Save changes/ }).click();
   await expect(page.locator(".toast")).toContainText("Playlist saved. It will loop continuously.");
+  await expect.poll(() => page.evaluate(async () => {
+    const playlists = await fetch("/api/v1/signage-studio/playlists").then(response => response.json());
+    const playlist = playlists.find((item: { name: string }) => item.name === "Browser continuous loop");
+    return `${playlist.items.map((item: { title: string }) => item.title).join(",")}:${playlist.items.find((item: { title: string }) => item.title === "browser-test-audio.wav")?.notes}`;
+  })).toBe("browser-test-audio.wav,needs-tv-conversion.mp4:Lobby welcome rotation");
 
   await page.getByRole("button", { name: /1 Layouts Build the persistent frame/ }).click();
   await page.locator(".element-list button").filter({ hasText: "Playlist" }).first().click();
@@ -827,7 +850,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByLabel("Sign name").fill("Browser lobby sign");
   await page.locator(".inspector-section").filter({ hasText: "Persistent layout" })
     .locator("select").selectOption({ label: "Browser information frame" });
-  await page.getByLabel("Playlist").selectOption({ label: "Browser continuous loop · 1 items" });
+  await page.getByLabel("Playlist").selectOption({ label: "Browser continuous loop · 2 items" });
   await page.getByLabel("Browser Test TV").check();
   await page.getByRole("button", { name: /Save & update screens/ }).click();
   await expect(page.locator(".toast")).toContainText("Sign saved and assigned screens updated.");
