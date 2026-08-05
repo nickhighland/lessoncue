@@ -1,5 +1,6 @@
 import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
+import { WeatherConditionArtwork, WeatherDropArtwork, WeatherWindArtwork } from "./WeatherArtwork";
 
 const APP_VERSION = "0.40.22";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
@@ -1168,14 +1169,16 @@ function SignageWeather({ zone }: { zone: SignageZone }) {
     fields.has("wind") && windSpeed ? { kind: "wind", value: windSpeed, direction: windDirection } : null,
   ].filter((item): item is { kind: string; value: string; direction?: string } => Boolean(item));
   const fallbackText = (cache?.text || zone.content || "Weather").replace(icon, "").trim();
-  return <div className={`signage-weather layout-${zone.weatherLayout || "icon-left"}`}>
+  const title = zone.title || cache?.title || "";
+  const hasDetails = details.length > 0 || Boolean(!weather && cache?.items?.length);
+  return <div className={`signage-weather layout-${zone.weatherLayout || "icon-left"} ${title ? "has-title" : "no-title"} ${hasDetails ? "has-details" : "no-details"}`}>
     <div className="signage-weather-heading">
-      {(zone.title || cache?.title) && (zone.richTextJson
-        ? <SignageRichText zone={zone} value={zone.richTextJson} fallback={zone.title || cache?.title || "Weather"} className="signage-weather-title" />
-        : <b className="signage-weather-title">{zone.title || cache?.title}</b>)}
+      {title && (zone.richTextJson
+        ? <SignageRichText zone={zone} value={zone.richTextJson} fallback={title} className="signage-weather-title" />
+        : <b className="signage-weather-title">{title}</b>)}
     </div>
     <div className="signage-weather-main">
-      {fields.has("icon") && <span className={`signage-weather-icon ${zone.weatherIconStyle === "white" ? "white" : "color"}`}>{icon}</span>}
+      {fields.has("icon") && <WeatherConditionArtwork className="signage-weather-icon" conditions={weather?.conditions} icon={icon} monochrome={zone.weatherIconStyle === "white"} />}
       <div className="signage-weather-reading">
         {fields.has("temperature") && weather?.temperature != null
           ? <strong className="signage-weather-temperature">{degreeValue(weather.temperature)}</strong>
@@ -1185,19 +1188,13 @@ function SignageWeather({ zone }: { zone: SignageZone }) {
     </div>
     {details.length > 0
       ? <ul className="signage-weather-details">{details.map((item, index) => <li className={`signage-weather-${item.kind}`} key={`${zone.id}-weather-${index}`}>
-        {item.kind === "precipitation" && <WeatherDropIcon />}
-        {item.kind === "wind" && <span className="signage-weather-wind-icon" aria-hidden="true">≋</span>}
+        {item.kind === "precipitation" && <WeatherDropArtwork className="signage-weather-drop" />}
+        {item.kind === "wind" && <WeatherWindArtwork className="signage-weather-wind-icon" />}
         <span className="signage-weather-detail-value">{item.value}</span>
         {item.kind === "wind" && item.direction && <small className="signage-weather-wind-direction">{item.direction}</small>}
       </li>)}</ul>
       : !weather && cache?.items?.length ? <ul className="signage-weather-details">{cache.items.map((item, index) => <li key={`${zone.id}-weather-${index}`}>{item}</li>)}</ul> : null}
   </div>;
-}
-
-function WeatherDropIcon() {
-  return <svg className="signage-weather-drop" viewBox="0 0 24 28" aria-hidden="true">
-    <path d="M12 1C10.1 5.8 4 11.7 4 17a8 8 0 0 0 16 0c0-5.3-6.1-11.2-8-16Zm0 22a6 6 0 0 1-6-6c0-2.4 2.2-5.6 6-10.1 3.8 4.5 6 7.7 6 10.1a6 6 0 0 1-6 6Z" />
-  </svg>;
 }
 
 function SignageCalendar({ zone }: { zone: SignageZone }) {

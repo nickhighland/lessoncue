@@ -715,132 +715,264 @@
   place-items: center;
 }
 .zone-weather-preview {
+  position: relative;
+  isolation: isolate;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.35em;
+  grid-template-rows: minmax(0, 20fr) minmax(0, 58fr) minmax(0, 22fr);
+  gap: 0.08em;
   box-sizing: border-box;
-  padding: 0.45em 0.55em 0.35em;
+  padding: 0.3em 0.4em 0.22em;
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
+  background: linear-gradient(145deg, rgb(255 255 255 / 0.12), transparent 42%, rgb(0 0 0 / 0.18));
+  box-shadow: inset 0 0 0 0.06em rgb(255 255 255 / 0.08);
   line-height: var(--signage-line-height, 1.2);
+  text-shadow: 0 0.06em 0.12em rgb(0 20 30 / 0.8);
+}
+.zone-weather-preview.no-title {
+  grid-template-rows: minmax(0, 72fr) minmax(0, 28fr);
+}
+.zone-weather-preview.no-details,
+.zone-weather-preview.layout-compact {
+  grid-template-rows: minmax(0, 25fr) minmax(0, 75fr);
+}
+.zone-weather-preview.no-title.no-details,
+.zone-weather-preview.no-title.layout-compact {
+  grid-template-rows: minmax(0, 1fr);
+}
+.zone-weather-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.zone-weather-preview.no-title .zone-weather-heading {
+  display: none;
 }
 .zone-weather-title {
+  display: block;
+  width: 100%;
+  max-height: 100%;
+  margin: 0 !important;
   overflow: hidden;
   color: currentColor;
-  font-size: 1em;
+  font-family: "Arial Narrow", "Roboto Condensed", "Helvetica Neue", Arial, sans-serif;
+  font-size: min(1.3em, 16cqh, 11cqw) !important;
   font-weight: 900;
-  letter-spacing: 0.07em;
-  line-height: 1;
-  overflow-wrap: anywhere;
-  text-overflow: clip;
+  letter-spacing: 0.015em;
+  line-height: 0.92 !important;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
   text-transform: uppercase;
-  white-space: normal;
+  white-space: nowrap;
 }
 .zone-weather-main {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr);
+  grid-template-columns: minmax(0, 47fr) minmax(0, 53fr);
   align-items: center;
-  justify-content: center;
-  gap: 0.35em;
+  gap: min(0.35em, 2cqw);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
 .zone-weather-icon {
+  display: grid;
+  place-items: center;
   justify-self: center;
-  font-style: normal;
-  color: #ffc43d;
-  font-family: Arial, sans-serif;
-  font-size: 3.25em;
-  line-height: 0.8;
-  text-shadow: 0.02em 0.04em 0 #b66a18;
+  width: min(3.65em, 40cqh, 37cqw);
+  height: min(3.65em, 40cqh, 37cqw);
+  min-width: 0;
+  min-height: 0;
 }
-.zone-weather-main > span,
-.zone-weather-main b,
-.zone-weather-main em {
+.weather-condition-artwork {
+  color: #ffc43d;
+  line-height: 1;
+}
+.weather-condition-artwork.monochrome {
+  filter: grayscale(1) brightness(0) invert(1);
+}
+.weather-sun-artwork {
   display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0.035em 0.06em 0.045em rgb(44 26 0 / 0.7));
+}
+.weather-sun-rays {
+  fill: #ffc642;
+  stroke: #86561b;
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+.weather-sun-rim {
+  fill: #b76a16;
+  stroke: #75410e;
+  stroke-width: 1.4;
+}
+.weather-sun-face {
+  fill: #ffc13a;
+  stroke: #f8a91f;
+  stroke-width: 1;
+}
+.weather-sun-highlight {
+  fill: #ffe579;
+  opacity: 0.72;
+}
+.weather-condition-emoji {
+  display: block;
+  overflow: hidden;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  font-size: min(3.8em, 42cqh, 36cqw);
+  line-height: 1;
+}
+.zone-weather-reading {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  text-align: center;
 }
 .zone-weather-main b {
-  font-size: 3.25em;
-  letter-spacing: -0.04em;
-  line-height: 0.85;
+  display: block;
+  max-width: 100%;
+  margin: 0;
+  overflow: visible;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: min(3.2em, 36cqh, 34cqw);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.055em;
+  line-height: 0.98;
+  text-overflow: clip;
   white-space: nowrap;
 }
 .zone-weather-main em {
-  margin-top: 0.16em;
+  display: block;
+  max-width: 100%;
+  margin-top: 0.08em;
   overflow: hidden;
-  font-size: 0.72em;
+  font-family: "Arial Narrow", "Roboto Condensed", "Helvetica Neue", Arial, sans-serif;
+  font-size: min(0.82em, 9cqh, 8cqw);
   font-style: normal;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  opacity: 0.86;
+  font-weight: 900;
+  letter-spacing: 0.035em;
+  line-height: 0.95;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
 }
 .zone-weather-details {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.25em 0.3em;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.84fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 0.18em;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   margin: 0;
   padding: 0;
   overflow: hidden;
-  font-size: 0.66em;
-  line-height: 1.05;
+  font-family: "Arial Narrow", "Roboto Condensed", "Helvetica Neue", Arial, sans-serif;
+  font-size: min(0.82em, 8.5cqh, 6cqw);
+  font-weight: 800;
+  line-height: 0.95;
   list-style: none;
-  opacity: 0.96;
   text-align: center;
 }
 .zone-weather-details li {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.12em;
   min-width: 0;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.zone-weather-details .weather-precipitation,
-.zone-weather-details .weather-high-low {
-  display: block;
-  align-self: center;
-  font-weight: 700;
+.zone-weather-details .weather-precipitation {
+  font-size: 1.22em;
+  font-weight: 900;
 }
-.zone-weather-details .weather-precipitation > span,
-.zone-weather-details .weather-precipitation > svg {
-  display: inline-block;
-  width: 1em;
-  height: 1.15em;
-  color: #fff;
+.zone-weather-drop {
+  display: block;
+  width: 0.95em;
+  height: 1.18em;
+  flex: 0 0 auto;
   fill: currentColor;
-  vertical-align: -0.08em;
+  filter: drop-shadow(0 0.08em 0.08em rgb(0 20 30 / 0.7));
+}
+.weather-drop-highlight {
+  fill: rgb(255 255 255 / 0.42);
+}
+.zone-weather-details .weather-high-low {
+  font-size: 0.94em;
+  font-weight: 800;
 }
 .zone-weather-details .weather-wind {
+  display: grid;
   grid-template-columns: auto auto;
-  column-gap: 0.18em;
-  white-space: normal;
+  grid-template-rows: auto auto;
+  column-gap: 0.12em;
+  row-gap: 0;
 }
-.zone-weather-details .weather-wind > span,
-.zone-weather-details .weather-wind > small {
+.zone-weather-wind-icon {
+  grid-row: 1 / 3;
+  width: 1.55em;
+  height: 1.2em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.zone-weather-details .weather-wind > span {
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .zone-weather-details .weather-wind > small {
-  grid-column: 1 / -1;
-  font-size: 0.85em;
+  grid-column: 2;
+  grid-row: 2;
+  overflow: hidden;
+  font-size: 0.72em;
   font-weight: 800;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
+  line-height: 0.85;
+  text-overflow: ellipsis;
 }
 .zone-weather-preview.layout-icon-top .zone-weather-main {
-  display: flex;
-  flex-direction: column;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 56fr) minmax(0, 44fr);
+  gap: 0;
+}
+.zone-weather-preview.layout-icon-top .zone-weather-icon {
+  width: min(2.8em, 28cqh, 32cqw);
+  height: min(2.8em, 28cqh, 32cqw);
+}
+.zone-weather-preview.layout-icon-top .zone-weather-reading {
+  flex-direction: row;
+  gap: 0.28em;
+}
+.zone-weather-preview.layout-icon-top .zone-weather-main b {
+  font-size: min(2em, 22cqh, 24cqw);
 }
 .zone-weather-preview.layout-icon-right .zone-weather-icon {
   order: 2;
-}
-.zone-weather-preview.layout-compact {
-  grid-template-rows: auto minmax(0, 1fr);
 }
 .zone-weather-preview.layout-compact .zone-weather-details {
   display: none;
@@ -1915,145 +2047,224 @@
   gap: 0.4em;
 }
 .web-player-zone-copy .signage-weather {
+  position: relative;
+  isolation: isolate;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.35em;
+  grid-template-rows: minmax(0, 20fr) minmax(0, 58fr) minmax(0, 22fr);
+  gap: 0.08em;
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
   box-sizing: border-box;
-  padding: 0.45em 0.55em 0.35em;
+  padding: 0.3em 0.4em 0.22em;
   overflow: hidden;
+  background: linear-gradient(145deg, rgb(255 255 255 / 0.12), transparent 42%, rgb(0 0 0 / 0.18));
+  box-shadow: inset 0 0 0 0.06em rgb(255 255 255 / 0.08);
   line-height: var(--signage-line-height, 1.2);
+  text-shadow: 0 0.06em 0.12em rgb(0 20 30 / 0.8);
+}
+.web-player-zone-copy .signage-weather.no-title {
+  grid-template-rows: minmax(0, 72fr) minmax(0, 28fr);
+}
+.web-player-zone-copy .signage-weather.no-details,
+.web-player-zone-copy .signage-weather.layout-compact {
+  grid-template-rows: minmax(0, 25fr) minmax(0, 75fr);
+}
+.web-player-zone-copy .signage-weather.no-title.no-details,
+.web-player-zone-copy .signage-weather.no-title.layout-compact {
+  grid-template-rows: minmax(0, 1fr);
 }
 .signage-weather-heading {
   display: flex;
-  min-width: 0;
   align-items: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.signage-weather.no-title .signage-weather-heading {
+  display: none;
 }
 .web-player-zone-copy .signage-weather-title {
+  display: block;
+  width: 100%;
+  max-height: 100%;
+  margin: 0 !important;
   overflow: hidden;
   color: currentColor;
-  font-size: 1em;
+  font-family: "Arial Narrow", "Roboto Condensed", "Helvetica Neue", Arial, sans-serif;
+  font-size: min(1.3em, 16cqh, 11cqw) !important;
   font-weight: 900;
-  letter-spacing: 0.07em;
-  line-height: 1;
-  overflow-wrap: anywhere;
-  text-overflow: clip;
+  letter-spacing: 0.015em;
+  line-height: 0.92 !important;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
   text-transform: uppercase;
-  white-space: normal;
+  white-space: nowrap;
 }
 .signage-weather-main {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr);
+  grid-template-columns: minmax(0, 47fr) minmax(0, 53fr);
   align-items: center;
-  justify-content: center;
-  gap: 0.35em;
+  gap: min(0.35em, 2cqw);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
 .signage-weather-icon {
+  display: grid;
+  place-items: center;
   justify-self: center;
-  flex: 0 0 auto;
-  color: #ffc43d;
-  font-family: Arial, sans-serif;
-  font-size: 3.25em;
-  line-height: 0.8;
-  text-shadow: 0.02em 0.04em 0 #b66a18;
-}
-.signage-weather-icon.white {
-  filter: grayscale(1) brightness(0) invert(1);
+  width: min(3.65em, 40cqh, 37cqw);
+  height: min(3.65em, 40cqh, 37cqw);
+  min-width: 0;
+  min-height: 0;
 }
 .signage-weather-reading {
   display: flex;
+  width: 100%;
+  height: 100%;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
+  align-items: center;
   justify-content: center;
+  overflow: hidden;
+  text-align: center;
 }
 .signage-weather-temperature {
+  display: block;
+  max-width: 100%;
   margin: 0 !important;
-  font-size: 3.25em !important;
-  letter-spacing: -0.04em;
-  line-height: 0.85 !important;
+  overflow: visible;
+  font-family: Georgia, "Times New Roman", serif !important;
+  font-size: min(3.2em, 36cqh, 34cqw) !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.055em;
+  line-height: 0.98 !important;
+  text-overflow: clip;
   white-space: nowrap;
 }
 .signage-weather-conditions {
-  margin-top: 0.16em;
+  display: block;
+  max-width: 100%;
+  margin-top: 0.08em;
   overflow: hidden;
-  font-size: 0.72em;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  line-height: 1.05;
+  font-family: "Arial Narrow", "Roboto Condensed", "Helvetica Neue", Arial, sans-serif;
+  font-size: min(0.82em, 9cqh, 8cqw);
+  font-weight: 900;
+  letter-spacing: 0.035em;
+  line-height: 0.95;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
 }
 .web-player-zone-copy .signage-weather-details {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.25em 0.3em;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.84fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 0.18em;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   margin: 0;
   padding: 0;
   overflow: hidden;
   color: currentColor;
-  font-size: 0.66em;
-  line-height: 1.05;
+  font-family: "Arial Narrow", "Roboto Condensed", "Helvetica Neue", Arial, sans-serif;
+  font-size: min(0.82em, 8.5cqh, 6cqw);
+  font-weight: 800;
+  line-height: 0.95;
   list-style: none;
-  opacity: 0.96;
   text-align: center;
 }
 .signage-weather-details li {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.12em;
   min-width: 0;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.signage-weather-details .signage-weather-precipitation,
-.signage-weather-details .signage-weather-high-low {
-  display: block;
-  align-self: center;
-  font-weight: 700;
+.web-player-zone-copy .signage-weather-details li {
+  border-left: 0;
+  padding-left: 0;
+}
+.signage-weather-details .signage-weather-precipitation {
+  font-size: 1.22em;
+  font-weight: 900;
 }
 .signage-weather-drop {
-  display: inline-block;
-  width: 1em;
-  height: 1.15em;
-  color: #fff;
+  display: block;
+  width: 0.95em;
+  height: 1.18em;
+  flex: 0 0 auto;
   fill: currentColor;
-  vertical-align: -0.08em;
+  filter: drop-shadow(0 0.08em 0.08em rgb(0 20 30 / 0.7));
+}
+.signage-weather-details .signage-weather-high-low {
+  font-size: 0.94em;
+  font-weight: 800;
 }
 .signage-weather-details .signage-weather-wind {
+  display: grid;
   grid-template-columns: auto auto;
-  column-gap: 0.18em;
-  white-space: normal;
+  grid-template-rows: auto auto;
+  column-gap: 0.12em;
+  row-gap: 0;
 }
 .signage-weather-wind-icon {
-  font-size: 1.35em;
-  line-height: 0.8;
+  grid-row: 1 / 3;
+  width: 1.55em;
+  height: 1.2em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
 }
-.signage-weather-details .signage-weather-wind > span,
-.signage-weather-details .signage-weather-wind > small {
+.signage-weather-details .signage-weather-wind > span {
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .signage-weather-details .signage-weather-wind > small {
-  grid-column: 1 / -1;
-  font-size: 0.85em;
+  grid-column: 2;
+  grid-row: 2;
+  overflow: hidden;
+  font-size: 0.72em;
   font-weight: 800;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
+  line-height: 0.85;
+  text-overflow: ellipsis;
 }
 .signage-weather.layout-icon-top .signage-weather-main {
-  display: flex;
-  flex-direction: column;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 56fr) minmax(0, 44fr);
+  gap: 0;
+}
+.signage-weather.layout-icon-top .signage-weather-icon {
+  width: min(2.8em, 28cqh, 32cqw);
+  height: min(2.8em, 28cqh, 32cqw);
+}
+.signage-weather.layout-icon-top .signage-weather-reading {
+  flex-direction: row;
+  gap: 0.28em;
+}
+.signage-weather.layout-icon-top .signage-weather-temperature {
+  font-size: min(2em, 22cqh, 24cqw) !important;
 }
 .signage-weather.layout-icon-right .signage-weather-icon {
   order: 2;
-}
-.signage-weather.layout-compact {
-  grid-template-rows: auto minmax(0, 1fr);
 }
 .signage-weather.layout-compact .signage-weather-details {
   display: none;
