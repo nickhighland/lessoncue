@@ -818,6 +818,10 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(readySignageVideo).toHaveAttribute("draggable", "true");
   await readySignageVideo.dragTo(page.locator(".playlist-empty-drop-target"));
   await expect(page.locator(".signage-timeline-card")).toHaveCount(1);
+  const signageTimeMode = page.getByLabel("Time on screen mode");
+  await expect(signageTimeMode).toBeVisible();
+  await expect(signageTimeMode).toContainText("Full video duration");
+  await signageTimeMode.selectOption("full-video");
   const readySignageAudio = page.getByRole("button", {
     name: "Add or drag browser-test-audio.wav to the signage playlist",
   });
@@ -828,10 +832,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const signageAudioCard = page.locator(".signage-timeline-card").filter({ hasText: "browser-test-audio.wav" });
   await expect(signageAudioCard).toHaveCSS("width", "156px");
   await expect(signageAudioCard.getByLabel("Duration 0:18")).toBeVisible();
-  await signageAudioCard.getByLabel("Notes for browser-test-audio.wav").click();
-  const signageNotes = page.getByRole("dialog", { name: "Notes for browser-test-audio.wav" });
-  await signageNotes.getByLabel("Notes for staff").fill("Lobby welcome rotation");
-  await signageNotes.getByRole("button", { name: "Close notes" }).click();
+  await expect(signageAudioCard.getByRole("button", { name: /Notes|Settings/ })).toHaveCount(0);
+  await page.locator(".simple-signage-inspector").getByLabel("Production notes").fill("Lobby welcome rotation");
   await expect(page.locator(".signage-timeline-card")).toHaveCount(2);
   await expect(page.locator(".signage-timeline-card").first()).toContainText("browser-test-audio.wav");
   await expect(page.getByText("LOOPS BACK TO START ↻")).toBeVisible();

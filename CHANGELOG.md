@@ -4,6 +4,22 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.37 — streamline signage playlist editing
+
+### User changes
+
+- Playlist cards now keep the timeline compact with a single duration indicator; production notes and item settings stay in the left inspector.
+- The Playlist inspector now combines playlist and selected-item editing without a duplicate Selected item tab.
+- Video items offer a Full video duration timing option, while custom timing remains available.
+- Calendar elements keep one larger editable Title textbox so users can control title line breaks.
+
+### Developer changes
+
+- Removed the card-level notes/settings popovers and their duplicate controls while preserving inspector editing and playlist persistence.
+- Full video timing derives from the selected media asset duration and updates the playlist item duration used for signage playback.
+- Added browser coverage for full-video timing, consolidated inspector editing, and the compact card controls.
+- Release metadata advances to 0.40.37 and Android version code 96.
+
 ## v0.40.36 — polished compact weather card
 
 ### User changes
