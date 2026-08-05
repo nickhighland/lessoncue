@@ -1457,12 +1457,12 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .web-player-signage-layout { position: relative; width: min(1400px, 100%); min-height: min(70vh, 780px); aspect-ratio: 16/9; overflow: hidden; margin: 4vh auto; border: 1px solid #ffffff1a; border-radius: 18px; background: #07191d; box-shadow: 0 24px 70px #0006; }
 .web-player-signage-zone { position: absolute; display: grid; place-items: stretch; overflow: hidden; border: 2px solid; container-type: size; }
 .web-player-signage-zone > img, .web-player-signage-zone > video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.web-player-zone-copy { position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: center; width: 100%; height: 100%; box-sizing: border-box; overflow: hidden; padding: var(--signage-zone-padding, 2%); text-shadow: 0 2px 18px #000b; }
+.web-player-zone-copy { position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: center; width: 100%; height: 100%; box-sizing: border-box; overflow: hidden; padding: var(--signage-zone-padding, 2%); text-shadow: 0 2px 18px #000b; line-height: var(--signage-line-height, 1.2); }
 .web-player-signage-zone.media .web-player-zone-copy:empty { display: none; }
-.web-player-zone-copy small { font-size: 0.72em; font-weight: 900; letter-spacing: 0.13em; text-transform: uppercase; }
-.web-player-zone-copy strong { margin-top: 0.35em; font-family: Georgia, serif; font-size: 2.1em; line-height: 1.08; }
-.web-player-zone-copy b { font-family: Georgia, serif; font-size: 3em; line-height: 1; }
-.web-player-zone-copy > span { margin-top: 0.45em; font-size: 1.1em; }
+.web-player-zone-copy small { font-size: 0.72em; font-weight: 900; letter-spacing: 0.13em; line-height: var(--signage-line-height, 1.1); text-transform: uppercase; }
+.web-player-zone-copy strong { margin-top: 0.35em; font-family: Georgia, serif; font-size: 2.1em; line-height: var(--signage-line-height, 1.08); }
+.web-player-zone-copy b { font-family: Georgia, serif; font-size: 3em; line-height: var(--signage-line-height, 1); }
+.web-player-zone-copy > span { margin-top: 0.45em; font-size: 1.1em; line-height: var(--signage-line-height, 1.2); }
 .web-player-zone-copy ul { display: grid; gap: 0.35em; overflow: hidden; margin: 0.7em 0 0; padding: 0; list-style: none; font-size: 1em; }
 .web-player-zone-copy li { overflow: hidden; border-left: 0.12em solid currentColor; padding-left: 0.45em; text-overflow: ellipsis; white-space: nowrap; }
 

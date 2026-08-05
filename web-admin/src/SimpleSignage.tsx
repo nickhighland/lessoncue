@@ -305,7 +305,7 @@ function zone(type: string, zoneId = id("element")): Zone {
     flipX: false,
     flipY: false,
     fontFamily: "system-ui",
-    fontScalePercent: 8,
+    fontScalePercent: 10,
     fontWeight: 600,
     lineHeightPercent: 120,
     textAlign: "left",
@@ -371,7 +371,7 @@ function normalizeLayout(layout: Layout): Layout {
     ...layout,
     zones: (layout.zones || []).map((item) => ({
       ...item,
-      fontScalePercent: item.fontScalePercent ?? 8,
+      fontScalePercent: item.fontScalePercent ?? 10,
       calendarMaxItems:
         item.type === "calendar" && !item.calendarMaxItems
           ? 4
@@ -517,7 +517,7 @@ function blankLayout(kind: "information" | "fullscreen" | "welcome"): Layout {
     height: 28,
     title: "Welcome",
     content: "Welcome",
-    fontScalePercent: 8,
+    fontScalePercent: 10,
     textAlign: "center",
   });
   const clock = zone("clock", "welcome-clock");
@@ -2147,7 +2147,7 @@ function LayoutInspector({
                 min="1"
                 max="40"
                 step="0.5"
-                value={selected.fontScalePercent ?? 8}
+                value={selected.fontScalePercent ?? 10}
                 onChange={(event) =>
                   updateZone({ fontScalePercent: Number(event.target.value) })
                 }

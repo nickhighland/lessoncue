@@ -101,7 +101,7 @@ const weatherFieldSet = (zone: Zone) =>
 const calendarFieldSet = (zone: Zone) =>
   new Set((zone.calendarFields || "date,time,title").split(",").map(value => value.trim().toLowerCase()).filter(Boolean));
 const relativeElementFontSize = (zone: Pick<Zone, "fontScalePercent">) => {
-  const scale = Math.max(1, Math.min(40, zone.fontScalePercent ?? 8));
+  const scale = Math.max(1, Math.min(40, zone.fontScalePercent ?? 10));
   return `min(${scale}cqw, ${scale}cqh)`;
 };
 
@@ -250,7 +250,7 @@ function freshZone(type = "text"): Zone {
     id: id(), type, title: type === "text" ? "Text" : type, content: type === "text" ? "New message" : "",
     x: 10, y: 10, width: 40, height: 30, backgroundColor: "#17201e", textColor: "#ffffff", accentColor: "#d89127",
     refreshMinutes: 15, rotation: 0, zIndex: 1, opacity: 100, fit: "cover", locked: false, hidden: false,
-    flipX: false, flipY: false, lockMode: "none", fontFamily: "system-ui", fontScalePercent: 8, fontWeight: 600,
+    flipX: false, flipY: false, lockMode: "none", fontFamily: "system-ui", fontScalePercent: 10, fontWeight: 600,
     lineHeightPercent: 120, textAlign: "left", shape: "rectangle", strokeColor: "#ffffff", strokeWidth: 0,
     cornerRadius: 0, tickerSpeed: 60
   };
@@ -290,7 +290,7 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
     return {
       ...zone,
       type: normalizedType,
-      fontScalePercent: zone.fontScalePercent ?? 8,
+      fontScalePercent: zone.fontScalePercent ?? 10,
       calendarMaxItems: normalizedType === "calendar" && !zone.calendarMaxItems ? 4 : zone.calendarMaxItems,
       calendarFields: normalizedType === "calendar" ? zone.calendarFields || "date,time,title" : zone.calendarFields,
     };
@@ -341,7 +341,7 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
     const zoneId = (name: string) => persist ? id() : `information-frame-preview-${name}`;
     const main = { ...freshZone("presentation"), id: zoneId("presentation"), title: "Presentation area",
       content: "Select a signage playlist; an optional live stream can override it", x: 0, y: 0, width: mainPercent,
-      height: mainPercent, backgroundColor: "#171c1b", accentColor: frameColor, fontScalePercent: 8, zIndex: 1 };
+      height: mainPercent, backgroundColor: "#171c1b", accentColor: frameColor, fontScalePercent: 10, zIndex: 1 };
     framed.push(main);
     const farRightBottomColor = (bottomSlots - 1) % 2 ? frameColor : frameAltColor;
     const bottomSidebarColor = farRightBottomColor === frameColor ? frameAltColor : frameColor;
@@ -353,7 +353,7 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
         content: index === 0 ? "Connect a calendar or enter event information" : index === 1 ? "" : "Add a message",
         x: mainPercent, y: index * mainPercent / sidebarSlots, width: framePercent,
         height: mainPercent / sidebarSlots, backgroundColor: sidebarColor, accentColor: "#d89127",
-        fontScalePercent: 8, zIndex: index + 2 });
+        fontScalePercent: 10, zIndex: index + 2 });
     }
     const suggestions = ["weather", "wifi", "rss", "text", "qr"];
     for (let index = 0; index < bottomSlots; index++) {
@@ -365,7 +365,7 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
         content: type === "rss" ? "Connect a news source" : type === "text" ? "Add a message" : zone.content,
         x: index * 100 / bottomSlots, y: mainPercent, width: 100 / bottomSlots, height: framePercent,
         backgroundColor: index % 2 ? frameColor : frameAltColor, accentColor: "#d89127",
-        fontScalePercent: 8, zIndex: sidebarSlots + index + 2 });
+        fontScalePercent: 10, zIndex: sidebarSlots + index + 2 });
     }
     return framed;
   }
@@ -663,8 +663,9 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
               zIndex: zone.zIndex, transform: `rotate(${zone.rotation}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`,
               borderRadius: `${zone.cornerRadius || 0}%`, fontFamily: zone.fontFamily,
               ["--signage-accent" as string]: zone.accentColor,
+              ["--signage-line-height" as string]: `${Math.max(80, Math.min(300, zone.lineHeightPercent || 120)) / 100}`,
               fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined,
-              textAlign: zone.textAlign as CSSProperties["textAlign"], lineHeight: (zone.lineHeightPercent || 120) / 100 }}>
+              textAlign: zone.textAlign as CSSProperties["textAlign"] }}>
             <div className="layout-zone-content" style={{ fontSize: relativeElementFontSize(zone) }}>
               <ZoneVisual zone={zone} media={media} playlists={playlists} />
             </div>
@@ -719,7 +720,8 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
             opacity: zone.opacity / 100, zIndex: zone.zIndex, transform: `rotate(${zone.rotation}deg)`,
             borderRadius: `${zone.cornerRadius || 0}%`, fontFamily: zone.fontFamily, fontWeight: zone.fontWeight,
             ["--signage-accent" as string]: zone.accentColor,
-            textAlign: zone.textAlign as CSSProperties["textAlign"], lineHeight: (zone.lineHeightPercent || 120) / 100 }}>
+            ["--signage-line-height" as string]: `${Math.max(80, Math.min(300, zone.lineHeightPercent || 120)) / 100}`,
+            textAlign: zone.textAlign as CSSProperties["textAlign"] }}>
           <div className="layout-zone-content" style={{ fontSize: relativeElementFontSize(zone) }}>
             <ZoneVisual zone={zone} media={media} playlists={playlists} />
           </div>
@@ -763,10 +765,9 @@ function ZoneVisual({ zone, media, playlists }: { zone: Zone; media: StudioMedia
       </div>
       {(fields.has("high") || fields.has("low") || fields.has("humidity") || fields.has("wind")) &&
         <ul className="zone-weather-details">
-          {fields.has("humidity") && <li>50%</li>}
-          {fields.has("high") && <li>H 75°</li>}
-          {fields.has("low") && <li>L 59°</li>}
-          {fields.has("wind") && <li>5 mph</li>}
+          {(fields.has("high") || fields.has("low")) && <li>H75° / L59°</li>}
+          {fields.has("humidity") && <li>Humidity 50%</li>}
+          {fields.has("wind") && <li>5 mph NW</li>}
         </ul>}
     </div>;
   }
@@ -777,7 +778,10 @@ function ZoneVisual({ zone, media, playlists }: { zone: Zone; media: StudioMedia
       <strong className="zone-calendar-heading">{zone.title || "Upcoming events"}</strong>
       {Array.from({ length: count }, (_, index) => <article key={index}>
         {fields.has("title") && <b>Event Title</b>}
-        {(fields.has("date") || fields.has("time")) && <time>{fields.has("date") && "August 1"}{fields.has("date") && fields.has("time") && " · "}{fields.has("time") && "7:00pm–10:00pm"}</time>}
+        {(fields.has("date") || fields.has("time")) && <time>
+          {fields.has("date") && <span>August 1</span>}
+          {fields.has("time") && <span>7:00pm–10:00pm</span>}
+        </time>}
         {fields.has("description") && <p>Event details appear here.</p>}
         {fields.has("location") && <small>Room or location</small>}
       </article>)}
@@ -990,7 +994,7 @@ function ZoneInspector({ zone, media, playlists, onPatch, onDelete, onDuplicate 
     {zone.type === "ticker" && <label>Speed <input disabled={contentLocked} type="range" min="10" max="300" value={zone.tickerSpeed || 60} onChange={event => onPatch({ tickerSpeed: Number(event.target.value) })} /></label>}
     <div className="inspector-grid"><label>X (%)<input disabled={positionLocked} type="number" value={zone.x} onChange={event => onPatch({ x: Number(event.target.value) })} /></label><label>Y (%)<input disabled={positionLocked} type="number" value={zone.y} onChange={event => onPatch({ y: Number(event.target.value) })} /></label><label>W (%)<input disabled={positionLocked} type="number" value={zone.width} onChange={event => onPatch({ width: Number(event.target.value) })} /></label><label>H (%)<input disabled={positionLocked} type="number" value={zone.height} onChange={event => onPatch({ height: Number(event.target.value) })} /></label><label>°<input disabled={positionLocked} type="number" min="-180" max="180" value={zone.rotation} onChange={event => onPatch({ rotation: Number(event.target.value) })} /></label><label>Opacity<input disabled={fullyLocked} type="number" min="0" max="100" value={zone.opacity} onChange={event => onPatch({ opacity: Number(event.target.value) })} /></label></div>
     <div className="inspector-grid"><label>Background<input disabled={fullyLocked} type="color" value={zone.backgroundColor} onChange={event => onPatch({ backgroundColor: event.target.value })} /></label><label>Text<input disabled={fullyLocked} type="color" value={zone.textColor} onChange={event => onPatch({ textColor: event.target.value })} /></label><label>Border<input disabled={fullyLocked} type="color" value={zone.accentColor || "#d89127"} onChange={event => onPatch({ accentColor: event.target.value })} /></label><label>Radius<input disabled={fullyLocked} type="number" min="0" max="100" value={zone.cornerRadius || 0} onChange={event => onPatch({ cornerRadius: Number(event.target.value) })} /></label></div>
-    {!['media','presentation','stream','webpage','customHtml'].includes(zone.type) && <><label>Font <select value={zone.fontFamily || "system-ui"} onChange={event => onPatch({ fontFamily: event.target.value })}><option value="system-ui">System</option><option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="monospace">Monospace</option></select></label><div className="inspector-grid"><label>Text scale (%)<input type="number" min="1" max="40" step="0.5" value={zone.fontScalePercent || 8} onChange={event => onPatch({ fontScalePercent: Math.max(1, Math.min(40, Number(event.target.value) || 8)) })} /></label><label>Weight<input type="number" min="100" max="900" step="100" value={zone.fontWeight || 600} onChange={event => onPatch({ fontWeight: Number(event.target.value) })} /></label><label>Align<select value={zone.textAlign || "left"} onChange={event => onPatch({ textAlign: event.target.value })}><option>left</option><option>center</option><option>right</option><option>justify</option></select></label><label>Line %<input type="number" min="80" max="300" value={zone.lineHeightPercent || 120} onChange={event => onPatch({ lineHeightPercent: Number(event.target.value) })} /></label></div><small>Text uses this percentage of the panel’s smaller dimension, so it stays proportional when the panel is resized.</small><div className="inline-checks"><label><input type="checkbox" checked={zone.italic || false} onChange={event => onPatch({ italic: event.target.checked })} /> Italic</label><label><input type="checkbox" checked={zone.underline || false} onChange={event => onPatch({ underline: event.target.checked })} /> Underline</label></div></>}
+    {!['media','presentation','stream','webpage','customHtml'].includes(zone.type) && <><label>Font <select value={zone.fontFamily || "system-ui"} onChange={event => onPatch({ fontFamily: event.target.value })}><option value="system-ui">System</option><option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="monospace">Monospace</option></select></label><div className="inspector-grid"><label>Text scale (%)<input type="number" min="1" max="40" step="0.5" value={zone.fontScalePercent || 10} onChange={event => onPatch({ fontScalePercent: Math.max(1, Math.min(40, Number(event.target.value) || 10)) })} /></label><label>Weight<input type="number" min="100" max="900" step="100" value={zone.fontWeight || 600} onChange={event => onPatch({ fontWeight: Number(event.target.value) })} /></label><label>Align<select value={zone.textAlign || "left"} onChange={event => onPatch({ textAlign: event.target.value })}><option>left</option><option>center</option><option>right</option><option>justify</option></select></label><label>Line %<input type="number" min="80" max="300" value={zone.lineHeightPercent || 120} onChange={event => onPatch({ lineHeightPercent: Number(event.target.value) })} /></label></div><small>Text uses this percentage of the panel’s smaller dimension, so it stays proportional when the panel is resized.</small><div className="inline-checks"><label><input type="checkbox" checked={zone.italic || false} onChange={event => onPatch({ italic: event.target.checked })} /> Italic</label><label><input type="checkbox" checked={zone.underline || false} onChange={event => onPatch({ underline: event.target.checked })} /> Underline</label></div></>}
     <label>Lock <select value={zone.lockMode || (zone.locked ? "position" : "none")} onChange={event => onPatch({ lockMode: event.target.value as Zone["lockMode"], locked: false })}><option value="none">Unlocked</option><option value="position">Position and size</option><option value="content">Content</option><option value="full">Everything</option></select></label>
     <div className="inline-checks"><label><input disabled={fullyLocked} type="checkbox" checked={zone.hidden} onChange={event => onPatch({ hidden: event.target.checked })} /> Hidden</label><label><input disabled={positionLocked} type="checkbox" checked={zone.flipX} onChange={event => onPatch({ flipX: event.target.checked })} /> Flip X</label><label><input disabled={positionLocked} type="checkbox" checked={zone.flipY} onChange={event => onPatch({ flipY: event.target.checked })} /> Flip Y</label></div>
     <div className="studio-card-actions"><button disabled={fullyLocked} onClick={onDuplicate}>Duplicate</button><button disabled={fullyLocked} className="danger" onClick={onDelete}>Delete selected</button></div>
