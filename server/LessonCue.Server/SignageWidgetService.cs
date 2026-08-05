@@ -220,7 +220,8 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
 
     private static SignageWidgetCacheEntry ParsePresetWeather(SignageZoneInput zone, JsonElement root, DateTimeOffset refreshedAt)
     {
-        var fields = (zone.WeatherFields ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        var fields = (zone.WeatherFields ?? "icon,temperature,conditions,precipitation,high,low,wind").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(SignageLayout.WeatherDisplayFields.Contains)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var title = zone.WeatherLocation ?? zone.Title ?? "Local weather";
         double? temperature = null, feelsLike = null, high = null, low = null, precipitation = null, humidity = null, wind = null;

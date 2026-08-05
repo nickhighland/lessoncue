@@ -4,6 +4,20 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.34 — rich signage typography and reference weather card
+
+### User changes
+
+- Every signage element now exposes a font choice, with rich formatting for editable titles and messages.
+- Calendar event names wrap inside their panel instead of being clipped to one line.
+- Weather elements now use the requested title, icon, temperature, conditions, precipitation, `H##/L##`, and wind layout; forecast, humidity, sunrise, and sunset controls are removed.
+
+### Developer changes
+
+- Unified responsive weather markup and styling between the layout editor and live display, including scalable SVG detail icons and wind direction handling.
+- Weather field normalization now strips unsupported legacy fields from saved layouts and cache generation.
+- Release metadata advances to 0.40.34 and Android version code 93.
+
 ## v0.40.33 — organized signage widget layouts and responsive text spacing
 
 ### User changes

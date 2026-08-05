@@ -10,7 +10,7 @@ function zone(id: string, type: string, overrides: Record<string, unknown> = {})
     refreshMinutes: 15, rotation: 0, zIndex: 1, opacity: 100, fit: "cover", locked: false, hidden: false,
     flipX: false, flipY: false, fontFamily: "system-ui", fontSize: 48, fontScalePercent: 10, fontWeight: 600,
     italic: false, underline: false, lineHeightPercent: 120, textAlign: "left", cornerRadius: 0,
-    weatherFields: "icon,conditions,temperature,high,low,humidity,wind", weatherLayout: "icon-left",
+    weatherFields: "icon,temperature,conditions,precipitation,high,low,wind", weatherLayout: "icon-left",
     calendarMaxItems: 4, calendarFields: "date,time,title,description",
     ...overrides,
   };
@@ -30,7 +30,7 @@ test("signage widgets scale with their panels and can show event descriptions", 
       zone("fixture-calendar", "calendar", {
         title: "Upcoming events", x: 80, y: 0, width: 20, height: 80, lineHeightPercent: 180,
         cached: { zoneId: "fixture-calendar", title: "Upcoming events", text: "", items: [], refreshedAt: "2026-08-01T12:00:00Z", events: [{
-          title: "Event Title", description: "Description text is available when enabled.", location: "Community room",
+          title: "Event Title That Wraps Across the Calendar Column", description: "Description text is available when enabled.", location: "Community room",
           startsAt: "2026-08-01T19:00:00Z", endsAt: "2026-08-01T22:00:00Z", allDay: false,
         }] },
       }),
@@ -62,9 +62,13 @@ test("signage widgets scale with their panels and can show event descriptions", 
   await expect(page.locator(".signage-calendar-heading")).toContainText("Upcoming events");
   await expect(page.locator(".signage-calendar-list time span").first()).toContainText("August");
   await expect(page.locator(".signage-calendar-description")).toContainText("Description text is available");
-  await expect(page.locator(".signage-weather-temperature")).toContainText("83°F");
+  await expect(page.locator(".signage-weather-temperature")).toContainText("83°");
   await expect(page.locator(".signage-weather-title")).toContainText("Rochester, NY");
-  await expect(page.locator(".signage-weather-details")).toContainText("NW 5 mph");
+  await expect(page.locator(".signage-weather-details")).toContainText("20%");
+  await expect(page.locator(".signage-weather-details")).toContainText("H85/L67");
+  await expect(page.locator(".signage-weather-details")).toContainText("5 MPH");
+  await expect(page.locator(".signage-weather-wind-direction")).toContainText("NW");
+  await expect(page.locator(".signage-weather-details")).not.toContainText("Humidity");
   await expect(page.locator(".web-player-signage-zone.wifi .signage-qr")).toBeVisible();
   await expect(page.locator(".web-player-signage-zone.wifi .signage-qr-label.right")).toContainText("Guest Wifi");
   await expect(page.locator(".web-player-signage-zone.qr .signage-qr-label.right")).toContainText("Support our Mission");
@@ -92,4 +96,5 @@ test("signage widgets scale with their panels and can show event descriptions", 
   expect(Number.parseFloat(qrSizing.lineHeight)).toBeGreaterThan(0);
   expect(qrSizing.lineHeightSetting).toBe("1.5");
   expect(sizing.calendarWidth).toBeGreaterThan(0);
+  await expect(page.locator(".signage-calendar-list li > b").first()).toHaveCSS("white-space", "normal");
 });

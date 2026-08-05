@@ -17,8 +17,7 @@ public static class SignageLayout
         "weather", "rss", "qr", "ticker", "counter", "webpage", "wifi", "audience", "customHtml"];
     public static readonly string[] Presets = ["single", "sidebar", "split", "header-grid", "dashboard"];
     public static readonly string[] WeatherProviders = ["open-meteo", "nws", "custom"];
-    public static readonly string[] WeatherDisplayFields = ["icon", "conditions", "temperature", "feelsLike", "high", "low",
-        "precipitation", "humidity", "wind", "forecast", "sunrise", "sunset"];
+    public static readonly string[] WeatherDisplayFields = ["icon", "temperature", "conditions", "precipitation", "high", "low", "wind"];
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public static List<SignageZoneInput> ParseZones(string? json)
@@ -265,7 +264,7 @@ public static class SignageLayout
 
     private static string NormalizeWeatherFields(string? value)
     {
-        var selected = (value ?? "icon,conditions,temperature,high,low,precipitation").Split(',',
+        var selected = (value ?? "icon,temperature,conditions,precipitation,high,low,wind").Split(',',
                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(WeatherDisplayFields.Contains).Distinct(StringComparer.Ordinal).ToArray();
         return string.Join(',', selected.Length == 0 ? ["temperature"] : selected);
