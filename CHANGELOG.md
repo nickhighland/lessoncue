@@ -4,6 +4,20 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.36 — polished compact weather card
+
+### User changes
+
+- Weather elements now match the reference design with a bold location heading, illustrated condition icon, prominent temperature, and a clean precipitation, high/low, and wind row.
+- Compact weather panels keep every text and icon region separate, so the temperature, conditions, and detail values no longer overlap or become partially obscured.
+- Weather styling now adds a subtle dimensional background, purpose-built sun, droplet, and wind artwork, and consistent typography in both the editor and the live display.
+
+### Developer changes
+
+- Rebuilt the weather card around bounded responsive title, reading, and metrics rows shared by editor previews and live signage.
+- Added browser geometry regression checks for clipping and overlap at narrow signage-panel dimensions.
+- Release metadata advances to 0.40.36 and Android version code 95.
+
 ## v0.40.35 — assign signage to screens
 
 ### User changes

@@ -1,6 +1,7 @@
 import { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { confirmAction, useDialogFocus } from "./AccessibleDialogs";
+import { WeatherConditionArtwork, WeatherDropArtwork, WeatherWindArtwork } from "./WeatherArtwork";
 import "./signage-studio.css";
 
 export type SignageStudioSection = "layouts" | "playlists" | "schedule" | "publishing" | "operations" | "emergencies";
@@ -756,20 +757,22 @@ function ZoneVisual({ zone, media, playlists }: { zone: Zone; media: StudioMedia
   if (zone.type === "clock") return <StudioClock zone={zone} />;
   if (zone.type === "weather") {
     const fields = weatherFieldSet(zone);
-    return <div className={`zone-weather-preview layout-${zone.weatherLayout || "icon-left"}`}>
-      {zone.richTextJson
+    const hasDetails = fields.has("precipitation") || fields.has("high") || fields.has("low") || fields.has("wind");
+    const title = zone.weatherLocation || zone.title || "Local weather";
+    return <div className={`zone-weather-preview layout-${zone.weatherLayout || "icon-left"} ${title ? "has-title" : "no-title"} ${hasDetails ? "has-details" : "no-details"}`}>
+      <div className="zone-weather-heading">{zone.richTextJson
         ? <RichTextPreview className="zone-weather-title" value={zone.richTextJson} fallback={zone.weatherLocation || zone.title || "Local weather"} />
-        : <strong className="zone-weather-title">{zone.weatherLocation || zone.title || "Local weather"}</strong>}
+        : <strong className="zone-weather-title">{title}</strong>}</div>
       <div className="zone-weather-main">
-        {fields.has("icon") && <i className="zone-weather-icon" aria-hidden="true">☀</i>}
-        <span><b>{fields.has("temperature") ? "70°" : "Weather"}</b>
+        {fields.has("icon") && <WeatherConditionArtwork className="zone-weather-icon" conditions="Sunny" icon="☀" monochrome={zone.weatherIconStyle === "white"} />}
+        <span className="zone-weather-reading"><b>{fields.has("temperature") ? "70°" : "Weather"}</b>
           {fields.has("conditions") && <em>Sunny</em>}</span>
       </div>
-      {(fields.has("precipitation") || fields.has("high") || fields.has("low") || fields.has("wind")) &&
+      {hasDetails &&
         <ul className="zone-weather-details">
-          {fields.has("precipitation") && <li className="weather-precipitation"><svg className="zone-weather-drop" viewBox="0 0 24 28" aria-hidden="true"><path d="M12 1C10.1 5.8 4 11.7 4 17a8 8 0 0 0 16 0c0-5.3-6.1-11.2-8-16Zm0 22a6 6 0 0 1-6-6c0-2.4 2.2-5.6 6-10.1 3.8 4.5 6 7.7 6 10.1a6 6 0 0 1-6 6Z" /></svg> 20%</li>}
+          {fields.has("precipitation") && <li className="weather-precipitation"><WeatherDropArtwork className="zone-weather-drop" /><span>20%</span></li>}
           {(fields.has("high") || fields.has("low")) && <li className="weather-high-low">H75/L59</li>}
-          {fields.has("wind") && <li className="weather-wind"><span>≋ 5 MPH</span><small>NW</small></li>}
+          {fields.has("wind") && <li className="weather-wind"><WeatherWindArtwork className="zone-weather-wind-icon" /><span>5 MPH</span><small>NW</small></li>}
         </ul>}
     </div>;
   }

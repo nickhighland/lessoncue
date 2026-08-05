@@ -57,7 +57,7 @@ test("signage widgets scale with their panels and can show event descriptions", 
   await page.route("**/api/v1/screens/relative-signage/status", route => route.fulfill({ status: 204, body: "" }));
 
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.goto("/display?screenId=relative-signage&token=test-token&name=Relative%20signage");
+  await page.goto("/display?screenId=relative-signage&token=test-token&name=Relative%20signage&kiosk=1");
   await expect(page.locator(".web-player-signage-layout")).toBeVisible();
   await expect(page.locator(".signage-calendar-heading")).toContainText("Upcoming events");
   await expect(page.locator(".signage-calendar-list time span").first()).toContainText("August");
@@ -69,6 +69,7 @@ test("signage widgets scale with their panels and can show event descriptions", 
   await expect(page.locator(".signage-weather-details")).toContainText("5 MPH");
   await expect(page.locator(".signage-weather-wind-direction")).toContainText("NW");
   await expect(page.locator(".signage-weather-details")).not.toContainText("Humidity");
+  await expect(page.locator(".signage-weather-icon .weather-sun-artwork")).toBeVisible();
   await expect(page.locator(".web-player-signage-zone.wifi .signage-qr")).toBeVisible();
   await expect(page.locator(".web-player-signage-zone.wifi .signage-qr-label.right")).toContainText("Guest Wifi");
   await expect(page.locator(".web-player-signage-zone.qr .signage-qr-label.right")).toContainText("Support our Mission");
@@ -97,4 +98,42 @@ test("signage widgets scale with their panels and can show event descriptions", 
   expect(qrSizing.lineHeightSetting).toBe("1.5");
   expect(sizing.calendarWidth).toBeGreaterThan(0);
   await expect(page.locator(".signage-calendar-list li > b").first()).toHaveCSS("white-space", "normal");
+
+  const weatherGeometry = await page.locator(".signage-weather").evaluate(card => {
+    const bounds = (selector: string) => card.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+    const overlaps = (first?: DOMRect, second?: DOMRect) => Boolean(first && second
+      && first.left < second.right - 0.5 && first.right > second.left + 0.5
+      && first.top < second.bottom - 0.5 && first.bottom > second.top + 0.5);
+    const cardBounds = card.getBoundingClientRect();
+    const title = bounds(".signage-weather-title");
+    const icon = bounds(".signage-weather-icon");
+    const temperature = bounds(".signage-weather-temperature");
+    const conditions = bounds(".signage-weather-conditions");
+    const details = bounds(".signage-weather-details");
+    const reading = bounds(".signage-weather-reading");
+    return {
+      card: { width: cardBounds.width, height: cardBounds.height },
+      iconTemperatureOverlap: overlaps(icon, temperature),
+      titleMainOverlap: overlaps(title, icon) || overlaps(title, temperature),
+      temperatureConditionsOverlap: overlaps(temperature, conditions),
+      mainDetailsOverlap: overlaps(icon, details) || overlaps(temperature, details) || overlaps(conditions, details),
+      temperatureClipped: Boolean(temperature && reading
+        && (temperature.left < reading.left - 0.5 || temperature.right > reading.right + 0.5
+          || temperature.top < reading.top - 0.5 || temperature.bottom > reading.bottom + 0.5)),
+      temperatureInsideCard: Boolean(temperature
+        && temperature.left >= cardBounds.left - 0.5 && temperature.right <= cardBounds.right + 0.5
+        && temperature.top >= cardBounds.top - 0.5 && temperature.bottom <= cardBounds.bottom + 0.5),
+      detailsClipped: Array.from(card.querySelectorAll<HTMLElement>(".signage-weather-details li"))
+        .some(element => element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1),
+    };
+  });
+  expect(weatherGeometry.card.width).toBeGreaterThan(150);
+  expect(weatherGeometry.card.height).toBeGreaterThan(90);
+  expect(weatherGeometry.iconTemperatureOverlap).toBe(false);
+  expect(weatherGeometry.titleMainOverlap).toBe(false);
+  expect(weatherGeometry.temperatureConditionsOverlap).toBe(false);
+  expect(weatherGeometry.mainDetailsOverlap).toBe(false);
+  expect(weatherGeometry.temperatureClipped).toBe(false);
+  expect(weatherGeometry.temperatureInsideCard).toBe(true);
+  expect(weatherGeometry.detailsClipped).toBe(false);
 });
