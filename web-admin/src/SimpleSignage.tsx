@@ -61,6 +61,7 @@ type Zone = {
   flipX: boolean;
   flipY: boolean;
   fontFamily?: string;
+  fontScalePercent?: number;
   fontSize?: number;
   fontWeight?: number;
   italic?: boolean;
@@ -304,7 +305,7 @@ function zone(type: string, zoneId = id("element")): Zone {
     flipX: false,
     flipY: false,
     fontFamily: "system-ui",
-    fontSize: 34,
+    fontScalePercent: 8,
     fontWeight: 600,
     lineHeightPercent: 120,
     textAlign: "left",
@@ -325,11 +326,7 @@ function zone(type: string, zoneId = id("element")): Zone {
     common.weatherFields =
       "icon,conditions,temperature,forecast,high,low,humidity,wind,precipitation,sunrise,sunset";
     common.weatherIconStyle = "color";
-    common.weatherLayout = "icon-top";
-    common.weatherIconSize = 84;
-    common.weatherTitleSize = 28;
-    common.weatherTemperatureSize = 58;
-    common.weatherDetailsSize = 22;
+    common.weatherLayout = "icon-left";
     common.textAlign = "center";
   }
   if (type === "clock") {
@@ -337,8 +334,6 @@ function zone(type: string, zoneId = id("element")): Zone {
     common.clockTimeFormat = "12h";
     common.clockDateFormat = "long";
     common.clockOrder = "time-date";
-    common.clockTimeFontSize = 54;
-    common.clockDateFontSize = 25;
     common.clockShowPeriod = true;
     common.clockShowWeekday = true;
     common.clockShowYear = true;
@@ -365,10 +360,28 @@ function zone(type: string, zoneId = id("element")): Zone {
     common.audienceResultDelaySeconds = 0;
   }
   if (type === "calendar") {
-    common.calendarMaxItems = 0;
+    common.calendarMaxItems = 4;
     common.calendarFields = "date,time,title";
   }
   return common;
+}
+
+function normalizeLayout(layout: Layout): Layout {
+  return {
+    ...layout,
+    zones: (layout.zones || []).map((item) => ({
+      ...item,
+      fontScalePercent: item.fontScalePercent ?? 8,
+      calendarMaxItems:
+        item.type === "calendar" && !item.calendarMaxItems
+          ? 4
+          : item.calendarMaxItems,
+      calendarFields:
+        item.type === "calendar"
+          ? item.calendarFields || "date,time,title"
+          : item.calendarFields,
+    })),
+  };
 }
 
 function escapeWifi(value: string) {
@@ -504,7 +517,7 @@ function blankLayout(kind: "information" | "fullscreen" | "welcome"): Layout {
     height: 28,
     title: "Welcome",
     content: "Welcome",
-    fontSize: 88,
+    fontScalePercent: 8,
     textAlign: "center",
   });
   const clock = zone("clock", "welcome-clock");
@@ -579,14 +592,15 @@ export function SimpleSignage({
         request<Sign[]>("/signs"),
         audienceSessions(),
       ]);
-      setLayouts(nextLayouts);
+      const normalizedLayouts = nextLayouts.map(normalizeLayout);
+      setLayouts(normalizedLayouts);
       setPlaylists(nextPlaylists);
       setSigns(nextSigns);
       setAudiencePolls(nextAudiencePolls);
       const layout =
-        nextLayouts.find((item) => item.id === prefer?.layoutId) ||
-        nextLayouts.find((item) => !item.isStarter) ||
-        nextLayouts[0];
+        normalizedLayouts.find((item) => item.id === prefer?.layoutId) ||
+        normalizedLayouts.find((item) => !item.isStarter) ||
+        normalizedLayouts[0];
       const playlist =
         nextPlaylists.find((item) => item.id === prefer?.playlistId) ||
         nextPlaylists[0];
@@ -2052,22 +2066,14 @@ function LayoutInspector({
                 <label>Units<select value={selected.weatherUnits || "fahrenheit"} onChange={event => updateZone({ weatherUnits: event.target.value })}><option value="fahrenheit">Fahrenheit</option><option value="celsius">Celsius</option></select></label>
                 <label>Icon style<select value={selected.weatherIconStyle || "color"} onChange={event => updateZone({ weatherIconStyle: event.target.value })}><option value="color">Color icons</option><option value="white">White icons</option></select></label>
               </div>
-              <label>Layout<select value={selected.weatherLayout || "icon-top"} onChange={event => updateZone({ weatherLayout: event.target.value })}><option value="icon-top">Icon above reading</option><option value="icon-left">Large icon on left</option><option value="icon-right">Large icon on right</option><option value="compact">Compact horizontal</option></select></label>
-              <div className="two-control">
-                <label>Icon size<input type="number" min="16" max="220" value={selected.weatherIconSize || 84} onChange={event => updateZone({ weatherIconSize: Number(event.target.value) })}/></label>
-                <label>Title size<input type="number" min="8" max="120" value={selected.weatherTitleSize || 28} onChange={event => updateZone({ weatherTitleSize: Number(event.target.value) })}/></label>
-              </div>
-              <div className="two-control">
-                <label>Temperature size<input type="number" min="12" max="220" value={selected.weatherTemperatureSize || 58} onChange={event => updateZone({ weatherTemperatureSize: Number(event.target.value) })}/></label>
-                <label>Details size<input type="number" min="8" max="100" value={selected.weatherDetailsSize || 22} onChange={event => updateZone({ weatherDetailsSize: Number(event.target.value) })}/></label>
-              </div>
+              <label>Layout<select value={selected.weatherLayout || "icon-left"} onChange={event => updateZone({ weatherLayout: event.target.value })}><option value="icon-top">Icon above reading</option><option value="icon-left">Large icon on left</option><option value="icon-right">Large icon on right</option><option value="compact">Compact horizontal</option></select></label>
               <fieldset className="field-check-grid"><legend>Weather details</legend>
                 {["icon","conditions","temperature","forecast","high","low","humidity","wind","precipitation","sunrise","sunset"].map(field => {
                   const active = new Set((selected.weatherFields || "").split(","));
                   return <label key={field}><input type="checkbox" checked={active.has(field)} onChange={event => { if (event.target.checked) active.add(field); else active.delete(field); updateZone({ weatherFields: [...active].join(",") }); }}/>{field[0].toUpperCase() + field.slice(1)}</label>;
                 })}
               </fieldset>
-              <p className="field-help">Open-Meteo requires no key. NWS is available for U.S. locations. Custom JSON sources must be approved in Settings. The preview refreshes after changes.</p>
+              <p className="field-help">The weather layout scales with the element panel. Resize the panel to change the visual weight; no fixed pixel sizes are needed. Open-Meteo requires no key. NWS is available for U.S. locations. Custom JSON sources must be approved in Settings.</p>
             </div>
           )}
           {selected.type === "clock" && (
@@ -2085,23 +2091,20 @@ function LayoutInspector({
                 <label><input type="checkbox" checked={selected.clockShowWeekday !== false} onChange={event => updateZone({ clockShowWeekday: event.target.checked })}/> Day of week</label>
                 <label><input type="checkbox" checked={selected.clockShowYear !== false} onChange={event => updateZone({ clockShowYear: event.target.checked })}/> Year</label>
               </div>
-              <div className="two-control">
-                <label>Time size<input type="number" min="8" max="200" value={selected.clockTimeFontSize || 54} onChange={event => updateZone({ clockTimeFontSize: Number(event.target.value) })}/></label>
-                <label>Date size<input type="number" min="8" max="200" value={selected.clockDateFontSize || 25} onChange={event => updateZone({ clockDateFontSize: Number(event.target.value) })}/></label>
-              </div>
+              <p className="field-help">Time and date typography scales with the clock panel. Resize the panel to adjust its visual size.</p>
             </div>
           )}
           {selected.type === "calendar" && (
             <div className="element-specific-controls">
               <label>ICS calendar address<input type="url" value={selected.sourceUrl || ""} placeholder="https://example.org/calendar.ics" onChange={event => updateZone({ sourceUrl: event.target.value })}/></label>
-              <label>Upcoming events<select value={selected.calendarMaxItems || 0} onChange={event => updateZone({ calendarMaxItems: Number(event.target.value) })}><option value="0">Fill the available space</option>{[1,2,3,4,5,6,8,10,12,15,20].map(value => <option value={value} key={value}>{value} events</option>)}</select></label>
+              <label>Upcoming events<select value={selected.calendarMaxItems ?? 4} onChange={event => updateZone({ calendarMaxItems: Number(event.target.value) })}><option value="0">Fill the available space</option>{[1,2,3,4,5,6,8,10,12,15,20].map(value => <option value={value} key={value}>{value} events</option>)}</select></label>
               <fieldset className="field-check-grid"><legend>Show for each event</legend>
                 {["date","time","title","description","location"].map(field => {
                   const active = new Set((selected.calendarFields || "date,time,title").split(","));
                   return <label key={field}><input type="checkbox" checked={active.has(field)} onChange={event => { if (event.target.checked) active.add(field); else active.delete(field); updateZone({ calendarFields: [...active].join(",") }); }}/>{field[0].toUpperCase() + field.slice(1)}</label>;
                 })}
               </fieldset>
-              <p className="field-help">The editor loads the feed into this live preview. External sources must be approved in Settings → Signage sources.</p>
+              <p className="field-help">Descriptions are hidden by default to keep the calendar compact. Check Description to show up to two lines beneath each event; the element grows with its panel. External sources must be approved in Settings → Signage sources.</p>
             </div>
           )}
           {selected.type === "webpage" && (
@@ -2138,14 +2141,15 @@ function LayoutInspector({
           </div>
           <div className="two-control">
             <label>
-              Font size
+              Text scale (%)
               <input
                 type="number"
-                min="12"
-                max="160"
-                value={selected.fontSize || 34}
+                min="1"
+                max="40"
+                step="0.5"
+                value={selected.fontScalePercent ?? 8}
                 onChange={(event) =>
-                  updateZone({ fontSize: Number(event.target.value) })
+                  updateZone({ fontScalePercent: Number(event.target.value) })
                 }
               />
             </label>
@@ -2163,6 +2167,7 @@ function LayoutInspector({
               </select>
             </label>
           </div>
+          <p className="field-help">Text scales from the smaller dimension of this element panel, so it stays proportional when the panel is resized.</p>
           <div className="two-control">
             <label>
               Inner padding
@@ -2305,7 +2310,7 @@ function RichTextEditor({ zone: item, onChange }: { zone: Zone; onChange: (patch
       const next = event.target.value.split(/(\s+)/).filter(Boolean).map((text, index) => ({ ...(runs[index] || {}), text }));
       save(next);
     }}/></label>
-    <p className="field-help">Select a word, then style it. The live preview shows the finished text.</p>
+    <p className="field-help">Select a word, then style it. The live preview shows the finished text and scales with the element panel.</p>
     <div className="rich-run-picker">
       {runs.map((run, index) => /\s/.test(run.text) ? <span key={index}> </span> : <button type="button" className={selectedRun === index ? "active" : ""} onClick={() => setSelectedRun(index)} key={index}>{run.text}</button>)}
     </div>
@@ -2317,7 +2322,7 @@ function RichTextEditor({ zone: item, onChange }: { zone: Zone; onChange: (patch
       <select aria-label="Selected word font" value={selected.fontFamily || item.fontFamily || "system-ui"} onChange={event => format({ fontFamily: event.target.value })}>
         <option value="system-ui">Sans serif</option><option value="Georgia, serif">Serif</option><option value="'Arial Black', sans-serif">Heavy</option><option value="'Courier New', monospace">Monospace</option>
       </select>
-      <input aria-label="Selected word size" type="number" min="8" max="200" value={selected.fontSize || item.fontSize || 34} onChange={event => format({ fontSize: Number(event.target.value) })}/>
+      <input aria-label="Selected word scale" type="number" min="8" max="200" value={selected.fontSize || item.fontSize || 34} onChange={event => format({ fontSize: Number(event.target.value) })}/>
     </div>
   </div>;
 }

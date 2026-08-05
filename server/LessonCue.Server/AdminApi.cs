@@ -3448,7 +3448,7 @@ public static class AdminApi
                         zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
                         zone.RefreshMinutes, zone.Rotation, zone.ZIndex, zone.Opacity, zone.Fit,
                         zone.Locked, zone.Hidden, zone.FlipX, zone.FlipY,
-                        zone.GroupId, zone.LockMode, zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight,
+                        zone.GroupId, zone.LockMode, zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontScalePercent, zone.FontWeight,
                         zone.Italic, zone.Underline, zone.LineHeightPercent, zone.TextAlign, zone.Shape,
                         zone.StrokeColor, zone.StrokeWidth, zone.CornerRadius, zone.IconName, zone.QrValue,
                         zone.QrLabelTop, zone.QrLabelBottom, zone.QrLabelLeft, zone.QrLabelRight, zone.QrPlacement,
