@@ -2244,6 +2244,8 @@ public static class AdminApi
                 x.Platform,
                 x.AssignedClassId,
                 assignedClassName = db.Classes.Where(c => c.Id == x.AssignedClassId).Select(c => c.Name).FirstOrDefault(),
+                assignedSignageName = db.SignagePlaylists.Where(sign => sign.Id == x.AssignedSignageId)
+                    .Select(sign => sign.Name).FirstOrDefault(),
                 x.VolunteerMode,
                 x.SignageOnly,
                 x.PermanentPairing,
@@ -2448,8 +2450,13 @@ public static class AdminApi
         {
             var screen = await db.Screens.FindAsync([id], ct);
             if (screen is null) return Results.NotFound();
+            var effectiveSignageOnly = input.SignageOnly ?? screen.SignageOnly;
             if (input.Name is not null) screen.Name = input.Name.Trim();
-            if (input.ClearAssignment) screen.AssignedClassId = null;
+            if (input.ClearAssignment)
+            {
+                screen.AssignedClassId = null;
+                screen.AssignedSignageId = null;
+            }
             else if (input.AssignedClassId is not null)
             {
                 if (!await db.Classes.AsNoTracking().AnyAsync(value => value.Id == input.AssignedClassId, ct))
@@ -2467,9 +2474,24 @@ public static class AdminApi
                         issues
                     });
                 screen.AssignedClassId = input.AssignedClassId;
+                screen.AssignedSignageId = null;
                 if (issues.Count > 0)
                     Audit(db, "screen.assignment.compatibility-override", screen.Id,
                         $"{input.AssignedClassId}:{issues.Count}");
+            }
+            if (input.ClearSignageAssignment)
+                screen.AssignedSignageId = null;
+            else if (input.AssignedSignageId is not null)
+            {
+                if (!effectiveSignageOnly)
+                    return Results.BadRequest(new { error = "Only signage-only screens can be assigned a Sign." });
+                if (!await db.Organizations.AsNoTracking().AnyAsync(value => value.SignageEnabled, ct))
+                    return Results.BadRequest(new { error = "Enable Signage in Settings before assigning a Sign." });
+                if (!await db.SignagePlaylists.AsNoTracking().AnyAsync(value => value.Id == input.AssignedSignageId &&
+                        value.Mode == "sign" && value.Enabled, ct))
+                    return Results.BadRequest(new { error = "The selected Sign no longer exists or is disabled." });
+                screen.AssignedSignageId = input.AssignedSignageId;
+                screen.AssignedClassId = null;
             }
             if (input.SignageOnly is bool signageOnly)
             {
@@ -2477,6 +2499,7 @@ public static class AdminApi
                     return Results.BadRequest(new { error = "Enable Signage in Settings before creating a signage-only screen." });
                 screen.SignageOnly = signageOnly;
                 if (signageOnly) screen.AssignedClassId = null;
+                else screen.AssignedSignageId = null;
             }
             if (input.PermanentPairing is bool permanentPairing) screen.PermanentPairing = permanentPairing;
             if (input.VolunteerMode is not null) screen.VolunteerMode = input.VolunteerMode.Value;

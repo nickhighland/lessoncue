@@ -465,6 +465,7 @@ type Screen = {
   signageOnly?: boolean;
   permanentPairing?: boolean;
   assignedSignageId?: string;
+  assignedSignageName?: string;
   screenshotStatus: string;
   screenshotCapturedAt?: string;
   screenshotAvailable: boolean;
@@ -577,7 +578,7 @@ type RegistrationCode = {
 type Signage = {
   id: string;
   name: string;
-  mode: "scheduled" | "idle" | "emergency";
+  mode: "scheduled" | "idle" | "emergency" | "sign";
   enabled: boolean;
   priority: number;
   startsAt?: string;
@@ -2008,7 +2009,7 @@ function Shell({
   const [schedules, setSchedules] = useState<RecurringSchedule[]>([]);
   const [media, setMedia] = useState<Media[]>([]);
   const [screens, setScreens] = useState<Screen[]>([]);
-  const [, setSignage] = useState<Signage[]>([]);
+  const [signage, setSignage] = useState<Signage[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [backups, setBackups] = useState<Backup[]>([]);
   const [audit, setAudit] = useState<Audit[]>([]);
@@ -2419,6 +2420,7 @@ function Shell({
                 <ScreensView
                   screens={screens}
                   classes={classes}
+                  signs={signage.filter((item) => item.mode === "sign")}
                   pin={bootstrap.pairingPin}
                   refresh={refresh}
                   notify={setNotice}
@@ -8033,6 +8035,7 @@ function ControllerView({
 function ScreensView({
   screens,
   classes,
+  signs,
   pin,
   refresh,
   notify,
@@ -8041,6 +8044,7 @@ function ScreensView({
 }: {
   screens: Screen[];
   classes: LessonClass[];
+  signs: Signage[];
   pin?: string;
   refresh: () => void;
   notify: (s: string) => void;
@@ -8089,6 +8093,15 @@ function ScreensView({
         assignedClassId,
         allowUnsupportedContent: result.issues.length > 0,
       });
+    } catch (error) {
+      notify(errorText(error));
+    }
+  }
+  async function assignSign(screen: Screen, assignedSignageId?: string) {
+    try {
+      await change(screen, assignedSignageId
+        ? { assignedSignageId }
+        : { clearSignageAssignment: true });
     } catch (error) {
       notify(errorText(error));
     }
@@ -8286,22 +8299,50 @@ function ScreensView({
                   {s.playbackError && (
                     <div className="playback-error">{s.playbackError}</div>
                   )}
-                  <Field label="Assigned class">
-                    <select
-                      value={s.assignedClassId || ""}
-                      disabled={!canManage || s.signageOnly}
-                      onChange={(e) =>
-                        void assignClass(s, e.target.value || undefined)
-                      }
-                    >
-                      <option value="">Not assigned</option>
-                      {classes.map((c) => (
-                        <option value={c.id} key={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
+                  {s.signageOnly ? (
+                    <Field label="Assigned Screen">
+                      <select
+                        value={s.assignedSignageId || ""}
+                        disabled={!canManage}
+                        onChange={(e) =>
+                          void assignSign(s, e.target.value || undefined)
+                        }
+                      >
+                        <option value="">Not assigned</option>
+                        {s.assignedSignageId && s.assignedSignageName &&
+                          !signs.some((sign) => sign.id === s.assignedSignageId) && (
+                            <option value={s.assignedSignageId}>
+                              {s.assignedSignageName}
+                            </option>
+                          )}
+                        {signs.map((sign) => (
+                          <option value={sign.id} key={sign.id}>
+                            {sign.name}
+                          </option>
+                        ))}
+                      </select>
+                      {!signs.length && (
+                        <small>Create a Sign in the Signage menu first.</small>
+                      )}
+                    </Field>
+                  ) : (
+                    <Field label="Assigned class">
+                      <select
+                        value={s.assignedClassId || ""}
+                        disabled={!canManage}
+                        onChange={(e) =>
+                          void assignClass(s, e.target.value || undefined)
+                        }
+                      >
+                        <option value="">Not assigned</option>
+                        {classes.map((c) => (
+                          <option value={c.id} key={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  )}
                   <div className="two-fields">
                     {signageEnabled && (
                     <label className="switch-row compact">

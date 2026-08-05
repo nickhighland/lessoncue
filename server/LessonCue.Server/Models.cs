@@ -759,7 +759,8 @@ public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool
     bool ClearAssignment = false, string? TagsCsv = null, string? Site = null,
     bool? AllowDiagnosticScreenshots = null, string? SignageOrientation = null,
     int? SignageWidth = null, int? SignageHeight = null, bool? SignageOnly = null,
-    bool? PermanentPairing = null, bool AllowUnsupportedContent = false);
+    bool? PermanentPairing = null, bool AllowUnsupportedContent = false,
+    Guid? AssignedSignageId = null, bool ClearSignageAssignment = false);
 public sealed record ScreenAssignmentCheckInput(Guid? AssignedClassId);
 public sealed record ScreenControlInput(string Action, Guid? LessonId = null, Guid? ItemId = null, long? PositionMs = null);
 public sealed record UserInput(string Username, string DisplayName, string? Email, string Role, string? Password,

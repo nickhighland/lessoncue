@@ -4,6 +4,19 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.35 — assign signage to screens
+
+### User changes
+
+- The Signage editor's Screens tab now works and lets you select the paired screens that should display a Sign.
+- The Screens page now switches from Assigned class to Assigned Screen for signage-only displays.
+- Signs can be assigned or cleared directly from the Screens page, and the assignment updates the display immediately.
+
+### Developer changes
+
+- Added screen-level Sign assignment support to the admin PATCH API with validation for published Sign records.
+- End-to-end coverage now exercises both Signage editor assignment and Screens-page assignment.
+
 ## v0.40.34 — rich signage typography and reference weather card
 
 ### User changes
