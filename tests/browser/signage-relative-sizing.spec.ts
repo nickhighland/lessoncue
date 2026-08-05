@@ -8,7 +8,7 @@ function zone(id: string, type: string, overrides: Record<string, unknown> = {})
     id, type, title: type, content: "", sourceUrl: null,
     x: 0, y: 0, width: 100, height: 100, backgroundColor: "#063d4b", textColor: "#ffffff", accentColor: "#ffab28",
     refreshMinutes: 15, rotation: 0, zIndex: 1, opacity: 100, fit: "cover", locked: false, hidden: false,
-    flipX: false, flipY: false, fontFamily: "system-ui", fontSize: 48, fontScalePercent: 8, fontWeight: 600,
+    flipX: false, flipY: false, fontFamily: "system-ui", fontSize: 48, fontScalePercent: 10, fontWeight: 600,
     italic: false, underline: false, lineHeightPercent: 120, textAlign: "left", cornerRadius: 0,
     weatherFields: "icon,conditions,temperature,high,low,humidity,wind", weatherLayout: "icon-left",
     calendarMaxItems: 4, calendarFields: "date,time,title,description",
@@ -28,17 +28,25 @@ test("signage widgets scale with their panels and can show event descriptions", 
     mediaAssetId: null, mediaUrl: null, media: null, layoutPreset: "single", canvasWidth: 1920, canvasHeight: 1080,
     safeAreaPercent: 0, zones: [
       zone("fixture-calendar", "calendar", {
-        title: "Upcoming events", x: 0, y: 0, width: 50, height: 100,
+        title: "Upcoming events", x: 80, y: 0, width: 20, height: 80, lineHeightPercent: 180,
         cached: { zoneId: "fixture-calendar", title: "Upcoming events", text: "", items: [], refreshedAt: "2026-08-01T12:00:00Z", events: [{
           title: "Event Title", description: "Description text is available when enabled.", location: "Community room",
           startsAt: "2026-08-01T19:00:00Z", endsAt: "2026-08-01T22:00:00Z", allDay: false,
         }] },
       }),
       zone("fixture-weather", "weather", {
-        title: "Rochester, NY", x: 50, y: 0, width: 50, height: 100,
+        title: "Rochester, NY", x: 0, y: 80, width: 20, height: 20,
         cached: { zoneId: "fixture-weather", title: "Rochester, NY", text: "☀️ 83°F", items: [], refreshedAt: "2026-08-01T12:00:00Z", icon: "☀️", weather: {
-          temperature: 83, high: 85, low: 67, humidity: 50, wind: 5, temperatureUnit: "°F", windUnit: "mph", conditions: "Sunny",
+          temperature: 83, high: 85, low: 67, humidity: 50, precipitation: 20, wind: 5, windText: "NW 5 mph", temperatureUnit: "°F", windUnit: "mph", conditions: "Sunny",
         } },
+      }),
+      zone("fixture-wifi", "wifi", {
+        title: "Guest Wi-Fi", x: 20, y: 80, width: 20, height: 20, qrValue: "WIFI:T:WPA;S:Guest;P:password;;",
+        qrPlacement: "left", qrLabelRight: "Guest Wifi", lineHeightPercent: 150,
+      }),
+      zone("fixture-qr", "qr", {
+        title: "Support our mission", x: 80, y: 80, width: 20, height: 20, qrValue: "https://lessoncue.local",
+        qrPlacement: "left", qrLabelRight: "Support our Mission",
       }),
     ],
   }];
@@ -52,19 +60,36 @@ test("signage widgets scale with their panels and can show event descriptions", 
   await page.goto("/display?screenId=relative-signage&token=test-token&name=Relative%20signage");
   await expect(page.locator(".web-player-signage-layout")).toBeVisible();
   await expect(page.locator(".signage-calendar-heading")).toContainText("Upcoming events");
+  await expect(page.locator(".signage-calendar-list time span").first()).toContainText("August");
   await expect(page.locator(".signage-calendar-description")).toContainText("Description text is available");
   await expect(page.locator(".signage-weather-temperature")).toContainText("83°F");
+  await expect(page.locator(".signage-weather-title")).toContainText("Rochester, NY");
+  await expect(page.locator(".signage-weather-details")).toContainText("NW 5 mph");
+  await expect(page.locator(".web-player-signage-zone.wifi .signage-qr")).toBeVisible();
+  await expect(page.locator(".web-player-signage-zone.wifi .signage-qr-label.right")).toContainText("Guest Wifi");
+  await expect(page.locator(".web-player-signage-zone.qr .signage-qr-label.right")).toContainText("Support our Mission");
 
   const sizing = await page.locator(".web-player-signage-zone.calendar").evaluate(element => {
     const copy = element.querySelector<HTMLElement>(".web-player-zone-copy");
     return {
       containerType: getComputedStyle(element).containerType,
       copyStyle: copy?.getAttribute("style") || "",
+      lineHeight: getComputedStyle(element).getPropertyValue("--signage-line-height"),
       calendarWidth: element.getBoundingClientRect().width,
     };
   });
   expect(sizing.containerType).toContain("size");
   expect(sizing.copyStyle).toContain("cqw");
   expect(sizing.copyStyle).toContain("cqh");
+  expect(sizing.lineHeight).toBe("1.8");
+  const qrSizing = await page.locator(".web-player-signage-zone.wifi .signage-qr-layout").evaluate(element => ({
+    fontSize: element.getAttribute("style") || "",
+    lineHeight: getComputedStyle(element).lineHeight,
+    lineHeightSetting: getComputedStyle(element.parentElement!).getPropertyValue("--signage-line-height"),
+  }));
+  expect(qrSizing.fontSize).toContain("cqw");
+  expect(qrSizing.fontSize).toContain("cqh");
+  expect(Number.parseFloat(qrSizing.lineHeight)).toBeGreaterThan(0);
+  expect(qrSizing.lineHeightSetting).toBe("1.5");
   expect(sizing.calendarWidth).toBeGreaterThan(0);
 });

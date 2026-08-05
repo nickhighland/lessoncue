@@ -818,7 +818,7 @@ public sealed record SignageZoneInput(string Id, string Type, string? Title = nu
     int CalendarMaxItems = 0, string? CalendarFields = null,
     Guid? AudienceSessionId = null, string? AudienceCode = null, bool AudienceShowResults = true,
     int AudienceResultDelaySeconds = 0,
-    int FontScalePercent = 8);
+    int FontScalePercent = 10);
 public sealed record SignageLayoutResourceInput(string Name, string? Folder, string? Description,
     bool IsTemplate, string? BackgroundColor, int CanvasWidth, int CanvasHeight, int SafeAreaPercent,
     List<SignageZoneInput>? Zones, Guid? BackgroundAudioAssetId = null, string? ThumbnailDataUrl = null);

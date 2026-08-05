@@ -4,6 +4,20 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.33 — organized signage widget layouts and responsive text spacing
+
+### User changes
+
+- Weather elements now keep their title, reading, conditions, and detail values organized in a compact information card.
+- Calendar elements keep the upcoming-events heading, event title, date, time, and optional description readable inside narrow panels.
+- QR and Wi-Fi labels resize with their panels, and line-spacing settings now apply to widget text as well as ordinary signage text.
+
+### Developer changes
+
+- Added panel-relative sizing and line-height coverage for live weather, calendar, QR, and Wi-Fi rendering.
+- Matched the signage editor previews to the live display structure, including separate calendar date/time rows and grouped weather details.
+- Release metadata advances to 0.40.33 and Android version code 92.
+
 ## v0.40.32 — responsive signage elements and calendar descriptions
 
 ### User changes

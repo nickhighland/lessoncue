@@ -854,7 +854,7 @@ export function SignageLayout({ signage, editor }: { signage: Signage; editor?: 
       onPointerMove={moveMedia}
       onPointerUp={endMediaDrag}
       onPointerCancel={endMediaDrag}
-      style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, borderRadius: `${zone.cornerRadius || 0}%`, zIndex: zone.zIndex ?? 0, opacity: (zone.opacity ?? 100) / 100, transform: `rotate(${zone.rotation ?? 0}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`, fontFamily: zone.fontFamily, fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined, textAlign: zone.textAlign, lineHeight: zone.lineHeightPercent ? zone.lineHeightPercent / 100 : undefined, ["--signage-accent" as string]: zone.accentColor, ["--signage-zone-padding" as string]: `${Math.max(0, Math.min(30, zone.contentPadding ?? 6))}%`, ["--signage-content-scale" as string]: Math.max(.25, Math.min(1, (zone.contentScale ?? 100) / 100)), ["--signage-qr-size" as string]: `${Math.max(20, Math.min(90, zone.qrSizePercent ?? 42))}%` } as CSSProperties}>
+      style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, borderRadius: `${zone.cornerRadius || 0}%`, zIndex: zone.zIndex ?? 0, opacity: (zone.opacity ?? 100) / 100, transform: `rotate(${zone.rotation ?? 0}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`, fontFamily: zone.fontFamily, fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined, textAlign: zone.textAlign, ["--signage-accent" as string]: zone.accentColor, ["--signage-line-height" as string]: `${Math.max(80, Math.min(300, zone.lineHeightPercent ?? 120)) / 100}`, ["--signage-zone-padding" as string]: `${Math.max(0, Math.min(30, zone.contentPadding ?? 6))}%`, ["--signage-content-scale" as string]: Math.max(.25, Math.min(1, (zone.contentScale ?? 100) / 100)), ["--signage-qr-size" as string]: `${Math.max(20, Math.min(90, zone.qrSizePercent ?? 42))}%` } as CSSProperties}>
       {zone.media?.downloadUrl && (zone.media.type === "video" || zone.media.contentType?.startsWith("video/")
         ? <video src={zone.media.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={zone.media.title} style={{ objectFit: zone.fit || "cover", transform: mediaTransform(zone) }} />
         : <img src={zone.media.downloadUrl} alt={zone.title || ""} style={{ objectFit: zone.fit || "cover", transform: mediaTransform(zone) }} />)}
@@ -885,7 +885,7 @@ function mediaTransform(zone: SignageZone) {
 }
 
 function relativeSignageFontSize(zone: Pick<SignageZone, "fontScalePercent">) {
-  const scale = Math.max(1, Math.min(40, zone.fontScalePercent ?? 8));
+  const scale = Math.max(1, Math.min(40, zone.fontScalePercent ?? 10));
   return `min(${scale}cqw, ${scale}cqh)`;
 }
 
@@ -940,7 +940,7 @@ function SignageRichText({ zone, value, fallback }: { zone: SignageZone; value: 
 
 function SignageQr({ zone }: { zone: SignageZone }) {
   const value = zone.qrValue || zone.content || "";
-  return value ? <div className={`signage-qr-layout placement-${zone.qrPlacement || "center"}`}>
+  return value ? <div className={`signage-qr-layout placement-${zone.qrPlacement || "center"}`} style={{ fontSize: relativeSignageFontSize(zone), lineHeight: "var(--signage-line-height, 1.2)" }}>
     <span className="signage-qr-label top">{zone.qrLabelTop}</span>
     <span className="signage-qr-label left">{zone.qrLabelLeft}</span>
     <GeneratedSignageQr value={value} />
@@ -1152,21 +1152,25 @@ function SignageWeather({ zone }: { zone: SignageZone }) {
   const fields = new Set((zone.weatherFields || "icon,conditions,temperature,high,low").split(","));
   const icon = cache?.icon || "☀️";
   const unit = weather?.temperatureUnit || "°";
+  const highLow = fields.has("high") || fields.has("low")
+    ? `H${fields.has("high") && weather?.high != null ? `${weather.high.toFixed(0)}${unit}` : "—"} / L${fields.has("low") && weather?.low != null ? `${weather.low.toFixed(0)}${unit}` : "—"}`
+    : "";
   const details = [
-    fields.has("high") && weather?.high != null ? `High ${weather.high.toFixed(0)}${unit}` : "",
-    fields.has("low") && weather?.low != null ? `Low ${weather.low.toFixed(0)}${unit}` : "",
-    fields.has("feelsLike") && weather?.feelsLike != null ? `Feels like ${weather.feelsLike.toFixed(0)}${unit}` : "",
+    highLow,
+    fields.has("precipitation") && weather?.precipitation != null ? `💧 ${weather.precipitation.toFixed(0)}%` : "",
+    fields.has("wind") && weather?.windText ? weather.windText :
+      fields.has("wind") && weather?.wind != null ? `${weather.wind.toFixed(0)} ${weather.windUnit || ""}`.trim() : "",
     fields.has("humidity") && weather?.humidity != null ? `Humidity ${weather.humidity.toFixed(0)}%` : "",
-    fields.has("precipitation") && weather?.precipitation != null ? `Precipitation ${weather.precipitation.toFixed(0)}%` : "",
-    fields.has("wind") && weather?.windText ? `Wind ${weather.windText}` :
-      fields.has("wind") && weather?.wind != null ? `Wind ${weather.wind.toFixed(0)} ${weather.windUnit || ""}`.trim() : "",
+    fields.has("feelsLike") && weather?.feelsLike != null ? `Feels ${weather.feelsLike.toFixed(0)}${unit}` : "",
     fields.has("forecast") && weather?.forecast ? `Tomorrow ${weather.forecast}` : "",
     fields.has("sunrise") && weather?.sunrise ? `Sunrise ${weather.sunrise}` : "",
     fields.has("sunset") && weather?.sunset ? `Sunset ${weather.sunset}` : "",
   ].filter(Boolean);
   const fallbackText = (cache?.text || zone.content || "Weather").replace(icon, "").trim();
   return <div className={`signage-weather layout-${zone.weatherLayout || "icon-left"}`}>
-    {(zone.title || cache?.title) && <b className="signage-weather-title">{zone.title || cache?.title}</b>}
+    <div className="signage-weather-heading">
+      {(zone.title || cache?.title) && <b className="signage-weather-title">{zone.title || cache?.title}</b>}
+    </div>
     <div className="signage-weather-main">
       {fields.has("icon") && <span className={`signage-weather-icon ${zone.weatherIconStyle === "white" ? "white" : "color"}`}>{icon}</span>}
       <div className="signage-weather-reading">
