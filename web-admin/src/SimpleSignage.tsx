@@ -3,9 +3,7 @@ import {
   useRef,
   useState,
   type DragEvent as ReactDragEvent,
-  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
 } from "react";
 import { confirmAction, requestText } from "./AccessibleDialogs";
 import "./simple-signage.css";
@@ -234,6 +232,13 @@ function signageDurationLabel(seconds: number) {
   return hours
     ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
     : `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+function fullVideoDurationSeconds(item: PlaylistItem | undefined, media: Media[]) {
+  if (!item?.mediaAssetId) return undefined;
+  const asset = media.find(value => value.id === item.mediaAssetId);
+  if (!asset?.contentType.startsWith("video/") || !asset.durationMs) return undefined;
+  return Math.max(1, Math.round(asset.durationMs / 1000));
 }
 
 function localDateTimeValue(value?: string) {
@@ -1402,6 +1407,7 @@ export function SimpleSignage({
           {tab === "playlists" && playlistDraft && (
             <PlaylistInspector
               playlist={playlistDraft}
+              media={media}
               selectedItemId={selectedItemId}
               onChange={(next) => {
                 setPlaylistDraft(next);
@@ -1804,7 +1810,7 @@ function LayoutInspector({
               <option value="webpage">Web page</option>
             </select>
           </label>
-          {!["presentation", "media", "weather", "audience"].includes(selected.type) && (
+          {!["presentation", "media", "weather", "audience", "calendar"].includes(selected.type) && (
             <label>
               Title
               <input
@@ -2355,30 +2361,6 @@ function QrLabelControls({ selected, updateZone }: { selected: Zone; updateZone:
   </fieldset>;
 }
 
-type SignageCueIconName = "notes" | "options" | "close";
-
-function SignageCueIcon({ name }: { name: SignageCueIconName }) {
-  const paths: Record<SignageCueIconName, ReactNode> = {
-    notes: (
-      <>
-        <path d="M5 5.5h14v10H9l-4 3v-13Z" />
-        <path d="M8.5 9h7M8.5 12h5" />
-      </>
-    ),
-    options: (
-      <>
-        <path d="M4 7h10M17 7h3M4 17h3M10 17h10M14 4v6M7 14v6" />
-      </>
-    ),
-    close: <path d="m7 7 10 10M17 7 7 17" />,
-  };
-  return (
-    <svg className="signage-cue-icon" viewBox="0 0 24 24" aria-hidden="true">
-      {paths[name]}
-    </svg>
-  );
-}
-
 function SignageTimelineCard({
   item,
   asset,
@@ -2388,7 +2370,6 @@ function SignageTimelineCard({
   dropEdge,
   onSelect,
   onMove,
-  onUpdate,
   onRemove,
   onMediaDragOver,
   onMediaDrop,
@@ -2401,61 +2382,11 @@ function SignageTimelineCard({
   dropEdge?: "before" | "after";
   onSelect: () => void;
   onMove: (direction: -1 | 1) => void;
-  onUpdate: (patch: Partial<PlaylistItem>) => void;
   onRemove: () => void;
   onMediaDragOver: (event: ReactDragEvent<HTMLElement>, index: number) => void;
   onMediaDrop: (event: ReactDragEvent<HTMLElement>, index: number) => void;
 }) {
   const title = item.title || asset?.fileName || "Untitled";
-  const [openPanel, setOpenPanel] = useState<"notes" | "settings">();
-  const [panelPosition, setPanelPosition] = useState({ top: 16, left: 16 });
-  const panelRef = useRef<HTMLElement>(null);
-  const footerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!openPanel) return;
-    const outside = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (panelRef.current?.contains(target) || footerRef.current?.contains(target))
-        return;
-      setOpenPanel(undefined);
-    };
-    const escape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") setOpenPanel(undefined);
-    };
-    const resize = () => setOpenPanel(undefined);
-    document.addEventListener("pointerdown", outside);
-    document.addEventListener("keydown", escape);
-    window.addEventListener("resize", resize);
-    return () => {
-      document.removeEventListener("pointerdown", outside);
-      document.removeEventListener("keydown", escape);
-      window.removeEventListener("resize", resize);
-    };
-  }, [openPanel]);
-
-  function togglePanel(
-    panel: "notes" | "settings",
-    event: ReactMouseEvent<HTMLButtonElement>,
-  ) {
-    event.stopPropagation();
-    onSelect();
-    if (openPanel === panel) {
-      setOpenPanel(undefined);
-      return;
-    }
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const width = Math.min(panel === "settings" ? 430 : 340, window.innerWidth - 24);
-    const height = panel === "settings" ? Math.min(560, window.innerHeight * 0.72) : 250;
-    const below = bounds.bottom + 8;
-    setPanelPosition({
-      left: Math.max(12, Math.min(bounds.left, window.innerWidth - width - 12)),
-      top:
-        below + height <= window.innerHeight - 12
-          ? below
-          : Math.max(12, bounds.top - height - 8),
-    });
-    setOpenPanel(panel);
-  }
 
   function dropIndex(event: ReactDragEvent<HTMLElement>) {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -2523,136 +2454,15 @@ function SignageTimelineCard({
         )}
       </div>
       <strong className="signage-card-title" title={title}>{title}</strong>
-      <div className="signage-card-footer" ref={footerRef} role="group" aria-label={`Options for ${title}`}>
-        <button
-          type="button"
-          className={openPanel === "notes" ? "active" : ""}
-          aria-label={`Notes for ${title}`}
-          aria-expanded={openPanel === "notes"}
-          title="Production notes"
-          onClick={(event) => togglePanel("notes", event)}
-        >
-          <SignageCueIcon name="notes" />
-          {item.notes && <i aria-hidden="true" />}
-        </button>
+      <div
+        className="signage-card-footer"
+        role="group"
+        aria-label={`Duration for ${title}`}
+      >
         <span aria-label={`Duration ${signageDurationLabel(item.durationSeconds)}`}>
           {signageDurationLabel(item.durationSeconds)}
         </span>
-        <button
-          type="button"
-          className={openPanel === "settings" ? "active" : ""}
-          aria-label={`Settings for ${title}`}
-          aria-expanded={openPanel === "settings"}
-          title="Item settings"
-          onClick={(event) => togglePanel("settings", event)}
-        >
-          <SignageCueIcon name="options" />
-        </button>
       </div>
-      {openPanel === "notes" && (
-        <section
-          className="signage-cue-popover signage-notes-popover"
-          ref={panelRef}
-          style={panelPosition}
-          role="dialog"
-          aria-label={`Notes for ${title}`}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <header>
-            <span><SignageCueIcon name="notes" /><strong>Production notes</strong></span>
-            <button type="button" aria-label="Close notes" onClick={() => setOpenPanel(undefined)}><SignageCueIcon name="close" /></button>
-          </header>
-          <label>
-            Notes for staff
-            <textarea
-              rows={5}
-              maxLength={2000}
-              defaultValue={item.notes || ""}
-              placeholder="Setup, messaging, or handoff details"
-              onBlur={(event) => onUpdate({ notes: event.target.value })}
-            />
-          </label>
-          <small>Saved with the playlist; never displayed on the sign.</small>
-        </section>
-      )}
-      {openPanel === "settings" && (
-        <section
-          className="signage-cue-popover signage-settings-popover"
-          ref={panelRef}
-          style={panelPosition}
-          role="dialog"
-          aria-label={`Settings for ${title}`}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <header>
-            <span><SignageCueIcon name="options" /><strong>Item settings</strong></span>
-            <button type="button" aria-label="Close settings" onClick={() => setOpenPanel(undefined)}><SignageCueIcon name="close" /></button>
-          </header>
-          <label>
-            Title
-            <input value={item.title || ""} onChange={(event) => onUpdate({ title: event.target.value })} />
-          </label>
-          <div className="signage-settings-grid">
-            <label>
-              Time on screen
-              <span className="suffix-input">
-                <input
-                  type="number"
-                  min="1"
-                  max="86400"
-                  value={item.durationSeconds}
-                  onChange={(event) => onUpdate({ durationSeconds: Math.max(1, Number(event.target.value) || 1) })}
-                />
-                <span>sec</span>
-              </span>
-            </label>
-            <label>
-              Transition
-              <select value={item.transition} onChange={(event) => onUpdate({ transition: event.target.value })}>
-                <option value="cut">Cut</option>
-                <option value="fade">Fade</option>
-                <option value="slide">Slide</option>
-                <option value="zoom">Zoom</option>
-              </select>
-            </label>
-            <label>
-              Fade in
-              <span className="suffix-input">
-                <input type="number" min="0" max="30" step=".1" value={item.fadeInMs / 1000}
-                  onChange={(event) => onUpdate({ fadeInMs: Math.round(Math.max(0, Number(event.target.value)) * 1000) })} />
-                <span>sec</span>
-              </span>
-            </label>
-            <label>
-              Fade out
-              <span className="suffix-input">
-                <input type="number" min="0" max="30" step=".1" value={item.fadeOutMs / 1000}
-                  onChange={(event) => onUpdate({ fadeOutMs: Math.round(Math.max(0, Number(event.target.value)) * 1000) })} />
-                <span>sec</span>
-              </span>
-            </label>
-            <label>
-              Volume
-              <span className="suffix-input">
-                <input type="number" min="0" max="100" value={item.muted ? 0 : item.volumePercent}
-                  onChange={(event) => {
-                    const volume = Math.max(0, Math.min(100, Number(event.target.value) || 0));
-                    onUpdate({ volumePercent: volume, muted: volume === 0 });
-                  }} />
-                <span>%</span>
-              </span>
-            </label>
-            <label>
-              Picture fit
-              <select value={item.fit} onChange={(event) => onUpdate({ fit: event.target.value })}>
-                <option value="contain">Fit entire item</option>
-                <option value="cover">Fill area and crop</option>
-                <option value="fill">Stretch to fill</option>
-              </select>
-            </label>
-          </div>
-        </section>
-      )}
     </article>
   );
 }
@@ -2684,12 +2494,6 @@ function PlaylistTimeline({
         <span>↻</span>
         <h2>Choose a playlist</h2>
       </div>
-    );
-  const patchItem = (itemId: string, patch: Partial<PlaylistItem>) =>
-    onChange(
-      playlist.items.map((item) =>
-        item.id === itemId ? { ...item, ...patch } : item,
-      ),
     );
   return (
     <section
@@ -2730,7 +2534,6 @@ function PlaylistTimeline({
                 }
                 onSelect={() => onSelect(item.id)}
                 onMove={moveItem}
-                onUpdate={(patch) => patchItem(item.id, patch)}
                 onRemove={() => onChange(playlist.items.filter((entry) => entry.id !== item.id))}
                 onMediaDragOver={onMediaDragOver}
                 onMediaDrop={onMediaDrop}
@@ -2874,17 +2677,28 @@ function MediaTray({
 
 function PlaylistInspector({
   playlist,
+  media,
   selectedItemId,
   onChange,
   onDelete,
 }: {
   playlist: Playlist;
+  media: Media[];
   selectedItemId?: string;
   onChange: (playlist: Playlist) => void;
   onDelete: () => void;
 }) {
   const selected = playlist.items.find((item) => item.id === selectedItemId);
   const selectedAudience = audienceDisplaySettings(selected?.sourceUrl);
+  const fullVideoDuration = fullVideoDurationSeconds(selected, media);
+  const [durationMode, setDurationMode] = useState<"custom" | "full-video">("custom");
+  useEffect(() => {
+    setDurationMode(
+      fullVideoDuration !== undefined && selected?.durationSeconds === fullVideoDuration
+        ? "full-video"
+        : "custom",
+    );
+  }, [fullVideoDuration, selected?.durationSeconds, selected?.id]);
   function updateItem(patch: Partial<PlaylistItem>) {
     if (!selected) return;
     onChange({
@@ -2896,10 +2710,7 @@ function PlaylistInspector({
   }
   return (
     <div className="simple-inspector">
-      <div className="inspector-tabs">
-        <button className="active">Playlist</button>
-        <button>Selected item</button>
-      </div>
+      <h2 className="simple-inspector-title">Playlist</h2>
       <label>
         Playlist name
         <input
@@ -2939,15 +2750,37 @@ function PlaylistInspector({
           <div className="two-control">
             <label>
               Time on screen
+              {fullVideoDuration !== undefined && (
+                <select
+                  aria-label="Time on screen mode"
+                  value={durationMode}
+                  onChange={(event) => {
+                    const nextMode = event.target.value as "custom" | "full-video";
+                    setDurationMode(nextMode);
+                    if (nextMode === "full-video")
+                      updateItem({ durationSeconds: fullVideoDuration });
+                  }}
+                >
+                  <option value="full-video">
+                    Full video duration ({signageDurationLabel(fullVideoDuration)})
+                  </option>
+                  <option value="custom">Custom duration</option>
+                </select>
+              )}
               <div className="suffix-input">
                 <input
+                  aria-label="Time on screen"
                   type="number"
                   min="1"
                   max="86400"
+                  disabled={durationMode === "full-video"}
                   value={selected.durationSeconds}
-                  onChange={(event) =>
-                    updateItem({ durationSeconds: Number(event.target.value) })
-                  }
+                  onChange={(event) => {
+                    setDurationMode("custom");
+                    updateItem({
+                      durationSeconds: Math.max(1, Number(event.target.value) || 1),
+                    });
+                  }}
                 />
                 <span>sec</span>
               </div>
