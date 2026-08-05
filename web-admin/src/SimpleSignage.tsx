@@ -324,7 +324,7 @@ function zone(type: string, zoneId = id("element")): Zone {
     common.weatherLocation = "Your location";
     common.weatherUnits = "fahrenheit";
     common.weatherFields =
-      "icon,conditions,temperature,forecast,high,low,humidity,wind,precipitation,sunrise,sunset";
+      "icon,temperature,conditions,precipitation,high,low,wind";
     common.weatherIconStyle = "color";
     common.weatherLayout = "icon-left";
     common.textAlign = "center";
@@ -1812,8 +1812,12 @@ function LayoutInspector({
               />
             </label>
           )}
-          {selected.type === "text" && (
-            <RichTextEditor zone={selected} onChange={updateZone} />
+          {(["text", "ticker", "counter", "rss"].includes(selected.type) || ["weather", "calendar"].includes(selected.type)) && (
+            <RichTextEditor
+              zone={selected}
+              target={["weather", "calendar"].includes(selected.type) ? "title" : "content"}
+              onChange={updateZone}
+            />
           )}
           {selected.type === "presentation" && (
             <section className="stream-override-controls">
@@ -2068,7 +2072,7 @@ function LayoutInspector({
               </div>
               <label>Layout<select value={selected.weatherLayout || "icon-left"} onChange={event => updateZone({ weatherLayout: event.target.value })}><option value="icon-top">Icon above reading</option><option value="icon-left">Large icon on left</option><option value="icon-right">Large icon on right</option><option value="compact">Compact horizontal</option></select></label>
               <fieldset className="field-check-grid"><legend>Weather details</legend>
-                {["icon","conditions","temperature","forecast","high","low","humidity","wind","precipitation","sunrise","sunset"].map(field => {
+                {["icon","temperature","conditions","precipitation","high","low","wind"].map(field => {
                   const active = new Set((selected.weatherFields || "").split(","));
                   return <label key={field}><input type="checkbox" checked={active.has(field)} onChange={event => { if (event.target.checked) active.add(field); else active.delete(field); updateZone({ weatherFields: [...active].join(",") }); }}/>{field[0].toUpperCase() + field.slice(1)}</label>;
                 })}
@@ -2140,6 +2144,19 @@ function LayoutInspector({
             </label>
           </div>
           <div className="two-control">
+            <label>
+              Font
+              <select
+                value={selected.fontFamily || "system-ui"}
+                onChange={(event) => updateZone({ fontFamily: event.target.value })}
+              >
+                <option value="system-ui">System sans</option>
+                <option value="Arial">Arial</option>
+                <option value="Georgia, serif">Serif</option>
+                <option value="'Arial Black', sans-serif">Heavy</option>
+                <option value="'Courier New', monospace">Monospace</option>
+              </select>
+            </label>
             <label>
               Text scale (%)
               <input
@@ -2285,28 +2302,28 @@ function LayoutInspector({
 
 type RichRun = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string; fontFamily?: string; fontSize?: number };
 
-function readRichRuns(item: Zone): RichRun[] {
+function readRichRuns(item: Zone, target: "content" | "title" = "content"): RichRun[] {
   try {
     const parsed = JSON.parse(item.richTextJson || "");
     if (Array.isArray(parsed)) return parsed.filter(run => typeof run?.text === "string").slice(0, 200);
   } catch { /* Plain content is converted to runs below. */ }
-  return (item.content || "").split(/(\s+)/).filter(Boolean).map(text => ({ text }));
+  return (target === "title" ? item.title || "" : item.content || "").split(/(\s+)/).filter(Boolean).map(text => ({ text }));
 }
 
-function RichTextEditor({ zone: item, onChange }: { zone: Zone; onChange: (patch: Partial<Zone>) => void }) {
+function RichTextEditor({ zone: item, target = "content", onChange }: { zone: Zone; target?: "content" | "title"; onChange: (patch: Partial<Zone>) => void }) {
   const [selectedRun, setSelectedRun] = useState(0);
-  const runs = readRichRuns(item);
+  const runs = readRichRuns(item, target);
   const selected = runs[selectedRun] || runs[0] || { text: "" };
   function save(next: RichRun[]) {
-    onChange({ content: next.map(run => run.text).join(""), richTextJson: JSON.stringify(next) });
+    onChange({ ...(target === "title" ? { title: next.map(run => run.text).join("") } : { content: next.map(run => run.text).join("") }), richTextJson: JSON.stringify(next) });
   }
   function format(patch: Partial<RichRun>) {
-    const next = runs.length ? runs.map(run => ({ ...run })) : [{ text: item.content || "Message" }];
+    const next = runs.length ? runs.map(run => ({ ...run })) : [{ text: target === "title" ? item.title || "Title" : item.content || "Message" }];
     next[Math.min(selectedRun, next.length - 1)] = { ...next[Math.min(selectedRun, next.length - 1)], ...patch };
     save(next);
   }
   return <div className="rich-text-editor">
-    <label>Message<textarea rows={4} value={item.content || ""} onChange={event => {
+    <label>{target === "title" ? "Title" : "Message"}<textarea rows={4} value={target === "title" ? item.title || "" : item.content || ""} onChange={event => {
       const next = event.target.value.split(/(\s+)/).filter(Boolean).map((text, index) => ({ ...(runs[index] || {}), text }));
       save(next);
     }}/></label>

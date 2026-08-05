@@ -718,9 +718,9 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.25em;
+  gap: 0.35em;
   box-sizing: border-box;
-  padding: 0.55em 0.65em 0.4em;
+  padding: 0.45em 0.55em 0.35em;
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -729,28 +729,32 @@
 .zone-weather-title {
   overflow: hidden;
   color: currentColor;
-  font-size: 1.05em;
+  font-size: 1em;
   font-weight: 900;
-  letter-spacing: 0.08em;
-  line-height: var(--signage-line-height, 1.1);
-  text-overflow: ellipsis;
+  letter-spacing: 0.07em;
+  line-height: 1;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
   text-transform: uppercase;
-  white-space: nowrap;
+  white-space: normal;
 }
 .zone-weather-main {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.35fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr);
   align-items: center;
   justify-content: center;
-  gap: 0.5em;
+  gap: 0.35em;
   min-height: 0;
   overflow: hidden;
 }
-.zone-weather-main > i {
+.zone-weather-icon {
   justify-self: center;
   font-style: normal;
-  font-size: 3.8em;
-  line-height: 0.85;
+  color: #ffc43d;
+  font-family: Arial, sans-serif;
+  font-size: 3.25em;
+  line-height: 0.8;
+  text-shadow: 0.02em 0.04em 0 #b66a18;
 }
 .zone-weather-main > span,
 .zone-weather-main b,
@@ -758,17 +762,18 @@
   display: block;
 }
 .zone-weather-main b {
-  font-size: 3.6em;
-  line-height: var(--signage-line-height, 0.95);
+  font-size: 3.25em;
+  letter-spacing: -0.04em;
+  line-height: 0.85;
   white-space: nowrap;
 }
 .zone-weather-main em {
-  margin-top: 0.2em;
+  margin-top: 0.16em;
   overflow: hidden;
-  font-size: 0.82em;
+  font-size: 0.72em;
   font-style: normal;
   font-weight: 800;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   opacity: 0.86;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -777,27 +782,61 @@
 .zone-weather-details {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.22em 0.45em;
+  gap: 0.25em 0.3em;
   margin: 0;
   padding: 0;
   overflow: hidden;
-  font-size: 0.68em;
-  line-height: var(--signage-line-height, 1.1);
+  font-size: 0.66em;
+  line-height: 1.05;
   list-style: none;
-  opacity: 0.88;
+  opacity: 0.96;
   text-align: center;
 }
 .zone-weather-details li {
+  display: grid;
+  place-items: center;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.zone-weather-details .weather-precipitation,
+.zone-weather-details .weather-high-low {
+  display: block;
+  align-self: center;
+  font-weight: 700;
+}
+.zone-weather-details .weather-precipitation > span,
+.zone-weather-details .weather-precipitation > svg {
+  display: inline-block;
+  width: 1em;
+  height: 1.15em;
+  color: #fff;
+  fill: currentColor;
+  vertical-align: -0.08em;
+}
+.zone-weather-details .weather-wind {
+  grid-template-columns: auto auto;
+  column-gap: 0.18em;
+  white-space: normal;
+}
+.zone-weather-details .weather-wind > span,
+.zone-weather-details .weather-wind > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.zone-weather-details .weather-wind > small {
+  grid-column: 1 / -1;
+  font-size: 0.85em;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
 .zone-weather-preview.layout-icon-top .zone-weather-main {
   display: flex;
   flex-direction: column;
 }
-.zone-weather-preview.layout-icon-right .zone-weather-main > i {
+.zone-weather-preview.layout-icon-right .zone-weather-icon {
   order: 2;
 }
 .zone-weather-preview.layout-compact {
@@ -841,8 +880,9 @@
   font-weight: 500;
   line-height: var(--signage-line-height, 1.05);
   text-decoration: underline;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 .zone-calendar-preview article time,
 .zone-calendar-preview article small,
@@ -1536,7 +1576,7 @@
 }
 .rich-text-runs > div {
   display: grid;
-  grid-template-columns: 1fr 36px auto auto auto auto;
+  grid-template-columns: minmax(90px, 1.4fr) minmax(80px, 1fr) 56px 36px repeat(4, auto);
   gap: 0.25rem;
   margin: 0.25rem 0;
 }
@@ -1878,11 +1918,11 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.55em;
+  gap: 0.35em;
   width: 100%;
   height: 100%;
   box-sizing: border-box;
-  padding: 0.55em 0.65em 0.4em;
+  padding: 0.45em 0.55em 0.35em;
   overflow: hidden;
   line-height: var(--signage-line-height, 1.2);
 }
@@ -1894,28 +1934,32 @@
 .web-player-zone-copy .signage-weather-title {
   overflow: hidden;
   color: currentColor;
-  font-size: 1.05em;
+  font-size: 1em;
   font-weight: 900;
-  letter-spacing: 0.08em;
-  line-height: var(--signage-line-height, 1.1);
-  text-overflow: ellipsis;
+  letter-spacing: 0.07em;
+  line-height: 1;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
   text-transform: uppercase;
-  white-space: nowrap;
+  white-space: normal;
 }
 .signage-weather-main {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.35fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr);
   align-items: center;
   justify-content: center;
-  gap: 0.55em;
+  gap: 0.35em;
   min-height: 0;
   overflow: hidden;
 }
 .signage-weather-icon {
   justify-self: center;
   flex: 0 0 auto;
-  font-size: 3.8em;
-  line-height: 0.9;
+  color: #ffc43d;
+  font-family: Arial, sans-serif;
+  font-size: 3.25em;
+  line-height: 0.8;
+  text-shadow: 0.02em 0.04em 0 #b66a18;
 }
 .signage-weather-icon.white {
   filter: grayscale(1) brightness(0) invert(1);
@@ -1928,18 +1972,18 @@
 }
 .signage-weather-temperature {
   margin: 0 !important;
-  font-family: Georgia, serif;
-  font-size: 3.6em !important;
-  line-height: var(--signage-line-height, 0.95) !important;
+  font-size: 3.25em !important;
+  letter-spacing: -0.04em;
+  line-height: 0.85 !important;
   white-space: nowrap;
 }
 .signage-weather-conditions {
-  margin-top: 0.22em;
+  margin-top: 0.16em;
   overflow: hidden;
-  font-size: 0.82em;
+  font-size: 0.72em;
   font-weight: 800;
-  letter-spacing: 0.06em;
-  line-height: var(--signage-line-height, 1.1);
+  letter-spacing: 0.08em;
+  line-height: 1.05;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
@@ -1947,22 +1991,59 @@
 .web-player-zone-copy .signage-weather-details {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.22em 0.45em;
+  gap: 0.25em 0.3em;
   margin: 0;
   padding: 0;
   overflow: hidden;
   color: currentColor;
-  font-size: 0.68em;
-  line-height: var(--signage-line-height, 1.1);
+  font-size: 0.66em;
+  line-height: 1.05;
   list-style: none;
-  opacity: 0.9;
+  opacity: 0.96;
   text-align: center;
 }
 .signage-weather-details li {
+  display: grid;
+  place-items: center;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.signage-weather-details .signage-weather-precipitation,
+.signage-weather-details .signage-weather-high-low {
+  display: block;
+  align-self: center;
+  font-weight: 700;
+}
+.signage-weather-drop {
+  display: inline-block;
+  width: 1em;
+  height: 1.15em;
+  color: #fff;
+  fill: currentColor;
+  vertical-align: -0.08em;
+}
+.signage-weather-details .signage-weather-wind {
+  grid-template-columns: auto auto;
+  column-gap: 0.18em;
+  white-space: normal;
+}
+.signage-weather-wind-icon {
+  font-size: 1.35em;
+  line-height: 0.8;
+}
+.signage-weather-details .signage-weather-wind > span,
+.signage-weather-details .signage-weather-wind > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.signage-weather-details .signage-weather-wind > small {
+  grid-column: 1 / -1;
+  font-size: 0.85em;
+  font-weight: 800;
+  letter-spacing: 0.04em;
 }
 .signage-weather.layout-icon-top .signage-weather-main {
   display: flex;
@@ -2034,9 +2115,10 @@
   font-size: 1.35em;
   font-weight: 500;
   line-height: var(--signage-line-height, 1.05);
+  overflow-wrap: anywhere;
   text-decoration: underline;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-overflow: clip;
+  white-space: normal;
 }
 .signage-calendar-list time {
   display: grid;

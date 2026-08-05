@@ -86,9 +86,9 @@ const ZONE_TYPES = [
 ] as const;
 
 const WEATHER_FIELDS = [
-  ["icon", "Condition icon"], ["conditions", "Conditions"], ["temperature", "Current temperature"],
-  ["feelsLike", "Feels like"], ["high", "Daily high"], ["low", "Daily low"],
-  ["precipitation", "Precipitation chance"], ["humidity", "Humidity"], ["wind", "Wind"]
+  ["icon", "Weather icon"], ["temperature", "Temperature"], ["conditions", "Conditions"],
+  ["precipitation", "Precipitation chance"], ["high", "Daily high"], ["low", "Daily low"],
+  ["wind", "Wind speed"]
 ] as const;
 
 const CALENDAR_FIELDS = [
@@ -97,7 +97,8 @@ const CALENDAR_FIELDS = [
 ] as const;
 
 const weatherFieldSet = (zone: Zone) =>
-  new Set((zone.weatherFields || "icon,conditions,temperature,high,low,precipitation").split(",").filter(Boolean));
+  new Set((zone.weatherFields || "icon,temperature,conditions,precipitation,high,low,wind").split(",")
+    .filter(value => WEATHER_FIELDS.some(([key]) => key === value)));
 const calendarFieldSet = (zone: Zone) =>
   new Set((zone.calendarFields || "date,time,title").split(",").map(value => value.trim().toLowerCase()).filter(Boolean));
 const relativeElementFontSize = (zone: Pick<Zone, "fontScalePercent">) => {
@@ -256,7 +257,7 @@ function freshZone(type = "text"): Zone {
   };
   if (type === "weather") Object.assign(zone, {
     title: "Local weather", weatherProvider: "open-meteo", weatherLocation: "Your location",
-    weatherUnits: "fahrenheit", weatherFields: "icon,conditions,temperature,high,low,humidity,wind",
+    weatherUnits: "fahrenheit", weatherFields: "icon,temperature,conditions,precipitation,high,low,wind",
     weatherIconStyle: "color", weatherLayout: "icon-left"
   });
   if (type === "calendar") Object.assign(zone, {
@@ -755,19 +756,20 @@ function ZoneVisual({ zone, media, playlists }: { zone: Zone; media: StudioMedia
   if (zone.type === "clock") return <StudioClock zone={zone} />;
   if (zone.type === "weather") {
     const fields = weatherFieldSet(zone);
-    const unit = zone.weatherUnits === "celsius" ? "°C" : "°F";
     return <div className={`zone-weather-preview layout-${zone.weatherLayout || "icon-left"}`}>
-      <strong className="zone-weather-title">{zone.weatherLocation || zone.title || "Local weather"}</strong>
+      {zone.richTextJson
+        ? <RichTextPreview className="zone-weather-title" value={zone.richTextJson} fallback={zone.weatherLocation || zone.title || "Local weather"} />
+        : <strong className="zone-weather-title">{zone.weatherLocation || zone.title || "Local weather"}</strong>}
       <div className="zone-weather-main">
-        {fields.has("icon") && <i aria-hidden="true">☀️</i>}
-        <span><b>{fields.has("temperature") ? `70${unit}` : "Weather"}</b>
+        {fields.has("icon") && <i className="zone-weather-icon" aria-hidden="true">☀</i>}
+        <span><b>{fields.has("temperature") ? "70°" : "Weather"}</b>
           {fields.has("conditions") && <em>Sunny</em>}</span>
       </div>
-      {(fields.has("high") || fields.has("low") || fields.has("humidity") || fields.has("wind")) &&
+      {(fields.has("precipitation") || fields.has("high") || fields.has("low") || fields.has("wind")) &&
         <ul className="zone-weather-details">
-          {(fields.has("high") || fields.has("low")) && <li>H75° / L59°</li>}
-          {fields.has("humidity") && <li>Humidity 50%</li>}
-          {fields.has("wind") && <li>5 mph NW</li>}
+          {fields.has("precipitation") && <li className="weather-precipitation"><svg className="zone-weather-drop" viewBox="0 0 24 28" aria-hidden="true"><path d="M12 1C10.1 5.8 4 11.7 4 17a8 8 0 0 0 16 0c0-5.3-6.1-11.2-8-16Zm0 22a6 6 0 0 1-6-6c0-2.4 2.2-5.6 6-10.1 3.8 4.5 6 7.7 6 10.1a6 6 0 0 1-6 6Z" /></svg> 20%</li>}
+          {(fields.has("high") || fields.has("low")) && <li className="weather-high-low">H75/L59</li>}
+          {fields.has("wind") && <li className="weather-wind"><span>≋ 5 MPH</span><small>NW</small></li>}
         </ul>}
     </div>;
   }
@@ -775,7 +777,9 @@ function ZoneVisual({ zone, media, playlists }: { zone: Zone; media: StudioMedia
     const fields = calendarFieldSet(zone);
     const count = Math.max(1, Math.min(20, zone.calendarMaxItems || 4));
     return <div className="zone-calendar-preview">
-      <strong className="zone-calendar-heading">{zone.title || "Upcoming events"}</strong>
+      {zone.richTextJson
+        ? <RichTextPreview className="zone-calendar-heading" value={zone.richTextJson} fallback={zone.title || "Upcoming events"} />
+        : <strong className="zone-calendar-heading">{zone.title || "Upcoming events"}</strong>}
       {Array.from({ length: count }, (_, index) => <article key={index}>
         {fields.has("title") && <b>Event Title</b>}
         {(fields.has("date") || fields.has("time")) && <time>
@@ -880,16 +884,17 @@ function StudioClock({ zone }: { zone: Zone }) {
   return <span className={`zone-clock ${zone.clockOrder === "inline" ? "inline" : ""}`}>{parts}</span>;
 }
 
-function RichTextPreview({ value, fallback }: { value: string; fallback: string }) {
-  let runs: { text?: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string }[] = [];
+function RichTextPreview({ value, fallback, className }: { value: string; fallback: string; className?: string }) {
+  let runs: { text?: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string; fontFamily?: string; fontSize?: number }[] = [];
   try {
     const parsed = JSON.parse(value);
     if (Array.isArray(parsed)) runs = parsed;
   } catch { /* The plain text fallback remains visible for malformed draft data. */ }
-  if (!runs.length) return <strong>{fallback}</strong>;
-  return <strong>{runs.slice(0, 50).map((run, index) => <span key={index} style={{
+  if (!runs.length) return <strong className={className}>{fallback}</strong>;
+  return <strong className={className}>{runs.slice(0, 50).map((run, index) => <span key={index} style={{
     color: run.color, fontWeight: run.bold ? 800 : undefined, fontStyle: run.italic ? "italic" : undefined,
-    textDecoration: run.underline ? "underline" : undefined
+    textDecoration: run.underline ? "underline" : undefined, fontFamily: run.fontFamily,
+    fontSize: Number.isFinite(run.fontSize) ? `${Math.max(0.25, Math.min(4, (run.fontSize || 34) / 34))}em` : undefined
   }}>{run.text || ""}</span>)}</strong>;
 }
 
@@ -994,7 +999,7 @@ function ZoneInspector({ zone, media, playlists, onPatch, onDelete, onDuplicate 
     {zone.type === "ticker" && <label>Speed <input disabled={contentLocked} type="range" min="10" max="300" value={zone.tickerSpeed || 60} onChange={event => onPatch({ tickerSpeed: Number(event.target.value) })} /></label>}
     <div className="inspector-grid"><label>X (%)<input disabled={positionLocked} type="number" value={zone.x} onChange={event => onPatch({ x: Number(event.target.value) })} /></label><label>Y (%)<input disabled={positionLocked} type="number" value={zone.y} onChange={event => onPatch({ y: Number(event.target.value) })} /></label><label>W (%)<input disabled={positionLocked} type="number" value={zone.width} onChange={event => onPatch({ width: Number(event.target.value) })} /></label><label>H (%)<input disabled={positionLocked} type="number" value={zone.height} onChange={event => onPatch({ height: Number(event.target.value) })} /></label><label>°<input disabled={positionLocked} type="number" min="-180" max="180" value={zone.rotation} onChange={event => onPatch({ rotation: Number(event.target.value) })} /></label><label>Opacity<input disabled={fullyLocked} type="number" min="0" max="100" value={zone.opacity} onChange={event => onPatch({ opacity: Number(event.target.value) })} /></label></div>
     <div className="inspector-grid"><label>Background<input disabled={fullyLocked} type="color" value={zone.backgroundColor} onChange={event => onPatch({ backgroundColor: event.target.value })} /></label><label>Text<input disabled={fullyLocked} type="color" value={zone.textColor} onChange={event => onPatch({ textColor: event.target.value })} /></label><label>Border<input disabled={fullyLocked} type="color" value={zone.accentColor || "#d89127"} onChange={event => onPatch({ accentColor: event.target.value })} /></label><label>Radius<input disabled={fullyLocked} type="number" min="0" max="100" value={zone.cornerRadius || 0} onChange={event => onPatch({ cornerRadius: Number(event.target.value) })} /></label></div>
-    {!['media','presentation','stream','webpage','customHtml'].includes(zone.type) && <><label>Font <select value={zone.fontFamily || "system-ui"} onChange={event => onPatch({ fontFamily: event.target.value })}><option value="system-ui">System</option><option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="monospace">Monospace</option></select></label><div className="inspector-grid"><label>Text scale (%)<input type="number" min="1" max="40" step="0.5" value={zone.fontScalePercent || 10} onChange={event => onPatch({ fontScalePercent: Math.max(1, Math.min(40, Number(event.target.value) || 10)) })} /></label><label>Weight<input type="number" min="100" max="900" step="100" value={zone.fontWeight || 600} onChange={event => onPatch({ fontWeight: Number(event.target.value) })} /></label><label>Align<select value={zone.textAlign || "left"} onChange={event => onPatch({ textAlign: event.target.value })}><option>left</option><option>center</option><option>right</option><option>justify</option></select></label><label>Line %<input type="number" min="80" max="300" value={zone.lineHeightPercent || 120} onChange={event => onPatch({ lineHeightPercent: Number(event.target.value) })} /></label></div><small>Text uses this percentage of the panel’s smaller dimension, so it stays proportional when the panel is resized.</small><div className="inline-checks"><label><input type="checkbox" checked={zone.italic || false} onChange={event => onPatch({ italic: event.target.checked })} /> Italic</label><label><input type="checkbox" checked={zone.underline || false} onChange={event => onPatch({ underline: event.target.checked })} /> Underline</label></div></>}
+    {!['webpage','customHtml'].includes(zone.type) && <><label>Font <select value={zone.fontFamily || "system-ui"} onChange={event => onPatch({ fontFamily: event.target.value })}><option value="system-ui">System sans</option><option value="Arial">Arial</option><option value="Georgia, serif">Serif</option><option value="'Arial Black', sans-serif">Heavy</option><option value="'Courier New', monospace">Monospace</option></select></label><div className="inspector-grid"><label>Text scale (%)<input type="number" min="1" max="40" step="0.5" value={zone.fontScalePercent || 10} onChange={event => onPatch({ fontScalePercent: Math.max(1, Math.min(40, Number(event.target.value) || 10)) })} /></label><label>Weight<input type="number" min="100" max="900" step="100" value={zone.fontWeight || 600} onChange={event => onPatch({ fontWeight: Number(event.target.value) })} /></label><label>Align<select value={zone.textAlign || "left"} onChange={event => onPatch({ textAlign: event.target.value })}><option>left</option><option>center</option><option>right</option><option>justify</option></select></label><label>Line %<input type="number" min="80" max="300" value={zone.lineHeightPercent || 120} onChange={event => onPatch({ lineHeightPercent: Number(event.target.value) })} /></label></div><small>Font and rich text formatting apply to this element’s visible text; typefaces stay proportional as the panel is resized.</small><div className="inline-checks"><label><input type="checkbox" checked={zone.italic || false} onChange={event => onPatch({ italic: event.target.checked })} /> Italic</label><label><input type="checkbox" checked={zone.underline || false} onChange={event => onPatch({ underline: event.target.checked })} /> Underline</label></div></>}
     <label>Lock <select value={zone.lockMode || (zone.locked ? "position" : "none")} onChange={event => onPatch({ lockMode: event.target.value as Zone["lockMode"], locked: false })}><option value="none">Unlocked</option><option value="position">Position and size</option><option value="content">Content</option><option value="full">Everything</option></select></label>
     <div className="inline-checks"><label><input disabled={fullyLocked} type="checkbox" checked={zone.hidden} onChange={event => onPatch({ hidden: event.target.checked })} /> Hidden</label><label><input disabled={positionLocked} type="checkbox" checked={zone.flipX} onChange={event => onPatch({ flipX: event.target.checked })} /> Flip X</label><label><input disabled={positionLocked} type="checkbox" checked={zone.flipY} onChange={event => onPatch({ flipY: event.target.checked })} /> Flip Y</label></div>
     <div className="studio-card-actions"><button disabled={fullyLocked} onClick={onDuplicate}>Duplicate</button><button disabled={fullyLocked} className="danger" onClick={onDelete}>Delete selected</button></div>
@@ -1002,12 +1007,12 @@ function ZoneInspector({ zone, media, playlists, onPatch, onDelete, onDuplicate 
 }
 
 function RichTextRunsEditor({ value, onChange }: { value?: string; onChange: (value: string) => void }) {
-  type Run = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string };
+  type Run = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string; fontFamily?: string; fontSize?: number };
   let parsed: Run[] = [];
   try { const candidate = JSON.parse(value || "[]"); if (Array.isArray(candidate)) parsed = candidate; } catch { parsed = []; }
   const runs = parsed;
   const update = (next: Run[]) => onChange(JSON.stringify(next.slice(0, 50)));
-  return <details className="rich-text-runs"><summary>Mixed text formatting</summary><p>Optional runs override the plain fallback content above.</p>{runs.map((run,index)=><div key={index}><input value={run.text} placeholder="Text run" onChange={event=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,text:event.target.value}:item))}/><input type="color" value={run.color||"#ffffff"} onChange={event=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,color:event.target.value}:item))}/><button className={run.bold?"active":""} onClick={()=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,bold:!item.bold}:item))}>B</button><button className={run.italic?"active":""} onClick={()=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,italic:!item.italic}:item))}>I</button><button className={run.underline?"active":""} onClick={()=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,underline:!item.underline}:item))}>U</button><button onClick={()=>update(runs.filter((_,itemIndex)=>itemIndex!==index))}>×</button></div>)}<button onClick={()=>update([...runs,{text:"New text",color:"#ffffff"}])}>+ Formatted run</button></details>;
+  return <details className="rich-text-runs"><summary>Rich text formatting</summary><p>Apply font, size, color, and emphasis to each title or message run.</p>{runs.map((run,index)=><div key={index}><input value={run.text} placeholder="Text run" onChange={event=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,text:event.target.value}:item))}/><select aria-label={`Font for text run ${index + 1}`} value={run.fontFamily || "system-ui"} onChange={event=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,fontFamily:event.target.value}:item))}><option value="system-ui">System</option><option value="Arial">Arial</option><option value="Georgia, serif">Serif</option><option value="'Arial Black', sans-serif">Heavy</option><option value="'Courier New', monospace">Mono</option></select><input aria-label={`Size for text run ${index + 1}`} type="number" min="8" max="200" value={run.fontSize || 34} onChange={event=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,fontSize:Number(event.target.value)}:item))}/><input aria-label={`Color for text run ${index + 1}`} type="color" value={run.color||"#ffffff"} onChange={event=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,color:event.target.value}:item))}/><button className={run.bold?"active":""} onClick={()=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,bold:!item.bold}:item))}>B</button><button className={run.italic?"active":""} onClick={()=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,italic:!item.italic}:item))}>I</button><button className={run.underline?"active":""} onClick={()=>update(runs.map((item,itemIndex)=>itemIndex===index?{...item,underline:!item.underline}:item))}>U</button><button onClick={()=>update(runs.filter((_,itemIndex)=>itemIndex!==index))}>×</button></div>)}<button onClick={()=>update([...runs,{text:"New text",color:"#ffffff",fontFamily:"system-ui",fontSize:34}])}>+ Formatted run</button></details>;
 }
 
 function CredentialsDialog({ notify, onClose }: { notify: (message: string) => void; onClose: () => void }) {

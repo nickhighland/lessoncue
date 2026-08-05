@@ -927,15 +927,15 @@ function useScheduledStreamOverride(zone: SignageZone) {
   return Boolean(zone.streamOverrideWhenLive && zone.streamUrl && now >= startsAt && now < endsAt);
 }
 
-function SignageRichText({ zone, value, fallback }: { zone: SignageZone; value: string; fallback: string }) {
+function SignageRichText({ zone, value, fallback, className }: { zone: SignageZone; value: string; fallback: string; className?: string }) {
   let runs: { text?: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string; fontFamily?: string; fontSize?: number }[] = [];
   try {
     const parsed = JSON.parse(value);
     if (Array.isArray(parsed)) runs = parsed;
   } catch { /* The plain text fallback remains visible for malformed manifest data. */ }
-  if (!runs.length) return <strong>{fallback}</strong>;
+  if (!runs.length) return <strong className={className}>{fallback}</strong>;
   const legacyBase = Math.max(12, Math.min(160, zone.fontSize ?? 34)) * 2.1;
-  return <strong>{runs.slice(0,200).map((run,index)=><span key={index} style={{fontWeight:run.bold?800:undefined,fontStyle:run.italic?"italic":undefined,textDecoration:run.underline?"underline":undefined,color:/^#[0-9a-f]{6}$/i.test(run.color||"")?run.color:undefined,fontFamily:String(run.fontFamily||"").slice(0,80)||undefined,fontSize:Number.isFinite(run.fontSize)?`${Math.max(.25,Math.min(4,Number(run.fontSize) / legacyBase))}em`:undefined}}>{String(run.text||"")}</span>)}</strong>;
+  return <strong className={className}>{runs.slice(0,200).map((run,index)=><span key={index} style={{fontWeight:run.bold?800:undefined,fontStyle:run.italic?"italic":undefined,textDecoration:run.underline?"underline":undefined,color:/^#[0-9a-f]{6}$/i.test(run.color||"")?run.color:undefined,fontFamily:String(run.fontFamily||"").slice(0,80)||undefined,fontSize:Number.isFinite(run.fontSize)?`${Math.max(.25,Math.min(4,Number(run.fontSize) / legacyBase))}em`:undefined}}>{String(run.text||"")}</span>)}</strong>;
 }
 
 function SignageQr({ zone }: { zone: SignageZone }) {
@@ -1149,41 +1149,55 @@ function SignageClock({ zone }: { zone: SignageZone }) {
 function SignageWeather({ zone }: { zone: SignageZone }) {
   const cache = zone.cached;
   const weather = cache?.weather;
-  const fields = new Set((zone.weatherFields || "icon,conditions,temperature,high,low").split(","));
-  const icon = cache?.icon || "☀️";
-  const unit = weather?.temperatureUnit || "°";
+  const weatherFieldKeys = ["icon", "temperature", "conditions", "precipitation", "high", "low", "wind"];
+  const fields = new Set((zone.weatherFields || weatherFieldKeys.join(",")).split(",")
+    .map(value => value.trim()).filter(value => weatherFieldKeys.includes(value)));
+  const icon = (cache?.icon || "☀").replace(/\uFE0F/g, "");
+  const degreeValue = (value?: number) => value == null ? "—" : `${value.toFixed(0)}°`;
   const highLow = fields.has("high") || fields.has("low")
-    ? `H${fields.has("high") && weather?.high != null ? `${weather.high.toFixed(0)}${unit}` : "—"} / L${fields.has("low") && weather?.low != null ? `${weather.low.toFixed(0)}${unit}` : "—"}`
+    ? `H${fields.has("high") ? degreeValue(weather?.high).replace("°", "") : "—"}/L${fields.has("low") ? degreeValue(weather?.low).replace("°", "") : "—"}`
     : "";
+  const windText = weather?.windText || "";
+  const windDirection = windText.match(/\b(NNW|NNE|ENE|ESE|SSE|SSW|WSW|WNW|NE|NW|SE|SW|N|E|S|W)\b/i)?.[1]?.toUpperCase();
+  const windSpeed = weather?.wind != null
+    ? `${weather.wind.toFixed(0)} ${(weather.windUnit || "mph").toUpperCase()}`
+    : windText.match(/\d+(?:\.\d+)?\s*[a-z]+/i)?.[0]?.toUpperCase() || windText;
   const details = [
-    highLow,
-    fields.has("precipitation") && weather?.precipitation != null ? `💧 ${weather.precipitation.toFixed(0)}%` : "",
-    fields.has("wind") && weather?.windText ? weather.windText :
-      fields.has("wind") && weather?.wind != null ? `${weather.wind.toFixed(0)} ${weather.windUnit || ""}`.trim() : "",
-    fields.has("humidity") && weather?.humidity != null ? `Humidity ${weather.humidity.toFixed(0)}%` : "",
-    fields.has("feelsLike") && weather?.feelsLike != null ? `Feels ${weather.feelsLike.toFixed(0)}${unit}` : "",
-    fields.has("forecast") && weather?.forecast ? `Tomorrow ${weather.forecast}` : "",
-    fields.has("sunrise") && weather?.sunrise ? `Sunrise ${weather.sunrise}` : "",
-    fields.has("sunset") && weather?.sunset ? `Sunset ${weather.sunset}` : "",
-  ].filter(Boolean);
+    fields.has("precipitation") && weather?.precipitation != null ? { kind: "precipitation", value: `${weather.precipitation.toFixed(0)}%` } : null,
+    highLow ? { kind: "high-low", value: highLow } : null,
+    fields.has("wind") && windSpeed ? { kind: "wind", value: windSpeed, direction: windDirection } : null,
+  ].filter((item): item is { kind: string; value: string; direction?: string } => Boolean(item));
   const fallbackText = (cache?.text || zone.content || "Weather").replace(icon, "").trim();
   return <div className={`signage-weather layout-${zone.weatherLayout || "icon-left"}`}>
     <div className="signage-weather-heading">
-      {(zone.title || cache?.title) && <b className="signage-weather-title">{zone.title || cache?.title}</b>}
+      {(zone.title || cache?.title) && (zone.richTextJson
+        ? <SignageRichText zone={zone} value={zone.richTextJson} fallback={zone.title || cache?.title || "Weather"} className="signage-weather-title" />
+        : <b className="signage-weather-title">{zone.title || cache?.title}</b>)}
     </div>
     <div className="signage-weather-main">
       {fields.has("icon") && <span className={`signage-weather-icon ${zone.weatherIconStyle === "white" ? "white" : "color"}`}>{icon}</span>}
       <div className="signage-weather-reading">
         {fields.has("temperature") && weather?.temperature != null
-          ? <strong className="signage-weather-temperature">{weather.temperature.toFixed(0)}{unit}</strong>
+          ? <strong className="signage-weather-temperature">{degreeValue(weather.temperature)}</strong>
           : !weather && <strong className="signage-weather-temperature">{fallbackText || "Weather"}</strong>}
-        {fields.has("conditions") && weather?.conditions && <span className="signage-weather-conditions">{weather.conditions}</span>}
+        {fields.has("conditions") && weather?.conditions && <span className="signage-weather-conditions">{weather.conditions.toUpperCase()}</span>}
       </div>
     </div>
     {details.length > 0
-      ? <ul className="signage-weather-details">{details.map((item, index) => <li key={`${zone.id}-weather-${index}`}>{item}</li>)}</ul>
+      ? <ul className="signage-weather-details">{details.map((item, index) => <li className={`signage-weather-${item.kind}`} key={`${zone.id}-weather-${index}`}>
+        {item.kind === "precipitation" && <WeatherDropIcon />}
+        {item.kind === "wind" && <span className="signage-weather-wind-icon" aria-hidden="true">≋</span>}
+        <span className="signage-weather-detail-value">{item.value}</span>
+        {item.kind === "wind" && item.direction && <small className="signage-weather-wind-direction">{item.direction}</small>}
+      </li>)}</ul>
       : !weather && cache?.items?.length ? <ul className="signage-weather-details">{cache.items.map((item, index) => <li key={`${zone.id}-weather-${index}`}>{item}</li>)}</ul> : null}
   </div>;
+}
+
+function WeatherDropIcon() {
+  return <svg className="signage-weather-drop" viewBox="0 0 24 28" aria-hidden="true">
+    <path d="M12 1C10.1 5.8 4 11.7 4 17a8 8 0 0 0 16 0c0-5.3-6.1-11.2-8-16Zm0 22a6 6 0 0 1-6-6c0-2.4 2.2-5.6 6-10.1 3.8 4.5 6 7.7 6 10.1a6 6 0 0 1-6 6Z" />
+  </svg>;
 }
 
 function SignageCalendar({ zone }: { zone: SignageZone }) {
@@ -1194,9 +1208,17 @@ function SignageCalendar({ zone }: { zone: SignageZone }) {
   if (!events.length) {
     const items = zone.cached?.items || [];
     const visible = items.slice(0, limit);
-    return <div className="signage-calendar"><b className="signage-calendar-heading">{zone.title || "Upcoming events"}</b>{visible.length ? <ul className="signage-calendar-list">{visible.map((item, index) => <li key={`${zone.id}-calendar-${index}`}><b>{item}</b></li>)}</ul> : <strong>{zone.content || "Calendar feed"}</strong>}</div>;
+    return <div className="signage-calendar">{zone.richTextJson
+      ? <SignageRichText zone={zone} value={zone.richTextJson} fallback={zone.title || "Upcoming events"} className="signage-calendar-heading" />
+      : <b className="signage-calendar-heading">{zone.title || "Upcoming events"}</b>}
+      {visible.length
+        ? <ul className="signage-calendar-list">{visible.map((item, index) => <li key={`${zone.id}-calendar-${index}`}><b>{item}</b></li>)}</ul>
+        : <strong>{zone.content || "Calendar feed"}</strong>}
+    </div>;
   }
-  return <div className="signage-calendar"><b className="signage-calendar-heading">{zone.title || "Upcoming events"}</b><ol className="signage-calendar-list">
+  return <div className="signage-calendar">{zone.richTextJson
+    ? <SignageRichText zone={zone} value={zone.richTextJson} fallback={zone.title || "Upcoming events"} className="signage-calendar-heading" />
+    : <b className="signage-calendar-heading">{zone.title || "Upcoming events"}</b>}<ol className="signage-calendar-list">
     {events.map((event, index) => {
       const starts = event.startsAt ? new Date(event.startsAt) : undefined;
       const ends = event.endsAt ? new Date(event.endsAt) : undefined;
