@@ -1414,6 +1414,7 @@ export function SimpleSignage({
           )}
           {tab === "signs" && signDraft && (
             <SignInspector
+              key={signDraft.id || "new-sign"}
               sign={signDraft}
               layouts={layouts}
               playlists={playlists}
@@ -3088,112 +3089,136 @@ function SignInspector({
   onChange: (sign: Sign) => void;
   onDelete: () => void;
 }) {
+  const [section, setSection] = useState<"setup" | "screens">("setup");
   const layout = layouts.find((item) => item.id === sign.layoutId);
   const playlistZones =
     layout?.zones.filter((item) => item.type === "presentation") || [];
   return (
     <div className="simple-inspector">
-      <div className="inspector-tabs">
-        <button className="active">Sign setup</button>
-        <button>Screens</button>
-      </div>
-      <label>
-        Sign name
-        <input
-          value={sign.name}
-          onChange={(event) => onChange({ ...sign, name: event.target.value })}
-        />
-      </label>
-      <section className="inspector-section">
-        <h3>1. Persistent layout</h3>
-        <p>This frame remains in place while its playlists loop.</p>
-        <select
-          value={sign.layoutId}
-          onChange={(event) => {
-            const next = layouts.find((item) => item.id === event.target.value);
-            onChange({
-              ...sign,
-              layoutId: event.target.value,
-              layoutName: next?.name || "",
-              playlistAssignments: {},
-            });
-          }}
+      <div className="inspector-tabs" role="tablist" aria-label="Sign editor sections">
+        <button
+          type="button"
+          className={section === "setup" ? "active" : ""}
+          role="tab"
+          aria-selected={section === "setup"}
+          onClick={() => setSection("setup")}
         >
-          {layouts.map((item) => (
-            <option value={item.id} key={item.id}>
-              {item.name}
-            </option>
-          ))}
-        </select>
-      </section>
-      <section className="inspector-section">
-        <h3>2. Playlist elements</h3>
-        {playlistZones.length ? (
-          playlistZones.map((item) => (
-            <label key={item.id}>
-              {item.title || "Playlist area"}
-              <select
-                value={sign.playlistAssignments[item.id] || ""}
-                onChange={(event) =>
-                  onChange({
-                    ...sign,
-                    playlistAssignments: {
-                      ...sign.playlistAssignments,
-                      [item.id]: event.target.value,
-                    },
-                  })
-                }
-              >
-                <option value="">No playlist</option>
-                {playlists.map((playlist) => (
-                  <option value={playlist.id} key={playlist.id}>
-                    {playlist.name} · {playlist.items.length} items
-                  </option>
-                ))}
-              </select>
-            </label>
-          ))
-        ) : (
-          <p className="inspector-hint">
-            This layout has no playlist element. Edit the layout to add one.
-          </p>
-        )}
-      </section>
-      <section className="inspector-section">
-        <h3>3. Screen assignment</h3>
-        <p>Each screen can show one active Sign.</p>
-        <div className="screen-assignment-list">
-          {screens.map((screen) => {
-            const other = screen.assignedSignageId &&
-              screen.assignedSignageId !== sign.id
-              ? "Currently assigned to another Sign"
-              : undefined;
-            return (
-              <label key={screen.id}>
-                <input
-                  type="checkbox"
-                  checked={sign.screenIds.includes(screen.id)}
-                  onChange={(event) =>
-                    onChange({
-                      ...sign,
-                      screenIds: event.target.checked
-                        ? [...sign.screenIds, screen.id]
-                        : sign.screenIds.filter((id) => id !== screen.id),
-                    })
-                  }
-                />
-                <span>
-                  <strong>{screen.name}</strong>
-                  <small>
-                    {screen.site} · {screen.online ? "Online" : "Offline"}
-                    {other ? ` · ${other}` : ""}
-                  </small>
-                </span>
-              </label>
-            );
-          })}
-        </div>
-      </section>
+          Sign setup
+        </button>
+        <button
+          type="button"
+          className={section === "screens" ? "active" : ""}
+          role="tab"
+          aria-selected={section === "screens"}
+          onClick={() => setSection("screens")}
+        >
+          Screens
+        </button>
+      </div>
+      {section === "setup" ? (
+        <>
+          <label>
+            Sign name
+            <input
+              value={sign.name}
+              onChange={(event) => onChange({ ...sign, name: event.target.value })}
+            />
+          </label>
+          <section className="inspector-section">
+            <h3>1. Persistent layout</h3>
+            <p>This frame remains in place while its playlists loop.</p>
+            <select
+              value={sign.layoutId}
+              onChange={(event) => {
+                const next = layouts.find((item) => item.id === event.target.value);
+                onChange({
+                  ...sign,
+                  layoutId: event.target.value,
+                  layoutName: next?.name || "",
+                  playlistAssignments: {},
+                });
+              }}
+            >
+              {layouts.map((item) => (
+                <option value={item.id} key={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </section>
+          <section className="inspector-section">
+            <h3>2. Playlist elements</h3>
+            {playlistZones.length ? (
+              playlistZones.map((item) => (
+                <label key={item.id}>
+                  {item.title || "Playlist area"}
+                  <select
+                    value={sign.playlistAssignments[item.id] || ""}
+                    onChange={(event) =>
+                      onChange({
+                        ...sign,
+                        playlistAssignments: {
+                          ...sign.playlistAssignments,
+                          [item.id]: event.target.value,
+                        },
+                      })
+                    }
+                  >
+                    <option value="">No playlist</option>
+                    {playlists.map((playlist) => (
+                      <option value={playlist.id} key={playlist.id}>
+                        {playlist.name} · {playlist.items.length} items
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))
+            ) : (
+              <p className="inspector-hint">
+                This layout has no playlist element. Edit the layout to add one.
+              </p>
+            )}
+          </section>
+        </>
+      ) : (
+        <section className="inspector-section">
+          <h3>Screen assignment</h3>
+          <p>Select the screens that should show this Sign.</p>
+          <div className="screen-assignment-list">
+            {screens.length ? screens.map((screen) => {
+              const other = screen.assignedSignageId &&
+                screen.assignedSignageId !== sign.id
+                ? "Currently assigned to another Sign"
+                : undefined;
+              return (
+                <label key={screen.id}>
+                  <input
+                    type="checkbox"
+                    checked={sign.screenIds.includes(screen.id)}
+                    onChange={(event) =>
+                      onChange({
+                        ...sign,
+                        screenIds: event.target.checked
+                          ? [...sign.screenIds, screen.id]
+                          : sign.screenIds.filter((id) => id !== screen.id),
+                      })
+                    }
+                  />
+                  <span>
+                    <strong>{screen.name}</strong>
+                    <small>
+                      {screen.site} · {screen.online ? "Online" : "Offline"}
+                      {other ? ` · ${other}` : ""}
+                    </small>
+                  </span>
+                </label>
+              );
+            }) : (
+              <p className="inspector-hint">No paired screens are available.</p>
+            )}
+          </div>
+        </section>
+      )}
       {sign.id && (
         <button className="simple-danger" onClick={onDelete}>
           Delete sign

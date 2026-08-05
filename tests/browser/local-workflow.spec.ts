@@ -403,6 +403,10 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await acceptActionDialog(page);
   await expect(page.getByText("restored as a new current version", { exact: false })).toBeVisible();
   await expect(page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" })).toContainText("v3");
+  await expect.poll(async () => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    return items.find((item: { fileName: string }) => item.fileName === "browser-test-audio.wav")?.processingStatus;
+  }), { timeout: 30_000 }).toBe("ready");
 
   await page.getByRole("button", { name: "Upload media" }).click();
   const uploadDialog = page.getByRole("dialog", { name: "Upload media" });
@@ -851,9 +855,28 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.locator(".inspector-section").filter({ hasText: "Persistent layout" })
     .locator("select").selectOption({ label: "Browser information frame" });
   await page.getByLabel("Playlist").selectOption({ label: "Browser continuous loop · 2 items" });
+  await page.getByRole("tab", { name: "Screens" }).click();
+  await expect(page.getByRole("heading", { name: "Screen assignment" })).toBeVisible();
   await page.getByLabel("Browser Test TV").check();
   await page.getByRole("button", { name: /Save & update screens/ }).click();
   await expect(page.locator(".toast")).toContainText("Sign saved and assigned screens updated.");
+
+  await page.getByLabel("Open LessonCue navigation").click();
+  const appNavigation = page.getByRole("navigation", { name: "LessonCue navigation" });
+  await appNavigation.getByRole("button", { name: "Screens", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Screens" })).toBeVisible();
+  const screenCards = page.locator(".screen-card");
+  let browserScreenIndex = -1;
+  for (let index = 0; index < await screenCards.count(); index++) {
+    if (await screenCards.nth(index).locator('input[aria-label="Screen name"]').inputValue() === "Browser Test TV") {
+      browserScreenIndex = index;
+      break;
+    }
+  }
+  expect(browserScreenIndex).toBeGreaterThanOrEqual(0);
+  const browserScreenCard = screenCards.nth(browserScreenIndex);
+  await expect(browserScreenCard.getByText("Assigned Screen", { exact: true })).toBeVisible();
+  await browserScreenCard.locator("select").first().selectOption({ label: "Browser lobby sign" });
 
   const simpleSignage = await page.evaluate(async () => {
     const [signs, screens] = await Promise.all([
