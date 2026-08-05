@@ -635,6 +635,7 @@
   place-items: center;
   overflow: hidden;
   border: 2px solid;
+  container-type: size;
   touch-action: none;
   user-select: none;
 }
@@ -652,15 +653,25 @@
   top: 2px;
   font-size: 0.65rem;
 }
-.layout-zone > img {
+.layout-zone-content {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.layout-zone-content > img,
+.layout-zone-content > video {
   width: 100%;
   height: 100%;
 }
-.layout-zone > small {
+.layout-zone-content > small {
   font-size: 0.55em;
   opacity: 0.7;
 }
-.layout-zone > strong {
+.layout-zone-content > strong {
   padding: 0.2rem;
 }
 .layout-resize,
@@ -703,32 +714,124 @@
   place-items: center;
 }
 .zone-weather-preview {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.25em;
+  box-sizing: border-box;
+  padding: 0.35em;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.zone-weather-title {
+  overflow: hidden;
+  color: currentColor;
+  font-size: 0.7em;
+  letter-spacing: 0.11em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.zone-weather-main {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.45em;
-  padding: 0.25em;
-  width: 100%;
+  min-height: 0;
 }
-.zone-weather-preview > i {
+.zone-weather-main > i {
   font-style: normal;
-  font-size: 2.2em;
+  font-size: 3em;
 }
-.zone-weather-preview > span,
-.zone-weather-preview small,
-.zone-weather-preview strong,
-.zone-weather-preview em {
+.zone-weather-main > span,
+.zone-weather-main b,
+.zone-weather-main em {
   display: block;
 }
-.zone-weather-preview small,
-.zone-weather-preview em {
-  font-size: 0.42em;
+.zone-weather-main b {
+  font-size: 2.45em;
+  line-height: 0.9;
+}
+.zone-weather-main em {
+  margin-top: 0.2em;
+  font-size: 0.6em;
   font-style: normal;
   opacity: 0.86;
 }
-.zone-weather-preview strong {
-  font-size: 1.55em;
-  line-height: 1;
+.zone-weather-details {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.25em 0.55em;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  font-size: 0.55em;
+  list-style: none;
+  opacity: 0.88;
+}
+.zone-weather-details li {
+  white-space: nowrap;
+}
+.zone-weather-preview.layout-icon-top .zone-weather-main {
+  flex-direction: column;
+}
+.zone-weather-preview.layout-icon-right .zone-weather-main > i {
+  order: 2;
+}
+.zone-weather-preview.layout-compact {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.zone-weather-preview.layout-compact .zone-weather-details {
+  display: none;
+}
+.zone-calendar-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45em;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0.45em;
+  overflow: hidden;
+  text-align: left;
+}
+.zone-calendar-heading {
+  color: #ffab28;
+  font-size: 0.8em;
+  letter-spacing: 0.13em;
+  line-height: 0.95;
+  text-transform: uppercase;
+}
+.zone-calendar-preview article {
+  display: grid;
+  gap: 0.08em;
+  min-width: 0;
+}
+.zone-calendar-preview article b {
+  overflow: hidden;
+  font-family: inherit;
+  font-size: 0.85em;
+  font-weight: 500;
+  line-height: 1.05;
+  text-decoration: underline;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zone-calendar-preview article time,
+.zone-calendar-preview article small,
+.zone-calendar-preview article p {
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.52em;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zone-calendar-preview article p {
+  white-space: normal;
 }
 .zone-qr {
   position: relative;
@@ -822,7 +925,7 @@
   font-style: normal;
   opacity: 0.8;
 }
-.layout-zone > iframe {
+.layout-zone-content > iframe {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -1720,6 +1823,173 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0.4em;
+}
+.web-player-zone-copy .signage-weather {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.35em;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.web-player-zone-copy .signage-weather-title {
+  overflow: hidden;
+  color: currentColor;
+  font-size: 0.72em;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.signage-weather-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65em;
+  min-height: 0;
+  overflow: hidden;
+}
+.signage-weather-icon {
+  flex: 0 0 auto;
+  font-size: 3.5em;
+  line-height: 0.9;
+}
+.signage-weather-icon.white {
+  filter: grayscale(1) brightness(0) invert(1);
+}
+.signage-weather-reading {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+}
+.signage-weather-temperature {
+  margin: 0 !important;
+  font-family: Georgia, serif;
+  font-size: 3.1em !important;
+  line-height: 0.9 !important;
+  white-space: nowrap;
+}
+.signage-weather-conditions {
+  margin-top: 0.28em;
+  overflow: hidden;
+  font-size: 0.78em;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.web-player-zone-copy .signage-weather-details {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.3em 0.65em;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  color: currentColor;
+  font-size: 0.62em;
+  list-style: none;
+  opacity: 0.9;
+}
+.signage-weather-details li {
+  white-space: nowrap;
+}
+.signage-weather.layout-icon-top .signage-weather-main {
+  flex-direction: column;
+}
+.signage-weather.layout-icon-right .signage-weather-icon {
+  order: 2;
+}
+.signage-weather.layout-compact {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.signage-weather.layout-compact .signage-weather-details {
+  display: none;
+}
+.web-player-zone-copy .signage-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55em;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  text-align: left;
+}
+.web-player-zone-copy .signage-calendar-heading {
+  flex: 0 0 auto;
+  overflow: hidden;
+  color: var(--signage-accent, currentColor);
+  font-size: 0.82em;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  line-height: 0.95;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+}
+.web-player-zone-copy .signage-calendar-list {
+  display: grid;
+  grid-auto-rows: minmax(0, 1fr);
+  flex: 1 1 auto;
+  gap: 0.65em;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+.signage-calendar-list li {
+  display: grid;
+  gap: 0.12em;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  padding: 0;
+  overflow: hidden;
+  white-space: normal;
+}
+.signage-calendar-list li > b {
+  margin: 0;
+  overflow: hidden;
+  color: currentColor;
+  font-family: inherit;
+  font-size: 1.05em;
+  font-weight: 500;
+  line-height: 1.05;
+  text-decoration: underline;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.signage-calendar-list time {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35em;
+  overflow: hidden;
+  font-size: 0.66em;
+  line-height: 1.1;
+}
+.signage-calendar-description,
+.signage-calendar-location {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  font-size: 0.62em;
+  line-height: 1.15;
+  opacity: 0.84;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.signage-calendar-location {
+  display: block;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .web-player-zone-copy.ticker {
   width: max-content;

@@ -21,7 +21,7 @@ type Zone = {
   x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string;
   refreshMinutes: number; rotation: number; zIndex: number; opacity: number; fit: string; locked: boolean; hidden: boolean;
   flipX: boolean; flipY: boolean; groupId?: string; lockMode?: "none" | "position" | "content" | "full";
-  fontFamily?: string; fontSize?: number; fontWeight?: number; italic?: boolean; underline?: boolean;
+  fontFamily?: string; fontSize?: number; fontScalePercent?: number; fontWeight?: number; italic?: boolean; underline?: boolean;
   lineHeightPercent?: number; textAlign?: string; shape?: string; strokeColor?: string; strokeWidth?: number;
   cornerRadius?: number; iconName?: string; qrValue?: string; tickerSpeed?: number; counterTargetAt?: string;
   qrLabelTop?: string; qrLabelBottom?: string; qrLabelLeft?: string; qrLabelRight?: string;
@@ -33,6 +33,8 @@ type Zone = {
   weatherProvider?: "open-meteo" | "nws" | "custom";
   weatherLocation?: string; weatherLatitude?: number; weatherLongitude?: number;
   weatherPostalCode?: string; weatherUnits?: "fahrenheit" | "celsius"; weatherFields?: string;
+  weatherIconStyle?: "color" | "white"; weatherLayout?: "icon-top" | "icon-left" | "icon-right" | "compact";
+  calendarMaxItems?: number; calendarFields?: string;
   contentPlaylistId?: string; streamOverrideWhenLive?: boolean;
   richTextJson?: string;
 };
@@ -89,8 +91,19 @@ const WEATHER_FIELDS = [
   ["precipitation", "Precipitation chance"], ["humidity", "Humidity"], ["wind", "Wind"]
 ] as const;
 
+const CALENDAR_FIELDS = [
+  ["title", "Event title"], ["date", "Date"], ["time", "Time"],
+  ["description", "Description"], ["location", "Location"]
+] as const;
+
 const weatherFieldSet = (zone: Zone) =>
   new Set((zone.weatherFields || "icon,conditions,temperature,high,low,precipitation").split(",").filter(Boolean));
+const calendarFieldSet = (zone: Zone) =>
+  new Set((zone.calendarFields || "date,time,title").split(",").map(value => value.trim().toLowerCase()).filter(Boolean));
+const relativeElementFontSize = (zone: Pick<Zone, "fontScalePercent">) => {
+  const scale = Math.max(1, Math.min(40, zone.fontScalePercent ?? 8));
+  return `min(${scale}cqw, ${scale}cqh)`;
+};
 
 function parseWifiQr(value?: string) {
   const pick = (key: string) => value?.match(new RegExp(`${key}:((?:\\\\.|[^;])*)`))?.[1]
@@ -237,17 +250,21 @@ function freshZone(type = "text"): Zone {
     id: id(), type, title: type === "text" ? "Text" : type, content: type === "text" ? "New message" : "",
     x: 10, y: 10, width: 40, height: 30, backgroundColor: "#17201e", textColor: "#ffffff", accentColor: "#d89127",
     refreshMinutes: 15, rotation: 0, zIndex: 1, opacity: 100, fit: "cover", locked: false, hidden: false,
-    flipX: false, flipY: false, lockMode: "none", fontFamily: "system-ui", fontSize: 48, fontWeight: 600,
+    flipX: false, flipY: false, lockMode: "none", fontFamily: "system-ui", fontScalePercent: 8, fontWeight: 600,
     lineHeightPercent: 120, textAlign: "left", shape: "rectangle", strokeColor: "#ffffff", strokeWidth: 0,
     cornerRadius: 0, tickerSpeed: 60
   };
   if (type === "weather") Object.assign(zone, {
     title: "Local weather", weatherProvider: "open-meteo", weatherLocation: "Your location",
-    weatherUnits: "fahrenheit", weatherFields: "icon,conditions,temperature,high,low,precipitation"
+    weatherUnits: "fahrenheit", weatherFields: "icon,conditions,temperature,high,low,humidity,wind",
+    weatherIconStyle: "color", weatherLayout: "icon-left"
+  });
+  if (type === "calendar") Object.assign(zone, {
+    title: "Upcoming events", calendarMaxItems: 4, calendarFields: "date,time,title"
   });
   if (type === "clock") Object.assign(zone, {
     title: "Time and date", clockDisplay: "both", clockTimeFormat: "12h", clockDateFormat: "long",
-    clockOrder: "time-date", clockTimeFontSize: 64, clockDateFontSize: 28
+    clockOrder: "time-date"
   });
   if (type === "presentation") Object.assign(zone, {
     title: "Presentation area", content: "Select a signage playlist"
@@ -268,8 +285,16 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
   const [safeArea, setSafeArea] = useState(layout?.safeAreaPercent ?? 5);
   const [isTemplate, setIsTemplate] = useState(layout?.isTemplate || false);
   const [audioId, setAudioId] = useState(layout?.backgroundAudioAssetId || "");
-  const [zones, setZones] = useState<Zone[]>(() => (layout?.zones || []).map(zone =>
-    ZONE_TYPES.some(([type]) => type === zone.type) ? zone : { ...zone, type: "text" }));
+  const [zones, setZones] = useState<Zone[]>(() => (layout?.zones || []).map(zone => {
+    const normalizedType = ZONE_TYPES.some(([type]) => type === zone.type) ? zone.type : "text";
+    return {
+      ...zone,
+      type: normalizedType,
+      fontScalePercent: zone.fontScalePercent ?? 8,
+      calendarMaxItems: normalizedType === "calendar" && !zone.calendarMaxItems ? 4 : zone.calendarMaxItems,
+      calendarFields: normalizedType === "calendar" ? zone.calendarFields || "date,time,title" : zone.calendarFields,
+    };
+  }));
   const [selected, setSelected] = useState<string[]>([]);
   const [history, setHistory] = useState<Zone[][]>([]);
   const [future, setFuture] = useState<Zone[][]>([]);
@@ -316,7 +341,7 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
     const zoneId = (name: string) => persist ? id() : `information-frame-preview-${name}`;
     const main = { ...freshZone("presentation"), id: zoneId("presentation"), title: "Presentation area",
       content: "Select a signage playlist; an optional live stream can override it", x: 0, y: 0, width: mainPercent,
-      height: mainPercent, backgroundColor: "#171c1b", accentColor: frameColor, fontSize: 30, zIndex: 1 };
+      height: mainPercent, backgroundColor: "#171c1b", accentColor: frameColor, fontScalePercent: 8, zIndex: 1 };
     framed.push(main);
     const farRightBottomColor = (bottomSlots - 1) % 2 ? frameColor : frameAltColor;
     const bottomSidebarColor = farRightBottomColor === frameColor ? frameAltColor : frameColor;
@@ -328,7 +353,7 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
         content: index === 0 ? "Connect a calendar or enter event information" : index === 1 ? "" : "Add a message",
         x: mainPercent, y: index * mainPercent / sidebarSlots, width: framePercent,
         height: mainPercent / sidebarSlots, backgroundColor: sidebarColor, accentColor: "#d89127",
-        fontSize: 26, zIndex: index + 2 });
+        fontScalePercent: 8, zIndex: index + 2 });
     }
     const suggestions = ["weather", "wifi", "rss", "text", "qr"];
     for (let index = 0; index < bottomSlots; index++) {
@@ -340,7 +365,7 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
         content: type === "rss" ? "Connect a news source" : type === "text" ? "Add a message" : zone.content,
         x: index * 100 / bottomSlots, y: mainPercent, width: 100 / bottomSlots, height: framePercent,
         backgroundColor: index % 2 ? frameColor : frameAltColor, accentColor: "#d89127",
-        fontSize: 28, zIndex: sidebarSlots + index + 2 });
+        fontScalePercent: 8, zIndex: sidebarSlots + index + 2 });
     }
     return framed;
   }
@@ -636,10 +661,13 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
             style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`,
               background: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, opacity: zone.opacity / 100,
               zIndex: zone.zIndex, transform: `rotate(${zone.rotation}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`,
-              borderRadius: `${zone.cornerRadius || 0}%`, fontFamily: zone.fontFamily, fontSize: `${Math.max(8, (zone.fontSize || 48) * zoom / 140)}px`,
+              borderRadius: `${zone.cornerRadius || 0}%`, fontFamily: zone.fontFamily,
+              ["--signage-accent" as string]: zone.accentColor,
               fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined,
               textAlign: zone.textAlign as CSSProperties["textAlign"], lineHeight: (zone.lineHeightPercent || 120) / 100 }}>
-            <ZoneVisual zone={zone} media={media} playlists={playlists} />
+            <div className="layout-zone-content" style={{ fontSize: relativeElementFontSize(zone) }}>
+              <ZoneVisual zone={zone} media={media} playlists={playlists} />
+            </div>
             {!showFrameBuilder && selected.includes(zone.id) && zone.lockMode !== "position" && zone.lockMode !== "full" && !zone.locked && <>
               <i className="layout-resize" onPointerDown={event => gesture(event, zone, "resize")} />
               <i className="layout-rotate" onPointerDown={event => gesture(event, zone, "rotate")} />
@@ -689,10 +717,12 @@ function LayoutEditor({ layout, templates, layouts, media, playlists, onClose, o
           className={`layout-zone ${zone.type}`} style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`,
             height: `${zone.height}%`, background: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor,
             opacity: zone.opacity / 100, zIndex: zone.zIndex, transform: `rotate(${zone.rotation}deg)`,
-            borderRadius: `${zone.cornerRadius || 0}%`, fontFamily: zone.fontFamily,
-            fontSize: `${Math.max(8, zone.fontSize || 48)}px`, fontWeight: zone.fontWeight,
+            borderRadius: `${zone.cornerRadius || 0}%`, fontFamily: zone.fontFamily, fontWeight: zone.fontWeight,
+            ["--signage-accent" as string]: zone.accentColor,
             textAlign: zone.textAlign as CSSProperties["textAlign"], lineHeight: (zone.lineHeightPercent || 120) / 100 }}>
-          <ZoneVisual zone={zone} media={media} playlists={playlists} />
+          <div className="layout-zone-content" style={{ fontSize: relativeElementFontSize(zone) }}>
+            <ZoneVisual zone={zone} media={media} playlists={playlists} />
+          </div>
         </div>)}
       </div>
       <div className="layout-editor-footer"><span>This preview uses the current unsaved draft.</span><span className="toolbar-spacer" />
@@ -723,13 +753,35 @@ function ZoneVisual({ zone, media, playlists }: { zone: Zone; media: StudioMedia
   if (zone.type === "clock") return <StudioClock zone={zone} />;
   if (zone.type === "weather") {
     const fields = weatherFieldSet(zone);
-    return <span className="zone-weather-preview">
-      {fields.has("icon") && <i aria-hidden="true">🌤️</i>}
-      <span><small>{zone.weatherLocation || zone.title || "Local weather"}</small>
-        {fields.has("temperature") && <strong>{zone.weatherUnits === "celsius" ? "21°C" : "70°F"}</strong>}
-        <em>{fields.has("conditions") ? "Partly cloudy" : ""}{fields.has("high") || fields.has("low") ? ` · H ${zone.weatherUnits === "celsius" ? "24°" : "75°"} · L ${zone.weatherUnits === "celsius" ? "15°" : "59°"}` : ""}</em>
-      </span>
-    </span>;
+    const unit = zone.weatherUnits === "celsius" ? "°C" : "°F";
+    return <div className={`zone-weather-preview layout-${zone.weatherLayout || "icon-left"}`}>
+      <strong className="zone-weather-title">{zone.weatherLocation || zone.title || "Local weather"}</strong>
+      <div className="zone-weather-main">
+        {fields.has("icon") && <i aria-hidden="true">☀️</i>}
+        <span><b>{fields.has("temperature") ? `70${unit}` : "Weather"}</b>
+          {fields.has("conditions") && <em>Sunny</em>}</span>
+      </div>
+      {(fields.has("high") || fields.has("low") || fields.has("humidity") || fields.has("wind")) &&
+        <ul className="zone-weather-details">
+          {fields.has("humidity") && <li>50%</li>}
+          {fields.has("high") && <li>H 75°</li>}
+          {fields.has("low") && <li>L 59°</li>}
+          {fields.has("wind") && <li>5 mph</li>}
+        </ul>}
+    </div>;
+  }
+  if (zone.type === "calendar") {
+    const fields = calendarFieldSet(zone);
+    const count = Math.max(1, Math.min(20, zone.calendarMaxItems || 4));
+    return <div className="zone-calendar-preview">
+      <strong className="zone-calendar-heading">{zone.title || "Upcoming events"}</strong>
+      {Array.from({ length: count }, (_, index) => <article key={index}>
+        {fields.has("title") && <b>Event Title</b>}
+        {(fields.has("date") || fields.has("time")) && <time>{fields.has("date") && "August 1"}{fields.has("date") && fields.has("time") && " · "}{fields.has("time") && "7:00pm–10:00pm"}</time>}
+        {fields.has("description") && <p>Event details appear here.</p>}
+        {fields.has("location") && <small>Room or location</small>}
+      </article>)}
+    </div>;
   }
   if (zone.type === "qr" || zone.type === "wifi") return <StudioQr zone={zone} />;
   if (zone.type === "counter") return <StudioCounter target={zone.counterTargetAt}
@@ -818,10 +870,8 @@ function StudioClock({ zone }: { zone: Zone }) {
         : { weekday: "long", month: "long", day: "numeric", year: "numeric" };
   const date = now.toLocaleDateString([], dateOptions);
   const parts = [];
-  if (zone.clockDisplay !== "date") parts.push(<b className="clock-time" key="time"
-    style={{ fontSize: `${(zone.clockTimeFontSize || 64) / 48}em` }}>{time}</b>);
-  if (zone.clockDisplay !== "time") parts.push(<span className="clock-date" key="date"
-    style={{ fontSize: `${(zone.clockDateFontSize || 28) / 48}em` }}>{date}</span>);
+  if (zone.clockDisplay !== "date") parts.push(<b className="clock-time" key="time">{time}</b>);
+  if (zone.clockDisplay !== "time") parts.push(<span className="clock-date" key="date">{date}</span>);
   if (zone.clockOrder === "date-time") parts.reverse();
   return <span className={`zone-clock ${zone.clockOrder === "inline" ? "inline" : ""}`}>{parts}</span>;
 }
@@ -875,6 +925,8 @@ function ZoneInspector({ zone, media, playlists, onPatch, onDelete, onDuplicate 
         placeholder="98225" /><small>Enter a postal code, or use exact coordinates below.</small></label>}
       <div className="inspector-grid"><label>Latitude<input disabled={contentLocked} type="number" min="-90" max="90" step="0.0001" value={zone.weatherLatitude ?? ""} onChange={event => onPatch({ weatherLatitude: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="48.7519" /></label><label>Longitude<input disabled={contentLocked} type="number" min="-180" max="180" step="0.0001" value={zone.weatherLongitude ?? ""} onChange={event => onPatch({ weatherLongitude: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="-122.4787" /></label></div>
       <label>Units <select disabled={contentLocked} value={zone.weatherUnits || "fahrenheit"} onChange={event => onPatch({ weatherUnits: event.target.value as Zone["weatherUnits"] })}><option value="fahrenheit">Fahrenheit</option><option value="celsius">Celsius</option></select></label>
+      <label>Layout <select disabled={contentLocked} value={zone.weatherLayout || "icon-left"} onChange={event => onPatch({ weatherLayout: event.target.value as Zone["weatherLayout"] })}><option value="icon-left">Icon left · horizontal</option><option value="icon-top">Icon above · stacked</option><option value="icon-right">Icon right · horizontal</option><option value="compact">Compact</option></select></label>
+      <label>Icon style <select disabled={contentLocked} value={zone.weatherIconStyle || "color"} onChange={event => onPatch({ weatherIconStyle: event.target.value as Zone["weatherIconStyle"] })}><option value="color">Color</option><option value="white">White</option></select></label>
       <div className="weather-field-grid">{WEATHER_FIELDS.map(([value, label]) => <label key={value}><input disabled={contentLocked} type="checkbox" checked={weatherFields.has(value)} onChange={event => patchWeatherField(value, event.target.checked)} /> {label}</label>)}</div>
       <small>Weather is fetched by the local LessonCue server and cached for displays. No browser or display receives an API credential.</small>
     </fieldset>}
@@ -895,6 +947,14 @@ function ZoneInspector({ zone, media, playlists, onPatch, onDelete, onDuplicate 
       onChange={event => onPatch({ sourceUrl: event.target.value })}
       placeholder={zone.type === "stream" ? "rtmp://…, rtsp://…, or https://…" : zone.type === "calendar" ? "https://calendar.example.org/events.ics" : "https://…"} />
       {zone.type === "calendar" && <small>Paste an approved iCalendar (.ics) feed. LessonCue refreshes upcoming event summaries locally for every display.</small>}</label>}
+    {zone.type === "calendar" && <fieldset className="weather-settings"><legend>Calendar display</legend>
+      <label>Maximum events <input disabled={contentLocked} type="number" min="1" max="20" value={zone.calendarMaxItems || 4} onChange={event => onPatch({ calendarMaxItems: Math.max(1, Math.min(20, Number(event.target.value) || 4)) })} /></label>
+      <div className="weather-field-grid">{CALENDAR_FIELDS.map(([value, label]) => <label key={value}><input disabled={contentLocked} type="checkbox" checked={calendarFieldSet(zone).has(value)} onChange={event => {
+        const next = calendarFieldSet(zone); if (event.target.checked) next.add(value); else next.delete(value);
+        onPatch({ calendarFields: [...next].join(",") });
+      }} /> {label}</label>)}</div>
+      <small>Descriptions are optional and stay hidden by default to keep the event list compact.</small>
+    </fieldset>}
     {online && zone.type !== "stream" && (zone.type !== "weather" || zone.weatherProvider === "custom") && <label>Server credential key <input disabled={contentLocked} value={zone.credentialKey || ""} onChange={event => onPatch({ credentialKey: event.target.value || undefined })} placeholder="Optional saved key" /></label>}
     {zone.type === "qr" && <label>QR destination<input disabled={contentLocked} value={zone.qrValue || ""} onChange={event => onPatch({ qrValue: event.target.value })} placeholder="https://…" /></label>}
     {zone.type === "wifi" && <fieldset className="weather-settings"><legend>Wi-Fi QR code</legend>
@@ -924,13 +984,13 @@ function ZoneInspector({ zone, media, playlists, onPatch, onDelete, onDuplicate 
       <label>Time format<select disabled={contentLocked} value={zone.clockTimeFormat || "12h"} onChange={event => onPatch({ clockTimeFormat: event.target.value as Zone["clockTimeFormat"] })}><option value="12h">12-hour</option><option value="12h-seconds">12-hour with seconds</option><option value="24h">24-hour</option><option value="24h-seconds">24-hour with seconds</option></select></label>
       <label>Date format<select disabled={contentLocked} value={zone.clockDateFormat || "long"} onChange={event => onPatch({ clockDateFormat: event.target.value as Zone["clockDateFormat"] })}><option value="long">Long · Saturday, July 25, 2026</option><option value="medium">Medium · Sat, Jul 25</option><option value="short">Short · Jul 25</option><option value="numeric">Numeric · 07/25/2026</option></select></label>
       <label>Order<select disabled={contentLocked} value={zone.clockOrder || "time-date"} onChange={event => onPatch({ clockOrder: event.target.value as Zone["clockOrder"] })}><option value="time-date">Time above date</option><option value="date-time">Date above time</option><option value="inline">Time and date side by side</option></select></label>
-      <div className="inspector-grid"><label>Time size<input disabled={contentLocked} type="number" min="8" max="300" value={zone.clockTimeFontSize || 64} onChange={event => onPatch({ clockTimeFontSize: Number(event.target.value) })} /></label><label>Date size<input disabled={contentLocked} type="number" min="8" max="300" value={zone.clockDateFontSize || 28} onChange={event => onPatch({ clockDateFontSize: Number(event.target.value) })} /></label></div>
+      <small>Time and date scale automatically with this panel. Resize the panel to change their visual size.</small>
     </fieldset>}
     {zone.type === "customHtml" && <small className="credential-note">Custom HTML runs in an isolated frame with scripts, forms, and network requests enabled. Remote requests still follow the destination server’s CORS policy.</small>}
     {zone.type === "ticker" && <label>Speed <input disabled={contentLocked} type="range" min="10" max="300" value={zone.tickerSpeed || 60} onChange={event => onPatch({ tickerSpeed: Number(event.target.value) })} /></label>}
-    <div className="inspector-grid"><label>X<input disabled={positionLocked} type="number" value={zone.x} onChange={event => onPatch({ x: Number(event.target.value) })} /></label><label>Y<input disabled={positionLocked} type="number" value={zone.y} onChange={event => onPatch({ y: Number(event.target.value) })} /></label><label>W<input disabled={positionLocked} type="number" value={zone.width} onChange={event => onPatch({ width: Number(event.target.value) })} /></label><label>H<input disabled={positionLocked} type="number" value={zone.height} onChange={event => onPatch({ height: Number(event.target.value) })} /></label><label>°<input disabled={positionLocked} type="number" min="-180" max="180" value={zone.rotation} onChange={event => onPatch({ rotation: Number(event.target.value) })} /></label><label>Opacity<input disabled={fullyLocked} type="number" min="0" max="100" value={zone.opacity} onChange={event => onPatch({ opacity: Number(event.target.value) })} /></label></div>
+    <div className="inspector-grid"><label>X (%)<input disabled={positionLocked} type="number" value={zone.x} onChange={event => onPatch({ x: Number(event.target.value) })} /></label><label>Y (%)<input disabled={positionLocked} type="number" value={zone.y} onChange={event => onPatch({ y: Number(event.target.value) })} /></label><label>W (%)<input disabled={positionLocked} type="number" value={zone.width} onChange={event => onPatch({ width: Number(event.target.value) })} /></label><label>H (%)<input disabled={positionLocked} type="number" value={zone.height} onChange={event => onPatch({ height: Number(event.target.value) })} /></label><label>°<input disabled={positionLocked} type="number" min="-180" max="180" value={zone.rotation} onChange={event => onPatch({ rotation: Number(event.target.value) })} /></label><label>Opacity<input disabled={fullyLocked} type="number" min="0" max="100" value={zone.opacity} onChange={event => onPatch({ opacity: Number(event.target.value) })} /></label></div>
     <div className="inspector-grid"><label>Background<input disabled={fullyLocked} type="color" value={zone.backgroundColor} onChange={event => onPatch({ backgroundColor: event.target.value })} /></label><label>Text<input disabled={fullyLocked} type="color" value={zone.textColor} onChange={event => onPatch({ textColor: event.target.value })} /></label><label>Border<input disabled={fullyLocked} type="color" value={zone.accentColor || "#d89127"} onChange={event => onPatch({ accentColor: event.target.value })} /></label><label>Radius<input disabled={fullyLocked} type="number" min="0" max="100" value={zone.cornerRadius || 0} onChange={event => onPatch({ cornerRadius: Number(event.target.value) })} /></label></div>
-    {!['media','presentation','stream','webpage','customHtml'].includes(zone.type) && <><label>Font <select value={zone.fontFamily || "system-ui"} onChange={event => onPatch({ fontFamily: event.target.value })}><option value="system-ui">System</option><option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="monospace">Monospace</option></select></label><div className="inspector-grid"><label>Size<input type="number" min="8" max="300" value={zone.fontSize || 48} onChange={event => onPatch({ fontSize: Number(event.target.value) })} /></label><label>Weight<input type="number" min="100" max="900" step="100" value={zone.fontWeight || 600} onChange={event => onPatch({ fontWeight: Number(event.target.value) })} /></label><label>Align<select value={zone.textAlign || "left"} onChange={event => onPatch({ textAlign: event.target.value })}><option>left</option><option>center</option><option>right</option><option>justify</option></select></label><label>Line %<input type="number" min="80" max="300" value={zone.lineHeightPercent || 120} onChange={event => onPatch({ lineHeightPercent: Number(event.target.value) })} /></label></div><div className="inline-checks"><label><input type="checkbox" checked={zone.italic || false} onChange={event => onPatch({ italic: event.target.checked })} /> Italic</label><label><input type="checkbox" checked={zone.underline || false} onChange={event => onPatch({ underline: event.target.checked })} /> Underline</label></div></>}
+    {!['media','presentation','stream','webpage','customHtml'].includes(zone.type) && <><label>Font <select value={zone.fontFamily || "system-ui"} onChange={event => onPatch({ fontFamily: event.target.value })}><option value="system-ui">System</option><option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="monospace">Monospace</option></select></label><div className="inspector-grid"><label>Text scale (%)<input type="number" min="1" max="40" step="0.5" value={zone.fontScalePercent || 8} onChange={event => onPatch({ fontScalePercent: Math.max(1, Math.min(40, Number(event.target.value) || 8)) })} /></label><label>Weight<input type="number" min="100" max="900" step="100" value={zone.fontWeight || 600} onChange={event => onPatch({ fontWeight: Number(event.target.value) })} /></label><label>Align<select value={zone.textAlign || "left"} onChange={event => onPatch({ textAlign: event.target.value })}><option>left</option><option>center</option><option>right</option><option>justify</option></select></label><label>Line %<input type="number" min="80" max="300" value={zone.lineHeightPercent || 120} onChange={event => onPatch({ lineHeightPercent: Number(event.target.value) })} /></label></div><small>Text uses this percentage of the panel’s smaller dimension, so it stays proportional when the panel is resized.</small><div className="inline-checks"><label><input type="checkbox" checked={zone.italic || false} onChange={event => onPatch({ italic: event.target.checked })} /> Italic</label><label><input type="checkbox" checked={zone.underline || false} onChange={event => onPatch({ underline: event.target.checked })} /> Underline</label></div></>}
     <label>Lock <select value={zone.lockMode || (zone.locked ? "position" : "none")} onChange={event => onPatch({ lockMode: event.target.value as Zone["lockMode"], locked: false })}><option value="none">Unlocked</option><option value="position">Position and size</option><option value="content">Content</option><option value="full">Everything</option></select></label>
     <div className="inline-checks"><label><input disabled={fullyLocked} type="checkbox" checked={zone.hidden} onChange={event => onPatch({ hidden: event.target.checked })} /> Hidden</label><label><input disabled={positionLocked} type="checkbox" checked={zone.flipX} onChange={event => onPatch({ flipX: event.target.checked })} /> Flip X</label><label><input disabled={positionLocked} type="checkbox" checked={zone.flipY} onChange={event => onPatch({ flipY: event.target.checked })} /> Flip Y</label></div>
     <div className="studio-card-actions"><button disabled={fullyLocked} onClick={onDuplicate}>Duplicate</button><button disabled={fullyLocked} className="danger" onClick={onDelete}>Delete selected</button></div>

@@ -4,6 +4,20 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.32 — responsive signage elements and calendar descriptions
+
+### User changes
+
+- Signage elements now scale typography and widget content from the panel dimensions, so resizing a panel preserves its proportions.
+- Weather elements use a responsive information-card layout with icon placement, icon color, and detail controls.
+- Calendar elements use a compact upcoming-events layout with optional date, time, location, and description fields. Descriptions are hidden by default and can be enabled in element settings.
+
+### Developer changes
+
+- Added panel-relative container sizing to both signage editors and the live display renderer.
+- Preserved calendar descriptions from iCalendar feeds and added browser coverage for responsive rendering and opt-in descriptions.
+- Release metadata advances to 0.40.32 and Android version code 91.
+
 ## v0.40.31 — reliable signage drag-and-drop and release packaging
 
 ### User changes

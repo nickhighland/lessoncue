@@ -124,6 +124,9 @@ public sealed class SignageLayoutTests
     [Fact]
     public void NormalizesMediaWifiClockAndCalendarDisplayControls()
     {
+        var scalable = SignageLayout.Normalize(new SignageZoneInput("message", "text", FontScalePercent: 99));
+        Assert.Equal(40, scalable.FontScalePercent);
+
         var media = SignageLayout.Normalize(new SignageZoneInput("logo", "media", MediaScale: 999,
             MediaOffsetX: -999, MediaOffsetY: 999, MediaAllowOverflow: true));
         Assert.Equal(400, media.MediaScale);
@@ -139,6 +142,13 @@ public sealed class SignageLayoutTests
             CalendarMaxItems: 99, CalendarFields: "title,description,location,unsafe"));
         Assert.Equal(20, calendar.CalendarMaxItems);
         Assert.Equal("title,description,location", calendar.CalendarFields);
+
+        var compactCalendar = SignageLayout.Normalize(new SignageZoneInput("compact-events", "calendar",
+            CalendarFields: "title,date,time"));
+        Assert.DoesNotContain("description", compactCalendar.CalendarFields);
+
+        var weather = SignageLayout.Normalize(new SignageZoneInput("weather", "weather"));
+        Assert.Equal("icon-left", weather.WeatherLayout);
     }
 
     [Fact]

@@ -67,6 +67,7 @@ public static class SignageLayout
             RichTextJson = Truncate(zone.RichTextJson, 12000),
             FontFamily = Truncate(zone.FontFamily, 80) ?? "system-ui",
             FontSize = Math.Clamp(zone.FontSize, 8, 300),
+            FontScalePercent = Math.Clamp(zone.FontScalePercent, 1, 40),
             FontWeight = Math.Clamp(zone.FontWeight, 100, 900),
             LineHeightPercent = Math.Clamp(zone.LineHeightPercent, 80, 300),
             TextAlign = zone.TextAlign is "center" or "right" or "justify" ? zone.TextAlign : "left",
@@ -121,7 +122,7 @@ public static class SignageLayout
             WifiHidden = type == "wifi" && zone.WifiHidden,
             WeatherIconStyle = type == "weather" && zone.WeatherIconStyle == "white" ? "white" : type == "weather" ? "color" : null,
             WeatherLayout = type == "weather" && zone.WeatherLayout is "icon-left" or "icon-right" or "compact"
-                ? zone.WeatherLayout : type == "weather" ? "icon-top" : null,
+                ? zone.WeatherLayout : type == "weather" ? "icon-left" : null,
             WeatherIconSize = Math.Clamp(zone.WeatherIconSize, 16, 220),
             WeatherTitleSize = Math.Clamp(zone.WeatherTitleSize, 8, 120),
             WeatherTemperatureSize = Math.Clamp(zone.WeatherTemperatureSize, 12, 220),
