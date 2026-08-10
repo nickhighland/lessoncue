@@ -4,7 +4,7 @@
 
 LessonCue is a self-hosted lesson scheduling and television playback system for schools, churches, training programs, and other learning organizations. Administrators build dated media playlists in a browser; paired Android TV, Google TV, and Fire TV clients cache their assignments and keep playing when the network is unavailable. Computers and projectors use the paired full-screen browser player.
 
-[Installation guide](docs/installation.md) · [Accounts and registration](docs/account-self-service.md) · [Local network security](docs/local-network-security.md) · [Accessibility acceptance](docs/accessibility.md) · [Run-of-show planning](docs/run-of-show.md) · [Audience interaction](docs/audience-interaction.md) · [Signage scheduling](docs/signage.md) · [Browser player](docs/browser-player.md) · [Display compatibility](docs/display-compatibility.md) · [Implementation guide](docs/implementation.md) · [Protocol contract](docs/protocol-contract.md) · [Feature roadmap](docs/feature-roadmap.md) · [Brand assets](branding/README.md)
+[Installation guide](docs/installation.md) · [Accounts and registration](docs/account-self-service.md) · [Local network security](docs/local-network-security.md) · [Accessibility acceptance](docs/accessibility.md) · [Run-of-show planning](docs/run-of-show.md) · [Audience interaction](docs/audience-interaction.md) · [Signage scheduling](docs/signage.md) · [Browser player](docs/browser-player.md) · [Display compatibility](docs/display-compatibility.md) · [Implementation guide](docs/implementation.md) · [Protocol contract](docs/protocol-contract.md) · [Feature roadmap](docs/feature-roadmap.md) · [AI UI evaluation brief](docs/ai-ui-evaluation-brief.md) · [Brand assets](branding/README.md)
 
 ## What is included
 

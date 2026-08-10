@@ -19,6 +19,8 @@ The run has four equal goals:
 
 An automated assertion is evidence, not the whole result. A green API response does not prove that the screen looks good. A good screenshot does not prove that the saved state survives a restart. Verify important outcomes through at least two of UI state, display output, API state, persisted state, logs, or media inspection.
 
+For a focused interface audit, use the companion [AI user-centered UI evaluation brief](ai-ui-evaluation-brief.md). It carries the same evidence-first rules while giving the evaluator a persona-based workflow, visual/usability observation rubric, known Settings requirements, and a concise handoff prompt.
+
 ## 2. Non-negotiable operator rules
 
 ### 2.1 Authorization and isolation

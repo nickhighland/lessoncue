@@ -2,6 +2,40 @@
 
 This roadmap is the authoritative order of work for LessonCue. Reliability, recoverability, security, and an honest supported-platform contract now take precedence over adding more product surface. Completed release history is retained below for context, but historical claims do not override the current priorities and platform decision.
 
+## Master TODO — outstanding and newly identified user experience work
+
+This is the top-level queue for the next UI/product-quality pass. Items below are intentionally limited to work that is new, still unaccomplished, or needs direct user-evidence validation. The previously requested Settings layout changes are listed separately so they remain visible without being mistaken for new recommendations. Move completed items to the implemented history only after the stated acceptance evidence exists.
+
+### Evaluation and evidence gate
+
+- [ ] **Run the advanced AI user-centered UI evaluation** using [the evaluation brief](ai-ui-evaluation-brief.md) and the full real-use playbook. Capture timings, step counts, screenshots, accessibility observations, responsive/TV evidence, and a prioritized finding set before implementing speculative UI changes.
+- [ ] **Create a dynamic UI coverage inventory** at the start of the evaluation: navigation by role, settings cards, dialogs, empty/loading/error states, media types, signage elements, controller actions, and Android TV input paths. Explain every discovered surface that is not exercised.
+- [ ] **Turn evidence into a ranked implementation queue** with separate defect, workflow, comprehension, accessibility, visual, reliability, feature, and delight findings. Include acceptance criteria and a “do not build yet” list.
+
+### Existing requested Settings work still outstanding
+
+- [ ] Make every Settings panel collapsible/expandable from a clear top-right control and preserve a predictable state after navigation or reload.
+- [ ] Split Registration, Email Settings, and Registration Codes into distinct sections with independent headings, help text, validation, and save behavior.
+- [ ] Place Authenticator MFA beside Preview Features.
+- [ ] Place Adaptive TV Playback beside Storage Allocation, beneath Upload Limits.
+
+### New or unaccomplished product/UI work
+
+- [ ] **Make first-run readiness actionable:** add a guided checklist for storage, converter availability, hostname, pairing, display readiness, and updates; each failed check must link directly to the fix and show when the system becomes ready.
+- [ ] **Improve Audience empty and live states:** guide the operator through “Create poll → Open session → Share QR code,” then show QR copy/download, participant/session status, response counts, moderation state, and close-session recovery in one coherent workspace.
+- [ ] **Add upload preflight and queue clarity:** show per-file type/codec/size/converter readiness before upload, then expose progress, queue position, pause/resume, retry, cancellation, conversion stages, expected output, and actionable remediation without requiring logs.
+- [ ] **Clarify Signage draft-to-live workflow:** distinguish Draft, Preview, Publish, Schedule, and Replace; provide a publish diff and safe rollback path; warn about overflow, contrast, safe areas, missing media, stale data, unsupported fonts, and QR scanability.
+- [ ] **Add display-target preview validation:** compare browser preview and Android/browser-player output at 480p, 720p, 1080p, portrait, ultrawide, and phone widths, with visible viewport/safe-area overlays and screenshot evidence.
+- [ ] **Improve TV/controller confidence:** add a display focus mode with large targets, visible focus rings, arrow/Enter/Back mapping, shortcut hints, current/next item, selected room, connection state, command acknowledgement, and a pairing/disconnect recovery path.
+- [ ] **Reduce lesson-planning ambiguity:** make Present now, Schedule, Save draft, Duplicate, Archive, and Delete visibly distinct; add autosave state, undo/recovery, and a compact lesson timeline where evidence shows repeated backtracking or uncertainty.
+- [ ] **Add system diagnostics and support export:** provide a Service Admin surface for storage projection, converter readiness, queue health, screen errors, backup age, update state, and a redacted downloadable support bundle.
+- [ ] **Improve responsive and accessible interaction:** verify 44px touch targets, keyboard traversal, screen-reader names/live announcements, zoom/reflow, reduced motion, contrast, and D-pad navigation for every primary journey; fix any observed gap before adding cosmetic polish.
+- [ ] **Reduce perceived load time:** lazy-load signage, settings, media editing, reports, and playback-heavy modules; establish bundle budgets and measure first meaningful interaction on the supported desktop and VM paths.
+- [ ] **Standardize information architecture and language:** test terms for classes/rooms, screens/displays, signs/layouts/playlists, save/publish/push, and cached/ready/offline; change terminology only when repeated user evidence supports it and document migration/copy impact.
+- [ ] **Add a repeatable before/after UX benchmark:** retain representative screenshots, journey timings, step counts, accessibility results, and error-recovery results so each UI batch demonstrates improvement rather than subjective change.
+
+The advanced evaluator must use [the AI user-centered UI evaluation brief](ai-ui-evaluation-brief.md) and must not count the Settings items above as new recommendations. This master list does not replace the deeper production-hardening checklist below; it surfaces the next user-facing queue first.
+
 ## Current platform decision
 
 - [x] **Explicitly defer and abandon tvOS for the current product cycle.** Apple TV is not a supported, tested, documented, or release-blocking LessonCue target. The existing `tvos/` source is retained only as an archived starting point for a possible future project. Current development, compatibility promises, CI, release validation, installation instructions, and roadmap work target the self-hosted browser player plus Android TV, Google TV, and Fire TV. Reintroducing Apple TV will require a new roadmap item, current-device research, an active test target, feature-parity acceptance criteria, and dedicated signing/release ownership.
