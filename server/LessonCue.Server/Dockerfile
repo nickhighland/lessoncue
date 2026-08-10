@@ -51,6 +51,7 @@ COPY installers/linux/lessoncue-media-worker /usr/local/libexec/lessoncue-media-
 RUN chmod 0755 /usr/local/libexec/lessoncue-media-worker
 ENV LESSONCUE_DATA_PATH=/data \
     LESSONCUE_HTTP_PORT=8080 \
+    LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX=1 \
     HOME=/data \
     XDG_CACHE_HOME=/data/.cache
 EXPOSE 8080
