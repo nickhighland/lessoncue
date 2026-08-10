@@ -201,7 +201,7 @@ Do not add this mapping on a host without `/dev/dri`; software conversion remain
 
 Open `http://SERVER-IP`. Data is stored in `./lessoncue-data` unless `LESSONCUE_DATA_PATH` is changed in `.env`. The directory must be writable by container UID/GID `10001`; apply the same `chown` command to a custom bind-mount path. The application runs as that non-root account with all Linux capabilities dropped, a read-only container filesystem, `no-new-privileges`, and only `/data` plus a bounded temporary filesystem writable. Docker uses the `LESSONCUE_HTTP_PORT` value in `.env` for its host port; recreate the container after changing it.
 
-Docker bridge networking does not reliably publish mDNS. Use the numeric address or install the supplied `docker/avahi-service.xml` on the host. Native installation is friendlier for ordinary deployments.
+For a small test VM, set `LESSONCUE_CPUS` in `.env` to the number of available virtual CPUs (the default is `2.0`). Docker bridge networking does not reliably publish mDNS; use the numeric address or install the supplied `docker/avahi-service.xml` on the host. With Avahi installed, set the host name and the persisted `lessoncue-data/config/local-hostname` to the same value (for example, `refactor`) to use `http://refactor.local`. Native installation is friendlier for ordinary deployments.
 
 ## Manual Linux service installation
 
