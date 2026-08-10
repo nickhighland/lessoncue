@@ -1002,3 +1002,37 @@ NO-GO, or GO WITH EXPLICIT WAIVERS.
 ```
 
 This playbook is intentionally demanding. A smaller smoke run may select rows, but it must be labeled a smoke run and must not be described as comprehensive, production-ready, or a substitute for the complete release campaign.
+
+## 31. Repository implementation
+
+This repository includes a safe orchestration and fixture implementation:
+
+```bash
+# Non-mutating inventory; creates only a temporary evidence package.
+npm run test:real-use -- --profile inventory --run-id LC-YYYYMMDD-HHMM-AI
+
+# Deterministic media fixtures and manifest.csv/manifest.json.
+npm run test:real-use:fixtures -- --run-id LC-YYYYMMDD-HHMM-AI \
+  --output /tmp/lessoncue-fixtures-LC-YYYYMMDD-HHMM-AI --all-extensions
+
+# Safe local smoke: protocol, type/build, display/signage conformance, and a11y.
+npm run test:real-use -- --profile smoke --run-id LC-YYYYMMDD-HHMM-AI
+
+# Browser real-use workflow on an isolated disposable local server.
+npm run test:real-use -- --profile browser --run-id LC-YYYYMMDD-HHMM-AI
+
+# Full repository browser campaign; explicit disposable confirmation is required.
+npm run test:real-use -- --profile full --confirm DISPOSABLE \
+  --run-id LC-YYYYMMDD-HHMM-AI --include-android
+```
+
+The runner writes `coverage.md`, `environment.md`, `results.csv`, `timeline.md`,
+`run-summary.md`, `product-review.md`, fixture metadata, and sanitized command
+logs under `test-runs/<RUN_ID>/`. `test-runs/` is ignored by Git. `inventory`
+never starts the application; `smoke` and `browser` use the Playwright isolated
+server/data path; `full`, `--base-url`, and any remote target require the exact
+`DISPOSABLE` confirmation. The runner never accepts credentials on the command
+line. Physical TV panels/remotes, venue audio, installation VMs, network shaping,
+load ladders, backup/restore, and updater campaigns remain explicit procedures
+from this playbook and must be added to the evidence package rather than inferred
+from the automated profiles.
