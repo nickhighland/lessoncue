@@ -104,7 +104,7 @@ install_prerequisites() {
   local -a packages=(curl ca-certificates git gnupg openssl)
 
   if [[ "${repair_updater}" != true ]]; then
-    packages+=(ffmpeg libreoffice-impress libreoffice-writer poppler-utils avahi-daemon libicu-dev zlib1g util-linux bubblewrap)
+    packages+=(ffmpeg libreoffice-impress libreoffice-writer poppler-utils avahi-daemon avahi-utils libnss-mdns libicu-dev zlib1g util-linux bubblewrap)
   fi
 
   command -v docker >/dev/null 2>&1 && docker_present=true
