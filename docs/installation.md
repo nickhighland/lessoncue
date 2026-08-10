@@ -12,7 +12,7 @@ SSH into the server from your computer:
 ssh YOUR_USERNAME@SERVER_IP
 ```
 
-Paste these two commands into the SSH session. They install the small download prerequisites, then run the LessonCue installer. The installer detects Intel/AMD versus ARM64, installs server dependencies, downloads the latest release, registers the systemd service, waits for it to become healthy, and prints the browser address:
+Paste these two commands into the SSH session. The first installs the one prerequisite needed to download the installer; the installer then installs the complete host toolchain (including Git, Docker Engine, Docker Compose, FFmpeg, document converters, Bubblewrap, Avahi, and runtime libraries), detects Intel/AMD versus ARM64, downloads the signed release, registers the systemd service, waits for it to become healthy, and prints the browser address:
 
 ```bash
 sudo apt-get update
@@ -169,6 +169,14 @@ The Linux installer installs both the current Intel media driver and the legacy 
 ## Alternative: Docker
 
 Docker is the quickest evaluation and technical-user installation.
+
+If you are starting from a fresh Ubuntu or Debian VM, the repository installer can install the complete host prerequisite set without installing the native systemd release:
+
+```bash
+sudo bash installers/linux/install-latest.sh --prerequisites-only
+```
+
+This installs Git, Docker Engine, Docker Compose, and the media/runtime packages used by LessonCue. Continue with the Docker commands below to build the checked-out source tree.
 
 ```bash
 git clone https://github.com/nickhighland/lessoncue.git
