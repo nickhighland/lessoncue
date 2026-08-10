@@ -1390,7 +1390,7 @@ export function Settings({
             </section>
           )}
           {canServiceSettings && (
-            <section className="panel settings-panel settings-media">
+            <section className="panel settings-panel settings-media settings-storage">
               <h2>Storage allocation</h2>
               <div className="storage-facts">
                 <Definition
@@ -1446,7 +1446,7 @@ export function Settings({
             </section>
           )}
           {canServiceSettings && (
-            <section className="panel wide-settings settings-panel settings-media">
+            <section className="panel wide-settings settings-panel settings-media settings-upload-limits">
               <div className="settings-heading">
                 <div>
                   <span className="settings-kicker">UPLOAD SAFETY</span>
@@ -1593,7 +1593,7 @@ export function Settings({
             </section>
           )}
           {canServiceSettings && (
-            <section className="panel settings-panel settings-media">
+            <section className="panel settings-panel settings-media settings-adaptive-playback">
               <div className="settings-heading">
                 <div>
                   <h2>Adaptive TV playback</h2>
