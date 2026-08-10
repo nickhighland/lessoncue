@@ -977,6 +977,9 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .migration-grant textarea { resize: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 .wide-settings { grid-column: span 2; }
+.settings-page[data-section="media"] > .settings-grid:not(.account-settings-grid) > .settings-upload-limits { order: 1; }
+.settings-page[data-section="media"] > .settings-grid:not(.account-settings-grid) > .settings-storage { order: 2; }
+.settings-page[data-section="media"] > .settings-grid:not(.account-settings-grid) > .settings-adaptive-playback { order: 3; }
 .backup-actions { margin: 20px 0 14px; }
 .backup-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
