@@ -246,8 +246,11 @@ export function AudienceAdmin({
           </header>
           {sessions.length === 0 && (
             <div className="empty-state compact">
-              <strong>No audience sessions yet</strong>
-              <small>Create a poll, open it, and share its QR code.</small>
+              <span className="audience-empty-icon" aria-hidden="true">◉</span>
+              <div>
+                <strong>No audience sessions yet</strong>
+                <small>Create a poll, open it, and share its QR code.</small>
+              </div>
             </div>
           )}
           {sessions.map((item) => (
