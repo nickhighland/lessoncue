@@ -1,8 +1,14 @@
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
-import SwaggerParser from "@apidevtools/swagger-parser";
+
+// swagger-parser is published as CommonJS. Loading it through Node's CJS
+// bridge avoids the Node 26 ESM-interop stall where a default ESM import can
+// remain pending indefinitely before any contract checks run.
+const require = createRequire(import.meta.url);
+const SwaggerParser = require("@apidevtools/swagger-parser");
 
 const root = resolve(import.meta.dirname, "..");
 const readJson = async path =>
