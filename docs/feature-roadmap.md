@@ -8,16 +8,32 @@ This is the top-level queue for the next UI/product-quality pass. Items below ar
 
 ### Evaluation and evidence gate
 
-- [ ] **Run the advanced AI user-centered UI evaluation** using [the evaluation brief](ai-ui-evaluation-brief.md) and the full real-use playbook. Capture timings, step counts, screenshots, accessibility observations, responsive/TV evidence, and a prioritized finding set before implementing speculative UI changes.
-- [ ] **Create a dynamic UI coverage inventory** at the start of the evaluation: navigation by role, settings cards, dialogs, empty/loading/error states, media types, signage elements, controller actions, and Android TV input paths. Explain every discovered surface that is not exercised.
-- [ ] **Turn evidence into a ranked implementation queue** with separate defect, workflow, comprehension, accessibility, visual, reliability, feature, and delight findings. Include acceptance criteria and a “do not build yet” list.
+- [x] **Run the advanced AI user-centered UI evaluation** using [the evaluation brief](ai-ui-evaluation-brief.md) and the full real-use playbook. The dated [evaluation report](ui-evaluation-report-2026-08-10.md) contains journey timings, step counts, screenshots, accessibility observations, responsive/browser-display evidence, Android TV coverage, and explicit limitations.
+- [x] **Create a dynamic UI coverage inventory** across navigation, settings cards, dialogs, empty/error states, media types, signage elements, controller actions, browser playback, and Android TV input paths. Surfaces not exercised are listed as `NOT RUN` or `BLOCKED` in the report.
+- [x] **Turn evidence into a ranked implementation queue** with separate defect, workflow, comprehension, accessibility, visual, reliability, feature, and delight findings, acceptance criteria, scoring, and a “do not build yet” list.
 
-### Existing requested Settings work still outstanding
+### UI evaluation release gate — new evidence-backed work
 
-- [ ] Make every Settings panel collapsible/expandable from a clear top-right control and preserve a predictable state after navigation or reload.
-- [ ] Split Registration, Email Settings, and Registration Codes into distinct sections with independent headings, help text, validation, and save behavior.
-- [ ] Place Authenticator MFA beside Preview Features.
-- [ ] Place Adaptive TV Playback beside Storage Allocation, beneath Upload Limits.
+- [ ] **P0: Repair the public Audience experience:** add the missing responsive/touch/focus presentation for the response page and fix moderation so Approve/Hide send a valid status, reject invalid input without HTTP 500, update live views, and tolerate an idempotent retry.
+- [ ] **P0: Make batch upload and conversion recovery attributable:** show every selected filename and preflight result, retain per-file succeeded/processing/failed outcomes, retry only failed files without duplicates, persist converter failures, and never present a failed derivative as ready.
+- [ ] **P1: Keep display pairing truthful:** automatically refresh/count down rotating pairing PINs, explain rotation on failure, and clear the display-name value when the UI advances to PIN entry.
+- [ ] **P1: Make controller state safe under live pressure:** distinguish offline, queued, sent, received, applied, expired, and cancelled commands; do not announce success for an offline target; remove stale `Ready`, remaining-time, and finish-time implications.
+- [ ] **P1: Rebuild phone-width app navigation:** replace the expanded/clipped sidebar and horizontal scrolling with an accessible drawer or equivalent compact navigation while keeping Controller fast to reach.
+- [ ] **P1: Restore foundational keyboard access:** make screen-purpose switches operable and exposed with checked state, move focus to main content from the skip link, and move/offer focus to a newly added lesson cue.
+- [ ] **P1: Complete successful authentication navigation:** a valid submit must visibly leave the login/registration surface without requiring a manual reload.
+- [ ] **P1: Close stale editors after deletion:** after a class is recycled, close and clear its edit dialog before selecting another class so deleted values never appear over the new selection.
+- [ ] **P2: Clarify document readiness:** replace `Internet required` when local conversion is available with the exact next action, expose conversion progress/failure/retry on the media row, and keep original-file handling unchanged.
+- [ ] **P2: Add safe immediacy to Signage:** retain the approved immediate-update model, but show affected screens before save and provide a short undo/version-restore path; reserve sticky-bar space so validation is never obscured.
+- [ ] **P2: Remove competing Signage navigation:** every visible desktop navigation control must work; show one primary navigation model per breakpoint.
+- [ ] **P2: Preserve media identity and assignment context:** reveal full long filenames in grid view and add compact `Plays where` summaries linking lessons/classes/screens and layouts/playlists/Signs/screens.
+- [ ] **P3: Close evidence gaps:** run a truly clean first-install onboarding session, physical Google TV and Fire TV remote/HDMI/audio/network checks, QR-distance scans, physical Signage viewport comparisons, real touch, screen readers, 200% zoom, and reduced motion.
+
+### Existing requested Settings work verified in the 2026-08-10 UI audit
+
+- [x] Every inspected Settings panel is collapsible/expandable from a clear top-right control; state remains understandable while navigating between Settings sections.
+- [x] Registration, Email Settings, and Registration Codes are distinct sections with independent headings and task grouping.
+- [x] Authenticator MFA is beside Preview Features at desktop width.
+- [x] Adaptive TV Playback is beside Storage Allocation, beneath Upload Limits, at desktop width.
 
 ### New or unaccomplished product/UI work
 
