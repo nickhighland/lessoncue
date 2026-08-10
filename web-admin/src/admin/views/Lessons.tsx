@@ -2,7 +2,7 @@ import { confirmAction } from "../../AccessibleDialogs";
 import { CSSProperties, FormEvent, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, ReactNode, PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { api, uploadMediaFile } from "../api";
 import { TimelineEditor } from "../media-editor";
-import { Lesson, LessonClass, Media, MediaTaxonomy, MediaUploadControl, PlaylistItem, StorageStatus, TemporaryControllerSession } from "../models";
+import { Lesson, LessonClass, Media, MediaFormats, MediaTaxonomy, MediaUploadControl, PlaylistItem, StorageStatus, TemporaryControllerSession } from "../models";
 import { DateBadge, Empty, Field, Modal, PageHead, QrCode, RetentionChoices, RoleSummary, TaxonomyFields, formTags } from "../ui";
 import { classControllerUrl, controllerSlug, cueDurationLabel, cuePlannedDurationMs, defaultEndBehaviorForRole, errorText, formatBytes, formatDate, formatDuration, formatFriendlyDuration, intervalsOverlap, isConvertibleDocument, isPresentationFileName, lessonPlannedDurationMs, roleName, toLocalInput } from "../utils";
 
@@ -16,6 +16,7 @@ export function ClassesView({
   canUpload,
   storage,
   localControllerOrigin,
+  mediaFormats,
 }: {
   classes: LessonClass[];
   lessons: Lesson[];
@@ -26,6 +27,7 @@ export function ClassesView({
   canUpload: boolean;
   storage?: StorageStatus;
   localControllerOrigin?: string;
+  mediaFormats?: MediaFormats;
 }) {
   const [selected, setSelected] = useState(classes[0]?.id || "");
   const [editing, setEditing] = useState<string>();
@@ -103,6 +105,7 @@ export function ClassesView({
         notify={notify}
         canUpload={canUpload}
         storage={storage}
+        mediaFormats={mediaFormats}
       />
     );
 
@@ -860,6 +863,7 @@ export function LessonEditor({
   notify,
   canUpload,
   storage,
+  mediaFormats,
 }: {
   lesson: Lesson;
   classes: LessonClass[];
@@ -871,6 +875,7 @@ export function LessonEditor({
   notify: (s: string) => void;
   canUpload: boolean;
   storage?: StorageStatus;
+  mediaFormats?: MediaFormats;
 }) {
   const [showAdd, setShowAdd] = useState(false);
   const [addMode, setAddMode] = useState<"chooser" | "upload" | "poll" | "online" | "existing">("chooser");
@@ -1646,7 +1651,7 @@ export function LessonEditor({
                         name="files"
                         type="file"
                         multiple
-                        accept="video/*,audio/*,image/*,.pdf,.ppt,.pptx,.pps,.ppsx,.pot,.potx,.odp,.key,.doc,.docx"
+                        accept={mediaFormats?.accept}
                         required
                         disabled={uploading}
                       />

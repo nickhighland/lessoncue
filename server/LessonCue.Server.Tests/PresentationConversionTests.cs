@@ -77,6 +77,15 @@ public sealed class PresentationConversionTests
     [InlineData("keynote.key")]
     [InlineData("handout.doc")]
     [InlineData("handout.docx")]
+    [InlineData("macro.pptm")]
+    [InlineData("workbook.xlsx")]
+    [InlineData("workbook.xlsm")]
+    [InlineData("notes.odt")]
+    [InlineData("table.ods")]
+    [InlineData("notes.rtf")]
+    [InlineData("notes.txt")]
+    [InlineData("sheet.csv")]
+    [InlineData("apple.pages")]
     public void SupportedDocumentsAreRecognized(string fileName) => Assert.True(PresentationConversion.IsConvertible(fileName));
 
     [Theory]

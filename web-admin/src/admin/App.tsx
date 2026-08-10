@@ -1186,6 +1186,7 @@ export function Shell({
                   notify={setNotice}
                   canUpload={canUpload}
                   storage={bootstrap?.storage}
+                  mediaFormats={bootstrap?.mediaFormats}
                   localControllerOrigin={
                     bootstrap?.settings.requireLocalRoomControllers
                       ? bootstrap.httpPort.address
@@ -1215,6 +1216,8 @@ export function Shell({
                   notify={setNotice}
                   canUpload={canUpload}
                   storage={bootstrap?.storage}
+                  mediaFormats={bootstrap?.mediaFormats}
+                  mediaConverters={bootstrap?.mediaConverters}
                 />
               )}
               {view === "screens" && bootstrap && (

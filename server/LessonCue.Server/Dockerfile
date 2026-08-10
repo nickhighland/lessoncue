@@ -17,7 +17,20 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0
 ARG TARGETARCH
 ARG YT_DLP_VERSION=2026.07.04
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg libreoffice-impress libreoffice-writer poppler-utils ca-certificates curl bubblewrap util-linux coreutils \
+    && apt-get install -y --no-install-recommends ffmpeg libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-draw poppler-utils ca-certificates curl bubblewrap util-linux coreutils \
+        fonts-liberation \
+    && optional_packages="" \
+    && for candidate in libavcodec-extra libavcodec-extra59 libavcodec-extra60 libavcodec-extra61; do if apt-cache show "$candidate" >/dev/null 2>&1; then optional_packages="$optional_packages $candidate"; break; fi; done \
+    && for candidate in libwebp7 libwebp6; do if apt-cache show "$candidate" >/dev/null 2>&1; then optional_packages="$optional_packages $candidate"; break; fi; done \
+    && for candidate in libtheora0; do if apt-cache show "$candidate" >/dev/null 2>&1; then optional_packages="$optional_packages $candidate"; break; fi; done \
+    && for candidate in libvpx9 libvpx8 libvpx7; do if apt-cache show "$candidate" >/dev/null 2>&1; then optional_packages="$optional_packages $candidate"; break; fi; done \
+    && for candidate in libopus0; do if apt-cache show "$candidate" >/dev/null 2>&1; then optional_packages="$optional_packages $candidate"; break; fi; done \
+    && for candidate in libvorbis0a; do if apt-cache show "$candidate" >/dev/null 2>&1; then optional_packages="$optional_packages $candidate"; break; fi; done \
+    && for candidate in libheif1 libheif2; do if apt-cache show "$candidate" >/dev/null 2>&1; then optional_packages="$optional_packages $candidate"; break; fi; done \
+    && for candidate in libavif16 libavif15; do if apt-cache show "$candidate" >/dev/null 2>&1; then optional_packages="$optional_packages $candidate"; break; fi; done \
+    && for candidate in libjxl0 libjxl0.7; do if apt-cache show "$candidate" >/dev/null 2>&1; then optional_packages="$optional_packages $candidate"; break; fi; done \
+    && for candidate in libopenjp2-8 libopenjp2-7; do if apt-cache show "$candidate" >/dev/null 2>&1; then optional_packages="$optional_packages $candidate"; break; fi; done \
+    && if [ -n "$optional_packages" ]; then apt-get install -y --no-install-recommends $optional_packages; fi \
     && if [ "$TARGETARCH" = "amd64" ] && apt-cache show intel-media-va-driver >/dev/null 2>&1; then apt-get install -y --no-install-recommends intel-media-va-driver; fi \
     && if [ "$TARGETARCH" = "amd64" ] && apt-cache show i965-va-driver >/dev/null 2>&1; then apt-get install -y --no-install-recommends i965-va-driver; fi \
     && rm -rf /var/lib/apt/lists/*

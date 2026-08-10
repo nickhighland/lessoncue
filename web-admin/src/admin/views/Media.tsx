@@ -2,7 +2,7 @@ import { confirmAction } from "../../AccessibleDialogs";
 import { FormEvent, useEffect, useState } from "react";
 import { api, uploadMediaFile } from "../api";
 import { MediaPreview } from "../media-editor";
-import { Lesson, Media, MediaImpact, MediaTaxonomy, MediaUploadControl, MediaVersion, StorageStatus } from "../models";
+import { Lesson, Media, MediaConverterStatus, MediaFormats, MediaImpact, MediaTaxonomy, MediaUploadControl, MediaVersion, StorageStatus } from "../models";
 import { Empty, Field, Modal, PageHead, StorageMeter, TaxonomyFields, formTags } from "../ui";
 import { convertedSlideCount, dateInputValue, errorText, formatBytes, formatDate, formatDuration, formatShortDate, friendlyType, isConvertibleDocument, mediaCategory, mediaFileExtension, mediaNameStem, timeAgo } from "../utils";
 
@@ -14,6 +14,8 @@ export function MediaView({
   notify,
   canUpload,
   storage,
+  mediaFormats,
+  mediaConverters,
 }: {
   media: Media[];
   lessons: Lesson[];
@@ -22,6 +24,8 @@ export function MediaView({
   notify: (s: string) => void;
   canUpload: boolean;
   storage?: StorageStatus;
+  mediaFormats?: MediaFormats;
+  mediaConverters?: MediaConverterStatus;
 }) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -708,6 +712,13 @@ export function MediaView({
           onClose={() => !uploading && setShowUpload(false)}
         >
           <form className="stack" onSubmit={upload}>
+            {mediaConverters?.missing.length ? (
+              <div className="alert warning" role="status">
+                Some optional server converters are unavailable. Uploads remain safe,
+                but affected files will stay visible with an actionable processing
+                error: {mediaConverters.missing.join(", ")}.
+              </div>
+            ) : null}
             <Field
               label="Files"
               hint="Presentation formats are converted locally to slide images."
@@ -716,7 +727,7 @@ export function MediaView({
                 name="files"
                 type="file"
                 multiple
-                accept="video/*,audio/*,image/*,.pdf,.ppt,.pptx,.pps,.ppsx,.pot,.potx,.odp,.key,.doc,.docx"
+                accept={mediaFormats?.accept}
                 required
                 disabled={uploading}
               />

@@ -53,7 +53,7 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
             // is the immutable, server-controlled storage name and therefore the
             // authoritative type declaration for files that have already been admitted.
             MediaContentInspector.RequireValid(fullPath, item.RelativePath);
-            if (extension is ".pdf" or ".pptx" or ".odp" or ".docx")
+            if (MediaFormatCatalog.IsConvertibleDocument(extension))
             {
                 item.OfflineEligible = false;
                 item.CompatibilityStatus = "not-needed";
@@ -238,10 +238,7 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
     }
 
     private static bool IsVideo(string extension, string contentType) =>
-        contentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase) || extension is
-            ".mp4" or ".m4v" or ".mov" or ".mkv" or ".webm" or ".avi" or ".wmv" or ".asf" or
-            ".mpeg" or ".mpg" or ".mpe" or ".ts" or ".mts" or ".m2ts" or ".flv" or ".f4v" or
-            ".ogv" or ".3gp" or ".3g2" or ".vob";
+        MediaFormatCatalog.IsVideo(extension, contentType);
 
     private Task<string> RunAsync(string fileName, string arguments, CancellationToken ct)
     {

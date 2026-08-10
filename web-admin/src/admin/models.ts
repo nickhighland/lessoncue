@@ -41,12 +41,36 @@ export type Bootstrap = {
   cloudflareTunnel: CloudflareTunnelStatus;
   hardwareAcceleration: HardwareAccelerationStatus;
   uploadQuotaPolicy?: UploadQuotaPolicy;
+  mediaFormats: MediaFormats;
+  mediaConverters: MediaConverterStatus;
   accountEmail: { configured: boolean; provider: string };
   counts: { classes: number; lessons: number; media: number; screens: number };
   permissionDefinitions: Permission[];
   permissionPresets: Record<string, Permission[]>;
 };
 export type MediaTaxonomy = { folders: string[]; tags: string[] };
+export type MediaFormat = {
+  extension: string;
+  family: "video" | "audio" | "image" | "document";
+  contentType: string;
+  converter: string;
+  label: string;
+};
+export type MediaFormats = {
+  accept: string;
+  extensions: string[];
+  formats: MediaFormat[];
+};
+export type MediaConverterStatus = {
+  ffmpeg: boolean;
+  ffprobe: boolean;
+  libreOffice: boolean;
+  poppler: boolean;
+  webpEncoder: boolean;
+  theoraEncoder: boolean;
+  missing: string[];
+  checkedAt: string;
+};
 export type Organization = {
   id: string;
   name: string;

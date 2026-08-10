@@ -892,7 +892,7 @@ paths:
   /api/v1/media/{mediaId}/convert:
     post:
       operationId: convertPresentation
-      description: Queues a fully local LibreOffice/Poppler conversion of PDF, PowerPoint, OpenDocument Presentation, Keynote, or Word media into screen-ready PNG assets.
+      description: Queues a fully local LibreOffice/Poppler conversion of an accepted PDF, Office, OpenDocument, Apple office, rich-text, or table document into screen-ready PNG assets.
       parameters:
         - name: mediaId
           in: path

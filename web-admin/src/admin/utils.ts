@@ -536,7 +536,7 @@ export function mediaCategory(item: Media) {
   if (contentType.startsWith("image/")) return "image";
   if (contentType.startsWith("audio/")) return "audio";
   if (fileName.endsWith(".pdf") || contentType === "application/pdf") return "pdf";
-  if (isPresentationFileName(item.fileName) || /presentation|powerpoint|keynote|wordprocessingml|msword|opendocument/.test(contentType)) return "presentation";
+  if (isPresentationFileName(item.fileName) || /presentation|powerpoint|keynote|pages|numbers|wordprocessingml|msword|excel|spreadsheet|opendocument|richtext|text\/plain|text\/csv|tab-separated/.test(contentType)) return "presentation";
   if (item.sourceKind === "link") return "website";
   return "other";
 }
@@ -550,14 +550,14 @@ export function mediaFileExtension(fileName: string) {
   return index > 0 ? base.slice(index) : "";
 }
 export function isPresentationFileName(fileName: string) {
-  return /\.(pdf|ppt|pptx|pps|ppsx|pot|potx|odp|key|doc|docx)$/i.test(fileName);
+  return /\.(pdf|ppt|pptx|pps|ppsx|pot|potx|pptm|ppsm|potm|odp|otp|odt|ott|ods|ots|fodp|fodt|fods|key|pages|numbers|doc|docx|docm|dot|dotx|dotm|xls|xlt|xla|xlsx|xlsm|xltx|xltm|xlam|rtf|txt|md|csv|tsv)$/i.test(fileName);
 }
 export function isConvertibleDocument(media: Media) {
   return (
-    /\.(pdf|ppt|pptx|pps|ppsx|pot|potx|odp|key|doc|docx)$/i.test(
+    /\.(pdf|ppt|pptx|pps|ppsx|pot|potx|pptm|ppsm|potm|odp|otp|odt|ott|ods|ots|fodp|fodt|fods|key|pages|numbers|doc|docx|docm|dot|dotx|dotm|xls|xlt|xla|xlsx|xlsm|xltx|xltm|xlam|rtf|txt|md|csv|tsv)$/i.test(
       media.fileName,
     ) ||
-    /pdf|presentation|powerpoint|keynote|msword|wordprocessingml|opendocument/.test(
+    /pdf|presentation|powerpoint|keynote|pages|numbers|msword|wordprocessingml|excel|spreadsheet|opendocument|richtext|text\/plain|text\/csv|tab-separated/.test(
       media.contentType,
     )
   );

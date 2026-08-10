@@ -14,7 +14,7 @@ public static class MediaContentInspector
 
     public static MediaContentInspection Inspect(string path, string fileName)
     {
-        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        var extension = MediaFormatCatalog.Normalize(Path.GetExtension(fileName));
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
@@ -29,10 +29,12 @@ public static class MediaContentInspector
 
     public static MediaContentInspection Inspect(Stream stream, string extension)
     {
-        extension = extension.ToLowerInvariant();
+        extension = MediaFormatCatalog.Normalize(extension);
         if (!stream.CanRead) return Reject(extension, "The uploaded file cannot be read.");
         if (!stream.CanSeek) return Reject(extension, "The uploaded file must be seekable for content validation.");
         if (stream.Length < 2) return Reject(extension, "The uploaded file is empty or truncated.");
+        if (!MediaFormatCatalog.IsSupported(extension))
+            return Reject(extension, $"The {extension.TrimStart('.').ToUpperInvariant()} file type is not supported.");
 
         Span<byte> header = stackalloc byte[64];
         stream.Position = 0;
@@ -45,21 +47,57 @@ public static class MediaContentInspector
             ".jpg" or ".jpeg" => Starts(header, [0xff, 0xd8, 0xff]),
             ".png" => Starts(header, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
             ".webp" => TextAt(header, 0, "RIFF") && TextAt(header, 8, "WEBP"),
+            ".gif" => TextAt(header, 0, "GIF87a") || TextAt(header, 0, "GIF89a"),
+            ".bmp" => TextAt(header, 0, "BM"),
+            ".tif" or ".tiff" => Tiff(header),
+            ".avif" => IsoBaseMedia(header, "avif", "avis"),
+            ".heic" or ".heif" => IsoBaseMedia(header, "heic", "heix", "hevc", "heim", "heis", "mif1", "msf1"),
+            ".jxl" => (Starts(header, [0xff, 0x0a]) || TextAt(header, 4, "JXL ")),
+            ".ico" => Starts(header, [0x00, 0x00, 0x01, 0x00]),
+            ".jp2" or ".jpf" or ".jpm" => Starts(header, [0x00, 0x00, 0x00, 0x0c, 0x6a, 0x50, 0x20, 0x20, 0x0d, 0x0a, 0x87, 0x0a]),
+            ".j2k" => Starts(header, [0xff, 0x4f, 0xff, 0x51]),
+            ".mj2" => IsoBaseMedia(header),
             ".wav" => TextAt(header, 0, "RIFF") && TextAt(header, 8, "WAVE"),
             ".avi" => TextAt(header, 0, "RIFF") && TextAt(header, 8, "AVI "),
-            ".mp3" => TextAt(header, 0, "ID3") || MpegAudioFrame(header),
+            ".mp3" or ".mp2" or ".mpa" => TextAt(header, 0, "ID3") || MpegAudioFrame(header),
             ".aac" => TextAt(header, 0, "ADIF") || AacFrame(header),
-            ".mp4" or ".m4v" or ".mov" or ".f4v" or ".m4a" or ".3gp" or ".3g2" =>
+            ".flac" => TextAt(header, 0, "fLaC"),
+            ".ogg" or ".oga" or ".opus" or ".spx" => TextAt(header, 0, "OggS"),
+            ".aiff" or ".aif" or ".aifc" => TextAt(header, 0, "FORM") &&
+                (TextAt(header, 8, "AIFF") || TextAt(header, 8, "AIFC")),
+            ".amr" => TextAt(header, 0, "#!AMR"),
+            ".ac3" or ".eac3" => Starts(header, [0x0b, 0x77]),
+            ".au" or ".snd" => TextAt(header, 0, ".snd"),
+            ".caf" => TextAt(header, 0, "caff"),
+            ".mka" => Starts(header, [0x1a, 0x45, 0xdf, 0xa3]),
+            ".ape" => TextAt(header, 0, "MAC "),
+            ".wv" => TextAt(header, 0, "wvpk"),
+            ".tta" => TextAt(header, 0, "TTA1") || TextAt(header, 0, "TTA2"),
+            ".voc" => TextAt(header, 0, "Creative Voice File"),
+            ".mp4" or ".m4v" or ".mov" or ".f4v" or ".m4a" or ".3gp" or ".3gpp" or ".3g2" or ".3gpp2" =>
                 IsoBaseMedia(header),
             ".mkv" or ".webm" => Starts(header, [0x1a, 0x45, 0xdf, 0xa3]),
+            ".rm" or ".rmvb" => Starts(header, [0x2e, 0x7b, 0x52, 0x4d, 0x46]),
             ".wmv" or ".asf" => Starts(header, Asf),
-            ".mpeg" or ".mpg" or ".mpe" or ".vob" => MpegProgramOrElementary(header),
+            ".mpeg" or ".mpg" or ".mpe" or ".m1v" or ".m2v" or ".vob" => MpegProgramOrElementary(header),
             ".ts" or ".mts" or ".m2ts" => TransportStream(stream),
+            ".mxf" => Mxf(header),
+            ".nut" => TextAt(header, 0, "nut/multimedia container"),
+            ".ivf" => TextAt(header, 0, "DKIF"),
+            ".y4m" => TextAt(header, 0, "YUV4MPEG2"),
+            ".h264" or ".264" or ".h265" or ".hevc" or ".265" => H26xElementary(header),
+            ".mjpeg" or ".mjpg" => Starts(header, [0xff, 0xd8, 0xff]),
             ".flv" => TextAt(header, 0, "FLV"),
-            ".ogv" => TextAt(header, 0, "OggS"),
+            ".ogv" or ".ogm" => TextAt(header, 0, "OggS"),
             ".pdf" => TextAt(header, 0, "%PDF-"),
-            ".ppt" or ".pps" or ".pot" or ".doc" => Starts(header, Ole),
-            ".pptx" or ".ppsx" or ".potx" or ".docx" or ".odp" or ".key" =>
+            ".ppt" or ".pps" or ".pot" or ".doc" or ".dot" or ".xls" or ".xlt" or ".xla" => Starts(header, Ole),
+            ".rtf" => TextAt(header, 0, "{\\rtf"),
+            ".txt" or ".md" or ".csv" or ".tsv" => TextDocument(stream),
+            ".pptx" or ".ppsx" or ".potx" or ".pptm" or ".ppsm" or ".potm" or
+                ".docx" or ".docm" or ".dotx" or ".dotm" or
+                ".xlsx" or ".xlsm" or ".xltx" or ".xltm" or ".xlam" or
+                ".odp" or ".otp" or ".odt" or ".ott" or ".ods" or ".ots" or
+                ".fodp" or ".fodt" or ".fods" or ".key" or ".pages" or ".numbers" =>
                 ExpectedZipPackage(stream, extension),
             _ => false
         };
@@ -76,25 +114,7 @@ public static class MediaContentInspector
         if (!result.Valid) throw new InvalidDataException(result.Error);
     }
 
-    public static string ContentType(string extension) => extension.ToLowerInvariant() switch
-    {
-        ".mp4" or ".m4v" or ".mov" or ".f4v" => "video/mp4",
-        ".mkv" => "video/x-matroska", ".webm" => "video/webm", ".avi" => "video/x-msvideo",
-        ".wmv" or ".asf" => "video/x-ms-wmv", ".mpeg" or ".mpg" or ".mpe" or ".vob" => "video/mpeg",
-        ".ts" or ".mts" or ".m2ts" => "video/mp2t", ".flv" => "video/x-flv", ".ogv" => "video/ogg",
-        ".3gp" or ".3g2" => "video/3gpp", ".mp3" => "audio/mpeg", ".m4a" => "audio/mp4",
-        ".aac" => "audio/aac", ".wav" => "audio/wav", ".jpg" or ".jpeg" => "image/jpeg",
-        ".png" => "image/png", ".webp" => "image/webp", ".pdf" => "application/pdf",
-        ".ppt" or ".pps" or ".pot" => "application/vnd.ms-powerpoint",
-        ".pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        ".ppsx" => "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
-        ".potx" => "application/vnd.openxmlformats-officedocument.presentationml.template",
-        ".odp" => "application/vnd.oasis.opendocument.presentation",
-        ".key" => "application/vnd.apple.keynote",
-        ".doc" => "application/msword",
-        ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        _ => "application/octet-stream"
-    };
+    public static string ContentType(string extension) => MediaFormatCatalog.ContentType(extension);
 
     private static bool ExpectedZipPackage(Stream stream, string extension)
     {
@@ -110,11 +130,14 @@ public static class MediaContentInspector
                 return false;
             return extension switch
             {
-                ".pptx" or ".ppsx" or ".potx" =>
+                ".pptx" or ".ppsx" or ".potx" or ".pptm" or ".ppsm" or ".potm" =>
                     names.Contains("[Content_Types].xml") && names.Contains("ppt/presentation.xml"),
-                ".docx" => names.Contains("[Content_Types].xml") && names.Contains("word/document.xml"),
-                ".odp" => names.Contains("META-INF/manifest.xml") && names.Contains("content.xml"),
-                ".key" => names.Contains("Index/Document.iwa") ||
+                ".docx" or ".docm" or ".dotx" or ".dotm" => names.Contains("[Content_Types].xml") && names.Contains("word/document.xml"),
+                ".xlsx" or ".xlsm" or ".xltx" or ".xltm" or ".xlam" => names.Contains("[Content_Types].xml") &&
+                    (names.Contains("xl/workbook.xml") || names.Contains("xl/workbook.bin")),
+                ".odp" or ".otp" or ".odt" or ".ott" or ".ods" or ".ots" or ".fodp" or ".fodt" or ".fods" =>
+                    names.Contains("META-INF/manifest.xml") && names.Contains("content.xml"),
+                ".key" or ".pages" or ".numbers" => names.Contains("Index/Document.iwa") ||
                     names.Contains("index.apxl") || names.Contains("index.xml"),
                 _ => false
             };
@@ -141,12 +164,48 @@ public static class MediaContentInspector
         return read > 196 && sample[4] == 0x47 && sample[196] == 0x47;
     }
 
-    private static bool IsoBaseMedia(ReadOnlySpan<byte> header)
+    private static bool IsoBaseMedia(ReadOnlySpan<byte> header, params string[] brands)
     {
         if (header.Length < 12) return false;
         for (var offset = 4; offset <= Math.Min(header.Length - 4, 40); offset += 4)
-            if (TextAt(header, offset, "ftyp")) return true;
+        {
+            if (!TextAt(header, offset, "ftyp")) continue;
+            if (brands.Length == 0) return true;
+            var brandOffset = offset + 4;
+            foreach (var brand in brands)
+            {
+                if (TextAt(header, brandOffset, brand)) return true;
+                for (var index = 0; index < 8; index++)
+                    if (TextAt(header, brandOffset + index * 4, brand)) return true;
+            }
+            return false;
+        }
         return false;
+    }
+
+    private static bool Tiff(ReadOnlySpan<byte> header) =>
+        Starts(header, [0x49, 0x49, 0x2a, 0x00]) || Starts(header, [0x4d, 0x4d, 0x00, 0x2a]);
+
+    private static bool Mxf(ReadOnlySpan<byte> header) =>
+        Starts(header, [0x06, 0x0e, 0x2b, 0x34, 0x02, 0x05, 0x01, 0x01]);
+
+    private static bool H26xElementary(ReadOnlySpan<byte> header) =>
+        Starts(header, [0x00, 0x00, 0x01]) || Starts(header, [0x00, 0x00, 0x00, 0x01]);
+
+    private static bool TextDocument(Stream stream)
+    {
+        stream.Position = 0;
+        var sample = new byte[(int)Math.Min(64 * 1024, stream.Length)];
+        var read = stream.Read(sample);
+        stream.Position = 0;
+        if (read == 0) return false;
+        if (sample.Take(read).Any(value => value == 0)) return false;
+        try
+        {
+            _ = System.Text.Encoding.UTF8.GetString(sample, 0, read);
+            return true;
+        }
+        catch (DecoderFallbackException) { return false; }
     }
 
     private static bool MpegProgramOrElementary(ReadOnlySpan<byte> header) =>

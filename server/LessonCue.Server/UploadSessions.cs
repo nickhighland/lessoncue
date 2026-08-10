@@ -189,7 +189,7 @@ public sealed class UploadSessionService(
         if (singleChunk && input.TotalBytes > 16L * 1024 * 1024)
             return Failure(StatusCodes.Status413PayloadTooLarge,
                 "Legacy multipart uploads are limited to 16 MB. Refresh LessonCue to use resumable uploads.");
-        if (!SupportedExtension(Path.GetExtension(fileName)))
+        if (!MediaFormatCatalog.IsSupported(Path.GetExtension(fileName)))
             return Failure(StatusCodes.Status400BadRequest, "Unsupported media type.");
         if (!ValidSha256(input.ExpectedSha256))
             return Failure(StatusCodes.Status400BadRequest, "The expected SHA-256 must contain exactly 64 hexadecimal characters.");
@@ -808,13 +808,6 @@ public sealed class UploadSessionService(
         string.IsNullOrWhiteSpace(value) || value.Length > 100
             ? "application/octet-stream"
             : value.Split(';', 2)[0].Trim().ToLowerInvariant();
-
-    private static bool SupportedExtension(string extension) => extension.ToLowerInvariant() is
-        ".mp4" or ".m4v" or ".mov" or ".f4v" or ".mkv" or ".webm" or ".avi" or ".wmv" or ".asf" or
-        ".mpeg" or ".mpg" or ".mpe" or ".vob" or ".ts" or ".mts" or ".m2ts" or ".flv" or ".ogv" or
-        ".3gp" or ".3g2" or ".mp3" or ".m4a" or ".aac" or ".wav" or ".jpg" or ".jpeg" or ".png" or
-        ".webp" or ".pdf" or ".ppt" or ".pptx" or ".pps" or ".ppsx" or ".pot" or ".potx" or ".odp" or
-        ".key" or ".doc" or ".docx";
 
     private static string FormatBytes(long value) =>
         value >= 1024L * 1024 * 1024

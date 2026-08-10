@@ -28,10 +28,10 @@ const runId = option("--run-id", basename(output));
 const allExtensions = args.includes("--all-extensions");
 
 const accepted = {
-  video: [".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".wmv", ".asf", ".mpeg", ".mpg", ".mpe", ".ts", ".mts", ".m2ts", ".flv", ".f4v", ".ogv", ".3gp", ".3g2", ".vob"],
-  audio: [".mp3", ".m4a", ".aac", ".wav"],
-  image: [".jpg", ".jpeg", ".png", ".webp"],
-  document: [".pdf", ".ppt", ".pptx", ".pps", ".ppsx", ".pot", ".potx", ".odp", ".key", ".doc", ".docx"],
+  video: [".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".wmv", ".asf", ".mpeg", ".mpg", ".mpe", ".m1v", ".m2v", ".ts", ".mts", ".m2ts", ".mxf", ".flv", ".f4v", ".ogv", ".ogm", ".3gp", ".3gpp", ".3g2", ".3gpp2", ".vob", ".rm", ".rmvb", ".nut", ".ivf", ".y4m", ".h264", ".264", ".h265", ".hevc", ".265", ".mjpeg", ".mjpg"],
+  audio: [".mp3", ".mp2", ".mpa", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".oga", ".opus", ".wma", ".aiff", ".aif", ".aifc", ".amr", ".ac3", ".eac3", ".au", ".snd", ".caf", ".mka", ".ape", ".wv", ".tta", ".voc", ".spx"],
+  image: [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".avif", ".heic", ".heif", ".jxl", ".ico", ".jp2", ".j2k", ".jpf", ".jpm", ".mj2"],
+  document: [".pdf", ".ppt", ".pptx", ".pps", ".ppsx", ".pot", ".potx", ".pptm", ".ppsm", ".potm", ".odp", ".otp", ".odt", ".ott", ".ods", ".ots", ".fodp", ".fodt", ".fods", ".key", ".pages", ".numbers", ".doc", ".docx", ".docm", ".dot", ".dotx", ".dotm", ".xls", ".xlt", ".xla", ".xlsx", ".xlsm", ".xltx", ".xltm", ".xlam", ".rtf", ".txt", ".md", ".csv", ".tsv"],
 };
 
 const familyFor = extension => Object.entries(accepted).find(([, values]) => values.includes(extension))?.[0] ?? "other";
@@ -135,14 +135,23 @@ async function writeZipFixture(extension, files) {
 async function makeImage(extension) {
   if (!ffmpegAvailable) throw new Error("ffmpeg is not installed");
   const destination = join(output, `IMAGE-C${extension}`);
-  const codec = extension === ".webp"
-    ? "libwebp"
-    : [".jpg", ".jpeg"].includes(extension)
-      ? "mjpeg"
-      : "png";
+  const codecs = {
+    ".webp": ["-c:v", "libwebp"],
+    ".jpg": ["-c:v", "mjpeg"], ".jpeg": ["-c:v", "mjpeg"],
+    ".gif": ["-c:v", "gif"], ".bmp": ["-c:v", "bmp"],
+    ".tif": ["-c:v", "tiff"], ".tiff": ["-c:v", "tiff"],
+    ".avif": ["-c:v", "libaom-av1", "-still-picture", "1", "-f", "avif"],
+    ".heic": ["-c:v", "libx265", "-tag:v", "hvc1", "-f", "heic"],
+    ".heif": ["-c:v", "libx265", "-tag:v", "hvc1", "-f", "heic"],
+    ".jxl": ["-c:v", "libjxl"],
+    ".ico": ["-c:v", "bmp", "-f", "image2"],
+    ".jp2": ["-c:v", "jpeg2000", "-f", "jp2"], ".j2k": ["-c:v", "jpeg2000", "-f", "j2k"],
+    ".jpf": ["-c:v", "jpeg2000", "-f", "jp2"], ".jpm": ["-c:v", "jpeg2000", "-f", "jp2"],
+    ".mj2": ["-c:v", "jpeg2000", "-f", "mj2"],
+  };
   const result = run("ffmpeg", [
     "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-    "color=c=0x1c8c74:s=640x360:d=1", "-frames:v", "1", "-c:v", codec, destination,
+    "color=c=0x1c8c74:s=640x360:d=1", "-frames:v", "1", ...(codecs[extension] || ["-c:v", "png"]), destination,
   ], { capture: true, timeout: 30_000 });
   if (!result.ok) throw new Error(result.stderr || `ffmpeg could not create ${extension}`);
   return destination;
@@ -157,10 +166,23 @@ async function makeVideo(extension, incompatible = false) {
   ];
   if (extension === ".webm") args.push("-c:v", "libvpx-vp9", "-c:a", "libopus");
   else if (extension === ".ogv") args.push("-c:v", "libtheora", "-c:a", "libvorbis");
-  else if ([".mpeg", ".mpg", ".mpe", ".vob", ".ts", ".mts", ".m2ts"].includes(extension)) args.push("-c:v", "mpeg2video", "-c:a", "mp2");
+  else if (extension === ".ogm") args.push("-c:v", "libx264", "-c:a", "libvorbis", "-f", "ogg");
+  else if ([".mpeg", ".mpg", ".mpe"].includes(extension)) args.push("-c:v", "mpeg2video", "-c:a", "mp2", "-f", "mpeg");
+  else if (extension === ".m1v") args.push("-an", "-c:v", "mpeg1video", "-f", "mpeg1video");
+  else if (extension === ".m2v") args.push("-an", "-c:v", "mpeg2video", "-f", "mpeg2video");
+  else if ([".vob", ".ts", ".mts", ".m2ts"].includes(extension)) args.push("-c:v", "mpeg2video", "-c:a", "mp2", "-f", extension === ".vob" ? "mpeg2video" : "mpegts");
+  else if (extension === ".mxf") args.push("-ar", "48000", "-c:v", "mpeg2video", "-c:a", "pcm_s16le", "-f", "mxf");
   else if ([".wmv", ".asf"].includes(extension)) args.push("-c:v", "wmv2", "-c:a", "wmav2");
   else if (extension === ".flv") args.push("-c:v", "flv", "-c:a", "mp3");
-  else if ([".3gp", ".3g2"].includes(extension)) args.push("-c:v", "h263", "-c:a", "aac");
+  else if ([".3gp", ".3gpp"].includes(extension)) args.push("-s", "352x288", "-c:v", "h263", "-c:a", "aac", "-f", "3gp");
+  else if ([".3g2", ".3gpp2"].includes(extension)) args.push("-s", "352x288", "-c:v", "h263", "-c:a", "aac", "-f", "3g2");
+  else if ([".rm", ".rmvb"].includes(extension)) args.push("-c:v", "rv20", "-c:a", "ac3", "-f", "rm");
+  else if (extension === ".nut") args.push("-c:v", "libx264", "-c:a", "aac", "-f", "nut");
+  else if (extension === ".ivf") args.push("-an", "-c:v", "libvpx-vp9", "-f", "ivf");
+  else if (extension === ".y4m") args.push("-an", "-c:v", "rawvideo", "-pix_fmt", "yuv420p", "-f", "yuv4mpegpipe");
+  else if ([".h264", ".264"].includes(extension)) args.push("-an", "-c:v", "libx264", "-f", "h264");
+  else if ([".h265", ".hevc", ".265"].includes(extension)) args.push("-an", "-c:v", "libx265", "-f", "hevc");
+  else if ([".mjpeg", ".mjpg"].includes(extension)) args.push("-an", "-c:v", "mjpeg", "-f", "mjpeg");
   else if (incompatible) args.push("-c:v", "mpeg4", "-c:a", "mp3");
   else args.push("-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart");
   args.push(destination);
@@ -231,12 +253,13 @@ if (ffmpegAvailable) {
 
 if (zipAvailable) {
   const packages = [
-    [".pptx", { "[Content_Types].xml": "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"/>", "ppt/presentation.xml": "<p:presentation xmlns:p=\"urn:schemas-microsoft-com:office:powerpoint\"/>" }],
-    [".ppsx", { "[Content_Types].xml": "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"/>", "ppt/presentation.xml": "<p:presentation xmlns:p=\"urn:schemas-microsoft-com:office:powerpoint\"/>" }],
-    [".potx", { "[Content_Types].xml": "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"/>", "ppt/presentation.xml": "<p:presentation xmlns:p=\"urn:schemas-microsoft-com:office:powerpoint\"/>" }],
-    [".docx", { "[Content_Types].xml": "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"/>", "word/document.xml": "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"/>" }],
-    [".odp", { "META-INF/manifest.xml": "<manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\"/>", "content.xml": "<office:document-content xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\"/>" }],
+    ...[".pptx", ".ppsx", ".potx", ".pptm", ".ppsm", ".potm"].map(extension => [extension, { "[Content_Types].xml": "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"/>", "ppt/presentation.xml": "<p:presentation xmlns:p=\"urn:schemas-microsoft-com:office:powerpoint\"/>" }]),
+    ...[".docx", ".docm", ".dotx", ".dotm"].map(extension => [extension, { "[Content_Types].xml": "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"/>", "word/document.xml": "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"/>" }]),
+    ...[".xlsx", ".xlsm", ".xltx", ".xltm", ".xlam"].map(extension => [extension, { "[Content_Types].xml": "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"/>", "xl/workbook.xml": "<workbook/>" }]),
+    ...[".odp", ".otp", ".odt", ".ott", ".ods", ".ots", ".fodp", ".fodt", ".fods"].map(extension => [extension, { "META-INF/manifest.xml": "<manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\"/>", "content.xml": "<office:document-content xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\"/>" }]),
     [".key", { "Index/Document.iwa": Buffer.from("LessonCue Keynote package fixture") }],
+    [".pages", { "Index/Document.iwa": Buffer.from("LessonCue Pages package fixture") }],
+    [".numbers", { "Index/Document.iwa": Buffer.from("LessonCue Numbers package fixture") }],
   ];
   for (const [extension, files] of packages) {
     try { await add(await writeZipFixture(extension, files), "document", extension); }
@@ -246,8 +269,17 @@ if (zipAvailable) {
   for (const extension of [".pptx", ".docx", ".odp", ".key"]) rows.push({ runId, fileName: `FORMATTED-${extension.slice(1)}${extension}`, family: "document", extension, status: "blocked-fixture", error: "zip is not installed" });
 }
 
-  for (const extension of [".ppt", ".pps", ".pot", ".doc"]) {
+  for (const extension of [".ppt", ".pps", ".pot", ".doc", ".dot", ".xls", ".xlt", ".xla"]) {
   rows.push({ runId, fileName: `FORMATTED-${extension.slice(1)}${extension}`, family: "document", extension, status: "blocked-fixture", error: "A valid legacy OLE fixture requires LibreOffice or a real sample; no renamed package is used." });
+}
+
+for (const extension of [".rtf", ".txt", ".md", ".csv", ".tsv"]) {
+  const path = join(output, `TEXT-${extension.slice(1)}${extension}`);
+  const content = extension === ".rtf"
+    ? "{\\rtf1\\ansi LessonCue broad document fixture}"
+    : extension === ".csv" ? "name,value\nLessonCue,42\n" : extension === ".tsv" ? "name\tvalue\nLessonCue\t42\n" : "LessonCue broad document fixture\n";
+  await writeFile(path, content);
+  await add(path, "document", extension);
 }
 
 const invalid = [
