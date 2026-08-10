@@ -4,6 +4,7 @@ node_modules/
 dist/
 test-results/
 playwright-report/
+test-runs/
 server/LessonCue.Server/wwwroot/
 .wrangler/
 .vinext/
