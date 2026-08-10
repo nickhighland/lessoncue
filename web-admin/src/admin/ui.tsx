@@ -79,8 +79,8 @@ export function CollapsibleSettingsSection({
         className="settings-collapse-toggle"
         type="button"
         aria-expanded={!collapsed}
-        aria-label={`${collapsed ? "Expand" : "Minimize"} ${label}`}
-        title={`${collapsed ? "Expand" : "Minimize"} ${label}`}
+        aria-label={`${collapsed ? "Maximize" : "Minimize"} ${label}`}
+        title={`${collapsed ? "Maximize" : "Minimize"} ${label}`}
         onClick={() => setCollapsed((current) => !current)}
       >
         <span aria-hidden="true">{collapsed ? "+" : "−"}</span>
