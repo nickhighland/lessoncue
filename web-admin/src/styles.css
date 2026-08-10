@@ -105,6 +105,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .alert { padding: 12px 14px; border-radius: var(--radius-sm); font-size: 13px; line-height: 1.45; }
 .alert.error { background: #fbeae7; color: #8b332b; }
 .alert.success { background: #e4f3eb; color: #1f5735; }
+.alert.warning { background: #fff4dc; color: #7a4b0b; }
 .rollback-available {
   display: flex; align-items: center; justify-content: space-between; gap: 18px;
   border: 1.5px solid #e1ceab; border-radius: var(--radius-md); padding: 16px;

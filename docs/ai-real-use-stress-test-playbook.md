@@ -216,10 +216,10 @@ Generate a small valid representative for every currently accepted extension. A 
 
 | Family | Extensions to exercise |
 | --- | --- |
-| Video | `.mp4`, `.m4v`, `.mov`, `.mkv`, `.webm`, `.avi`, `.wmv`, `.asf`, `.mpeg`, `.mpg`, `.mpe`, `.ts`, `.mts`, `.m2ts`, `.flv`, `.f4v`, `.ogv`, `.3gp`, `.3g2`, `.vob` |
-| Audio | `.mp3`, `.m4a`, `.aac`, `.wav` |
-| Image | `.jpg`, `.jpeg`, `.png`, `.webp` |
-| Presentation/document | `.pdf`, `.ppt`, `.pptx`, `.pps`, `.ppsx`, `.pot`, `.potx`, `.odp`, `.key`, `.doc`, `.docx` |
+| Video | `.mp4`, `.m4v`, `.mov`, `.mkv`, `.webm`, `.avi`, `.wmv`, `.asf`, `.mpeg`, `.mpg`, `.mpe`, `.m1v`, `.m2v`, `.ts`, `.mts`, `.m2ts`, `.mxf`, `.flv`, `.f4v`, `.ogv`, `.ogm`, `.3gp`, `.3gpp`, `.3g2`, `.3gpp2`, `.vob`, `.rm`, `.rmvb`, `.nut`, `.ivf`, `.y4m`, `.h264`, `.264`, `.h265`, `.hevc`, `.265`, `.mjpeg`, `.mjpg` |
+| Audio | `.mp3`, `.mp2`, `.mpa`, `.m4a`, `.aac`, `.wav`, `.flac`, `.ogg`, `.oga`, `.opus`, `.wma`, `.aiff`, `.aif`, `.aifc`, `.amr`, `.ac3`, `.eac3`, `.au`, `.snd`, `.caf`, `.mka`, `.ape`, `.wv`, `.tta`, `.voc`, `.spx` |
+| Image | `.jpg`, `.jpeg`, `.png`, `.webp`, `.gif`, `.bmp`, `.tif`, `.tiff`, `.avif`, `.heic`, `.heif`, `.jxl`, `.ico`, `.jp2`, `.j2k`, `.jpf`, `.jpm`, `.mj2` |
+| Presentation/document | `.pdf`, `.ppt`, `.pptx`, `.pps`, `.ppsx`, `.pot`, `.potx`, `.pptm`, `.ppsm`, `.potm`, `.odp`, `.otp`, `.odt`, `.ott`, `.ods`, `.ots`, `.fodp`, `.fodt`, `.fods`, `.key`, `.pages`, `.numbers`, `.doc`, `.docx`, `.docm`, `.dot`, `.dotx`, `.dotm`, `.xls`, `.xlt`, `.xla`, `.xlsx`, `.xlsm`, `.xltx`, `.xltm`, `.xlam`, `.rtf`, `.txt`, `.md`, `.csv`, `.tsv` |
 
 For every extension record one of:
 

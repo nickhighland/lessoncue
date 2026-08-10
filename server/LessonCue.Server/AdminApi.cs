@@ -569,6 +569,13 @@ public static class AdminApi
                 },
                 uploadQuotaPolicy = canManageService ? UploadQuotaPolicy.Read(organization) : null,
                 mediaTaxonomy = MediaTaxonomy.Read(organization),
+                mediaFormats = new
+                {
+                    accept = MediaFormatCatalog.BrowserAccept,
+                    extensions = MediaFormatCatalog.SupportedExtensions,
+                    formats = MediaFormatCatalog.All
+                },
+                mediaConverters = MediaConverterCapabilities.Snapshot(),
                 update = updates.Status,
                 backupPolicy = canManageService
                     ? backupPolicy.GetStatus(organization.TimeZone)
@@ -1669,7 +1676,7 @@ public static class AdminApi
             var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
             if (media is null) return Results.NotFound();
             if (!PresentationConversion.IsConvertible(media.RelativePath) || media.SourceKind == "link" || string.IsNullOrWhiteSpace(media.RelativePath))
-                return Results.BadRequest(new { error = "Local conversion supports PDF, PowerPoint, OpenDocument Presentation, Keynote, and Word files." });
+                    return Results.BadRequest(new { error = "Local conversion supports the document formats accepted by LessonCue." });
             if (media.ConversionStatus is "pending" or "converting")
                 return Results.Conflict(new { error = "This presentation is already being converted." });
             media.ConversionStatus = "pending";
@@ -1688,7 +1695,7 @@ public static class AdminApi
             if (media is null || lesson is null) return Results.NotFound();
             if (!PresentationConversion.IsConvertible(media.RelativePath) || media.SourceKind == "link" ||
                 string.IsNullOrWhiteSpace(media.RelativePath))
-                return Results.BadRequest(new { error = "Choose a locally stored PDF, PowerPoint, OpenDocument Presentation, Keynote, or Word file." });
+                return Results.BadRequest(new { error = "Choose a locally stored document format accepted by LessonCue." });
             media.ConversionLessonId = lesson.Id;
             // A missing slide duration means the generated stills remain on the
             // last frame until the remote queues the next cue. Keep 0 as the
@@ -2120,21 +2127,11 @@ public static class AdminApi
                 return Results.Accepted($"/api/v1/media/{pending.Id}", pending);
             }
             var extension = Path.GetExtension(uri.AbsolutePath).ToLowerInvariant();
-            var direct = extension is ".mp4" or ".m4v" or ".mov" or ".mp3" or ".m4a" or ".aac" or ".wav" or ".jpg" or ".jpeg" or ".png" or ".webp";
+            var direct = MediaFormatCatalog.IsDirectLinkable(extension);
             var youtube = YouTubeMedia.IsYouTubeUrl(uri);
             var embedded = youtube || uri.Host.Equals("vimeo.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".vimeo.com", StringComparison.OrdinalIgnoreCase);
             var kind = direct ? "direct" : youtube ? "youtube" : embedded ? "embedded" : "webpage";
-            var contentType = extension switch
-            {
-                ".mp4" or ".m4v" or ".mov" => "video/mp4",
-                ".mp3" => "audio/mpeg",
-                ".m4a" or ".aac" => "audio/aac",
-                ".wav" => "audio/wav",
-                ".jpg" or ".jpeg" => "image/jpeg",
-                ".png" => "image/png",
-                ".webp" => "image/webp",
-                _ => "text/uri-list"
-            };
+            var contentType = direct ? MediaFormatCatalog.ContentType(extension) : "text/uri-list";
             var title = string.IsNullOrWhiteSpace(input.Title) ? uri.Host : input.Title.Trim();
             var media = new MediaAsset { FileName = title, ContentType = contentType, RelativePath = "",
                 SizeBytes = 0, OfflineEligible = direct, ProcessingStatus = "ready", SourceKind = "link", SourceUrl = uri.ToString(), LinkKind = kind,
@@ -4028,16 +4025,11 @@ public static class AdminApi
             "<p>If you did not request this, ignore this message.</p>", ct);
     }
 
-    private static bool IsSupportedMediaExtension(string extension) => extension.ToLowerInvariant() is
-        ".mp4" or ".m4v" or ".mov" or ".mkv" or ".webm" or ".avi" or ".wmv" or ".asf" or
-        ".mpeg" or ".mpg" or ".mpe" or ".ts" or ".mts" or ".m2ts" or ".flv" or ".f4v" or
-        ".ogv" or ".3gp" or ".3g2" or ".vob" or ".mp3" or ".m4a" or ".aac" or ".wav" or
-        ".jpg" or ".jpeg" or ".png" or ".webp" or ".pdf" or
-        ".ppt" or ".pptx" or ".pps" or ".ppsx" or ".pot" or ".potx" or ".odp" or ".key" or
-        ".doc" or ".docx";
+    private static bool IsSupportedMediaExtension(string extension) =>
+        MediaFormatCatalog.IsSupported(extension);
 
     private static string NormalizeContentType(string fileName, string? _) =>
-        MediaContentInspector.ContentType(Path.GetExtension(fileName));
+        MediaFormatCatalog.ContentType(Path.GetExtension(fileName));
 
     private static string? NormalizeMediaName(string? value, string originalName)
     {

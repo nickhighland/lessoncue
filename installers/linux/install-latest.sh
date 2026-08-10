@@ -75,6 +75,16 @@ apt_package_available() {
   apt-cache show "$1" >/dev/null 2>&1
 }
 
+add_first_package_if_available() {
+  local candidate
+  for candidate in "$@"; do
+    if apt_package_available "${candidate}"; then
+      packages+=("${candidate}")
+      return 0
+    fi
+  done
+}
+
 install_docker_repository() {
   local codename="${VERSION_CODENAME:-}"
   local architecture
@@ -104,7 +114,25 @@ install_prerequisites() {
   local -a packages=(curl ca-certificates git gnupg openssl)
 
   if [[ "${repair_updater}" != true ]]; then
-    packages+=(ffmpeg libreoffice-impress libreoffice-writer poppler-utils avahi-daemon avahi-utils libnss-mdns libicu-dev zlib1g util-linux bubblewrap)
+    packages+=(ffmpeg libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-draw poppler-utils avahi-daemon avahi-utils libnss-mdns libicu-dev zlib1g util-linux bubblewrap)
+    # FFmpeg's codec set is supplied by the distribution build. Install the
+    # optional runtime/codec packages when this Debian/Ubuntu release names
+    # them, so WebP, Ogg/Theora, HEIF/AVIF, JPEG XL, and legacy Office samples
+    # can be exercised without hand-repairing the host afterward.
+    # Package names for codec ABI versions vary between Ubuntu/Debian
+    # releases. Pick the first name the host actually publishes instead of
+    # making an otherwise optional codec block the whole installer.
+    add_first_package_if_available libavcodec-extra libavcodec-extra62 libavcodec-extra61 libavcodec-extra60 libavcodec-extra59
+    add_first_package_if_available libwebp7 libwebp6
+    add_first_package_if_available libtheora0
+    add_first_package_if_available libvpx9 libvpx8 libvpx7
+    add_first_package_if_available libopus0
+    add_first_package_if_available libvorbis0a
+    add_first_package_if_available libheif2 libheif1
+    add_first_package_if_available libavif16 libavif15
+    add_first_package_if_available libjxl0 libjxl0.7
+    add_first_package_if_available libopenjp2-8 libopenjp2-7
+    add_first_package_if_available fonts-liberation
   fi
 
   command -v docker >/dev/null 2>&1 && docker_present=true
@@ -154,7 +182,7 @@ install_prerequisites() {
     echo "Docker Compose v2 is unavailable after prerequisite installation." >&2
     exit 1
   fi
-  echo "Installed prerequisites: curl, git, Docker Engine, Docker Compose, and LessonCue media/runtime dependencies."
+  echo "Installed prerequisites: curl, git, Docker Engine, Docker Compose, FFmpeg/FFprobe, Poppler, LibreOffice, and available optional media codecs."
 }
 
 install_prerequisites

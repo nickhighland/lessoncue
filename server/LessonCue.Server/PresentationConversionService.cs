@@ -8,9 +8,8 @@ namespace LessonCue.Server;
 
 public static class PresentationConversion
 {
-    public static bool IsConvertible(string fileName) => Path.GetExtension(fileName).ToLowerInvariant() is
-        ".pdf" or ".ppt" or ".pptx" or ".pps" or ".ppsx" or ".pot" or ".potx" or
-        ".odp" or ".key" or ".doc" or ".docx";
+    public static bool IsConvertible(string fileName) =>
+        MediaFormatCatalog.IsConvertibleDocument(Path.GetExtension(fileName));
 
     public static bool TryGoogleSlidesExport(Uri source, out Uri export)
     {
@@ -118,7 +117,7 @@ public sealed class PresentationConversionService(
                 ?? throw new InvalidOperationException("The local presentation source file is missing.");
             var extension = Path.GetExtension(source.RelativePath).ToLowerInvariant();
             if (!PresentationConversion.IsConvertible(source.RelativePath))
-                throw new InvalidOperationException("Convert supports PDF, PowerPoint, OpenDocument Presentation, Keynote, and Word files.");
+                throw new InvalidOperationException("Convert supports PDF, PowerPoint, OpenDocument, Keynote, Word, Excel, text, and other document files accepted by LessonCue.");
             MediaContentInspector.RequireValid(original, source.RelativePath);
             var pdftoppm = FindExecutable("LESSONCUE_PDFTOPPM_PATH", "pdftoppm",
                 @"C:\Program Files\poppler\Library\bin\pdftoppm.exe")
