@@ -3,7 +3,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { permissionOptions } from "../constants";
 import { Bootstrap, MfaSetup, MfaStatus, Permission, RegistrationCode, RegistrationSettings, TroubleshootingLog, User } from "../models";
-import { Definition, Empty, Field, Modal, PageHead, QrCode } from "../ui";
+import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead, QrCode } from "../ui";
 import { errorText, initials, isServiceAdminRole, localDateTimeValue, timeAgo } from "../utils";
 
 export function UsersView({
@@ -634,19 +634,22 @@ export function RegistrationSettingsPanel({
       .then(setCodes)
       .catch((cause) => notify(errorText(cause)));
   }, [notify]);
-  async function save(event: FormEvent<HTMLFormElement>) {
+  async function saveRegistration(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     try {
       const result = await api<{ emailConfigured: boolean }>(
         canServiceSettings
-          ? "/api/v1/registration/settings"
+          ? "/api/v1/registration/registration"
           : "/api/v1/registration/mode",
         {
           method: "PUT",
           body: JSON.stringify(
             canServiceSettings
-              ? { ...settings, apiKey }
+              ? {
+                  mode: settings.mode,
+                  publicBaseUrl: settings.publicBaseUrl,
+                }
               : { mode: settings.mode },
           ),
         },
@@ -655,13 +658,39 @@ export function RegistrationSettingsPanel({
         ...current,
         emailConfigured: result.emailConfigured,
       }));
-      setApiKey("");
       refresh();
       notify(
-        canServiceSettings
-          ? "Registration and account email settings saved."
-          : "Registration mode saved.",
+        canServiceSettings ? "Registration settings saved." : "Registration mode saved.",
       );
+    } catch (cause) {
+      notify(errorText(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function saveEmailSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const result = await api<{ emailConfigured: boolean }>(
+        "/api/v1/registration/email-settings",
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            emailProvider: settings.emailProvider,
+            emailFromAddress: settings.emailFromAddress,
+            emailFromName: settings.emailFromName,
+            apiKey,
+          }),
+        },
+      );
+      setSettings((current) => ({
+        ...current,
+        emailConfigured: result.emailConfigured,
+      }));
+      setApiKey("");
+      refresh();
+      notify("Email settings saved.");
     } catch (cause) {
       notify(errorText(cause));
     } finally {
@@ -764,7 +793,7 @@ export function RegistrationSettingsPanel({
     }
   }
   return (
-    <section className="panel wide-settings account-settings">
+    <>
       {editingCode && (
         <Modal
           title={`Edit ${editingCode.label}`}
@@ -812,193 +841,92 @@ export function RegistrationSettingsPanel({
           </form>
         </Modal>
       )}
-      <div className="settings-heading">
-        <div>
-          <span className="settings-kicker">ACCOUNTS</span>
-          <h2>Registration{canServiceSettings ? " & email" : ""}</h2>
-          <p className="settings-copy">
-            Keep registration closed, require administrator approval, open it to
-            verified email addresses, or require a code. Administrator
-            invitations remain available in every mode.
-          </p>
-        </div>
-        <span
-          className={`update-state ${settings.mode === "closed" ? "current" : "available"}`}
-        >
-          {settings.mode === "closed"
-            ? "Registration closed"
-            : settings.mode === "approval"
-              ? "Approval required"
-              : settings.mode === "code"
-                ? "Code required"
-                : "Registration open"}
-        </span>
-      </div>
-      <form className="stack" onSubmit={save}>
-        <Field label="Registration mode">
-          <select
-            value={settings.mode}
-            onChange={(event) =>
-              setSettings((current) => ({
-                ...current,
-                mode: event.target.value as RegistrationSettings["mode"],
-              }))
-            }
-          >
-            <option value="closed">
-              Closed — administrator-created accounts and invitations only
-            </option>
-            <option value="approval">
-              Request access — verify email, then wait for administrator
-              approval
-            </option>
-            <option value="code">Require an active registration code</option>
-            <option value="open">Open to anyone with a verified email</option>
-          </select>
-        </Field>
-        {canServiceSettings && (
-          <>
-            <div className="two-fields">
-              <Field label="Account email provider">
-                <select
-                  value={settings.emailProvider}
-                  onChange={(event) =>
-                    setSettings((current) => ({
-                      ...current,
-                      emailProvider: event.target
-                        .value as RegistrationSettings["emailProvider"],
-                    }))
-                  }
-                >
-                  <option value="none">None — local accounts only</option>
-                  <option value="resend">Resend</option>
-                  <option value="brevo">Brevo</option>
-                </select>
-              </Field>
-              <Field
-                label={
-                  settings.emailConfigured
-                    ? "Replace API key (optional)"
-                    : "Email API key"
-                }
-                hint="The key is encrypted on this server and is never returned to a browser."
-              >
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  required={
-                    settings.emailProvider !== "none" &&
-                    !settings.emailConfigured
-                  }
-                  disabled={settings.emailProvider === "none"}
-                  autoComplete="new-password"
-                />
-              </Field>
-            </div>
-            <div className="two-fields">
-              <Field label="Sender name">
-                <input
-                  value={settings.emailFromName}
-                  onChange={(event) =>
-                    setSettings((current) => ({
-                      ...current,
-                      emailFromName: event.target.value,
-                    }))
-                  }
-                  required={settings.emailProvider !== "none"}
-                  disabled={settings.emailProvider === "none"}
-                />
-              </Field>
-              <Field label="Verified sender address">
-                <input
-                  type="email"
-                  value={settings.emailFromAddress}
-                  onChange={(event) =>
-                    setSettings((current) => ({
-                      ...current,
-                      emailFromAddress: event.target.value,
-                    }))
-                  }
-                  required={settings.emailProvider !== "none"}
-                  disabled={settings.emailProvider === "none"}
-                />
-              </Field>
-            </div>
-            <Field
-              label="Public account-link address"
-              hint="Use the HTTPS Cloudflare or reverse-proxy address users can reach from email. Leave blank to use the address from the current request."
-            >
-              <input
-                type="url"
-                value={settings.publicBaseUrl}
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    publicBaseUrl: event.target.value,
-                  }))
-                }
-                placeholder="https://lesson.example.org"
-              />
-            </Field>
-            {settings.mode !== "closed" &&
-              settings.emailProvider === "none" && (
-                <div className="alert error">
-                  Self-service registration needs Resend or Brevo so LessonCue
-                  can verify email addresses.
-                </div>
-              )}
-          </>
-        )}
-        {!canServiceSettings && (
-          <div className="alert">
-            {settings.emailConfigured
-              ? "Account email is configured by a Service Admin, so self-service registration modes are available."
-              : "A Service Admin must configure account email before approval, code, or open registration can be enabled."}
-          </div>
-        )}
-        <button className="button primary" disabled={busy}>
-          {busy
-            ? "Saving…"
-            : canServiceSettings
-              ? "Save account settings"
-              : "Save registration mode"}
-        </button>
-      </form>
-      {canServiceSettings && (
-        <form
-          className="settings-subsection email-test-form"
-          onSubmit={sendTestEmail}
-        >
+      <CollapsibleSettingsSection
+        label="Registration"
+        className="wide-settings account-settings settings-registration"
+      >
+        <div className="settings-heading">
           <div>
-            <h3>Test email delivery</h3>
-            <p>
-              Send a real message through the saved provider and verified sender
-              before opening registration.
+            <span className="settings-kicker">ACCOUNTS</span>
+            <h2>Registration</h2>
+            <p className="settings-copy">
+              Choose how people create accounts. Administrator invitations remain
+              available in every mode.
             </p>
           </div>
-          <Field label="Test recipient">
-            <input
-              type="email"
-              value={testRecipient}
-              onChange={(event) => setTestRecipient(event.target.value)}
-              required
-              placeholder="you@example.org"
-            />
-          </Field>
-          <button
-            className="button"
-            disabled={!settings.emailConfigured || testingEmail}
+          <span
+            className={`update-state ${settings.mode === "closed" ? "current" : "available"}`}
           >
-            {testingEmail
-              ? "Sending…"
-              : settings.emailConfigured
-                ? "Send test email"
-                : "Save provider first"}
+            {settings.mode === "closed"
+              ? "Registration closed"
+              : settings.mode === "approval"
+                ? "Approval required"
+                : settings.mode === "code"
+                  ? "Code required"
+                  : "Registration open"}
+          </span>
+        </div>
+        <form className="stack" onSubmit={saveRegistration}>
+          <Field label="Registration mode">
+            <select
+              value={settings.mode}
+              onChange={(event) =>
+                setSettings((current) => ({
+                  ...current,
+                  mode: event.target.value as RegistrationSettings["mode"],
+                }))
+              }
+            >
+              <option value="closed">
+                Closed — administrator-created accounts and invitations only
+              </option>
+              <option value="approval">
+                Request access — verify email, then wait for administrator
+                approval
+              </option>
+              <option value="code">Require an active registration code</option>
+              <option value="open">Open to anyone with a verified email</option>
+            </select>
+          </Field>
+          {canServiceSettings && (
+            <>
+              <Field
+                label="Public account-link address"
+                hint="Use the HTTPS Cloudflare or reverse-proxy address users can reach from email. Leave blank to use the address from the current request."
+              >
+                <input
+                  type="url"
+                  value={settings.publicBaseUrl}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      publicBaseUrl: event.target.value,
+                    }))
+                  }
+                  placeholder="https://lesson.example.org"
+                />
+              </Field>
+              {settings.mode !== "closed" &&
+                settings.emailProvider === "none" && (
+                  <div className="alert error">
+                    Self-service registration needs Resend or Brevo so LessonCue
+                    can verify email addresses.
+                  </div>
+                )}
+            </>
+          )}
+          {!canServiceSettings && (
+            <div className="alert">
+              {settings.emailConfigured
+                ? "Account email is configured by a Service Admin, so self-service registration modes are available."
+                : "A Service Admin must configure account email before approval, code, or open registration can be enabled."}
+            </div>
+          )}
+          <button className="button primary" disabled={busy}>
+            {busy ? "Saving…" : "Save registration"}
           </button>
         </form>
-      )}
-      <div className="settings-subsection registration-codes">
+        <div className="settings-subsection registration-codes">
         <div className="settings-heading">
           <div>
             <h3>Registration codes</h3>
@@ -1101,8 +1029,133 @@ export function RegistrationSettingsPanel({
             body="Create a code when registration is set to require one."
           />
         )}
-      </div>
-    </section>
+        </div>
+      </CollapsibleSettingsSection>
+      {canServiceSettings && (
+        <CollapsibleSettingsSection
+          label="Email settings"
+          className="wide-settings account-settings settings-email"
+        >
+          <div className="settings-heading">
+            <div>
+              <span className="settings-kicker">ACCOUNT EMAIL</span>
+              <h2>Email settings</h2>
+              <p className="settings-copy">
+                Configure delivery for verification, invitations, and account recovery.
+              </p>
+            </div>
+            <span
+              className={`update-state ${settings.emailConfigured ? "current" : "available"}`}
+            >
+              {settings.emailConfigured ? "Provider configured" : "Not configured"}
+            </span>
+          </div>
+          <form className="stack" onSubmit={saveEmailSettings}>
+            <div className="two-fields">
+              <Field label="Account email provider">
+                <select
+                  value={settings.emailProvider}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      emailProvider: event.target
+                        .value as RegistrationSettings["emailProvider"],
+                    }))
+                  }
+                >
+                  <option value="none">None — local accounts only</option>
+                  <option value="resend">Resend</option>
+                  <option value="brevo">Brevo</option>
+                </select>
+              </Field>
+              <Field
+                label={
+                  settings.emailConfigured
+                    ? "Replace API key (optional)"
+                    : "Email API key"
+                }
+                hint="The key is encrypted on this server and is never returned to a browser."
+              >
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(event) => setApiKey(event.target.value)}
+                  required={
+                    settings.emailProvider !== "none" &&
+                    !settings.emailConfigured
+                  }
+                  disabled={settings.emailProvider === "none"}
+                  autoComplete="new-password"
+                />
+              </Field>
+            </div>
+            <div className="two-fields">
+              <Field label="Sender name">
+                <input
+                  value={settings.emailFromName}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      emailFromName: event.target.value,
+                    }))
+                  }
+                  required={settings.emailProvider !== "none"}
+                  disabled={settings.emailProvider === "none"}
+                />
+              </Field>
+              <Field label="Verified sender address">
+                <input
+                  type="email"
+                  value={settings.emailFromAddress}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      emailFromAddress: event.target.value,
+                    }))
+                  }
+                  required={settings.emailProvider !== "none"}
+                  disabled={settings.emailProvider === "none"}
+                />
+              </Field>
+            </div>
+            <button className="button primary" disabled={busy}>
+              {busy ? "Saving…" : "Save email settings"}
+            </button>
+          </form>
+          <form
+            className="settings-subsection email-test-form"
+            onSubmit={sendTestEmail}
+          >
+            <div>
+              <h3>Test email delivery</h3>
+              <p>
+                Send a real message through the saved provider and verified sender
+                before opening registration.
+              </p>
+            </div>
+            <Field label="Test recipient">
+              <input
+                type="email"
+                value={testRecipient}
+                onChange={(event) => setTestRecipient(event.target.value)}
+                required
+                placeholder="you@example.org"
+              />
+            </Field>
+            <button
+              className="button"
+              disabled={!settings.emailConfigured || testingEmail}
+            >
+              {testingEmail
+                ? "Sending…"
+                : settings.emailConfigured
+                  ? "Send test email"
+                  : "Save provider first"}
+            </button>
+          </form>
+        </CollapsibleSettingsSection>
+      )}
+    </>
   );
 }
 
@@ -1180,7 +1233,10 @@ export function ServiceAdminMfaPanel({
     }
   }
   return (
-    <section className="panel settings-panel settings-accounts">
+    <CollapsibleSettingsSection
+      label="Authenticator MFA"
+      className="settings-panel settings-accounts settings-mfa"
+    >
       <div className="settings-heading">
         <div>
           <span className="settings-kicker">SERVICE ADMIN SECURITY</span>
@@ -1277,7 +1333,7 @@ export function ServiceAdminMfaPanel({
           </button>
         </form>
       )}
-    </section>
+    </CollapsibleSettingsSection>
   );
 }
 
@@ -1335,7 +1391,10 @@ export function TroubleshootingLogPanel({
     },
   );
   return (
-    <section className="panel wide-settings settings-panel settings-data">
+    <CollapsibleSettingsSection
+      label="Troubleshooting log"
+      className="wide-settings settings-panel settings-data"
+    >
       <div className="settings-heading">
         <div>
           <span className="settings-kicker">SERVICE ADMIN ONLY</span>
@@ -1447,6 +1506,6 @@ export function TroubleshootingLogPanel({
           </div>
         </>
       )}
-    </section>
+    </CollapsibleSettingsSection>
   );
 }

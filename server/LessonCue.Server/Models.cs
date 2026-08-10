@@ -722,6 +722,9 @@ public sealed record ProfileUpdateInput(string DisplayName, string Username, str
 public sealed record RegistrationSettingsInput(string Mode, string PublicBaseUrl, string EmailProvider,
     string EmailFromAddress, string EmailFromName, string? ApiKey);
 public sealed record RegistrationModeInput(string Mode);
+public sealed record RegistrationSectionInput(string Mode, string PublicBaseUrl);
+public sealed record EmailSettingsInput(string EmailProvider, string EmailFromAddress,
+    string EmailFromName, string? ApiKey);
 public sealed record TestAccountEmailInput(string Recipient);
 public sealed record RegistrationCodeInput(string Label, DateTimeOffset? ExpiresAt, int? MaxUses);
 public sealed record AudienceSessionInput(string Title, bool ShowLiveResults = false,

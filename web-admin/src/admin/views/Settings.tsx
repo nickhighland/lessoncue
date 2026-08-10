@@ -2,7 +2,7 @@ import { confirmAction } from "../../AccessibleDialogs";
 import { FormEvent, useEffect, useState } from "react";
 import { api, waitForVersion } from "../api";
 import { Audit, Backup, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, StorageStatus, UpdateStatus, UploadQuotaPolicy } from "../models";
-import { Definition, Empty, Field, Modal, PageHead, StorageMeter } from "../ui";
+import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead, StorageMeter } from "../ui";
 import { RegistrationSettingsPanel, ServiceAdminMfaPanel, TroubleshootingLogPanel } from "./Users";
 import { cleanReleaseNotes, errorText, formatBytes, parseStringArray, quotaLimitsFromText, quotaLimitsToText, timeAgo } from "../utils";
 
@@ -849,7 +849,10 @@ export function Settings({
             />
             {canServiceSettings && <ServiceAdminMfaPanel notify={notify} />}
             {canServiceSettings && (
-              <section className="panel settings-panel settings-accounts">
+              <CollapsibleSettingsSection
+                label="Preview features"
+                className="settings-panel settings-accounts settings-preview-features"
+              >
                 <h2>Preview features</h2>
                 <p className="settings-copy">
                   Choose which optional features are available to your organization.
@@ -873,7 +876,7 @@ export function Settings({
                     while existing sign data remains safely stored.
                   </p>
                 </div>
-              </section>
+              </CollapsibleSettingsSection>
             )}
           </div>
         )}
@@ -1082,7 +1085,10 @@ export function Settings({
         )}
         <div className="settings-grid">
           {canUpdates && (
-            <section className="panel wide-settings update-settings settings-panel settings-system">
+            <CollapsibleSettingsSection
+              label="Software updates"
+              className="wide-settings update-settings settings-panel settings-system"
+            >
               <div className="settings-heading">
                 <div>
                   <span className="settings-kicker">SYSTEM MAINTENANCE</span>
@@ -1203,10 +1209,13 @@ export function Settings({
                   automatic updates on this server.
                 </p>
               )}
-            </section>
+            </CollapsibleSettingsSection>
           )}
       {canServiceSettings && (
-        <section className="panel wide-settings settings-panel settings-accounts">
+        <CollapsibleSettingsSection
+          label="Organization & appearance"
+          className="wide-settings settings-panel settings-accounts"
+        >
               <h2>Organization & appearance</h2>
               <p className="settings-copy">
                 Manage organization defaults, controller access, and every
@@ -1335,10 +1344,13 @@ export function Settings({
                   Save organization & appearance
                 </button>
               </form>
-            </section>
+            </CollapsibleSettingsSection>
           )}
           {canManageApp && (
-            <section className="panel wide-settings settings-panel settings-media">
+            <CollapsibleSettingsSection
+              label="Approved folders & tags"
+              className="wide-settings settings-panel settings-media"
+            >
               <div className="settings-heading">
                 <div>
                   <span className="settings-kicker">MEDIA LIBRARY</span>
@@ -1387,10 +1399,13 @@ export function Settings({
                   Save approved folders & tags
                 </button>
               </form>
-            </section>
+            </CollapsibleSettingsSection>
           )}
           {canServiceSettings && (
-            <section className="panel settings-panel settings-media settings-storage">
+            <CollapsibleSettingsSection
+              label="Storage allocation"
+              className="settings-panel settings-media settings-storage"
+            >
               <h2>Storage allocation</h2>
               <div className="storage-facts">
                 <Definition
@@ -1443,10 +1458,13 @@ export function Settings({
                 </Field>
                 <button className="button primary">Save storage limit</button>
               </form>
-            </section>
+            </CollapsibleSettingsSection>
           )}
           {canServiceSettings && (
-            <section className="panel wide-settings settings-panel settings-media settings-upload-limits">
+            <CollapsibleSettingsSection
+              label="Upload limits"
+              className="wide-settings settings-panel settings-media settings-upload-limits"
+            >
               <div className="settings-heading">
                 <div>
                   <span className="settings-kicker">UPLOAD SAFETY</span>
@@ -1590,10 +1608,13 @@ export function Settings({
                 </details>
                 <button className="button primary">Save upload limits</button>
               </form>
-            </section>
+            </CollapsibleSettingsSection>
           )}
           {canServiceSettings && (
-            <section className="panel settings-panel settings-media settings-adaptive-playback">
+            <CollapsibleSettingsSection
+              label="Adaptive TV playback"
+              className="settings-panel settings-media settings-adaptive-playback"
+            >
               <div className="settings-heading">
                 <div>
                   <h2>Adaptive TV playback</h2>
@@ -1707,10 +1728,13 @@ export function Settings({
                   </button>
                 </div>
               </form>
-            </section>
+            </CollapsibleSettingsSection>
           )}
           {canServiceSettings && (
-            <section className="panel settings-panel settings-connections">
+            <CollapsibleSettingsSection
+              label="Server connection"
+              className="settings-panel settings-connections"
+            >
               <h2>Server connection</h2>
               <Definition
                 label="Browser address"
@@ -1791,10 +1815,13 @@ export function Settings({
                   <button className="button primary">Save local address</button>
                 </form>
               )}
-            </section>
+            </CollapsibleSettingsSection>
           )}
           {canServiceSettings && (
-            <section className="panel wide-settings settings-panel settings-connections">
+            <CollapsibleSettingsSection
+              label="Optional local HTTPS"
+              className="wide-settings settings-panel settings-connections"
+            >
               <div className="settings-heading">
                 <div>
                   <span className="settings-kicker">LOCAL NETWORK SECURITY</span>
@@ -1847,10 +1874,13 @@ export function Settings({
                 access must use an HTTPS reverse proxy, VPN, or the protected
                 Cloudflare option below.
               </p>
-            </section>
+            </CollapsibleSettingsSection>
           )}
           {canManageApp && (
-            <section className="panel settings-panel settings-connections">
+            <CollapsibleSettingsSection
+              label="Screen pairing"
+              className="settings-panel settings-connections"
+            >
               <h2>Screen pairing</h2>
               <Definition
                 label="Current pairing PIN"
@@ -1892,10 +1922,13 @@ export function Settings({
                 </Field>
                 <button className="button primary">Save pairing mode</button>
               </form>
-            </section>
+            </CollapsibleSettingsSection>
           )}
           {canManageApp && (
-            <section className="panel settings-panel settings-connections">
+            <CollapsibleSettingsSection
+              label="Universal controller"
+              className="settings-panel settings-connections"
+            >
               <h2>Universal controller</h2>
               <Definition
                 label="Address"
@@ -1942,10 +1975,13 @@ export function Settings({
                     : "Set controller PIN"}
                 </button>
               </form>
-            </section>
+            </CollapsibleSettingsSection>
           )}
           {canServiceSettings && (
-            <section className="panel wide-settings cloudflare-settings settings-panel settings-connections">
+            <CollapsibleSettingsSection
+              label="Optional remote access"
+              className="wide-settings cloudflare-settings settings-panel settings-connections"
+            >
               <div className="settings-heading">
                 <div>
                   <h2>Optional remote access</h2>
@@ -2114,10 +2150,13 @@ export function Settings({
                 and remove its stored credential; the verified connector remains
                 cached for later use and security updates.
               </p>
-            </section>
+            </CollapsibleSettingsSection>
           )}
           {canManageApp && (
-            <section className="panel wide-settings settings-panel settings-data">
+            <CollapsibleSettingsSection
+              label="Recycling bin"
+              className="wide-settings settings-panel settings-data"
+            >
               <div className="settings-heading">
                 <div>
                   <h2>Recycling bin</h2>
@@ -2168,10 +2207,13 @@ export function Settings({
                   body="Deleted classes, lessons, and media will appear here for 30 days."
                 />
               )}
-            </section>
+            </CollapsibleSettingsSection>
           )}
           {canServiceSettings && canBackups && (
-            <section className="panel settings-panel settings-data">
+            <CollapsibleSettingsSection
+              label="Privacy & backups"
+              className="settings-panel settings-data"
+            >
               <h2>Privacy & backups</h2>
               <div className="privacy-callout">
                 <span>⌂</span>
@@ -2617,10 +2659,13 @@ export function Settings({
                   </button>
                 </div>
               ))}
-            </section>
+            </CollapsibleSettingsSection>
           )}
           {canManageApp && (
-            <section className="panel settings-panel settings-data">
+            <CollapsibleSettingsSection
+              label="Recent activity"
+              className="settings-panel settings-data"
+            >
               <h2>Recent activity</h2>
               <div className="audit-list">
                 {audit.slice(0, 8).map((item) => (
@@ -2632,11 +2677,14 @@ export function Settings({
                   </div>
                 ))}
               </div>
-            </section>
+            </CollapsibleSettingsSection>
           )}
           {canServiceSettings && <TroubleshootingLogPanel notify={notify} />}
           {canServiceSettings && (
-            <section className="panel settings-panel settings-data">
+            <CollapsibleSettingsSection
+              label="Server commands"
+              className="settings-panel settings-data"
+            >
               <h2>Server commands</h2>
               <pre>
                 sudo systemctl status lessoncue{`\n`}sudo journalctl -u
@@ -2645,7 +2693,7 @@ export function Settings({
                   ? `\n\nsudo systemctl status lessoncue-cloudflared\nsudo journalctl -u lessoncue-cloudflared -f`
                   : ""}
               </pre>
-            </section>
+            </CollapsibleSettingsSection>
           )}
         </div>
       </div>
