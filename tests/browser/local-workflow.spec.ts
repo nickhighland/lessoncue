@@ -838,7 +838,11 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   // deliberately exposes click-to-append as the accessible equivalent, so use
   // it only when the drag did not commit and still verify the resulting card.
   if (await page.locator(".signage-timeline-card").count() === 0) {
-    await readySignageVideo.click();
+    // A completed native drag briefly suppresses the source button's click to
+    // avoid adding the same item twice. Give that guard time to expire before
+    // using the accessible fallback click.
+    await page.waitForTimeout(600);
+    await readySignageVideo.dispatchEvent("click");
   }
   await expect(page.locator(".signage-timeline-card")).toHaveCount(1);
   const signageTimeMode = page.getByLabel("Time on screen mode");
@@ -850,7 +854,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   });
   await readySignageAudio.dragTo(page.locator(".signage-timeline-card"), { targetPosition: { x: 4, y: 70 } });
   if (await page.locator(".signage-timeline-card").count() < 2) {
-    await readySignageAudio.click();
+    await page.waitForTimeout(600);
+    await readySignageAudio.dispatchEvent("click");
   }
   await page.getByLabel("Time on screen").fill("18");
   await page.getByLabel("Fade in").fill("1.2");

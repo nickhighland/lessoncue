@@ -221,7 +221,16 @@ async function audienceSessions(): Promise<AudienceSession[]> {
 }
 
 function id(prefix: string) {
-  return `${prefix}-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  const uuid = globalThis.crypto?.randomUUID?.();
+  const entropy = uuid
+    ? uuid.replaceAll("-", "").slice(0, 12)
+    : globalThis.crypto?.getRandomValues
+      ? Array.from(globalThis.crypto.getRandomValues(new Uint32Array(2)))
+        .map(value => value.toString(36))
+        .join("")
+        .slice(0, 12)
+      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`.slice(0, 12);
+  return `${prefix}-${entropy}`;
 }
 
 function signageDurationLabel(seconds: number) {
