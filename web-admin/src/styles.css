@@ -1646,6 +1646,19 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   display: grid; place-items: center; min-width: 25px; height: 25px;
   border-radius: 50%; color: var(--green); background: var(--mint); font-size: 10px; font-weight: 900;
 }
+.audience-session-list > .empty-state {
+  display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: 10px;
+  padding: 22px 18px 24px; color: var(--muted);
+}
+.audience-empty-icon {
+  display: grid; place-items: center; width: 30px; height: 30px;
+  border: 1px solid #cfe2d5; border-radius: 10px; color: var(--green);
+  background: var(--mint); font-size: 14px;
+}
+.audience-session-list > .empty-state strong,
+.audience-session-list > .empty-state small { display: block; }
+.audience-session-list > .empty-state strong { color: var(--deep); font-size: 11px; line-height: 1.35; }
+.audience-session-list > .empty-state small { margin-top: 5px; font-size: 10px; line-height: 1.45; }
 .audience-session-list > button {
   display: grid; grid-template-columns: 9px minmax(0, 1fr) auto; align-items: start; gap: 10px;
   width: 100%; border: 0; border-bottom: 1px solid #efeee8; padding: 14px 16px;
