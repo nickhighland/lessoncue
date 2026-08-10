@@ -35,10 +35,11 @@ const accepted = {
 };
 
 const familyFor = extension => Object.entries(accepted).find(([, values]) => values.includes(extension))?.[0] ?? "other";
-const toolAvailable = command => spawnSync(command, ["-version"], { stdio: "ignore" }).status === 0;
+const toolAvailable = (command, commandArgs = ["-version"]) =>
+  spawnSync(command, commandArgs, { stdio: "ignore" }).status === 0;
 const ffmpegAvailable = toolAvailable("ffmpeg");
 const ffprobeAvailable = toolAvailable("ffprobe");
-const zipAvailable = toolAvailable("zip");
+const zipAvailable = toolAvailable("zip", ["-v"]);
 
 function run(command, commandArgs, options = {}) {
   const result = spawnSync(command, commandArgs, {
@@ -134,11 +135,14 @@ async function writeZipFixture(extension, files) {
 async function makeImage(extension) {
   if (!ffmpegAvailable) throw new Error("ffmpeg is not installed");
   const destination = join(output, `IMAGE-C${extension}`);
-  const format = extension.slice(1);
+  const codec = extension === ".webp"
+    ? "libwebp"
+    : [".jpg", ".jpeg"].includes(extension)
+      ? "mjpeg"
+      : "png";
   const result = run("ffmpeg", [
     "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-    "color=c=0x1c8c74:s=640x360:d=1", "-vf", "drawtext=text='IMAGE-C':x=40:y=40:fontsize=48:fontcolor=white",
-    "-frames:v", "1", "-f", format, destination,
+    "color=c=0x1c8c74:s=640x360:d=1", "-frames:v", "1", "-c:v", codec, destination,
   ], { capture: true, timeout: 30_000 });
   if (!result.ok) throw new Error(result.stderr || `ffmpeg could not create ${extension}`);
   return destination;
@@ -169,6 +173,7 @@ async function metadata(path, family, extension, status = "generated", error = "
   const bytes = await readFile(path).catch(() => null);
   if (!bytes || bytes.length === 0) return {
     runId, fileName: basename(path), family, extension, status: "blocked-fixture",
+    ...(status === "negative-fixture" ? { status, bytes: 0, sha256: createHash("sha256").update(bytes ?? Buffer.alloc(0)).digest("hex") } : {}),
     error: error || "The converter exited without producing bytes.",
   };
   const result = {
