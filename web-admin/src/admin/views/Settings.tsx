@@ -848,6 +848,33 @@ export function Settings({
               canServiceSettings={canServiceSettings}
             />
             {canServiceSettings && <ServiceAdminMfaPanel notify={notify} />}
+            {canServiceSettings && (
+              <section className="panel settings-panel settings-accounts">
+                <h2>Preview features</h2>
+                <p className="settings-copy">
+                  Choose which optional features are available to your organization.
+                </p>
+                <div className="stack">
+                  <label className="check-row">
+                    <input
+                      type="checkbox"
+                      checked={signageEnabled}
+                      onChange={(event) => {
+                        const enabled = event.target.checked;
+                        setSignageEnabled(enabled);
+                        void saveSignageAvailability(enabled);
+                      }}
+                    />{" "}
+                    Enable Signage
+                  </label>
+                  <p className="settings-copy">
+                    Signage is currently a preview feature. When it is off, its
+                    navigation, editor, APIs, and display output are unavailable
+                    while existing sign data remains safely stored.
+                  </p>
+                </div>
+              </section>
+            )}
           </div>
         )}
         {restorePreview && (
@@ -1178,20 +1205,6 @@ export function Settings({
               )}
             </section>
           )}
-      {canServiceSettings && (
-        <section className="panel settings-panel settings-accounts">
-          <h2>Preview features</h2>
-          <p className="settings-copy">Choose which optional features are available to your organization.</p>
-          <div className="stack">
-            <label className="check-row"><input type="checkbox" checked={signageEnabled} onChange={(event) => {
-              const enabled = event.target.checked;
-              setSignageEnabled(enabled);
-              void saveSignageAvailability(enabled);
-            }} /> Enable Signage</label>
-            <p className="settings-copy">Signage is currently a preview feature. When it is off, its navigation, editor, APIs, and display output are unavailable while existing sign data remains safely stored.</p>
-          </div>
-        </section>
-      )}
       {canServiceSettings && (
         <section className="panel wide-settings settings-panel settings-accounts">
               <h2>Organization & appearance</h2>
