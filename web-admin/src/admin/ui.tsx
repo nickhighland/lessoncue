@@ -60,6 +60,39 @@ export function PageHead({
   );
 }
 
+export function CollapsibleSettingsSection({
+  label,
+  className = "",
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  return (
+    <section
+      className={`panel settings-collapsible ${className}`.trim()}
+      data-collapsed={collapsed ? "true" : "false"}
+    >
+      <button
+        className="settings-collapse-toggle"
+        type="button"
+        aria-expanded={!collapsed}
+        aria-label={`${collapsed ? "Expand" : "Minimize"} ${label}`}
+        title={`${collapsed ? "Expand" : "Minimize"} ${label}`}
+        onClick={() => setCollapsed((current) => !current)}
+      >
+        <span aria-hidden="true">{collapsed ? "+" : "−"}</span>
+      </button>
+      <div className="settings-collapsed-title" aria-hidden={!collapsed}>
+        {label}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 export function formTags(form: FormData) {
   return form
     .getAll("tags")

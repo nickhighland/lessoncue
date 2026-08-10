@@ -882,6 +882,23 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .settings-grid pre { background: var(--deep); color: #cfddd8; padding: 18px; border-radius: 10px; overflow: auto; font-size: 11px; line-height: 1.8; }
 .settings-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .settings-heading h2 { margin-bottom: 5px; }
+.settings-collapsible { position: relative; }
+.settings-collapse-toggle {
+  position: absolute; z-index: 2; top: 18px; right: 18px; display: grid;
+  width: 28px; height: 28px; place-items: center; border: 1.5px solid var(--line);
+  border-radius: 8px; color: var(--green); background: #fff; font-size: 18px;
+  font-weight: 700; line-height: 1; cursor: pointer; transition: all 0.12s ease;
+}
+.settings-collapse-toggle:hover { border-color: var(--green); background: var(--mint); }
+.settings-collapse-toggle:focus-visible { outline: 3px solid #d7a14866; outline-offset: 2px; }
+.settings-collapsible > .settings-heading { padding-right: 44px; }
+.settings-collapsed-title { display: none; }
+.settings-collapsible[data-collapsed="true"] { min-height: 66px; padding-block: 18px; }
+.settings-collapsible[data-collapsed="true"] > :not(.settings-collapse-toggle):not(.settings-collapsed-title):not(.modal-backdrop) { display: none; }
+.settings-collapsible[data-collapsed="true"] .settings-collapsed-title {
+  display: block; padding: 3px 56px 3px 0; color: var(--ink); font-family: Georgia, "Times New Roman", serif;
+  font-size: 18px; font-weight: 700;
+}
 .tunnel-state { flex: 0 0 auto; padding: 6px 10px; border-radius: 99px; background: #f0eee8; color: var(--muted); font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
 .tunnel-state.connected { background: #dceee3; color: #22623b; }
 .tunnel-state.waiting { background: #f4ead8; color: #7d5c24; }
@@ -943,6 +960,10 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .settings-page[data-section="connections"] > .settings-grid:not(.account-settings-grid) > .settings-connections,
 .settings-page[data-section="data"] > .settings-grid:not(.account-settings-grid) > .settings-data { display: block; }
 .account-settings { border-color: #c7d5ca; background: linear-gradient(135deg, #fff, #f5f9f5); }
+.account-settings-grid > .settings-registration,
+.account-settings-grid > .settings-email { grid-column: span 2; }
+.account-settings-grid > .settings-mfa { grid-column: 1; }
+.account-settings-grid > .settings-preview-features { grid-column: 2; }
 .settings-data .backup-actions {
   display: grid; grid-template-columns: 1fr 1fr; align-items: end;
   padding: 16px; border: 1.5px solid var(--line); border-radius: 10px; background: #fbfaf5;
@@ -1561,6 +1582,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   .storage-overview { grid-template-columns: 1fr; gap: 9px; }
   .stats-grid, .dashboard-grid, .classes-layout, .settings-grid, .screen-grid, .signage-grid, .calendar-grid, .advanced-grid { grid-template-columns: 1fr; }
   .wide-settings { grid-column: auto; }
+  .account-settings-grid > .settings-mfa, .account-settings-grid > .settings-preview-features { grid-column: auto; }
   .class-list { display: flex; overflow: auto; }
   .class-list h3 { display: none; }
   .class-list > button { width: auto; flex: 0 0 190px; }

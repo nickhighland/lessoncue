@@ -2645,6 +2645,55 @@ public static class AdminApi
             return Results.Ok(new { mode, emailConfigured = email.Status(organization.EmailProvider).Configured });
         });
 
+        appSettings.MapPut("/registration/registration", async (RegistrationSectionInput input, LessonCueDb db,
+            AccountEmailService email, CancellationToken ct) =>
+        {
+            var mode = input.Mode.Trim().ToLowerInvariant();
+            var publicBaseUrl = input.PublicBaseUrl.Trim().TrimEnd('/');
+            if (mode is not ("closed" or "open" or "code" or "approval"))
+                return Results.BadRequest(new { error = "Registration mode must be closed, approval, open, or code." });
+            if (publicBaseUrl.Length > 253)
+                return Results.BadRequest(new { error = "The public address is too long." });
+            if (!string.IsNullOrWhiteSpace(publicBaseUrl) &&
+                (!Uri.TryCreate(publicBaseUrl, UriKind.Absolute, out var publicUrl) ||
+                 publicUrl.Scheme != Uri.UriSchemeHttps && !publicUrl.IsLoopback))
+                return Results.BadRequest(new { error = "Public account URL must use HTTPS, except for a loopback development address." });
+            var organization = await db.Organizations.FirstAsync(ct);
+            if (mode != "closed" && !email.Status(organization.EmailProvider).Configured)
+                return Results.BadRequest(new { error = "Configure account email before enabling self-service registration." });
+            organization.RegistrationMode = mode;
+            organization.PublicBaseUrl = publicBaseUrl;
+            Audit(db, "registration.mode.update", organization.Id, mode);
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { mode, emailConfigured = email.Status(organization.EmailProvider).Configured });
+        });
+
+        settings.MapPut("/registration/email-settings", async (EmailSettingsInput input, LessonCueDb db,
+            AccountEmailService email, CancellationToken ct) =>
+        {
+            var provider = input.EmailProvider.Trim().ToLowerInvariant();
+            if (provider is not ("none" or "resend" or "brevo"))
+                return Results.BadRequest(new { error = "Email provider must be none, Resend, or Brevo." });
+            if (provider != "none" && (!IsEmail(input.EmailFromAddress) ||
+                string.IsNullOrWhiteSpace(input.EmailFromName) || input.EmailFromName.Trim().Length > 120))
+                return Results.BadRequest(new { error = "A valid sender address and name are required." });
+            if (input.ApiKey?.Length > 2048)
+                return Results.BadRequest(new { error = "The provider key is too long." });
+            var organization = await db.Organizations.FirstAsync(ct);
+            if (organization.RegistrationMode != "closed" && provider == "none")
+                return Results.BadRequest(new { error = "Self-service registration requires Resend or Brevo email delivery." });
+            try { await email.ConfigureAsync(provider, input.ApiKey, ct); }
+            catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
+            if (organization.RegistrationMode != "closed" && !email.Status(provider).Configured)
+                return Results.BadRequest(new { error = "Self-service registration requires configured email delivery." });
+            organization.EmailProvider = provider;
+            organization.EmailFromAddress = input.EmailFromAddress.Trim().ToLowerInvariant();
+            organization.EmailFromName = input.EmailFromName.Trim();
+            Audit(db, "registration.email-settings.update", organization.Id, provider);
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { emailConfigured = email.Status(provider).Configured });
+        });
+
         settings.MapPut("/registration/settings", async (RegistrationSettingsInput input, LessonCueDb db,
             AccountEmailService email, CancellationToken ct) =>
         {
