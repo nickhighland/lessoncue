@@ -203,6 +203,8 @@ Open `http://SERVER-IP`. Data is stored in `./lessoncue-data` unless `LESSONCUE_
 
 For a small test VM, set `LESSONCUE_CPUS` in `.env` to the number of available virtual CPUs (the default is `2.0`). Docker bridge networking does not reliably publish mDNS; use the numeric address or install the supplied `docker/avahi-service.xml` on the host. With Avahi installed, set the host name and the persisted `lessoncue-data/config/local-hostname` to the same value (for example, `refactor`) to use `http://refactor.local`. Native installation is friendlier for ordinary deployments.
 
+Some Docker hosts block the nested user and mount namespaces required by LessonCue's Bubblewrap worker. If uploads remain pending and the container log reports that Bubblewrap cannot create a namespace, set `LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX=1` in `.env` and recreate the container. This keeps Docker's read-only root, dropped capabilities, `no-new-privileges`, memory/CPU/PID limits, and writable-data boundary, while the outer container replaces the per-process Bubblewrap boundary; native Linux installations should keep the default `0` for the strongest isolation.
+
 ## Manual Linux service installation
 
 Download `LessonCue-Server-linux-x64.tar.gz` or `LessonCue-Server-linux-arm64.tar.gz` from the GitHub release, unpack it, and run:

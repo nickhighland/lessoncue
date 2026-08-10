@@ -26,6 +26,7 @@ services:
       ASPNETCORE_URLS: http://0.0.0.0:8080
       LESSONCUE_DATA_PATH: /data
       LESSONCUE_HTTP_PORT: "${LESSONCUE_HTTP_PORT:-80}"
+      LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX: "${LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX:-0}"
       LESSONCUE_SERVER_NAME: "${LESSONCUE_SERVER_NAME:-LessonCue}"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health/ready"]
