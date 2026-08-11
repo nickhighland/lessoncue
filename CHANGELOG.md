@@ -4,6 +4,18 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.40 — reliable root-shell installer invocation
+
+### User changes
+
+- Linux installs now work from `sudo`, a root shell, or `su -c` even when the
+  caller's `PATH` omits administrative `sbin` directories.
+
+### Developer changes
+
+- The packaged installer establishes a standard root execution path before
+  checking and invoking `runuser`, `setpriv`, and service tooling.
+
 ## v0.40.39 — reliable Debian installer prerequisites
 
 ### User changes
