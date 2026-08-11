@@ -4,6 +4,19 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.39 — reliable Debian installer prerequisites
+
+### User changes
+
+- Linux installs now include the Debian package that provides `runuser` when
+  the distribution splits it from `util-linux`, preventing a false prerequisite
+  failure during media-sandbox validation.
+
+### Developer changes
+
+- The installer reports the exact missing capability and keeps the prior
+  service recoverable when a host package layout differs.
+
 ## v0.40.38 — clearer live workflows and service diagnostics
 
 ### User changes
