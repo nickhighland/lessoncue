@@ -268,12 +268,22 @@ run_root "${workdir}/install.sh"
 
 http_port="$(run_root cat /var/lib/lessoncue/config/http-port 2>/dev/null || printf '80')"
 if [[ "${http_port}" == "80" ]]; then port_suffix=""; else port_suffix=":${http_port}"; fi
+normalize_local_hostname() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  value="$(printf '%s' "${value}" | tr '[:upper:]' '[:lower:]')"
+  if [[ "${value}" == *.local ]]; then value="${value:0:${#value}-6}"; fi
+  printf '%s' "${value}"
+}
+local_hostname="$(normalize_local_hostname "$(run_root cat /var/lib/lessoncue/config/local-hostname 2>/dev/null || printf 'lessoncue')")"
+if [[ ! "${local_hostname}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then local_hostname=lessoncue; fi
 for attempt in $(seq 1 30); do
   if curl -fsS "http://127.0.0.1:${http_port}/health/ready" >/dev/null; then
     server_ip="$(hostname -I | awk '{print $1}')"
     echo
     echo "LessonCue is ready."
-    echo "Open http://lessoncue.local${port_suffix} in a browser on the same network."
+    echo "Open http://${local_hostname}.local${port_suffix} in a browser on the same network."
     echo "Numeric fallback: http://${server_ip}${port_suffix}"
     exit 0
   fi
