@@ -93,6 +93,8 @@ public sealed class ManifestService(LessonCueDb db)
             : (DateTimeOffset?)null;
         var preRollItems = ordered.Where(x => x.Role == "preRoll")
             .Select(x => MapItem(x, screen, lesson.VolumePercent, lesson.Muted)).ToArray();
+        var postLessonItems = ordered.Where(x => x.Role == "postLesson")
+            .Select(x => MapItem(x, screen, lesson.VolumePercent, lesson.Muted)).ToArray();
 
         return new
         {
@@ -119,6 +121,12 @@ public sealed class ManifestService(LessonCueDb db)
                 enabled = true,
                 loop = true,
                 items = preRollItems
+            },
+            postLesson = postLessonItems.Length == 0 ? null : new
+            {
+                enabled = true,
+                loop = true,
+                items = postLessonItems
             },
             items = ordered.Where(x => x.Role == "lesson")
                 .Select(x => MapItem(x, screen, lesson.VolumePercent, lesson.Muted)).ToArray()
@@ -178,6 +186,7 @@ public sealed class ManifestService(LessonCueDb db)
             configuredVolumePercent = item.VolumePercent,
             item.Muted,
             item.ImageDurationSeconds,
+            item.EstimatedDurationSeconds,
             item.EndBehavior,
             item.AllowSkip,
             offlineEligible = media?.OfflineEligible ?? false,
@@ -284,7 +293,7 @@ public sealed class ManifestService(LessonCueDb db)
                 zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
                 zone.RefreshMinutes, zone.Rotation, zone.ZIndex, zone.Opacity, zone.Fit,
                 zone.Locked, zone.Hidden, zone.FlipX, zone.FlipY,
-                zone.GroupId, zone.LockMode, zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight,
+                zone.GroupId, zone.LockMode, zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontScalePercent, zone.FontWeight,
                 zone.Italic, zone.Underline, zone.LineHeightPercent, zone.TextAlign, zone.Shape,
                 zone.StrokeColor, zone.StrokeWidth, zone.CornerRadius, zone.IconName, zone.QrValue,
                 zone.QrLabelTop, zone.QrLabelBottom, zone.QrLabelLeft, zone.QrLabelRight, zone.QrPlacement,
@@ -425,7 +434,7 @@ public sealed class ManifestService(LessonCueDb db)
                         zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
                         zone.RefreshMinutes, zone.Rotation, zone.ZIndex, zone.Opacity, zone.Fit,
                         zone.Locked, zone.Hidden, zone.FlipX, zone.FlipY, zone.GroupId, zone.LockMode,
-                        zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight, zone.Italic, zone.Underline,
+                        zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontScalePercent, zone.FontWeight, zone.Italic, zone.Underline,
                         zone.LineHeightPercent, zone.TextAlign, zone.Shape, zone.StrokeColor, zone.StrokeWidth,
                         zone.CornerRadius, zone.IconName, zone.QrValue,
                         zone.QrLabelTop, zone.QrLabelBottom, zone.QrLabelLeft, zone.QrLabelRight, zone.QrPlacement,

@@ -124,6 +124,9 @@ public sealed class SignageLayoutTests
     [Fact]
     public void NormalizesMediaWifiClockAndCalendarDisplayControls()
     {
+        var scalable = SignageLayout.Normalize(new SignageZoneInput("message", "text", FontScalePercent: 99));
+        Assert.Equal(40, scalable.FontScalePercent);
+
         var media = SignageLayout.Normalize(new SignageZoneInput("logo", "media", MediaScale: 999,
             MediaOffsetX: -999, MediaOffsetY: 999, MediaAllowOverflow: true));
         Assert.Equal(400, media.MediaScale);
@@ -139,6 +142,18 @@ public sealed class SignageLayoutTests
             CalendarMaxItems: 99, CalendarFields: "title,description,location,unsafe"));
         Assert.Equal(20, calendar.CalendarMaxItems);
         Assert.Equal("title,description,location", calendar.CalendarFields);
+
+        var compactCalendar = SignageLayout.Normalize(new SignageZoneInput("compact-events", "calendar",
+            CalendarFields: "title,date,time"));
+        Assert.DoesNotContain("description", compactCalendar.CalendarFields);
+
+        var weather = SignageLayout.Normalize(new SignageZoneInput("weather", "weather"));
+        Assert.Equal("icon-left", weather.WeatherLayout);
+        Assert.Equal("icon,temperature,conditions,precipitation,high,low,wind", weather.WeatherFields);
+
+        var restrictedWeather = SignageLayout.Normalize(new SignageZoneInput("restricted-weather", "weather",
+            WeatherFields: "icon,forecast,humidity,sunrise,sunset"));
+        Assert.Equal("icon", restrictedWeather.WeatherFields);
     }
 
     [Fact]
@@ -160,7 +175,7 @@ public sealed class SignageLayoutTests
         var zone = SignageLayout.Normalize(new SignageZoneInput("weather", "weather", "Weather",
             WeatherProvider: "open-meteo", WeatherLocation: "Bellingham, WA", WeatherLatitude: 48.7519,
             WeatherLongitude: -122.4787, WeatherUnits: "fahrenheit",
-            WeatherFields: "icon,conditions,temperature,forecast,high,low,precipitation,humidity,wind,sunrise,sunset"));
+            WeatherFields: "icon,temperature,conditions,precipitation,high,low,wind,forecast,humidity,sunrise,sunset"));
         var source = SignageWidgetService.WeatherSource(zone);
         Assert.StartsWith("https://api.open-meteo.com/v1/forecast?", source);
         Assert.Contains("latitude=48.7519", source);
@@ -193,9 +208,10 @@ public sealed class SignageLayoutTests
         Assert.Contains("High 75°F", weather.Items);
         Assert.Contains("Low 59°F", weather.Items);
         Assert.Contains("Precipitation 20%", weather.Items);
-        Assert.Contains("Tomorrow Rain", weather.Items);
-        Assert.Contains(weather.Items, item => item.StartsWith("Sunrise "));
-        Assert.Contains(weather.Items, item => item.StartsWith("Sunset "));
+        Assert.DoesNotContain(weather.Items, item => item.StartsWith("Tomorrow "));
+        Assert.DoesNotContain(weather.Items, item => item.StartsWith("Sunrise "));
+        Assert.DoesNotContain(weather.Items, item => item.StartsWith("Sunset "));
+        Assert.DoesNotContain(weather.Items, item => item.StartsWith("Humidity "));
         Assert.Equal("🌤️", weather.Icon);
         Assert.NotNull(weather.Weather);
         Assert.Equal(75, weather.Weather.High);

@@ -1,0 +1,12 @@
+command: dotnet test server/LessonCue.Server.Tests/LessonCue.Server.Tests.csproj --filter FullyQualifiedName~ProtocolContractTests
+start_local: 2026-08-02T20:34:08-0400
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  LessonCue.Server -> /Users/nickhighland/Documents/Video Viewer/server/LessonCue.Server/bin/Debug/net10.0/LessonCue.Server.dll
+  LessonCue.Server.Tests -> /Users/nickhighland/Documents/Video Viewer/server/LessonCue.Server.Tests/bin/Debug/net10.0/LessonCue.Server.Tests.dll
+Test run for /Users/nickhighland/Documents/Video Viewer/server/LessonCue.Server.Tests/bin/Debug/net10.0/LessonCue.Server.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 1 s - LessonCue.Server.Tests.dll (net10.0)
+finish_local: 2026-08-02T20:36:33-0400
+exit_code: 0

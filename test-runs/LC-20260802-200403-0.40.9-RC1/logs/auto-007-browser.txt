@@ -1,0 +1,43 @@
+command: env LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX=1 npx playwright test tests/browser/display-conformance.spec.ts
+start_local: 2026-08-02T20:36:33-0400
+[WebServer] warn: Microsoft.EntityFrameworkCore.Query[10103]
+[WebServer]       The query uses the 'First'/'FirstOrDefault' operator without 'OrderBy' and filter operators. This may lead to unpredictable results.
+[WebServer] warn: Microsoft.AspNetCore.DataProtection.KeyManagement.XmlKeyManager[35]
+[WebServer]       No XML encryptor configured. Key {4bfe3e0f-2e82-4daf-84ca-b7de5c1b4c32} may be persisted to storage in unencrypted form.
+[WebServer] warn: Microsoft.EntityFrameworkCore.Query[10103]
+[WebServer]       The query uses the 'First'/'FirstOrDefault' operator without 'OrderBy' and filter operators. This may lead to unpredictable results.
+[WebServer] warn: Microsoft.EntityFrameworkCore.Query[10103]
+[WebServer]       The query uses the 'First'/'FirstOrDefault' operator without 'OrderBy' and filter operators. This may lead to unpredictable results.
+[WebServer] info: Microsoft.Hosting.Lifetime[14]
+[WebServer]       Now listening on: http://127.0.0.1:5117
+[WebServer] info: Microsoft.Hosting.Lifetime[0]
+[WebServer]       Application started. Press Ctrl+C to shut down.
+[WebServer] info: Microsoft.Hosting.Lifetime[0]
+[WebServer]       Hosting environment: Production
+[WebServer] info: Microsoft.Hosting.Lifetime[0]
+[WebServer]       Content root path: /Users/nickhighland/Documents/Video Viewer/server/LessonCue.Server
+
+Running 4 tests using 1 worker
+
+(node:56385) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. POST /api/v1/tv/status returned 400 in 12.8 ms. Trace 0HNNGUT5I5R84:00000004; user anonymous
+  ✓  1 tests/browser/display-conformance.spec.ts:68:3 › browser accepts committed protocol fixture: manifest-v1-minimum.json (517ms)
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. POST /api/v1/tv/status returned 400 in 2.6 ms. Trace 0HNNGUT5I5R86:00000004; user anonymous
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/media/10000000-0000-0000-0000-000000000004/file returned 404 in 6.7 ms. Trace 0HNNGUT5I5R87:00000002; user anonymous
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. GET /api/v1/media/10000000-0000-0000-0000-000000000004/file returned 404 in 23.0 ms. Trace 0HNNGUT5I5R86:00000005; user anonymous
+  ✓  2 tests/browser/display-conformance.spec.ts:68:3 › browser accepts committed protocol fixture: manifest-v1-current.json (204ms)
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. POST /api/v1/tv/status returned 400 in 0.7 ms. Trace 0HNNGUT5I5R88:00000004; user anonymous
+  ✓  3 tests/browser/display-conformance.spec.ts:68:3 › browser accepts committed protocol fixture: manifest-v1-future-additive.json (161ms)
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. POST /api/v1/tv/status returned 400 in 0.3 ms. Trace 0HNNGUT5I5R8A:00000004; user anonymous
+  ✓  4 tests/browser/display-conformance.spec.ts:87:1 › browser renders the declared safe fallback and preserves navigation (460ms)
+
+  4 passed (11.8s)
+finish_local: 2026-08-02T20:36:47-0400
+exit_code: 0

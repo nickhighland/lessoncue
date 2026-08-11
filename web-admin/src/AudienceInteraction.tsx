@@ -202,10 +202,18 @@ export function AudienceAdmin({
     }
   }
 
-  async function action(path: string, message: string, method = "POST") {
+  async function action(
+    path: string,
+    message: string,
+    method = "POST",
+    body: unknown = {},
+  ) {
     setBusy(true);
     try {
-      await request(path, { method, body: method === "DELETE" ? undefined : "{}" });
+      await request(path, {
+        method,
+        body: method === "DELETE" ? undefined : JSON.stringify(body),
+      });
       await load();
       notify(message);
     } catch (error) {
@@ -220,6 +228,7 @@ export function AudienceAdmin({
       `/api/v1/audience/admin/responses/${id}/moderation`,
       status === "approved" ? "Response approved." : "Response hidden.",
       "PUT",
+      { status },
     );
   }
 
@@ -246,8 +255,14 @@ export function AudienceAdmin({
           </header>
           {sessions.length === 0 && (
             <div className="empty-state compact">
-              <strong>No audience sessions yet</strong>
-              <small>Create a poll, open it, and share its QR code.</small>
+              <span className="audience-empty-icon" aria-hidden="true">◉</span>
+              <div>
+                <strong>No audience sessions yet</strong>
+                <small>Create a poll, open it, and share its QR code.</small>
+                <button className="button primary audience-empty-action" onClick={() => setEditing(editable())}>
+                  Create a poll
+                </button>
+              </div>
             </div>
           )}
           {sessions.map((item) => (
@@ -273,14 +288,28 @@ export function AudienceAdmin({
         <main className="audience-detail">
           {!selected ? (
             <div className="panel empty-state">
-              <strong>Create a safe local interaction</strong>
-              <p>
-                Choice polls can show live totals. Written responses remain
-                hidden until an administrator approves them.
-              </p>
+              <span className="eyebrow">QUICK START</span>
+              <strong>Create, open, share</strong>
+              <p>Guide a room from a blank page to a live response session in three clear steps.</p>
+              <ol className="audience-workflow-guide">
+                <li className="current"><b>1</b><span><strong>Create a poll</strong><small>Write the question and choose response rules.</small></span></li>
+                <li><b>2</b><span><strong>Open the session</strong><small>Accept responses only when the room is ready.</small></span></li>
+                <li><b>3</b><span><strong>Share the QR code</strong><small>Copy or download the room link for participants.</small></span></li>
+              </ol>
+              <button className="button primary" onClick={() => setEditing(editable())}>Create a poll</button>
             </div>
           ) : (
             <>
+              <section className="panel audience-workflow-status" aria-label="Audience session workflow">
+                <div className={`workflow-step ${selected.status !== "draft" ? "complete" : "current"}`}>
+                  <b>1</b><span><strong>Poll ready</strong><small>{selected.questions.length} question{selected.questions.length === 1 ? "" : "s"} configured</small></span>
+                </div>
+                <div className={`workflow-step ${selected.status === "open" ? "current" : selected.status === "closed" ? "complete" : ""}`}>
+                  <b>2</b><span><strong>{selected.status === "draft" ? "Open the session" : selected.status === "open" ? "Session is open" : "Session closed"}</strong><small>{selected.status === "closed" ? "Reopen to recover this room" : "Control when responses are accepted"}</small></span></div>
+                <div className="workflow-step current">
+                  <b>3</b><span><strong>Share the QR code</strong><small>Code {selected.code} · {selected.participantCount} participant{selected.participantCount === 1 ? "" : "s"}</small></span>
+                </div>
+              </section>
               <section className="panel audience-share">
                 <div>
                   <span className={`status-pill ${selected.status}`}>
@@ -290,7 +319,7 @@ export function AudienceAdmin({
                   <p>
                     {selected.participantCount} anonymous participant
                     {selected.participantCount === 1 ? "" : "s"} · responses
-                    delete {new Date(selected.purgeAt).toLocaleDateString()}
+                    delete on {new Date(selected.purgeAt).toLocaleDateString()}
                   </p>
                   <div className="audience-code">{selected.code}</div>
                   <div className="row-actions">
@@ -300,6 +329,17 @@ export function AudienceAdmin({
                     >
                       Copy link
                     </button>
+                    <button
+                      className="button"
+                      onClick={() => navigator.clipboard.writeText(selected.code).then(() => notify("Session code copied."))}
+                    >
+                      Copy code
+                    </button>
+                    {qr && (
+                      <a className="button" href={qr} download={`lessoncue-audience-${selected.code}.png`}>
+                        Download QR
+                      </a>
+                    )}
                     <a
                       className="button"
                       href={`/respond/${selected.code}`}
@@ -311,6 +351,12 @@ export function AudienceAdmin({
                   </div>
                 </div>
                 {qr && <img src={qr} alt={`QR code for ${selected.code}`} />}
+              </section>
+              <section className="audience-live-status" aria-label="Audience status" aria-live="polite">
+                <div><span>SESSION</span><strong className={`status-pill ${selected.status}`}>{selected.status}</strong><small>{selected.status === "closed" ? "Existing responses are preserved." : selected.status === "open" ? "Accepting responses now." : "Draft is not visible to participants."}</small></div>
+                <div><span>PARTICIPANTS</span><strong>{selected.participantCount}</strong><small>anonymous devices</small></div>
+                <div><span>RESPONSES</span><strong>{selected.questions.reduce((total, question) => total + question.responses.length, 0)}</strong><small>across {selected.questions.length} question{selected.questions.length === 1 ? "" : "s"}</small></div>
+                <div><span>MODERATION</span><strong>{selected.pendingModerationCount}</strong><small>{selected.pendingModerationCount ? "waiting for approval" : "nothing waiting"}</small></div>
               </section>
               <section className="panel audience-actions">
                 <button
@@ -346,6 +392,12 @@ export function AudienceAdmin({
                   >
                     Close responses
                   </button>
+                )}
+                {selected.status === "closed" && (
+                  <div className="alert success audience-recovery" role="status">
+                    <strong>Closed-session recovery</strong>
+                    <span>Responses remain available for review. Reopen this session to let participants respond again; no existing answers will be deleted.</span>
+                  </div>
                 )}
                 <button
                   className="button"
@@ -931,13 +983,9 @@ export function AudienceResponseApp() {
               ))}
               {error && <div className="alert error" role="alert">{error}</div>}
               <button
-                type="button"
+                type="submit"
                 className="button primary wide"
                 disabled={busy}
-                onPointerDown={() => {
-                  if (!busy) void submit();
-                }}
-                onClick={() => void submit()}
               >
                 {busy ? "Sending…" : "Send anonymous response"}
               </button>

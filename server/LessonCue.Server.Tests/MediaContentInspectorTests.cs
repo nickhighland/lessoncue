@@ -13,6 +13,14 @@ public sealed class MediaContentInspectorTests
     [InlineData(".mp4", "000000186674797069736f6d", "video/mp4")]
     [InlineData(".webm", "1a45dfa39f42868101", "video/webm")]
     [InlineData(".wav", "524946460000000057415645", "audio/wav")]
+    [InlineData(".flac", "664c614300000000", "audio/flac")]
+    [InlineData(".ogg", "4f67675300000000", "audio/ogg")]
+    [InlineData(".gif", "47494638396100000000", "image/gif")]
+    [InlineData(".bmp", "424d00000000", "image/bmp")]
+    [InlineData(".tiff", "49492a0000000000", "image/tiff")]
+    [InlineData(".jxl", "ff0a000000000000", "image/jxl")]
+    [InlineData(".rtf", "7b5c727466310000", "application/rtf")]
+    [InlineData(".txt", "4c6573736f6e437565", "text/plain")]
     [InlineData(".pdf", "255044462d312e370a", "application/pdf")]
     public void AcceptsRecognizedContent(string extension, string hex, string contentType)
     {
@@ -49,6 +57,16 @@ public sealed class MediaContentInspectorTests
     }
 
     [Fact]
+    public void RequiresExpectedSpreadsheetPackageEntries()
+    {
+        using var valid = Package(("[Content_Types].xml", "<Types/>"), ("xl/workbook.xml", "<workbook/>"));
+        using var wrong = Package(("[Content_Types].xml", "<Types/>"), ("word/document.xml", "<w:document/>"));
+
+        Assert.True(MediaContentInspector.Inspect(valid, ".xlsx").Valid);
+        Assert.False(MediaContentInspector.Inspect(wrong, ".xlsx").Valid);
+    }
+
+    [Fact]
     public void RejectsUnsafePackagePaths()
     {
         using var stream = Package(("[Content_Types].xml", "<Types/>"),
@@ -64,6 +82,19 @@ public sealed class MediaContentInspectorTests
         Assert.Equal("video/mp4", MediaContentInspector.ContentType(".mp4"));
         Assert.Equal("application/vnd.apple.keynote", MediaContentInspector.ContentType(".key"));
         Assert.Equal("application/octet-stream", MediaContentInspector.ContentType(".exe"));
+    }
+
+    [Fact]
+    public void CatalogPublishesBroadFamiliesAndBrowserPickerExtensions()
+    {
+        Assert.True(MediaFormatCatalog.IsSupported(".heic"));
+        Assert.True(MediaFormatCatalog.IsSupported(".xlsm"));
+        Assert.True(MediaFormatCatalog.IsSupported(".opus"));
+        Assert.True(MediaFormatCatalog.IsSupported(".mxf"));
+        Assert.Contains(".pptm", MediaFormatCatalog.BrowserAccept);
+        Assert.Contains(".pages", MediaFormatCatalog.SupportedExtensions);
+        Assert.Equal("LibreOffice", MediaFormatCatalog.Converter(".doc"));
+        Assert.Equal("FFmpeg", MediaFormatCatalog.Converter(".flac"));
     }
 
     private static MemoryStream Package(params (string Name, string Content)[] entries)

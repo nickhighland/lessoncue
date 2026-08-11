@@ -59,6 +59,7 @@ public static class SignageStudio
             DurationSeconds = Math.Clamp(item.DurationSeconds, 1, 86400),
             Transition = item.Transition is "fade" or "slide" or "zoom" ? item.Transition : "cut",
             TagsCsv = Truncate(item.TagsCsv, 2000),
+            Notes = Truncate(item.Notes, 2000),
             VolumePercent = Math.Clamp(item.VolumePercent, 0, 100),
             FadeInMs = Math.Clamp(item.FadeInMs, 0, 30000),
             FadeOutMs = Math.Clamp(item.FadeOutMs, 0, 30000),
