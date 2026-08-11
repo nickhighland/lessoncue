@@ -1,10 +1,35 @@
 import { confirmAction } from "../../AccessibleDialogs";
 import { FormEvent, useEffect, useState } from "react";
 import { api, waitForVersion } from "../api";
-import { Audit, Backup, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
+import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
 import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead, StorageMeter } from "../ui";
 import { RegistrationSettingsPanel, ServiceAdminMfaPanel, TroubleshootingLogPanel } from "./Users";
 import { cleanReleaseNotes, errorText, formatBytes, parseStringArray, quotaLimitsFromText, quotaLimitsToText, timeAgo } from "../utils";
+
+type RemoteBackupForm = {
+  url: string;
+  authentication: "none" | "basic" | "bearer";
+  username: string;
+  secret: string;
+  retentionCount: string;
+  retentionDays: string;
+};
+
+const emptyRemoteBackupForm = (): RemoteBackupForm => ({
+  url: "",
+  authentication: "basic",
+  username: "",
+  secret: "",
+  retentionCount: "7",
+  retentionDays: "30",
+});
+
+const remoteProviderLabel = (provider: BackupDestinationProvider) =>
+  provider === "nextcloud"
+    ? "Nextcloud"
+    : provider === "owncloud"
+      ? "ownCloud"
+      : "Other WebDAV destination";
 
 export function Settings({
   bootstrap,
@@ -127,12 +152,13 @@ export function Settings({
   const [policyRetentionDays, setPolicyRetentionDays] = useState("30");
   const [policyIncludeSecrets, setPolicyIncludeSecrets] = useState(false);
   const [policyPassword, setPolicyPassword] = useState("");
-  const [policyRemoteUrl, setPolicyRemoteUrl] = useState("");
-  const [policyRemoteAuthentication, setPolicyRemoteAuthentication] = useState<
-    "none" | "basic" | "bearer"
-  >("none");
-  const [policyRemoteUsername, setPolicyRemoteUsername] = useState("");
-  const [policyRemoteSecret, setPolicyRemoteSecret] = useState("");
+  const [policyRemotes, setPolicyRemotes] = useState<
+    Record<BackupDestinationProvider, RemoteBackupForm>
+  >({
+    nextcloud: emptyRemoteBackupForm(),
+    owncloud: emptyRemoteBackupForm(),
+    webdav: emptyRemoteBackupForm(),
+  });
   const [migrationGrant, setMigrationGrant] =
     useState<MigrationTransferGrant>();
   const [migrationSourceAddress, setMigrationSourceAddress] = useState("");
@@ -168,9 +194,38 @@ export function Settings({
         setPolicyRetentionCount(String(status.retentionCount));
         setPolicyRetentionDays(String(status.retentionDays));
         setPolicyIncludeSecrets(status.secretHandling === "include");
-        setPolicyRemoteUrl(status.remoteWebDavUrl || "");
-        setPolicyRemoteAuthentication(status.remoteAuthentication);
-        setPolicyRemoteUsername(status.remoteUsername || "");
+        const remotes: Record<BackupDestinationProvider, RemoteBackupForm> = {
+          nextcloud: emptyRemoteBackupForm(),
+          owncloud: emptyRemoteBackupForm(),
+          webdav: emptyRemoteBackupForm(),
+        };
+        const destinations = status.destinations?.length
+          ? status.destinations
+          : status.remoteWebDavUrl
+            ? [
+                {
+                  provider: "webdav" as const,
+                  enabled: true,
+                  webDavUrl: status.remoteWebDavUrl,
+                  authentication: status.remoteAuthentication,
+                  username: status.remoteUsername,
+                  secretConfigured: status.remoteSecretConfigured,
+                  retentionCount: status.retentionCount,
+                  retentionDays: status.retentionDays,
+                },
+              ]
+            : [];
+        destinations.forEach((destination) => {
+          remotes[destination.provider] = {
+            url: destination.webDavUrl || "",
+            authentication: destination.authentication,
+            username: destination.username || "",
+            secret: "",
+            retentionCount: String(destination.retentionCount),
+            retentionDays: String(destination.retentionDays),
+          };
+        });
+        setPolicyRemotes(remotes);
       })
       .catch((error) => notify(errorText(error)));
   }, [canBackups, notify]);
@@ -289,6 +344,16 @@ export function Settings({
       notify(errorText(error));
     }
   }
+  function updatePolicyRemote(
+    provider: BackupDestinationProvider,
+    patch: Partial<RemoteBackupForm>,
+  ) {
+    setPolicyRemotes((current) => ({
+      ...current,
+      [provider]: { ...current[provider], ...patch },
+    }));
+  }
+
   async function saveBackupPolicy(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBackupPolicyBusy(true);
@@ -306,15 +371,34 @@ export function Settings({
           retentionDays: Number(policyRetentionDays),
           secretHandling: policyIncludeSecrets ? "include" : "exclude",
           backupPassword: policyPassword || null,
-          remoteWebDavUrl: policyRemoteUrl || null,
-          remoteAuthentication: policyRemoteAuthentication,
-          remoteUsername: policyRemoteUsername || null,
-          remoteSecret: policyRemoteSecret || null,
+          remoteWebDavUrl: policyRemotes.webdav.url || null,
+          remoteAuthentication: policyRemotes.webdav.authentication,
+          remoteUsername: policyRemotes.webdav.username || null,
+          remoteSecret: policyRemotes.webdav.secret || null,
+          destinations: (Object.keys(policyRemotes) as BackupDestinationProvider[])
+            .map((provider) => ({ provider, form: policyRemotes[provider] }))
+            .filter(({ form }) => form.url.trim())
+            .map(({ provider, form }) => ({
+              provider,
+              webDavUrl: form.url.trim(),
+              authentication: form.authentication,
+              username: form.username || null,
+              secret: form.secret || null,
+              retentionCount: Number(form.retentionCount),
+              retentionDays: Number(form.retentionDays),
+            })),
         }),
       });
       setBackupPolicy(status);
       setPolicyPassword("");
-      setPolicyRemoteSecret("");
+      setPolicyRemotes((current) =>
+        Object.fromEntries(
+          Object.entries(current).map(([provider, form]) => [
+            provider,
+            { ...form, secret: "" },
+          ]),
+        ) as Record<BackupDestinationProvider, RemoteBackupForm>,
+      );
       notify("Scheduled backup policy saved.");
     } catch (error) {
       notify(errorText(error));
@@ -2590,81 +2674,159 @@ export function Settings({
                   />
                 </Field>
                 <div className="backup-remote-settings">
-                  <h4>Optional HTTPS WebDAV copy</h4>
+                  <h4>Off-site WebDAV destinations</h4>
                   <p className="settings-copy">
-                    Use a folder URL from a WebDAV-capable NAS or storage
-                    provider. LessonCue uploads each already-encrypted `.lcbak`
-                    file with HTTP PUT.
+                    Nextcloud and ownCloud both provide HTTPS WebDAV folders.
+                    LessonCue encrypts and verifies each `.lcbak` locally,
+                    uploads it to every configured destination, and removes
+                    only older LessonCue backup files after the configured
+                    retention limit is met.
                   </p>
-                  <Field label="WebDAV folder URL">
-                    <input
-                      type="url"
-                      value={policyRemoteUrl}
-                      placeholder="https://backup.example.org/lessoncue/"
-                      onChange={(event) =>
-                        setPolicyRemoteUrl(event.target.value)
-                      }
-                    />
-                  </Field>
-                  {policyRemoteUrl && (
-                    <>
-                      <div className="two-fields">
-                        <Field label="Authentication">
-                          <select
-                            value={policyRemoteAuthentication}
-                            onChange={(event) =>
-                              setPolicyRemoteAuthentication(
-                                event.target.value as
-                                  | "none"
-                                  | "basic"
-                                  | "bearer",
-                              )
-                            }
-                          >
-                            <option value="none">None</option>
-                            <option value="basic">Username and password</option>
-                            <option value="bearer">Bearer token</option>
-                          </select>
-                        </Field>
-                        {policyRemoteAuthentication === "basic" && (
-                          <Field label="Username">
+                  {(["nextcloud", "owncloud", "webdav"] as const).map(
+                    (provider) => {
+                      const form = policyRemotes[provider];
+                      const status = backupPolicy?.destinations?.find(
+                        (destination) => destination.provider === provider,
+                      );
+                      return (
+                        <div className="backup-remote-destination" key={provider}>
+                          <h5>{remoteProviderLabel(provider)}</h5>
+                          <Field label="HTTPS WebDAV folder URL">
                             <input
-                              value={policyRemoteUsername}
+                              type="url"
+                              value={form.url}
+                              placeholder={
+                                provider === "nextcloud"
+                                  ? "https://cloud.example.org/remote.php/dav/files/admin/LessonCue/"
+                                  : provider === "owncloud"
+                                    ? "https://cloud.example.org/remote.php/dav/files/admin/LessonCue/"
+                                    : "https://backup.example.org/lessoncue/"
+                              }
                               onChange={(event) =>
-                                setPolicyRemoteUsername(event.target.value)
+                                updatePolicyRemote(provider, {
+                                  url: event.target.value,
+                                })
                               }
                             />
                           </Field>
-                        )}
-                      </div>
-                      {policyRemoteAuthentication !== "none" && (
-                        <Field
-                          label={
-                            backupPolicy?.remoteSecretConfigured
-                              ? "Replace remote credential (optional)"
-                              : policyRemoteAuthentication === "basic"
-                                ? "Password"
-                                : "Bearer token"
-                          }
-                        >
-                          <input
-                            type="password"
-                            maxLength={4096}
-                            value={policyRemoteSecret}
-                            autoComplete="new-password"
-                            placeholder={
-                              backupPolicy?.remoteSecretConfigured
-                                ? "Leave blank to keep the saved protected credential"
-                                : ""
-                            }
-                            onChange={(event) =>
-                              setPolicyRemoteSecret(event.target.value)
-                            }
-                          />
-                        </Field>
-                      )}
-                    </>
+                          {form.url && (
+                            <>
+                              <div className="two-fields">
+                                <Field label="Authentication">
+                                  <select
+                                    value={form.authentication}
+                                    onChange={(event) =>
+                                      updatePolicyRemote(provider, {
+                                        authentication: event.target.value as
+                                          | "none"
+                                          | "basic"
+                                          | "bearer",
+                                      })
+                                    }
+                                  >
+                                    <option value="basic">
+                                      Username and app password
+                                    </option>
+                                    <option value="bearer">
+                                      Bearer token
+                                    </option>
+                                    <option value="none">None</option>
+                                  </select>
+                                </Field>
+                                {form.authentication === "basic" && (
+                                  <Field label="Username">
+                                    <input
+                                      value={form.username}
+                                      onChange={(event) =>
+                                        updatePolicyRemote(provider, {
+                                          username: event.target.value,
+                                        })
+                                      }
+                                    />
+                                  </Field>
+                                )}
+                              </div>
+                              <div className="two-fields">
+                                <Field label="Keep newest remote copies">
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={365}
+                                    value={form.retentionCount}
+                                    onChange={(event) =>
+                                      updatePolicyRemote(provider, {
+                                        retentionCount: event.target.value,
+                                      })
+                                    }
+                                  />
+                                </Field>
+                                <Field label="Delete remote copies older than (days)">
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={3650}
+                                    value={form.retentionDays}
+                                    onChange={(event) =>
+                                      updatePolicyRemote(provider, {
+                                        retentionDays: event.target.value,
+                                      })
+                                    }
+                                  />
+                                </Field>
+                              </div>
+                              {form.authentication !== "none" && (
+                                <Field
+                                  label={
+                                    status?.secretConfigured
+                                      ? "Replace remote credential (optional)"
+                                      : form.authentication === "basic"
+                                        ? "App password"
+                                        : "Bearer token"
+                                  }
+                                >
+                                  <input
+                                    type="password"
+                                    maxLength={4096}
+                                    value={form.secret}
+                                    autoComplete="new-password"
+                                    placeholder={
+                                      status?.secretConfigured
+                                        ? "Leave blank to keep the saved protected credential"
+                                        : ""
+                                    }
+                                    onChange={(event) =>
+                                      updatePolicyRemote(provider, {
+                                        secret: event.target.value,
+                                      })
+                                    }
+                                  />
+                                </Field>
+                              )}
+                              {status?.lastError && (
+                                <div className="alert error" role="alert">
+                                  {status.lastError}
+                                </div>
+                              )}
+                              {status?.lastUploadedAt && (
+                                <p className="settings-copy">
+                                  Last uploaded {timeAgo(status.lastUploadedAt)}
+                                  {status.remoteBackupCount !== undefined
+                                    ? ` · ${status.remoteBackupCount} remote copies retained`
+                                    : ""}
+                                </p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      );
+                    },
                   )}
+                  <p className="settings-copy">
+                    Credentials are protected on this server and never
+                    included in ordinary backup archives. Use a Nextcloud or
+                    ownCloud app password rather than your main account
+                    password.
+                  </p>
                 </div>
                 <div className="head-actions">
                   <button

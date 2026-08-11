@@ -52,6 +52,8 @@ This is the top-level queue for the next UI/product-quality pass. Items below ar
 
 ### Newly identified follow-up work from this tranche
 
+- [ ] **Provision Cloudflare Access for Infrastructure SSH:** add a separate, operator-scoped SSH hostname and `ssh://127.0.0.1:22` route, short-lived Access identities, an explicit on/off control, and a recovery path that does not depend on the tunnel being currently connected. This remains pending a scoped Cloudflare API token, account/domain, hostname, and identity policy.
+- [ ] **Release and verify independent off-site backups:** deploy the Nextcloud/ownCloud/WebDAV destination settings, exercise encrypted upload and per-destination count/age pruning on the isolated VM, and attach a downloaded-copy restore drill to the release evidence.
 - [ ] **Close physical-device evidence gaps:** run fresh-install and upgrade acceptance on the temporary VM, verify QR scanning at room distance, and repeat Android TV/Fire TV remote checks with real hardware where available.
 - [ ] **Exercise every optional converter row in a release environment:** install WebP/libtheora, Poppler, and LibreOffice on a clean Linux host and attach representative fixture results to the real-use report.
 - [ ] **Finish the UI benchmark loop:** capture before/after screenshots and first-meaningful-interaction timings for Audience, Media, Controller, Lessons, and Service Admin on the released build.
