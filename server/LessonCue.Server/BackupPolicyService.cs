@@ -1,10 +1,36 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Globalization;
+using System.Xml;
+using System.Xml.Linq;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 namespace LessonCue.Server;
+
+public sealed record BackupDestinationInput(
+    string Provider,
+    string? WebDavUrl,
+    string Authentication,
+    string? Username,
+    string? Secret,
+    int RetentionCount,
+    int RetentionDays);
+
+public sealed record BackupDestinationStatus(
+    string Provider,
+    bool Enabled,
+    string? WebDavUrl,
+    string Authentication,
+    string? Username,
+    bool SecretConfigured,
+    int RetentionCount,
+    int RetentionDays,
+    DateTimeOffset? LastUploadedAt,
+    string? LastUploadedFileName,
+    int? RemoteBackupCount,
+    string? LastError);
 
 public sealed record BackupPolicyInput(
     bool Enabled,
@@ -19,7 +45,8 @@ public sealed record BackupPolicyInput(
     string? RemoteWebDavUrl,
     string RemoteAuthentication,
     string? RemoteUsername,
-    string? RemoteSecret);
+    string? RemoteSecret,
+    IReadOnlyList<BackupDestinationInput>? Destinations = null);
 
 public sealed record BackupPolicyStatus(
     bool Enabled,
@@ -42,10 +69,13 @@ public sealed record BackupPolicyStatus(
     string? LastError,
     DateTimeOffset? NextRunAt,
     bool Overdue,
-    bool Running);
+    bool Running,
+    IReadOnlyList<BackupDestinationStatus>? Destinations = null);
 
 public sealed class BackupPolicyService : BackgroundService
 {
+    private static readonly XNamespace DavNamespace = "DAV:";
+    private static readonly HttpMethod PropFindMethod = new("PROPFIND");
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly string policyPath;
     private readonly IServiceScopeFactory scopes;
@@ -112,39 +142,63 @@ public sealed class BackupPolicyService : BackgroundService
         if (input.Enabled && string.IsNullOrEmpty(protectedPassword))
             throw new ArgumentException("Enter the password for scheduled encrypted backups.");
 
-        string? remoteUrl = null;
-        var authentication = input.RemoteAuthentication.Trim().ToLowerInvariant();
-        string? username = null;
-        string? protectedRemoteSecret = null;
-        if (!string.IsNullOrWhiteSpace(input.RemoteWebDavUrl))
+        var requestedDestinations = input.Destinations ?? LegacyDestination(input);
+        var destinations = new List<StoredBackupDestination>();
+        var providers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var requested in requestedDestinations)
         {
-            remoteUrl = NormalizeRemoteUrl(input.RemoteWebDavUrl);
+            if (string.IsNullOrWhiteSpace(requested.WebDavUrl)) continue;
+            var provider = NormalizeProvider(requested.Provider);
+            if (!providers.Add(provider))
+                throw new ArgumentException($"Configure only one {provider} backup destination.");
+            var remoteUrl = NormalizeRemoteUrl(requested.WebDavUrl);
+            var authentication = requested.Authentication.Trim().ToLowerInvariant();
             if (authentication is not ("none" or "basic" or "bearer"))
                 throw new ArgumentException("Choose no authentication, basic authentication, or a bearer token.");
-            username = string.IsNullOrWhiteSpace(input.RemoteUsername)
+            var username = string.IsNullOrWhiteSpace(requested.Username)
                 ? null
-                : input.RemoteUsername.Trim();
+                : requested.Username.Trim();
             if (authentication == "basic" && string.IsNullOrWhiteSpace(username))
-                throw new ArgumentException("Enter the WebDAV username.");
-            var sameRemote = string.Equals(
-                                 current.RemoteWebDavUrl, remoteUrl, StringComparison.Ordinal) &&
-                             string.Equals(
-                                 current.RemoteAuthentication, authentication, StringComparison.Ordinal) &&
-                             string.Equals(current.RemoteUsername, username, StringComparison.Ordinal);
-            protectedRemoteSecret = sameRemote ? current.ProtectedRemoteSecret : null;
-            if (!string.IsNullOrEmpty(input.RemoteSecret))
+                throw new ArgumentException($"Enter the {provider} WebDAV username.");
+            if (requested.RetentionCount is < 1 or > 365)
+                throw new ArgumentException($"{provider} backup retention must keep 1–365 copies.");
+            if (requested.RetentionDays is < 1 or > 3650)
+                throw new ArgumentException($"{provider} backup retention must be 1–3,650 days.");
+
+            var previous = (current.Destinations ?? []).FirstOrDefault(destination =>
+                string.Equals(destination.Provider, provider, StringComparison.OrdinalIgnoreCase));
+            var sameRemote = previous is not null &&
+                             string.Equals(previous.WebDavUrl, remoteUrl, StringComparison.Ordinal) &&
+                             string.Equals(previous.Authentication, authentication, StringComparison.Ordinal) &&
+                             string.Equals(previous.Username, username, StringComparison.Ordinal);
+            var protectedRemoteSecret = sameRemote ? previous!.ProtectedSecret : null;
+            if (!string.IsNullOrEmpty(requested.Secret))
             {
-                if (input.RemoteSecret.Length > 4096)
+                if (requested.Secret.Length > 4096)
                     throw new ArgumentException("The remote credential cannot exceed 4,096 characters.");
-                protectedRemoteSecret = protector.Protect(input.RemoteSecret);
+                protectedRemoteSecret = protector.Protect(requested.Secret);
             }
             if (authentication != "none" && string.IsNullOrEmpty(protectedRemoteSecret))
-                throw new ArgumentException("Enter the WebDAV password or bearer token.");
+                throw new ArgumentException($"Enter the {provider} WebDAV password or bearer token.");
+
+            destinations.Add(new StoredBackupDestination
+            {
+                Provider = provider,
+                WebDavUrl = remoteUrl,
+                Authentication = authentication,
+                Username = username,
+                ProtectedSecret = protectedRemoteSecret,
+                RetentionCount = requested.RetentionCount,
+                RetentionDays = requested.RetentionDays,
+                LastUploadedAt = sameRemote ? previous!.LastUploadedAt : null,
+                LastUploadedFileName = sameRemote ? previous!.LastUploadedFileName : null,
+                RemoteBackupCount = sameRemote ? previous!.RemoteBackupCount : null,
+                LastError = sameRemote ? previous!.LastError : null
+            });
         }
-        else
-        {
-            authentication = "none";
-        }
+
+        var legacy = destinations.FirstOrDefault(destination =>
+            string.Equals(destination.Provider, "webdav", StringComparison.OrdinalIgnoreCase));
 
         var revised = current with
         {
@@ -160,10 +214,11 @@ public sealed class BackupPolicyService : BackgroundService
             RetentionDays = input.RetentionDays,
             SecretHandling = secretHandling,
             ProtectedBackupPassword = protectedPassword,
-            RemoteWebDavUrl = remoteUrl,
-            RemoteAuthentication = authentication,
-            RemoteUsername = username,
-            ProtectedRemoteSecret = protectedRemoteSecret
+            RemoteWebDavUrl = legacy?.WebDavUrl,
+            RemoteAuthentication = legacy?.Authentication ?? "none",
+            RemoteUsername = legacy?.Username,
+            ProtectedRemoteSecret = legacy?.ProtectedSecret,
+            Destinations = destinations
         };
         await WriteAsync(revised, ct);
         return Public(
@@ -241,8 +296,34 @@ public sealed class BackupPolicyService : BackgroundService
             var verification = await backups.VerifyStoredAsync(record, ct, password);
             var verifiedAt = DateTimeOffset.UtcNow;
 
-            if (!string.IsNullOrEmpty(policy.RemoteWebDavUrl))
-                await UploadRemoteAsync(policy, record, ct);
+            var remoteErrors = new List<string>();
+            var destinations = policy.Destinations?.ToList() ?? [];
+            for (var index = 0; index < destinations.Count; index++)
+            {
+                var destination = destinations[index];
+                try
+                {
+                    await UploadRemoteAsync(destination, record, ct);
+                    var remaining = await PruneRemoteAsync(destination, ct);
+                    destinations[index] = destination with
+                    {
+                        LastUploadedAt = DateTimeOffset.UtcNow,
+                        LastUploadedFileName = record.FileName,
+                        RemoteBackupCount = remaining,
+                        LastError = null
+                    };
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    var safeError = SafeError(ex);
+                    destinations[index] = destination with { LastError = safeError };
+                    remoteErrors.Add($"{destination.Provider}: {safeError}");
+                }
+            }
+            policy = policy with { Destinations = destinations };
+            await WriteAsync(policy, ct);
+            if (remoteErrors.Count > 0)
+                throw new IOException($"One or more off-site backup destinations failed: {string.Join("; ", remoteErrors)}");
 
             db.AuditEvents.Add(new AuditEvent
             {
@@ -252,7 +333,7 @@ public sealed class BackupPolicyService : BackgroundService
                 Summary = JsonSerializer.Serialize(new
                 {
                     record.FileName,
-                    remote = !string.IsNullOrEmpty(policy.RemoteWebDavUrl),
+                    remote = destinations.Count,
                     verification.FileCount
                 })
             });
@@ -281,30 +362,20 @@ public sealed class BackupPolicyService : BackgroundService
     }
 
     private async Task UploadRemoteAsync(
-        StoredBackupPolicy policy,
+        StoredBackupDestination destination,
         BackupRecord record,
         CancellationToken ct)
     {
         var path = backups.Resolve(record.FileName)
                    ?? throw new FileNotFoundException("The scheduled backup file is missing.");
         var target = new Uri(
-            new Uri(policy.RemoteWebDavUrl!, UriKind.Absolute),
+            new Uri(destination.WebDavUrl!, UriKind.Absolute),
             Uri.EscapeDataString(record.FileName));
         using var request = new HttpRequestMessage(HttpMethod.Put, target);
-        var secret = string.IsNullOrEmpty(policy.ProtectedRemoteSecret)
+        var secret = string.IsNullOrEmpty(destination.ProtectedSecret)
             ? null
-            : protector.Unprotect(policy.ProtectedRemoteSecret);
-        if (policy.RemoteAuthentication == "basic")
-        {
-            var raw = Convert.ToBase64String(
-                Encoding.UTF8.GetBytes($"{policy.RemoteUsername}:{secret}"));
-            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", raw);
-        }
-        else if (policy.RemoteAuthentication == "bearer")
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", secret);
-        }
-
+            : protector.Unprotect(destination.ProtectedSecret);
+        AddRemoteAuthorization(request, destination, secret);
         await using var stream = File.OpenRead(path);
         request.Content = new StreamContent(stream);
         request.Content.Headers.ContentType =
@@ -316,8 +387,146 @@ public sealed class BackupPolicyService : BackgroundService
         {
             if (!response.IsSuccessStatusCode)
                 throw new IOException(
-                    $"The WebDAV target rejected the backup ({(int)response.StatusCode}).");
+                    $"The {destination.Provider} WebDAV target rejected the backup ({(int)response.StatusCode}).");
         }
+    }
+
+    private async Task<int> PruneRemoteAsync(
+        StoredBackupDestination destination,
+        CancellationToken ct)
+    {
+        var baseUri = new Uri(destination.WebDavUrl!, UriKind.Absolute);
+        using var request = new HttpRequestMessage(PropFindMethod, baseUri);
+        request.Headers.Add("Depth", "1");
+        request.Content = new StringContent(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?><d:propfind xmlns:d=\"DAV:\"><d:prop><d:getlastmodified /></d:prop></d:propfind>",
+            Encoding.UTF8,
+            "application/xml");
+        var secret = string.IsNullOrEmpty(destination.ProtectedSecret)
+            ? null
+            : protector.Unprotect(destination.ProtectedSecret);
+        AddRemoteAuthorization(request, destination, secret);
+        var response = await clients.CreateClient("backup-offsite")
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        List<WebDavEntry> entries;
+        using (response)
+        {
+            if ((int)response.StatusCode is not (200 or 207))
+                throw new IOException(
+                    $"The {destination.Provider} WebDAV folder could not be listed ({(int)response.StatusCode}).");
+            await using var content = await response.Content.ReadAsStreamAsync(ct);
+            entries = await ReadRemoteEntriesAsync(content, baseUri, ct);
+        }
+        var candidates = entries
+            .Where(entry => entry.FileName.StartsWith("lessoncue-", StringComparison.OrdinalIgnoreCase) &&
+                            entry.FileName.EndsWith(".lcbak", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(entry => entry.LastModified ?? DateTimeOffset.MinValue)
+            .ThenByDescending(entry => entry.FileName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-destination.RetentionDays);
+        var keep = candidates.Take(destination.RetentionCount)
+            .Select(entry => entry.FileName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in candidates)
+        {
+            if (keep.Contains(entry.FileName) &&
+                (entry.LastModified is null || entry.LastModified >= cutoff))
+                continue;
+            await DeleteRemoteAsync(destination, baseUri, entry.FileName, ct);
+        }
+        return candidates.Count(entry => keep.Contains(entry.FileName) &&
+                                         (entry.LastModified is null || entry.LastModified >= cutoff));
+    }
+
+    private async Task DeleteRemoteAsync(
+        StoredBackupDestination destination,
+        Uri baseUri,
+        string fileName,
+        CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Delete,
+            new Uri(baseUri, Uri.EscapeDataString(fileName)));
+        var secret = string.IsNullOrEmpty(destination.ProtectedSecret)
+            ? null
+            : protector.Unprotect(destination.ProtectedSecret);
+        AddRemoteAuthorization(request, destination, secret);
+        var response = await clients.CreateClient("backup-offsite").SendAsync(request, ct);
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.NotFound)
+                throw new IOException(
+                    $"The {destination.Provider} WebDAV target rejected backup cleanup ({(int)response.StatusCode}).");
+        }
+    }
+
+    private static void AddRemoteAuthorization(
+        HttpRequestMessage request,
+        StoredBackupDestination destination,
+        string? secret)
+    {
+        if (destination.Authentication == "basic")
+        {
+            var raw = Convert.ToBase64String(
+                Encoding.UTF8.GetBytes($"{destination.Username}:{secret}"));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", raw);
+        }
+        else if (destination.Authentication == "bearer")
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", secret);
+        }
+    }
+
+    private static async Task<List<WebDavEntry>> ReadRemoteEntriesAsync(
+        Stream content,
+        Uri baseUri,
+        CancellationToken ct)
+    {
+        var settings = new XmlReaderSettings
+        {
+            Async = true,
+            DtdProcessing = DtdProcessing.Prohibit,
+            XmlResolver = null,
+            MaxCharactersInDocument = 2_000_000
+        };
+        using var reader = XmlReader.Create(content, settings);
+        var document = await XDocument.LoadAsync(reader, LoadOptions.None, ct);
+        return document.Descendants(DavNamespace + "response")
+            .Select(response =>
+            {
+                var href = (string?)response.Element(DavNamespace + "href");
+                if (string.IsNullOrWhiteSpace(href)) return null;
+                Uri? uri = Uri.TryCreate(href, UriKind.Absolute, out var absolute)
+                    ? absolute
+                    : Uri.TryCreate(baseUri, href, out var relative) ? relative : null;
+                if (uri is null) return null;
+                if (!string.Equals(uri.Scheme, baseUri.Scheme, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(uri.Host, baseUri.Host, StringComparison.OrdinalIgnoreCase) ||
+                    uri.Port != baseUri.Port ||
+                    !string.IsNullOrEmpty(uri.Query) ||
+                    !uri.AbsolutePath.StartsWith(baseUri.AbsolutePath, StringComparison.Ordinal))
+                    return null;
+                var relativePath = uri.AbsolutePath[baseUri.AbsolutePath.Length..].Trim('/');
+                if (relativePath.Length == 0 || relativePath.Contains('/')) return null;
+                var fileName = Uri.UnescapeDataString(relativePath);
+                if (string.IsNullOrWhiteSpace(fileName)) return null;
+                var modifiedValue = (string?)response
+                    .Descendants(DavNamespace + "getlastmodified")
+                    .FirstOrDefault();
+                DateTimeOffset? modified = DateTimeOffset.TryParse(
+                    modifiedValue,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                    out var parsed)
+                    ? parsed
+                    : null;
+                return new WebDavEntry(fileName, modified);
+            })
+            .Where(entry => entry is not null)
+            .Select(entry => entry!)
+            .GroupBy(entry => entry.FileName, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
     }
 
     private async Task PruneAsync(
@@ -354,6 +563,22 @@ public sealed class BackupPolicyService : BackgroundService
                           ? policy.LastSucceededAt < DateTimeOffset.UtcNow - interval
                           : policy.EnabledAt is not null &&
                             policy.EnabledAt < DateTimeOffset.UtcNow - interval);
+        var destinations = (policy.Destinations ?? []).Select(destination =>
+            new BackupDestinationStatus(
+                destination.Provider,
+                !string.IsNullOrEmpty(destination.WebDavUrl),
+                destination.WebDavUrl,
+                destination.Authentication,
+                destination.Username,
+                !string.IsNullOrEmpty(destination.ProtectedSecret),
+                destination.RetentionCount,
+                destination.RetentionDays,
+                destination.LastUploadedAt,
+                destination.LastUploadedFileName,
+                destination.RemoteBackupCount,
+                destination.LastError)).ToArray();
+        var legacy = (policy.Destinations ?? []).FirstOrDefault(destination =>
+            string.Equals(destination.Provider, "webdav", StringComparison.OrdinalIgnoreCase));
         return new BackupPolicyStatus(
             policy.Enabled,
             policy.Frequency,
@@ -364,10 +589,10 @@ public sealed class BackupPolicyService : BackgroundService
             policy.RetentionDays,
             policy.SecretHandling,
             !string.IsNullOrEmpty(policy.ProtectedBackupPassword),
-            policy.RemoteWebDavUrl,
-            policy.RemoteAuthentication,
-            policy.RemoteUsername,
-            !string.IsNullOrEmpty(policy.ProtectedRemoteSecret),
+            legacy?.WebDavUrl ?? policy.RemoteWebDavUrl,
+            legacy?.Authentication ?? policy.RemoteAuthentication,
+            legacy?.Username ?? policy.RemoteUsername,
+            !string.IsNullOrEmpty(legacy?.ProtectedSecret ?? policy.ProtectedRemoteSecret),
             policy.LastAttemptAt,
             policy.LastSucceededAt,
             policy.LastVerifiedAt,
@@ -375,18 +600,40 @@ public sealed class BackupPolicyService : BackgroundService
             policy.LastError,
             next,
             overdue,
-            running);
+            running,
+            destinations);
     }
 
     private StoredBackupPolicy Read()
     {
         try
         {
-            return File.Exists(policyPath)
+            var policy = File.Exists(policyPath)
                 ? JsonSerializer.Deserialize<StoredBackupPolicy>(
                       File.ReadAllText(policyPath), JsonOptions) ??
                   new StoredBackupPolicy()
                 : new StoredBackupPolicy();
+            if ((policy.Destinations is null || policy.Destinations.Count == 0) &&
+                !string.IsNullOrWhiteSpace(policy.RemoteWebDavUrl))
+            {
+                policy = policy with
+                {
+                    Destinations =
+                    [
+                        new StoredBackupDestination
+                        {
+                            Provider = "webdav",
+                            WebDavUrl = policy.RemoteWebDavUrl,
+                            Authentication = policy.RemoteAuthentication,
+                            Username = policy.RemoteUsername,
+                            ProtectedSecret = policy.ProtectedRemoteSecret,
+                            RetentionCount = policy.RetentionCount,
+                            RetentionDays = policy.RetentionDays
+                        }
+                    ]
+                };
+            }
+            return policy;
         }
         catch (Exception ex)
         {
@@ -473,6 +720,7 @@ public sealed class BackupPolicyService : BackgroundService
     {
         if (!Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri) ||
             uri.Scheme != Uri.UriSchemeHttps ||
+            !string.IsNullOrEmpty(uri.UserInfo) ||
             !string.IsNullOrEmpty(uri.Query) ||
             !string.IsNullOrEmpty(uri.Fragment))
             throw new ArgumentException(
@@ -481,6 +729,29 @@ public sealed class BackupPolicyService : BackgroundService
         if (!builder.Path.EndsWith('/')) builder.Path += "/";
         return builder.Uri.AbsoluteUri;
     }
+
+    private static string NormalizeProvider(string value)
+    {
+        var provider = value.Trim().ToLowerInvariant();
+        return provider is "nextcloud" or "owncloud" or "webdav"
+            ? provider
+            : throw new ArgumentException("Choose Nextcloud, ownCloud, or another WebDAV destination.");
+    }
+
+    private static IReadOnlyList<BackupDestinationInput> LegacyDestination(BackupPolicyInput input) =>
+        string.IsNullOrWhiteSpace(input.RemoteWebDavUrl)
+            ? []
+            :
+            [
+                new BackupDestinationInput(
+                    "webdav",
+                    input.RemoteWebDavUrl,
+                    input.RemoteAuthentication,
+                    input.RemoteUsername,
+                    input.RemoteSecret,
+                    input.RetentionCount,
+                    input.RetentionDays)
+            ];
 
     private static string SafeError(Exception exception)
     {
@@ -510,10 +781,28 @@ public sealed class BackupPolicyService : BackgroundService
         public string RemoteAuthentication { get; init; } = "none";
         public string? RemoteUsername { get; init; }
         public string? ProtectedRemoteSecret { get; init; }
+        public List<StoredBackupDestination> Destinations { get; init; } = [];
         public DateTimeOffset? LastAttemptAt { get; init; }
         public DateTimeOffset? LastSucceededAt { get; init; }
         public DateTimeOffset? LastVerifiedAt { get; init; }
         public string? LastBackupFileName { get; init; }
         public string? LastError { get; init; }
     }
+
+    private sealed record StoredBackupDestination
+    {
+        public string Provider { get; init; } = "webdav";
+        public string? WebDavUrl { get; init; }
+        public string Authentication { get; init; } = "none";
+        public string? Username { get; init; }
+        public string? ProtectedSecret { get; init; }
+        public int RetentionCount { get; init; } = 7;
+        public int RetentionDays { get; init; } = 30;
+        public DateTimeOffset? LastUploadedAt { get; init; }
+        public string? LastUploadedFileName { get; init; }
+        public int? RemoteBackupCount { get; init; }
+        public string? LastError { get; init; }
+    }
+
+    private sealed record WebDavEntry(string FileName, DateTimeOffset? LastModified);
 }

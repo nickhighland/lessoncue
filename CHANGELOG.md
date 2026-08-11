@@ -4,6 +4,28 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.42 — independent off-site backup destinations
+
+### User changes
+
+- Scheduled backups can now upload independently to Nextcloud, ownCloud, and
+  another HTTPS WebDAV folder.
+- Each destination has its own app-password/token setting, remote copy count,
+  maximum age, upload status, retained-copy count, and actionable failure.
+- Remote cleanup touches only LessonCue's encrypted `.lcbak` files; unrelated
+  files in a shared WebDAV folder are preserved.
+- Documentation now explains the separate Cloudflare Access for Infrastructure
+  SSH plan and the credentials still required before it can be provisioned.
+
+### Developer changes
+
+- WebDAV listing is depth-limited, redirect-disabled, HTTPS-only, credential-free
+  in URLs, and parsed with DTD/external-resolution protections.
+- Legacy single-WebDAV policies migrate to the generic destination without
+  losing their protected credential or retention settings.
+- Added OpenAPI schemas and server tests for dual-provider upload, pruning,
+  migration compatibility, retention, and validation failures.
+
 ## v0.40.41 — accurate local installer address
 
 ### User changes
