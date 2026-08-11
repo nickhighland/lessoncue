@@ -1,5 +1,5 @@
 import { confirmAction } from "../../AccessibleDialogs";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import { CacheDiagnostic, CodecDiagnostic, DisplayCapabilityContract, DisplayCompatibilityIssue, DownloadDiagnostic, ErrorDiagnostic, LessonClass, Screen, Signage } from "../models";
 import { Empty, Field, PageHead, Status } from "../ui";
@@ -10,6 +10,8 @@ export function ScreensView({
   classes,
   signs,
   pin,
+  pinExpiresAt,
+  pinFixed,
   refresh,
   notify,
   canManage,
@@ -19,6 +21,8 @@ export function ScreensView({
   classes: LessonClass[];
   signs: Signage[];
   pin?: string;
+  pinExpiresAt?: string;
+  pinFixed: boolean;
   refresh: () => void;
   notify: (s: string) => void;
   canManage: boolean;
@@ -28,6 +32,15 @@ export function ScreensView({
   const [expanded, setExpanded] = useState<string>();
   const [screenshotNonce, setScreenshotNonce] = useState(Date.now());
   const [busy, setBusy] = useState<string>();
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (pinFixed || !pinExpiresAt) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [pinExpiresAt, pinFixed]);
+  const pinRemainingSeconds = pinExpiresAt
+    ? Math.max(0, Math.ceil((new Date(pinExpiresAt).getTime() - now) / 1000))
+    : 0;
   async function change(screen: Screen, changes: object) {
     try {
       await api(`/api/v1/screens/${screen.id}`, {
@@ -156,6 +169,11 @@ export function ScreensView({
             <div className="pin-card">
               <span>PAIRING PIN</span>
               <strong>{pin}</strong>
+              <small>
+                {pinFixed
+                  ? "Fixed until changed"
+                  : `Changes in ${Math.floor(pinRemainingSeconds / 60)}:${String(pinRemainingSeconds % 60).padStart(2, "0")}`}
+              </small>
             </div>
           ) : undefined
         }

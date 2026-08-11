@@ -202,10 +202,18 @@ export function AudienceAdmin({
     }
   }
 
-  async function action(path: string, message: string, method = "POST") {
+  async function action(
+    path: string,
+    message: string,
+    method = "POST",
+    body: unknown = {},
+  ) {
     setBusy(true);
     try {
-      await request(path, { method, body: method === "DELETE" ? undefined : "{}" });
+      await request(path, {
+        method,
+        body: method === "DELETE" ? undefined : JSON.stringify(body),
+      });
       await load();
       notify(message);
     } catch (error) {
@@ -220,6 +228,7 @@ export function AudienceAdmin({
       `/api/v1/audience/admin/responses/${id}/moderation`,
       status === "approved" ? "Response approved." : "Response hidden.",
       "PUT",
+      { status },
     );
   }
 
@@ -934,13 +943,9 @@ export function AudienceResponseApp() {
               ))}
               {error && <div className="alert error" role="alert">{error}</div>}
               <button
-                type="button"
+                type="submit"
                 className="button primary wide"
                 disabled={busy}
-                onPointerDown={() => {
-                  if (!busy) void submit();
-                }}
-                onClick={() => void submit()}
               >
                 {busy ? "Sending…" : "Send anonymous response"}
               </button>

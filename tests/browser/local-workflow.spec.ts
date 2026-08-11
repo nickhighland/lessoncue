@@ -410,6 +410,10 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByText("previous version remains available", { exact: false })).toBeVisible();
   const replacedRow = page.locator(".media-table").filter({ hasText: "browser-test-audio-v2.wav" });
   await expect(replacedRow).toContainText("v2");
+  await expect.poll(async () => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    return items.find((item: { fileName: string }) => item.fileName === "browser-test-audio-v2.wav")?.processingStatus;
+  }), { timeout: 30_000 }).toBe("ready");
   await replacedRow.getByRole("button", { name: "Manage versions & impact" }).click();
   await expect(page.getByText("v1 · browser-test-audio.wav", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Restore", exact: true }).click();
@@ -423,12 +427,35 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
 
   await page.getByRole("button", { name: "Upload media" }).click();
   const uploadDialog = page.getByRole("dialog", { name: "Upload media" });
-  await uploadDialog.getByLabel("Files").setInputFiles({ name: "one-page-handout.pdf", mimeType: "application/pdf", buffer: onePagePdf() });
+  await uploadDialog.getByLabel("Files").setInputFiles([
+    { name: "one-page-handout.pdf", mimeType: "application/pdf", buffer: onePagePdf() },
+    { name: "not-really-video.mp4", mimeType: "video/mp4", buffer: Buffer.from("not an mp4 file") },
+  ]);
+  await expect(uploadDialog.getByText("one-page-handout.pdf", { exact: true })).toBeVisible();
+  await expect(uploadDialog.getByText("not-really-video.mp4", { exact: true })).toBeVisible();
   await uploadDialog.getByRole("button", { name: "Upload to local server" }).click();
-  await expect(page.getByText("stored until four weeks", { exact: false })).toBeVisible();
+  await expect(uploadDialog.getByText("1 succeeded, 1 failed", { exact: false })).toBeVisible();
+  await expect(uploadDialog.locator("li.failed")).toContainText("not-really-video.mp4");
+  await expect.poll(() => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    return items.filter((item: { fileName: string }) => item.fileName === "one-page-handout.pdf").length;
+  })).toBe(1);
+  await uploadDialog.getByRole("button", { name: "Retry failed files" }).click();
+  await expect(uploadDialog.getByText("0 succeeded, 1 failed", { exact: false })).toBeVisible();
+  await expect.poll(() => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    return items.filter((item: { fileName: string }) => item.fileName === "one-page-handout.pdf").length;
+  })).toBe(1);
+  await uploadDialog.getByRole("button", { name: "Close dialog" }).click();
+  await expect.poll(() => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    return items.find((item: { fileName: string }) => item.fileName === "one-page-handout.pdf")?.processingStatus;
+  }), { timeout: 30_000 }).toBe("ready");
   const pdfRow = page.locator(".media-table").filter({ hasText: "one-page-handout.pdf" });
+  await expect(pdfRow).toContainText("Needs slide conversion");
   await pdfRow.getByRole("button", { name: "Manage versions & impact" }).click();
-  await page.getByRole("button", { name: "Convert to slides" }).click();
+  await page.getByRole("dialog", { name: "Manage: one-page-handout.pdf" })
+    .getByRole("button", { name: "Convert to slides" }).click();
   await expect(page.getByText("queued for fully local slide conversion", { exact: false })).toBeVisible();
   await expect.poll(async () => page.evaluate(async () => {
     const items = await fetch("/api/v1/media").then(response => response.json());
@@ -1210,6 +1237,10 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const audienceDialog = page.getByRole("dialog", { name: "New audience session" });
   await audienceDialog.getByLabel("Session title").fill("Browser audience poll");
   await audienceDialog.getByLabel("Prompt").fill("Ready to continue?");
+  await audienceDialog.getByRole("button", { name: "Add question" }).click();
+  const writtenQuestion = audienceDialog.locator("fieldset").nth(1);
+  await writtenQuestion.getByLabel("Type").selectOption("text");
+  await writtenQuestion.getByLabel("Prompt").fill("What could improve?");
   await audienceDialog.getByRole("button", { name: "Save session" }).click();
   await expect(page.getByRole("heading", { name: "Browser audience poll" })).toBeVisible();
   await page.getByRole("button", { name: "Open responses" }).click();
@@ -1220,6 +1251,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await responsePage.goto(audiencePath!);
   await expect(responsePage.getByRole("heading", { name: "Browser audience poll" })).toBeVisible();
   await responsePage.getByLabel("Yes").check();
+  await responsePage.locator("fieldset").filter({ hasText: "What could improve?" }).locator("textarea").fill("Make the next action clearer.");
   await responsePage.getByRole("button", { name: "Send anonymous response" }).click();
   await expect(responsePage.getByText("Response received")).toBeVisible();
   await responsePage.close();
@@ -1228,6 +1260,30 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     return { participants: sessions[0]?.participantCount, responses: sessions[0]?.questions[0]?.responses.length };
   })).toEqual({ participants: 1, responses: 1 });
   await expect(page.getByText("1 anonymous participant", { exact: false })).toBeVisible();
+  await expect(page.getByText("Make the next action clearer.")).toBeVisible();
+  await page.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByText("Response approved.")).toBeVisible();
+  await page.getByRole("button", { name: "Hide" }).click();
+  await expect(page.getByText("Response hidden.")).toBeVisible();
+  await page.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByText("Response approved.")).toBeVisible();
+  expect(await page.evaluate(async () => {
+    const sessions = await fetch("/api/v1/audience/admin/sessions").then(response => response.json());
+    const response = sessions[0].questions.find((question: { prompt: string }) => question.prompt === "What could improve?").responses[0];
+    const approve = () => fetch(`/api/v1/audience/admin/responses/${response.id}/moderation`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "approved" }),
+    }).then(result => result.status);
+    const first = await approve();
+    const retry = await approve();
+    const invalid = await fetch(`/api/v1/audience/admin/responses/${response.id}/moderation`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    return { first, retry, invalid: invalid.status };
+  })).toEqual({ first: 200, retry: 200, invalid: 400 });
   const audienceDisplayPage = await page.context().newPage();
   await audienceDisplayPage.goto(
     audiencePath!.replace("/respond/", "/audience-display/") +
@@ -1236,8 +1292,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(
     audienceDisplayPage.getByRole("heading", { name: "Ready to continue?" }),
   ).toBeVisible();
-  await expect(audienceDisplayPage.getByText("1 response")).toHaveCount(0);
-  await expect(audienceDisplayPage.getByText("1 response")).toBeVisible({
+  await expect(audienceDisplayPage.getByText("1 response").first()).toHaveCount(0);
+  await expect(audienceDisplayPage.getByText("1 response").first()).toBeVisible({
     timeout: 4_000,
   });
   await expect(audienceDisplayPage.getByText(/delay/i)).toHaveCount(0);

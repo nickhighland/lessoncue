@@ -659,14 +659,14 @@ function PairingScreen({ message, onPaired }: { message: string; onPaired: (iden
   return <main className="web-player pairing">
     <section className="web-player-card">
       <div className="web-player-brand"><img src="/lessoncue-icon.svg" alt="" aria-hidden="true" /><span><strong>LessonCue</strong><small>Browser playback client</small></span></div>
-      {!requestId ? <form onSubmit={begin}>
+      {!requestId ? <form key="display-name" onSubmit={begin}>
         <span className="web-player-eyebrow">LOCAL DISPLAY SETUP</span>
         <h1>Pair this computer or projector</h1>
         <p>This browser becomes a secure LessonCue screen. It stays connected to this local server and can be controlled from the existing phone remote.</p>
         <label><span>Display name</span><input aria-label="Display name" value={deviceName} onChange={event => setDeviceName(event.target.value)} required maxLength={120} autoFocus /></label>
         {error && <div className="web-player-error">{error}</div>}
         <button disabled={busy}>{busy ? "Starting…" : "Start pairing"}</button>
-      </form> : <form onSubmit={confirmPairing}>
+      </form> : <form key="pairing-pin" onSubmit={confirmPairing}>
         <span className="web-player-eyebrow">PAIRING REQUESTED</span>
         <h1>Enter the server PIN</h1>
         <p>Find the six-digit pairing PIN on LessonCue’s Screens page, then enter it here.</p>

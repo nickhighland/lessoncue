@@ -1835,6 +1835,8 @@ public static class AdminApi
             var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
             var selected = await db.MediaAssetVersions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == versionId && x.MediaAssetId == id, ct);
             if (media is null || selected is null) return Results.NotFound();
+            if (media.ProcessingStatus is "pending" or "processing" or "downloading")
+                return Results.Conflict(new { error = "Wait for current processing to finish before restoring a previous version." });
             var currentPath = ResolveStoredFile(paths.Originals, media.RelativePath);
             var selectedPath = ResolveStoredFile(paths.Versions, selected.RelativePath);
             if (currentPath is null || selectedPath is null) return Results.Conflict(new { error = "A required version file is missing from local storage." });
@@ -3810,12 +3812,20 @@ public static class AdminApi
             catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
         });
 
-        appSettings.MapGet("/pairing/status", (PairingCodeService pairing) => Results.Ok(new
+        admin.MapGet("/pairing/status", (PairingCodeService pairing, HttpContext context) =>
         {
-            pin = pairing.Current,
-            expiresAt = pairing.ExpiresAt,
-            fixedPin = pairing.FixedPin is not null
-        }));
+            var canPair = LessonCuePermissions.Has(context.User, LessonCuePermissions.Screens) ||
+                LessonCuePermissions.Has(context.User, LessonCuePermissions.AppSettings) ||
+                LessonCuePermissions.Has(context.User, LessonCuePermissions.Settings);
+            return canPair
+                ? Results.Ok(new
+                {
+                    pin = pairing.Current,
+                    expiresAt = pairing.ExpiresAt,
+                    fixedPin = pairing.FixedPin is not null
+                })
+                : Results.Forbid();
+        });
         appSettings.MapPut("/pairing/pin", async (PairingPinInput input, PairingCodeService pairing, LessonCueDb db,
             CancellationToken ct) =>
         {

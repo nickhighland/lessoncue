@@ -3,7 +3,7 @@ import { AudienceAdmin, AudienceDisplayApp, AudienceResponseApp } from "../Audie
 import { SimpleSignage } from "../SimpleSignage";
 import { WebPlayerApp } from "../WebPlayer";
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
-import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { CalendarView } from "./views/Calendar";
 import { ControllerView } from "./views/Controller";
@@ -224,6 +224,7 @@ export function Auth({
         session.setupRequired ? "/api/v1/auth/setup" : "/api/v1/auth/login",
         { method: "POST", body: JSON.stringify(values) },
       );
+      history.replaceState(null, "", "/");
       onAuthenticated();
     } catch (e) {
       setError(
@@ -815,8 +816,15 @@ export function Shell({
   const [backups, setBackups] = useState<Backup[]>([]);
   const [audit, setAudit] = useState<Audit[]>([]);
   const [showProfile, setShowProfile] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const mobileMenuButton = useRef<HTMLButtonElement>(null);
+  const sidebar = useRef<HTMLElement>(null);
+  const mainContent = useRef<HTMLElement>(null);
+  const mobileNavWasOpen = useRef(false);
   const [loading, setLoading] = useState(true);
-  const refresh = () => setDataVersion((v) => v + 1);
+  const pairingExpiresAt = bootstrap?.pairingExpiresAt;
+  const pairingFixed = bootstrap?.pairingFixed;
+  const refresh = useCallback(() => setDataVersion((v) => v + 1), []);
   useEffect(() => {
     Promise.all([
       api<Bootstrap>("/api/v1/admin/bootstrap"),
@@ -912,6 +920,45 @@ export function Shell({
     };
   }, [canManageUpdates]);
   useEffect(() => {
+    if (!pairingExpiresAt || pairingFixed)
+      return;
+    let cancelled = false;
+    const updatePin = () =>
+      api<{ pin: string; expiresAt: string; fixedPin: boolean }>(
+        "/api/v1/pairing/status",
+      )
+        .then((result) => {
+          if (cancelled) return;
+          setBootstrap((current) =>
+            current
+              ? {
+                  ...current,
+                  pairingPin: result.pin,
+                  pairingExpiresAt: result.expiresAt,
+                  pairingFixed: result.fixedPin,
+                }
+              : current,
+          );
+        })
+        .catch(() => undefined);
+    const delay = Math.max(
+      100,
+      new Date(pairingExpiresAt).getTime() - Date.now() + 25,
+    );
+    const timer = window.setTimeout(updatePin, delay);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void updatePin();
+    };
+    window.addEventListener("focus", updatePin);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", updatePin);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [pairingExpiresAt, pairingFixed]);
+  useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(""), 3_000);
     return () => window.clearTimeout(timer);
@@ -938,7 +985,7 @@ export function Shell({
       connection.off("ManifestInvalidated", refreshManifest);
       void connection.stop();
     };
-  }, []);
+  }, [refresh]);
   useEffect(() => {
     const timer = window.setInterval(
       () =>
@@ -1021,16 +1068,92 @@ export function Shell({
   ];
   useEffect(() => {
     document.getElementById("main-content")?.focus();
+    setMobileNavOpen(false);
   }, [view]);
+  useEffect(() => {
+    if (mainContent.current)
+      (mainContent.current as HTMLElement & { inert: boolean }).inert = mobileNavOpen;
+    if (!mobileNavOpen) {
+      if (mobileNavWasOpen.current) mobileMenuButton.current?.focus();
+      mobileNavWasOpen.current = false;
+      return;
+    }
+    mobileNavWasOpen.current = true;
+    const focusable = () =>
+      Array.from(
+        sidebar.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) || [],
+      );
+    focusable()[0]?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMobileNavOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", keydown);
+    return () => document.removeEventListener("keydown", keydown);
+  }, [mobileNavOpen]);
   return (
     <>
-      <a className="skip-link" href="#main-content">
+      <a
+        className="skip-link"
+        href="#main-content"
+        onClick={(event) => {
+          event.preventDefault();
+          setMobileNavOpen(false);
+          mainContent.current?.focus();
+          mainContent.current?.scrollIntoView();
+        }}
+      >
         Skip to main content
       </a>
       <div
-        className={`app-shell ${view === "controller" ? "controller-mode" : ""}`}
+        className={`app-shell ${view === "controller" ? "controller-mode" : ""} ${view === "signage" ? "signage-mode" : ""}`}
       >
-        <aside className="sidebar">
+        {view !== "signage" && (
+          <header className="mobile-shell-header">
+            <BrandMark />
+            <button
+              ref={mobileMenuButton}
+              type="button"
+              aria-controls="primary-navigation"
+              aria-expanded={mobileNavOpen}
+              onClick={() => setMobileNavOpen((current) => !current)}
+            >
+              <span aria-hidden="true">☰</span>
+              Menu
+            </button>
+          </header>
+        )}
+        {mobileNavOpen && (
+          <button
+            type="button"
+            className="mobile-nav-backdrop"
+            aria-label="Close navigation"
+            onClick={() => setMobileNavOpen(false)}
+          />
+        )}
+        <aside
+          className={`sidebar ${mobileNavOpen ? "mobile-open" : ""}`}
+          id="primary-navigation"
+          ref={sidebar}
+          aria-label="Primary navigation"
+        >
           <div className="brand-lockup inverse">
             <BrandMark />
             <div>
@@ -1047,7 +1170,7 @@ export function Shell({
               </div>
             </div>
           )}
-          <nav>
+          <nav aria-label="LessonCue sections">
             {navSections.map((section) => {
               const sectionItems = navItems.filter((item) => section.keys.includes(item.key));
               if (!sectionItems.length) return null;
@@ -1058,7 +1181,10 @@ export function Shell({
                     <button
                       key={key}
                       className={view === key ? "active" : ""}
-                      onClick={() => setView(key)}
+                      onClick={() => {
+                        setMobileNavOpen(false);
+                        setView(key);
+                      }}
                       aria-current={view === key ? "page" : undefined}
                     >
                       <span className="nav-icon">{icon}</span>
@@ -1086,7 +1212,12 @@ export function Shell({
             </button>
           </div>
         </aside>
-        <main className="content" id="main-content" tabIndex={-1}>
+        <main
+          className="content"
+          id="main-content"
+          tabIndex={-1}
+          ref={mainContent}
+        >
           {notice && (
             <div
               className="toast"
@@ -1187,6 +1318,8 @@ export function Shell({
                   canUpload={canUpload}
                   storage={bootstrap?.storage}
                   mediaFormats={bootstrap?.mediaFormats}
+                  screens={screens}
+                  onNavigateScreens={() => setView("screens")}
                   localControllerOrigin={
                     bootstrap?.settings.requireLocalRoomControllers
                       ? bootstrap.httpPort.address
@@ -1226,6 +1359,8 @@ export function Shell({
                   classes={classes}
                   signs={signage.filter((item) => item.mode === "sign")}
                   pin={bootstrap.pairingPin}
+                  pinExpiresAt={bootstrap.pairingExpiresAt}
+                  pinFixed={bootstrap.pairingFixed}
                   refresh={refresh}
                   notify={setNotice}
                   canManage={canManageScreens}

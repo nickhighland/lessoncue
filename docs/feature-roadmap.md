@@ -12,20 +12,20 @@ This is the top-level queue for the next UI/product-quality pass. Items below ar
 - [x] **Create a dynamic UI coverage inventory** across navigation, settings cards, dialogs, empty/error states, media types, signage elements, controller actions, browser playback, and Android TV input paths. Surfaces not exercised are listed as `NOT RUN` or `BLOCKED` in the report.
 - [x] **Turn evidence into a ranked implementation queue** with separate defect, workflow, comprehension, accessibility, visual, reliability, feature, and delight findings, acceptance criteria, scoring, and a “do not build yet” list.
 
-### UI evaluation release gate — new evidence-backed work
+### UI evaluation release gate — remediated 2026-08-10
 
-- [ ] **P0: Repair the public Audience experience:** add the missing responsive/touch/focus presentation for the response page and fix moderation so Approve/Hide send a valid status, reject invalid input without HTTP 500, update live views, and tolerate an idempotent retry.
-- [ ] **P0: Make batch upload and conversion recovery attributable:** show every selected filename and preflight result, retain per-file succeeded/processing/failed outcomes, retry only failed files without duplicates, persist converter failures, and never present a failed derivative as ready.
-- [ ] **P1: Keep display pairing truthful:** automatically refresh/count down rotating pairing PINs, explain rotation on failure, and clear the display-name value when the UI advances to PIN entry.
-- [ ] **P1: Make controller state safe under live pressure:** distinguish offline, queued, sent, received, applied, expired, and cancelled commands; do not announce success for an offline target; remove stale `Ready`, remaining-time, and finish-time implications.
-- [ ] **P1: Rebuild phone-width app navigation:** replace the expanded/clipped sidebar and horizontal scrolling with an accessible drawer or equivalent compact navigation while keeping Controller fast to reach.
-- [ ] **P1: Restore foundational keyboard access:** make screen-purpose switches operable and exposed with checked state, move focus to main content from the skip link, and move/offer focus to a newly added lesson cue.
-- [ ] **P1: Complete successful authentication navigation:** a valid submit must visibly leave the login/registration surface without requiring a manual reload.
-- [ ] **P1: Close stale editors after deletion:** after a class is recycled, close and clear its edit dialog before selecting another class so deleted values never appear over the new selection.
-- [ ] **P2: Clarify document readiness:** replace `Internet required` when local conversion is available with the exact next action, expose conversion progress/failure/retry on the media row, and keep original-file handling unchanged.
-- [ ] **P2: Add safe immediacy to Signage:** retain the approved immediate-update model, but show affected screens before save and provide a short undo/version-restore path; reserve sticky-bar space so validation is never obscured.
-- [ ] **P2: Remove competing Signage navigation:** every visible desktop navigation control must work; show one primary navigation model per breakpoint.
-- [ ] **P2: Preserve media identity and assignment context:** reveal full long filenames in grid view and add compact `Plays where` summaries linking lessons/classes/screens and layouts/playlists/Signs/screens.
+- [x] **P0: Repair the public Audience experience:** added the responsive/touch/focus presentation and hardened moderation input, approve/hide, invalid-input, and live refresh behavior.
+- [x] **P0: Make batch upload and conversion recovery attributable:** named every selected file, retained per-file outcomes, added failed-only retry, persisted converter failure, validated every generated slide, and blocked false-ready output.
+- [x] **P1: Keep display pairing truthful:** automatic PINs refresh on expiry/focus/visibility, count down in Screens, and the browser player uses separate cleared/focused inputs for name and PIN.
+- [x] **P1: Make controller state safe under live pressure:** offline commands are disabled and never queued implicitly; online commands show sending/waiting-for-receipt, received, failure, or receipt-timeout states without stale time estimates.
+- [x] **P1: Rebuild phone-width app navigation:** the authenticated shell uses a focus-contained, Escape-closeable drawer with inert background and focus return at phone widths.
+- [x] **P1: Restore foundational keyboard access:** native screen switches remain in the accessibility tree, the skip link focuses main content, and a newly added lesson cue is revealed, highlighted, focused, and announced.
+- [x] **P1: Complete successful authentication navigation:** successful authentication replaces the auth route with the dashboard route before refreshing application state.
+- [x] **P1: Close stale editors after deletion:** class deletion closes and clears class/controller dialogs before selecting refreshed data.
+- [x] **P2: Clarify document readiness:** document rows name conversion readiness and expose convert/retry; failed conversions clear derivative state and cannot open a false-ready preview.
+- [x] **P2: Add safe immediacy to Signage:** save bars name affected screens, successful saves expose one-step undo, and editors reserve sticky-action space.
+- [x] **P2: Remove competing Signage navigation:** Signage runs as the one visible full-screen navigation surface instead of leaving an obscured application sidebar interactive.
+- [x] **P2: Preserve media identity and assignment context:** grid titles use two lines plus full-name tooltips, view choice persists, and lesson/Sign surfaces include `Plays where` context and direct screen navigation.
 - [ ] **P3: Close evidence gaps:** run a truly clean first-install onboarding session, physical Google TV and Fire TV remote/HDMI/audio/network checks, QR-distance scans, physical Signage viewport comparisons, real touch, screen readers, 200% zoom, and reduced motion.
 
 ### Existing requested Settings work verified in the 2026-08-10 UI audit
