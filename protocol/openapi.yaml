@@ -1033,6 +1033,36 @@ paths:
         '413': { description: "File-size policy exceeded" }
         '429': { description: "Concurrency or daily allowance exceeded" }
         '507': { description: "Allocated or physical storage is unavailable" }
+  /api/v1/media/preflight:
+    post:
+      operationId: preflightMediaUpload
+      description: Requires uploads.manage. Checks catalog support, converter readiness, storage policy, and queue position before a browser starts a resumable upload.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MediaPreflightInput' }
+      responses:
+        '200':
+          description: Upload readiness and actionable warnings
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaPreflight' }
+        '401': { description: "Authentication required" }
+        '403': { description: "Upload permission required" }
+        '429': { description: "Media processing rate limit exceeded" }
+  /api/v1/support/bundle:
+    get:
+      operationId: downloadSupportBundle
+      description: Requires settings.manage. Downloads a redacted JSON health snapshot with no account names, IP addresses, media paths, URLs, secrets, tokens, or response text.
+      responses:
+        '200':
+          description: Redacted support snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupportBundle' }
+        '401': { description: "Authentication required" }
+        '403': { description: "Service Admin settings permission required" }
   /api/v1/uploads/{uploadId}:
     parameters:
       - { name: uploadId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -2299,6 +2329,49 @@ components:
         folder: { type: [string, 'null'], maxLength: 120 }
         tagsCsv: { type: [string, 'null'], maxLength: 500 }
         durationMs: { type: [integer, 'null'], format: int64, minimum: 0 }
+    MediaPreflightInput:
+      type: object
+      required: [fileName, totalBytes]
+      properties:
+        fileName: { type: string, minLength: 1, maxLength: 255 }
+        totalBytes: { type: integer, format: int64, minimum: 1, maximum: 107374182400 }
+        contentType: { type: [string, 'null'], maxLength: 100 }
+        persistent: { type: boolean, default: false }
+        lessonId: { type: [string, 'null'], format: uuid }
+    MediaPreflight:
+      type: object
+      required: [fileName, extension, family, label, contentType, converter, converterReady, supported, sizeBytes, sizeAllowed, expectedOutput, queuePosition, activeUploads, warnings, ready]
+      properties:
+        fileName: { type: string }
+        extension: { type: string }
+        family: { enum: [video, audio, image, document] }
+        label: { type: string }
+        contentType: { type: string }
+        converter: { type: string }
+        converterReady: { type: boolean }
+        supported: { type: boolean }
+        sizeBytes: { type: integer, format: int64, minimum: 0 }
+        sizeAllowed: { type: boolean }
+        codec: { type: [string, 'null'] }
+        expectedOutput: { type: string }
+        queuePosition: { type: integer, minimum: 1 }
+        activeUploads: { type: integer, minimum: 0 }
+        warnings: { type: array, items: { type: string } }
+        ready: { type: boolean }
+    SupportBundle:
+      type: object
+      required: [schemaVersion, generatedAt, server, storage, converters, queue, media, screens, backup, update]
+      properties:
+        schemaVersion: { type: integer, minimum: 1 }
+        generatedAt: { type: string, format: date-time }
+        server: { type: object, additionalProperties: true }
+        storage: { type: object, additionalProperties: true }
+        converters: { type: object, additionalProperties: true }
+        queue: { type: object, additionalProperties: true }
+        media: { type: object, additionalProperties: true }
+        screens: { type: object, additionalProperties: true }
+        backup: { type: object, additionalProperties: true }
+        update: { type: object, additionalProperties: true }
     UploadSessionCreated:
       type: object
       required: [uploadId, fileName, chunkSize, chunkCount, expectedLength, expiresAt]

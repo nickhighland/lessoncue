@@ -140,6 +140,73 @@ export type MediaUploadControl = {
   resume: () => Promise<void>;
   cancel: () => Promise<void>;
 };
+export type MediaPreflight = {
+  fileName: string;
+  extension: string;
+  family: "video" | "audio" | "image" | "document" | string;
+  label: string;
+  contentType: string;
+  converter: string;
+  converterReady: boolean;
+  supported: boolean;
+  sizeBytes: number;
+  sizeAllowed: boolean;
+  codec?: string;
+  expectedOutput: string;
+  queuePosition: number;
+  activeUploads: number;
+  warnings: string[];
+  ready: boolean;
+};
+export type SupportBundle = {
+  schemaVersion: number;
+  generatedAt: string;
+  server: {
+    serverId: string;
+    serverName: string;
+    version: string;
+    timeZone: string;
+  };
+  storage: {
+    usedBytes: number;
+    allocationBytes: number;
+    remainingBytes: number;
+    reservedBytes: number;
+    diskAvailableBytes: number;
+  };
+  converters: {
+    ffmpeg: boolean;
+    ffprobe: boolean;
+    libreOffice: boolean;
+    poppler: boolean;
+    webpEncoder: boolean;
+    theoraEncoder: boolean;
+    missing: string[];
+    checkedAt: string;
+  };
+  queue: {
+    activeUploads: number;
+    reservedBytes: number;
+    states: Record<string, number>;
+  };
+  media: {
+    count: number;
+    bytes: number;
+    processing: Record<string, number>;
+    compatibility: Record<string, number>;
+    conversion: Record<string, number>;
+  };
+  screens: {
+    count: number;
+    online: number;
+    failedDownloads: number;
+    playbackErrors: number;
+    commandsAwaitingReceipt: number;
+    networkQuality: Record<string, number>;
+  };
+  backup: BackupPolicyStatus;
+  update: UpdateStatus;
+};
 export type UpdateStatus = {
   currentVersion: string;
   latestVersion?: string;

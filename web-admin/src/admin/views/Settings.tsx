@@ -1,7 +1,7 @@
 import { confirmAction } from "../../AccessibleDialogs";
 import { FormEvent, useEffect, useState } from "react";
 import { api, waitForVersion } from "../api";
-import { Audit, Backup, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, StorageStatus, UpdateStatus, UploadQuotaPolicy } from "../models";
+import { Audit, Backup, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
 import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead, StorageMeter } from "../ui";
 import { RegistrationSettingsPanel, ServiceAdminMfaPanel, TroubleshootingLogPanel } from "./Users";
 import { cleanReleaseNotes, errorText, formatBytes, parseStringArray, quotaLimitsFromText, quotaLimitsToText, timeAgo } from "../utils";
@@ -139,6 +139,9 @@ export function Settings({
   const [migrationToken, setMigrationToken] = useState("");
   const [migrationPassword, setMigrationPassword] = useState("");
   const [migrationBusy, setMigrationBusy] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<SupportBundle>();
+  const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
+  const [diagnosticsError, setDiagnosticsError] = useState("");
   const [recycleItems, setRecycleItems] = useState<RecycleItem[]>([]);
   const loadRecycleBin = () =>
     canManageApp
@@ -171,6 +174,27 @@ export function Settings({
       })
       .catch((error) => notify(errorText(error)));
   }, [canBackups, notify]);
+  useEffect(() => {
+    if (!canServiceSettings) return;
+    void api<SupportBundle>("/api/v1/support/bundle")
+      .then((snapshot) => {
+        setDiagnostics(snapshot);
+        setDiagnosticsError("");
+      })
+      .catch((error) => setDiagnosticsError(errorText(error)));
+  }, [canServiceSettings]);
+  async function refreshDiagnostics() {
+    setDiagnosticsBusy(true);
+    try {
+      setDiagnostics(await api<SupportBundle>("/api/v1/support/bundle"));
+      setDiagnosticsError("");
+      notify("System diagnostics refreshed.");
+    } catch (error) {
+      setDiagnosticsError(errorText(error));
+    } finally {
+      setDiagnosticsBusy(false);
+    }
+  }
   async function saveOrganization(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -761,6 +785,19 @@ export function Settings({
   const caddyOriginPort =
     bootstrap.httpPort.port === 443 ? 8080 : bootstrap.httpPort.port;
   const caddyConfig = `${bootstrap.localAddress.hostname}.local {\n  tls internal\n  reverse_proxy 127.0.0.1:${caddyOriginPort}\n}`;
+  const diagnosticStoragePercent = diagnostics
+    ? Math.min(
+        100,
+        Math.round(
+          (diagnostics.storage.usedBytes /
+            Math.max(1, diagnostics.storage.allocationBytes)) *
+            100,
+        ),
+      )
+    : 0;
+  const diagnosticConverterReady = diagnostics
+    ? diagnostics.converters.missing.length === 0
+    : false;
   return (
     <>
       <PageHead
@@ -1208,6 +1245,103 @@ export function Settings({
                   Run the current release installer once from SSH to enable
                   automatic updates on this server.
                 </p>
+              )}
+            </CollapsibleSettingsSection>
+          )}
+          {canServiceSettings && (
+            <CollapsibleSettingsSection
+              label="System diagnostics & support"
+              className="wide-settings settings-panel settings-system settings-diagnostics"
+            >
+              <div className="settings-heading">
+                <div>
+                  <span className="settings-kicker">SERVICE ADMIN</span>
+                  <h2>System diagnostics &amp; support</h2>
+                  <p className="settings-copy">
+                    A quick, privacy-safe view of capacity, converters, queues,
+                    displays, backups, and updates. Export the same redacted
+                    snapshot when support needs context.
+                  </p>
+                </div>
+                <span
+                  className={`diagnostic-state ${diagnostics && diagnosticConverterReady && diagnostics.screens.playbackErrors === 0 && !diagnostics.backup.overdue ? "healthy" : "attention"}`}
+                >
+                  {diagnostics
+                    ? diagnosticConverterReady && diagnostics.screens.playbackErrors === 0 && !diagnostics.backup.overdue
+                      ? "Healthy"
+                      : "Needs attention"
+                    : "Checking"}
+                </span>
+              </div>
+              {diagnosticsError && (
+                <div className="alert error" role="alert">
+                  {diagnosticsError}
+                </div>
+              )}
+              {diagnostics ? (
+                <>
+                  <div className="diagnostic-grid">
+                    <div className="diagnostic-card">
+                      <span>STORAGE PROJECTION</span>
+                      <strong>{diagnosticStoragePercent}% used</strong>
+                      <div
+                        className="storage-meter"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={diagnosticStoragePercent}
+                        aria-label={`${diagnosticStoragePercent}% storage used`}
+                      >
+                        <span style={{ width: `${diagnosticStoragePercent}%` }} />
+                      </div>
+                      <small>{formatBytes(diagnostics.storage.remainingBytes)} remaining · {formatBytes(diagnostics.storage.reservedBytes)} reserved</small>
+                    </div>
+                    <div className="diagnostic-card">
+                      <span>CONVERTERS</span>
+                      <strong className={diagnosticConverterReady ? "diagnostic-good" : "diagnostic-bad"}>
+                        {diagnosticConverterReady ? "Ready" : `${diagnostics.converters.missing.length} missing`}
+                      </strong>
+                      <small>{diagnostics.converters.missing.length ? diagnostics.converters.missing.join(", ") : "Video, audio, documents, and image derivatives available."}</small>
+                    </div>
+                    <div className="diagnostic-card">
+                      <span>UPLOAD QUEUE</span>
+                      <strong>{diagnostics.queue.activeUploads} active</strong>
+                      <small>{formatBytes(diagnostics.queue.reservedBytes)} reserved · {Object.entries(diagnostics.queue.states).map(([state, count]) => `${count} ${state}`).join(" · ") || "No recent sessions"}</small>
+                    </div>
+                    <div className="diagnostic-card">
+                      <span>DISPLAYS</span>
+                      <strong>{diagnostics.screens.online}/{diagnostics.screens.count} online</strong>
+                      <small>{diagnostics.screens.commandsAwaitingReceipt} command{diagnostics.screens.commandsAwaitingReceipt === 1 ? "" : "s"} awaiting receipt · {diagnostics.screens.playbackErrors} playback error{diagnostics.screens.playbackErrors === 1 ? "" : "s"}</small>
+                    </div>
+                    <div className="diagnostic-card">
+                      <span>BACKUPS</span>
+                      <strong className={diagnostics.backup.overdue || diagnostics.backup.lastError ? "diagnostic-bad" : "diagnostic-good"}>
+                        {diagnostics.backup.overdue ? "Overdue" : diagnostics.backup.lastSucceededAt ? `Last ${timeAgo(diagnostics.backup.lastSucceededAt)}` : "Not run yet"}
+                      </strong>
+                      <small>{diagnostics.backup.lastError || (diagnostics.backup.enabled ? `Next run ${diagnostics.backup.nextRunAt ? new Date(diagnostics.backup.nextRunAt).toLocaleString() : "scheduled"}` : "Automatic backups are disabled")}</small>
+                    </div>
+                    <div className="diagnostic-card">
+                      <span>UPDATES</span>
+                      <strong className={diagnostics.update.error || diagnostics.update.updateAvailable ? "diagnostic-bad" : "diagnostic-good"}>
+                        {diagnostics.update.error ? "Error" : diagnostics.update.updateAvailable ? `Available: ${diagnostics.update.latestVersion}` : "Current"}
+                      </strong>
+                      <small>{diagnostics.update.error || `LessonCue ${diagnostics.update.currentVersion} · checked ${diagnostics.update.lastCheckedAt ? timeAgo(diagnostics.update.lastCheckedAt) : "not yet"}`}</small>
+                    </div>
+                  </div>
+                  <div className="diagnostic-actions">
+                    <button className="button" onClick={refreshDiagnostics} disabled={diagnosticsBusy}>
+                      {diagnosticsBusy ? "Refreshing…" : "Refresh diagnostics"}
+                    </button>
+                    <a className="button primary" href="/api/v1/support/bundle" download>
+                      Download redacted support bundle
+                    </a>
+                  </div>
+                  <p className="settings-copy diagnostic-footnote">
+                    Generated {new Date(diagnostics.generatedAt).toLocaleString()}. The export excludes account names, IP addresses, media paths, URLs, secrets, and response text.
+                  </p>
+                </>
+              ) : (
+                <div className="loading">Collecting system diagnostics…</div>
               )}
             </CollapsibleSettingsSection>
           )}

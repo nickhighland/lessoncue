@@ -1,24 +1,25 @@
 import { AccessibleDialogHost } from "../AccessibleDialogs";
 import { AudienceAdmin, AudienceDisplayApp, AudienceResponseApp } from "../AudienceInteraction";
-import { SimpleSignage } from "../SimpleSignage";
 import { WebPlayerApp } from "../WebPlayer";
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
-import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, lazy, ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
-import { CalendarView } from "./views/Calendar";
-import { ControllerView } from "./views/Controller";
 import { Dashboard } from "./views/Dashboard";
-import { ClassesView } from "./views/Lessons";
-import { MediaView } from "./views/Media";
 import { AccountProfile, Audit, Backup, Bootstrap, Lesson, LessonClass, LessonTemplate, Media, Permission, RecurringSchedule, Screen, Session, Signage, UpdateStatus, User, View } from "./models";
-import { ScreensView } from "./views/Screens";
-import { Settings } from "./views/Settings";
-import { TemplatesView } from "./views/Templates";
 import { BrandMark, Field, Modal } from "./ui";
-import { UsersView } from "./views/Users";
 import { errorText, formatBytes, isAccountLinkPath, isAudienceDisplayPath, isAudiencePath, isControllerPath, isWebPlayerPath } from "./utils";
 // Preserve the legacy editor stylesheet while older signage layouts remain supported.
 import "./views/LegacySignage";
+
+const ControllerView = lazy(() => import("./views/Controller").then((module) => ({ default: module.ControllerView })));
+const ClassesView = lazy(() => import("./views/Lessons").then((module) => ({ default: module.ClassesView })));
+const CalendarView = lazy(() => import("./views/Calendar").then((module) => ({ default: module.CalendarView })));
+const MediaView = lazy(() => import("./views/Media").then((module) => ({ default: module.MediaView })));
+const ScreensView = lazy(() => import("./views/Screens").then((module) => ({ default: module.ScreensView })));
+const Settings = lazy(() => import("./views/Settings").then((module) => ({ default: module.Settings })));
+const TemplatesView = lazy(() => import("./views/Templates").then((module) => ({ default: module.TemplatesView })));
+const UsersView = lazy(() => import("./views/Users").then((module) => ({ default: module.UsersView })));
+const SimpleSignage = lazy(() => import("../SimpleSignage").then((module) => ({ default: module.SimpleSignage })));
 
 export function App() {
   let content: ReactNode;
@@ -884,6 +885,12 @@ export function Shell({
     canManageAppSettings,
   ]);
   useEffect(() => {
+    if (!loading && bootstrap) {
+      performance.mark("lessoncue-first-meaningful-interaction");
+      document.documentElement.dataset.lessoncueReady = "true";
+    }
+  }, [loading, bootstrap]);
+  useEffect(() => {
     if (!bootstrap) return;
     document.documentElement.style.setProperty(
       "--deep",
@@ -1282,6 +1289,7 @@ export function Shell({
                     )}
                   </div>
                 )}
+              <Suspense fallback={<div className="loading workspace-loading">Opening workspace…</div>}>
               {view === "dashboard" && bootstrap && (
                 <Dashboard
                   bootstrap={bootstrap}
@@ -1320,6 +1328,10 @@ export function Shell({
                   mediaFormats={bootstrap?.mediaFormats}
                   screens={screens}
                   onNavigateScreens={() => setView("screens")}
+                  onPresentNow={(lesson) => {
+                    history.pushState(null, "", `/controller?lesson=${encodeURIComponent(lesson.id)}`);
+                    setView("controller");
+                  }}
                   localControllerOrigin={
                     bootstrap?.settings.requireLocalRoomControllers
                       ? bootstrap.httpPort.address
@@ -1408,6 +1420,7 @@ export function Shell({
                   canUpdates={canManageUpdates}
                 />
               )}
+              </Suspense>
             </>
           )}
         </main>

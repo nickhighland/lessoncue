@@ -104,6 +104,7 @@ export function ControllerView({
   const [unlockError, setUnlockError] = useState("");
   const [unlocking, setUnlocking] = useState(false);
   const [controlsLocked, setControlsLocked] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [commandReceipt, setCommandReceipt] = useState<{
     version?: number;
@@ -129,6 +130,9 @@ export function ControllerView({
       setUnlocking(false);
     }
   }
+  // The focus listener must capture the latest screen/session closure; the effect
+  // below intentionally re-registers it when this command implementation changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   async function command(action: string, extras: Record<string, unknown> = {}) {
     if (!screenId) return notify("Choose a paired screen first.");
     if (controlsLocked)
@@ -172,6 +176,7 @@ export function ControllerView({
       notify(message);
     }
   }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const play = (itemId?: string) =>
     lesson && command("play", { lessonId: lesson.id, itemId: itemId || null });
   const durationSeconds = Math.max(
@@ -230,6 +235,21 @@ export function ControllerView({
     !!timingLesson?.preRollMonitorUrl &&
     (monitorOpen || preRollNow || reportedItem?.role === "preRoll");
   const selectedScreenOnline = !!selectedScreen && isOnline(selectedScreen);
+  useEffect(() => {
+    if (!focusMode) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, select, textarea, button")) return;
+      if (["ArrowLeft", "ArrowRight", "Enter", "Escape", "Backspace"].includes(event.key))
+        event.preventDefault();
+      if (event.key === "ArrowLeft") void command("previous");
+      else if (event.key === "ArrowRight") void command("next");
+      else if (event.key === "Enter") void play(selectedItemId || undefined);
+      else if (event.key === "Escape" || event.key === "Backspace") void command("stop");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [focusMode, selectedItemId, selectedScreenOnline, controlsLocked, screenId, lesson?.id, command, play]);
   const commandPending =
     !!selectedScreen &&
     selectedScreenOnline &&
@@ -436,6 +456,13 @@ export function ControllerView({
                 ? "🔒 Controls locked — unlock"
                 : "🔓 Lock controls"}
             </button>
+            <button
+              className={`button ${focusMode ? "primary" : ""}`}
+              aria-pressed={focusMode}
+              onClick={() => setFocusMode((value) => !value)}
+            >
+              {focusMode ? "Exit display focus" : "Display focus mode"}
+            </button>
           </div>
         }
       />
@@ -444,6 +471,24 @@ export function ControllerView({
           Controls are locked. Nothing on this remote can change the screen
           until you unlock it.
         </div>
+      )}
+      {focusMode && (
+        <section className="panel controller-focus-mode" aria-label="Display focus mode">
+          <div>
+            <span className="section-label">DISPLAY FOCUS</span>
+            <strong>{selectedScreen?.name || "Choose a screen"}</strong>
+            <small>{selectedScreenOnline ? "Connected and ready for commands" : "Offline — commands are disabled"}</small>
+          </div>
+          <div className="controller-focus-now">
+            <span>NOW</span><strong>{reportedItem?.title || "Nothing playing"}</strong>
+          </div>
+          <div className="controller-focus-next">
+            <span>NEXT</span><strong>{reportedIndex >= 0 ? timingItems[reportedIndex + 1]?.title || "End of sequence" : orderedItems[0]?.title || "Choose a lesson"}</strong>
+          </div>
+          <div className="controller-shortcuts" aria-label="Keyboard shortcuts">
+            <kbd>←</kbd><span>Previous</span><kbd>→</kbd><span>Next</span><kbd>Enter</kbd><span>Play selected</span><kbd>Esc</kbd><span>Stop / Back</span>
+          </div>
+        </section>
       )}
       <fieldset
         className="controller-controls"

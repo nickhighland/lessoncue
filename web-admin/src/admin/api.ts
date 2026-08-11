@@ -1,4 +1,4 @@
-import { Media, MediaUploadControl, UpdateStatus, UploadSessionStatus } from "./models";
+import { Media, MediaPreflight, MediaUploadControl, UpdateStatus, UploadSessionStatus } from "./models";
 import { errorText } from "./utils";
 
 export class ApiError extends Error {
@@ -255,6 +255,22 @@ export async function uploadMediaFile(
   } finally {
     options.onControlReady?.(undefined);
   }
+}
+
+export function preflightMediaFile(
+  file: File,
+  options: { persistent: boolean; lessonId?: string },
+) {
+  return api<MediaPreflight>("/api/v1/media/preflight", {
+    method: "POST",
+    body: JSON.stringify({
+      fileName: file.name,
+      totalBytes: file.size,
+      contentType: file.type || "application/octet-stream",
+      persistent: options.persistent,
+      lessonId: options.lessonId || null,
+    }),
+  });
 }
 export async function waitForVersion(version?: string) {
   await new Promise((resolve) => setTimeout(resolve, 4000));
