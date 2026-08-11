@@ -113,6 +113,11 @@ install_prerequisites() {
   local docker_compose_package=""
   local -a packages=(curl ca-certificates git gnupg openssl)
 
+  # Refresh package metadata before probing optional package names. On a
+  # fresh host the cache may be empty or stale, which would otherwise make a
+  # package that is available on the distribution look missing.
+  run_root apt-get update
+
   if [[ "${repair_updater}" != true ]]; then
     packages+=(ffmpeg libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-draw poppler-utils avahi-daemon avahi-utils libnss-mdns libicu-dev zlib1g util-linux bubblewrap)
     # Debian splits runuser into util-linux-extra on some releases. The
@@ -165,7 +170,6 @@ install_prerequisites() {
     packages+=("${docker_compose_package}")
   fi
 
-  run_root apt-get update
   run_root apt-get install -y "${packages[@]}"
 
   if [[ "${docker_repo_required}" == true ]]; then
