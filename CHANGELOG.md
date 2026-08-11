@@ -4,6 +4,272 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.38 — clearer live workflows and service diagnostics
+
+### User changes
+
+- Audience sessions now guide operators from poll creation to opening and QR sharing, with copy/download actions, live participant and moderation counts, and closed-session recovery.
+- Media uploads run a server preflight that names the detected format, converter readiness, expected output, storage limits, and queue position before any bytes are sent.
+- Controller focus mode provides large targets, visible current/next context, keyboard/remote shortcuts, selected-room and connection state, and command receipt feedback.
+- Lesson editing separates Present now, Schedule, Save draft, Duplicate, Archive, and Delete, with local autosave recovery and a compact timeline.
+- Service Admins can inspect storage, converters, queues, displays, backups, and updates and download a redacted support bundle.
+- Large administration workspaces load on demand, with a first-interaction performance mark and a checked JavaScript bundle budget.
+
+### Developer changes
+
+- Added `/api/v1/media/preflight` and `/api/v1/support/bundle` to the OpenAPI contract.
+- Expanded media preflight diagnostics across the broad catalog, including optional WebP/Theora and LibreOffice/Poppler readiness.
+- Added browser accessibility, end-to-end, protocol, server, real-use, and bundle-budget verification to the release checklist.
+
+## v0.40.37 — streamline signage playlist editing
+
+### User changes
+
+- Playlist cards now keep the timeline compact with a single duration indicator; production notes and item settings stay in the left inspector.
+- The Playlist inspector now combines playlist and selected-item editing without a duplicate Selected item tab.
+- Video items offer a Full video duration timing option, while custom timing remains available.
+- Calendar elements keep one larger editable Title textbox so users can control title line breaks.
+
+### Developer changes
+
+- Removed the card-level notes/settings popovers and their duplicate controls while preserving inspector editing and playlist persistence.
+- Full video timing derives from the selected media asset duration and updates the playlist item duration used for signage playback.
+- Added browser coverage for full-video timing, consolidated inspector editing, and the compact card controls.
+- Release metadata advances to 0.40.37 and Android version code 96.
+
+## v0.40.36 — polished compact weather card
+
+### User changes
+
+- Weather elements now match the reference design with a bold location heading, illustrated condition icon, prominent temperature, and a clean precipitation, high/low, and wind row.
+- Compact weather panels keep every text and icon region separate, so the temperature, conditions, and detail values no longer overlap or become partially obscured.
+- Weather styling now adds a subtle dimensional background, purpose-built sun, droplet, and wind artwork, and consistent typography in both the editor and the live display.
+
+### Developer changes
+
+- Rebuilt the weather card around bounded responsive title, reading, and metrics rows shared by editor previews and live signage.
+- Added browser geometry regression checks for clipping and overlap at narrow signage-panel dimensions.
+- Release metadata advances to 0.40.36 and Android version code 95.
+
+## v0.40.35 — assign signage to screens
+
+### User changes
+
+- The Signage editor's Screens tab now works and lets you select the paired screens that should display a Sign.
+- The Screens page now switches from Assigned class to Assigned Screen for signage-only displays.
+- Signs can be assigned or cleared directly from the Screens page, and the assignment updates the display immediately.
+
+### Developer changes
+
+- Added screen-level Sign assignment support to the admin PATCH API with validation for published Sign records.
+- End-to-end coverage now exercises both Signage editor assignment and Screens-page assignment.
+
+## v0.40.34 — rich signage typography and reference weather card
+
+### User changes
+
+- Every signage element now exposes a font choice, with rich formatting for editable titles and messages.
+- Calendar event names wrap inside their panel instead of being clipped to one line.
+- Weather elements now use the requested title, icon, temperature, conditions, precipitation, `H##/L##`, and wind layout; forecast, humidity, sunrise, and sunset controls are removed.
+
+### Developer changes
+
+- Unified responsive weather markup and styling between the layout editor and live display, including scalable SVG detail icons and wind direction handling.
+- Weather field normalization now strips unsupported legacy fields from saved layouts and cache generation.
+- Release metadata advances to 0.40.34 and Android version code 93.
+
+## v0.40.33 — organized signage widget layouts and responsive text spacing
+
+### User changes
+
+- Weather elements now keep their title, reading, conditions, and detail values organized in a compact information card.
+- Calendar elements keep the upcoming-events heading, event title, date, time, and optional description readable inside narrow panels.
+- QR and Wi-Fi labels resize with their panels, and line-spacing settings now apply to widget text as well as ordinary signage text.
+
+### Developer changes
+
+- Added panel-relative sizing and line-height coverage for live weather, calendar, QR, and Wi-Fi rendering.
+- Matched the signage editor previews to the live display structure, including separate calendar date/time rows and grouped weather details.
+- Release metadata advances to 0.40.33 and Android version code 92.
+
+## v0.40.32 — responsive signage elements and calendar descriptions
+
+### User changes
+
+- Signage elements now scale typography and widget content from the panel dimensions, so resizing a panel preserves its proportions.
+- Weather elements use a responsive information-card layout with icon placement, icon color, and detail controls.
+- Calendar elements use a compact upcoming-events layout with optional date, time, location, and description fields. Descriptions are hidden by default and can be enabled in element settings.
+
+### Developer changes
+
+- Added panel-relative container sizing to both signage editors and the live display renderer.
+- Preserved calendar descriptions from iCalendar feeds and added browser coverage for responsive rendering and opt-in descriptions.
+- Release metadata advances to 0.40.32 and Android version code 91.
+
+## v0.40.31 — reliable signage drag-and-drop and release packaging
+
+### User changes
+
+- Make mouse dragging of ready media use the same reliable pointer path as touch dragging, avoiding Chromium native-drag inconsistencies while retaining native drag support.
+- Preserve duplicate protection, click-to-add, timeline insertion, duration controls, notes, and item settings.
+
+### Developer changes
+
+- Make user-facing release-note extraction tolerate release entries that use top-level bullets instead of a dedicated `User changes` subsection.
+- Release metadata advances to 0.40.31 and Android version code 90.
+
+## v0.40.30 — pointer-based signage drag-and-drop fallback
+
+- Make mouse dragging of ready media use the same reliable pointer path as touch dragging, avoiding Chromium native-drag inconsistencies while retaining native drag support.
+- Preserve duplicate protection, click-to-add, timeline insertion, duration controls, notes, and item settings.
+
+## v0.40.29 — native signage drag-and-drop bridge
+
+- Handle ready-media drops through the browser's native capture-phase drag events so the first item can be dropped into an empty signage playlist reliably across Chromium/Linux environments.
+- Prevent duplicate inserts while preserving click-to-add, touch dragging, timeline insertion, duration controls, notes, and item settings.
+
+## v0.40.28 — hardened signage drag-and-drop
+
+- Make ready-media drag-and-drop reliable in hosted Chromium/Linux browsers, including the first item dropped into an empty signage playlist.
+- Keep click-to-add, touch dragging, timeline insertion, duration controls, notes, and item settings unchanged.
+
+## v0.40.27 — signage drag-and-drop release fix
+
+- Preserve the active media identifier across the browser drag lifecycle so dragging ready media into an empty signage playlist reliably creates the first timeline card.
+- Commit the drop from the drag-end event as a browser compatibility fallback when a hosted browser omits the expected drop callback.
+- Keep the existing signage horizontal timeline, duration controls, notes, and item settings behavior unchanged.
+
+## v0.40.26 — signage drag-and-drop release fix
+
+- Preserve the active media identifier across the browser drag lifecycle so dragging ready media into an empty signage playlist reliably creates the first timeline card.
+- Keep the existing signage horizontal timeline, duration controls, notes, and item settings behavior unchanged.
+
+## v0.40.25 — Android TV redesign and media workflow reliability
+
+### User changes
+
+- Android TV now has a calm, remote-friendly LessonCue interface with branded connection, pairing, lesson library, cue timeline, and playback screens.
+- Lesson detail shows the next lesson clearly, preserves cue order, supports starting from any cue, and keeps playback controls available through a temporary overlay.
+- Signage playback preserves emergency, offline, and display-power behavior while sharing the improved playback presentation.
+- Linux media uploads avoid the capability configuration that caused Bubblewrap and `setpriv` processing failures on restricted installations.
+- Signage playlist items now retain operator notes.
+
+### Developer changes
+
+- Added centralized Android TV colors, spacing, focus treatment, cue models, playback overlay behavior, and screen-level tests.
+- Added 720p and 1080p visual verification for the primary Android TV screens.
+- Hardened media-worker capability isolation by clearing ambient and inheritable capabilities without attempting an unprivileged bounding-set mutation.
+- Release metadata advances to 0.40.25 and Android version code 84.
+
+## v0.40.24 — grouped playback sections
+
+### User changes
+
+- Total playback now always presents Pre-Roll, Countdown, Main Lesson, and Post Lesson in playback order.
+- Each playback section has a distinct shaded background, including visible empty drop zones for new lessons.
+- Ready media can be dragged directly into an empty section or inserted within an existing section.
+
+### Developer changes
+
+- Total-view rendering groups cues by role instead of relying on interleaved global positions.
+- Drag-and-drop insertion preserves the selected section role and calculates positions within that section.
+- Release metadata advances to 0.40.24 and Android version code 83.
+
+## v0.40.23 — clearer lesson playback builder
+
+### User changes
+
+- Removed the redundant “Preview with Trims & Fades” strip from the lesson playback builder.
+- Playback sections now use high-contrast blue Pre-Roll, purple Countdown, red Main Lesson, and teal Post Lesson colors.
+- Each cue’s left category rail matches its playback section, including in the Total view.
+- Lesson cards stay compact with consistent previews, dedicated Notes/duration/Advanced Options footer controls, and clearer still-slide duration behavior.
+
+### Developer changes
+
+- Shared section color tokens now drive both section tabs and per-role cue rails, preventing Total view from flattening all cue colors.
+- Still-image cues omit video-only trim/fade controls while videos retain the visual editor.
+- Release metadata advances to 0.40.23 and Android version code 82.
+
+## v0.40.22 — media-processing validation repair
+
+### User changes
+
+- Corrective release for the compact lesson builder and media workflow update.
+
+### Developer changes
+
+- The explicit `LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX=1` validation override now
+  bypasses the outer Linux `setpriv` wrapper as well as the media-worker
+  Bubblewrap wrapper. Production remains sandboxed by default.
+- Release metadata and Android version code advance to 0.40.22 and 81.
+
+## v0.40.21 — compact lesson builder and reliable media workflows
+
+### User changes
+
+- Lessons now use compact horizontal timeline cards with visual previews, notes, durations, and Advanced Options menus.
+- Playback is organized into Pre-Roll, Countdown, Main Lesson, Post Lesson, and Total sections, with looping pre-roll/post-lesson media and drag-and-drop Ready media.
+- Still images and slides can remain untimed while carrying an optional expected lesson-duration estimate; new cues pause at the last frame by default.
+- Media Library renaming preserves file extensions, and media-type filtering makes large libraries easier to browse.
+- Linux media uploads now process correctly on installations affected by Bubblewrap capability restrictions.
+
+### Developer changes
+
+- Added section-aware manifest playback for post-lesson loops across the web player and Android TV client.
+- Repaired visual trim/fade pointer interaction and added a pointer fallback for reliable timeline drag insertion.
+- Added extension-preserving rename validation, untimed presentation conversion, and protected media-worker capability isolation.
+- Release metadata and Android version code advance to 0.40.21 and 80.
+
+## v0.40.20 — compact lesson timeline controls
+
+### User changes
+
+- Lesson timeline cards now stay compact with dedicated Notes and Advanced Options buttons for each cue.
+- Ready media can be dragged to any position in the lesson timeline, with click-to-add still available.
+
+### Developer changes
+
+- Added accessible cue popovers for notes, playback settings, precision timing, and visual trim/fade controls.
+- Added browser coverage for drag insertion, cue popovers, notes persistence, and existing advanced playback workflows.
+- Release metadata and Android version code advance to 0.40.20 and 79.
+
+## v0.40.19 — reliable SQLite snapshot verification
+
+### User changes
+
+- Linux updates no longer reject a valid protected snapshot when SQLite creates temporary WAL bookkeeping files during its integrity check.
+
+### Developer changes
+
+- Database integrity checks run against a disposable verification copy, preserving the byte-for-byte rollback snapshot for comparison and restoration.
+- Linux transaction coverage reproduces SQLite read-only WAL/SHM side effects and confirms they never enter protected snapshots.
+- Release metadata and Android version code advance to 0.40.19 and 78.
+
+## v0.40.18 — self-repairing protected updates
+
+### User changes
+
+- Native Linux updates now run the updater shipped in the verified release before creating the protected snapshot, so updater fixes can repair older installations instead of failing behind the old updater.
+- Update requests pin the release version selected by LessonCue, preventing a later release from being installed accidentally while an operation is queued.
+- The Linux installer can repair only the signed updater and systemd units without replacing the application or user data.
+
+### Developer changes
+
+- The updater securely hands off to a checksum- and signature-verified release candidate while the original process retains the operation lock.
+- Linux transaction tests cover release-updater handoff, pinned request versions, updater replacement, rollback, and snapshot failure diagnostics.
+- Release metadata and Android version code advance to 0.40.18 and 77.
+
+## v0.40.16 — reliable protected update diagnostics
+
+### User changes
+
+- Failed native updates now report the exact protected snapshot phase that needs attention while leaving the existing installation unchanged.
+
+### Developer changes
+
+- Linux snapshot creation now validates and reports every copy, comparison, rename, and metadata-write step.
+- Release metadata and Android version code advance to 0.40.16 and 75.
+
 ## v0.40.15 — horizontal lesson and signage builders
 
 ### User changes

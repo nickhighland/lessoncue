@@ -17,8 +17,7 @@ public static class SignageLayout
         "weather", "rss", "qr", "ticker", "counter", "webpage", "wifi", "audience", "customHtml"];
     public static readonly string[] Presets = ["single", "sidebar", "split", "header-grid", "dashboard"];
     public static readonly string[] WeatherProviders = ["open-meteo", "nws", "custom"];
-    public static readonly string[] WeatherDisplayFields = ["icon", "conditions", "temperature", "feelsLike", "high", "low",
-        "precipitation", "humidity", "wind", "forecast", "sunrise", "sunset"];
+    public static readonly string[] WeatherDisplayFields = ["icon", "temperature", "conditions", "precipitation", "high", "low", "wind"];
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public static List<SignageZoneInput> ParseZones(string? json)
@@ -67,6 +66,7 @@ public static class SignageLayout
             RichTextJson = Truncate(zone.RichTextJson, 12000),
             FontFamily = Truncate(zone.FontFamily, 80) ?? "system-ui",
             FontSize = Math.Clamp(zone.FontSize, 8, 300),
+            FontScalePercent = Math.Clamp(zone.FontScalePercent, 1, 40),
             FontWeight = Math.Clamp(zone.FontWeight, 100, 900),
             LineHeightPercent = Math.Clamp(zone.LineHeightPercent, 80, 300),
             TextAlign = zone.TextAlign is "center" or "right" or "justify" ? zone.TextAlign : "left",
@@ -121,7 +121,7 @@ public static class SignageLayout
             WifiHidden = type == "wifi" && zone.WifiHidden,
             WeatherIconStyle = type == "weather" && zone.WeatherIconStyle == "white" ? "white" : type == "weather" ? "color" : null,
             WeatherLayout = type == "weather" && zone.WeatherLayout is "icon-left" or "icon-right" or "compact"
-                ? zone.WeatherLayout : type == "weather" ? "icon-top" : null,
+                ? zone.WeatherLayout : type == "weather" ? "icon-left" : null,
             WeatherIconSize = Math.Clamp(zone.WeatherIconSize, 16, 220),
             WeatherTitleSize = Math.Clamp(zone.WeatherTitleSize, 8, 120),
             WeatherTemperatureSize = Math.Clamp(zone.WeatherTemperatureSize, 12, 220),
@@ -264,7 +264,7 @@ public static class SignageLayout
 
     private static string NormalizeWeatherFields(string? value)
     {
-        var selected = (value ?? "icon,conditions,temperature,high,low,precipitation").Split(',',
+        var selected = (value ?? "icon,temperature,conditions,precipitation,high,low,wind").Split(',',
                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(WeatherDisplayFields.Contains).Distinct(StringComparer.Ordinal).ToArray();
         return string.Join(',', selected.Length == 0 ? ["temperature"] : selected);

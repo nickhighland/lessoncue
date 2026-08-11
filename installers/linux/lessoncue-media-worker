@@ -38,6 +38,22 @@ if [[ "${skip_sandbox}" != 0 && "${skip_sandbox}" != 1 ]]; then
   echo "LessonCue worker sandbox override is invalid." >&2
   exit 64
 fi
+
+# The service needs CAP_NET_BIND_SERVICE to open port 80, but media tools must
+# never inherit a usable capability. ConstrainedProcessRunner clears the
+# ambient and inheritable sets before exec; a normal exec then clears effective
+# and permitted capabilities too. Keep this assertion next to the sandbox so a
+# future service or launcher change fails closed instead of running a privileged
+# converter. The root-only isolation harness is intentionally exempt.
+if [[ "${EUID}" -ne 0 && -r /proc/self/status ]]; then
+  for capability_set in CapInh CapPrm CapEff CapAmb; do
+    capability_value="$(awk -v name="${capability_set}:" '$1 == name { print $2 }' /proc/self/status)"
+    if [[ -z "${capability_value}" || ! "${capability_value}" =~ ^0+$ ]]; then
+      echo "LessonCue refused to start a media tool with inherited Linux capabilities." >&2
+      exit 78
+    fi
+  done
+fi
 if [[ "${skip_sandbox}" == 0 ]] && ! command -v bwrap >/dev/null 2>&1; then
   echo "The required LessonCue media sandbox is unavailable. Install bubblewrap and run the current LessonCue installer." >&2
   exit 78
@@ -59,6 +75,9 @@ sandbox=(
   --unshare-ipc
   --unshare-uts
   --unshare-cgroup-try
+  # Keep the sandbox payload capability-free even if bwrap was installed with
+  # stale file capabilities by an older package or hardening recipe.
+  --cap-drop ALL
   --clearenv
   --setenv PATH /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
   --setenv LC_ALL C
@@ -158,12 +177,12 @@ worker=(
   --nofile=256
 )
 if [[ "${skip_sandbox}" == 1 ]]; then
-  # GitHub-hosted runners reject the user-namespace UID map required by
-  # Bubblewrap. Browser CI uses this explicit disposable fallback while the
-  # production service and the dedicated Linux worker job keep full sandboxing.
-  # Do not apply the per-user process limit here: unlike the isolated
-  # Bubblewrap user namespace, the disposable fallback shares the runner's
-  # process table with Playwright and the server itself.
+  # Some container runtimes reject the user-namespace and mount operations
+  # required by Bubblewrap. This explicit fallback relies on the outer
+  # container or CI runner as the isolation boundary while retaining the
+  # timeout, address-space, and output-file limits below. Do not apply the
+  # per-user process limit here: the fallback shares the process table with
+  # the server itself.
   worker+=(-- "$@")
   exec "${worker[@]}"
 fi

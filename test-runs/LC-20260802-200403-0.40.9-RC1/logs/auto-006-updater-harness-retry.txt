@@ -1,0 +1,50 @@
+start_local: 2026-08-02T20:31:04-0400
+Client:
+ Version:    29.2.1
+ Context:    desktop-linux
+ Debug Mode: false
+ Plugins:
+  agent: create or run AI agents (Docker Inc.)
+    Version:  v1.29.0
+    Path:     /Users/nickhighland/.docker/cli-plugins/docker-agent
+  ai: Docker AI Agent - Ask Gordon (Docker Inc.)
+    Version:  v1.19.0
+    Path:     /Users/nickhighland/.docker/cli-plugins/docker-ai
+  buildx: Docker Buildx (Docker Inc.)
+    Version:  v0.32.1-desktop.1
+    Path:     /Users/nickhighland/.docker/cli-plugins/docker-buildx
+  compose: Docker Compose (Docker Inc.)
+    Version:  v5.1.0
+    Path:     /Users/nickhighland/.docker/cli-plugins/docker-compose
+  debug: Get a shell into any image or container (Docker Inc.)
+    Version:  0.0.47
+    Path:     /Users/nickhighland/.docker/cli-plugins/docker-debug
+  desktop: Docker Desktop commands (Docker Inc.)
+    Version:  v0.3.0
+    Path:     /Users/nickhighland/.docker/cli-plugins/docker-desktop
+  dhi: CLI for managing Docker Hardened Images (Docker Inc.)
+    Version:  v0.0.1
+    Path:     /Users/nickhighland/.docker/cli-plugins/docker-dhi
+  extension: Manages Docker extensions (Docker Inc.)
+    Version:  v0.2.31
+    Path:     /Users/nickhighland/.docker/cli-plugins/docker-extension
+  init: Creates Docker-related starter files for your project (Docker Inc.)
+    Version:  v1.4.0
+    Path:     /Users/nickhighland/.docker/cli-plugins/docker-init
+  mcp: Docker MCP Plugin (Docker Inc.)
+    Version:  v0.40.1
+    Path:     /Users/nickhighland/.docker/cli-plugins/docker-mcp
+=== command ===
+docker run --rm -v "${PWD}:/workspace:ro" debian:trixie-slim bash /workspace/tests/linux-updater-transaction.sh /workspace
+Unable to find image 'debian:trixie-slim' locally
+trixie-slim: Pulling from library/debian
+59f54fbcd984: Pulling fs layer
+34fd17905556: Download complete
+59f54fbcd984: Download complete
+59f54fbcd984: Pull complete
+Digest: sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd
+Status: Downloaded newer image for debian:trixie-slim
+Downloading LessonCue v2.0.0 for linux-arm64...
+curl: (37) Couldn't open file /tmp/lessoncue-releases/releases/download/v2.0.0/LessonCue-Server-linux-arm64.tar.gz
+finish_local: 2026-08-02T20:31:27-0400
+exit_code: 1

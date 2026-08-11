@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { confirmAction, requestText } from "./AccessibleDialogs";
 import "./simple-signage.css";
 import {
@@ -14,8 +20,10 @@ type Media = {
   id: string;
   fileName: string;
   contentType: string;
+  durationMs?: number;
   thumbnailUrl?: string;
   downloadUrl: string;
+  processingStatus?: string;
 };
 
 type Screen = {
@@ -51,6 +59,7 @@ type Zone = {
   flipX: boolean;
   flipY: boolean;
   fontFamily?: string;
+  fontScalePercent?: number;
   fontSize?: number;
   fontWeight?: number;
   italic?: boolean;
@@ -138,6 +147,7 @@ type PlaylistItem = {
   fadeInMs: number;
   fadeOutMs: number;
   fit: string;
+  notes?: string;
 };
 
 type Playlist = {
@@ -168,6 +178,10 @@ type AudienceSession = {
 };
 
 type Tab = "layouts" | "playlists" | "signs";
+type UndoSnapshot =
+  | { kind: "layout"; value: Layout; affectedScreens: string[] }
+  | { kind: "playlist"; value: Playlist; affectedScreens: string[] }
+  | { kind: "sign"; value: Sign; affectedScreens: string[] };
 
 type CompatibilityIssue = {
   title: string;
@@ -211,7 +225,33 @@ async function audienceSessions(): Promise<AudienceSession[]> {
 }
 
 function id(prefix: string) {
-  return `${prefix}-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  const uuid = globalThis.crypto?.randomUUID?.();
+  const entropy = uuid
+    ? uuid.replaceAll("-", "").slice(0, 12)
+    : globalThis.crypto?.getRandomValues
+      ? Array.from(globalThis.crypto.getRandomValues(new Uint32Array(2)))
+        .map(value => value.toString(36))
+        .join("")
+        .slice(0, 12)
+      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`.slice(0, 12);
+  return `${prefix}-${entropy}`;
+}
+
+function signageDurationLabel(seconds: number) {
+  const value = Math.max(0, Math.round(Number.isFinite(seconds) ? seconds : 0));
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  const remainder = value % 60;
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
+    : `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+function fullVideoDurationSeconds(item: PlaylistItem | undefined, media: Media[]) {
+  if (!item?.mediaAssetId) return undefined;
+  const asset = media.find(value => value.id === item.mediaAssetId);
+  if (!asset?.contentType.startsWith("video/") || !asset.durationMs) return undefined;
+  return Math.max(1, Math.round(asset.durationMs / 1000));
 }
 
 function localDateTimeValue(value?: string) {
@@ -283,7 +323,7 @@ function zone(type: string, zoneId = id("element")): Zone {
     flipX: false,
     flipY: false,
     fontFamily: "system-ui",
-    fontSize: 34,
+    fontScalePercent: 10,
     fontWeight: 600,
     lineHeightPercent: 120,
     textAlign: "left",
@@ -302,13 +342,9 @@ function zone(type: string, zoneId = id("element")): Zone {
     common.weatherLocation = "Your location";
     common.weatherUnits = "fahrenheit";
     common.weatherFields =
-      "icon,conditions,temperature,forecast,high,low,humidity,wind,precipitation,sunrise,sunset";
+      "icon,temperature,conditions,precipitation,high,low,wind";
     common.weatherIconStyle = "color";
-    common.weatherLayout = "icon-top";
-    common.weatherIconSize = 84;
-    common.weatherTitleSize = 28;
-    common.weatherTemperatureSize = 58;
-    common.weatherDetailsSize = 22;
+    common.weatherLayout = "icon-left";
     common.textAlign = "center";
   }
   if (type === "clock") {
@@ -316,8 +352,6 @@ function zone(type: string, zoneId = id("element")): Zone {
     common.clockTimeFormat = "12h";
     common.clockDateFormat = "long";
     common.clockOrder = "time-date";
-    common.clockTimeFontSize = 54;
-    common.clockDateFontSize = 25;
     common.clockShowPeriod = true;
     common.clockShowWeekday = true;
     common.clockShowYear = true;
@@ -344,10 +378,28 @@ function zone(type: string, zoneId = id("element")): Zone {
     common.audienceResultDelaySeconds = 0;
   }
   if (type === "calendar") {
-    common.calendarMaxItems = 0;
+    common.calendarMaxItems = 4;
     common.calendarFields = "date,time,title";
   }
   return common;
+}
+
+function normalizeLayout(layout: Layout): Layout {
+  return {
+    ...layout,
+    zones: (layout.zones || []).map((item) => ({
+      ...item,
+      fontScalePercent: item.fontScalePercent ?? 10,
+      calendarMaxItems:
+        item.type === "calendar" && !item.calendarMaxItems
+          ? 4
+          : item.calendarMaxItems,
+      calendarFields:
+        item.type === "calendar"
+          ? item.calendarFields || "date,time,title"
+          : item.calendarFields,
+    })),
+  };
 }
 
 function escapeWifi(value: string) {
@@ -483,7 +535,7 @@ function blankLayout(kind: "information" | "fullscreen" | "welcome"): Layout {
     height: 28,
     title: "Welcome",
     content: "Welcome",
-    fontSize: 88,
+    fontScalePercent: 10,
     textAlign: "center",
   });
   const clock = zone("clock", "welcome-clock");
@@ -531,6 +583,21 @@ export function SimpleSignage({
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState("All changes saved");
+  const [undoSnapshot, setUndoSnapshot] = useState<UndoSnapshot>();
+  const [draggedMediaId, setDraggedMediaId] = useState<string>();
+  const draggedMediaIdRef = useRef<string | undefined>(undefined);
+  const draggedMediaExpiresAtRef = useRef(0);
+  const mediaDragEnteredTimelineRef = useRef(false);
+  const mediaDragCommittedRef = useRef(false);
+  const [mediaDropIndex, setMediaDropIndex] = useState<number>();
+  const pointerMediaDrag = useRef<{
+    mediaId: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | undefined>(undefined);
+  const suppressMediaClickUntil = useRef(0);
 
   async function load(prefer?: {
     layoutId?: string;
@@ -544,14 +611,15 @@ export function SimpleSignage({
         request<Sign[]>("/signs"),
         audienceSessions(),
       ]);
-      setLayouts(nextLayouts);
+      const normalizedLayouts = nextLayouts.map(normalizeLayout);
+      setLayouts(normalizedLayouts);
       setPlaylists(nextPlaylists);
       setSigns(nextSigns);
       setAudiencePolls(nextAudiencePolls);
       const layout =
-        nextLayouts.find((item) => item.id === prefer?.layoutId) ||
-        nextLayouts.find((item) => !item.isStarter) ||
-        nextLayouts[0];
+        normalizedLayouts.find((item) => item.id === prefer?.layoutId) ||
+        normalizedLayouts.find((item) => !item.isStarter) ||
+        normalizedLayouts[0];
       const playlist =
         nextPlaylists.find((item) => item.id === prefer?.playlistId) ||
         nextPlaylists[0];
@@ -581,6 +649,13 @@ export function SimpleSignage({
       : layoutDraft;
   const activeAssignments =
     tab === "signs" ? signDraft?.playlistAssignments || {} : {};
+  const readyMedia = media.filter(
+    (item) => !item.processingStatus || item.processingStatus === "ready",
+  );
+  const readyMediaRef = useRef(readyMedia);
+  useEffect(() => {
+    readyMediaRef.current = readyMedia;
+  }, [readyMedia]);
 
   function markChanged() {
     setSaved("Unsaved changes");
@@ -594,6 +669,12 @@ export function SimpleSignage({
   async function saveLayout() {
     if (!layoutDraft) return;
     setBusy(true);
+    const previous = layoutDraft.id
+      ? layouts.find((item) => item.id === layoutDraft.id)
+      : undefined;
+    const affectedScreens = signs
+      .filter((sign) => sign.layoutId === layoutDraft.id)
+      .flatMap((sign) => sign.screenNames);
     try {
       const savedLayout = await request<Layout>("/layouts/save-publish", {
         method: "POST",
@@ -614,6 +695,15 @@ export function SimpleSignage({
         }),
       });
       await load({ layoutId: savedLayout.id });
+      setUndoSnapshot(
+        previous
+          ? {
+              kind: "layout",
+              value: structuredClone(previous),
+              affectedScreens: [...new Set(affectedScreens)],
+            }
+          : undefined,
+      );
       setSaved("Saved just now");
       notify("Layout saved and updated on assigned screens.");
     } catch (error) {
@@ -651,6 +741,14 @@ export function SimpleSignage({
   async function savePlaylist() {
     if (!playlistDraft) return;
     setBusy(true);
+    const previous = playlistDraft.id
+      ? playlists.find((item) => item.id === playlistDraft.id)
+      : undefined;
+    const affectedScreens = signs
+      .filter((sign) =>
+        Object.values(sign.playlistAssignments).includes(playlistDraft.id),
+      )
+      .flatMap((sign) => sign.screenNames);
     try {
       const savedPlaylist = await request<Playlist>("/playlists/save", {
         method: "POST",
@@ -666,6 +764,15 @@ export function SimpleSignage({
         }),
       });
       await load({ playlistId: savedPlaylist.id });
+      setUndoSnapshot(
+        previous
+          ? {
+              kind: "playlist",
+              value: structuredClone(previous),
+              affectedScreens: [...new Set(affectedScreens)],
+            }
+          : undefined,
+      );
       setSaved("Saved just now");
       notify("Playlist saved. It will loop continuously.");
     } catch (error) {
@@ -688,13 +795,18 @@ export function SimpleSignage({
     }
   }
 
-  function addMedia(item: Media) {
+  function addMedia(item: Media, requestedIndex?: number) {
     const entry: PlaylistItem = {
       id: id("slide"),
       kind: "media",
       title: item.fileName,
       mediaAssetId: item.id,
-      durationSeconds: item.contentType.startsWith("video/") ? 30 : 10,
+      durationSeconds:
+        item.contentType.startsWith("video/") && item.durationMs
+          ? Math.max(1, Math.round(item.durationMs / 1000))
+          : item.contentType.startsWith("video/")
+            ? 30
+            : 10,
       transition: "fade",
       volumePercent: 100,
       muted: false,
@@ -702,11 +814,247 @@ export function SimpleSignage({
       fadeOutMs: 500,
       fit: "contain",
     };
-    setPlaylistDraft((current) =>
-      current ? { ...current, items: [...current.items, entry] } : current,
-    );
+    setPlaylistDraft((current) => {
+      if (!current) return current;
+      const next = [...current.items];
+      const index = Math.max(
+        0,
+        Math.min(requestedIndex ?? next.length, next.length),
+      );
+      next.splice(index, 0, entry);
+      return { ...current, items: next };
+    });
     setSelectedItemId(entry.id);
     markChanged();
+  }
+
+  const addMediaRef = useRef(addMedia);
+  useEffect(() => {
+    addMediaRef.current = addMedia;
+  });
+
+  function commitMediaDrop(mediaId: string | undefined, index: number) {
+    if (!mediaId || mediaDragCommittedRef.current) return false;
+    const item = readyMediaRef.current.find((candidate) => candidate.id === mediaId);
+    if (!item) return false;
+    mediaDragCommittedRef.current = true;
+    suppressMediaClickUntil.current = Date.now() + 500;
+    addMediaRef.current(item, index);
+    return true;
+  }
+
+  useEffect(() => {
+    if (tab !== "playlists") return;
+    const indexAtPoint = (target: EventTarget | null, clientX: number) => {
+      const element = target instanceof Element ? target : undefined;
+      const timeline = element?.closest<HTMLElement>(".playlist-timeline");
+      if (!timeline) return undefined;
+      const card = element?.closest<HTMLElement>(".signage-timeline-card");
+      if (!card) return playlistDraft?.items.length || 0;
+      const index = Number(card.dataset.signageIndex);
+      if (!Number.isInteger(index)) return undefined;
+      const bounds = card.getBoundingClientRect();
+      return clientX < bounds.left + bounds.width / 2 ? index : index + 1;
+    };
+    const begin = (event: DragEvent) => {
+      const source =
+        event.target instanceof Element
+          ? event.target.closest<HTMLButtonElement>("[data-media-id]")
+          : undefined;
+      const mediaId = source?.dataset.mediaId;
+      if (!mediaId) return;
+      draggedMediaIdRef.current = mediaId;
+      draggedMediaExpiresAtRef.current = Number.POSITIVE_INFINITY;
+      mediaDragCommittedRef.current = false;
+      mediaDragEnteredTimelineRef.current = false;
+      setDraggedMediaId(mediaId);
+      setMediaDropIndex(playlistDraft?.items.length || 0);
+      event.dataTransfer?.setData("application/x-lessoncue-signage-media-id", mediaId);
+      event.dataTransfer?.setData("text/plain", mediaId);
+    };
+    const over = (event: DragEvent) => {
+      if (!draggedMediaIdRef.current) return;
+      const index = indexAtPoint(event.target, event.clientX);
+      if (index == null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      mediaDragEnteredTimelineRef.current = true;
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      setMediaDropIndex(index);
+    };
+    const drop = (event: DragEvent) => {
+      if (!draggedMediaIdRef.current) return;
+      const index = indexAtPoint(event.target, event.clientX);
+      if (index == null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      const mediaId =
+        event.dataTransfer?.getData("application/x-lessoncue-signage-media-id") ||
+        event.dataTransfer?.getData("text/plain") ||
+        draggedMediaIdRef.current;
+      commitMediaDrop(mediaId, index);
+      draggedMediaIdRef.current = undefined;
+      draggedMediaExpiresAtRef.current = 0;
+      mediaDragEnteredTimelineRef.current = false;
+      setDraggedMediaId(undefined);
+      setMediaDropIndex(undefined);
+    };
+    const end = () => {
+      const mediaId = draggedMediaIdRef.current;
+      if (mediaId && mediaDragEnteredTimelineRef.current && mediaDropIndex != null)
+        commitMediaDrop(mediaId, mediaDropIndex);
+      draggedMediaIdRef.current = undefined;
+      draggedMediaExpiresAtRef.current = 0;
+      mediaDragEnteredTimelineRef.current = false;
+      mediaDragCommittedRef.current = false;
+      setDraggedMediaId(undefined);
+      setMediaDropIndex(undefined);
+    };
+    document.addEventListener("dragstart", begin, true);
+    document.addEventListener("dragover", over, true);
+    document.addEventListener("drop", drop, true);
+    document.addEventListener("dragend", end, true);
+    return () => {
+      document.removeEventListener("dragstart", begin, true);
+      document.removeEventListener("dragover", over, true);
+      document.removeEventListener("drop", drop, true);
+      document.removeEventListener("dragend", end, true);
+    };
+  }, [mediaDropIndex, playlistDraft?.items.length, tab]);
+
+  function beginMediaPointerDrag(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    item: Media,
+  ) {
+    if (!event.isPrimary) return;
+    pointerMediaDrag.current = {
+      mediaId: item.id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    };
+    draggedMediaIdRef.current = item.id;
+    draggedMediaExpiresAtRef.current = Number.POSITIVE_INFINITY;
+    mediaDragCommittedRef.current = false;
+    setDraggedMediaId(item.id);
+    setMediaDropIndex(playlistDraft?.items.length || 0);
+  }
+
+  useEffect(() => {
+    if (!draggedMediaId || !pointerMediaDrag.current) return;
+    const dropIndexAtPoint = (clientX: number, clientY: number) => {
+      const target = document.elementFromPoint(clientX, clientY);
+      const timeline = target?.closest<HTMLElement>(".playlist-timeline");
+      if (!timeline) return undefined;
+      const card = target?.closest<HTMLElement>(".signage-timeline-card");
+      if (!card) return playlistDraft?.items.length || 0;
+      const index = Number(card.dataset.signageIndex);
+      if (!Number.isInteger(index)) return undefined;
+      const bounds = card.getBoundingClientRect();
+      return clientX < bounds.left + bounds.width / 2 ? index : index + 1;
+    };
+    const finish = (event: PointerEvent, cancelled = false) => {
+      const drag = pointerMediaDrag.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const index = dropIndexAtPoint(event.clientX, event.clientY);
+      const item = readyMediaRef.current.find(
+        (candidate) => candidate.id === drag.mediaId,
+      );
+      pointerMediaDrag.current = undefined;
+      draggedMediaIdRef.current = undefined;
+      draggedMediaExpiresAtRef.current = 0;
+      mediaDragEnteredTimelineRef.current = false;
+      mediaDragCommittedRef.current = false;
+      setDraggedMediaId(undefined);
+      setMediaDropIndex(undefined);
+      if (!cancelled && drag.moved && item && index != null) {
+        commitMediaDrop(item.id, index);
+      }
+    };
+    const move = (event: PointerEvent) => {
+      const drag = pointerMediaDrag.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      if (
+        !drag.moved &&
+        Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6
+      )
+        return;
+      drag.moved = true;
+      event.preventDefault();
+      const index = dropIndexAtPoint(event.clientX, event.clientY);
+      if (index != null) setMediaDropIndex(index);
+    };
+    const up = (event: PointerEvent) => finish(event);
+    const cancel = (event: PointerEvent) => finish(event, true);
+    document.addEventListener("pointermove", move, { passive: false });
+    document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", cancel);
+    return () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", cancel);
+    };
+  }, [draggedMediaId, playlistDraft?.items.length]);
+
+  function beginMediaDrag(
+    event: ReactDragEvent<HTMLButtonElement>,
+    item: Media,
+  ) {
+    pointerMediaDrag.current = undefined;
+    mediaDragEnteredTimelineRef.current = false;
+    draggedMediaIdRef.current = item.id;
+    draggedMediaExpiresAtRef.current = Number.POSITIVE_INFINITY;
+    mediaDragCommittedRef.current = false;
+    setDraggedMediaId(item.id);
+    setMediaDropIndex(playlistDraft?.items.length || 0);
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData("application/x-lessoncue-signage-media-id", item.id);
+    event.dataTransfer.setData("text/plain", item.id);
+  }
+
+  function mediaDragOver(event: ReactDragEvent<HTMLElement>, index: number) {
+    event.preventDefault();
+    event.stopPropagation();
+    mediaDragEnteredTimelineRef.current = true;
+    event.dataTransfer.dropEffect = "copy";
+    setMediaDropIndex(index);
+  }
+
+  function dropMedia(event: ReactDragEvent<HTMLElement>, index: number) {
+    event.preventDefault();
+    event.stopPropagation();
+    const mediaId =
+      event.dataTransfer.getData("application/x-lessoncue-signage-media-id") ||
+      event.dataTransfer.getData("text/plain") ||
+      (Date.now() <= draggedMediaExpiresAtRef.current
+        ? draggedMediaIdRef.current
+        : undefined) ||
+      draggedMediaId;
+    const item = readyMedia.find((candidate) => candidate.id === mediaId);
+    draggedMediaIdRef.current = undefined;
+    draggedMediaExpiresAtRef.current = 0;
+    mediaDragEnteredTimelineRef.current = false;
+    setDraggedMediaId(undefined);
+    setMediaDropIndex(undefined);
+    if (item) commitMediaDrop(item.id, index);
+  }
+
+  function finishMediaDrag(event: ReactDragEvent<HTMLButtonElement>) {
+    const mediaId =
+      draggedMediaIdRef.current || event.currentTarget.dataset.mediaId;
+    const item = readyMedia.find((candidate) => candidate.id === mediaId);
+    if (item && mediaDragEnteredTimelineRef.current && mediaDropIndex != null)
+      commitMediaDrop(item.id, mediaDropIndex);
+    pointerMediaDrag.current = undefined;
+    if (draggedMediaIdRef.current)
+      draggedMediaExpiresAtRef.current = Date.now() + 2000;
+    mediaDragEnteredTimelineRef.current = false;
+    mediaDragCommittedRef.current = false;
+    setDraggedMediaId(undefined);
+    setMediaDropIndex(undefined);
+    void event;
   }
 
   async function addWebPage() {
@@ -790,6 +1138,9 @@ export function SimpleSignage({
   async function saveSign() {
     if (!signDraft) return;
     setBusy(true);
+    const previous = signDraft.id
+      ? signs.find((item) => item.id === signDraft.id)
+      : undefined;
     try {
       const submit = (allowUnsupportedContent: boolean) =>
         request<{ id: string }>(
@@ -823,6 +1174,15 @@ export function SimpleSignage({
         result = await submit(true);
       }
       await load({ signId: result.id });
+      setUndoSnapshot(
+        previous
+          ? {
+              kind: "sign",
+              value: structuredClone(previous),
+              affectedScreens: [...new Set(signDraft.screenNames)],
+            }
+          : undefined,
+      );
       refresh();
       setSaved("Saved just now");
       notify("Sign saved and assigned screens updated.");
@@ -849,6 +1209,80 @@ export function SimpleSignage({
       notify(error instanceof Error ? error.message : "Unable to delete sign.");
     }
   }
+
+  async function undoLastSave() {
+    if (!undoSnapshot) return;
+    setBusy(true);
+    try {
+      if (undoSnapshot.kind === "layout") {
+        const layout = undoSnapshot.value;
+        await request<Layout>("/layouts/save-publish", {
+          method: "POST",
+          body: JSON.stringify({
+            id: layout.id,
+            pushToScreens: true,
+            layout: {
+              name: layout.name,
+              folder: "",
+              description: layout.description,
+              isTemplate: false,
+              backgroundColor: layout.backgroundColor,
+              canvasWidth: layout.canvasWidth,
+              canvasHeight: layout.canvasHeight,
+              safeAreaPercent: layout.safeAreaPercent,
+              zones: layout.zones,
+            },
+          }),
+        });
+        await load({ layoutId: layout.id });
+      } else if (undoSnapshot.kind === "playlist") {
+        const playlist = undoSnapshot.value;
+        await request<Playlist>("/playlists/save", {
+          method: "POST",
+          body: JSON.stringify({
+            id: playlist.id,
+            playlist: {
+              name: playlist.name,
+              folder: "",
+              playbackMode: "ordered",
+              synchronization: "screen",
+              items: playlist.items,
+            },
+          }),
+        });
+        await load({ playlistId: playlist.id });
+      } else {
+        const sign = undoSnapshot.value;
+        await request(`/signs/${sign.id}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            name: sign.name,
+            layoutId: sign.layoutId,
+            playlistAssignments: sign.playlistAssignments,
+            screenIds: sign.screenIds,
+            allowUnsupportedContent: true,
+          }),
+        });
+        await load({ signId: sign.id });
+      }
+      refresh();
+      setSaved("Previous version restored just now");
+      notify("Previous Signage version restored and affected screens updated.");
+      setUndoSnapshot(undefined);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to restore the previous Signage version.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const affectedScreenNames = tab === "layouts" && layoutDraft?.id
+    ? [...new Set(signs.filter((sign) => sign.layoutId === layoutDraft.id).flatMap((sign) => sign.screenNames))]
+    : tab === "playlists" && playlistDraft?.id
+      ? [...new Set(signs.filter((sign) => Object.values(sign.playlistAssignments).includes(playlistDraft.id)).flatMap((sign) => sign.screenNames))]
+      : tab === "signs"
+        ? signDraft?.screenNames || []
+        : [];
 
   return (
     <div className="simple-signage">
@@ -1009,7 +1443,11 @@ export function SimpleSignage({
               playlist={playlistDraft}
               media={media}
               selectedItemId={selectedItemId}
+              draggedMediaId={draggedMediaId}
+              mediaDropIndex={mediaDropIndex}
               onSelect={setSelectedItemId}
+              onMediaDragOver={mediaDragOver}
+              onMediaDrop={dropMedia}
               onChange={(items) => {
                 setPlaylistDraft((current) =>
                   current ? { ...current, items } : current,
@@ -1042,15 +1480,23 @@ export function SimpleSignage({
           )}
           {tab === "playlists" && (
             <MediaTray
-              media={media}
+              media={readyMedia}
               audiencePolls={audiencePolls}
-              onAdd={addMedia}
+              draggedMediaId={draggedMediaId}
+              onAdd={(item) => {
+                if (Date.now() < suppressMediaClickUntil.current) return;
+                addMedia(item);
+              }}
+              onPointerDown={beginMediaPointerDrag}
+              onDragStart={beginMediaDrag}
+              onDragEnd={finishMediaDrag}
               onAddWeb={addWebPage}
               onAddAudience={addAudiencePollToPlaylist}
             />
           )}
           {tab === "signs" && signDraft && (
-            <div className="sign-summary">
+            <div className="sign-summary" aria-label="Plays where">
+              <span className="sign-summary-label">PLAYS WHERE</span>
               <div>
                 <strong>{activeLayout?.name || "No layout"}</strong>
                 <span>Persistent layout</span>
@@ -1069,7 +1515,7 @@ export function SimpleSignage({
               <b>→</b>
               <div>
                 <strong>{signDraft.screenIds.length} screens</strong>
-                <span>One active sign each</span>
+                <span>{signDraft.screenNames.length ? signDraft.screenNames.join(", ") : "No screens assigned"}</span>
               </div>
             </div>
           )}
@@ -1094,6 +1540,7 @@ export function SimpleSignage({
           {tab === "playlists" && playlistDraft && (
             <PlaylistInspector
               playlist={playlistDraft}
+              media={media}
               selectedItemId={selectedItemId}
               onChange={(next) => {
                 setPlaylistDraft(next);
@@ -1106,6 +1553,7 @@ export function SimpleSignage({
           )}
           {tab === "signs" && signDraft && (
             <SignInspector
+              key={signDraft.id || "new-sign"}
               sign={signDraft}
               layouts={layouts}
               playlists={playlists}
@@ -1135,12 +1583,17 @@ export function SimpleSignage({
         </span>
         <div>
           <small>
-            {tab === "layouts"
-              ? "Layout changes apply to every Sign using it."
+            {affectedScreenNames.length
+              ? `Updates ${affectedScreenNames.length} screen${affectedScreenNames.length === 1 ? "" : "s"}: ${affectedScreenNames.join(", ")}`
               : tab === "playlists"
-                ? "The last item returns to the first automatically."
-                : "Saving immediately updates assigned screens."}
+                ? "The last item returns to the first automatically. No assigned screens yet."
+                : "No assigned screens will change."}
           </small>
+          {undoSnapshot && (
+            <button className="simple-undo" type="button" onClick={() => void undoLastSave()} disabled={busy}>
+              Undo last save
+            </button>
+          )}
           <button
             className="simple-primary"
             disabled={
@@ -1495,7 +1948,7 @@ function LayoutInspector({
               <option value="webpage">Web page</option>
             </select>
           </label>
-          {!["presentation", "media", "weather", "audience"].includes(selected.type) && (
+          {!["presentation", "media", "weather", "audience", "calendar"].includes(selected.type) && (
             <label>
               Title
               <input
@@ -1504,8 +1957,12 @@ function LayoutInspector({
               />
             </label>
           )}
-          {selected.type === "text" && (
-            <RichTextEditor zone={selected} onChange={updateZone} />
+          {(["text", "ticker", "counter", "rss"].includes(selected.type) || ["weather", "calendar"].includes(selected.type)) && (
+            <RichTextEditor
+              zone={selected}
+              target={["weather", "calendar"].includes(selected.type) ? "title" : "content"}
+              onChange={updateZone}
+            />
           )}
           {selected.type === "presentation" && (
             <section className="stream-override-controls">
@@ -1758,22 +2215,14 @@ function LayoutInspector({
                 <label>Units<select value={selected.weatherUnits || "fahrenheit"} onChange={event => updateZone({ weatherUnits: event.target.value })}><option value="fahrenheit">Fahrenheit</option><option value="celsius">Celsius</option></select></label>
                 <label>Icon style<select value={selected.weatherIconStyle || "color"} onChange={event => updateZone({ weatherIconStyle: event.target.value })}><option value="color">Color icons</option><option value="white">White icons</option></select></label>
               </div>
-              <label>Layout<select value={selected.weatherLayout || "icon-top"} onChange={event => updateZone({ weatherLayout: event.target.value })}><option value="icon-top">Icon above reading</option><option value="icon-left">Large icon on left</option><option value="icon-right">Large icon on right</option><option value="compact">Compact horizontal</option></select></label>
-              <div className="two-control">
-                <label>Icon size<input type="number" min="16" max="220" value={selected.weatherIconSize || 84} onChange={event => updateZone({ weatherIconSize: Number(event.target.value) })}/></label>
-                <label>Title size<input type="number" min="8" max="120" value={selected.weatherTitleSize || 28} onChange={event => updateZone({ weatherTitleSize: Number(event.target.value) })}/></label>
-              </div>
-              <div className="two-control">
-                <label>Temperature size<input type="number" min="12" max="220" value={selected.weatherTemperatureSize || 58} onChange={event => updateZone({ weatherTemperatureSize: Number(event.target.value) })}/></label>
-                <label>Details size<input type="number" min="8" max="100" value={selected.weatherDetailsSize || 22} onChange={event => updateZone({ weatherDetailsSize: Number(event.target.value) })}/></label>
-              </div>
+              <label>Layout<select value={selected.weatherLayout || "icon-left"} onChange={event => updateZone({ weatherLayout: event.target.value })}><option value="icon-top">Icon above reading</option><option value="icon-left">Large icon on left</option><option value="icon-right">Large icon on right</option><option value="compact">Compact horizontal</option></select></label>
               <fieldset className="field-check-grid"><legend>Weather details</legend>
-                {["icon","conditions","temperature","forecast","high","low","humidity","wind","precipitation","sunrise","sunset"].map(field => {
+                {["icon","temperature","conditions","precipitation","high","low","wind"].map(field => {
                   const active = new Set((selected.weatherFields || "").split(","));
                   return <label key={field}><input type="checkbox" checked={active.has(field)} onChange={event => { if (event.target.checked) active.add(field); else active.delete(field); updateZone({ weatherFields: [...active].join(",") }); }}/>{field[0].toUpperCase() + field.slice(1)}</label>;
                 })}
               </fieldset>
-              <p className="field-help">Open-Meteo requires no key. NWS is available for U.S. locations. Custom JSON sources must be approved in Settings. The preview refreshes after changes.</p>
+              <p className="field-help">The weather layout scales with the element panel. Resize the panel to change the visual weight; no fixed pixel sizes are needed. Open-Meteo requires no key. NWS is available for U.S. locations. Custom JSON sources must be approved in Settings.</p>
             </div>
           )}
           {selected.type === "clock" && (
@@ -1791,23 +2240,20 @@ function LayoutInspector({
                 <label><input type="checkbox" checked={selected.clockShowWeekday !== false} onChange={event => updateZone({ clockShowWeekday: event.target.checked })}/> Day of week</label>
                 <label><input type="checkbox" checked={selected.clockShowYear !== false} onChange={event => updateZone({ clockShowYear: event.target.checked })}/> Year</label>
               </div>
-              <div className="two-control">
-                <label>Time size<input type="number" min="8" max="200" value={selected.clockTimeFontSize || 54} onChange={event => updateZone({ clockTimeFontSize: Number(event.target.value) })}/></label>
-                <label>Date size<input type="number" min="8" max="200" value={selected.clockDateFontSize || 25} onChange={event => updateZone({ clockDateFontSize: Number(event.target.value) })}/></label>
-              </div>
+              <p className="field-help">Time and date typography scales with the clock panel. Resize the panel to adjust its visual size.</p>
             </div>
           )}
           {selected.type === "calendar" && (
             <div className="element-specific-controls">
               <label>ICS calendar address<input type="url" value={selected.sourceUrl || ""} placeholder="https://example.org/calendar.ics" onChange={event => updateZone({ sourceUrl: event.target.value })}/></label>
-              <label>Upcoming events<select value={selected.calendarMaxItems || 0} onChange={event => updateZone({ calendarMaxItems: Number(event.target.value) })}><option value="0">Fill the available space</option>{[1,2,3,4,5,6,8,10,12,15,20].map(value => <option value={value} key={value}>{value} events</option>)}</select></label>
+              <label>Upcoming events<select value={selected.calendarMaxItems ?? 4} onChange={event => updateZone({ calendarMaxItems: Number(event.target.value) })}><option value="0">Fill the available space</option>{[1,2,3,4,5,6,8,10,12,15,20].map(value => <option value={value} key={value}>{value} events</option>)}</select></label>
               <fieldset className="field-check-grid"><legend>Show for each event</legend>
                 {["date","time","title","description","location"].map(field => {
                   const active = new Set((selected.calendarFields || "date,time,title").split(","));
                   return <label key={field}><input type="checkbox" checked={active.has(field)} onChange={event => { if (event.target.checked) active.add(field); else active.delete(field); updateZone({ calendarFields: [...active].join(",") }); }}/>{field[0].toUpperCase() + field.slice(1)}</label>;
                 })}
               </fieldset>
-              <p className="field-help">The editor loads the feed into this live preview. External sources must be approved in Settings → Signage sources.</p>
+              <p className="field-help">Descriptions are hidden by default to keep the calendar compact. Check Description to show up to two lines beneath each event; the element grows with its panel. External sources must be approved in Settings → Signage sources.</p>
             </div>
           )}
           {selected.type === "webpage" && (
@@ -1844,14 +2290,28 @@ function LayoutInspector({
           </div>
           <div className="two-control">
             <label>
-              Font size
+              Font
+              <select
+                value={selected.fontFamily || "system-ui"}
+                onChange={(event) => updateZone({ fontFamily: event.target.value })}
+              >
+                <option value="system-ui">System sans</option>
+                <option value="Arial">Arial</option>
+                <option value="Georgia, serif">Serif</option>
+                <option value="'Arial Black', sans-serif">Heavy</option>
+                <option value="'Courier New', monospace">Monospace</option>
+              </select>
+            </label>
+            <label>
+              Text scale (%)
               <input
                 type="number"
-                min="12"
-                max="160"
-                value={selected.fontSize || 34}
+                min="1"
+                max="40"
+                step="0.5"
+                value={selected.fontScalePercent ?? 10}
                 onChange={(event) =>
-                  updateZone({ fontSize: Number(event.target.value) })
+                  updateZone({ fontScalePercent: Number(event.target.value) })
                 }
               />
             </label>
@@ -1869,6 +2329,7 @@ function LayoutInspector({
               </select>
             </label>
           </div>
+          <p className="field-help">Text scales from the smaller dimension of this element panel, so it stays proportional when the panel is resized.</p>
           <div className="two-control">
             <label>
               Inner padding
@@ -1986,32 +2447,32 @@ function LayoutInspector({
 
 type RichRun = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string; fontFamily?: string; fontSize?: number };
 
-function readRichRuns(item: Zone): RichRun[] {
+function readRichRuns(item: Zone, target: "content" | "title" = "content"): RichRun[] {
   try {
     const parsed = JSON.parse(item.richTextJson || "");
     if (Array.isArray(parsed)) return parsed.filter(run => typeof run?.text === "string").slice(0, 200);
   } catch { /* Plain content is converted to runs below. */ }
-  return (item.content || "").split(/(\s+)/).filter(Boolean).map(text => ({ text }));
+  return (target === "title" ? item.title || "" : item.content || "").split(/(\s+)/).filter(Boolean).map(text => ({ text }));
 }
 
-function RichTextEditor({ zone: item, onChange }: { zone: Zone; onChange: (patch: Partial<Zone>) => void }) {
+function RichTextEditor({ zone: item, target = "content", onChange }: { zone: Zone; target?: "content" | "title"; onChange: (patch: Partial<Zone>) => void }) {
   const [selectedRun, setSelectedRun] = useState(0);
-  const runs = readRichRuns(item);
+  const runs = readRichRuns(item, target);
   const selected = runs[selectedRun] || runs[0] || { text: "" };
   function save(next: RichRun[]) {
-    onChange({ content: next.map(run => run.text).join(""), richTextJson: JSON.stringify(next) });
+    onChange({ ...(target === "title" ? { title: next.map(run => run.text).join("") } : { content: next.map(run => run.text).join("") }), richTextJson: JSON.stringify(next) });
   }
   function format(patch: Partial<RichRun>) {
-    const next = runs.length ? runs.map(run => ({ ...run })) : [{ text: item.content || "Message" }];
+    const next = runs.length ? runs.map(run => ({ ...run })) : [{ text: target === "title" ? item.title || "Title" : item.content || "Message" }];
     next[Math.min(selectedRun, next.length - 1)] = { ...next[Math.min(selectedRun, next.length - 1)], ...patch };
     save(next);
   }
   return <div className="rich-text-editor">
-    <label>Message<textarea rows={4} value={item.content || ""} onChange={event => {
+    <label>{target === "title" ? "Title" : "Message"}<textarea rows={4} value={target === "title" ? item.title || "" : item.content || ""} onChange={event => {
       const next = event.target.value.split(/(\s+)/).filter(Boolean).map((text, index) => ({ ...(runs[index] || {}), text }));
       save(next);
     }}/></label>
-    <p className="field-help">Select a word, then style it. The live preview shows the finished text.</p>
+    <p className="field-help">Select a word, then style it. The live preview shows the finished text and scales with the element panel.</p>
     <div className="rich-run-picker">
       {runs.map((run, index) => /\s/.test(run.text) ? <span key={index}> </span> : <button type="button" className={selectedRun === index ? "active" : ""} onClick={() => setSelectedRun(index)} key={index}>{run.text}</button>)}
     </div>
@@ -2023,7 +2484,7 @@ function RichTextEditor({ zone: item, onChange }: { zone: Zone; onChange: (patch
       <select aria-label="Selected word font" value={selected.fontFamily || item.fontFamily || "system-ui"} onChange={event => format({ fontFamily: event.target.value })}>
         <option value="system-ui">Sans serif</option><option value="Georgia, serif">Serif</option><option value="'Arial Black', sans-serif">Heavy</option><option value="'Courier New', monospace">Monospace</option>
       </select>
-      <input aria-label="Selected word size" type="number" min="8" max="200" value={selected.fontSize || item.fontSize || 34} onChange={event => format({ fontSize: Number(event.target.value) })}/>
+      <input aria-label="Selected word scale" type="number" min="8" max="200" value={selected.fontSize || item.fontSize || 34} onChange={event => format({ fontSize: Number(event.target.value) })}/>
     </div>
   </div>;
 }
@@ -2038,18 +2499,132 @@ function QrLabelControls({ selected, updateZone }: { selected: Zone; updateZone:
   </fieldset>;
 }
 
+function SignageTimelineCard({
+  item,
+  asset,
+  index,
+  total,
+  selected,
+  dropEdge,
+  onSelect,
+  onMove,
+  onRemove,
+  onMediaDragOver,
+  onMediaDrop,
+}: {
+  item: PlaylistItem;
+  asset?: Media;
+  index: number;
+  total: number;
+  selected: boolean;
+  dropEdge?: "before" | "after";
+  onSelect: () => void;
+  onMove: (direction: -1 | 1) => void;
+  onRemove: () => void;
+  onMediaDragOver: (event: ReactDragEvent<HTMLElement>, index: number) => void;
+  onMediaDrop: (event: ReactDragEvent<HTMLElement>, index: number) => void;
+}) {
+  const title = item.title || asset?.fileName || "Untitled";
+
+  function dropIndex(event: ReactDragEvent<HTMLElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return event.clientX < bounds.left + bounds.width / 2 ? index : index + 1;
+  }
+
+  return (
+    <article
+      className={`signage-timeline-card ${selected ? "selected" : ""} ${dropEdge ? `drop-${dropEdge}` : ""}`}
+      data-signage-index={index}
+      role="listitem"
+      aria-current={selected ? "true" : undefined}
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+      onDragOver={(event) => onMediaDragOver(event, dropIndex(event))}
+      onDrop={(event) => onMediaDrop(event, dropIndex(event))}
+    >
+      <div className="signage-card-overlay">
+        <button
+          type="button"
+          disabled={!index}
+          aria-label={`Move ${title} earlier`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onMove(-1);
+          }}
+        >
+          ←
+        </button>
+        <span>{index + 1}</span>
+        <button
+          type="button"
+          disabled={index === total - 1}
+          aria-label={`Move ${title} later`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onMove(1);
+          }}
+        >
+          →
+        </button>
+      </div>
+      <button
+        type="button"
+        className="signage-card-remove"
+        aria-label={`Remove ${title}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onRemove();
+        }}
+      >
+        ×
+      </button>
+      <div className="timeline-thumb signage-card-thumb">
+        {asset?.thumbnailUrl ? (
+          <img src={asset.thumbnailUrl} alt="" />
+        ) : (
+          <span>{item.kind === "web" ? "⌘" : asset?.contentType.startsWith("audio/") ? "♫" : "▶"}</span>
+        )}
+      </div>
+      <strong className="signage-card-title" title={title}>{title}</strong>
+      <div
+        className="signage-card-footer"
+        role="group"
+        aria-label={`Duration for ${title}`}
+      >
+        <span aria-label={`Duration ${signageDurationLabel(item.durationSeconds)}`}>
+          {signageDurationLabel(item.durationSeconds)}
+        </span>
+      </div>
+    </article>
+  );
+}
+
 function PlaylistTimeline({
   playlist,
   media,
   selectedItemId,
+  draggedMediaId,
+  mediaDropIndex,
   onSelect,
   onChange,
+  onMediaDragOver,
+  onMediaDrop,
 }: {
   playlist?: Playlist;
   media: Media[];
   selectedItemId?: string;
+  draggedMediaId?: string;
+  mediaDropIndex?: number;
   onSelect: (id: string) => void;
   onChange: (items: PlaylistItem[]) => void;
+  onMediaDragOver: (event: ReactDragEvent<HTMLElement>, index: number) => void;
+  onMediaDrop: (event: ReactDragEvent<HTMLElement>, index: number) => void;
 }) {
   if (!playlist)
     return (
@@ -2058,98 +2633,66 @@ function PlaylistTimeline({
         <h2>Choose a playlist</h2>
       </div>
     );
-  if (!playlist.items.length)
-    return (
-      <div className="playlist-empty">
-        <span>＋</span>
-        <h2>Add media to this loop</h2>
-        <p>Choose an image, video, presentation, or web page below.</p>
-      </div>
-    );
   return (
-    <section className="playlist-timeline" aria-label="Horizontal signage playlist">
+    <section
+      className={`playlist-timeline ${!playlist.items.length ? "is-empty" : ""} ${draggedMediaId ? "is-library-dragging" : ""}`}
+      aria-label="Horizontal signage playlist"
+      onDragOver={(event) => {
+        if (!(event.target as HTMLElement).closest(".signage-timeline-card"))
+          onMediaDragOver(event, playlist.items.length);
+      }}
+      onDrop={(event) => onMediaDrop(event, mediaDropIndex ?? playlist.items.length)}
+    >
       <div className="timeline-loop-arrow">LOOPS BACK TO START ↻</div>
-      <div className="playlist-timeline-track">
-        {playlist.items.map((item, index) => {
-          const asset = media.find((value) => value.id === item.mediaAssetId);
-          const moveItem = (direction: -1 | 1) => {
-            const nextIndex = index + direction;
-            if (nextIndex < 0 || nextIndex >= playlist.items.length) return;
-            const next = [...playlist.items];
-            [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
-            onChange(next);
-          };
-          const removeItem = () => onChange(playlist.items.filter((entry) => entry.id !== item.id));
-          const activateAction = (event: KeyboardEvent<HTMLElement>, action: () => void) => {
-            if (event.key !== "Enter" && event.key !== " ") return;
-            event.preventDefault();
-            event.stopPropagation();
-            action();
-          };
-          return (
-            <button
-              className={`timeline-item ${selectedItemId === item.id ? "selected" : ""}`}
-              onClick={() => onSelect(item.id)}
-              key={item.id}
-            >
-              <div className="timeline-thumb">
-                {asset?.thumbnailUrl ? (
-                  <img src={asset.thumbnailUrl} alt="" />
-                ) : (
-                  <span>{item.kind === "web" ? "⌘" : "▶"}</span>
-                )}
-                <b>{index + 1}</b>
-              </div>
-              <span>
-                <strong>{item.title || asset?.fileName || "Untitled"}</strong>
-                <small>
-                  {item.durationSeconds}s · {item.transition} ·{" "}
-                  {item.muted ? "muted" : `${item.volumePercent}%`}
-                </small>
-              </span>
-              <div className="timeline-actions">
-                <i
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Move ${item.title || asset?.fileName || "item"} earlier`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    moveItem(-1);
-                  }}
-                  onKeyDown={(event) => activateAction(event, () => moveItem(-1))}
-                >
-                  ↑
-                </i>
-                <i
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Move ${item.title || asset?.fileName || "item"} later`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    moveItem(1);
-                  }}
-                  onKeyDown={(event) => activateAction(event, () => moveItem(1))}
-                >
-                  ↓
-                </i>
-                <i
-                  className="remove"
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Remove ${item.title || asset?.fileName || "item"}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    removeItem();
-                  }}
-                  onKeyDown={(event) => activateAction(event, removeItem)}
-                >
-                  ×
-                </i>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+      {playlist.items.length ? (
+        <div className="playlist-timeline-track" role="list" aria-label="Signage playlist items">
+          {playlist.items.map((item, index) => {
+            const asset = media.find((value) => value.id === item.mediaAssetId);
+            const moveItem = (direction: -1 | 1) => {
+              const nextIndex = index + direction;
+              if (nextIndex < 0 || nextIndex >= playlist.items.length) return;
+              const next = [...playlist.items];
+              [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+              onChange(next);
+            };
+            return (
+              <SignageTimelineCard
+                key={item.id}
+                item={item}
+                asset={asset}
+                index={index}
+                total={playlist.items.length}
+                selected={selectedItemId === item.id}
+                dropEdge={
+                  mediaDropIndex === index
+                    ? "before"
+                    : index === playlist.items.length - 1 && mediaDropIndex === index + 1
+                      ? "after"
+                      : undefined
+                }
+                onSelect={() => onSelect(item.id)}
+                onMove={moveItem}
+                onRemove={() => onChange(playlist.items.filter((entry) => entry.id !== item.id))}
+                onMediaDragOver={onMediaDragOver}
+                onMediaDrop={onMediaDrop}
+              />
+            );
+          })}
+        </div>
+      ) : (
+        <div
+          className={`playlist-empty-drop-target ${draggedMediaId ? "is-library-dragging" : ""} ${mediaDropIndex === 0 ? "is-drop-ready" : ""}`}
+          onDragOver={(event) => onMediaDragOver(event, 0)}
+          onDrop={(event) => onMediaDrop(event, 0)}
+        >
+          <div className="playlist-empty-slots" aria-hidden="true">
+            {Array.from({ length: 5 }, (_, index) => <i key={index} />)}
+          </div>
+          <span>＋</span>
+          <h2>Drop ready media into this loop</h2>
+          <p>Or click an image, video, presentation, audio file, or webpage below.</p>
+        </div>
+      )}
     </section>
   );
 }
@@ -2157,13 +2700,21 @@ function PlaylistTimeline({
 function MediaTray({
   media,
   audiencePolls,
+  draggedMediaId,
   onAdd,
+  onPointerDown,
+  onDragStart,
+  onDragEnd,
   onAddWeb,
   onAddAudience,
 }: {
   media: Media[];
   audiencePolls: AudienceSession[];
+  draggedMediaId?: string;
   onAdd: (media: Media) => void;
+  onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>, media: Media) => void;
+  onDragStart: (event: ReactDragEvent<HTMLButtonElement>, media: Media) => void;
+  onDragEnd: (event: ReactDragEvent<HTMLButtonElement>) => void;
   onAddWeb: () => void;
   onAddAudience: (
     poll: AudienceSession,
@@ -2180,8 +2731,8 @@ function MediaTray({
     <section className="signage-media-tray">
       <header>
         <div>
-          <strong>Library</strong>
-          <small>Click an item to add it to the end of the loop.</small>
+          <strong>Ready media</strong>
+          <small>Drag a file onto any timeline position, or click it to append.</small>
         </div>
         <div className="signage-media-tray-actions">
           <select
@@ -2235,13 +2786,26 @@ function MediaTray({
       </header>
       <div>
         {media.slice(0, 20).map((item) => (
-          <button onClick={() => onAdd(item)} key={item.id}>
-            {item.thumbnailUrl ? (
-              <img src={item.thumbnailUrl} alt="" />
-            ) : (
-              <span>▶</span>
-            )}
-            <small>{item.fileName}</small>
+          <button
+            className={draggedMediaId === item.id ? "is-dragging" : ""}
+            onClick={() => onAdd(item)}
+            onPointerDown={(event) => onPointerDown(event, item)}
+            onDragStart={(event) => onDragStart(event, item)}
+            onDragEnd={onDragEnd}
+            data-media-id={item.id}
+            draggable
+            aria-label={`Add or drag ${item.fileName} to the signage playlist`}
+            key={item.id}
+          >
+            <span className="signage-library-thumb">
+              {item.thumbnailUrl ? (
+                <img src={item.thumbnailUrl} alt="" />
+              ) : (
+                <b>{item.contentType.startsWith("audio/") ? "♫" : "▶"}</b>
+              )}
+            </span>
+            <strong>{item.fileName}</strong>
+            <small>{item.contentType.split("/")[0]}</small>
           </button>
         ))}
       </div>
@@ -2251,17 +2815,28 @@ function MediaTray({
 
 function PlaylistInspector({
   playlist,
+  media,
   selectedItemId,
   onChange,
   onDelete,
 }: {
   playlist: Playlist;
+  media: Media[];
   selectedItemId?: string;
   onChange: (playlist: Playlist) => void;
   onDelete: () => void;
 }) {
   const selected = playlist.items.find((item) => item.id === selectedItemId);
   const selectedAudience = audienceDisplaySettings(selected?.sourceUrl);
+  const fullVideoDuration = fullVideoDurationSeconds(selected, media);
+  const [durationMode, setDurationMode] = useState<"custom" | "full-video">("custom");
+  useEffect(() => {
+    setDurationMode(
+      fullVideoDuration !== undefined && selected?.durationSeconds === fullVideoDuration
+        ? "full-video"
+        : "custom",
+    );
+  }, [fullVideoDuration, selected?.durationSeconds, selected?.id]);
   function updateItem(patch: Partial<PlaylistItem>) {
     if (!selected) return;
     onChange({
@@ -2273,10 +2848,7 @@ function PlaylistInspector({
   }
   return (
     <div className="simple-inspector">
-      <div className="inspector-tabs">
-        <button className="active">Playlist</button>
-        <button>Selected item</button>
-      </div>
+      <h2 className="simple-inspector-title">Playlist</h2>
       <label>
         Playlist name
         <input
@@ -2303,18 +2875,50 @@ function PlaylistInspector({
               onChange={(event) => updateItem({ title: event.target.value })}
             />
           </label>
+          <label>
+            Production notes
+            <textarea
+              rows={3}
+              maxLength={2000}
+              value={selected.notes || ""}
+              placeholder="Setup, messaging, or handoff details"
+              onChange={(event) => updateItem({ notes: event.target.value })}
+            />
+          </label>
           <div className="two-control">
             <label>
               Time on screen
+              {fullVideoDuration !== undefined && (
+                <select
+                  aria-label="Time on screen mode"
+                  value={durationMode}
+                  onChange={(event) => {
+                    const nextMode = event.target.value as "custom" | "full-video";
+                    setDurationMode(nextMode);
+                    if (nextMode === "full-video")
+                      updateItem({ durationSeconds: fullVideoDuration });
+                  }}
+                >
+                  <option value="full-video">
+                    Full video duration ({signageDurationLabel(fullVideoDuration)})
+                  </option>
+                  <option value="custom">Custom duration</option>
+                </select>
+              )}
               <div className="suffix-input">
                 <input
+                  aria-label="Time on screen"
                   type="number"
                   min="1"
                   max="86400"
+                  disabled={durationMode === "full-video"}
                   value={selected.durationSeconds}
-                  onChange={(event) =>
-                    updateItem({ durationSeconds: Number(event.target.value) })
-                  }
+                  onChange={(event) => {
+                    setDurationMode("custom");
+                    updateItem({
+                      durationSeconds: Math.max(1, Number(event.target.value) || 1),
+                    });
+                  }}
                 />
                 <span>sec</span>
               </div>
@@ -2456,112 +3060,136 @@ function SignInspector({
   onChange: (sign: Sign) => void;
   onDelete: () => void;
 }) {
+  const [section, setSection] = useState<"setup" | "screens">("setup");
   const layout = layouts.find((item) => item.id === sign.layoutId);
   const playlistZones =
     layout?.zones.filter((item) => item.type === "presentation") || [];
   return (
     <div className="simple-inspector">
-      <div className="inspector-tabs">
-        <button className="active">Sign setup</button>
-        <button>Screens</button>
-      </div>
-      <label>
-        Sign name
-        <input
-          value={sign.name}
-          onChange={(event) => onChange({ ...sign, name: event.target.value })}
-        />
-      </label>
-      <section className="inspector-section">
-        <h3>1. Persistent layout</h3>
-        <p>This frame remains in place while its playlists loop.</p>
-        <select
-          value={sign.layoutId}
-          onChange={(event) => {
-            const next = layouts.find((item) => item.id === event.target.value);
-            onChange({
-              ...sign,
-              layoutId: event.target.value,
-              layoutName: next?.name || "",
-              playlistAssignments: {},
-            });
-          }}
+      <div className="inspector-tabs" role="tablist" aria-label="Sign editor sections">
+        <button
+          type="button"
+          className={section === "setup" ? "active" : ""}
+          role="tab"
+          aria-selected={section === "setup"}
+          onClick={() => setSection("setup")}
         >
-          {layouts.map((item) => (
-            <option value={item.id} key={item.id}>
-              {item.name}
-            </option>
-          ))}
-        </select>
-      </section>
-      <section className="inspector-section">
-        <h3>2. Playlist elements</h3>
-        {playlistZones.length ? (
-          playlistZones.map((item) => (
-            <label key={item.id}>
-              {item.title || "Playlist area"}
-              <select
-                value={sign.playlistAssignments[item.id] || ""}
-                onChange={(event) =>
-                  onChange({
-                    ...sign,
-                    playlistAssignments: {
-                      ...sign.playlistAssignments,
-                      [item.id]: event.target.value,
-                    },
-                  })
-                }
-              >
-                <option value="">No playlist</option>
-                {playlists.map((playlist) => (
-                  <option value={playlist.id} key={playlist.id}>
-                    {playlist.name} · {playlist.items.length} items
-                  </option>
-                ))}
-              </select>
-            </label>
-          ))
-        ) : (
-          <p className="inspector-hint">
-            This layout has no playlist element. Edit the layout to add one.
-          </p>
-        )}
-      </section>
-      <section className="inspector-section">
-        <h3>3. Screen assignment</h3>
-        <p>Each screen can show one active Sign.</p>
-        <div className="screen-assignment-list">
-          {screens.map((screen) => {
-            const other = screen.assignedSignageId &&
-              screen.assignedSignageId !== sign.id
-              ? "Currently assigned to another Sign"
-              : undefined;
-            return (
-              <label key={screen.id}>
-                <input
-                  type="checkbox"
-                  checked={sign.screenIds.includes(screen.id)}
-                  onChange={(event) =>
-                    onChange({
-                      ...sign,
-                      screenIds: event.target.checked
-                        ? [...sign.screenIds, screen.id]
-                        : sign.screenIds.filter((id) => id !== screen.id),
-                    })
-                  }
-                />
-                <span>
-                  <strong>{screen.name}</strong>
-                  <small>
-                    {screen.site} · {screen.online ? "Online" : "Offline"}
-                    {other ? ` · ${other}` : ""}
-                  </small>
-                </span>
-              </label>
-            );
-          })}
-        </div>
-      </section>
+          Sign setup
+        </button>
+        <button
+          type="button"
+          className={section === "screens" ? "active" : ""}
+          role="tab"
+          aria-selected={section === "screens"}
+          onClick={() => setSection("screens")}
+        >
+          Screens
+        </button>
+      </div>
+      {section === "setup" ? (
+        <>
+          <label>
+            Sign name
+            <input
+              value={sign.name}
+              onChange={(event) => onChange({ ...sign, name: event.target.value })}
+            />
+          </label>
+          <section className="inspector-section">
+            <h3>1. Persistent layout</h3>
+            <p>This frame remains in place while its playlists loop.</p>
+            <select
+              value={sign.layoutId}
+              onChange={(event) => {
+                const next = layouts.find((item) => item.id === event.target.value);
+                onChange({
+                  ...sign,
+                  layoutId: event.target.value,
+                  layoutName: next?.name || "",
+                  playlistAssignments: {},
+                });
+              }}
+            >
+              {layouts.map((item) => (
+                <option value={item.id} key={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </section>
+          <section className="inspector-section">
+            <h3>2. Playlist elements</h3>
+            {playlistZones.length ? (
+              playlistZones.map((item) => (
+                <label key={item.id}>
+                  {item.title || "Playlist area"}
+                  <select
+                    value={sign.playlistAssignments[item.id] || ""}
+                    onChange={(event) =>
+                      onChange({
+                        ...sign,
+                        playlistAssignments: {
+                          ...sign.playlistAssignments,
+                          [item.id]: event.target.value,
+                        },
+                      })
+                    }
+                  >
+                    <option value="">No playlist</option>
+                    {playlists.map((playlist) => (
+                      <option value={playlist.id} key={playlist.id}>
+                        {playlist.name} · {playlist.items.length} items
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))
+            ) : (
+              <p className="inspector-hint">
+                This layout has no playlist element. Edit the layout to add one.
+              </p>
+            )}
+          </section>
+        </>
+      ) : (
+        <section className="inspector-section">
+          <h3>Screen assignment</h3>
+          <p>Select the screens that should show this Sign.</p>
+          <div className="screen-assignment-list">
+            {screens.length ? screens.map((screen) => {
+              const other = screen.assignedSignageId &&
+                screen.assignedSignageId !== sign.id
+                ? "Currently assigned to another Sign"
+                : undefined;
+              return (
+                <label key={screen.id}>
+                  <input
+                    type="checkbox"
+                    checked={sign.screenIds.includes(screen.id)}
+                    onChange={(event) =>
+                      onChange({
+                        ...sign,
+                        screenIds: event.target.checked
+                          ? [...sign.screenIds, screen.id]
+                          : sign.screenIds.filter((id) => id !== screen.id),
+                      })
+                    }
+                  />
+                  <span>
+                    <strong>{screen.name}</strong>
+                    <small>
+                      {screen.site} · {screen.online ? "Online" : "Offline"}
+                      {other ? ` · ${other}` : ""}
+                    </small>
+                  </span>
+                </label>
+              );
+            }) : (
+              <p className="inspector-hint">No paired screens are available.</p>
+            )}
+          </div>
+        </section>
+      )}
       {sign.id && (
         <button className="simple-danger" onClick={onDelete}>
           Delete sign
