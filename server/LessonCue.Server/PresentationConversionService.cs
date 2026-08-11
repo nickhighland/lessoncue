@@ -154,7 +154,11 @@ public sealed class PresentationConversionService(
                 work, ct);
             var pages = Directory.EnumerateFiles(work, "slide-*.png").OrderBy(PageNumber).ToList();
             if (pages.Count == 0) throw new InvalidOperationException("The document did not produce any readable slides.");
+            if (pages.Count != pageCount)
+                throw new InvalidOperationException($"The document declared {pageCount} pages, but the local renderer produced {pages.Count}. No partial slide set was saved.");
             if (pages.Count > 500) throw new InvalidOperationException("Presentations are limited to 500 slides per conversion.");
+            foreach (var page in pages)
+                MediaContentInspector.RequireValid(page, Path.GetFileName(page));
             var totalBytes = pages.Sum(path => new FileInfo(path).Length);
             if (await storage.EnsureAvailableAsync(db, totalBytes, ct) is null)
                 throw new InvalidOperationException("There is not enough LessonCue storage available for the converted slides.");
@@ -240,7 +244,9 @@ public sealed class PresentationConversionService(
             db.ChangeTracker.Entries<MediaAsset>().Where(entry => entry.State == EntityState.Added).ToList()
                 .ForEach(entry => entry.State = EntityState.Detached);
             source.ConversionStatus = "failed";
-            source.ConversionError = ex.Message.Length > 900 ? ex.Message[..900] : ex.Message;
+            source.ConvertedSlidesJson = "[]";
+            source.ConvertedAt = null;
+            source.ConversionError = SafeConversionError(ex, work);
             await db.SaveChangesAsync(ct);
             try { await hub.Clients.All.SendAsync("ManifestInvalidated", new { type = "MANIFEST_INVALIDATED" }, ct); }
             catch (Exception signalError) { logger.LogDebug(signalError, "Could not signal failed presentation conversion"); }
@@ -270,6 +276,16 @@ public sealed class PresentationConversionService(
     {
         var match = Regex.Match(Path.GetFileNameWithoutExtension(path), @"(\d+)$");
         return match.Success && int.TryParse(match.Groups[1].Value, out var page) ? page : int.MaxValue;
+    }
+
+    private static string SafeConversionError(Exception error, string work)
+    {
+        var message = error.Message.Replace(work, "the temporary conversion area", StringComparison.OrdinalIgnoreCase);
+        message = Regex.Replace(message, @"(?i)(password|token|secret|key)\s*[=:]\s*\S+", "$1=[redacted]");
+        if (message.Contains("Syntax Error", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("Invalid page", StringComparison.OrdinalIgnoreCase))
+            message = "The local PDF renderer could not read this document. Verify that it opens normally, export it as a standard PDF, then retry.";
+        return message.Length > 900 ? message[..900] : message;
     }
 
     private static string AppendTag(string existing, string tag)

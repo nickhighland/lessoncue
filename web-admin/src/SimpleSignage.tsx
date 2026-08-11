@@ -178,6 +178,10 @@ type AudienceSession = {
 };
 
 type Tab = "layouts" | "playlists" | "signs";
+type UndoSnapshot =
+  | { kind: "layout"; value: Layout; affectedScreens: string[] }
+  | { kind: "playlist"; value: Playlist; affectedScreens: string[] }
+  | { kind: "sign"; value: Sign; affectedScreens: string[] };
 
 type CompatibilityIssue = {
   title: string;
@@ -579,6 +583,7 @@ export function SimpleSignage({
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState("All changes saved");
+  const [undoSnapshot, setUndoSnapshot] = useState<UndoSnapshot>();
   const [draggedMediaId, setDraggedMediaId] = useState<string>();
   const draggedMediaIdRef = useRef<string | undefined>(undefined);
   const draggedMediaExpiresAtRef = useRef(0);
@@ -664,6 +669,12 @@ export function SimpleSignage({
   async function saveLayout() {
     if (!layoutDraft) return;
     setBusy(true);
+    const previous = layoutDraft.id
+      ? layouts.find((item) => item.id === layoutDraft.id)
+      : undefined;
+    const affectedScreens = signs
+      .filter((sign) => sign.layoutId === layoutDraft.id)
+      .flatMap((sign) => sign.screenNames);
     try {
       const savedLayout = await request<Layout>("/layouts/save-publish", {
         method: "POST",
@@ -684,6 +695,15 @@ export function SimpleSignage({
         }),
       });
       await load({ layoutId: savedLayout.id });
+      setUndoSnapshot(
+        previous
+          ? {
+              kind: "layout",
+              value: structuredClone(previous),
+              affectedScreens: [...new Set(affectedScreens)],
+            }
+          : undefined,
+      );
       setSaved("Saved just now");
       notify("Layout saved and updated on assigned screens.");
     } catch (error) {
@@ -721,6 +741,14 @@ export function SimpleSignage({
   async function savePlaylist() {
     if (!playlistDraft) return;
     setBusy(true);
+    const previous = playlistDraft.id
+      ? playlists.find((item) => item.id === playlistDraft.id)
+      : undefined;
+    const affectedScreens = signs
+      .filter((sign) =>
+        Object.values(sign.playlistAssignments).includes(playlistDraft.id),
+      )
+      .flatMap((sign) => sign.screenNames);
     try {
       const savedPlaylist = await request<Playlist>("/playlists/save", {
         method: "POST",
@@ -736,6 +764,15 @@ export function SimpleSignage({
         }),
       });
       await load({ playlistId: savedPlaylist.id });
+      setUndoSnapshot(
+        previous
+          ? {
+              kind: "playlist",
+              value: structuredClone(previous),
+              affectedScreens: [...new Set(affectedScreens)],
+            }
+          : undefined,
+      );
       setSaved("Saved just now");
       notify("Playlist saved. It will loop continuously.");
     } catch (error) {
@@ -1101,6 +1138,9 @@ export function SimpleSignage({
   async function saveSign() {
     if (!signDraft) return;
     setBusy(true);
+    const previous = signDraft.id
+      ? signs.find((item) => item.id === signDraft.id)
+      : undefined;
     try {
       const submit = (allowUnsupportedContent: boolean) =>
         request<{ id: string }>(
@@ -1134,6 +1174,15 @@ export function SimpleSignage({
         result = await submit(true);
       }
       await load({ signId: result.id });
+      setUndoSnapshot(
+        previous
+          ? {
+              kind: "sign",
+              value: structuredClone(previous),
+              affectedScreens: [...new Set(signDraft.screenNames)],
+            }
+          : undefined,
+      );
       refresh();
       setSaved("Saved just now");
       notify("Sign saved and assigned screens updated.");
@@ -1160,6 +1209,80 @@ export function SimpleSignage({
       notify(error instanceof Error ? error.message : "Unable to delete sign.");
     }
   }
+
+  async function undoLastSave() {
+    if (!undoSnapshot) return;
+    setBusy(true);
+    try {
+      if (undoSnapshot.kind === "layout") {
+        const layout = undoSnapshot.value;
+        await request<Layout>("/layouts/save-publish", {
+          method: "POST",
+          body: JSON.stringify({
+            id: layout.id,
+            pushToScreens: true,
+            layout: {
+              name: layout.name,
+              folder: "",
+              description: layout.description,
+              isTemplate: false,
+              backgroundColor: layout.backgroundColor,
+              canvasWidth: layout.canvasWidth,
+              canvasHeight: layout.canvasHeight,
+              safeAreaPercent: layout.safeAreaPercent,
+              zones: layout.zones,
+            },
+          }),
+        });
+        await load({ layoutId: layout.id });
+      } else if (undoSnapshot.kind === "playlist") {
+        const playlist = undoSnapshot.value;
+        await request<Playlist>("/playlists/save", {
+          method: "POST",
+          body: JSON.stringify({
+            id: playlist.id,
+            playlist: {
+              name: playlist.name,
+              folder: "",
+              playbackMode: "ordered",
+              synchronization: "screen",
+              items: playlist.items,
+            },
+          }),
+        });
+        await load({ playlistId: playlist.id });
+      } else {
+        const sign = undoSnapshot.value;
+        await request(`/signs/${sign.id}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            name: sign.name,
+            layoutId: sign.layoutId,
+            playlistAssignments: sign.playlistAssignments,
+            screenIds: sign.screenIds,
+            allowUnsupportedContent: true,
+          }),
+        });
+        await load({ signId: sign.id });
+      }
+      refresh();
+      setSaved("Previous version restored just now");
+      notify("Previous Signage version restored and affected screens updated.");
+      setUndoSnapshot(undefined);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to restore the previous Signage version.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const affectedScreenNames = tab === "layouts" && layoutDraft?.id
+    ? [...new Set(signs.filter((sign) => sign.layoutId === layoutDraft.id).flatMap((sign) => sign.screenNames))]
+    : tab === "playlists" && playlistDraft?.id
+      ? [...new Set(signs.filter((sign) => Object.values(sign.playlistAssignments).includes(playlistDraft.id)).flatMap((sign) => sign.screenNames))]
+      : tab === "signs"
+        ? signDraft?.screenNames || []
+        : [];
 
   return (
     <div className="simple-signage">
@@ -1372,7 +1495,8 @@ export function SimpleSignage({
             />
           )}
           {tab === "signs" && signDraft && (
-            <div className="sign-summary">
+            <div className="sign-summary" aria-label="Plays where">
+              <span className="sign-summary-label">PLAYS WHERE</span>
               <div>
                 <strong>{activeLayout?.name || "No layout"}</strong>
                 <span>Persistent layout</span>
@@ -1391,7 +1515,7 @@ export function SimpleSignage({
               <b>→</b>
               <div>
                 <strong>{signDraft.screenIds.length} screens</strong>
-                <span>One active sign each</span>
+                <span>{signDraft.screenNames.length ? signDraft.screenNames.join(", ") : "No screens assigned"}</span>
               </div>
             </div>
           )}
@@ -1459,12 +1583,17 @@ export function SimpleSignage({
         </span>
         <div>
           <small>
-            {tab === "layouts"
-              ? "Layout changes apply to every Sign using it."
+            {affectedScreenNames.length
+              ? `Updates ${affectedScreenNames.length} screen${affectedScreenNames.length === 1 ? "" : "s"}: ${affectedScreenNames.join(", ")}`
               : tab === "playlists"
-                ? "The last item returns to the first automatically."
-                : "Saving immediately updates assigned screens."}
+                ? "The last item returns to the first automatically. No assigned screens yet."
+                : "No assigned screens will change."}
           </small>
+          {undoSnapshot && (
+            <button className="simple-undo" type="button" onClick={() => void undoLastSave()} disabled={busy}>
+              Undo last save
+            </button>
+          )}
           <button
             className="simple-primary"
             disabled={

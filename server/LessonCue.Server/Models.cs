@@ -733,7 +733,7 @@ public sealed record AudienceQuestionInput(Guid? Id, string Type, string Prompt,
     bool Required = true, int MaxSelections = 1, bool ModerateResponses = true);
 public sealed record AudienceResponseInput(string ParticipantToken, List<AudienceAnswerInput>? Answers);
 public sealed record AudienceAnswerInput(Guid QuestionId, List<string>? Choices, string? Text);
-public sealed record AudienceModerationInput(string Status);
+public sealed record AudienceModerationInput(string? Status);
 public sealed record AudienceDisplayMediaInput(bool ShowResults = true, int ResultDelaySeconds = 0);
 public sealed record LessonUpdateInput(string? Title, DateOnly? Date, DateTimeOffset? AvailableFrom,
     DateTimeOffset? ExpiresAt, DateTimeOffset? DesignatedStartAt, bool? PreRollEnabled, Guid? CountdownItemId,

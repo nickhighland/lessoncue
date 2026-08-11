@@ -637,6 +637,16 @@ export function MediaPreview({ media, item }: { media?: Media; item?: PlaylistIt
         </p>
       </div>
     );
+  if (isConvertibleDocument(media) && media.conversionStatus === "failed")
+    return (
+      <div className="preview-unavailable">
+        <strong>Slide conversion failed</strong>
+        <p>
+          {media.conversionError ||
+            "No screen-ready slides were created. Retry conversion from Manage versions & impact."}
+        </p>
+      </div>
+    );
   if (!source)
     return (
       <div className="preview-unavailable">

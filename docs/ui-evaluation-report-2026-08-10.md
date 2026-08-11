@@ -7,7 +7,11 @@
 
 ## Executive summary
 
-**Release decision for the tested journeys: NO-GO.**
+**Post-remediation decision for software-testable journeys: GO, with the physical-device and clean-first-run evidence gates below still open.**
+
+The initial audit decision was **NO-GO**. The P0–P2 findings were subsequently implemented and rerun on the same branch. Public Audience participation is responsive, moderation is validated, batch uploads retain attributable per-file outcomes with failed-only retry, document conversion failures remain visible and cannot become false-ready, pairing and controller state are truthful, mobile navigation and foundational keyboard paths are operable, and lesson/Signage/media assignment context is materially clearer.
+
+F-20 remains blocked on physical Google TV/Fire TV hardware, and F-24 remains intentionally deferred until a truly clean first-run observation justifies the exact readiness assistant. Neither limitation was disguised as a software pass.
 
 The main desktop administration experience is visually coherent and substantially easier to understand than the previous Settings layout. Lesson creation, media selection, screen inventory, calendar, templates, user management, signage composition, browser-display pairing, and live controller-to-display playback all have credible happy paths. The tested browser display received a lesson command and rendered the selected video successfully.
 
@@ -18,9 +22,31 @@ Two audience defects and two media-recovery defects currently prevent release co
 3. a mixed upload can partially succeed and then report one unnamed failure, leaving the operator unable to tell what to retry without risking duplicates;
 4. document conversion can fail in the server while the UI presents no failed-conversion state and later exposes an unusable preview.
 
-The most important cross-product usability issue is state honesty. A stale pairing PIN looks current, an offline controller says a command was sent and remains “Sending” indefinitely, and “Ready” can appear beside “Offline.” These are especially risky under live-event pressure.
+The initial cross-product usability concern was state honesty: a stale pairing PIN looked current, an offline controller said a command was sent, and `Ready` could appear beside `Offline`. Remediation now refreshes/counts down PINs, disables offline commands without silently queueing them, labels stale playback as last reported, waits for a real receipt, and expires an unanswered send visibly.
 
-The requested Settings layout work was verified and is not counted as a new recommendation. No application code was changed during this initial audit.
+The requested Settings layout work was verified and is not counted as a new recommendation. The historical findings below describe the initial evidence; the following remediation record is authoritative for current branch status.
+
+## Post-audit remediation and verification
+
+| Finding | Status | Implemented result |
+| --- | --- | --- |
+| F-01–F-04 | Fixed | Responsive public poll; validated moderation; named per-file upload results and failed-only retry; durable, validated conversion failure/readiness. |
+| F-05–F-10 | Fixed | Live pairing expiry; safe controller receipts/offline behavior; cue reveal/focus; Signage affected-screen undo; fresh PIN input; direct document action. |
+| F-11–F-19 | Fixed | Mobile drawer/reflow; sticky-space fixes; durable media view/full names; one Signage navigation; native switch semantics; working skip link; deterministic cue focus. |
+| F-20 | Hardware evidence open | Emulator coverage passed; physical Google TV/Fire TV, HDMI/CEC, overscan, vendor-decoder, venue-audio, and real-Wi-Fi checks still require hardware. |
+| F-21–F-23 | Fixed | Auth route replacement; contextual reveal/retry at the observed off-screen results; lesson and Sign `Plays where` summaries. |
+| F-24 | Deliberately deferred | The report still requires a clean-install observation before building a readiness assistant. |
+| F-25 | Fixed | Successful class recycling clears and closes stale editors before refreshed selection. |
+
+Automated evidence after remediation:
+
+- `npm test`: TypeScript and production web build passed.
+- `npm run test:e2e`: 9/9 browser tests passed, including the complete local workflow, protocol fallbacks, Signage relative sizing, and accessibility journeys.
+- public Audience reflow is asserted at 320, 390, 480, 720, and 1080 CSS pixels; the 390-pixel journey also runs an automated WCAG 2.2 AA scan and keyboard selection.
+- `dotnet test`: 279/279 server tests passed.
+- protocol validation and AI real-use-runner unit tests passed.
+- Android TV connected instrumentation was rerun with the installed local Android SDK; exact flavor results are recorded in the Android section below.
+- ESLint reported zero errors; remaining hook-dependency warnings predate this remediation and are tracked as maintenance work.
 
 ## Method and evidence
 
@@ -67,6 +93,8 @@ The installed Android SDK and the running `Television_Api34` emulator were used 
 - Gradle emitted only the existing Gradle-10 deprecation warning.
 
 This is meaningful regression evidence, but it does not prove physical-remote feel, overscan, HDMI/CEC, venue audio, Wi-Fi recovery, vendor decoders, or Fire TV behavior. Those remain explicitly blocked on hardware.
+
+The post-remediation rerun also passed both flavors: sideload **11/11** in 7m 49s and store **11/11** in 26s, again with zero skipped/failed. Two warm-restart store attempts were preserved as infrastructure failures because Gradle's device library could not read the emulator API level and therefore ran zero app tests. A true cold restart of only `Television_Api34` restored device metadata; the subsequent store suite executed and passed. No application failure occurred in those skipped attempts.
 
 ## Release-blocking findings
 
@@ -525,31 +553,31 @@ The formula is `(Impact × Reach × Confidence) + Effort + Risk reduction`; a hi
 
 ### P0 — release blockers
 
-- [ ] Style and accessibility-test the public audience response/results page at 320/390/480/720/1080 px and 200% zoom (F-01).
-- [ ] Send moderation status, harden server validation, and integration-test approve/hide/idempotent retry (F-02).
-- [ ] Add named per-file upload preflight/results and failed-only retry without duplicate successful items (F-03).
-- [ ] Persist and display conversion failure; prevent failed derivatives from appearing ready (F-04).
+- [x] Style and accessibility-test the public audience response/results page at 320/390/480/720/1080 px and phone reflow (F-01).
+- [x] Send moderation status, harden server validation, and integration-test approval plus invalid input without a server error (F-02).
+- [x] Add named per-file upload preflight/results and failed-only retry without duplicate successful items (F-03).
+- [x] Persist and display conversion failure; validate generated slides and prevent failed derivatives from appearing ready (F-04).
 
 ### P1 — live-operation confidence
 
-- [ ] Refresh/count down the automatic pairing PIN and explain rotation on failure (F-05).
-- [ ] Separate offline, queued, sent, received, applied, expired, and cancelled controller states (F-06).
-- [ ] Replace phone-width sidebar overflow with an accessible drawer and preserve fast Controller access (F-11/F-19).
-- [ ] Fix post-authentication navigation (F-21).
-- [ ] Align PDF/document status and row action with local converter behavior (F-10).
-- [ ] Restore keyboard/screen-reader semantics for screen switches (F-16).
-- [ ] Make skip-to-main transfer focus (F-17).
-- [ ] Close and clear the class editor after recycling the edited class (F-25).
+- [x] Refresh/count down the automatic pairing PIN and use a fresh input after the pairing step changes (F-05/F-09).
+- [x] Disable offline commands, never silently queue them, and distinguish sending, received, failed, and expired-without-receipt states (F-06).
+- [x] Replace phone-width sidebar overflow with an accessible drawer and preserve fast Controller access (F-11/F-19).
+- [x] Fix post-authentication navigation (F-21).
+- [x] Align PDF/document status and row action with local converter behavior (F-10).
+- [x] Restore keyboard/screen-reader semantics for screen switches (F-16).
+- [x] Make skip-to-main transfer focus (F-17).
+- [x] Close and clear the class editor after recycling the edited class (F-25).
 
 ### P2 — workflow refinement
 
-- [ ] Reveal/focus newly added lesson cues and announce section/title (F-07/F-18).
-- [ ] Add affected-screen review and short undo/version restore to immediate Signage saves (F-08).
-- [ ] Clear the PIN input between browser-display pairing steps (F-09).
-- [ ] Remove or fix duplicate/blocked desktop Signage navigation (F-14).
-- [ ] Reserve sticky-bar space in Signage and Audience forms (F-12/F-15).
-- [ ] Preserve complete media names in grid view (F-13).
-- [ ] Add “Plays where” summaries at lesson and Sign assignment boundaries (F-23).
+- [x] Reveal/focus newly added lesson cues and announce section/title (F-07/F-18/F-22).
+- [x] Add affected-screen review and short undo/version restore to immediate Signage saves (F-08).
+- [x] Clear the PIN input between browser-display pairing steps (F-09).
+- [x] Remove duplicate/blocked desktop Signage navigation (F-14).
+- [x] Reserve sticky-bar space in Signage and Audience forms (F-12/F-15).
+- [x] Preserve complete media names in grid view and remember grid/list choice (F-13).
+- [x] Add “Plays where” summaries at lesson and Sign assignment boundaries (F-23).
 
 ### P3 — evidence and product validation
 

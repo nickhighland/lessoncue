@@ -6,6 +6,23 @@ import { Lesson, Media, MediaConverterStatus, MediaFormats, MediaImpact, MediaTa
 import { Empty, Field, Modal, PageHead, StorageMeter, TaxonomyFields, formTags } from "../ui";
 import { convertedSlideCount, dateInputValue, errorText, formatBytes, formatDate, formatDuration, formatShortDate, friendlyType, isConvertibleDocument, mediaCategory, mediaFileExtension, mediaNameStem, timeAgo } from "../utils";
 
+type UploadFileState = {
+  key: string;
+  file: File;
+  status: "selected" | "uploading" | "succeeded" | "failed";
+  progress: number;
+  error?: string;
+};
+
+function selectedUploadFiles(files: FileList | null): UploadFileState[] {
+  return Array.from(files || []).map((file, index) => ({
+    key: `${file.name}-${file.size}-${file.lastModified}-${index}`,
+    file,
+    status: "selected",
+    progress: 0,
+  }));
+}
+
 export function MediaView({
   media,
   lessons,
@@ -31,6 +48,8 @@ export function MediaView({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadControl, setUploadControl] = useState<MediaUploadControl>();
   const [uploadPaused, setUploadPaused] = useState(false);
+  const [uploadFiles, setUploadFiles] = useState<UploadFileState[]>([]);
+  const [uploadBatchMessage, setUploadBatchMessage] = useState("");
   const [showLink, setShowLink] = useState(false);
   const [previewMedia, setPreviewMedia] = useState<Media>();
   const availableLessons = [...lessons]
@@ -62,7 +81,9 @@ export function MediaView({
   const [search, setSearch] = useState("");
   const [folderFilter, setFolderFilter] = useState("");
   const [mediaTypeFilter, setMediaTypeFilter] = useState("");
-  const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
+  const [viewMode, setViewMode] = useState<"list" | "grid">(() =>
+    localStorage.getItem("lessoncue.mediaView") === "list" ? "list" : "grid",
+  );
   const [organizeTargets, setOrganizeTargets] = useState<Media[]>([]);
   const [renameTargets, setRenameTargets] = useState<Media[]>([]);
   const [manageMedia, setManageMedia] = useState<Media>();
@@ -103,6 +124,9 @@ export function MediaView({
       return next.size === current.size ? current : next;
     });
   }, [media]);
+  useEffect(() => {
+    localStorage.setItem("lessoncue.mediaView", viewMode);
+  }, [viewMode]);
   const folders = [
     ...new Set(
       [...taxonomy.folders, ...media.map((item) => item.folder)].filter(
@@ -417,48 +441,102 @@ export function MediaView({
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const files = form
-      .getAll("files")
-      .filter((item): item is File => item instanceof File && item.size > 0);
-    if (!files.length) return;
+    const attempts = uploadFiles.filter((item) => item.status !== "succeeded");
+    if (!attempts.length) return;
     const persistent = storagePolicy === "persistent";
     const lessonId = persistent
       ? undefined
       : String(form.get("lessonId") || "");
     setUploading(true);
     setUploadProgress(0);
-    try {
-      let completed = 0;
-      for (const file of files) {
-        await uploadMediaFile(file, {
+    setUploadBatchMessage("");
+    let completed = 0;
+    let succeeded = 0;
+    let failed = 0;
+    for (const entry of attempts) {
+      setUploadFiles((current) =>
+        current.map((item) =>
+          item.key === entry.key
+            ? { ...item, status: "uploading", progress: 0, error: undefined }
+            : item,
+        ),
+      );
+      try {
+        await uploadMediaFile(entry.file, {
           persistent,
           lessonId,
           folder: String(form.get("folder") || ""),
           tagsCsv: formTags(form),
-          onProgress: (percent) =>
+          onProgress: (percent) => {
+            setUploadFiles((current) =>
+              current.map((item) =>
+                item.key === entry.key
+                  ? { ...item, progress: percent }
+                  : item,
+              ),
+            );
             setUploadProgress(
-              Math.round(((completed + percent / 100) / files.length) * 100),
-            ),
+              Math.round(((completed + percent / 100) / attempts.length) * 100),
+            );
+          },
           onControlReady: (control) => {
             setUploadControl(control);
             if (!control) setUploadPaused(false);
           },
         });
-        completed++;
-        setUploadProgress(Math.round((completed / files.length) * 100));
+        succeeded++;
+        setUploadFiles((current) =>
+          current.map((item) =>
+            item.key === entry.key
+              ? { ...item, status: "succeeded", progress: 100, error: undefined }
+              : item,
+          ),
+        );
+      } catch (cause) {
+        failed++;
+        const message = errorText(cause);
+        setUploadFiles((current) =>
+          current.map((item) =>
+            item.key === entry.key
+              ? { ...item, status: "failed", error: message }
+              : item,
+          ),
+        );
       }
+      completed++;
+      setUploadProgress(Math.round((completed / attempts.length) * 100));
+    }
+    setUploadControl(undefined);
+    setUploadPaused(false);
+    setUploading(false);
+    setUploadProgress(0);
+    refresh();
+    if (failed) {
+      const message = `${succeeded} succeeded, ${failed} failed. Review the named files below, then retry only the failures.`;
+      setUploadBatchMessage(message);
+      notify(message);
+    } else {
       notify(
         persistent
-          ? `${files.length} reusable file${files.length === 1 ? "" : "s"} stored permanently.`
-          : `${files.length} file${files.length === 1 ? "" : "s"} stored until four weeks after the selected lesson.`,
+          ? `${succeeded} reusable file${succeeded === 1 ? "" : "s"} stored permanently.`
+          : `${succeeded} file${succeeded === 1 ? "" : "s"} stored until four weeks after the selected lesson.`,
       );
       setShowUpload(false);
+      setUploadFiles([]);
+      setUploadBatchMessage("");
+    }
+  }
+
+  async function queueDocumentConversion(item: Media) {
+    try {
+      await api(`/api/v1/media/${item.id}/convert`, {
+        method: "POST",
+        body: "{}",
+      });
+      notify(`${item.fileName} queued for local slide conversion.`);
       refresh();
-    } catch (e) {
-      notify(errorText(e));
-    } finally {
-      setUploading(false);
-      setUploadProgress(0);
+    } catch (cause) {
+      notify(errorText(cause));
     }
   }
   async function addLink(event: FormEvent<HTMLFormElement>) {
@@ -709,7 +787,12 @@ export function MediaView({
       {showUpload && (
         <Modal
           title="Upload media"
-          onClose={() => !uploading && setShowUpload(false)}
+          onClose={() => {
+            if (uploading) return;
+            setShowUpload(false);
+            setUploadFiles([]);
+            setUploadBatchMessage("");
+          }}
         >
           <form className="stack" onSubmit={upload}>
             {mediaConverters?.missing.length ? (
@@ -730,8 +813,41 @@ export function MediaView({
                 accept={mediaFormats?.accept}
                 required
                 disabled={uploading}
+                onChange={(event) => {
+                  setUploadFiles(selectedUploadFiles(event.currentTarget.files));
+                  setUploadBatchMessage("");
+                }}
               />
             </Field>
+            {uploadFiles.length > 0 && (
+              <section className="upload-file-review" aria-label="Selected upload files" aria-live="polite">
+                <header>
+                  <strong>{uploadFiles.length} selected file{uploadFiles.length === 1 ? "" : "s"}</strong>
+                  <span>{uploadFiles.filter((item) => item.status === "succeeded").length} succeeded · {uploadFiles.filter((item) => item.status === "failed").length} failed</span>
+                </header>
+                <ul>
+                  {uploadFiles.map((item) => {
+                    const extension = mediaFileExtension(item.file.name).toLowerCase();
+                    const format = mediaFormats?.formats.find((candidate) => candidate.extension.toLowerCase() === extension);
+                    return (
+                      <li key={item.key} className={item.status}>
+                        <span aria-hidden="true">{item.status === "succeeded" ? "✓" : item.status === "failed" ? "!" : item.status === "uploading" ? "↥" : "•"}</span>
+                        <div>
+                          <strong title={item.file.name}>{item.file.name}</strong>
+                          <small>
+                            {format ? `${format.label} · ${format.converter}` : item.file.type || "Type checked securely by the server"} · {formatBytes(item.file.size)}
+                            {item.status === "uploading" ? ` · ${item.progress}%` : ""}
+                          </small>
+                          {item.error && <p>{item.error}</p>}
+                        </div>
+                        <b>{item.status}</b>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
+            {uploadBatchMessage && <div className="alert warning" role="status">{uploadBatchMessage}</div>}
             <TaxonomyFields taxonomy={taxonomy} />
             <fieldset className="retention-options">
               <legend>How long should LessonCue keep these files?</legend>
@@ -796,7 +912,9 @@ export function MediaView({
             <button className="button primary" disabled={uploading}>
               {uploading
                 ? `Uploading ${uploadProgress}%`
-                : "Upload to local server"}
+                : uploadFiles.some((item) => item.status === "failed")
+                  ? "Retry failed files"
+                  : "Upload to local server"}
             </button>
             {uploading && uploadControl && (
               <div className="button-row upload-controls">
@@ -1050,7 +1168,7 @@ export function MediaView({
                   "▶"
                 )}
               </span>
-              <strong>{item.fileName}</strong>
+              <strong title={item.fileName}>{item.fileName}</strong>
               <small>
                 {item.folder ||
                   item.tagsCsv ||
@@ -1157,7 +1275,7 @@ export function MediaView({
                   </b>
                 )}
                 <span>
-                  <strong>{m.fileName}</strong>
+                  <strong title={m.fileName}>{m.fileName}</strong>
                   <small>
                     {[m.folder || "Unfiled", m.tagsCsv, `v${m.version}`]
                       .filter(Boolean)
@@ -1197,22 +1315,25 @@ export function MediaView({
                       : ""}
                 </small>
               </button>
-              <span
-                className={`availability ${m.offlineEligible ? "" : "internet"}`}
-              >
-                <i className="available-dot" />{" "}
-                {m.processingStatus === "pending" ||
-                m.processingStatus === "processing"
-                  ? m.compatibilityStatus === "converting"
-                    ? "Making TV copy"
-                    : "Processing"
-                  : m.processingStatus === "failed"
-                    ? "Processing failed"
-                    : m.compatibilityStatus === "ready"
-                      ? "TV copy ready"
-                      : m.offlineEligible
-                        ? "TV ready"
-                        : "Internet required"}
+              <span className={`availability media-readiness ${m.offlineEligible ? "" : "internet"}`}>
+                <span>
+                  <i className="available-dot" />{" "}
+                  {m.processingStatus === "pending" || m.processingStatus === "processing"
+                    ? m.compatibilityStatus === "converting" ? "Making TV copy" : "Processing"
+                    : m.processingStatus === "failed" ? "Processing failed"
+                    : isConvertibleDocument(m)
+                      ? m.conversionStatus === "failed" ? "Slide conversion failed"
+                        : ["pending", "converting"].includes(m.conversionStatus) ? "Converting slides"
+                          : m.conversionStatus === "ready" && convertedSlideCount(m) > 0 ? "Slides ready"
+                            : "Needs slide conversion"
+                      : m.compatibilityStatus === "ready" ? "TV copy ready"
+                        : m.offlineEligible ? "TV ready" : "Internet required"}
+                </span>
+                {m.processingStatus === "ready" && isConvertibleDocument(m) && !["pending", "converting", "ready"].includes(m.conversionStatus) && canUpload && (
+                  <button type="button" onClick={() => void queueDocumentConversion(m)}>
+                    {m.conversionStatus === "failed" ? "Retry" : "Convert to slides"}
+                  </button>
+                )}
               </span>
             </div>
           ))
@@ -1539,6 +1660,11 @@ export function MediaManagerModal({
         </section>
         <section className="version-list">
           <h3>Previous versions</h3>
+          {media.processingStatus !== "ready" && impact?.versions.length ? (
+            <p className="settings-copy" role="status">
+              Previous versions can be restored after the current file finishes processing.
+            </p>
+          ) : null}
           {impact?.versions.map((version) => (
             <div key={version.id}>
               <span>
@@ -1558,7 +1684,7 @@ export function MediaManagerModal({
                 <button
                   className="button"
                   onClick={() => onRestoreVersion(version)}
-                  disabled={busy}
+                  disabled={busy || media.processingStatus !== "ready"}
                 >
                   Restore
                 </button>

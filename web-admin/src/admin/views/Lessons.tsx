@@ -2,7 +2,7 @@ import { confirmAction } from "../../AccessibleDialogs";
 import { CSSProperties, FormEvent, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, ReactNode, PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { api, uploadMediaFile } from "../api";
 import { TimelineEditor } from "../media-editor";
-import { Lesson, LessonClass, Media, MediaFormats, MediaTaxonomy, MediaUploadControl, PlaylistItem, StorageStatus, TemporaryControllerSession } from "../models";
+import { Lesson, LessonClass, Media, MediaFormats, MediaTaxonomy, MediaUploadControl, PlaylistItem, Screen, StorageStatus, TemporaryControllerSession } from "../models";
 import { DateBadge, Empty, Field, Modal, PageHead, QrCode, RetentionChoices, RoleSummary, TaxonomyFields, formTags } from "../ui";
 import { classControllerUrl, controllerSlug, cueDurationLabel, cuePlannedDurationMs, defaultEndBehaviorForRole, errorText, formatBytes, formatDate, formatDuration, formatFriendlyDuration, intervalsOverlap, isConvertibleDocument, isPresentationFileName, lessonPlannedDurationMs, roleName, toLocalInput } from "../utils";
 
@@ -17,6 +17,8 @@ export function ClassesView({
   storage,
   localControllerOrigin,
   mediaFormats,
+  screens = [],
+  onNavigateScreens,
 }: {
   classes: LessonClass[];
   lessons: Lesson[];
@@ -28,6 +30,8 @@ export function ClassesView({
   storage?: StorageStatus;
   localControllerOrigin?: string;
   mediaFormats?: MediaFormats;
+  screens?: Screen[];
+  onNavigateScreens?: () => void;
 }) {
   const [selected, setSelected] = useState(classes[0]?.id || "");
   const [editing, setEditing] = useState<string>();
@@ -106,6 +110,8 @@ export function ClassesView({
         canUpload={canUpload}
         storage={storage}
         mediaFormats={mediaFormats}
+        screens={screens}
+        onNavigateScreens={onNavigateScreens}
       />
     );
 
@@ -205,6 +211,8 @@ export function ClassesView({
       return;
     try {
       await api(`/api/v1/classes/${current.id}`, { method: "DELETE" });
+      setShowEditClass(false);
+      setShowControllerSettings(false);
       setSelected("");
       refresh();
       notify("Class and lessons moved to the recycling bin.");
@@ -864,6 +872,8 @@ export function LessonEditor({
   canUpload,
   storage,
   mediaFormats,
+  screens = [],
+  onNavigateScreens,
 }: {
   lesson: Lesson;
   classes: LessonClass[];
@@ -876,6 +886,8 @@ export function LessonEditor({
   canUpload: boolean;
   storage?: StorageStatus;
   mediaFormats?: MediaFormats;
+  screens?: Screen[];
+  onNavigateScreens?: () => void;
 }) {
   const [showAdd, setShowAdd] = useState(false);
   const [addMode, setAddMode] = useState<"chooser" | "upload" | "poll" | "online" | "existing">("chooser");
@@ -897,7 +909,11 @@ export function LessonEditor({
   const [draggedLibraryMediaId, setDraggedLibraryMediaId] = useState<string>();
   const [libraryDropIndex, setLibraryDropIndex] = useState<number>();
   const [activeSequenceSection, setActiveSequenceSection] = useState<"total" | PlaylistItem["role"]>("total");
+  const [newCueId, setNewCueId] = useState<string>();
   const items = [...lesson.items].sort((a, b) => a.position - b.position);
+  const assignedScreens = screens.filter(
+    (screen) => !screen.revoked && screen.assignedClassId === lesson.classId,
+  );
   const libraryDropIndexRef = useRef<number | undefined>(undefined);
   const libraryDropRoleRef = useRef<PlaylistItem["role"] | undefined>(undefined);
   const libraryPointerDragRef = useRef<{
@@ -915,6 +931,24 @@ export function LessonEditor({
       .then(setAudiencePolls)
       .catch(() => setAudiencePolls([]));
   }, [showAdd]);
+  useEffect(() => {
+    if (!newCueId || !lesson.items.some((item) => item.id === newCueId)) return;
+    const frame = window.requestAnimationFrame(() => {
+      const cue = document.getElementById(`lesson-cue-${newCueId}`);
+      cue?.scrollIntoView({
+        block: "center",
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+      });
+      cue?.focus({ preventScroll: true });
+    });
+    const timer = window.setTimeout(() => setNewCueId(undefined), 3500);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [lesson.items, newCueId]);
   const countdown = items.find((i) => i.role === "countdown");
   const lessonItems = items.filter((item) => item.role === "lesson");
   const sequenceSections: { role: PlaylistItem["role"]; label: string; loop?: boolean }[] = [
@@ -1026,7 +1060,7 @@ export function LessonEditor({
             : asset.contentType.startsWith("audio")
               ? "audio"
               : "image");
-    await api(`/api/v1/lessons/${lesson.id}/items`, {
+    const created = await api<{ id: string }>(`/api/v1/lessons/${lesson.id}/items`, {
       method: "POST",
       body: JSON.stringify({
         title: title || asset.fileName,
@@ -1044,6 +1078,9 @@ export function LessonEditor({
         allowSkip: true,
       }),
     });
+    setNewCueId(created.id);
+    setActiveSequenceSection(role as PlaylistItem["role"]);
+    return created;
   }
   async function addItem(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1560,6 +1597,7 @@ export function LessonEditor({
               : undefined
         }
         selected={selectedCueIds.has(item.id)}
+        highlighted={newCueId === item.id}
         onSelected={() => toggleCue(item.id)}
         onMove={(rowIndex, delta) => moveVisible(rowIndex, delta, entries)}
         onChange={changeItem}
@@ -1572,6 +1610,11 @@ export function LessonEditor({
   }
   return (
     <>
+      <p className="sr-only" role="status" aria-live="polite">
+        {newCueId
+          ? `${lesson.items.find((item) => item.id === newCueId)?.title || "Media"} added to the ${roleName(lesson.items.find((item) => item.id === newCueId)?.role || "lesson")} section.`
+          : ""}
+      </p>
       <button className="back-button" onClick={onBack}>
         ← Back to {lesson.className}
       </button>
@@ -1601,6 +1644,22 @@ export function LessonEditor({
           </div>
         }
       />
+      <section className="panel plays-where-summary" aria-label="Plays where">
+        <div>
+          <span className="section-label">PLAYS WHERE</span>
+          <strong>{lesson.className}</strong>
+          <small>
+            {assignedScreens.length
+              ? assignedScreens.map((screen) => screen.name).join(", ")
+              : "No screen is currently assigned to this class."}
+          </small>
+        </div>
+        {onNavigateScreens && (
+          <button className="button" type="button" onClick={onNavigateScreens}>
+            Review screen assignments
+          </button>
+        )}
+      </section>
       {showAdd && canUpload && (
         <Modal
           title={addMode === "chooser" ? "Add media to the lesson" : addMode === "upload" ? "Upload new media" : addMode === "poll" ? "Add an audience poll" : addMode === "online" ? "Add online media or slides" : "Choose existing media"}
@@ -2240,6 +2299,7 @@ export function PlaylistCueRow({
   total,
   dropEdge,
   selected,
+  highlighted,
   onSelected,
   onMove,
   onChange,
@@ -2260,6 +2320,7 @@ export function PlaylistCueRow({
   ) => void | Promise<void>;
   dropEdge?: "before" | "after";
   selected: boolean;
+  highlighted: boolean;
   onSelected: () => void;
   onTimeline: () => void;
   onRemove: (id: string) => void | Promise<void>;
@@ -2320,7 +2381,9 @@ export function PlaylistCueRow({
   }
   return (
     <article
-      className={`playlist-item ${item.role} ${selected ? "selected" : ""} ${dropEdge ? `drop-${dropEdge}` : ""}`}
+      className={`playlist-item ${item.role} ${selected ? "selected" : ""} ${highlighted ? "newly-added" : ""} ${dropEdge ? `drop-${dropEdge}` : ""}`}
+      id={`lesson-cue-${item.id}`}
+      tabIndex={-1}
       data-sequence-index={sequenceIndex}
       data-sequence-role={item.role}
       onDragEnter={onLibraryDragOver}

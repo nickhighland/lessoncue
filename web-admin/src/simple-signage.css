@@ -231,6 +231,7 @@
   display: grid;
   grid-template-columns: 270px minmax(420px, 1fr) 320px;
 }
+.simple-signage-workspace { scroll-padding-bottom: 100px; }
 
 .simple-signage-rail,
 .simple-signage-inspector {
@@ -1224,6 +1225,7 @@
   background: #eff8f1;
   color: #2e6940;
 }
+.sign-summary .sign-summary-label { color: #a36516; font-size: 8px; font-weight: 900; letter-spacing: 0.1em; }
 
 .loop-callout {
   padding: 11px;
@@ -1389,6 +1391,8 @@
   opacity: 0.5;
   cursor: wait;
 }
+.simple-undo { min-height: 40px; border: 1px solid #ffffff42; border-radius: 6px; padding: 8px 12px; color: #fff; background: #ffffff12; font-weight: 800; cursor: pointer; }
+.simple-undo:hover, .simple-undo:focus-visible { border-color: #ffc461; outline: none; }
 
 @media (max-width: 1050px) {
   .simple-signage {

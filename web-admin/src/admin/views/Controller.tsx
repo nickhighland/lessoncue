@@ -2,7 +2,7 @@ import { CSSProperties, FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import { DownloadDiagnostic, Lesson, LessonClass, Screen, TemporaryControllerSession } from "../models";
 import { BrandMark, Empty, Field, PageHead } from "../ui";
-import { classControllerUrl, controllerRouteSlug, controllerSessionToken, controllerSlug, cuePlannedDurationMs, cuePoints, errorText, formatDate, formatDuration, formatFriendlyDuration, friendlyPlaybackState, lessonPlannedDurationMs, parseDiagnosticJson, roleName, youtubeEmbedUrl } from "../utils";
+import { classControllerUrl, controllerRouteSlug, controllerSessionToken, controllerSlug, cuePlannedDurationMs, cuePoints, errorText, formatDate, formatDuration, formatFriendlyDuration, friendlyPlaybackState, isOnline, lessonPlannedDurationMs, parseDiagnosticJson, roleName, youtubeEmbedUrl } from "../utils";
 
 export function ControllerView({
   screens,
@@ -133,6 +133,11 @@ export function ControllerView({
     if (!screenId) return notify("Choose a paired screen first.");
     if (controlsLocked)
       return notify("Unlock the controller before sending a command.");
+    if (!selectedScreen || !isOnline(selectedScreen)) {
+      const message = `${selectedScreen?.name || "This screen"} is offline. No command was sent.`;
+      setCommandReceipt({ action, error: message });
+      return notify(message);
+    }
     setCommandReceipt({ action });
     try {
       const controllerHeaders: Record<string, string> = sessionToken
@@ -153,7 +158,7 @@ export function ControllerView({
       );
       setCommandReceipt({ version: result.version, action });
       notify(
-        `${action[0].toUpperCase()}${action.slice(1)} sent to ${selectedScreen?.name || "screen"}.`,
+        `Sending ${action} to ${selectedScreen?.name || "screen"}; waiting for its receipt.`,
       );
       refresh();
     } catch (e) {
@@ -224,10 +229,27 @@ export function ControllerView({
   const showMonitor =
     !!timingLesson?.preRollMonitorUrl &&
     (monitorOpen || preRollNow || reportedItem?.role === "preRoll");
+  const selectedScreenOnline = !!selectedScreen && isOnline(selectedScreen);
   const commandPending =
     !!selectedScreen &&
+    selectedScreenOnline &&
     !!commandReceipt?.version &&
     selectedScreen.acknowledgedControlVersion < commandReceipt.version;
+  useEffect(() => {
+    if (!commandPending || !commandReceipt?.version) return;
+    const version = commandReceipt.version;
+    const timer = window.setTimeout(() => {
+      setCommandReceipt((current) =>
+        current?.version === version
+          ? {
+              action: current.action,
+              error: `No receipt arrived from ${selectedScreen?.name || "the screen"} within 15 seconds. Check its connection before retrying.`,
+            }
+          : current,
+      );
+    }, 15_000);
+    return () => window.clearTimeout(timer);
+  }, [commandPending, commandReceipt?.version, selectedScreen?.name]);
   const downloads = parseDiagnosticJson<DownloadDiagnostic>(
     selectedScreen?.downloadQueueJson,
   );
@@ -239,7 +261,7 @@ export function ControllerView({
   const recentlySeen = selectedScreen?.lastSeenAt
     ? Date.now() - new Date(selectedScreen.lastSeenAt).getTime() < 120_000
     : false;
-  const controllerState = !selectedScreen?.online
+  const controllerState = !selectedScreenOnline
     ? recentlySeen
       ? "reconnecting"
       : "offline"
@@ -363,7 +385,9 @@ export function ControllerView({
   const controllerStyle = room
     ? ({ "--room-color": room.controllerColor } as CSSProperties)
     : undefined;
-  const commandAcknowledgement = commandReceipt?.error
+  const commandAcknowledgement = !selectedScreenOnline
+    ? `${selectedScreen?.name || "Screen"} is offline. Commands are disabled and are not queued.`
+    : commandReceipt?.error
     ? `Command failed: ${commandReceipt.error}`
     : commandPending
       ? `Sending ${commandReceipt?.action} to ${selectedScreen?.name || "screen"}…`
@@ -440,7 +464,7 @@ export function ControllerView({
               >
                 {liveScreens.map((screen) => (
                   <option value={screen.id} key={screen.id}>
-                    {screen.name} · {screen.online ? "online" : "offline"}
+                    {screen.name} · {isOnline(screen) ? "online" : "offline"}
                   </option>
                 ))}
               </select>
@@ -448,7 +472,9 @@ export function ControllerView({
             <div className="now-playing">
               <span>ACTUAL SCREEN STATE</span>
               <strong>
-                {friendlyPlaybackState(selectedScreen?.playbackState)}
+                {selectedScreenOnline
+                  ? friendlyPlaybackState(selectedScreen?.playbackState)
+                  : `Last reported ${friendlyPlaybackState(selectedScreen?.playbackState).toLowerCase()}`}
               </strong>
               <small>
                 {reportedItem?.title ||
@@ -457,7 +483,7 @@ export function ControllerView({
                     ? "Nothing playing"
                     : "Waiting for item details")}
               </small>
-              {selectedScreen?.playbackDurationMs ? (
+              {selectedScreenOnline && selectedScreen?.playbackDurationMs ? (
                 <>
                   <div className="playback-progress">
                     <i style={{ width: `${progress}%` }} />
@@ -481,7 +507,12 @@ export function ControllerView({
                 </div>
               )}
             </div>
-            {timingLesson && (
+            {!selectedScreenOnline && (
+              <div className="alert warning controller-offline-warning" role="status">
+                Reconnect this screen before starting, stopping, seeking, or changing cues. LessonCue will not silently queue live commands.
+              </div>
+            )}
+            {selectedScreenOnline && timingLesson && (
               <div
                 className={`controller-run-summary ${isOverrun ? "overrun" : ""}`}
               >
@@ -518,6 +549,7 @@ export function ControllerView({
               <button
                 onClick={() => command("previous")}
                 aria-label="Previous media"
+                disabled={!selectedScreenOnline}
               >
                 ‹‹
               </button>
@@ -535,16 +567,18 @@ export function ControllerView({
                     ? "Resume"
                     : "Pause"
                 }
+                disabled={!selectedScreenOnline}
               >
                 {selectedScreen?.playbackState === "paused" ? "▶" : "Ⅱ"}
               </button>
-              <button onClick={() => command("next")} aria-label="Next media">
+              <button onClick={() => command("next")} aria-label="Next media" disabled={!selectedScreenOnline}>
                 ››
               </button>
             </div>
             <button
               className="button stop-button"
               onClick={() => command("stop")}
+              disabled={!selectedScreenOnline}
             >
               ■ Stop playback
             </button>
@@ -578,6 +612,7 @@ export function ControllerView({
                 <button
                   className="button primary wide controller-play-all"
                   onClick={() => play()}
+                  disabled={!selectedScreenOnline}
                 >
                   ▶ Play lesson from the beginning
                 </button>
@@ -587,6 +622,7 @@ export function ControllerView({
                     <button
                       key={item.id}
                       className={selectedItemId === item.id ? "selected" : ""}
+                      disabled={!selectedScreenOnline}
                       onClick={() => {
                         setSelectedItemId(item.id);
                         setSeekSeconds(0);
@@ -621,6 +657,7 @@ export function ControllerView({
                       max={durationSeconds}
                       value={seekSeconds}
                       onChange={(e) => setSeekSeconds(Number(e.target.value))}
+                      disabled={!selectedScreenOnline}
                     />
                     {cuePoints(selectedItem).length > 0 && (
                       <div
@@ -637,6 +674,7 @@ export function ControllerView({
                             <button
                               type="button"
                               key={`${marker.positionMs}-${index}`}
+                              disabled={!selectedScreenOnline}
                               onClick={() => {
                                 setSeekSeconds(Math.round(relativeMs / 1000));
                                 void command("seek", {
@@ -656,6 +694,7 @@ export function ControllerView({
                       onClick={() =>
                         command("seek", { positionMs: seekSeconds * 1000 })
                       }
+                      disabled={!selectedScreenOnline}
                     >
                       Go to position
                     </button>
