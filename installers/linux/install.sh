@@ -6,6 +6,11 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
+# `su -c` and several minimal service environments omit the administrative
+# sbin directories. The installer invokes runuser/systemctl and must behave
+# the same whether it was started from sudo, a root shell, or a root `su`.
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:${PATH}}"
+
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PAYLOAD_DIR="${SOURCE_DIR}/payload"
 if [[ ! -x "${PAYLOAD_DIR}/LessonCue.Server" ]]; then
