@@ -833,6 +833,31 @@ export type BackupPolicyStatus = {
   nextRunAt?: string;
   overdue: boolean;
   running: boolean;
+  destinations?: BackupDestinationStatus[];
+};
+export type BackupDestinationProvider = "nextcloud" | "owncloud" | "webdav";
+export type BackupDestinationInput = {
+  provider: BackupDestinationProvider;
+  webDavUrl: string | null;
+  authentication: "none" | "basic" | "bearer";
+  username: string | null;
+  secret: string | null;
+  retentionCount: number;
+  retentionDays: number;
+};
+export type BackupDestinationStatus = {
+  provider: BackupDestinationProvider;
+  enabled: boolean;
+  webDavUrl?: string;
+  authentication: "none" | "basic" | "bearer";
+  username?: string;
+  secretConfigured: boolean;
+  retentionCount: number;
+  retentionDays: number;
+  lastUploadedAt?: string;
+  lastUploadedFileName?: string;
+  remoteBackupCount?: number;
+  lastError?: string;
 };
 export type MigrationTransferGrant = {
   token: string;

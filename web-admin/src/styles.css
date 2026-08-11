@@ -1004,6 +1004,9 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .backup-policy-form h4 { margin: 0; color: var(--green); font-size: 11px; }
 .backup-remote-settings { display: grid; gap: 11px; padding: 14px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff; }
 .backup-remote-settings .settings-copy { margin: 0; }
+.backup-remote-destination { display: grid; gap: 10px; padding: 14px; border: 1px solid #d7e2db; border-radius: 9px; background: #fbfdfb; }
+.backup-remote-destination h5 { margin: 0; color: var(--green); font-size: 11px; }
+.backup-remote-destination .settings-copy { margin: 0; }
 
 .migration-pull-form, .migration-grant {
   display: grid; gap: 12px; margin: 16px 0; padding: 16px;
