@@ -113,8 +113,17 @@ install_prerequisites() {
   local docker_compose_package=""
   local -a packages=(curl ca-certificates git gnupg openssl)
 
+  # Refresh package metadata before probing optional package names. On a
+  # fresh host the cache may be empty or stale, which would otherwise make a
+  # package that is available on the distribution look missing.
+  run_root apt-get update
+
   if [[ "${repair_updater}" != true ]]; then
     packages+=(ffmpeg libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-draw poppler-utils avahi-daemon avahi-utils libnss-mdns libicu-dev zlib1g util-linux bubblewrap)
+    # Debian splits runuser into util-linux-extra on some releases. The
+    # packaged installer uses runuser to validate and launch the media
+    # sandbox, so install the split package whenever the host publishes it.
+    add_first_package_if_available util-linux-extra
     # FFmpeg's codec set is supplied by the distribution build. Install the
     # optional runtime/codec packages when this Debian/Ubuntu release names
     # them, so WebP, Ogg/Theora, HEIF/AVIF, JPEG XL, and legacy Office samples
@@ -161,7 +170,6 @@ install_prerequisites() {
     packages+=("${docker_compose_package}")
   fi
 
-  run_root apt-get update
   run_root apt-get install -y "${packages[@]}"
 
   if [[ "${docker_repo_required}" == true ]]; then
