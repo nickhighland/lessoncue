@@ -59,7 +59,12 @@ builder.Services.AddSingleton(troubleshootingLog);
 builder.Services.AddSingleton(new PairingCodeService(dataPath, builder.Configuration["LessonCue:PairingPin"]));
 builder.Services.AddSingleton(new BackupService(dataPath));
 builder.Services.AddHttpClient("backup-offsite", client =>
-    client.Timeout = TimeSpan.FromHours(6));
+    client.Timeout = TimeSpan.FromHours(6))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        ConnectTimeout = TimeSpan.FromSeconds(20)
+    });
 builder.Services.AddHttpClient("migration-transfer", client =>
     {
         client.Timeout = TimeSpan.FromHours(6);

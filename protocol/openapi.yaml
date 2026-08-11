@@ -818,6 +818,44 @@ paths:
               schema: { $ref: '#/components/schemas/BackupRestoreResult' }
         '400': { description: "Invalid confirmation or expired staged backup" }
         '409': { description: "Another restore is running" }
+  /api/v1/backups/policy:
+    get:
+      operationId: getBackupPolicy
+      description: Requires backups.manage. Returns the scheduled encrypted-backup policy and redacted per-destination status.
+      responses:
+        '200':
+          description: Scheduled backup policy
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackupPolicyStatus' }
+    put:
+      operationId: updateBackupPolicy
+      description: Requires backups.manage. Saves a daily or weekly encrypted-backup schedule and optional independent Nextcloud, ownCloud, or HTTPS WebDAV destinations.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BackupPolicyInput' }
+      responses:
+        '200':
+          description: Updated scheduled backup policy
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackupPolicyStatus' }
+        '400': { description: "Invalid schedule, credentials, destination, or retention policy" }
+  /api/v1/backups/policy/run:
+    post:
+      operationId: runBackupPolicy
+      description: Requires backups.manage. Creates, verifies, uploads, and prunes one scheduled copy immediately.
+      responses:
+        '200':
+          description: Completed backup policy run
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackupPolicyStatus' }
+        '400': { description: "The policy is invalid" }
+        '409': { description: "A scheduled backup is already running or no backup password is configured" }
+        '500': { description: "Local verification or a configured remote destination failed" }
   /api/v1/media/{mediaId}/filmstrip:
     get:
       operationId: getMediaFilmstrip
@@ -2295,6 +2333,82 @@ components:
         organization: { type: string }
         mediaRestored: { type: boolean }
         preservedServerSettings: { type: array, items: { type: string } }
+    BackupDestinationInput:
+      type: object
+      required: [provider, webDavUrl, authentication, username, secret, retentionCount, retentionDays]
+      properties:
+        provider: { enum: [nextcloud, owncloud, webdav] }
+        webDavUrl: { type: [string, 'null'], format: uri, description: HTTPS folder URL without a query or fragment. }
+        authentication: { enum: [none, basic, bearer] }
+        username: { type: [string, 'null'], maxLength: 200 }
+        secret: { type: [string, 'null'], maxLength: 4096, writeOnly: true, description: App password or bearer token. Null retains an existing protected credential when the destination is unchanged. }
+        retentionCount: { type: integer, minimum: 1, maximum: 365 }
+        retentionDays: { type: integer, minimum: 1, maximum: 3650 }
+    BackupDestinationStatus:
+      type: object
+      required: [provider, enabled, authentication, secretConfigured, retentionCount, retentionDays]
+      properties:
+        provider: { enum: [nextcloud, owncloud, webdav] }
+        enabled: { type: boolean }
+        webDavUrl: { type: [string, 'null'], format: uri }
+        authentication: { enum: [none, basic, bearer] }
+        username: { type: [string, 'null'] }
+        secretConfigured: { type: boolean }
+        retentionCount: { type: integer, minimum: 1, maximum: 365 }
+        retentionDays: { type: integer, minimum: 1, maximum: 3650 }
+        lastUploadedAt: { type: [string, 'null'], format: date-time }
+        lastUploadedFileName: { type: [string, 'null'] }
+        remoteBackupCount: { type: [integer, 'null'], minimum: 0 }
+        lastError: { type: [string, 'null'], maxLength: 500 }
+    BackupPolicyInput:
+      type: object
+      required: [enabled, frequency, hourLocal, weeklyDay, includeMedia, retentionCount, retentionDays, secretHandling, backupPassword, remoteWebDavUrl, remoteAuthentication, remoteUsername, remoteSecret]
+      properties:
+        enabled: { type: boolean }
+        frequency: { enum: [daily, weekly] }
+        hourLocal: { type: integer, minimum: 0, maximum: 23 }
+        weeklyDay: { type: [integer, 'null'], minimum: 0, maximum: 6 }
+        includeMedia: { type: boolean }
+        retentionCount: { type: integer, minimum: 1, maximum: 365 }
+        retentionDays: { type: integer, minimum: 1, maximum: 3650 }
+        secretHandling: { enum: [exclude, include] }
+        backupPassword: { type: [string, 'null'], minLength: 12, maxLength: 1024, writeOnly: true }
+        remoteWebDavUrl: { type: [string, 'null'], format: uri, description: Legacy generic WebDAV field retained for older clients. }
+        remoteAuthentication: { enum: [none, basic, bearer] }
+        remoteUsername: { type: [string, 'null'], maxLength: 200 }
+        remoteSecret: { type: [string, 'null'], maxLength: 4096, writeOnly: true }
+        destinations:
+          type: [array, 'null']
+          maxItems: 3
+          items: { $ref: '#/components/schemas/BackupDestinationInput' }
+    BackupPolicyStatus:
+      type: object
+      required: [enabled, frequency, hourLocal, weeklyDay, includeMedia, retentionCount, retentionDays, secretHandling, backupPasswordConfigured, remoteWebDavUrl, remoteAuthentication, remoteUsername, remoteSecretConfigured, lastAttemptAt, lastSucceededAt, lastVerifiedAt, lastBackupFileName, lastError, nextRunAt, overdue, running, destinations]
+      properties:
+        enabled: { type: boolean }
+        frequency: { enum: [daily, weekly] }
+        hourLocal: { type: integer, minimum: 0, maximum: 23 }
+        weeklyDay: { type: [integer, 'null'], minimum: 0, maximum: 6 }
+        includeMedia: { type: boolean }
+        retentionCount: { type: integer, minimum: 1, maximum: 365 }
+        retentionDays: { type: integer, minimum: 1, maximum: 3650 }
+        secretHandling: { enum: [exclude, include] }
+        backupPasswordConfigured: { type: boolean }
+        remoteWebDavUrl: { type: [string, 'null'], format: uri }
+        remoteAuthentication: { enum: [none, basic, bearer] }
+        remoteUsername: { type: [string, 'null'] }
+        remoteSecretConfigured: { type: boolean }
+        lastAttemptAt: { type: [string, 'null'], format: date-time }
+        lastSucceededAt: { type: [string, 'null'], format: date-time }
+        lastVerifiedAt: { type: [string, 'null'], format: date-time }
+        lastBackupFileName: { type: [string, 'null'] }
+        lastError: { type: [string, 'null'], maxLength: 500 }
+        nextRunAt: { type: [string, 'null'], format: date-time }
+        overdue: { type: boolean }
+        running: { type: boolean }
+        destinations:
+          type: array
+          items: { $ref: '#/components/schemas/BackupDestinationStatus' }
     Discovery:
       type: object
       required: [product, serverId, serverName, localAddress, apiVersion, pairingEnabled]
