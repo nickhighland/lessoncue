@@ -115,6 +115,10 @@ install_prerequisites() {
 
   if [[ "${repair_updater}" != true ]]; then
     packages+=(ffmpeg libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-draw poppler-utils avahi-daemon avahi-utils libnss-mdns libicu-dev zlib1g util-linux bubblewrap)
+    # Debian splits runuser into util-linux-extra on some releases. The
+    # packaged installer uses runuser to validate and launch the media
+    # sandbox, so install the split package whenever the host publishes it.
+    add_first_package_if_available util-linux-extra
     # FFmpeg's codec set is supplied by the distribution build. Install the
     # optional runtime/codec packages when this Debian/Ubuntu release names
     # them, so WebP, Ogg/Theora, HEIF/AVIF, JPEG XL, and legacy Office samples
