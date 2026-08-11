@@ -1,0 +1,6 @@
+command: dotnet restore server/LessonCue.Server/LessonCue.Server.csproj
+start_local: 2026-08-02T20:53:06-0400
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+finish_local: 2026-08-02T20:53:07-0400
+exit_code: 0

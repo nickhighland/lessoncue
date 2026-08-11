@@ -2,6 +2,62 @@
 
 This roadmap is the authoritative order of work for LessonCue. Reliability, recoverability, security, and an honest supported-platform contract now take precedence over adding more product surface. Completed release history is retained below for context, but historical claims do not override the current priorities and platform decision.
 
+## Master TODO — outstanding and newly identified user experience work
+
+This is the top-level queue for the next UI/product-quality pass. Items below are intentionally limited to work that is new, still unaccomplished, or needs direct user-evidence validation. The previously requested Settings layout changes are listed separately so they remain visible without being mistaken for new recommendations. Move completed items to the implemented history only after the stated acceptance evidence exists.
+
+### Evaluation and evidence gate
+
+- [x] **Run the advanced AI user-centered UI evaluation** using [the evaluation brief](ai-ui-evaluation-brief.md) and the full real-use playbook. The dated [evaluation report](ui-evaluation-report-2026-08-10.md) contains journey timings, step counts, screenshots, accessibility observations, responsive/browser-display evidence, Android TV coverage, and explicit limitations.
+- [x] **Create a dynamic UI coverage inventory** across navigation, settings cards, dialogs, empty/error states, media types, signage elements, controller actions, browser playback, and Android TV input paths. Surfaces not exercised are listed as `NOT RUN` or `BLOCKED` in the report.
+- [x] **Turn evidence into a ranked implementation queue** with separate defect, workflow, comprehension, accessibility, visual, reliability, feature, and delight findings, acceptance criteria, scoring, and a “do not build yet” list.
+
+### UI evaluation release gate — remediated 2026-08-10
+
+- [x] **P0: Repair the public Audience experience:** added the responsive/touch/focus presentation and hardened moderation input, approve/hide, invalid-input, and live refresh behavior.
+- [x] **P0: Make batch upload and conversion recovery attributable:** named every selected file, retained per-file outcomes, added failed-only retry, persisted converter failure, validated every generated slide, and blocked false-ready output.
+- [x] **P1: Keep display pairing truthful:** automatic PINs refresh on expiry/focus/visibility, count down in Screens, and the browser player uses separate cleared/focused inputs for name and PIN.
+- [x] **P1: Make controller state safe under live pressure:** offline commands are disabled and never queued implicitly; online commands show sending/waiting-for-receipt, received, failure, or receipt-timeout states without stale time estimates.
+- [x] **P1: Rebuild phone-width app navigation:** the authenticated shell uses a focus-contained, Escape-closeable drawer with inert background and focus return at phone widths.
+- [x] **P1: Restore foundational keyboard access:** native screen switches remain in the accessibility tree, the skip link focuses main content, and a newly added lesson cue is revealed, highlighted, focused, and announced.
+- [x] **P1: Complete successful authentication navigation:** successful authentication replaces the auth route with the dashboard route before refreshing application state.
+- [x] **P1: Close stale editors after deletion:** class deletion closes and clears class/controller dialogs before selecting refreshed data.
+- [x] **P2: Clarify document readiness:** document rows name conversion readiness and expose convert/retry; failed conversions clear derivative state and cannot open a false-ready preview.
+- [x] **P2: Add safe immediacy to Signage:** save bars name affected screens, successful saves expose one-step undo, and editors reserve sticky-action space.
+- [x] **P2: Remove competing Signage navigation:** Signage runs as the one visible full-screen navigation surface instead of leaving an obscured application sidebar interactive.
+- [x] **P2: Preserve media identity and assignment context:** grid titles use two lines plus full-name tooltips, view choice persists, and lesson/Sign surfaces include `Plays where` context and direct screen navigation.
+- [ ] **P3: Close evidence gaps:** run a truly clean first-install onboarding session, physical Google TV and Fire TV remote/HDMI/audio/network checks, QR-distance scans, physical Signage viewport comparisons, real touch, screen readers, 200% zoom, and reduced motion.
+
+### Existing requested Settings work verified in the 2026-08-10 UI audit
+
+- [x] Every inspected Settings panel is collapsible/expandable from a clear top-right control; state remains understandable while navigating between Settings sections.
+- [x] Registration, Email Settings, and Registration Codes are distinct sections with independent headings and task grouping.
+- [x] Authenticator MFA is beside Preview Features at desktop width.
+- [x] Adaptive TV Playback is beside Storage Allocation, beneath Upload Limits, at desktop width.
+
+### New or unaccomplished product/UI work
+
+- [ ] **Make first-run readiness actionable:** add a guided checklist for storage, converter availability, hostname, pairing, display readiness, and updates; each failed check must link directly to the fix and show when the system becomes ready.
+- [x] **Improve Audience empty and live states:** guide the operator through “Create poll → Open session → Share QR code,” then show QR copy/download, participant/session status, response counts, moderation state, and close-session recovery in one coherent workspace. The remaining evidence gap is a fresh-install, QR-distance scan.
+- [x] **Add upload preflight and queue clarity:** show per-file type/codec/size/converter readiness before upload, then expose progress, queue position, pause/resume, retry, cancellation, conversion stages, expected output, and actionable remediation without requiring logs. The catalog and optional WebP/Theora/legacy Office converter states are surfaced before upload.
+- [ ] **Clarify Signage draft-to-live workflow:** distinguish Draft, Preview, Publish, Schedule, and Replace; provide a publish diff and safe rollback path; warn about overflow, contrast, safe areas, missing media, stale data, unsupported fonts, and QR scanability.
+- [ ] **Add display-target preview validation:** compare browser preview and Android/browser-player output at 480p, 720p, 1080p, portrait, ultrawide, and phone widths, with visible viewport/safe-area overlays and screenshot evidence.
+- [x] **Improve TV/controller confidence:** add a display focus mode with large targets, visible focus rings, arrow/Enter/Back mapping, shortcut hints, current/next item, selected room, connection state, command acknowledgement, and a pairing/disconnect recovery path. The existing Screens pairing/revoke flow is linked by the controller's truthful offline and re-pair messaging.
+- [x] **Reduce lesson-planning ambiguity:** make Present now, Schedule, Save draft, Duplicate, Archive, and Delete visibly distinct; add autosave state, undo/recovery, and a compact lesson timeline where evidence shows repeated backtracking or uncertainty.
+- [x] **Add system diagnostics and support export:** provide a Service Admin surface for storage projection, converter readiness, queue health, screen errors, backup age, update state, and a redacted downloadable support bundle. The new endpoints are included in the OpenAPI contract.
+- [ ] **Improve responsive and accessible interaction:** verify 44px touch targets, keyboard traversal, screen-reader names/live announcements, zoom/reflow, reduced motion, contrast, and D-pad navigation for every primary journey; fix any observed gap before adding cosmetic polish.
+- [x] **Reduce perceived load time:** lazy-load signage, settings, media editing, reports, and playback-heavy modules; establish bundle budgets and measure first meaningful interaction on the supported desktop and VM paths. Bundle checks and the browser-ready performance mark run in the release test suite.
+- [ ] **Standardize information architecture and language:** test terms for classes/rooms, screens/displays, signs/layouts/playlists, save/publish/push, and cached/ready/offline; change terminology only when repeated user evidence supports it and document migration/copy impact.
+- [ ] **Add a repeatable before/after UX benchmark:** retain representative screenshots, journey timings, step counts, accessibility results, and error-recovery results so each UI batch demonstrates improvement rather than subjective change.
+
+### Newly identified follow-up work from this tranche
+
+- [ ] **Close physical-device evidence gaps:** run fresh-install and upgrade acceptance on the temporary VM, verify QR scanning at room distance, and repeat Android TV/Fire TV remote checks with real hardware where available.
+- [ ] **Exercise every optional converter row in a release environment:** install WebP/libtheora, Poppler, and LibreOffice on a clean Linux host and attach representative fixture results to the real-use report.
+- [ ] **Finish the UI benchmark loop:** capture before/after screenshots and first-meaningful-interaction timings for Audience, Media, Controller, Lessons, and Service Admin on the released build.
+
+The advanced evaluator must use [the AI user-centered UI evaluation brief](ai-ui-evaluation-brief.md) and must not count the Settings items above as new recommendations. This master list does not replace the deeper production-hardening checklist below; it surfaces the next user-facing queue first.
+
 ## Current platform decision
 
 - [x] **Explicitly defer and abandon tvOS for the current product cycle.** Apple TV is not a supported, tested, documented, or release-blocking LessonCue target. The existing `tvos/` source is retained only as an archived starting point for a possible future project. Current development, compatibility promises, CI, release validation, installation instructions, and roadmap work target the self-hosted browser player plus Android TV, Google TV, and Fire TV. Reintroducing Apple TV will require a new roadmap item, current-device research, an active test target, feature-parity acceptance criteria, and dedicated signing/release ownership.

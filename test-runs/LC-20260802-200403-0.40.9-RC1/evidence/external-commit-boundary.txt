@@ -1,0 +1,22 @@
+captured_local: 2026-08-02T20:52:32-0400
+=== HEAD ===
+041e5499d9967c6003be404798b123a25d22fb5f
+041e5499d9967c6003be404798b123a25d22fb5f
+2026-08-02 20:27:35 -0400
+Workflow redesign: tabbed lesson editor, collapsible sidebar sections, dashboard quick actions, grid/list media toggle
+=== reflog boundary ===
+041e549 HEAD@{2026-08-02 20:27:35 -0400}: commit: Workflow redesign: tabbed lesson editor, collapsible sidebar sections, dashboard quick actions, grid/list media toggle
+fd46c3e HEAD@{2026-08-02 20:01:43 -0400}: commit: UI overhaul: sectioned sidebar, quick-action dashboard, grid/list media toggle, modern design system
+7799f0f HEAD@{2026-08-02 19:44:24 -0400}: checkout: moving from main to ui-overhaul
+7799f0f HEAD@{2026-08-01 14:01:14 -0400}: pull --ff-only origin main: Fast-forward
+3892c46 HEAD@{2026-08-01 14:01:13 -0400}: checkout: moving from agent/update-operation-recovery to main
+3362d41 HEAD@{2026-08-01 13:57:43 -0400}: commit: Make protected update failures recoverable in 0.40.9
+=== comparison from recorded baseline fd46c3e ===
+ .../main/kotlin/org/lessoncue/tv/LessonCueApi.kt   |   5 +-
+ .../main/kotlin/org/lessoncue/tv/MainActivity.kt   | 374 ++++++++++++++-------
+ .../app/src/main/kotlin/org/lessoncue/tv/Models.kt |   7 +-
+ .../main/kotlin/org/lessoncue/tv/UpdateScreen.kt   |  27 +-
+ web-admin/src/WebPlayer.tsx                        |  16 +-
+ web-admin/src/main.tsx                             | 336 +++++++-----------
+ web-admin/src/styles.css                           |  32 ++
+ 7 files changed, 440 insertions(+), 357 deletions(-)

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -520,6 +521,88 @@ public static class AdminApi
         var screens = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Screens);
         var appSettings = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.AppSettings);
 
+        // A redacted, operator-downloadable snapshot for support tickets. It intentionally
+        // omits account names, IP addresses, media paths, URLs, secrets, and response text.
+        admin.MapGet("/support/bundle", async (LessonCueDb db, StorageService storage,
+            BackupPolicyService backupPolicy, UpdateService updates, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var storageStatus = await storage.GetSnapshotAsync(db, ct);
+            var converter = MediaConverterCapabilities.Snapshot();
+            var media = await db.MediaAssets.AsNoTracking().Where(x => x.DeletedAt == null)
+                .Select(x => new { x.ProcessingStatus, x.CompatibilityStatus, x.ConversionStatus, x.SizeBytes })
+                .ToListAsync(ct);
+            var activeUploadStates = new[]
+            {
+                UploadSessionStates.Active,
+                UploadSessionStates.Paused,
+                UploadSessionStates.Failed,
+                UploadSessionStates.Completing
+            };
+            var uploadSnapshotTime = DateTimeOffset.UtcNow;
+            var uploads = (await db.UploadSessions.AsNoTracking()
+                .Select(x => new { x.State, x.ExpectedLength, x.ReceivedBytes, x.UpdatedAt, x.ExpiresAt })
+                .ToListAsync(ct))
+                .Where(x => x.ExpiresAt > uploadSnapshotTime && activeUploadStates.Contains(x.State))
+                .ToList();
+            var screens = await db.Screens.AsNoTracking().Where(x => !x.Revoked)
+                .Select(x => new
+                {
+                    platform = x.Platform,
+                    online = x.LastSeenAt != null && x.LastSeenAt >= DateTimeOffset.UtcNow.AddMinutes(-2),
+                    lastSeenAt = x.LastSeenAt,
+                    x.FailedDownloads,
+                    x.PlaybackError,
+                    x.NetworkQuality,
+                    x.AcknowledgedControlVersion,
+                    x.ControlVersion
+                }).ToListAsync(ct);
+            var bundle = new
+            {
+                schemaVersion = 1,
+                generatedAt = DateTimeOffset.UtcNow,
+                server = new { serverId, serverName, version = updates.Status.CurrentVersion,
+                    timeZone = organization.TimeZone },
+                storage = new { storageStatus.UsedBytes, storageStatus.AllocationBytes,
+                    storageStatus.RemainingBytes, storageStatus.ReservedBytes,
+                    storageStatus.DiskAvailableBytes },
+                converters = new { converter.Ffmpeg, converter.Ffprobe, converter.LibreOffice,
+                    converter.Poppler, converter.WebpEncoder, converter.TheoraEncoder,
+                    converter.Missing, converter.CheckedAt },
+                queue = new
+                {
+                    activeUploads = uploads.Count,
+                    reservedBytes = uploads.Sum(x => Math.Max(0, x.ExpectedLength - x.ReceivedBytes)),
+                    states = uploads.GroupBy(x => x.State).ToDictionary(g => g.Key, g => g.Count())
+                },
+                media = new
+                {
+                    count = media.Count,
+                    bytes = media.Sum(x => x.SizeBytes),
+                    processing = media.GroupBy(x => x.ProcessingStatus).ToDictionary(g => g.Key, g => g.Count()),
+                    compatibility = media.GroupBy(x => x.CompatibilityStatus).ToDictionary(g => g.Key, g => g.Count()),
+                    conversion = media.GroupBy(x => x.ConversionStatus).ToDictionary(g => g.Key, g => g.Count())
+                },
+                screens = new
+                {
+                    count = screens.Count,
+                    online = screens.Count(x => x.online),
+                    failedDownloads = screens.Sum(x => x.FailedDownloads),
+                    playbackErrors = screens.Count(x => !string.IsNullOrWhiteSpace(x.PlaybackError)),
+                    commandsAwaitingReceipt = screens.Count(x => x.ControlVersion > x.AcknowledgedControlVersion),
+                    networkQuality = screens.GroupBy(x => x.NetworkQuality).ToDictionary(g => g.Key, g => g.Count())
+                },
+                backup = backupPolicy.GetStatus(organization.TimeZone),
+                update = updates.Status
+            };
+            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(bundle, new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            }));
+            return Results.File(bytes, "application/json", $"lessoncue-support-{DateTime.UtcNow:yyyyMMdd-HHmmss}.json");
+        }).RequireAuthorization(LessonCuePermissions.Settings);
+
         admin.MapGet("/admin/bootstrap", async (LessonCueDb db, PairingCodeService pairing, StorageService storage,
             UpdateService updates, LocalAddressService localAddress, HttpPortService httpPort,
             CloudflareTunnelService cloudflareTunnel, HardwareAccelerationService hardwareAcceleration,
@@ -569,6 +652,13 @@ public static class AdminApi
                 },
                 uploadQuotaPolicy = canManageService ? UploadQuotaPolicy.Read(organization) : null,
                 mediaTaxonomy = MediaTaxonomy.Read(organization),
+                mediaFormats = new
+                {
+                    accept = MediaFormatCatalog.BrowserAccept,
+                    extensions = MediaFormatCatalog.SupportedExtensions,
+                    formats = MediaFormatCatalog.All
+                },
+                mediaConverters = MediaConverterCapabilities.Snapshot(),
                 update = updates.Status,
                 backupPolicy = canManageService
                     ? backupPolicy.GetStatus(organization.TimeZone)
@@ -813,6 +903,7 @@ public static class AdminApi
                     item.EndMs,
                     item.VolumePercent,
                     item.ImageDurationSeconds,
+                    item.EstimatedDurationSeconds,
                     item.EndBehavior,
                     item.AllowSkip,
                     item.Notes,
@@ -941,7 +1032,8 @@ public static class AdminApi
                     LessonId = copy.Id, Title = sourceItem.Title, Type = sourceItem.Type, Role = sourceItem.Role,
                     Position = sourceItem.Position, MediaAssetId = sourceItem.MediaAssetId, DurationMs = sourceItem.DurationMs,
                     StartMs = sourceItem.StartMs, EndMs = sourceItem.EndMs, VolumePercent = sourceItem.VolumePercent,
-                    ImageDurationSeconds = sourceItem.ImageDurationSeconds, EndBehavior = sourceItem.EndBehavior,
+                    ImageDurationSeconds = sourceItem.ImageDurationSeconds, EstimatedDurationSeconds = sourceItem.EstimatedDurationSeconds,
+                    EndBehavior = sourceItem.EndBehavior,
                     AllowSkip = sourceItem.AllowSkip, Notes = sourceItem.Notes, FadeInMs = sourceItem.FadeInMs,
                     FadeOutMs = sourceItem.FadeOutMs, NormalizeAudio = sourceItem.NormalizeAudio,
                     CuePointsJson = sourceItem.CuePointsJson, FitMode = sourceItem.FitMode,
@@ -1098,7 +1190,7 @@ public static class AdminApi
                 {
                     item.Id, item.Title, item.Type, item.Role, item.Position, item.MediaAssetId,
                     mediaFileName = item.MediaAsset != null ? item.MediaAsset.FileName : null,
-                    item.DurationMs, item.StartMs, item.EndMs, item.VolumePercent, item.ImageDurationSeconds,
+                    item.DurationMs, item.StartMs, item.EndMs, item.VolumePercent, item.ImageDurationSeconds, item.EstimatedDurationSeconds,
                     item.EndBehavior, item.AllowSkip, item.Notes, item.FadeInMs, item.FadeOutMs,
                     item.NormalizeAudio, item.CuePointsJson, item.FitMode, item.RotationDegrees,
                     item.CropLeftPercent, item.CropTopPercent, item.CropRightPercent, item.CropBottomPercent,
@@ -1262,8 +1354,10 @@ public static class AdminApi
                 input.PlaybackRatePercent, input.RepeatCount, input.BackgroundColor ?? "#000000",
                 input.TransitionStyle ?? "cut", input.TransitionDurationMs);
             if (playbackError is not null) return Results.BadRequest(new { error = playbackError });
+            var role = NormalizeRole(input.Role);
+            var endBehavior = input.EndBehavior ?? DefaultEndBehavior(role);
             var timingError = ValidateCueTiming(input.StartMs, input.EndMs, input.ImageDurationSeconds,
-                input.EndBehavior ?? "advance");
+                input.EstimatedDurationSeconds, endBehavior);
             if (timingError is not null) return Results.BadRequest(new { error = timingError });
             MediaAsset? itemMedia = null;
             if (input.MediaId is Guid mediaId)
@@ -1271,7 +1365,6 @@ public static class AdminApi
                 itemMedia = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == mediaId, ct);
                 if (itemMedia is null) return Results.BadRequest(new { error = "The selected media file does not exist." });
             }
-            var role = NormalizeRole(input.Role);
             var item = new PlaylistItem
             {
                 LessonId = lessonId,
@@ -1285,7 +1378,8 @@ public static class AdminApi
                 EndMs = input.EndMs,
                 VolumePercent = input.VolumePercent,
                 ImageDurationSeconds = input.ImageDurationSeconds,
-                EndBehavior = input.EndBehavior ?? "advance",
+                EstimatedDurationSeconds = input.EstimatedDurationSeconds,
+                EndBehavior = endBehavior,
                 AllowSkip = input.AllowSkip,
                 FitMode = input.FitMode ?? "fit",
                 RotationDegrees = input.RotationDegrees,
@@ -1319,7 +1413,7 @@ public static class AdminApi
             {
                 item.Id, item.Title, item.Type, item.Role, item.Position, item.MediaAssetId,
                 item.DurationMs, item.StartMs, item.EndMs, item.VolumePercent,
-                item.ImageDurationSeconds, item.EndBehavior, item.AllowSkip, item.FitMode,
+                item.ImageDurationSeconds, item.EstimatedDurationSeconds, item.EndBehavior, item.AllowSkip, item.FitMode,
                 item.RotationDegrees, item.CropLeftPercent, item.CropTopPercent, item.CropRightPercent,
                 item.CropBottomPercent, item.Muted, item.PlaybackRatePercent, item.RepeatCount,
                 item.BackgroundColor, item.TransitionStyle, item.TransitionDurationMs, item.FlexibleTime
@@ -1338,23 +1432,29 @@ public static class AdminApi
                 input.RepeatCount ?? item.RepeatCount, input.BackgroundColor ?? item.BackgroundColor,
                 input.TransitionStyle ?? item.TransitionStyle, input.TransitionDurationMs ?? item.TransitionDurationMs);
             if (playbackError is not null) return Results.BadRequest(new { error = playbackError });
+            var nextImageDuration = input.ClearImageDuration ? null : input.ImageDurationSeconds ?? item.ImageDurationSeconds;
+            var nextEstimatedDuration = input.ClearEstimatedDuration ? null : input.EstimatedDurationSeconds ?? item.EstimatedDurationSeconds;
+            var nextRole = input.Role is null ? item.Role : NormalizeRole(input.Role);
+            var nextEndBehavior = input.EndBehavior ?? (input.Role is null ? item.EndBehavior : DefaultEndBehavior(nextRole));
             var timingError = ValidateCueTiming(input.StartMs ?? item.StartMs,
                 input.ClearEndMs ? null : input.EndMs ?? item.EndMs,
-                input.ImageDurationSeconds ?? item.ImageDurationSeconds,
-                input.EndBehavior ?? item.EndBehavior);
+                nextImageDuration, nextEstimatedDuration, nextEndBehavior);
             if (timingError is not null) return Results.BadRequest(new { error = timingError });
             if (input.Title is not null) item.Title = input.Title.Trim();
             if (input.Type is not null) item.Type = input.Type;
             var wasCountdown = item.Lesson.CountdownItemId == item.Id || item.Role == "countdown";
-            if (input.Role is not null) item.Role = NormalizeRole(input.Role);
+            if (input.Role is not null) item.Role = nextRole;
             if (input.MediaId is not null) item.MediaAssetId = input.MediaId;
             if (input.DurationMs is not null) item.DurationMs = input.DurationMs;
             if (input.StartMs is not null) item.StartMs = input.StartMs.Value;
             if (input.ClearEndMs) item.EndMs = null;
             else if (input.EndMs is not null) item.EndMs = input.EndMs;
             if (input.VolumePercent is not null) item.VolumePercent = Math.Clamp(input.VolumePercent.Value, 0, 150);
-            if (input.ImageDurationSeconds is not null) item.ImageDurationSeconds = input.ImageDurationSeconds;
-            if (input.EndBehavior is not null) item.EndBehavior = input.EndBehavior;
+            if (input.ClearImageDuration) item.ImageDurationSeconds = null;
+            else if (input.ImageDurationSeconds is not null) item.ImageDurationSeconds = input.ImageDurationSeconds;
+            if (input.ClearEstimatedDuration) item.EstimatedDurationSeconds = null;
+            else if (input.EstimatedDurationSeconds is not null) item.EstimatedDurationSeconds = input.EstimatedDurationSeconds;
+            if (input.EndBehavior is not null || input.Role is not null) item.EndBehavior = nextEndBehavior;
             if (input.AllowSkip is not null) item.AllowSkip = input.AllowSkip.Value;
             if (input.Notes is not null) item.Notes = input.Notes.Trim();
             if (input.FadeInMs is not null) item.FadeInMs = Math.Clamp(input.FadeInMs.Value, 0, 30_000);
@@ -1448,12 +1548,17 @@ public static class AdminApi
                     db.PlaylistItems.RemoveRange(items);
                     break;
                 case "role":
-                    if (input.Role is not ("lesson" or "preRoll" or "countdown"))
-                        return Results.BadRequest(new { error = "Choose main lesson, pre-roll, or countdown." });
+                    if (input.Role is not ("lesson" or "preRoll" or "countdown" or "postLesson"))
+                        return Results.BadRequest(new { error = "Choose main lesson, pre-roll, countdown, or post-lesson." });
                     var role = NormalizeRole(input.Role);
                     if (role == "countdown" && items.Count != 1)
                         return Results.BadRequest(new { error = "A lesson can have only one countdown. Select exactly one item." });
-                    foreach (var item in items) item.Role = role;
+                    foreach (var item in items)
+                    {
+                        item.Role = role;
+                        if (role is "preRoll" or "postLesson") item.EndBehavior = "loop";
+                        else if (item.EndBehavior == "loop") item.EndBehavior = "pause";
+                    }
                     if (role == "countdown")
                     {
                         var item = items[0];
@@ -1614,9 +1719,9 @@ public static class AdminApi
             if (selection.Error is not null) return Results.BadRequest(new { error = selection.Error });
             if (input.FileName is not null)
             {
-                var name = NormalizeMediaName(input.FileName);
+                var name = NormalizeMediaName(input.FileName, media.FileName);
                 if (name is null)
-                    return Results.BadRequest(new { error = "The media name must be between 1 and 255 characters." });
+                    return Results.BadRequest(new { error = "The media name must be between 1 and 255 characters and keep its existing file extension." });
                 var conflict = await FindMediaNameConflictAsync(db, [media.Id], [name], ct);
                 if (conflict is not null)
                     return Results.Conflict(new { error = $"A media item named \u201c{conflict}\u201d already exists. Choose a different name." });
@@ -1654,7 +1759,7 @@ public static class AdminApi
             var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
             if (media is null) return Results.NotFound();
             if (!PresentationConversion.IsConvertible(media.RelativePath) || media.SourceKind == "link" || string.IsNullOrWhiteSpace(media.RelativePath))
-                return Results.BadRequest(new { error = "Local conversion supports PDF, PowerPoint, OpenDocument Presentation, Keynote, and Word files." });
+                    return Results.BadRequest(new { error = "Local conversion supports the document formats accepted by LessonCue." });
             if (media.ConversionStatus is "pending" or "converting")
                 return Results.Conflict(new { error = "This presentation is already being converted." });
             media.ConversionStatus = "pending";
@@ -1673,9 +1778,13 @@ public static class AdminApi
             if (media is null || lesson is null) return Results.NotFound();
             if (!PresentationConversion.IsConvertible(media.RelativePath) || media.SourceKind == "link" ||
                 string.IsNullOrWhiteSpace(media.RelativePath))
-                return Results.BadRequest(new { error = "Choose a locally stored PDF, PowerPoint, OpenDocument Presentation, Keynote, or Word file." });
+                return Results.BadRequest(new { error = "Choose a locally stored document format accepted by LessonCue." });
             media.ConversionLessonId = lesson.Id;
-            media.ConversionSlideDurationSeconds = Math.Clamp(input.ImageDurationSeconds, 1, 3600);
+            // A missing slide duration means the generated stills remain on the
+            // last frame until the remote queues the next cue. Keep 0 as the
+            // persisted sentinel so existing installations do not need a risky
+            // SQLite column rebuild just to opt into untimed slides.
+            media.ConversionSlideDurationSeconds = Math.Clamp(input.ImageDurationSeconds ?? 0, 0, 3600);
             if (media.ConversionStatus == "ready" && PresentationConversion.SlideIds(media).Count > 0)
             {
                 var count = await PresentationConversion.AddToLessonAsync(db, media, lesson,
@@ -1809,6 +1918,8 @@ public static class AdminApi
             var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
             var selected = await db.MediaAssetVersions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == versionId && x.MediaAssetId == id, ct);
             if (media is null || selected is null) return Results.NotFound();
+            if (media.ProcessingStatus is "pending" or "processing" or "downloading")
+                return Results.Conflict(new { error = "Wait for current processing to finish before restoring a previous version." });
             var currentPath = ResolveStoredFile(paths.Originals, media.RelativePath);
             var selectedPath = ResolveStoredFile(paths.Versions, selected.RelativePath);
             if (currentPath is null || selectedPath is null) return Results.Conflict(new { error = "A required version file is missing from local storage." });
@@ -1921,9 +2032,9 @@ public static class AdminApi
                     var names = new Dictionary<Guid, string>();
                     foreach (var item in media)
                     {
-                        var name = NormalizeMediaName(requestedById[item.Id].FileName);
+                        var name = NormalizeMediaName(requestedById[item.Id].FileName, item.FileName);
                         if (name is null)
-                            return Results.BadRequest(new { error = "Each media name must be between 1 and 255 characters." });
+                            return Results.BadRequest(new { error = "Each media name must be between 1 and 255 characters and keep its existing file extension." });
                         names[item.Id] = name;
                     }
 
@@ -2101,21 +2212,11 @@ public static class AdminApi
                 return Results.Accepted($"/api/v1/media/{pending.Id}", pending);
             }
             var extension = Path.GetExtension(uri.AbsolutePath).ToLowerInvariant();
-            var direct = extension is ".mp4" or ".m4v" or ".mov" or ".mp3" or ".m4a" or ".aac" or ".wav" or ".jpg" or ".jpeg" or ".png" or ".webp";
+            var direct = MediaFormatCatalog.IsDirectLinkable(extension);
             var youtube = YouTubeMedia.IsYouTubeUrl(uri);
             var embedded = youtube || uri.Host.Equals("vimeo.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".vimeo.com", StringComparison.OrdinalIgnoreCase);
             var kind = direct ? "direct" : youtube ? "youtube" : embedded ? "embedded" : "webpage";
-            var contentType = extension switch
-            {
-                ".mp4" or ".m4v" or ".mov" => "video/mp4",
-                ".mp3" => "audio/mpeg",
-                ".m4a" or ".aac" => "audio/aac",
-                ".wav" => "audio/wav",
-                ".jpg" or ".jpeg" => "image/jpeg",
-                ".png" => "image/png",
-                ".webp" => "image/webp",
-                _ => "text/uri-list"
-            };
+            var contentType = direct ? MediaFormatCatalog.ContentType(extension) : "text/uri-list";
             var title = string.IsNullOrWhiteSpace(input.Title) ? uri.Host : input.Title.Trim();
             var media = new MediaAsset { FileName = title, ContentType = contentType, RelativePath = "",
                 SizeBytes = 0, OfflineEligible = direct, ProcessingStatus = "ready", SourceKind = "link", SourceUrl = uri.ToString(), LinkKind = kind,
@@ -2141,6 +2242,78 @@ public static class AdminApi
                 .Take(100);
             return Results.Ok(items.Select(sessions.Status));
         });
+
+        uploads.MapPost("/media/preflight", async (MediaPreflightInput input, LessonCueDb db,
+            StorageService storage, HttpContext context, CancellationToken ct) =>
+        {
+            var fileName = Path.GetFileName(input.FileName?.Trim() ?? "");
+            var extension = Path.GetExtension(fileName).ToLowerInvariant();
+            var format = MediaFormatCatalog.All.FirstOrDefault(x =>
+                string.Equals(x.Extension, extension, StringComparison.OrdinalIgnoreCase));
+            var converter = MediaConverterCapabilities.Snapshot();
+            var family = format?.Family ?? MediaFormatCatalog.Family(extension, input.ContentType);
+            var converterName = format?.Converter ?? "none";
+            var converterReady = converterName switch
+            {
+                "FFmpeg" => converter.Ffmpeg && converter.Ffprobe,
+                "LibreOffice" => converter.LibreOffice,
+                "Poppler" => converter.Poppler,
+                _ => true
+            };
+            var storageStatus = await storage.GetSnapshotAsync(db, ct);
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var policy = UploadQuotaPolicy.Read(organization);
+            var activeUploadStates = new[]
+            {
+                UploadSessionStates.Active,
+                UploadSessionStates.Paused,
+                UploadSessionStates.Failed,
+                UploadSessionStates.Completing
+            };
+            var currentOwnerId = CurrentAccountId(context);
+            var preflightSnapshotTime = DateTimeOffset.UtcNow;
+            var active = (await db.UploadSessions.AsNoTracking()
+                .Where(x => x.OwnerAccountId == currentOwnerId)
+                .Select(x => new { x.State, x.ExpiresAt })
+                .ToListAsync(ct))
+                .Count(x => x.ExpiresAt > preflightSnapshotTime && activeUploadStates.Contains(x.State));
+            var warnings = new List<string>();
+            if (format is null) warnings.Add("This extension is not supported by the installed LessonCue catalog.");
+            if (input.TotalBytes <= 0) warnings.Add("Choose a file larger than zero bytes.");
+            if (input.TotalBytes > UploadQuotaPolicy.HardMaximumFileBytes)
+                warnings.Add("The hard server limit is 100 GB per file.");
+            if (policy.MaxFileBytes > 0 && input.TotalBytes > policy.MaxFileBytes)
+                warnings.Add($"This organization limits files to {FormatBytes(policy.MaxFileBytes)}.");
+            if (input.TotalBytes > storageStatus.RemainingBytes)
+                warnings.Add($"Only {FormatBytes(storageStatus.RemainingBytes)} remains available after current reservations.");
+            if (!input.Persistent && input.LessonId is null)
+                warnings.Add("Choose a lesson or switch to Keep permanently before uploading.");
+            if (!converterReady)
+                warnings.Add($"{converterName} is unavailable on this server. Install the documented converter or upload a different format.");
+            var expectedOutput = family switch
+            {
+                "video" => "Original plus an inspected TV-ready H.264/AAC copy when needed",
+                "audio" => "Original plus normalized playback metadata",
+                "image" => "Original plus a browser/TV thumbnail derivative",
+                "document" => "Validated local PDF/slide PNGs for lesson playback",
+                _ => "Validated local media derivative"
+            };
+            return Results.Ok(new
+            {
+                fileName, extension, family, label = format?.Label ?? "Unsupported file",
+                contentType = format?.ContentType ?? input.ContentType ?? "application/octet-stream",
+                converter = converterName,
+                converterReady,
+                supported = format is not null,
+                sizeBytes = input.TotalBytes,
+                sizeAllowed = input.TotalBytes > 0 && input.TotalBytes <= UploadQuotaPolicy.HardMaximumFileBytes &&
+                    (policy.MaxFileBytes <= 0 || input.TotalBytes <= policy.MaxFileBytes) &&
+                    input.TotalBytes <= storageStatus.RemainingBytes,
+                codec = family is "video" or "audio" ? "Detected during server inspection after upload" : null,
+                expectedOutput, queuePosition = active + 1, activeUploads = active,
+                warnings, ready = format is not null && converterReady && warnings.Count == 0
+            });
+        }).RequireRateLimiting("media-processing");
 
         uploads.MapGet("/uploads/{uploadId:guid}", async (Guid uploadId, LessonCueDb db,
             UploadSessionService sessions, HttpContext context, CancellationToken ct) =>
@@ -2225,6 +2398,8 @@ public static class AdminApi
                 x.Platform,
                 x.AssignedClassId,
                 assignedClassName = db.Classes.Where(c => c.Id == x.AssignedClassId).Select(c => c.Name).FirstOrDefault(),
+                assignedSignageName = db.SignagePlaylists.Where(sign => sign.Id == x.AssignedSignageId)
+                    .Select(sign => sign.Name).FirstOrDefault(),
                 x.VolunteerMode,
                 x.SignageOnly,
                 x.PermanentPairing,
@@ -2429,8 +2604,13 @@ public static class AdminApi
         {
             var screen = await db.Screens.FindAsync([id], ct);
             if (screen is null) return Results.NotFound();
+            var effectiveSignageOnly = input.SignageOnly ?? screen.SignageOnly;
             if (input.Name is not null) screen.Name = input.Name.Trim();
-            if (input.ClearAssignment) screen.AssignedClassId = null;
+            if (input.ClearAssignment)
+            {
+                screen.AssignedClassId = null;
+                screen.AssignedSignageId = null;
+            }
             else if (input.AssignedClassId is not null)
             {
                 if (!await db.Classes.AsNoTracking().AnyAsync(value => value.Id == input.AssignedClassId, ct))
@@ -2448,9 +2628,24 @@ public static class AdminApi
                         issues
                     });
                 screen.AssignedClassId = input.AssignedClassId;
+                screen.AssignedSignageId = null;
                 if (issues.Count > 0)
                     Audit(db, "screen.assignment.compatibility-override", screen.Id,
                         $"{input.AssignedClassId}:{issues.Count}");
+            }
+            if (input.ClearSignageAssignment)
+                screen.AssignedSignageId = null;
+            else if (input.AssignedSignageId is not null)
+            {
+                if (!effectiveSignageOnly)
+                    return Results.BadRequest(new { error = "Only signage-only screens can be assigned a Sign." });
+                if (!await db.Organizations.AsNoTracking().AnyAsync(value => value.SignageEnabled, ct))
+                    return Results.BadRequest(new { error = "Enable Signage in Settings before assigning a Sign." });
+                if (!await db.SignagePlaylists.AsNoTracking().AnyAsync(value => value.Id == input.AssignedSignageId &&
+                        value.Mode == "sign" && value.Enabled, ct))
+                    return Results.BadRequest(new { error = "The selected Sign no longer exists or is disabled." });
+                screen.AssignedSignageId = input.AssignedSignageId;
+                screen.AssignedClassId = null;
             }
             if (input.SignageOnly is bool signageOnly)
             {
@@ -2458,6 +2653,7 @@ public static class AdminApi
                     return Results.BadRequest(new { error = "Enable Signage in Settings before creating a signage-only screen." });
                 screen.SignageOnly = signageOnly;
                 if (signageOnly) screen.AssignedClassId = null;
+                else screen.AssignedSignageId = null;
             }
             if (input.PermanentPairing is bool permanentPairing) screen.PermanentPairing = permanentPairing;
             if (input.VolunteerMode is not null) screen.VolunteerMode = input.VolunteerMode.Value;
@@ -2601,6 +2797,55 @@ public static class AdminApi
             Audit(db, "registration.mode.update", organization.Id, mode);
             await db.SaveChangesAsync(ct);
             return Results.Ok(new { mode, emailConfigured = email.Status(organization.EmailProvider).Configured });
+        });
+
+        appSettings.MapPut("/registration/registration", async (RegistrationSectionInput input, LessonCueDb db,
+            AccountEmailService email, CancellationToken ct) =>
+        {
+            var mode = input.Mode.Trim().ToLowerInvariant();
+            var publicBaseUrl = input.PublicBaseUrl.Trim().TrimEnd('/');
+            if (mode is not ("closed" or "open" or "code" or "approval"))
+                return Results.BadRequest(new { error = "Registration mode must be closed, approval, open, or code." });
+            if (publicBaseUrl.Length > 253)
+                return Results.BadRequest(new { error = "The public address is too long." });
+            if (!string.IsNullOrWhiteSpace(publicBaseUrl) &&
+                (!Uri.TryCreate(publicBaseUrl, UriKind.Absolute, out var publicUrl) ||
+                 publicUrl.Scheme != Uri.UriSchemeHttps && !publicUrl.IsLoopback))
+                return Results.BadRequest(new { error = "Public account URL must use HTTPS, except for a loopback development address." });
+            var organization = await db.Organizations.FirstAsync(ct);
+            if (mode != "closed" && !email.Status(organization.EmailProvider).Configured)
+                return Results.BadRequest(new { error = "Configure account email before enabling self-service registration." });
+            organization.RegistrationMode = mode;
+            organization.PublicBaseUrl = publicBaseUrl;
+            Audit(db, "registration.mode.update", organization.Id, mode);
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { mode, emailConfigured = email.Status(organization.EmailProvider).Configured });
+        });
+
+        settings.MapPut("/registration/email-settings", async (EmailSettingsInput input, LessonCueDb db,
+            AccountEmailService email, CancellationToken ct) =>
+        {
+            var provider = input.EmailProvider.Trim().ToLowerInvariant();
+            if (provider is not ("none" or "resend" or "brevo"))
+                return Results.BadRequest(new { error = "Email provider must be none, Resend, or Brevo." });
+            if (provider != "none" && (!IsEmail(input.EmailFromAddress) ||
+                string.IsNullOrWhiteSpace(input.EmailFromName) || input.EmailFromName.Trim().Length > 120))
+                return Results.BadRequest(new { error = "A valid sender address and name are required." });
+            if (input.ApiKey?.Length > 2048)
+                return Results.BadRequest(new { error = "The provider key is too long." });
+            var organization = await db.Organizations.FirstAsync(ct);
+            if (organization.RegistrationMode != "closed" && provider == "none")
+                return Results.BadRequest(new { error = "Self-service registration requires Resend or Brevo email delivery." });
+            try { await email.ConfigureAsync(provider, input.ApiKey, ct); }
+            catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
+            if (organization.RegistrationMode != "closed" && !email.Status(provider).Configured)
+                return Results.BadRequest(new { error = "Self-service registration requires configured email delivery." });
+            organization.EmailProvider = provider;
+            organization.EmailFromAddress = input.EmailFromAddress.Trim().ToLowerInvariant();
+            organization.EmailFromName = input.EmailFromName.Trim();
+            Audit(db, "registration.email-settings.update", organization.Id, provider);
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { emailConfigured = email.Status(provider).Configured });
         });
 
         settings.MapPut("/registration/settings", async (RegistrationSettingsInput input, LessonCueDb db,
@@ -3429,7 +3674,7 @@ public static class AdminApi
                         zone.X, zone.Y, zone.Width, zone.Height, zone.BackgroundColor, zone.TextColor, zone.AccentColor,
                         zone.RefreshMinutes, zone.Rotation, zone.ZIndex, zone.Opacity, zone.Fit,
                         zone.Locked, zone.Hidden, zone.FlipX, zone.FlipY,
-                        zone.GroupId, zone.LockMode, zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontWeight,
+                        zone.GroupId, zone.LockMode, zone.RichTextJson, zone.FontFamily, zone.FontSize, zone.FontScalePercent, zone.FontWeight,
                         zone.Italic, zone.Underline, zone.LineHeightPercent, zone.TextAlign, zone.Shape,
                         zone.StrokeColor, zone.StrokeWidth, zone.CornerRadius, zone.IconName, zone.QrValue,
                         zone.QrLabelTop, zone.QrLabelBottom, zone.QrLabelLeft, zone.QrLabelRight, zone.QrPlacement,
@@ -3722,12 +3967,20 @@ public static class AdminApi
             catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
         });
 
-        appSettings.MapGet("/pairing/status", (PairingCodeService pairing) => Results.Ok(new
+        admin.MapGet("/pairing/status", (PairingCodeService pairing, HttpContext context) =>
         {
-            pin = pairing.Current,
-            expiresAt = pairing.ExpiresAt,
-            fixedPin = pairing.FixedPin is not null
-        }));
+            var canPair = LessonCuePermissions.Has(context.User, LessonCuePermissions.Screens) ||
+                LessonCuePermissions.Has(context.User, LessonCuePermissions.AppSettings) ||
+                LessonCuePermissions.Has(context.User, LessonCuePermissions.Settings);
+            return canPair
+                ? Results.Ok(new
+                {
+                    pin = pairing.Current,
+                    expiresAt = pairing.ExpiresAt,
+                    fixedPin = pairing.FixedPin is not null
+                })
+                : Results.Forbid();
+        });
         appSettings.MapPut("/pairing/pin", async (PairingPinInput input, PairingCodeService pairing, LessonCueDb db,
             CancellationToken ct) =>
         {
@@ -3937,22 +4190,28 @@ public static class AdminApi
             "<p>If you did not request this, ignore this message.</p>", ct);
     }
 
-    private static bool IsSupportedMediaExtension(string extension) => extension.ToLowerInvariant() is
-        ".mp4" or ".m4v" or ".mov" or ".mkv" or ".webm" or ".avi" or ".wmv" or ".asf" or
-        ".mpeg" or ".mpg" or ".mpe" or ".ts" or ".mts" or ".m2ts" or ".flv" or ".f4v" or
-        ".ogv" or ".3gp" or ".3g2" or ".vob" or ".mp3" or ".m4a" or ".aac" or ".wav" or
-        ".jpg" or ".jpeg" or ".png" or ".webp" or ".pdf" or
-        ".ppt" or ".pptx" or ".pps" or ".ppsx" or ".pot" or ".potx" or ".odp" or ".key" or
-        ".doc" or ".docx";
+    private static bool IsSupportedMediaExtension(string extension) =>
+        MediaFormatCatalog.IsSupported(extension);
 
     private static string NormalizeContentType(string fileName, string? _) =>
-        MediaContentInspector.ContentType(Path.GetExtension(fileName));
+        MediaFormatCatalog.ContentType(Path.GetExtension(fileName));
 
-    private static string? NormalizeMediaName(string? value)
+    private static string? NormalizeMediaName(string? value, string originalName)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
         var name = Path.GetFileName(value.Trim().Replace('\\', '/'));
-        return string.IsNullOrWhiteSpace(name) || name is "." or ".." || name.Length > 255 ? null : name;
+        if (string.IsNullOrWhiteSpace(name) || name is "." or "..") return null;
+        var originalExtension = Path.GetExtension(originalName);
+        var requestedExtension = Path.GetExtension(name);
+        if (!string.IsNullOrEmpty(originalExtension))
+        {
+            if (!string.IsNullOrEmpty(requestedExtension) &&
+                !string.Equals(requestedExtension, originalExtension, StringComparison.OrdinalIgnoreCase))
+                return null;
+            if (string.IsNullOrEmpty(requestedExtension)) name += originalExtension;
+        }
+        else if (!string.IsNullOrEmpty(requestedExtension)) return null;
+        return name.Length > 255 ? null : name;
     }
 
     private static async Task<string?> FindMediaNameConflictAsync(LessonCueDb db, IReadOnlyCollection<Guid> excludedIds,
@@ -4059,7 +4318,9 @@ public static class AdminApi
         foreach (var lesson in lessons) lesson.Version++;
     }
 
-    private static string NormalizeRole(string? role) => role is "preRoll" or "countdown" ? role : "lesson";
+    private static string NormalizeRole(string? role) => role is "preRoll" or "countdown" or "postLesson" ? role : "lesson";
+
+    private static string DefaultEndBehavior(string role) => role is "preRoll" or "postLesson" ? "loop" : "pause";
 
     private static bool TryMonitorUrl(string? value, out string? normalized)
     {
@@ -4078,7 +4339,8 @@ public static class AdminApi
         LessonId = lessonId, Title = source.Title, Type = source.Type, Role = source.Role,
         Position = source.Position, MediaAssetId = source.MediaAssetId, DurationMs = source.DurationMs,
         StartMs = source.StartMs, EndMs = source.EndMs, VolumePercent = source.VolumePercent,
-        ImageDurationSeconds = source.ImageDurationSeconds, EndBehavior = source.EndBehavior,
+        ImageDurationSeconds = source.ImageDurationSeconds, EstimatedDurationSeconds = source.EstimatedDurationSeconds,
+        EndBehavior = source.EndBehavior,
         AllowSkip = source.AllowSkip, Notes = source.Notes, FadeInMs = source.FadeInMs,
         FadeOutMs = source.FadeOutMs, NormalizeAudio = source.NormalizeAudio,
         CuePointsJson = source.CuePointsJson, FitMode = source.FitMode,
@@ -4107,12 +4369,15 @@ public static class AdminApi
         return null;
     }
 
-    private static string? ValidateCueTiming(long startMs, long? endMs, int? imageDurationSeconds, string endBehavior)
+    private static string? ValidateCueTiming(long startMs, long? endMs, int? imageDurationSeconds,
+        int? estimatedDurationSeconds, string endBehavior)
     {
         if (startMs < 0) return "Trim start cannot be negative.";
         if (endMs is not null && endMs <= startMs) return "Trim end must be after trim start.";
         if (imageDurationSeconds is not null && imageDurationSeconds is < 1 or > 3_600)
             return "Still and slide duration must be from 1 second to 1 hour.";
+        if (estimatedDurationSeconds is not null && estimatedDurationSeconds is < 1 or > 3_600)
+            return "Estimated still duration must be from 1 second to 1 hour.";
         if (endBehavior is not ("advance" or "loop" or "pause" or "stop" or "menu" or "playlistLoop"))
             return "Choose a supported end behavior.";
         return null;
@@ -4250,6 +4515,11 @@ public static class AdminApi
     {
         error = $"Not enough LessonCue storage is available for this upload ({requestedBytes} bytes requested). Ask an administrator to increase the allocation or remove media."
     }, statusCode: StatusCodes.Status507InsufficientStorage);
+
+    private static string FormatBytes(long value) =>
+        value >= 1024L * 1024 * 1024
+            ? $"{value / (1024d * 1024 * 1024):0.##} GB"
+            : $"{value / (1024d * 1024):0.##} MB";
 
     private static IResult UploadError(int statusCode, string error, StorageSnapshot? storage = null) =>
         Results.Json(new

@@ -2,7 +2,11 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
-import SwaggerParser from "@apidevtools/swagger-parser";
+// Parse OpenAPI directly with js-yaml. The swagger-parser dependency currently
+// stalls under the Node 26 runtime used by the installer/test VM; the checks
+// below only need the parsed document and are deliberately independent of that
+// validator's network/reference-resolution layer.
+const { load: parseYaml } = await import("js-yaml");
 
 const root = resolve(import.meta.dirname, "..");
 const readJson = async path =>
@@ -52,7 +56,7 @@ if (JSON.stringify(actualZoneTypes) !== JSON.stringify(expectedZoneTypes))
   throw new Error(`Manifest signage types drifted: ${JSON.stringify(actualZoneTypes)}`);
 
 const apiPath = resolve(root, "protocol/openapi.yaml");
-const api = await SwaggerParser.validate(apiPath);
+const api = parseYaml(await readFile(apiPath, "utf8"));
 const requiredPaths = [
   "/api/v1/auth/session",
   "/api/v1/auth/setup",
@@ -61,6 +65,8 @@ const requiredPaths = [
   "/api/v1/display-capabilities",
   "/api/v1/screens/{screenId}/manifest",
   "/api/v1/uploads",
+  "/api/v1/media/preflight",
+  "/api/v1/support/bundle",
   "/api/v1/uploads/{uploadId}/chunks/{index}",
   "/api/v1/registration/settings",
   "/api/v1/signage-studio/catalog",

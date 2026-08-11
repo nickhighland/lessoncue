@@ -1,0 +1,102 @@
+command: connectedSideloadDebugAndroidTest after lab AVD reboot
+start_local: 2026-08-02T20:27:52-0400
+List of devices attached
+emulator-5554          device product:sdk_google_atv64_amati_arm64 model:sdk_google_atv64_amati_arm64 device:emu64a transport_id:3
+
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preSideloadDebugBuild UP-TO-DATE
+> Task :app:generateSideloadDebugBuildConfig UP-TO-DATE
+> Task :app:generateSideloadDebugResValues UP-TO-DATE
+> Task :app:generateSideloadDebugResources UP-TO-DATE
+> Task :app:packageSideloadDebugResources UP-TO-DATE
+> Task :app:processSideloadDebugNavigationResources UP-TO-DATE
+> Task :app:parseSideloadDebugLocalResources UP-TO-DATE
+> Task :app:generateSideloadDebugRFile UP-TO-DATE
+> Task :app:compileSideloadDebugKotlin UP-TO-DATE
+> Task :app:javaPreCompileSideloadDebug UP-TO-DATE
+> Task :app:compileSideloadDebugJavaWithJavac UP-TO-DATE
+> Task :app:checkSideloadDebugAarMetadata UP-TO-DATE
+> Task :app:mapSideloadDebugSourceSetPaths UP-TO-DATE
+> Task :app:compileSideloadDebugNavigationResources UP-TO-DATE
+> Task :app:mergeSideloadDebugResources UP-TO-DATE
+> Task :app:createSideloadDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksSideloadDebug UP-TO-DATE
+> Task :app:processSideloadDebugMainManifest UP-TO-DATE
+> Task :app:processSideloadDebugManifest UP-TO-DATE
+> Task :app:processSideloadDebugManifestForPackage UP-TO-DATE
+> Task :app:processSideloadDebugResources UP-TO-DATE
+> Task :app:bundleSideloadDebugClassesToCompileJar UP-TO-DATE
+> Task :app:preSideloadDebugAndroidTestBuild SKIPPED
+> Task :app:processSideloadDebugAndroidTestManifest UP-TO-DATE
+> Task :app:generateSideloadDebugAndroidTestBuildConfig UP-TO-DATE
+> Task :app:generateSideloadDebugAndroidTestResValues UP-TO-DATE
+> Task :app:generateSideloadDebugAndroidTestResources UP-TO-DATE
+> Task :app:packageSideloadDebugAndroidTestResources UP-TO-DATE
+> Task :app:processSideloadDebugAndroidTestNavigationResources UP-TO-DATE
+> Task :app:parseSideloadDebugAndroidTestLocalResources UP-TO-DATE
+> Task :app:generateSideloadDebugAndroidTestRFile UP-TO-DATE
+> Task :app:compileSideloadDebugAndroidTestKotlin UP-TO-DATE
+> Task :app:javaPreCompileSideloadDebugAndroidTest UP-TO-DATE
+> Task :app:compileSideloadDebugAndroidTestJavaWithJavac UP-TO-DATE
+> Task :app:generateSideloadDebugAssets UP-TO-DATE
+> Task :app:mergeSideloadDebugAssets UP-TO-DATE
+> Task :app:compressSideloadDebugAssets UP-TO-DATE
+> Task :app:generateSideloadDebugGlobalSynthetics UP-TO-DATE
+> Task :app:checkSideloadDebugDuplicateClasses UP-TO-DATE
+> Task :app:desugarSideloadDebugFileDependencies UP-TO-DATE
+> Task :app:mergeExtDexSideloadDebug UP-TO-DATE
+> Task :app:mergeLibDexSideloadDebug UP-TO-DATE
+> Task :app:dexBuilderSideloadDebug UP-TO-DATE
+> Task :app:mergeProjectDexSideloadDebug UP-TO-DATE
+> Task :app:processSideloadDebugJavaRes UP-TO-DATE
+> Task :app:mergeSideloadDebugJavaResource UP-TO-DATE
+> Task :app:mergeSideloadDebugJniLibFolders UP-TO-DATE
+> Task :app:mergeSideloadDebugNativeLibs UP-TO-DATE
+> Task :app:stripSideloadDebugDebugSymbols UP-TO-DATE
+> Task :app:validateSigningSideloadDebug UP-TO-DATE
+> Task :app:writeSideloadDebugAppMetadata UP-TO-DATE
+> Task :app:writeSideloadDebugSigningConfigVersions UP-TO-DATE
+> Task :app:packageSideloadDebug UP-TO-DATE
+> Task :app:createSideloadDebugApkListingFileRedirect UP-TO-DATE
+> Task :app:generateSideloadDebugAndroidTestAssets UP-TO-DATE
+> Task :app:mergeSideloadDebugAndroidTestAssets UP-TO-DATE
+> Task :app:compressSideloadDebugAndroidTestAssets UP-TO-DATE
+> Task :app:generateSideloadDebugAndroidTestGlobalSynthetics UP-TO-DATE
+> Task :app:checkSideloadDebugAndroidTestDuplicateClasses UP-TO-DATE
+> Task :app:desugarSideloadDebugAndroidTestFileDependencies UP-TO-DATE
+> Task :app:mergeExtDexSideloadDebugAndroidTest UP-TO-DATE
+> Task :app:mergeLibDexSideloadDebugAndroidTest UP-TO-DATE
+> Task :app:checkSideloadDebugAndroidTestAarMetadata UP-TO-DATE
+> Task :app:mapSideloadDebugAndroidTestSourceSetPaths UP-TO-DATE
+> Task :app:compileSideloadDebugAndroidTestNavigationResources UP-TO-DATE
+> Task :app:mergeSideloadDebugAndroidTestResources UP-TO-DATE
+> Task :app:processSideloadDebugAndroidTestResources UP-TO-DATE
+> Task :app:dexBuilderSideloadDebugAndroidTest UP-TO-DATE
+> Task :app:mergeProjectDexSideloadDebugAndroidTest UP-TO-DATE
+> Task :app:processSideloadDebugAndroidTestJavaRes UP-TO-DATE
+> Task :app:mergeSideloadDebugAndroidTestJavaResource UP-TO-DATE
+> Task :app:mergeSideloadDebugAndroidTestJniLibFolders UP-TO-DATE
+> Task :app:mergeSideloadDebugAndroidTestNativeLibs NO-SOURCE
+> Task :app:stripSideloadDebugAndroidTestDebugSymbols NO-SOURCE
+> Task :app:validateSigningSideloadDebugAndroidTest UP-TO-DATE
+> Task :app:writeSideloadDebugAndroidTestSigningConfigVersions UP-TO-DATE
+> Task :app:packageSideloadDebugAndroidTest UP-TO-DATE
+> Task :app:createSideloadDebugAndroidTestApkListingFileRedirect UP-TO-DATE
+Starting 8 tests on Television_1080p(AVD) - 16
+> Task :app:connectedSideloadDebugAndroidTest
+
+Finished 8 tests on Television_1080p(AVD) - 16
+
+[Incubating] Problems report is available at: file:///Users/nickhighland/Documents/Video%20Viewer/android-tv/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.6.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 38s
+73 actionable tasks: 1 executed, 72 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.6.1/userguide/configuration_cache_enabling.html
+finish_local: 2026-08-02T20:28:31-0400
+exit_code: 0

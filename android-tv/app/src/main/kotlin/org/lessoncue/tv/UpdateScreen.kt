@@ -283,10 +283,10 @@ private fun formatBytes(bytes: Long?): String {
     return if (megabytes >= 1) "%.1f MB".format(megabytes) else "${bytes / 1024} KB"
 }
 
-private val UpdateNavy = Color(0xFF08111F)
-private val UpdateSlate = Color(0xFF182438)
-private val UpdateCream = Color(0xFFF7F2E8)
-private val UpdateMuted = Color(0xFFA9B3C2)
-private val UpdateGold = Color(0xFFFFB664)
-private val UpdateCoral = Color(0xFFFF7A6E)
-private val UpdateMint = Color(0xFF58D6A9)
+private val UpdateNavy = LessonCueTvColors.Background
+private val UpdateSlate = LessonCueTvColors.ElevatedPanel
+private val UpdateCream = LessonCueTvColors.Cream
+private val UpdateMuted = LessonCueTvColors.Muted
+private val UpdateGold = LessonCueTvColors.Orange
+private val UpdateCoral = LessonCueTvColors.Coral
+private val UpdateMint = LessonCueTvColors.Success

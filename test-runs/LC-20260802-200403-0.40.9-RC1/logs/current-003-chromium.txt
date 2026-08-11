@@ -1,0 +1,4 @@
+command: npx playwright install chromium
+start_local: 2026-08-02T20:53:28-0400
+finish_local: 2026-08-02T20:53:29-0400
+exit_code: 0
