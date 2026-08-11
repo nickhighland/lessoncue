@@ -4,6 +4,18 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.41 — accurate local installer address
+
+### User changes
+
+- Linux installer completion messages now use the saved `.local` hostname, so
+  isolated installations point operators to the address they will actually use.
+
+### Developer changes
+
+- Both the packaged installer and the prerequisite/download wrapper validate
+  and reuse the persisted local hostname instead of printing a hard-coded name.
+
 ## v0.40.40 — reliable root-shell installer invocation
 
 ### User changes

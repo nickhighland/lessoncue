@@ -199,5 +199,18 @@ printf '%s\n' "${INSTALLED_VERSION}" > /var/lib/lessoncue/config/installed-versi
 chown lessoncue:lessoncue /var/lib/lessoncue/config/installed-version
 chmod 0600 /var/lib/lessoncue/config/installed-version
 if [[ "${HTTP_PORT}" == "80" ]]; then PORT_SUFFIX=""; else PORT_SUFFIX=":${HTTP_PORT}"; fi
-echo "LessonCue is installed. Open http://lessoncue.local${PORT_SUFFIX}"
+normalize_local_hostname() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  value="$(printf '%s' "${value}" | tr '[:upper:]' '[:lower:]')"
+  if [[ "${value}" == *.local ]]; then value="${value:0:${#value}-6}"; fi
+  printf '%s' "${value}"
+}
+LOCAL_HOSTNAME=lessoncue
+if [[ -f /var/lib/lessoncue/config/local-hostname ]]; then
+  SAVED_HOSTNAME="$(normalize_local_hostname "$(cat /var/lib/lessoncue/config/local-hostname)")"
+  if [[ "${SAVED_HOSTNAME}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then LOCAL_HOSTNAME="${SAVED_HOSTNAME}"; fi
+fi
+echo "LessonCue is installed. Open http://${LOCAL_HOSTNAME}.local${PORT_SUFFIX}"
 echo "Numeric fallback: http://$(hostname -I | awk '{print $1}')${PORT_SUFFIX}"
