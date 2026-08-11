@@ -29,7 +29,7 @@ if ! command -v bwrap >/dev/null 2>&1; then
   exit 1
 fi
 if ! command -v runuser >/dev/null 2>&1; then
-  echo "Missing runuser. Install util-linux-extra (or the package that provides runuser) and rerun the LessonCue installer."
+  echo "Missing runuser. Install the package that provides runuser (typically util-linux-extra on Debian) and rerun the LessonCue installer."
   exit 1
 fi
 if ! command -v setpriv >/dev/null 2>&1; then
