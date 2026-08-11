@@ -859,6 +859,8 @@ public sealed record LinkInput(string Url, string? Title, bool Download = false,
 public sealed record UploadCreateInput(string FileName, long TotalBytes, string? ContentType = null,
     string? ExpectedSha256 = null, bool Persistent = false, Guid? LessonId = null,
     string? Folder = null, string? TagsCsv = null, long? DurationMs = null);
+public sealed record MediaPreflightInput(string FileName, long TotalBytes,
+    string? ContentType = null, bool Persistent = false, Guid? LessonId = null);
 public sealed record UploadCompleteInput(string? FileName = null, string? ContentType = null, int? TotalChunks = null,
     long? DurationMs = null, bool? Persistent = null, Guid? LessonId = null,
     string? Folder = null, string? TagsCsv = null);

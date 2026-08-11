@@ -19,6 +19,7 @@ export function ClassesView({
   mediaFormats,
   screens = [],
   onNavigateScreens,
+  onPresentNow,
 }: {
   classes: LessonClass[];
   lessons: Lesson[];
@@ -32,6 +33,7 @@ export function ClassesView({
   mediaFormats?: MediaFormats;
   screens?: Screen[];
   onNavigateScreens?: () => void;
+  onPresentNow?: (lesson: Lesson) => void;
 }) {
   const [selected, setSelected] = useState(classes[0]?.id || "");
   const [editing, setEditing] = useState<string>();
@@ -112,6 +114,7 @@ export function ClassesView({
         mediaFormats={mediaFormats}
         screens={screens}
         onNavigateScreens={onNavigateScreens}
+        onPresentNow={onPresentNow}
       />
     );
 
@@ -874,6 +877,7 @@ export function LessonEditor({
   mediaFormats,
   screens = [],
   onNavigateScreens,
+  onPresentNow,
 }: {
   lesson: Lesson;
   classes: LessonClass[];
@@ -888,6 +892,7 @@ export function LessonEditor({
   mediaFormats?: MediaFormats;
   screens?: Screen[];
   onNavigateScreens?: () => void;
+  onPresentNow?: (lesson: Lesson) => void;
 }) {
   const [showAdd, setShowAdd] = useState(false);
   const [addMode, setAddMode] = useState<"chooser" | "upload" | "poll" | "online" | "existing">("chooser");
@@ -910,6 +915,14 @@ export function LessonEditor({
   const [libraryDropIndex, setLibraryDropIndex] = useState<number>();
   const [activeSequenceSection, setActiveSequenceSection] = useState<"total" | PlaylistItem["role"]>("total");
   const [newCueId, setNewCueId] = useState<string>();
+  const [showSchedule, setShowSchedule] = useState(false);
+  const draftKey = `lessoncue.lesson-draft.${lesson.id}`;
+  const [draftStatus, setDraftStatus] = useState<"saved" | "dirty" | "">("");
+  const [localDraftAvailable, setLocalDraftAvailable] = useState(() => {
+    try { return !!localStorage.getItem(draftKey); } catch { return false; }
+  });
+  const draftTimer = useRef<number | undefined>(undefined);
+  const lessonSettingsRef = useRef<HTMLFormElement>(null);
   const items = [...lesson.items].sort((a, b) => a.position - b.position);
   const assignedScreens = screens.filter(
     (screen) => !screen.revoked && screen.assignedClassId === lesson.classId,
@@ -1002,6 +1015,34 @@ export function LessonEditor({
         item.sourceKind === "link") &&
       item.processingStatus === "ready",
   );
+  function markDraftDirty() {
+    setDraftStatus("dirty");
+    window.clearTimeout(draftTimer.current);
+    draftTimer.current = window.setTimeout(() => {
+      const form = lessonSettingsRef.current;
+      if (!form) return;
+      const values = Object.fromEntries(new FormData(form));
+      try {
+        localStorage.setItem(draftKey, JSON.stringify(values));
+        setDraftStatus("saved");
+        setLocalDraftAvailable(true);
+      } catch { /* local storage is optional */ }
+    }, 700);
+  }
+  useEffect(() => () => window.clearTimeout(draftTimer.current), []);
+  function restoreLocalDraft() {
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (!raw || !lessonSettingsRef.current) return;
+      const values = JSON.parse(raw) as Record<string, string>;
+      for (const [name, value] of Object.entries(values)) {
+        const field = lessonSettingsRef.current.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
+        if (field && "value" in field) field.value = value;
+      }
+      setDraftStatus("saved");
+      notify("Local lesson draft restored. Save draft to send it to the server.");
+    } catch { notify("The local draft could not be restored."); }
+  }
   const playableMediaRef = useRef(playableMedia);
   useEffect(() => {
     playableMediaRef.current = playableMedia;
@@ -1033,10 +1074,57 @@ export function LessonEditor({
         }),
       });
       notify("Lesson schedule saved.");
+      try { localStorage.removeItem(draftKey); } catch { /* optional */ }
+      setLocalDraftAvailable(false);
+      setDraftStatus("saved");
       refresh();
     } catch (e) {
       notify(errorText(e));
     }
+  }
+  async function scheduleLesson(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    try {
+      await api(`/api/v1/lessons/${lesson.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          designatedStartAt: values.designatedStartAt ? new Date(String(values.designatedStartAt)).toISOString() : null,
+          clearDesignatedStartAt: !values.designatedStartAt,
+          preRollStartsAt: values.preRollStartsAt ? new Date(String(values.preRollStartsAt)).toISOString() : null,
+          clearPreRollStartsAt: !values.preRollStartsAt,
+        }),
+      });
+      setShowSchedule(false);
+      refresh();
+      notify(values.designatedStartAt ? "Lesson scheduled." : "Lesson returned to draft timing.");
+    } catch (error) { notify(errorText(error)); }
+  }
+  async function duplicateLesson() {
+    try {
+      const result = await api<{ id: string }>(`/api/v1/lessons/${lesson.id}/duplicate`, { method: "POST", body: "{}" });
+      refresh();
+      notify("Lesson duplicated as a new draft one week later.");
+      onBack();
+      void result;
+    } catch (error) { notify(errorText(error)); }
+  }
+  async function toggleArchiveLesson() {
+    try {
+      await api(`/api/v1/lessons/${lesson.id}/archive`, { method: "POST", body: "{}" });
+      notify(lesson.archived ? "Lesson restored from archive." : "Lesson archived.");
+      refresh();
+      onBack();
+    } catch (error) { notify(errorText(error)); }
+  }
+  async function deleteLesson() {
+    if (!await confirmAction("Move this lesson to the recycling bin? It can be restored for 30 days.", { destructive: true, confirmLabel: "Move to recycling bin" })) return;
+    try {
+      await api(`/api/v1/lessons/${lesson.id}`, { method: "DELETE" });
+      notify("Lesson moved to the recycling bin.");
+      refresh();
+      onBack();
+    } catch (error) { notify(errorText(error)); }
   }
   const selectedCues = items.filter((item) => selectedCueIds.has(item.id));
   const allCuesSelected =
@@ -1624,11 +1712,26 @@ export function LessonEditor({
         detail={`${formatDate(lesson.date)} · Manifest version ${lesson.version}`}
         action={
           <div className="page-actions">
+            <button className="button primary" onClick={() => onPresentNow?.(lesson)} disabled={!onPresentNow}>
+              ▶ Present now
+            </button>
+            <button className="button" onClick={() => setShowSchedule(true)}>
+              Schedule
+            </button>
             <button className="button" onClick={() => setShowRunSheet(true)}>
               Print run sheet
             </button>
-            <button className="button" onClick={() => setShowRelocate(true)}>
-              Copy or move
+            <button className="button" onClick={() => void duplicateLesson()}>
+              Duplicate
+            </button>
+            <button className="button" aria-label="Copy or move" onClick={() => setShowRelocate(true)}>
+              Move / copy to room
+            </button>
+            <button className="button" onClick={toggleArchiveLesson}>
+              {lesson.archived ? "Restore" : "Archive"}
+            </button>
+            <button className="button danger" onClick={() => void deleteLesson()}>
+              Delete
             </button>
             {canUpload && (
               <button
@@ -1961,6 +2064,23 @@ export function LessonEditor({
           </form>
         </Modal>
       )}
+      {showSchedule && (
+        <Modal title="Schedule this lesson" onClose={() => setShowSchedule(false)}>
+          <form className="stack" onSubmit={scheduleLesson}>
+            <p className="settings-copy">Choose when the room should begin this lesson. Leave the start blank to keep it as a draft.</p>
+            <Field label="Class start">
+              <input name="designatedStartAt" type="datetime-local" defaultValue={toLocalInput(lesson.designatedStartAt)} autoFocus />
+            </Field>
+            <Field label="Pre-roll begins" hint="Optional. Screens loop pre-roll until the countdown or class start.">
+              <input name="preRollStartsAt" type="datetime-local" defaultValue={toLocalInput(lesson.preRollStartsAt)} />
+            </Field>
+            <div className="modal-actions">
+              <button type="button" className="button" onClick={() => setShowSchedule(false)}>Cancel</button>
+              <button className="button primary">Save schedule</button>
+            </div>
+          </form>
+        </Modal>
+      )}
       <section className="panel schedule-panel lesson-settings-top">
         <div className="lesson-settings-heading">
           <div>
@@ -1972,7 +2092,16 @@ export function LessonEditor({
             {items.length} cue{items.length !== 1 ? "s" : ""} · {formatFriendlyDuration(plannedDurationMs)}
           </span>
         </div>
-        <form className="stack lesson-settings-form" onSubmit={updateLesson}>
+        {localDraftAvailable && (
+          <div className="lesson-draft-banner" role="status">
+            <span>↻ A local draft is available for this lesson.</span>
+            <button type="button" className="text-button" onClick={restoreLocalDraft}>Restore local draft</button>
+          </div>
+        )}
+        <div className="lesson-autosave-state" role="status" aria-live="polite">
+          {draftStatus === "dirty" ? "Unsaved changes — saving a local draft…" : draftStatus === "saved" ? "✓ Local draft saved" : "Autosave protects changes made on this device"}
+        </div>
+        <form ref={lessonSettingsRef} className="stack lesson-settings-form" onInput={markDraftDirty} onSubmit={updateLesson}>
           <div className="lesson-settings-fields lesson-settings-primary">
             <Field label="Lesson title">
               <input name="title" defaultValue={lesson.title} required autoFocus />
@@ -2082,9 +2211,22 @@ export function LessonEditor({
             </div>
           </details>
           <div className="lesson-settings-actions">
-            <button className="button primary">Save lesson settings</button>
+            <button className="button primary" aria-label="Save lesson settings" title="Save draft">Save draft</button>
           </div>
         </form>
+      </section>
+      <section className="panel lesson-compact-timeline" aria-label="Compact lesson timeline">
+        <div className="panel-heading">
+          <div><span className="section-label">AT A GLANCE</span><h2>Lesson timeline</h2><p>Check the room's order and timing before presenting.</p></div>
+          <strong>{formatFriendlyDuration(plannedDurationMs)}</strong>
+        </div>
+        <div className="lesson-timeline-track">
+          {items.map((item) => {
+            const duration = Math.max(1, cuePlannedDurationMs(item));
+            const width = Math.max(5, Math.round((duration / Math.max(1, plannedDurationMs)) * 100));
+            return <button type="button" key={item.id} className={`lesson-timeline-segment ${item.role}`} style={{ flex: `${width} 1 0%` }} onClick={() => { setActiveSequenceSection(item.role); setNewCueId(item.id); }} title={`${item.title} · ${cueDurationLabel(item)}`}><span>{item.title}</span></button>;
+          })}
+        </div>
       </section>
       <section className="panel playlist-panel playlist-panel-wide lesson-playlist-workspace">
         <div className="panel-heading">

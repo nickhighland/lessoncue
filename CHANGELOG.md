@@ -4,6 +4,23 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.38 — clearer live workflows and service diagnostics
+
+### User changes
+
+- Audience sessions now guide operators from poll creation to opening and QR sharing, with copy/download actions, live participant and moderation counts, and closed-session recovery.
+- Media uploads run a server preflight that names the detected format, converter readiness, expected output, storage limits, and queue position before any bytes are sent.
+- Controller focus mode provides large targets, visible current/next context, keyboard/remote shortcuts, selected-room and connection state, and command receipt feedback.
+- Lesson editing separates Present now, Schedule, Save draft, Duplicate, Archive, and Delete, with local autosave recovery and a compact timeline.
+- Service Admins can inspect storage, converters, queues, displays, backups, and updates and download a redacted support bundle.
+- Large administration workspaces load on demand, with a first-interaction performance mark and a checked JavaScript bundle budget.
+
+### Developer changes
+
+- Added `/api/v1/media/preflight` and `/api/v1/support/bundle` to the OpenAPI contract.
+- Expanded media preflight diagnostics across the broad catalog, including optional WebP/Theora and LibreOffice/Poppler readiness.
+- Added browser accessibility, end-to-end, protocol, server, real-use, and bundle-budget verification to the release checklist.
+
 ## v0.40.37 — streamline signage playlist editing
 
 ### User changes

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -519,6 +520,88 @@ public static class AdminApi
         var playback = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Playback);
         var screens = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Screens);
         var appSettings = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.AppSettings);
+
+        // A redacted, operator-downloadable snapshot for support tickets. It intentionally
+        // omits account names, IP addresses, media paths, URLs, secrets, and response text.
+        admin.MapGet("/support/bundle", async (LessonCueDb db, StorageService storage,
+            BackupPolicyService backupPolicy, UpdateService updates, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var storageStatus = await storage.GetSnapshotAsync(db, ct);
+            var converter = MediaConverterCapabilities.Snapshot();
+            var media = await db.MediaAssets.AsNoTracking().Where(x => x.DeletedAt == null)
+                .Select(x => new { x.ProcessingStatus, x.CompatibilityStatus, x.ConversionStatus, x.SizeBytes })
+                .ToListAsync(ct);
+            var activeUploadStates = new[]
+            {
+                UploadSessionStates.Active,
+                UploadSessionStates.Paused,
+                UploadSessionStates.Failed,
+                UploadSessionStates.Completing
+            };
+            var uploadSnapshotTime = DateTimeOffset.UtcNow;
+            var uploads = (await db.UploadSessions.AsNoTracking()
+                .Select(x => new { x.State, x.ExpectedLength, x.ReceivedBytes, x.UpdatedAt, x.ExpiresAt })
+                .ToListAsync(ct))
+                .Where(x => x.ExpiresAt > uploadSnapshotTime && activeUploadStates.Contains(x.State))
+                .ToList();
+            var screens = await db.Screens.AsNoTracking().Where(x => !x.Revoked)
+                .Select(x => new
+                {
+                    platform = x.Platform,
+                    online = x.LastSeenAt != null && x.LastSeenAt >= DateTimeOffset.UtcNow.AddMinutes(-2),
+                    lastSeenAt = x.LastSeenAt,
+                    x.FailedDownloads,
+                    x.PlaybackError,
+                    x.NetworkQuality,
+                    x.AcknowledgedControlVersion,
+                    x.ControlVersion
+                }).ToListAsync(ct);
+            var bundle = new
+            {
+                schemaVersion = 1,
+                generatedAt = DateTimeOffset.UtcNow,
+                server = new { serverId, serverName, version = updates.Status.CurrentVersion,
+                    timeZone = organization.TimeZone },
+                storage = new { storageStatus.UsedBytes, storageStatus.AllocationBytes,
+                    storageStatus.RemainingBytes, storageStatus.ReservedBytes,
+                    storageStatus.DiskAvailableBytes },
+                converters = new { converter.Ffmpeg, converter.Ffprobe, converter.LibreOffice,
+                    converter.Poppler, converter.WebpEncoder, converter.TheoraEncoder,
+                    converter.Missing, converter.CheckedAt },
+                queue = new
+                {
+                    activeUploads = uploads.Count,
+                    reservedBytes = uploads.Sum(x => Math.Max(0, x.ExpectedLength - x.ReceivedBytes)),
+                    states = uploads.GroupBy(x => x.State).ToDictionary(g => g.Key, g => g.Count())
+                },
+                media = new
+                {
+                    count = media.Count,
+                    bytes = media.Sum(x => x.SizeBytes),
+                    processing = media.GroupBy(x => x.ProcessingStatus).ToDictionary(g => g.Key, g => g.Count()),
+                    compatibility = media.GroupBy(x => x.CompatibilityStatus).ToDictionary(g => g.Key, g => g.Count()),
+                    conversion = media.GroupBy(x => x.ConversionStatus).ToDictionary(g => g.Key, g => g.Count())
+                },
+                screens = new
+                {
+                    count = screens.Count,
+                    online = screens.Count(x => x.online),
+                    failedDownloads = screens.Sum(x => x.FailedDownloads),
+                    playbackErrors = screens.Count(x => !string.IsNullOrWhiteSpace(x.PlaybackError)),
+                    commandsAwaitingReceipt = screens.Count(x => x.ControlVersion > x.AcknowledgedControlVersion),
+                    networkQuality = screens.GroupBy(x => x.NetworkQuality).ToDictionary(g => g.Key, g => g.Count())
+                },
+                backup = backupPolicy.GetStatus(organization.TimeZone),
+                update = updates.Status
+            };
+            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(bundle, new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            }));
+            return Results.File(bytes, "application/json", $"lessoncue-support-{DateTime.UtcNow:yyyyMMdd-HHmmss}.json");
+        }).RequireAuthorization(LessonCuePermissions.Settings);
 
         admin.MapGet("/admin/bootstrap", async (LessonCueDb db, PairingCodeService pairing, StorageService storage,
             UpdateService updates, LocalAddressService localAddress, HttpPortService httpPort,
@@ -2159,6 +2242,78 @@ public static class AdminApi
                 .Take(100);
             return Results.Ok(items.Select(sessions.Status));
         });
+
+        uploads.MapPost("/media/preflight", async (MediaPreflightInput input, LessonCueDb db,
+            StorageService storage, HttpContext context, CancellationToken ct) =>
+        {
+            var fileName = Path.GetFileName(input.FileName?.Trim() ?? "");
+            var extension = Path.GetExtension(fileName).ToLowerInvariant();
+            var format = MediaFormatCatalog.All.FirstOrDefault(x =>
+                string.Equals(x.Extension, extension, StringComparison.OrdinalIgnoreCase));
+            var converter = MediaConverterCapabilities.Snapshot();
+            var family = format?.Family ?? MediaFormatCatalog.Family(extension, input.ContentType);
+            var converterName = format?.Converter ?? "none";
+            var converterReady = converterName switch
+            {
+                "FFmpeg" => converter.Ffmpeg && converter.Ffprobe,
+                "LibreOffice" => converter.LibreOffice,
+                "Poppler" => converter.Poppler,
+                _ => true
+            };
+            var storageStatus = await storage.GetSnapshotAsync(db, ct);
+            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var policy = UploadQuotaPolicy.Read(organization);
+            var activeUploadStates = new[]
+            {
+                UploadSessionStates.Active,
+                UploadSessionStates.Paused,
+                UploadSessionStates.Failed,
+                UploadSessionStates.Completing
+            };
+            var currentOwnerId = CurrentAccountId(context);
+            var preflightSnapshotTime = DateTimeOffset.UtcNow;
+            var active = (await db.UploadSessions.AsNoTracking()
+                .Where(x => x.OwnerAccountId == currentOwnerId)
+                .Select(x => new { x.State, x.ExpiresAt })
+                .ToListAsync(ct))
+                .Count(x => x.ExpiresAt > preflightSnapshotTime && activeUploadStates.Contains(x.State));
+            var warnings = new List<string>();
+            if (format is null) warnings.Add("This extension is not supported by the installed LessonCue catalog.");
+            if (input.TotalBytes <= 0) warnings.Add("Choose a file larger than zero bytes.");
+            if (input.TotalBytes > UploadQuotaPolicy.HardMaximumFileBytes)
+                warnings.Add("The hard server limit is 100 GB per file.");
+            if (policy.MaxFileBytes > 0 && input.TotalBytes > policy.MaxFileBytes)
+                warnings.Add($"This organization limits files to {FormatBytes(policy.MaxFileBytes)}.");
+            if (input.TotalBytes > storageStatus.RemainingBytes)
+                warnings.Add($"Only {FormatBytes(storageStatus.RemainingBytes)} remains available after current reservations.");
+            if (!input.Persistent && input.LessonId is null)
+                warnings.Add("Choose a lesson or switch to Keep permanently before uploading.");
+            if (!converterReady)
+                warnings.Add($"{converterName} is unavailable on this server. Install the documented converter or upload a different format.");
+            var expectedOutput = family switch
+            {
+                "video" => "Original plus an inspected TV-ready H.264/AAC copy when needed",
+                "audio" => "Original plus normalized playback metadata",
+                "image" => "Original plus a browser/TV thumbnail derivative",
+                "document" => "Validated local PDF/slide PNGs for lesson playback",
+                _ => "Validated local media derivative"
+            };
+            return Results.Ok(new
+            {
+                fileName, extension, family, label = format?.Label ?? "Unsupported file",
+                contentType = format?.ContentType ?? input.ContentType ?? "application/octet-stream",
+                converter = converterName,
+                converterReady,
+                supported = format is not null,
+                sizeBytes = input.TotalBytes,
+                sizeAllowed = input.TotalBytes > 0 && input.TotalBytes <= UploadQuotaPolicy.HardMaximumFileBytes &&
+                    (policy.MaxFileBytes <= 0 || input.TotalBytes <= policy.MaxFileBytes) &&
+                    input.TotalBytes <= storageStatus.RemainingBytes,
+                codec = family is "video" or "audio" ? "Detected during server inspection after upload" : null,
+                expectedOutput, queuePosition = active + 1, activeUploads = active,
+                warnings, ready = format is not null && converterReady && warnings.Count == 0
+            });
+        }).RequireRateLimiting("media-processing");
 
         uploads.MapGet("/uploads/{uploadId:guid}", async (Guid uploadId, LessonCueDb db,
             UploadSessionService sessions, HttpContext context, CancellationToken ct) =>
@@ -4360,6 +4515,11 @@ public static class AdminApi
     {
         error = $"Not enough LessonCue storage is available for this upload ({requestedBytes} bytes requested). Ask an administrator to increase the allocation or remove media."
     }, statusCode: StatusCodes.Status507InsufficientStorage);
+
+    private static string FormatBytes(long value) =>
+        value >= 1024L * 1024 * 1024
+            ? $"{value / (1024d * 1024 * 1024):0.##} GB"
+            : $"{value / (1024d * 1024):0.##} MB";
 
     private static IResult UploadError(int statusCode, string error, StorageSnapshot? storage = null) =>
         Results.Json(new

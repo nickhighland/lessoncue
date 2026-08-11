@@ -1,8 +1,8 @@
 import { confirmAction } from "../../AccessibleDialogs";
 import { FormEvent, useEffect, useState } from "react";
-import { api, uploadMediaFile } from "../api";
+import { api, preflightMediaFile, uploadMediaFile } from "../api";
 import { MediaPreview } from "../media-editor";
-import { Lesson, Media, MediaConverterStatus, MediaFormats, MediaImpact, MediaTaxonomy, MediaUploadControl, MediaVersion, StorageStatus } from "../models";
+import { Lesson, Media, MediaConverterStatus, MediaFormats, MediaImpact, MediaPreflight, MediaTaxonomy, MediaUploadControl, MediaVersion, StorageStatus } from "../models";
 import { Empty, Field, Modal, PageHead, StorageMeter, TaxonomyFields, formTags } from "../ui";
 import { convertedSlideCount, dateInputValue, errorText, formatBytes, formatDate, formatDuration, formatShortDate, friendlyType, isConvertibleDocument, mediaCategory, mediaFileExtension, mediaNameStem, timeAgo } from "../utils";
 
@@ -12,6 +12,9 @@ type UploadFileState = {
   status: "selected" | "uploading" | "succeeded" | "failed";
   progress: number;
   error?: string;
+  preflight?: MediaPreflight;
+  preflightError?: string;
+  preflighting?: boolean;
 };
 
 function selectedUploadFiles(files: FileList | null): UploadFileState[] {
@@ -93,6 +96,28 @@ export function MediaView({
     firstUpcoming?.id || "",
   );
   const [slideSeconds, setSlideSeconds] = useState<number | "">("");
+  async function runUploadPreflight(entries: UploadFileState[], persistent = storagePolicy === "persistent") {
+    const lessonId = persistent ? undefined : firstUpcoming?.id;
+    await Promise.all(entries.map(async (entry) => {
+      setUploadFiles((current) => current.map((item) =>
+        item.key === entry.key ? { ...item, preflighting: true, preflightError: undefined } : item,
+      ));
+      try {
+        const preflight = await preflightMediaFile(entry.file, { persistent, lessonId });
+        setUploadFiles((current) => current.map((item) =>
+          item.key === entry.key ? { ...item, preflight, preflighting: false } : item,
+        ));
+      } catch (error) {
+        setUploadFiles((current) => current.map((item) =>
+          item.key === entry.key ? { ...item, preflighting: false, preflightError: errorText(error) } : item,
+        ));
+      }
+    }));
+  }
+  function changeUploadStoragePolicy(persistent: boolean) {
+    setStoragePolicy(persistent ? "persistent" : "lesson");
+    if (uploadFiles.length) void runUploadPreflight(uploadFiles, persistent);
+  }
   useEffect(() => {
     if (
       !media.some(
@@ -443,6 +468,11 @@ export function MediaView({
     const form = new FormData(event.currentTarget);
     const attempts = uploadFiles.filter((item) => item.status !== "succeeded");
     if (!attempts.length) return;
+    const blocked = attempts.filter((item) => item.preflighting || !item.preflight?.ready);
+    if (blocked.length) {
+      notify("Resolve the highlighted upload preflight checks before starting.");
+      return;
+    }
     const persistent = storagePolicy === "persistent";
     const lessonId = persistent
       ? undefined
@@ -814,7 +844,9 @@ export function MediaView({
                 required
                 disabled={uploading}
                 onChange={(event) => {
-                  setUploadFiles(selectedUploadFiles(event.currentTarget.files));
+                  const entries = selectedUploadFiles(event.currentTarget.files);
+                  setUploadFiles(entries);
+                  void runUploadPreflight(entries);
                   setUploadBatchMessage("");
                 }}
               />
@@ -838,6 +870,16 @@ export function MediaView({
                             {format ? `${format.label} · ${format.converter}` : item.file.type || "Type checked securely by the server"} · {formatBytes(item.file.size)}
                             {item.status === "uploading" ? ` · ${item.progress}%` : ""}
                           </small>
+                          {item.preflighting && <small className="upload-preflight-checking">Checking server readiness…</small>}
+                          {item.preflight && (
+                            <div className={`upload-preflight ${item.preflight.ready ? "ready" : "blocked"}`}>
+                              <strong>{item.preflight.ready ? "Ready to upload" : "Action needed before upload"}</strong>
+                              <span>{item.preflight.codec || "Codec check: not required before upload"} · Queue position #{item.preflight.queuePosition}</span>
+                              <span>Expected: {item.preflight.expectedOutput}</span>
+                              {item.preflight.warnings.map((warning) => <em key={warning}>{warning}</em>)}
+                            </div>
+                          )}
+                          {item.preflightError && <p>{item.preflightError} Retry the preflight check by selecting the file again.</p>}
                           {item.error && <p>{item.error}</p>}
                         </div>
                         <b>{item.status}</b>
@@ -858,7 +900,7 @@ export function MediaView({
                     name="storagePolicy"
                     value="lesson"
                     checked={storagePolicy === "lesson"}
-                    onChange={() => setStoragePolicy("lesson")}
+                    onChange={() => changeUploadStoragePolicy(false)}
                   />
                   <span>
                     <strong>For a lesson (default)</strong>
@@ -874,7 +916,7 @@ export function MediaView({
                   name="storagePolicy"
                   value="persistent"
                   checked={storagePolicy === "persistent"}
-                  onChange={() => setStoragePolicy("persistent")}
+                    onChange={() => changeUploadStoragePolicy(true)}
                 />
                 <span>
                   <strong>Keep permanently</strong>
@@ -909,12 +951,17 @@ export function MediaView({
                 upload will be kept permanently.
               </div>
             )}
-            <button className="button primary" disabled={uploading}>
+            <button
+              className="button primary"
+              disabled={uploading || uploadFiles.some((item) => item.preflighting || !item.preflight?.ready)}
+            >
               {uploading
                 ? `Uploading ${uploadProgress}%`
                 : uploadFiles.some((item) => item.status === "failed")
                   ? "Retry failed files"
-                  : "Upload to local server"}
+                  : uploadFiles.length && uploadFiles.some((item) => !item.preflight?.ready)
+                    ? "Resolve preflight checks"
+                    : "Upload to local server"}
             </button>
             {uploading && uploadControl && (
               <div className="button-row upload-controls">
@@ -1319,16 +1366,21 @@ export function MediaView({
                 <span>
                   <i className="available-dot" />{" "}
                   {m.processingStatus === "pending" || m.processingStatus === "processing"
-                    ? m.compatibilityStatus === "converting" ? "Making TV copy" : "Processing"
+                    ? m.compatibilityStatus === "converting" ? "Making TV copy · stage 3/4" : "Inspecting file · stage 1/4"
                     : m.processingStatus === "failed" ? "Processing failed"
                     : isConvertibleDocument(m)
                       ? m.conversionStatus === "failed" ? "Slide conversion failed"
-                        : ["pending", "converting"].includes(m.conversionStatus) ? "Converting slides"
+                        : ["pending", "converting"].includes(m.conversionStatus) ? `Converting slides · ${m.conversionStatus === "pending" ? "queued" : "rendering"}`
                           : m.conversionStatus === "ready" && convertedSlideCount(m) > 0 ? "Slides ready"
                             : "Needs slide conversion"
                       : m.compatibilityStatus === "ready" ? "TV copy ready"
                         : m.offlineEligible ? "TV ready" : "Internet required"}
                 </span>
+                {(m.processingError || m.compatibilityError || m.conversionError) && (
+                  <small className="media-remediation">
+                    {m.processingError || m.compatibilityError || m.conversionError}
+                  </small>
+                )}
                 {m.processingStatus === "ready" && isConvertibleDocument(m) && !["pending", "converting", "ready"].includes(m.conversionStatus) && canUpload && (
                   <button type="button" onClick={() => void queueDocumentConversion(m)}>
                     {m.conversionStatus === "failed" ? "Retry" : "Convert to slides"}
