@@ -22,6 +22,7 @@ fi
 REQUEST_PATH=/var/lib/lessoncue/config/update-request
 UPDATE_RESULT_PATH=/var/lib/lessoncue/config/update-result.json
 UPDATE_RESULT_WRITTEN=false
+BOOTSTRAP_ACTIVE="${LESSONCUE_UPDATE_BOOTSTRAPPED:-false}"
 
 write_update_result() {
   local success="$1" version="$2" message="$3"
@@ -39,16 +40,18 @@ write_update_result() {
   UPDATE_RESULT_WRITTEN=true
 }
 
-exec 9>/run/lessoncue-update.lock
-if ! flock -n 9; then
-  REQUEST="$(head -n 1 "${REQUEST_PATH}" 2>/dev/null || true)"
-  if [[ "${REQUEST}" == update:* || "${REQUEST}" == rollback:* ]]; then
-    write_update_result false "unknown" \
-      "Another protected LessonCue operation is already in progress. This request was not started; try again after the active operation finishes."
-    rm -f "${REQUEST_PATH}"
+if [[ "${BOOTSTRAP_ACTIVE}" != true ]]; then
+  exec 9>/run/lessoncue-update.lock
+  if ! flock -n 9; then
+    REQUEST="$(head -n 1 "${REQUEST_PATH}" 2>/dev/null || true)"
+    if [[ "${REQUEST}" == update:* || "${REQUEST}" == rollback:* ]]; then
+      write_update_result false "unknown" \
+        "Another protected LessonCue operation is already in progress. This request was not started; try again after the active operation finishes."
+      rm -f "${REQUEST_PATH}"
+    fi
+    echo "Another LessonCue update is already running."
+    exit 0
   fi
-  echo "Another LessonCue update is already running."
-  exit 0
 fi
 RECOVERY_ONLY=false
 if [[ "${1:-}" == "--recover" ]]; then RECOVERY_ONLY=true; fi
@@ -58,7 +61,14 @@ if [[ "$(uname -m)" =~ ^(x86_64|amd64)$ ]] && id lessoncue >/dev/null 2>&1; then
   done
 fi
 
-if [[ "${RECOVERY_ONLY}" == true ]]; then
+if [[ "${BOOTSTRAP_ACTIVE}" == true ]]; then
+  REQUEST="${LESSONCUE_UPDATE_REQUEST:-}"
+  if [[ "${REQUEST}" != update:* || -z "${LESSONCUE_UPDATE_VERIFIED_WORKDIR:-}" ]]; then
+    write_update_result false "unknown" \
+      "The verified release updater could not resume because its protected bootstrap context was incomplete."
+    exit 1
+  fi
+elif [[ "${RECOVERY_ONLY}" == true ]]; then
   REQUEST=""
 else
   REQUEST="$(head -n 1 "${REQUEST_PATH}" 2>/dev/null || true)"
@@ -74,6 +84,7 @@ FAILED=/opt/lessoncue.failed
 ROLLBACK_REJECTED=/opt/lessoncue.rollback-rejected
 MEDIA_WORKER=/usr/local/libexec/lessoncue-media-worker
 MEDIA_RENDER_RULE=/etc/udev/rules.d/99-lessoncue-render.rules
+SNAPSHOT_FAILURE_REASON=""
 UPDATE_TRANSACTION_ACTIVE=false
 APP_SWAPPED=false
 READINESS_ATTEMPTS="${LESSONCUE_UPDATE_READINESS_ATTEMPTS:-30}"
@@ -100,14 +111,44 @@ fail_update() {
   exit 1
 }
 
+snapshot_failure() {
+  SNAPSHOT_FAILURE_REASON="$1"
+  return 1
+}
+
+# SQLite can create -wal and -shm sidecars even when a database is opened in
+# read-only mode. Run integrity checks against a disposable copy so validating
+# a protected snapshot can never change the snapshot that will be compared or
+# restored.
+verify_database_copy() {
+  local source_directory="$1" verifier="$2" verification_directory result=0
+  verification_directory="$(mktemp -d /var/lib/lessoncue/.database-verification.XXXXXXXX)" || return 1
+  if ! cp -a "${source_directory}/." "${verification_directory}/"; then
+    result=1
+  elif ! "${verifier}" --verify-database "${verification_directory}/lessoncue.db"; then
+    result=1
+  fi
+  if ! rm -rf -- "${verification_directory}"; then result=1; fi
+  return "${result}"
+}
+
 snapshot_path() {
   local source="$1" root="${2:-${ROLLBACK_ROOT}}" relative="${1#/}" destination="${2:-${ROLLBACK_ROOT}}/system/${1#/}"
   if [[ -e "${source}" || -L "${source}" ]]; then
-    mkdir -p "$(dirname "${destination}")"
-    cp -a "${source}" "${destination}"
+    if ! mkdir -p "$(dirname "${destination}")"; then
+      snapshot_failure "could not create the protected snapshot directory for ${source}"
+      return 1
+    fi
+    if ! cp -a "${source}" "${destination}"; then
+      snapshot_failure "could not copy protected path ${source}"
+      return 1
+    fi
   else
-    mkdir -p "${root}/missing/$(dirname "${relative}")"
-    : > "${root}/missing/${relative}"
+    if ! mkdir -p "${root}/missing/$(dirname "${relative}")" ||
+       ! : > "${root}/missing/${relative}"; then
+      snapshot_failure "could not record missing protected path ${source}"
+      return 1
+    fi
   fi
 }
 
@@ -131,38 +172,73 @@ refresh_render_device_rules() {
 
 prepare_update_snapshot() {
   local temporary="${ROLLBACK_ROOT}.new"
-  rm -rf "${temporary}"
-  install -d -o root -g root -m 0700 "${temporary}/data" || return 1
-  if [[ -d /var/lib/lessoncue/database ]]; then cp -a /var/lib/lessoncue/database "${temporary}/data/database" || return 1; fi
-  if [[ -d /var/lib/lessoncue/config ]]; then cp -a /var/lib/lessoncue/config "${temporary}/data/config" || return 1; fi
-  if [[ ! -f "${temporary}/data/database/lessoncue.db" ]] ||
-     ! "${STAGED}/LessonCue.Server" --verify-database "${temporary}/data/database/lessoncue.db"; then
+  SNAPSHOT_FAILURE_REASON=""
+  if ! rm -rf "${temporary}"; then
+    snapshot_failure "could not clear the temporary protected snapshot directory"
+    return 1
+  fi
+  if ! install -d -o root -g root -m 0700 "${temporary}/data"; then
+    snapshot_failure "could not create the temporary protected snapshot directory"
+    return 1
+  fi
+  if [[ -d /var/lib/lessoncue/database ]] &&
+     ! cp -a /var/lib/lessoncue/database "${temporary}/data/database"; then
+    snapshot_failure "could not copy the database into the protected snapshot"
+    return 1
+  fi
+  if [[ -d /var/lib/lessoncue/config ]] &&
+     ! cp -a /var/lib/lessoncue/config "${temporary}/data/config"; then
+    snapshot_failure "could not copy the configuration into the protected snapshot"
+    return 1
+  fi
+  if [[ ! -f "${temporary}/data/database/lessoncue.db" ]]; then
+    snapshot_failure "the protected snapshot is missing the database file"
+    return 1
+  fi
+  if ! verify_database_copy "${temporary}/data/database" "${STAGED}/LessonCue.Server"; then
+    snapshot_failure "the staged server rejected the protected database snapshot"
     return 1
   fi
   if [[ -d /var/lib/lessoncue/database ]] &&
      ! diff -qr /var/lib/lessoncue/database "${temporary}/data/database" >/dev/null; then
+    snapshot_failure "the database changed or could not be compared while snapshotting"
     return 1
   fi
   if [[ -d /var/lib/lessoncue/config ]] &&
      ! diff -qr /var/lib/lessoncue/config "${temporary}/data/config" >/dev/null; then
+    snapshot_failure "the configuration changed or could not be compared while snapshotting"
     return 1
   fi
-  rm -rf "${ROLLBACK_ROOT}"
-  mv "${temporary}" "${ROLLBACK_ROOT}" || return 1
-
-  snapshot_path /usr/local/sbin/lessoncue-update || return 1
-  snapshot_path /etc/systemd/system/lessoncue-update.service || return 1
-  snapshot_path /etc/systemd/system/lessoncue-update.path || return 1
-  snapshot_path /etc/systemd/system/lessoncue-update-recovery.service || return 1
-  snapshot_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service || return 1
-  snapshot_path /etc/systemd/system/lessoncue.service || return 1
-  snapshot_path /etc/systemd/system/lessoncue-cloudflared.service || return 1
-  snapshot_path "${MEDIA_WORKER}" || return 1
-  snapshot_path "${MEDIA_RENDER_RULE}" || return 1
-  snapshot_path /etc/lessoncue || return 1
-  printf '%s\n' "${CURRENT_VERSION:-unknown}" > "${ROLLBACK_ROOT}/from-version" || return 1
-  printf '%s\n' "${VERSION:-unknown}" > "${ROLLBACK_ROOT}/to-version" || return 1
-  printf '%s\n' "$(date --iso-8601=seconds)" > "${ROLLBACK_ROOT}/created-at" || return 1
+  snapshot_path /usr/local/sbin/lessoncue-update "${temporary}" || return 1
+  snapshot_path /etc/systemd/system/lessoncue-update.service "${temporary}" || return 1
+  snapshot_path /etc/systemd/system/lessoncue-update.path "${temporary}" || return 1
+  snapshot_path /etc/systemd/system/lessoncue-update-recovery.service "${temporary}" || return 1
+  snapshot_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service "${temporary}" || return 1
+  snapshot_path /etc/systemd/system/lessoncue.service "${temporary}" || return 1
+  snapshot_path /etc/systemd/system/lessoncue-cloudflared.service "${temporary}" || return 1
+  snapshot_path "${MEDIA_WORKER}" "${temporary}" || return 1
+  snapshot_path "${MEDIA_RENDER_RULE}" "${temporary}" || return 1
+  snapshot_path /etc/lessoncue "${temporary}" || return 1
+  if ! printf '%s\n' "${CURRENT_VERSION:-unknown}" > "${temporary}/from-version"; then
+    snapshot_failure "could not write the protected snapshot source version"
+    return 1
+  fi
+  if ! printf '%s\n' "${VERSION:-unknown}" > "${temporary}/to-version"; then
+    snapshot_failure "could not write the protected snapshot target version"
+    return 1
+  fi
+  if ! date --iso-8601=seconds > "${temporary}/created-at"; then
+    snapshot_failure "could not write the protected snapshot timestamp"
+    return 1
+  fi
+  if ! rm -rf "${ROLLBACK_ROOT}"; then
+    snapshot_failure "could not clear the previous protected snapshot"
+    return 1
+  fi
+  if ! mv "${temporary}" "${ROLLBACK_ROOT}"; then
+    snapshot_failure "could not finalize the protected snapshot directory"
+    return 1
+  fi
 }
 
 restore_update_snapshot() {
@@ -234,7 +310,7 @@ prepare_manual_rollback_safety() {
   if [[ -d /var/lib/lessoncue/database ]]; then cp -a /var/lib/lessoncue/database "${temporary}/data/database" || return 1; fi
   if [[ -d /var/lib/lessoncue/config ]]; then cp -a /var/lib/lessoncue/config "${temporary}/data/config" || return 1; fi
   if [[ ! -f "${temporary}/data/database/lessoncue.db" ]] ||
-     ! /opt/lessoncue/LessonCue.Server --verify-database "${temporary}/data/database/lessoncue.db"; then
+     ! verify_database_copy "${temporary}/data/database" /opt/lessoncue/LessonCue.Server; then
     return 1
   fi
   if ! diff -qr /var/lib/lessoncue/database "${temporary}/data/database" >/dev/null ||
@@ -326,7 +402,7 @@ perform_manual_rollback() {
     CURRENT_VERSION="$(/opt/lessoncue/LessonCue.Server --version 2>/dev/null || printf 'unknown')"
   fi
   VERSION="$(cat "${ROLLBACK_ROOT}/from-version" 2>/dev/null || printf 'unknown')"
-  if ! /opt/lessoncue/LessonCue.Server --verify-database "${ROLLBACK_ROOT}/data/database/lessoncue.db"; then
+  if ! verify_database_copy "${ROLLBACK_ROOT}/data/database" /opt/lessoncue/LessonCue.Server; then
     write_update_result false "${VERSION}" "The protected rollback database failed its integrity check. The current installation was not changed."
     return 1
   fi
@@ -723,18 +799,40 @@ if [[ -z "${CURRENT_VERSION}" ]]; then CURRENT_VERSION=unknown; fi
 REPOSITORY="${LESSONCUE_UPDATE_REPOSITORY:-https://github.com/nickhighland/lessoncue}"
 if [[ -n "${LESSONCUE_UPDATE_VERSION:-}" ]]; then
   VERSION="${LESSONCUE_UPDATE_VERSION}"
+elif [[ "${REQUEST}" =~ ^update:(v?[0-9]+\.[0-9]+\.[0-9]+)(:|$) ]]; then
+  VERSION="${BASH_REMATCH[1]}"
+  if [[ "${VERSION}" != v* ]]; then VERSION="v${VERSION}"; fi
 else
   VERSION_URL="$(curl -fsSL -o /dev/null -w '%{url_effective}' "${REPOSITORY}/releases/latest")"
   VERSION="${VERSION_URL##*/}"
 fi
+if [[ "${VERSION}" != v* ]]; then VERSION="v${VERSION}"; fi
+if [[ ! "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
+  fail_update "LessonCue rejected the requested release version because it was not a valid version tag."
+fi
 ASSET="LessonCue-Server-${RUNTIME}.tar.gz"
-WORKDIR="$(mktemp -d)"
+if [[ "${BOOTSTRAP_ACTIVE}" == true ]]; then
+  WORKDIR="${LESSONCUE_UPDATE_VERIFIED_WORKDIR}"
+  if [[ ! "${WORKDIR}" =~ ^/var/lib/lessoncue/\.update\.[0-9A-Za-z]+$ ]] ||
+     [[ ! -d "${WORKDIR}" || -L "${WORKDIR}" ]] ||
+     [[ "$(stat -c '%u:%a' -- "${WORKDIR}" 2>/dev/null || true)" != "0:700" ]]; then
+    fail_update "The verified release updater rejected an unsafe protected bootstrap work directory."
+  fi
+  echo "Continuing LessonCue ${VERSION} with the verified release updater..."
+else
+  WORKDIR="$(mktemp -d /var/lib/lessoncue/.update.XXXXXXXX)"
+fi
 trap 'rm -rf "${WORKDIR}" "${STAGED}"' EXIT
 
-echo "Downloading LessonCue ${VERSION} for ${RUNTIME}..."
-curl -fL "${REPOSITORY}/releases/download/${VERSION}/${ASSET}" -o "${WORKDIR}/${ASSET}"
-curl -fL "${REPOSITORY}/releases/download/${VERSION}/SHA256SUMS" -o "${WORKDIR}/SHA256SUMS"
-curl -fL "${REPOSITORY}/releases/download/${VERSION}/SHA256SUMS.sig" -o "${WORKDIR}/SHA256SUMS.sig"
+if [[ "${BOOTSTRAP_ACTIVE}" != true ]]; then
+  echo "Downloading LessonCue ${VERSION} for ${RUNTIME}..."
+  curl -fL "${REPOSITORY}/releases/download/${VERSION}/${ASSET}" -o "${WORKDIR}/${ASSET}"
+  curl -fL "${REPOSITORY}/releases/download/${VERSION}/SHA256SUMS" -o "${WORKDIR}/SHA256SUMS"
+  curl -fL "${REPOSITORY}/releases/download/${VERSION}/SHA256SUMS.sig" -o "${WORKDIR}/SHA256SUMS.sig"
+elif [[ ! -f "${WORKDIR}/${ASSET}" || ! -f "${WORKDIR}/SHA256SUMS" ||
+        ! -f "${WORKDIR}/SHA256SUMS.sig" || ! -d "${WORKDIR}/archive" ]]; then
+  fail_update "The verified release updater could not resume because its downloaded release bundle was incomplete."
+fi
 RELEASE_PUBLIC_KEY="${LESSONCUE_RELEASE_PUBLIC_KEY:-/etc/lessoncue/release-signing-public.pem}"
 if [[ ! -f "${RELEASE_PUBLIC_KEY}" ]]; then
   fail_update "The pinned LessonCue release-signing public key is missing. Run the current SSH installer once before using browser updates."
@@ -749,8 +847,10 @@ if ! grep -F "  ${ASSET}" "${WORKDIR}/SHA256SUMS" > "${WORKDIR}/asset.sha256"; t
 fi
 (cd "${WORKDIR}" && sha256sum -c asset.sha256)
 
-mkdir "${WORKDIR}/archive"
-tar -xzf "${WORKDIR}/${ASSET}" -C "${WORKDIR}/archive"
+if [[ "${BOOTSTRAP_ACTIVE}" != true ]]; then
+  mkdir "${WORKDIR}/archive"
+  tar -xzf "${WORKDIR}/${ASSET}" -C "${WORKDIR}/archive"
+fi
 if [[ ! -x "${WORKDIR}/archive/payload/LessonCue.Server" ]]; then
   fail_update "The release archive is missing LessonCue.Server."
 fi
@@ -759,6 +859,31 @@ if [[ ! -f "${WORKDIR}/archive/lessoncue-render.rules" ]]; then
 fi
 if [[ ! -x "${WORKDIR}/archive/lessoncue-media-worker" ]]; then
   fail_update "The release archive is missing the LessonCue media worker."
+fi
+if [[ ! -x "${WORKDIR}/archive/lessoncue-update" ]]; then
+  fail_update "The release archive is missing the protected LessonCue updater."
+fi
+
+# The signed archive may contain a newer updater than the one systemd started.
+# Run that verified candidate directly from the release bundle before taking
+# any snapshot. The parent keeps the operation lock, and the candidate reuses
+# the already verified bundle and original request. It remains temporary until
+# the protected transaction installs it or reports a precise failure.
+if [[ "${BOOTSTRAP_ACTIVE}" != true ]] &&
+   ! cmp -s "${WORKDIR}/archive/lessoncue-update" /usr/local/sbin/lessoncue-update; then
+  echo "Handing the protected operation to the verified release updater before snapshotting..."
+  if LESSONCUE_UPDATE_BOOTSTRAPPED=true \
+     LESSONCUE_UPDATE_REQUEST="${REQUEST}" \
+     LESSONCUE_UPDATE_VERIFIED_WORKDIR="${WORKDIR}" \
+     LESSONCUE_UPDATE_VERSION="${VERSION}" \
+     LESSONCUE_UPDATE_REPOSITORY="${REPOSITORY}" \
+     LESSONCUE_RELEASE_PUBLIC_KEY="${RELEASE_PUBLIC_KEY}" \
+     "${WORKDIR}/archive/lessoncue-update"; then
+    exit 0
+  else
+    bootstrap_exit=$?
+    exit "${bootstrap_exit}"
+  fi
 fi
 
 rm -rf "${STAGED}"
@@ -769,10 +894,13 @@ chown -R root:root "${STAGED}"
 # Stop all writers before taking a consistent database/configuration snapshot.
 systemctl stop lessoncue.service
 if ! prepare_update_snapshot; then
-  rm -rf "${ROLLBACK_ROOT}" "${ROLLBACK_ROOT}.new"
+  snapshot_reason="${SNAPSHOT_FAILURE_REASON:-an unknown protected snapshot step failed}"
+  echo "Pre-update snapshot failed: ${snapshot_reason}" >&2
+  rm -rf "${ROLLBACK_ROOT}.new" ||
+    echo "Pre-update snapshot cleanup also failed." >&2
   systemctl start lessoncue.service || true
   write_update_result false "${VERSION}" \
-    "LessonCue could not create and verify the required pre-update snapshot. The existing installation was not changed."
+    "LessonCue could not create and verify the required pre-update snapshot. Snapshot detail: ${snapshot_reason}. The existing installation was not changed."
   echo "The update was cancelled because the pre-update snapshot could not be created."
   exit 1
 fi

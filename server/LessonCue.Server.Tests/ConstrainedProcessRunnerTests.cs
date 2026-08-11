@@ -41,6 +41,8 @@ public sealed class ConstrainedProcessRunnerTests
             Assert.EndsWith("setpriv", start.FileName);
             Assert.Equal("--ambient-caps=-all", start.ArgumentList[0]);
             Assert.Equal("--inh-caps=-all", start.ArgumentList[1]);
+            Assert.Equal("--no-new-privs", start.ArgumentList[2]);
+            Assert.DoesNotContain("--bounding-set=-all", start.ArgumentList);
             var setprivSeparator = start.ArgumentList.IndexOf("--");
             Assert.True(setprivSeparator >= 0);
             Assert.EndsWith("lessoncue-media-worker", start.ArgumentList[setprivSeparator + 1]);

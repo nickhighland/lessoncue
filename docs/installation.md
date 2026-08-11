@@ -12,12 +12,12 @@ SSH into the server from your computer:
 ssh YOUR_USERNAME@SERVER_IP
 ```
 
-Paste these two commands into the SSH session. They install the small download prerequisites, then run the LessonCue installer. The installer detects Intel/AMD versus ARM64, installs server dependencies, downloads the latest release, registers the systemd service, waits for it to become healthy, and prints the browser address:
+Paste these two commands into the SSH session. The first installs the one prerequisite needed to download the installer; the installer then installs the complete host toolchain (including Git, Docker Engine, Docker Compose, FFmpeg, document converters, Bubblewrap, Avahi, and runtime libraries), detects Intel/AMD versus ARM64, downloads the signed release, registers the systemd service, waits for it to become healthy, and prints the browser address:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y curl ca-certificates
-curl -fsSL https://raw.githubusercontent.com/nickhighland/lessoncue/main/installers/linux/install-latest.sh | bash
+curl -fsSL https://github.com/nickhighland/lessoncue/releases/latest/download/install-lessoncue.sh | bash
 ```
 
 The final message says `LessonCue is ready` and prints `http://lessoncue.local` plus a numeric fallback such as `http://192.168.4.75`. The SSH connection can then be closed; systemd keeps LessonCue running and starts it again after reboot.
@@ -160,7 +160,7 @@ Choose a server with:
 - Ethernet when possible and a reserved DHCP address.
 - TCP port 80, or the administrator-selected port, reachable by the trusted television network.
 
-Install FFmpeg/FFprobe for media inspection and transcoding. Install LibreOffice headlessly only if PowerPoint conversion is required. Do not expose LessonCue directly to the public internet.
+Install FFmpeg/FFprobe for media inspection and transcoding, LibreOffice plus Poppler for local document conversion, and the optional codec libraries used by your distribution's FFmpeg build. The recommended installer and Docker image install the broad media toolchain automatically, including WebP, Ogg/Theora, HEIF/AVIF, JPEG XL, spreadsheet, and legacy Office support when the host repository provides those packages. Do not expose LessonCue directly to the public internet.
 
 The packaged Windows installer runs LessonCue as the built-in restricted `LocalService` identity, gives that identity read/execute access to the application and modify access only to `%ProgramData%\LessonCue`, and limits its firewall rule to Domain and Private networks. It does not process uploaded media as LocalSystem.
 
@@ -169,6 +169,14 @@ The Linux installer installs both the current Intel media driver and the legacy 
 ## Alternative: Docker
 
 Docker is the quickest evaluation and technical-user installation.
+
+If you are starting from a fresh Ubuntu or Debian VM, the repository installer can install the complete host prerequisite set without installing the native systemd release:
+
+```bash
+sudo bash installers/linux/install-latest.sh --prerequisites-only
+```
+
+This installs Git, Docker Engine, Docker Compose, FFmpeg/FFprobe, LibreOffice (Impress, Writer, Calc, and Draw), Poppler, the media sandbox, and available optional codec libraries. Continue with the Docker commands below to build the checked-out source tree.
 
 ```bash
 git clone https://github.com/nickhighland/lessoncue.git
@@ -193,7 +201,9 @@ Do not add this mapping on a host without `/dev/dri`; software conversion remain
 
 Open `http://SERVER-IP`. Data is stored in `./lessoncue-data` unless `LESSONCUE_DATA_PATH` is changed in `.env`. The directory must be writable by container UID/GID `10001`; apply the same `chown` command to a custom bind-mount path. The application runs as that non-root account with all Linux capabilities dropped, a read-only container filesystem, `no-new-privileges`, and only `/data` plus a bounded temporary filesystem writable. Docker uses the `LESSONCUE_HTTP_PORT` value in `.env` for its host port; recreate the container after changing it.
 
-Docker bridge networking does not reliably publish mDNS. Use the numeric address or install the supplied `docker/avahi-service.xml` on the host. Native installation is friendlier for ordinary deployments.
+For a small test VM, set `LESSONCUE_CPUS` in `.env` to the number of available virtual CPUs (the default is `2.0`). Docker bridge networking does not reliably publish mDNS; use the numeric address or install the supplied `docker/avahi-service.xml` on the host. With Avahi installed, set the host name and the persisted `lessoncue-data/config/local-hostname` to the same value (for example, `refactor`) to use `http://refactor.local`. Native installation is friendlier for ordinary deployments.
+
+Docker defaults to `LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX=1` because the standard Docker seccomp profile commonly blocks the nested user and mount namespaces required by Bubblewrap. The constrained worker still applies timeout, memory, and output-file limits while Docker supplies the read-only root, dropped capabilities, `no-new-privileges`, memory/CPU/PID limits, and writable-data boundary. Set the value to `0` only after explicitly enabling nested namespaces on a trusted host and recreate the container; native Linux installations keep the stronger Bubblewrap boundary and default `0`.
 
 ## Manual Linux service installation
 
@@ -345,9 +355,13 @@ In **Settings → Media & storage**, a Service Admin can choose a maximum amount
 
 Media can be assigned to hierarchical folders and comma-separated tags during upload or later in the Media Library. **Manage versions & impact** shows every lesson cue and sign that uses an item before replacement. Replacing a local file preserves its stable media ID, archives the current original, refreshes affected screen manifests, and queues fresh metadata and preview processing. Previous originals can be downloaded or restored as a new current version. Archived versions count against the storage allocation and are removed with their parent media when its retention period ends.
 
-PDF, PowerPoint (`.ppt`, `.pptx`, `.pps`, `.ppsx`, `.pot`, `.potx`), OpenDocument Presentation (`.odp`), Keynote (`.key`), and Word (`.doc`, `.docx`) files can be uploaded in the Media Library or directly on a lesson. Lesson uploads queue conversion and append the generated slides automatically at the chosen seconds per slide; library uploads also expose **Convert to slides** under **Manage versions & impact**. Shared Google Slides decks can be imported by URL from either location when **Anyone with the link can view** is enabled.
+LessonCue accepts broad video, audio, raster-image, and document families. In addition to common MP4/MOV/MKV/WebM/AVI/MPEG/transport-stream media, it accepts FLAC/Ogg/Opus/WMA/AIFF/AMR/AC-3 audio, GIF/BMP/TIFF/WebP/AVIF/HEIC/JPEG-XL/JPEG-2000 images, and PDF, legacy and macro-enabled Office, OpenDocument, Keynote/Pages/Numbers, RTF, text, CSV, and TSV documents. LessonCue validates each signature or package structure before processing; the extension and browser MIME type are never trusted by themselves.
 
-Local document conversion runs through headless LibreOffice and Poppler and creates PNG media with a maximum 1920-pixel dimension. Google Slides is downloaded once through Google's PDF export endpoint and then follows the same local conversion path; no LessonCue-hosted cloud service receives the deck. Static conversion intentionally loses transitions, builds, animations, embedded video, and presenter timing. Some `.key` files depend on the LibreOffice version installed by the server and may need to be exported to PDF if that importer cannot open them. The recommended Linux installer and Docker image include both converters and the Bubblewrap media sandbox. For a manual Debian/Ubuntu install, run `sudo apt-get install -y libreoffice-impress libreoffice-writer poppler-utils bubblewrap util-linux coreutils`. On Windows, install LibreOffice system-wide, install a Poppler build, set the machine environment variable `LESSONCUE_PDFTOPPM_PATH` to `pdftoppm.exe`, and rerun the LessonCue installer so its outbound-deny rules include those converter binaries.
+Document files can be uploaded in the Media Library or directly on a lesson. Lesson uploads queue conversion and append the generated slides automatically at the chosen seconds per slide; library uploads also expose **Convert to slides** under **Manage versions & impact**. Shared Google Slides decks can be imported by URL from either location when **Anyone with the link can view** is enabled.
+
+Local document conversion runs through headless LibreOffice and Poppler and creates PNG media with a maximum 1920-pixel dimension. Google Slides is downloaded once through Google's PDF export endpoint and then follows the same local conversion path; no LessonCue-hosted cloud service receives the deck. Static conversion intentionally loses transitions, builds, animations, embedded video, and presenter timing. Apple office packages depend on the LibreOffice importer available on the server and may need to be exported to PDF if that importer cannot open them. LessonCue shows the detected converter state in the Media upload dialog; missing optional WebP or Theora encoders remain visible as a processing diagnostic instead of causing a silent failure.
+
+The recommended Linux installer and Docker image include both converters and the Bubblewrap media sandbox. For a manual Debian/Ubuntu install, run `sudo apt-get install -y ffmpeg libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-draw poppler-utils bubblewrap util-linux coreutils`, then add the optional codec runtime packages your release names (for example `libavcodec-extra`, `libwebp7`, `libtheora0`, `libvpx9`/`libvpx7`, `libheif1`, `libavif16`/`libavif15`, `libjxl0.7`/`libjxl0`, and `libopenjp2-7`). `apt-cache search '^libvpx[0-9]+$'` and the equivalent searches for AVIF/JXL are useful when a versioned package name differs; the LessonCue installer selects an available variant automatically. On Windows, install a current FFmpeg build with `libwebp` and `libtheora` encoders, install LibreOffice system-wide, install a Poppler build, set the machine environment variable `LESSONCUE_PDFTOPPM_PATH` to `pdftoppm.exe`, and rerun the LessonCue installer so its outbound-deny rules include those converter binaries.
 
 For a deck whose native animations must be retained, export it to H.264/AAC MP4 in PowerPoint, Keynote, or the originating application and upload that video. The [animation-preservation investigation](presentation-animation-preservation.md) explains why LessonCue does not offer a misleading headless “preserve animations” switch.
 

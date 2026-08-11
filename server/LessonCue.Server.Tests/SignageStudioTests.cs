@@ -161,11 +161,13 @@ public sealed class SignageStudioTests
         Assert.Equal(second, assignments["sidebar"]);
 
         var item = SignageStudio.NormalizeItem(new SignageContentPlaylistItemInput(
-            "entry", "media", VolumePercent: 180, FadeInMs: -4, FadeOutMs: 90000, Fit: "unexpected"));
+            "entry", "media", VolumePercent: 180, FadeInMs: -4, FadeOutMs: 90000, Fit: "unexpected",
+            Notes: new string('n', 2100)));
         Assert.Equal(100, item.VolumePercent);
         Assert.Equal(0, item.FadeInMs);
         Assert.Equal(30000, item.FadeOutMs);
         Assert.Equal("contain", item.Fit);
+        Assert.Equal(2000, item.Notes?.Length);
     }
 
     [Fact]

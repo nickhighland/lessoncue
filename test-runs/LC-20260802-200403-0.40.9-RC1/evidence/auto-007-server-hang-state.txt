@@ -1,0 +1,428 @@
+timestamp_local: 2026-08-02T20:36:05-0400
+55820 38027 Ss   01:57   0.0  0.0 /bin/zsh -c set +e\012run_gate() {\012  name="$1"\012  shift\012  log="test-runs/LC-20260802-200403-0.40.9-RC1/logs/auto-007-${name}.txt"\012  {\012    printf 'command:'\012    printf ' %q' "$@"\012    printf '\nstart_local: %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')"\012  } > "$log"\012  "$@" >> "$log" 2>&1\012  rc=$?\012  printf 'finish_local: %s\nexit_code: %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$rc" >> "$log"\012  printf '%s exit=%s\n' "$name" "$rc"\012  tail -n 65 "$log"\012}\012run_gate server dotnet test server/LessonCue.Server.Tests/LessonCue.Server.Tests.csproj --filter 'FullyQualifiedName~ProtocolContractTests'\012run_gate browser env LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX=1 npx playwright test tests/browser/display-conformance.spec.ts\012run_gate android env ANDROID_HOME=/Users/nickhighland/Library/Android/sdk ANDROID_SDK_ROOT=/Users/nickhighland/Library/Android/sdk gradle -p android-tv :app:testSideloadDebugUnitTest :app:testStoreDebugUnitTest\012exit 0
+55822 55820 S    01:57   0.0  0.3 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/dotnet test server/LessonCue.Server.Tests/LessonCue.Server.Tests.csproj --filter FullyQualifiedName~ProtocolContractTests
+=== open files ===
+lsof: WARNING: can't stat() smbfs file system /Volumes/.timemachine/timemachine._smb._tcp.local./FCE8AE8A-4BFA-48B8-BA57-5C74AAED2158/TimeMachine
+      Output information may be incomplete.
+      assuming "dev=36000260" from mount table
+COMMAND   PID         USER   FD     TYPE             DEVICE SIZE/OFF                NODE NAME
+dotnet  55822 nickhighland  cwd      DIR               1,14     1952           138014929 /Users/nickhighland/Documents/Video Viewer/server/LessonCue.Server
+dotnet  55822 nickhighland  txt      REG               1,14   141184           138999082 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/dotnet
+dotnet  55822 nickhighland  txt      REG               1,14    34816           139004849 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Runtime.dll
+dotnet  55822 nickhighland  txt      REG               1,14    70144           139004882 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Threading.dll
+dotnet  55822 nickhighland  txt      REG               1,14   130096           139004903 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/libSystem.Native.dylib
+dotnet  55822 nickhighland  txt      REG               1,14   419312           138999086 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/host/fxr/10.0.9/libhostfxr.dylib
+dotnet  55822 nickhighland  txt      REG               1,14   101376           139004840 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Runtime.InteropServices.dll
+dotnet  55822 nickhighland  txt      REG               1,14   212992           139004747 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Console.dll
+dotnet  55822 nickhighland  txt      REG               1,14    72984           141082363 /Library/Preferences/Logging/.plist-cache.FaCd7Pbz
+dotnet  55822 nickhighland  txt      REG               1,14   430784           139004910 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/libhostpolicy.dylib
+dotnet  55822 nickhighland  txt      REG               1,14   300032           139001857 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.Cli.Utils.dll
+dotnet  55822 nickhighland  txt      REG               1,14   236112           127606896 /private/var/db/timezone/tz/2026b.1.0/icutz/icutz44l.dat
+dotnet  55822 nickhighland  txt      REG               1,14   253440           139004756 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Diagnostics.Process.dll
+dotnet  55822 nickhighland  txt      REG               1,14    69120           139004743 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.ComponentModel.Primitives.dll
+dotnet  55822 nickhighland  txt      REG               1,14     5632           139004731 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/Microsoft.Win32.Primitives.dll
+dotnet  55822 nickhighland  txt      REG               1,14     6144           139004761 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Diagnostics.Tracing.dll
+dotnet  55822 nickhighland  txt      REG               1,14    18944           139001853 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.Cli.CoreUtils.dll
+dotnet  55822 nickhighland  txt      REG               1,14    34304           139001858 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.Configurer.dll
+dotnet  55822 nickhighland  txt      REG               1,14    24576           139001859 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.InternalAbstractions.dll
+dotnet  55822 nickhighland  txt      REG               1,14     5632           139004879 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Threading.Thread.dll
+dotnet  55822 nickhighland  txt      REG               1,14  2374000 1152921500312573276 /usr/lib/dyld
+dotnet  55822 nickhighland  txt      REG               1,14   147456           139003733 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/System.CommandLine.StaticCompletions.dll
+dotnet  55822 nickhighland  txt      REG               1,14    53760           139001852 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.Cli.CommandLine.dll
+dotnet  55822 nickhighland  txt      REG               1,14    75264           139001895 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.TemplateEngine.Abstractions.dll
+dotnet  55822 nickhighland  txt      REG               1,14   855552           139004866 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Text.Encoding.CodePages.dll
+dotnet  55822 nickhighland  txt      REG               1,14   309248           139004739 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Collections.dll
+dotnet  55822 nickhighland  txt      REG               1,14   381952           139003735 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/System.CommandLine.dll
+dotnet  55822 nickhighland  txt      REG               1,14   133632           139001941 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/NuGet.Versioning.dll
+dotnet  55822 nickhighland  txt      REG               1,14    53248           139001886 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.NET.StringTools.dll
+dotnet  55822 nickhighland  txt      REG               1,14     5632           139004812 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Numerics.Vectors.dll
+dotnet  55822 nickhighland  txt      REG               1,14  6661696           139004909 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/libcoreclr.dylib
+dotnet  55822 nickhighland  txt      REG               1,14  3881472           139003847 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/dotnet.dll
+dotnet  55822 nickhighland  txt      REG               1,14   609792           139004790 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Linq.dll
+dotnet  55822 nickhighland  txt      REG               1,14   726528           139001855 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.Cli.Definitions.dll
+dotnet  55822 nickhighland  txt      REG               1,14   148992           139004791 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Memory.dll
+dotnet  55822 nickhighland  txt      REG               1,14   264192           139001931 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/NuGet.Common.dll
+dotnet  55822 nickhighland  txt      REG               1,14    11776           139004890 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Xml.ReaderWriter.dll
+dotnet  55822 nickhighland  txt      REG               1,14     5632           139004867 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Text.Encoding.Extensions.dll
+dotnet  55822 nickhighland  txt      REG               1,14     5632           139004842 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Runtime.Loader.dll
+dotnet  55822 nickhighland  txt      REG               1,14 15770624           139004815 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Private.CoreLib.dll
+dotnet  55822 nickhighland  txt      REG               1,14  1255424           139001896 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.TemplateEngine.Cli.dll
+dotnet  55822 nickhighland  txt      REG               1,14  1746944           139004870 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Text.Json.dll
+dotnet  55822 nickhighland  txt      REG               1,14  1417728           139001928 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/NuGet.CommandLine.XPlat.dll
+dotnet  55822 nickhighland  txt      REG               1,14  7162880           139001839 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.Build.dll
+dotnet  55822 nickhighland  txt      REG               1,14  2095616           139003731 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Spectre.Console.dll
+dotnet  55822 nickhighland  txt      REG               1,14   177152           139001861 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.ProjectTools.dll
+dotnet  55822 nickhighland  txt      REG               1,14  2422272           139004859 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Security.Cryptography.dll
+dotnet  55822 nickhighland  txt      REG               1,14   202752           139004735 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Collections.Concurrent.dll
+dotnet  55822 nickhighland  txt      REG               1,14  1307648           139001835 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.Build.Framework.dll
+dotnet  55822 nickhighland  txt      REG               1,14   325120           139001864 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.TemplateLocator.dll
+dotnet  55822 nickhighland  txt      REG               1,14   757760           139001670 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/MSBuild.dll
+dotnet  55822 nickhighland  txt      REG               1,14   117760           139001851 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.Deployment.DotNet.Releases.dll
+dotnet  55822 nickhighland  txt      REG               1,14  1109504           139004871 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Text.RegularExpressions.dll
+dotnet  55822 nickhighland  txt      REG               1,14  2358272           139001939 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/NuGet.Protocol.dll
+dotnet  55822 nickhighland  txt      REG               1,14   538112           139004754 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Diagnostics.DiagnosticSource.dll
+dotnet  55822 nickhighland  txt      REG               1,14   483840           139001932 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/NuGet.Configuration.dll
+dotnet  55822 nickhighland  txt      REG               1,14    93696           139001933 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/NuGet.Credentials.dll
+dotnet  55822 nickhighland  txt      REG               1,14   843264           139004736 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Collections.Immutable.dll
+dotnet  55822 nickhighland  txt      REG               1,14   518656           139004875 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Threading.Tasks.Dataflow.dll
+dotnet  55822 nickhighland  txt      REG               1,14  8948736           139004821 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Private.Xml.dll
+dotnet  55822 nickhighland  txt      REG               1,14   245248           139004819 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Private.Uri.dll
+dotnet  55822 nickhighland  txt      REG               1,14    35328           139004755 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Diagnostics.FileVersionInfo.dll
+dotnet  55822 nickhighland  txt      REG               1,14  1237504           139004827 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Reflection.Metadata.dll
+dotnet  55822 nickhighland  txt      REG               1,14    82944           139004780 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.IO.MemoryMappedFiles.dll
+dotnet  55822 nickhighland  txt      REG               1,14   116736           139004877 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Threading.Tasks.Parallel.dll
+dotnet  55822 nickhighland  txt      REG               1,14    54784           139001884 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.NET.Sdk.WorkloadMSBuildSdkResolver.dll
+dotnet  55822 nickhighland  txt      REG               1,14    75776           139001836 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.Build.NuGetSdkResolver.dll
+dotnet  55822 nickhighland  txt      REG               1,14   317440           139001885 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.NET.Sdk.WorkloadManifestReader.dll
+dotnet  55822 nickhighland  txt      REG               1,14    24576           139004732 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/Microsoft.Win32.Registry.dll
+dotnet  55822 nickhighland  txt      REG               1,14   339968           139001935 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/NuGet.Frameworks.dll
+dotnet  55822 nickhighland  txt      REG               1,14   572928           139001838 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.Build.Utilities.Core.dll
+dotnet  55822 nickhighland  txt      REG               1,14  2843136           139001837 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.Build.Tasks.Core.dll
+dotnet  55822 nickhighland  txt      REG               1,14   228352           139001926 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/NuGet.Build.Tasks.dll
+dotnet  55822 nickhighland  txt      REG               1,14  1870336           139001930 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/NuGet.Commands.dll
+dotnet  55822 nickhighland  txt      REG               1,14   723968           139001938 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/NuGet.ProjectModel.dll
+dotnet  55822 nickhighland  txt      REG               1,14  1765376           139003153 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Sdks/Microsoft.NET.Sdk/tools/net10.0/Microsoft.NET.Build.Tasks.dll
+dotnet  55822 nickhighland  txt      REG               1,14   117760           139003148 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Sdks/Microsoft.NET.Sdk/tools/net10.0/Microsoft.Deployment.DotNet.Releases.dll
+dotnet  55822 nickhighland  txt      REG               1,14  1950720           139001937 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/NuGet.Packaging.dll
+dotnet  55822 nickhighland  txt      REG               1,14  2050560           139001921 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Newtonsoft.Json.dll
+dotnet  55822 nickhighland  txt      REG               1,14  4569600           139004787 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Linq.Expressions.dll
+dotnet  55822 nickhighland  txt      REG               1,14   860160           139004744 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.ComponentModel.TypeConverter.dll
+dotnet  55822 nickhighland  txt      REG               1,14    66048           139004814 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.ObjectModel.dll
+dotnet  55822 nickhighland  txt      REG               1,14   422400           139004820 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Private.Xml.Linq.dll
+dotnet  55822 nickhighland  txt      REG               1,14   103936           139001936 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/NuGet.LibraryModel.dll
+dotnet  55822 nickhighland  txt      REG               1,14    94208           139004737 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Collections.NonGeneric.dll
+dotnet  55822 nickhighland  txt      REG               1,14   230912           139004765 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Formats.Asn1.dll
+dotnet  55822 nickhighland  txt      REG               1,14   355328           139004843 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Runtime.Numerics.dll
+dotnet  55822 nickhighland  txt      REG               1,14   237568           139001934 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/NuGet.DependencyResolver.Core.dll
+dotnet  55822 nickhighland  txt      REG               1,14   231936           139004799 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Net.Primitives.dll
+dotnet  55822 nickhighland  txt      REG               1,14    19968           139004846 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Runtime.Serialization.Primitives.dll
+dotnet  55822 nickhighland  txt      REG               1,14   107008           139004869 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Text.Encodings.Web.dll
+dotnet  55822 nickhighland  txt      REG               1,14    72704           139001904 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.TestPlatform.Build.dll
+dotnet  55822 nickhighland  txt      REG               1,14 35444880 1152921500312583777 /usr/share/icu/icudt78l.dat
+dotnet  55822 nickhighland  txt      REG               1,14     5632           139004880 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Threading.ThreadPool.dll
+dotnet  55822 nickhighland  txt      REG               1,14  3029936           139004908 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/libclrjit.dylib
+dotnet  55822 nickhighland  txt      REG               1,14   155008           139004905 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/libSystem.Security.Cryptography.Native.Apple.dylib
+dotnet  55822 nickhighland  txt      REG               1,14    90624           139004914 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/netstandard.dll
+dotnet  55822 nickhighland  txt      REG               1,14     5632           139004892 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Xml.XDocument.dll
+dotnet  55822 nickhighland  txt      REG               1,14     7168           139004841 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Runtime.Intrinsics.dll
+dotnet  55822 nickhighland  txt      REG               1,14   439296           139003420 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Sdks/Microsoft.NET.Sdk.StaticWebAssets/tasks/net10.0/Microsoft.NET.Sdk.StaticWebAssets.Tasks.dll
+dotnet  55822 nickhighland  txt      REG               1,14   161968           145950060 /private/var/db/analyticsd/events.allowlist
+dotnet  55822 nickhighland    0r     CHR                3,2      0t0                 336 /dev/null
+dotnet  55822 nickhighland    1w     REG               1,14      249           146042425 /Users/nickhighland/Documents/Video Viewer/test-runs/LC-20260802-200403-0.40.9-RC1/logs/auto-007-server.txt
+dotnet  55822 nickhighland    2w     REG               1,14      249           146042425 /Users/nickhighland/Documents/Video Viewer/test-runs/LC-20260802-200403-0.40.9-RC1/logs/auto-007-server.txt
+dotnet  55822 nickhighland    3     PIPE 0xb0d1657aa531f293    16384                     ->0xd15f6b3adfe79dce
+dotnet  55822 nickhighland    4     PIPE 0xd15f6b3adfe79dce    16384                     ->0xb0d1657aa531f293
+dotnet  55822 nickhighland    5u  KQUEUE                                                 count=0, state=0xa
+dotnet  55822 nickhighland    6r     CHR                3,2      0t0                 336 /dev/null
+dotnet  55822 nickhighland    7w     REG               1,14      249           146042425 /Users/nickhighland/Documents/Video Viewer/test-runs/LC-20260802-200403-0.40.9-RC1/logs/auto-007-server.txt
+dotnet  55822 nickhighland    8w     REG               1,14      249           146042425 /Users/nickhighland/Documents/Video Viewer/test-runs/LC-20260802-200403-0.40.9-RC1/logs/auto-007-server.txt
+dotnet  55822 nickhighland    9u    unix 0xbd69dbbab7acd84c      0t0                     /var/folders/c6/sszc82c536d368djtk4xwr3h0000gn/T/dotnet-diagnostic-55822-1785717248-socket
+dotnet  55822 nickhighland   11r     REG               1,14 15770624           139004815 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Private.CoreLib.dll
+dotnet  55822 nickhighland   12r     REG               1,14 15770624           139004815 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Private.CoreLib.dll
+dotnet  55822 nickhighland   13r     REG               1,14  3881472           139003847 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/dotnet.dll
+dotnet  55822 nickhighland   14r     REG               1,14  3881472           139003847 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/dotnet.dll
+dotnet  55822 nickhighland   15r     REG               1,14    34816           139004849 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Runtime.dll
+dotnet  55822 nickhighland   16r     REG               1,14    34816           139004849 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Runtime.dll
+dotnet  55822 nickhighland   17r     REG               1,14   101376           139004840 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Runtime.InteropServices.dll
+dotnet  55822 nickhighland   18r     REG               1,14   101376           139004840 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Runtime.InteropServices.dll
+dotnet  55822 nickhighland   19     PIPE 0xdabbf88f045c46b7    16384                     ->0x203eba38b4009160
+dotnet  55822 nickhighland   20     PIPE 0x203eba38b4009160    16384                     ->0xdabbf88f045c46b7
+dotnet  55822 nickhighland   21r     REG               1,14   212992           139004747 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Console.dll
+dotnet  55822 nickhighland   22r     REG               1,14   212992           139004747 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Console.dll
+dotnet  55822 nickhighland   23r     REG               1,14    70144           139004882 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Threading.dll
+dotnet  55822 nickhighland   24r     REG               1,14    70144           139004882 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Threading.dll
+dotnet  55822 nickhighland   25r     REG               1,14   300032           139001857 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.Cli.Utils.dll
+dotnet  55822 nickhighland   26r     REG               1,14   300032           139001857 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.Cli.Utils.dll
+dotnet  55822 nickhighland   27     PIPE 0xce1ef92a1e667e9d    16384                     ->0x9b8fe56bcdbe708a
+dotnet  55822 nickhighland   28     PIPE 0x9b8fe56bcdbe708a    16384                     ->0xce1ef92a1e667e9d
+dotnet  55822 nickhighland   29u  KQUEUE                                                 count=0, state=0
+dotnet  55822 nickhighland   30r     REG               1,14   253440           139004756 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Diagnostics.Process.dll
+dotnet  55822 nickhighland   31r     REG               1,14   253440           139004756 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Diagnostics.Process.dll
+dotnet  55822 nickhighland   32r     REG               1,14    69120           139004743 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.ComponentModel.Primitives.dll
+dotnet  55822 nickhighland   33r     REG               1,14    69120           139004743 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.ComponentModel.Primitives.dll
+dotnet  55822 nickhighland   34r     REG               1,14     5632           139004731 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/Microsoft.Win32.Primitives.dll
+dotnet  55822 nickhighland   35r     REG               1,14     5632           139004731 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/Microsoft.Win32.Primitives.dll
+dotnet  55822 nickhighland   36r     REG               1,14     6144           139004761 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Diagnostics.Tracing.dll
+dotnet  55822 nickhighland   37r     REG               1,14     6144           139004761 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Diagnostics.Tracing.dll
+dotnet  55822 nickhighland   38r     REG               1,14   855552           139004866 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Text.Encoding.CodePages.dll
+dotnet  55822 nickhighland   39r     REG               1,14   855552           139004866 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Text.Encoding.CodePages.dll
+dotnet  55822 nickhighland   40r     REG               1,14   309248           139004739 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Collections.dll
+dotnet  55822 nickhighland   41r     REG               1,14   309248           139004739 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Collections.dll
+dotnet  55822 nickhighland   42r     REG               1,14   381952           139003735 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/System.CommandLine.dll
+dotnet  55822 nickhighland   43r     REG               1,14   381952           139003735 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/System.CommandLine.dll
+dotnet  55822 nickhighland   44r     REG               1,14   609792           139004790 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Linq.dll
+dotnet  55822 nickhighland   45r     REG               1,14   609792           139004790 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/shared/Microsoft.NETCore.App/10.0.9/System.Linq.dll
+dotnet  55822 nickhighland   46r     REG               1,14   726528           139001855 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.Cli.Definitions.dll
+dotnet  55822 nickhighland   47r     REG               1,14   726528           139001855 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.Cli.Definitions.dll
+dotnet  55822 nickhighland   48r     REG               1,14    18944           139001853 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.Cli.CoreUtils.dll
+dotnet  55822 nickhighland   49r     REG               1,14    18944           139001853 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.Cli.CoreUtils.dll
+dotnet  55822 nickhighland   50r     REG               1,14    34304           139001858 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.Configurer.dll
+dotnet  55822 nickhighland   51r     REG               1,14    34304           139001858 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.Configurer.dll
+dotnet  55822 nickhighland   52r     REG               1,14    24576           139001859 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.InternalAbstractions.dll
+dotnet  55822 nickhighland   53r     REG               1,14    24576           139001859 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.DotNet.InternalAbstractions.dll
+dotnet  55822 nickhighland   54r     REG               1,14  1255424           139001896 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.TemplateEngine.Cli.dll
+dotnet  55822 nickhighland   55r     REG               1,14  1255424           139001896 /opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk/10.0.301/Microsoft.TemplateEngine.Cli.dll
+=== sample ===
+Sampling process 55822 for 5 seconds with 1 millisecond of run time between samples
+Sampling completed, processing symbols...
+Sample analysis of process 55822 written to file /tmp/auto-007-server.sample.txt
+Analysis of sampling dotnet (pid 55822) every 1 millisecond
+Process:         dotnet [55822]
+Path:            /opt/homebrew/*/dotnet
+Load Address:    0x102728000
+Identifier:      dotnet
+Version:         0
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  zsh [55820]
+Target Type:     live task
+
+Date/Time:       2026-08-02 20:36:05.914 -0400
+Launch Time:     2026-08-02 20:34:08.917 -0400
+OS Version:      macOS 26.5.2 (25F84)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+
+Physical footprint:         151.0M
+Physical footprint (peak):  151.3M
+Idle exit:                  untracked
+----
+
+Call graph:
+    4193 Thread_19838211   DispatchQueue_1: com.apple.main-thread  (serial)
+    + 4193 start  (in dyld) + 6992  [0x181a33e00]
+    +   4193 main  (in dotnet) + 184  [0x102729aec]
+    +     4193 exe_start(int, char const**)  (in dotnet) + 1028  [0x1027298f0]
+    +       4193 hostfxr_main_startupinfo  (in libhostfxr.dylib) + 128  [0x1027ca270]
+    +         4193 fx_muxer_t::execute(std::basic_string<char>, int, char const**, host_startup_info_t const&, char*, int, int*)  (in libhostfxr.dylib) + 648  [0x1027cd5dc]
+    +           4193 fx_muxer_t::handle_cli(host_startup_info_t const&, int, char const**, std::basic_string<char> const&)  (in libhostfxr.dylib) + 1176  [0x1027cdb4c]
+    +             4193 fx_muxer_t::handle_exec_host_command(std::basic_string<char> const&, host_startup_info_t const&, std::basic_string<char> const&, std::unordered_map<known_options, std::vector<std::basic_string<char>>, known_options_hash> const&, int, char const**, int, host_mode_t, bool, char*, int, int*)  (in libhostfxr.dylib) + 924  [0x1027ce128]
+    +               4193 corehost_main  (in libhostpolicy.dylib) + 160  [0x1028aeaf8]
+    +                 4193 run_app(int, char const**)  (in libhostpolicy.dylib) + 56  [0x1028ae2ec]
+    +                   4193 run_app_for_context(hostpolicy_context_t const&, int, char const**)  (in libhostpolicy.dylib) + 604  [0x1028ae138]
+    +                     4193 coreclr_execute_assembly  (in libcoreclr.dylib) + 232  [0x1079234e0]
+    +                       4193 CorHost2::ExecuteAssembly(unsigned int, char16_t const*, int, char16_t const**, unsigned int*)  (in libcoreclr.dylib) + 564  [0x107a2bfd8]
+    +                         4193 Assembly::ExecuteMainMethod(PtrArray**, int)  (in libcoreclr.dylib) + 260  [0x107a0dc94]
+    +                           4193 RunMain(MethodDesc*, short, int*, PtrArray**)  (in libcoreclr.dylib) + 564  [0x107a0d9d0]
+    +                             4193 MethodDescCallSite::CallTargetWorker(unsigned long long const*, unsigned long long*, int)  (in libcoreclr.dylib) + 612  [0x107ad79c4]
+    +                               4193 CallDescrWorkerWithHandler(CallDescrData*, int)  (in libcoreclr.dylib) + 104  [0x107ad7528]
+    +                                 4193 CallDescrWorkerInternal  (in libcoreclr.dylib) + 132  [0x107bec138]
+    +                                   4193 ???  (in <unknown binary>)  [0x109b22298]
+    +                                     4193 ???  (in <unknown binary>)  [0x109b234ec]
+    +                                       4193 ???  (in <unknown binary>)  [0x109b24044]
+    +                                         4193 ???  (in <unknown binary>)  [0x10a51bc9c]
+    +                                           4193 ???  (in <unknown binary>)  [0x10a525d54]
+    +                                             4193 ???  (in <unknown binary>)  [0x109baf940]
+    +                                               4193 ???  (in <unknown binary>)  [0x109bafd58]
+    +                                                 4193 ???  (in <unknown binary>)  [0x109bfe908]
+    +                                                   4193 ???  (in <unknown binary>)  [0x109c125c8]
+    +                                                     4193 ???  (in <unknown binary>)  [0x10a0d08bc]
+    +                                                       4193 ???  (in <unknown binary>)  [0x10c316b04]
+    +                                                         4193 ???  (in <unknown binary>)  [0x10c318004]
+    +                                                           4193 ???  (in <unknown binary>)  [0x10c31b140]
+    +                                                             4193 ???  (in <unknown binary>)  [0x10c31c290]
+    +                                                               4193 ???  (in <unknown binary>)  [0x10b2d29f4]
+    +                                                                 4193 ???  (in <unknown binary>)  [0x108c49ba4]
+    +                                                                   4193 WaitHandle_WaitOneCore  (in libcoreclr.dylib) + 108  [0x107aed26c]
+    +                                                                     4193 Thread::DoAppropriateWait(int, void**, int, unsigned int, WaitMode, PendingSync*)  (in libcoreclr.dylib) + 136  [0x107aabe84]
+    +                                                                       4193 Thread::DoAppropriateWaitWorker(int, void**, int, unsigned int, WaitMode, void*)  (in libcoreclr.dylib) + 936  [0x107aafa40]
+    +                                                                         4193 CorUnix::InternalWaitForMultipleObjectsEx(CorUnix::CPalThread*, unsigned int, void* const*, int, unsigned int, int, int)  (in libcoreclr.dylib) + 1380  [0x107c1a160]
+    +                                                                           4193 CorUnix::CPalSynchronizationManager::BlockThread(CorUnix::CPalThread*, unsigned int, bool, bool, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 204  [0x107c177c0]
+    +                                                                             4193 CorUnix::CPalSynchronizationManager::ThreadNativeWait(CorUnix::_ThreadNativeWaitData*, unsigned int, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 156  [0x107c179b8]
+    +                                                                               4193 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1024  [0x181df2154]
+    +                                                                                 4193 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x181db150c]
+    4193 Thread_19838213
+    + 4193 thread_start  (in libsystem_pthread.dylib) + 8  [0x181decc1c]
+    +   4193 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181df1c58]
+    +     4193 SEHExceptionThread(void*)  (in libcoreclr.dylib) + 116  [0x107c21310]
+    +       4193 MachMessage::Receive(unsigned int)  (in libcoreclr.dylib) + 80  [0x107c21f3c]
+    +         4193 mach_msg  (in libsystem_kernel.dylib) + 24  [0x181dadfc0]
+    +           4193 mach_msg_overwrite  (in libsystem_kernel.dylib) + 480  [0x181db69c0]
+    +             4193 mach_msg2_internal  (in libsystem_kernel.dylib) + 76  [0x181dc0574]
+    +               4193 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x181dadc34]
+    4193 Thread_19838214: .NET SynchManager
+    + 4193 thread_start  (in libsystem_pthread.dylib) + 8  [0x181decc1c]
+    +   4193 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181df1c58]
+    +     4193 CorUnix::CPalThread::ThreadEntry(void*)  (in libcoreclr.dylib) + 236  [0x107c1f600]
+    +       4193 CorUnix::CPalSynchronizationManager::WorkerThread(void*)  (in libcoreclr.dylib) + 112  [0x107c189b0]
+    +         4193 CorUnix::CPalSynchronizationManager::ReadBytesFromProcessPipe(int, unsigned char*, int)  (in libcoreclr.dylib) + 216  [0x107c18e04]
+    +           4193 kevent  (in libsystem_kernel.dylib) + 8  [0x181db3fc4]
+    4193 Thread_19838215: .NET EventPipe
+    + 4193 thread_start  (in libsystem_pthread.dylib) + 8  [0x181decc1c]
+    +   4193 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181df1c58]
+    +     4193 CorUnix::CPalThread::ThreadEntry(void*)  (in libcoreclr.dylib) + 236  [0x107c1f600]
+    +       4193 server_thread(void*)  (in libcoreclr.dylib) + 284  [0x10794c82c]
+    +         4193 ds_ipc_stream_factory_get_next_available_stream(void (*)(char const*, unsigned int))  (in libcoreclr.dylib) + 672  [0x1079498d0]
+    +           4193 ds_ipc_poll(_DiagnosticsIpcPollHandle*, unsigned long, unsigned int, void (*)(char const*, unsigned int))  (in libcoreclr.dylib) + 176  [0x1079a4be4]
+    +             4193 __poll_nocancel  (in libsystem_kernel.dylib) + 8  [0x181dbb610]
+    4193 Thread_19838217: .NET DebugPipe
+    + 4193 thread_start  (in libsystem_pthread.dylib) + 8  [0x181decc1c]
+    +   4193 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181df1c58]
+    +     4193 CorUnix::CPalThread::ThreadEntry(void*)  (in libcoreclr.dylib) + 236  [0x107c1f600]
+    +       4193 DbgTransportSession::TransportWorkerStatic(void*)  (in libcoreclr.dylib) + 40  [0x1079a0068]
+    +         4193 DbgTransportSession::TransportWorker()  (in libcoreclr.dylib) + 164  [0x1079a0c80]
+    +           4193 TwoWayPipe::WaitForConnection()  (in libcoreclr.dylib) + 40  [0x1079a4638]
+    +             4193 open$NOCANCEL  (in libsystem_kernel.dylib) + 64  [0x181dc2c34]
+    +               4193 __open_nocancel  (in libsystem_kernel.dylib) + 8  [0x181dae948]
+    4193 Thread_19838218: .NET Debugger
+    + 4193 thread_start  (in libsystem_pthread.dylib) + 8  [0x181decc1c]
+    +   4193 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181df1c58]
+    +     4193 CorUnix::CPalThread::ThreadEntry(void*)  (in libcoreclr.dylib) + 236  [0x107c1f600]
+    +       4193 DebuggerRCThread::ThreadProcStatic(void*)  (in libcoreclr.dylib) + 56  [0x10799e958]
+    +         4193 DebuggerRCThread::ThreadProc()  (in libcoreclr.dylib) + 260  [0x10799eba8]
+    +           4193 DebuggerRCThread::MainLoop()  (in libcoreclr.dylib) + 200  [0x10799ecc4]
+    +             4193 CorUnix::InternalWaitForMultipleObjectsEx(CorUnix::CPalThread*, unsigned int, void* const*, int, unsigned int, int, int)  (in libcoreclr.dylib) + 1380  [0x107c1a160]
+    +               4193 CorUnix::CPalSynchronizationManager::BlockThread(CorUnix::CPalThread*, unsigned int, bool, bool, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 204  [0x107c177c0]
+    +                 4193 CorUnix::CPalSynchronizationManager::ThreadNativeWait(CorUnix::_ThreadNativeWaitData*, unsigned int, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 156  [0x107c179b8]
+    +                   4193 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1024  [0x181df2154]
+    +                     4193 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x181db150c]
+    4193 Thread_19838219
+    + 4193 thread_start  (in libsystem_pthread.dylib) + 8  [0x181decc1c]
+    +   4193 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181df1c58]
+    +     4193 CorUnix::CPalThread::ThreadEntry(void*)  (in libcoreclr.dylib) + 236  [0x107c1f600]
+    +       4193 FinalizerThread::FinalizerThreadStart(void*)  (in libcoreclr.dylib) + 92  [0x107b043d0]
+    +         4193 ManagedThreadBase::KickOff(void (*)(void*), void*)  (in libcoreclr.dylib) + 228  [0x107ab1eb8]
+    +           4193 FinalizerThread::FinalizerThreadWorker(void*)  (in libcoreclr.dylib) + 144  [0x107b04090]
+    +             4193 FinalizerThread::WaitForFinalizerEvent(CLREvent*)  (in libcoreclr.dylib) + 200  [0x107b03fa0]
+    +               4193 CorUnix::InternalWaitForMultipleObjectsEx(CorUnix::CPalThread*, unsigned int, void* const*, int, unsigned int, int, int)  (in libcoreclr.dylib) + 1380  [0x107c1a160]
+    +                 4193 CorUnix::CPalSynchronizationManager::BlockThread(CorUnix::CPalThread*, unsigned int, bool, bool, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 204  [0x107c177c0]
+    +                   4193 CorUnix::CPalSynchronizationManager::ThreadNativeWait(CorUnix::_ThreadNativeWaitData*, unsigned int, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 156  [0x107c179b8]
+    +                     4193 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1024  [0x181df2154]
+    +                       4193 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x181db150c]
+    4193 Thread_19838223: .NET SigHandler
+    + 4193 thread_start  (in libsystem_pthread.dylib) + 8  [0x181decc1c]
+    +   4193 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181df1c58]
+    +     4193 SignalHandlerLoop  (in libSystem.Native.dylib) + 120  [0x1027aa728]
+    +       4193 __read_nocancel  (in libsystem_kernel.dylib) + 8  [0x181dafcac]
+    4193 Thread_19838224
+    + 4193 start_wqthread  (in libsystem_pthread.dylib) + 8  [0x181decc10]
+    +   4193 _pthread_wqthread  (in libsystem_pthread.dylib) + 368  [0x181dedf0c]
+    +     4193 __workq_kernreturn  (in libsystem_kernel.dylib) + 8  [0x181daf9f0]
+    4193 Thread_19838227: .NET TP Gate
+    + 4193 thread_start  (in libsystem_pthread.dylib) + 8  [0x181decc1c]
+    +   4193 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181df1c58]
+    +     4193 CorUnix::CPalThread::ThreadEntry(void*)  (in libcoreclr.dylib) + 236  [0x107c1f600]
+    +       4193 KickOffThread(void*)  (in libcoreclr.dylib) + 212  [0x107ae7240]
+    +         4193 ManagedThreadBase::KickOff(void (*)(void*), void*)  (in libcoreclr.dylib) + 228  [0x107ab1eb8]
+    +           4193 KickOffThread_Worker(void*)  (in libcoreclr.dylib) + 144  [0x107ae8b98]
+    +             4193 DispatchCallSimple(unsigned long*, unsigned int, unsigned long, unsigned int)  (in libcoreclr.dylib) + 184  [0x107ad7724]
+    +               4193 CallDescrWorkerWithHandler(CallDescrData*, int)  (in libcoreclr.dylib) + 104  [0x107ad7528]
+    +                 4193 CallDescrWorkerInternal  (in libcoreclr.dylib) + 132  [0x107bec138]
+    +                   4193 ???  (in <unknown binary>)  [0x108c45f4c]
+    +                     4193 ???  (in <unknown binary>)  [0x108c6ad78]
+    +                       4193 ???  (in <unknown binary>)  [0x108c49ba4]
+    +                         4193 WaitHandle_WaitOneCore  (in libcoreclr.dylib) + 108  [0x107aed26c]
+    +                           4193 Thread::DoAppropriateWait(int, void**, int, unsigned int, WaitMode, PendingSync*)  (in libcoreclr.dylib) + 136  [0x107aabe84]
+    +                             4193 Thread::DoAppropriateWaitWorker(int, void**, int, unsigned int, WaitMode, void*)  (in libcoreclr.dylib) + 936  [0x107aafa40]
+    +                               4193 CorUnix::InternalWaitForMultipleObjectsEx(CorUnix::CPalThread*, unsigned int, void* const*, int, unsigned int, int, int)  (in libcoreclr.dylib) + 1380  [0x107c1a160]
+    +                                 4193 CorUnix::CPalSynchronizationManager::BlockThread(CorUnix::CPalThread*, unsigned int, bool, bool, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 204  [0x107c177c0]
+    +                                   4193 CorUnix::CPalSynchronizationManager::ThreadNativeWait(CorUnix::_ThreadNativeWaitData*, unsigned int, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 156  [0x107c179b8]
+    +                                     4193 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1024  [0x181df2154]
+    +                                       4193 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x181db150c]
+    4193 Thread_19838230: MSBuild LoggingService events queue pump: 8622890
+    + 4193 thread_start  (in libsystem_pthread.dylib) + 8  [0x181decc1c]
+    +   4193 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181df1c58]
+    +     4193 CorUnix::CPalThread::ThreadEntry(void*)  (in libcoreclr.dylib) + 236  [0x107c1f600]
+    +       4193 KickOffThread(void*)  (in libcoreclr.dylib) + 212  [0x107ae7240]
+    +         4193 ManagedThreadBase::KickOff(void (*)(void*), void*)  (in libcoreclr.dylib) + 228  [0x107ab1eb8]
+    +           4193 KickOffThread_Worker(void*)  (in libcoreclr.dylib) + 144  [0x107ae8b98]
+    +             4193 DispatchCallSimple(unsigned long*, unsigned int, unsigned long, unsigned int)  (in libcoreclr.dylib) + 184  [0x107ad7724]
+    +               4193 CallDescrWorkerWithHandler(CallDescrData*, int)  (in libcoreclr.dylib) + 104  [0x107ad7528]
+    +                 4193 CallDescrWorkerInternal  (in libcoreclr.dylib) + 132  [0x107bec138]
+    +                   4193 ???  (in <unknown binary>)  [0x108c5352c]
+    +                     4193 ???  (in <unknown binary>)  [0x108c48e6c]
+    +                       4193 ???  (in <unknown binary>)  [0x10b375928]
+    +                         4193 ???  (in <unknown binary>)  [0x108c4a314]
+    +                           4193 WaitHandle_WaitMultipleIgnoringSyncContext  (in libcoreclr.dylib) + 92  [0x107aed3dc]
+    +                             4193 Thread::DoAppropriateWait(int, void**, int, unsigned int, WaitMode, PendingSync*)  (in libcoreclr.dylib) + 136  [0x107aabe84]
+    +                               4193 Thread::DoAppropriateWaitWorker(int, void**, int, unsigned int, WaitMode, void*)  (in libcoreclr.dylib) + 936  [0x107aafa40]
+    +                                 4193 CorUnix::InternalWaitForMultipleObjectsEx(CorUnix::CPalThread*, unsigned int, void* const*, int, unsigned int, int, int)  (in libcoreclr.dylib) + 1380  [0x107c1a160]
+    +                                   4193 CorUnix::CPalSynchronizationManager::BlockThread(CorUnix::CPalThread*, unsigned int, bool, bool, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 204  [0x107c177c0]
+    +                                     4193 CorUnix::CPalSynchronizationManager::ThreadNativeWait(CorUnix::_ThreadNativeWaitData*, unsigned int, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 156  [0x107c179b8]
+    +                                       4193 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1024  [0x181df2154]
+    +                                         4193 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x181db150c]
+    4193 Thread_19838231: MSBuild LoggingService events queue pump: 44962972
+    + 4193 thread_start  (in libsystem_pthread.dylib) + 8  [0x181decc1c]
+    +   4193 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181df1c58]
+    +     4193 CorUnix::CPalThread::ThreadEntry(void*)  (in libcoreclr.dylib) + 236  [0x107c1f600]
+    +       4193 KickOffThread(void*)  (in libcoreclr.dylib) + 212  [0x107ae7240]
+    +         4193 ManagedThreadBase::KickOff(void (*)(void*), void*)  (in libcoreclr.dylib) + 228  [0x107ab1eb8]
+    +           4193 KickOffThread_Worker(void*)  (in libcoreclr.dylib) + 144  [0x107ae8b98]
+    +             4193 DispatchCallSimple(unsigned long*, unsigned int, unsigned long, unsigned int)  (in libcoreclr.dylib) + 184  [0x107ad7724]
+    +               4193 CallDescrWorkerWithHandler(CallDescrData*, int)  (in libcoreclr.dylib) + 104  [0x107ad7528]
+    +                 4193 CallDescrWorkerInternal  (in libcoreclr.dylib) + 132  [0x107bec138]
+    +                   4193 ???  (in <unknown binary>)  [0x108c5352c]
+    +                     4193 ???  (in <unknown binary>)  [0x108c48e6c]
+    +                       4193 ???  (in <unknown binary>)  [0x10b375928]
+    +                         4193 ???  (in <unknown binary>)  [0x108c4a314]
+    +                           4193 WaitHandle_WaitMultipleIgnoringSyncContext  (in libcoreclr.dylib) + 92  [0x107aed3dc]
+    +                             4193 Thread::DoAppropriateWait(int, void**, int, unsigned int, WaitMode, PendingSync*)  (in libcoreclr.dylib) + 136  [0x107aabe84]
+    +                               4193 Thread::DoAppropriateWaitWorker(int, void**, int, unsigned int, WaitMode, void*)  (in libcoreclr.dylib) + 936  [0x107aafa40]
+    +                                 4193 CorUnix::InternalWaitForMultipleObjectsEx(CorUnix::CPalThread*, unsigned int, void* const*, int, unsigned int, int, int)  (in libcoreclr.dylib) + 1380  [0x107c1a160]
+    +                                   4193 CorUnix::CPalSynchronizationManager::BlockThread(CorUnix::CPalThread*, unsigned int, bool, bool, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 204  [0x107c177c0]
+    +                                     4193 CorUnix::CPalSynchronizationManager::ThreadNativeWait(CorUnix::_ThreadNativeWaitData*, unsigned int, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 156  [0x107c179b8]
+    +                                       4193 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1024  [0x181df2154]
+    +                                         4193 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x181db150c]
+    4193 Thread_19838232: In-proc Node 1 (Default)
+    + 4193 thread_start  (in libsystem_pthread.dylib) + 8  [0x181decc1c]
+    +   4193 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181df1c58]
+    +     4193 CorUnix::CPalThread::ThreadEntry(void*)  (in libcoreclr.dylib) + 236  [0x107c1f600]
+    +       4193 KickOffThread(void*)  (in libcoreclr.dylib) + 212  [0x107ae7240]
+    +         4193 ManagedThreadBase::KickOff(void (*)(void*), void*)  (in libcoreclr.dylib) + 228  [0x107ab1eb8]
+    +           4193 KickOffThread_Worker(void*)  (in libcoreclr.dylib) + 144  [0x107ae8b98]
+    +             4193 DispatchCallSimple(unsigned long*, unsigned int, unsigned long, unsigned int)  (in libcoreclr.dylib) + 184  [0x107ad7724]
+    +               4193 CallDescrWorkerWithHandler(CallDescrData*, int)  (in libcoreclr.dylib) + 104  [0x107ad7528]
+    +                 4193 CallDescrWorkerInternal  (in libcoreclr.dylib) + 132  [0x107bec138]
+    +                   4193 ???  (in <unknown binary>)  [0x108c5352c]
+    +                     4193 ???  (in <unknown binary>)  [0x108c48e6c]
+    +                       4193 ???  (in <unknown binary>)  [0x10b3e4518]
+    +                         4193 ???  (in <unknown binary>)  [0x10b332348]
+    +                           4193 ???  (in <unknown binary>)  [0x108c4a314]
+    +                             4193 WaitHandle_WaitMultipleIgnoringSyncContext  (in libcoreclr.dylib) + 92  [0x107aed3dc]
+    +                               4193 Thread::DoAppropriateWait(int, void**, int, unsigned int, WaitMode, PendingSync*)  (in libcoreclr.dylib) + 136  [0x107aabe84]
+    +                                 4193 Thread::DoAppropriateWaitWorker(int, void**, int, unsigned int, WaitMode, void*)  (in libcoreclr.dylib) + 936  [0x107aafa40]
+    +                                   4193 CorUnix::InternalWaitForMultipleObjectsEx(CorUnix::CPalThread*, unsigned int, void* const*, int, unsigned int, int, int)  (in libcoreclr.dylib) + 1380  [0x107c1a160]
+    +                                     4193 CorUnix::CPalSynchronizationManager::BlockThread(CorUnix::CPalThread*, unsigned int, bool, bool, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 204  [0x107c177c0]
+    +                                       4193 CorUnix::CPalSynchronizationManager::ThreadNativeWait(CorUnix::_ThreadNativeWaitData*, unsigned int, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 156  [0x107c179b8]
+    +                                         4193 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1024  [0x181df2154]
+    +                                           4193 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x181db150c]
+    4193 Thread_19838234: RequestBuilder thread
+    + 4193 thread_start  (in libsystem_pthread.dylib) + 8  [0x181decc1c]
+    +   4193 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181df1c58]
+    +     4193 CorUnix::CPalThread::ThreadEntry(void*)  (in libcoreclr.dylib) + 236  [0x107c1f600]
+    +       4193 KickOffThread(void*)  (in libcoreclr.dylib) + 212  [0x107ae7240]
+    +         4193 ManagedThreadBase::KickOff(void (*)(void*), void*)  (in libcoreclr.dylib) + 228  [0x107ab1eb8]
+    +           4193 KickOffThread_Worker(void*)  (in libcoreclr.dylib) + 144  [0x107ae8b98]
+    +             4193 DispatchCallSimple(unsigned long*, unsigned int, unsigned long, unsigned int)  (in libcoreclr.dylib) + 184  [0x107ad7724]
+    +               4193 CallDescrWorkerWithHandler(CallDescrData*, int)  (in libcoreclr.dylib) + 104  [0x107ad7528]
+    +                 4193 CallDescrWorkerInternal  (in libcoreclr.dylib) + 132  [0x107bec138]
+    +                   4193 ???  (in <unknown binary>)  [0x108c5352c]
+    +                     4193 ???  (in <unknown binary>)  [0x108c48e6c]
+    +                       4193 ???  (in <unknown binary>)  [0x10b3d6e40]
+    +                         4193 ???  (in <unknown binary>)  [0x10bfba2cc]
+    +                           4193 ???  (in <unknown binary>)  [0x10bfb7e8c]
+    +                             4193 ???  (in <unknown binary>)  [0x108c5bd8c]
+    +                               4193 ???  (in <unknown binary>)  [0x108c5c108]
+    +                                 4193 ???  (in <unknown binary>)  [0x108c4506c]
+    +                                   4193 Monitor_Wait  (in libcoreclr.dylib) + 136  [0x1079fa2cc]
+    +                                     4193 SyncBlock::Wait(int)  (in libcoreclr.dylib) + 420  [0x107aaada4]
+    +                                       4193 Thread::Block(int, PendingSync*)  (in libcoreclr.dylib) + 32  [0x107ab01d4]
+    +                                         4193 Thread::DoAppropriateWait(int, void**, int, unsigned int, WaitMode, PendingSync*)  (in libcoreclr.dylib) + 136  [0x107aabe84]
+    +                                           4193 Thread::DoAppropriateWaitWorker(int, void**, int, unsigned int, WaitMode, void*)  (in libcoreclr.dylib) + 936  [0x107aafa40]
+    +                                             4193 CorUnix::InternalWaitForMultipleObjectsEx(CorUnix::CPalThread*, unsigned int, void* const*, int, unsigned int, int, int)  (in libcoreclr.dylib) + 1380  [0x107c1a160]
+    +                                               4193 CorUnix::CPalSynchronizationManager::BlockThread(CorUnix::CPalThread*, unsigned int, bool, bool, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 204  [0x107c177c0]
+    +                                                 4193 CorUnix::CPalSynchronizationManager::ThreadNativeWait(CorUnix::_ThreadNativeWaitData*, unsigned int, CorUnix::ThreadWakeupReason*, unsigned int*)  (in libcoreclr.dylib) + 156  [0x107c179b8]
+    +                                                   4193 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1024  [0x181df2154]
+    +                                                     4193 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x181db150c]
+    4193 Thread_19838245: .NET TP Wait
+    + 4193 thread_start  (in libsystem_pthread.dylib) + 8  [0x181decc1c]
+    +   4193 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x181df1c58]
+    +     4193 CorUnix::CPalThread::ThreadEntry(void*)  (in libcoreclr.dylib) + 236  [0x107c1f600]
+    +       4193 KickOffThread(void*)  (in libcoreclr.dylib) + 212  [0x107ae7240]
+    +         4193 ManagedThreadBase::KickOff(void (*)(void*), void*)  (in libcoreclr.dylib) + 228  [0x107ab1eb8]
+    +           4193 KickOffThread_Worker(void*)  (in libcoreclr.dylib) + 144  [0x107ae8b98]
+    +             4193 DispatchCallSimple(unsigned long*, unsigned int, unsigned long, unsigned int)  (in libcoreclr.dylib) + 184  [0x107ad7724]
+    +               4193 CallDescrWorkerWithHandler(CallDescrData*, int)  (in libcoreclr.dylib) + 104  [0x107ad7528]
+    +                 4193 CallDescrWorkerInternal  (in libcoreclr.dylib) + 132  [0x107bec138]
+    +                   4193 ???  (in <unknown binary>)  [0x108c45f4c]
+    +                     4193 ???  (in <unknown binary>)  [0x108c6c98c]

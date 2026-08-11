@@ -8,9 +8,8 @@ namespace LessonCue.Server;
 
 public static class PresentationConversion
 {
-    public static bool IsConvertible(string fileName) => Path.GetExtension(fileName).ToLowerInvariant() is
-        ".pdf" or ".ppt" or ".pptx" or ".pps" or ".ppsx" or ".pot" or ".potx" or
-        ".odp" or ".key" or ".doc" or ".docx";
+    public static bool IsConvertible(string fileName) =>
+        MediaFormatCatalog.IsConvertibleDocument(Path.GetExtension(fileName));
 
     public static bool TryGoogleSlidesExport(Uri source, out Uri export)
     {
@@ -39,7 +38,7 @@ public static class PresentationConversion
     }
 
     public static async Task<int> AddToLessonAsync(LessonCueDb db, MediaAsset source, Lesson lesson,
-        int imageDurationSeconds, string actor, CancellationToken ct = default)
+        int? imageDurationSeconds, string actor, CancellationToken ct = default)
     {
         var ids = SlideIds(source);
         if (source.ConversionStatus != "ready" || ids.Count == 0)
@@ -50,7 +49,9 @@ public static class PresentationConversion
             throw new InvalidOperationException("One or more converted slide files are missing. Convert the source again.");
         var position = await db.PlaylistItems.Where(x => x.LessonId == lesson.Id)
             .Select(x => (decimal?)x.Position).MaxAsync(ct) ?? 0;
-        var seconds = Math.Clamp(imageDurationSeconds, 1, 3600);
+        var seconds = imageDurationSeconds is > 0
+            ? Math.Clamp(imageDurationSeconds.Value, 1, 3600)
+            : (int?)null;
         foreach (var id in ids)
         {
             var slide = byId[id];
@@ -63,7 +64,7 @@ public static class PresentationConversion
                 Role = "lesson",
                 Position = position,
                 MediaAssetId = slide.Id,
-                DurationMs = seconds * 1000L,
+                DurationMs = seconds is int value ? value * 1000L : null,
                 ImageDurationSeconds = seconds
             });
             if (slide.StoragePolicy == MediaRetention.LessonScoped) MediaRetention.KeepForLesson(slide, lesson);
@@ -116,7 +117,7 @@ public sealed class PresentationConversionService(
                 ?? throw new InvalidOperationException("The local presentation source file is missing.");
             var extension = Path.GetExtension(source.RelativePath).ToLowerInvariant();
             if (!PresentationConversion.IsConvertible(source.RelativePath))
-                throw new InvalidOperationException("Convert supports PDF, PowerPoint, OpenDocument Presentation, Keynote, and Word files.");
+                throw new InvalidOperationException("Convert supports PDF, PowerPoint, OpenDocument, Keynote, Word, Excel, text, and other document files accepted by LessonCue.");
             MediaContentInspector.RequireValid(original, source.RelativePath);
             var pdftoppm = FindExecutable("LESSONCUE_PDFTOPPM_PATH", "pdftoppm",
                 @"C:\Program Files\poppler\Library\bin\pdftoppm.exe")
@@ -153,7 +154,11 @@ public sealed class PresentationConversionService(
                 work, ct);
             var pages = Directory.EnumerateFiles(work, "slide-*.png").OrderBy(PageNumber).ToList();
             if (pages.Count == 0) throw new InvalidOperationException("The document did not produce any readable slides.");
+            if (pages.Count != pageCount)
+                throw new InvalidOperationException($"The document declared {pageCount} pages, but the local renderer produced {pages.Count}. No partial slide set was saved.");
             if (pages.Count > 500) throw new InvalidOperationException("Presentations are limited to 500 slides per conversion.");
+            foreach (var page in pages)
+                MediaContentInspector.RequireValid(page, Path.GetFileName(page));
             var totalBytes = pages.Sum(path => new FileInfo(path).Length);
             if (await storage.EnsureAvailableAsync(db, totalBytes, ct) is null)
                 throw new InvalidOperationException("There is not enough LessonCue storage available for the converted slides.");
@@ -239,7 +244,9 @@ public sealed class PresentationConversionService(
             db.ChangeTracker.Entries<MediaAsset>().Where(entry => entry.State == EntityState.Added).ToList()
                 .ForEach(entry => entry.State = EntityState.Detached);
             source.ConversionStatus = "failed";
-            source.ConversionError = ex.Message.Length > 900 ? ex.Message[..900] : ex.Message;
+            source.ConvertedSlidesJson = "[]";
+            source.ConvertedAt = null;
+            source.ConversionError = SafeConversionError(ex, work);
             await db.SaveChangesAsync(ct);
             try { await hub.Clients.All.SendAsync("ManifestInvalidated", new { type = "MANIFEST_INVALIDATED" }, ct); }
             catch (Exception signalError) { logger.LogDebug(signalError, "Could not signal failed presentation conversion"); }
@@ -269,6 +276,16 @@ public sealed class PresentationConversionService(
     {
         var match = Regex.Match(Path.GetFileNameWithoutExtension(path), @"(\d+)$");
         return match.Success && int.TryParse(match.Groups[1].Value, out var page) ? page : int.MaxValue;
+    }
+
+    private static string SafeConversionError(Exception error, string work)
+    {
+        var message = error.Message.Replace(work, "the temporary conversion area", StringComparison.OrdinalIgnoreCase);
+        message = Regex.Replace(message, @"(?i)(password|token|secret|key)\s*[=:]\s*\S+", "$1=[redacted]");
+        if (message.Contains("Syntax Error", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("Invalid page", StringComparison.OrdinalIgnoreCase))
+            message = "The local PDF renderer could not read this document. Verify that it opens normally, export it as a standard PDF, then retry.";
+        return message.Length > 900 ? message[..900] : message;
     }
 
     private static string AppendTag(string existing, string tag)

@@ -1,7 +1,8 @@
-import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
+import { WeatherConditionArtwork, WeatherDropArtwork, WeatherWindArtwork } from "./WeatherArtwork";
 
-const APP_VERSION = "0.40.15";
+const APP_VERSION = "0.40.22";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -21,6 +22,7 @@ export type CueItem = {
   endMs?: number;
   volumePercent: number;
   imageDurationSeconds?: number;
+  estimatedDurationSeconds?: number;
   endBehavior: string;
   allowSkip: boolean;
   sourceKind?: string;
@@ -55,6 +57,7 @@ type Playlist = {
   preRollStartsAt?: string;
   countdown?: { enabled: boolean; itemId: string; durationMs: number; startAt?: string; item: CueItem };
   preRoll?: { enabled: boolean; loop: boolean; items: CueItem[] };
+  postLesson?: { enabled: boolean; loop: boolean; items: CueItem[] };
   items: CueItem[];
 };
 export type SignageContentPlaylist = { id: string; name: string; playbackMode: string; synchronization: string; version: number; items: SignagePlaylistEntry[] };
@@ -91,7 +94,7 @@ export type SignageZone = {
   id: string; type: string; title?: string; content?: string; sourceUrl?: string; streamUrl?: string; htmlUrl?: string;
   x: number; y: number; width: number; height: number; backgroundColor: string; textColor: string; accentColor: string; refreshMinutes: number;
   rotation?: number; zIndex?: number; opacity?: number; fit?: "cover" | "contain" | "fill"; locked?: boolean; hidden?: boolean; flipX?: boolean; flipY?: boolean;
-  media?: CueItem; cached?: SignageWidgetCache; fontFamily?: string; fontSize?: number; fontWeight?: number; italic?: boolean; underline?: boolean;
+  media?: CueItem; cached?: SignageWidgetCache; fontFamily?: string; fontSize?: number; fontScalePercent?: number; fontWeight?: number; italic?: boolean; underline?: boolean;
   lineHeightPercent?: number; textAlign?: CSSProperties["textAlign"]; strokeColor?: string; strokeWidth?: number; cornerRadius?: number;
   qrValue?: string; qrLabelTop?: string; qrLabelBottom?: string; qrLabelLeft?: string; qrLabelRight?: string; qrPlacement?: "left" | "center" | "right"; qrSizePercent?: number;
   tickerSpeed?: number; counterTargetAt?: string; counterRepeatWeekly?: boolean; richTextJson?: string;
@@ -146,7 +149,7 @@ type ActivePlayback = {
   items: CueItem[];
   index: number;
   seekMs: number;
-  mode: "lesson" | "preroll" | "countdown";
+  mode: "lesson" | "preroll" | "countdown" | "postLesson";
 };
 type PlaybackStatus = {
   state: string;
@@ -242,7 +245,7 @@ export function WebPlayerApp() {
       case "play": {
         const playlist = sourceManifest?.playlists.find(item => item.playlistId === command.lessonId);
         if (!playlist) throw new Error("The requested lesson is not available to this screen.");
-        const allItems = [...(playlist.preRoll?.items || []), ...(playlist.countdown ? [playlist.countdown.item] : []), ...playlist.items];
+        const allItems = [...(playlist.preRoll?.items || []), ...(playlist.countdown ? [playlist.countdown.item] : []), ...playlist.items, ...(playlist.postLesson?.items || [])];
         const selected = command.itemId ? allItems.findIndex(item => item.itemId === command.itemId) : -1;
         startPlayback(playlist, selected >= 0 ? allItems : playlist.items, selected >= 0 ? selected : 0, command.positionMs || 0);
         break;
@@ -298,10 +301,16 @@ export function WebPlayerApp() {
       return;
     }
     repeatProgressRef.current = { itemId: "", completed: 0 };
-    if (item.endBehavior === "loop") {
+    const sectionLoop = current.mode === "preroll" || current.mode === "postLesson";
+    if (sectionLoop) {
+      setActive({ ...current, index: current.index + 1 < current.items.length ? current.index + 1 : 0, seekMs: 0 });
+      setUnlockNonce(value => value + 1);
+    } else if (current.mode === "lesson" && current.index === current.items.length - 1 && current.playlist.postLesson?.items.length) {
+      startPlayback(current.playlist, current.playlist.postLesson.items, 0, 0, "postLesson");
+    } else if (item.endBehavior === "loop") {
       setActive({ ...current, seekMs: 0 });
       setUnlockNonce(value => value + 1);
-    } else if (item.endBehavior === "playlistLoop" || current.mode === "preroll" && current.index === current.items.length - 1) {
+    } else if (item.endBehavior === "playlistLoop") {
       setActive({ ...current, index: 0, seekMs: 0 });
     } else if (item.endBehavior === "advance" && current.index + 1 < current.items.length) {
       moveTo(current.index + 1);
@@ -578,7 +587,7 @@ export function WebPlayerApp() {
       onPlay={playlist => startPlayback(playlist, playlist.items)} />}
 
     {active && controlsVisible && <div className="web-player-overlay">
-      <div><span>{active.mode === "preroll" ? "PRE-ROLL" : active.mode === "countdown" ? "COUNTDOWN" : "NOW PLAYING"}</span><strong>{currentItem?.title}</strong><small>{active.playlist.title} · {active.index + 1} of {active.items.length}</small></div>
+      <div><span>{active.mode === "preroll" ? "PRE-ROLL" : active.mode === "countdown" ? "COUNTDOWN" : active.mode === "postLesson" ? "POST-LESSON" : "NOW PLAYING"}</span><strong>{currentItem?.title}</strong><small>{active.playlist.title} · {active.index + 1} of {active.items.length}</small></div>
       <div className="web-player-transport">
         <button aria-label="Previous media" onClick={() => moveTo(Math.max(0, active.index - 1))}>‹‹</button>
         <button aria-label={paused ? "Resume" : "Pause"} onClick={() => { setPaused(value => !value); setUnlockNonce(value => value + 1); }}>{paused ? "▶" : "Ⅱ"}</button>
@@ -650,14 +659,14 @@ function PairingScreen({ message, onPaired }: { message: string; onPaired: (iden
   return <main className="web-player pairing">
     <section className="web-player-card">
       <div className="web-player-brand"><img src="/lessoncue-icon.svg" alt="" aria-hidden="true" /><span><strong>LessonCue</strong><small>Browser playback client</small></span></div>
-      {!requestId ? <form onSubmit={begin}>
+      {!requestId ? <form key="display-name" onSubmit={begin}>
         <span className="web-player-eyebrow">LOCAL DISPLAY SETUP</span>
         <h1>Pair this computer or projector</h1>
         <p>This browser becomes a secure LessonCue screen. It stays connected to this local server and can be controlled from the existing phone remote.</p>
         <label><span>Display name</span><input aria-label="Display name" value={deviceName} onChange={event => setDeviceName(event.target.value)} required maxLength={120} autoFocus /></label>
         {error && <div className="web-player-error">{error}</div>}
         <button disabled={busy}>{busy ? "Starting…" : "Start pairing"}</button>
-      </form> : <form onSubmit={confirmPairing}>
+      </form> : <form key="pairing-pin" onSubmit={confirmPairing}>
         <span className="web-player-eyebrow">PAIRING REQUESTED</span>
         <h1>Enter the server PIN</h1>
         <p>Find the six-digit pairing PIN on LessonCue’s Screens page, then enter it here.</p>
@@ -719,7 +728,8 @@ function PlayerLibrary({ manifest, connection, permanentSign, onPlay }: {
 }
 
 function SignageExperience({ signage, children }: { signage: Signage; children: ReactNode }) {
-  const items = signage.contentPlaylist?.items.filter(item => !item.hidden) || [];
+  const playlistItems = signage.contentPlaylist?.items;
+  const items = useMemo(() => playlistItems?.filter(item => !item.hidden) || [], [playlistItems]);
   const [index, setIndex] = useState(0);
   const [interacting, setInteracting] = useState(false);
   const timeoutRef = useRef<number>(0);
@@ -733,7 +743,7 @@ function SignageExperience({ signage, children }: { signage: Signage; children: 
     }
     const timer = window.setTimeout(() => setIndex(nextIndex), 0);
     return () => window.clearTimeout(timer);
-  }, [signage.contentPlaylist?.id, signage.contentPlaylist?.version, signage.contentPlaylist?.synchronization]);
+  }, [signage.contentPlaylist?.id, signage.contentPlaylist?.version, signage.contentPlaylist?.synchronization, items]);
   useEffect(() => {
     if (!items.length || interacting) return;
     const current = items[index % items.length];
@@ -845,7 +855,7 @@ export function SignageLayout({ signage, editor }: { signage: Signage; editor?: 
       onPointerMove={moveMedia}
       onPointerUp={endMediaDrag}
       onPointerCancel={endMediaDrag}
-      style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, borderRadius: `${zone.cornerRadius || 0}%`, zIndex: zone.zIndex ?? 0, opacity: (zone.opacity ?? 100) / 100, transform: `rotate(${zone.rotation ?? 0}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`, fontFamily: zone.fontFamily, fontSize: zone.fontSize ? `clamp(8px, ${zone.fontSize / 19.2}vw, ${zone.fontSize}px)` : undefined, fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined, textAlign: zone.textAlign, lineHeight: zone.lineHeightPercent ? zone.lineHeightPercent / 100 : undefined, ["--signage-zone-padding" as string]: `${Math.max(0, Math.min(30, zone.contentPadding ?? 6))}%`, ["--signage-content-scale" as string]: Math.max(.25, Math.min(1, (zone.contentScale ?? 100) / 100)), ["--signage-qr-size" as string]: `${Math.max(20, Math.min(90, zone.qrSizePercent ?? 42))}%` } as CSSProperties}>
+      style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, borderRadius: `${zone.cornerRadius || 0}%`, zIndex: zone.zIndex ?? 0, opacity: (zone.opacity ?? 100) / 100, transform: `rotate(${zone.rotation ?? 0}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`, fontFamily: zone.fontFamily, fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined, textAlign: zone.textAlign, ["--signage-accent" as string]: zone.accentColor, ["--signage-line-height" as string]: `${Math.max(80, Math.min(300, zone.lineHeightPercent ?? 120)) / 100}`, ["--signage-zone-padding" as string]: `${Math.max(0, Math.min(30, zone.contentPadding ?? 6))}%`, ["--signage-content-scale" as string]: Math.max(.25, Math.min(1, (zone.contentScale ?? 100) / 100)), ["--signage-qr-size" as string]: `${Math.max(20, Math.min(90, zone.qrSizePercent ?? 42))}%` } as CSSProperties}>
       {zone.media?.downloadUrl && (zone.media.type === "video" || zone.media.contentType?.startsWith("video/")
         ? <video src={zone.media.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={zone.media.title} style={{ objectFit: zone.fit || "cover", transform: mediaTransform(zone) }} />
         : <img src={zone.media.downloadUrl} alt={zone.title || ""} style={{ objectFit: zone.fit || "cover", transform: mediaTransform(zone) }} />)}
@@ -857,13 +867,13 @@ export function SignageLayout({ signage, editor }: { signage: Signage; editor?: 
         : zone.content && <iframe srcDoc={zone.content} title={zone.title || "Custom HTML"} sandbox="allow-forms allow-modals allow-popups allow-presentation allow-scripts" />)}
       {(zone.type === "qr" || zone.type === "wifi") && <SignageQr zone={zone} />}
       {zone.type === "audience" && <SignageAudiencePoll zone={zone} />}
-      <div className={`web-player-zone-copy ${zone.type === "ticker" ? "ticker" : ""}`} style={zone.type === "ticker" ? { animationDuration: `${Math.max(5, 300 / Math.max(10, zone.tickerSpeed || 60))}s` } : undefined}>
-        {zone.title && !["qr","wifi","audience","webpage","customHtml","presentation","media","weather"].includes(zone.type) && <small style={{ color: zone.accentColor }}>{zone.title}</small>}
+      <div className={`web-player-zone-copy ${zone.type === "ticker" ? "ticker" : ""}`} style={{ fontSize: relativeSignageFontSize(zone), ...(zone.type === "ticker" ? { animationDuration: `${Math.max(5, 300 / Math.max(10, zone.tickerSpeed || 60))}s` } : {}) }}>
+        {zone.title && !["qr","wifi","audience","webpage","customHtml","presentation","media","weather","calendar"].includes(zone.type) && <small style={{ color: zone.accentColor }}>{zone.title}</small>}
         {zone.type === "clock" ? <SignageClock zone={zone} />
           : zone.type === "weather" ? <SignageWeather zone={zone} />
           : zone.type === "calendar" ? <SignageCalendar zone={zone} />
           : zone.type === "counter" ? <SignageCounter zone={zone} />
-          : zone.richTextJson ? <SignageRichText value={zone.richTextJson} fallback={zone.cached?.text || zone.content || ""} />
+          : zone.richTextJson ? <SignageRichText zone={zone} value={zone.richTextJson} fallback={zone.cached?.text || zone.content || ""} />
           : !["qr","wifi","audience","webpage","customHtml","presentation","stream","media","weather","calendar"].includes(zone.type) ? <><strong>{zone.cached?.text || zone.content}</strong>{zone.cached?.items?.length ? <ul>{zone.cached.items.map((item, index) => <li key={`${zone.id}-${index}`}>{item}</li>)}</ul> : null}</>
           : null}
       </div>
@@ -875,8 +885,14 @@ function mediaTransform(zone: SignageZone) {
   return `translate(${zone.mediaOffsetX || 0}%, ${zone.mediaOffsetY || 0}%) scale(${Math.max(25, Math.min(400, zone.mediaScale || 100)) / 100})`;
 }
 
+function relativeSignageFontSize(zone: Pick<SignageZone, "fontScalePercent">) {
+  const scale = Math.max(1, Math.min(40, zone.fontScalePercent ?? 10));
+  return `min(${scale}cqw, ${scale}cqh)`;
+}
+
 function SignagePresentation({ zone, signage }: { zone: SignageZone; signage: Signage }) {
-  const items = zone.contentPlaylist?.items.filter(item => !item.hidden) || [];
+  const playlistItems = zone.contentPlaylist?.items;
+  const items = useMemo(() => playlistItems?.filter(item => !item.hidden) || [], [playlistItems]);
   const [index, setIndex] = useState(0);
   const [streamLive, setStreamLive] = useState(false);
   const streamOverrideActive = useScheduledStreamOverride(zone);
@@ -912,19 +928,20 @@ function useScheduledStreamOverride(zone: SignageZone) {
   return Boolean(zone.streamOverrideWhenLive && zone.streamUrl && now >= startsAt && now < endsAt);
 }
 
-function SignageRichText({ value, fallback }: { value: string; fallback: string }) {
+function SignageRichText({ zone, value, fallback, className }: { zone: SignageZone; value: string; fallback: string; className?: string }) {
   let runs: { text?: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string; fontFamily?: string; fontSize?: number }[] = [];
   try {
     const parsed = JSON.parse(value);
     if (Array.isArray(parsed)) runs = parsed;
   } catch { /* The plain text fallback remains visible for malformed manifest data. */ }
-  if (!runs.length) return <strong>{fallback}</strong>;
-  return <strong>{runs.slice(0,200).map((run,index)=><span key={index} style={{fontWeight:run.bold?800:undefined,fontStyle:run.italic?"italic":undefined,textDecoration:run.underline?"underline":undefined,color:/^#[0-9a-f]{6}$/i.test(run.color||"")?run.color:undefined,fontFamily:String(run.fontFamily||"").slice(0,80)||undefined,fontSize:Number.isFinite(run.fontSize)?`${Math.max(8,Math.min(200,Number(run.fontSize)))}px`:undefined}}>{String(run.text||"")}</span>)}</strong>;
+  if (!runs.length) return <strong className={className}>{fallback}</strong>;
+  const legacyBase = Math.max(12, Math.min(160, zone.fontSize ?? 34)) * 2.1;
+  return <strong className={className}>{runs.slice(0,200).map((run,index)=><span key={index} style={{fontWeight:run.bold?800:undefined,fontStyle:run.italic?"italic":undefined,textDecoration:run.underline?"underline":undefined,color:/^#[0-9a-f]{6}$/i.test(run.color||"")?run.color:undefined,fontFamily:String(run.fontFamily||"").slice(0,80)||undefined,fontSize:Number.isFinite(run.fontSize)?`${Math.max(.25,Math.min(4,Number(run.fontSize) / legacyBase))}em`:undefined}}>{String(run.text||"")}</span>)}</strong>;
 }
 
 function SignageQr({ zone }: { zone: SignageZone }) {
   const value = zone.qrValue || zone.content || "";
-  return value ? <div className={`signage-qr-layout placement-${zone.qrPlacement || "center"}`}>
+  return value ? <div className={`signage-qr-layout placement-${zone.qrPlacement || "center"}`} style={{ fontSize: relativeSignageFontSize(zone), lineHeight: "var(--signage-line-height, 1.2)" }}>
     <span className="signage-qr-label top">{zone.qrLabelTop}</span>
     <span className="signage-qr-label left">{zone.qrLabelLeft}</span>
     <GeneratedSignageQr value={value} />
@@ -1109,8 +1126,6 @@ function SignageClock({ zone }: { zone: SignageZone }) {
   const [now, setNow] = useState(new Date());
   useEffect(() => { const timer = window.setInterval(() => setNow(new Date()), 1000); return () => window.clearInterval(timer); }, []);
   const display = zone.clockDisplay || "both";
-  const timeSize = Math.max(8, zone.clockTimeFontSize || 64);
-  const dateSize = Math.max(8, zone.clockDateFontSize || 28);
   const timeOptions: Intl.DateTimeFormatOptions = {
     hour: "numeric", minute: "2-digit", second: zone.clockTimeFormat?.endsWith("seconds") ? "2-digit" : undefined,
     hour12: !zone.clockTimeFormat?.startsWith("24h")
@@ -1119,14 +1134,14 @@ function SignageClock({ zone }: { zone: SignageZone }) {
   if (timeOptions.hour12 && zone.clockShowPeriod === false) {
     timeText = new Intl.DateTimeFormat([], timeOptions).formatToParts(now).filter(part => part.type !== "dayPeriod").map(part => part.value).join("").trim();
   }
-  const time = <b className="signage-clock-time" style={{ fontSize: `clamp(8px, ${timeSize / 19.2}vw, ${timeSize}px)` }}>{timeText}</b>;
+  const time = <b className="signage-clock-time">{timeText}</b>;
   const year = zone.clockShowYear === false ? undefined : "numeric";
   const weekday = zone.clockShowWeekday === false ? undefined : zone.clockDateFormat === "medium" ? "short" : "long";
   const dateOptions: Intl.DateTimeFormatOptions = zone.clockDateFormat === "numeric" ? { year, month: "2-digit", day: "2-digit" }
     : zone.clockDateFormat === "short" ? { month: "short", day: "numeric" }
     : zone.clockDateFormat === "medium" ? { weekday, month: "short", day: "numeric", year }
     : { weekday, month: "long", day: "numeric", year };
-  const date = <span className="signage-clock-date" style={{ fontSize: `clamp(8px, ${dateSize / 19.2}vw, ${dateSize}px)` }}>{now.toLocaleDateString([], dateOptions)}</span>;
+  const date = <span className="signage-clock-date">{now.toLocaleDateString([], dateOptions)}</span>;
   if (display === "time") return time;
   if (display === "date") return date;
   return <div className={`signage-clock-stack ${zone.clockOrder === "date-time" ? "date-first" : ""} ${zone.clockOrder === "inline" ? "inline" : ""}`}>{time}{date}</div>;
@@ -1135,33 +1150,49 @@ function SignageClock({ zone }: { zone: SignageZone }) {
 function SignageWeather({ zone }: { zone: SignageZone }) {
   const cache = zone.cached;
   const weather = cache?.weather;
-  const fields = new Set((zone.weatherFields || "icon,conditions,temperature,high,low").split(","));
-  const icon = cache?.icon || "☀️";
-  const unit = weather?.temperatureUnit || "°";
+  const weatherFieldKeys = ["icon", "temperature", "conditions", "precipitation", "high", "low", "wind"];
+  const fields = new Set((zone.weatherFields || weatherFieldKeys.join(",")).split(",")
+    .map(value => value.trim()).filter(value => weatherFieldKeys.includes(value)));
+  const icon = (cache?.icon || "☀").replace(/\uFE0F/g, "");
+  const degreeValue = (value?: number) => value == null ? "—" : `${value.toFixed(0)}°`;
+  const highLow = fields.has("high") || fields.has("low")
+    ? `H${fields.has("high") ? degreeValue(weather?.high).replace("°", "") : "—"}/L${fields.has("low") ? degreeValue(weather?.low).replace("°", "") : "—"}`
+    : "";
+  const windText = weather?.windText || "";
+  const windDirection = windText.match(/\b(NNW|NNE|ENE|ESE|SSE|SSW|WSW|WNW|NE|NW|SE|SW|N|E|S|W)\b/i)?.[1]?.toUpperCase();
+  const windSpeed = weather?.wind != null
+    ? `${weather.wind.toFixed(0)} ${(weather.windUnit || "mph").toUpperCase()}`
+    : windText.match(/\d+(?:\.\d+)?\s*[a-z]+/i)?.[0]?.toUpperCase() || windText;
   const details = [
-    fields.has("high") && weather?.high != null ? `High ${weather.high.toFixed(0)}${unit}` : "",
-    fields.has("low") && weather?.low != null ? `Low ${weather.low.toFixed(0)}${unit}` : "",
-    fields.has("feelsLike") && weather?.feelsLike != null ? `Feels like ${weather.feelsLike.toFixed(0)}${unit}` : "",
-    fields.has("humidity") && weather?.humidity != null ? `Humidity ${weather.humidity.toFixed(0)}%` : "",
-    fields.has("precipitation") && weather?.precipitation != null ? `Precipitation ${weather.precipitation.toFixed(0)}%` : "",
-    fields.has("wind") && weather?.windText ? `Wind ${weather.windText}` :
-      fields.has("wind") && weather?.wind != null ? `Wind ${weather.wind.toFixed(0)} ${weather.windUnit || ""}`.trim() : "",
-    fields.has("forecast") && weather?.forecast ? `Tomorrow ${weather.forecast}` : "",
-    fields.has("sunrise") && weather?.sunrise ? `Sunrise ${weather.sunrise}` : "",
-    fields.has("sunset") && weather?.sunset ? `Sunset ${weather.sunset}` : "",
-  ].filter(Boolean);
+    fields.has("precipitation") && weather?.precipitation != null ? { kind: "precipitation", value: `${weather.precipitation.toFixed(0)}%` } : null,
+    highLow ? { kind: "high-low", value: highLow } : null,
+    fields.has("wind") && windSpeed ? { kind: "wind", value: windSpeed, direction: windDirection } : null,
+  ].filter((item): item is { kind: string; value: string; direction?: string } => Boolean(item));
   const fallbackText = (cache?.text || zone.content || "Weather").replace(icon, "").trim();
-  return <div className={`signage-weather layout-${zone.weatherLayout || "icon-top"}`}>
-    {(zone.title || cache?.title) && <b className="signage-weather-title" style={{ fontSize: `${zone.weatherTitleSize || 28}px` }}>{zone.title || cache?.title}</b>}
-    {fields.has("icon") && <span className={`signage-weather-icon ${zone.weatherIconStyle === "white" ? "white" : "color"}`} style={{ fontSize: `${zone.weatherIconSize || 84}px` }}>{icon}</span>}
-    <div className="signage-weather-reading">
-      {fields.has("temperature") && weather?.temperature != null
-        ? <strong className="signage-weather-temperature" style={{ fontSize: `${zone.weatherTemperatureSize || 58}px` }}>{weather.temperature.toFixed(0)}{unit}</strong>
-        : !weather && <strong className="signage-weather-temperature">{fallbackText || "Weather"}</strong>}
-      {fields.has("conditions") && weather?.conditions && <span className="signage-weather-conditions">{weather.conditions}</span>}
+  const title = zone.title || cache?.title || "";
+  const hasDetails = details.length > 0 || Boolean(!weather && cache?.items?.length);
+  return <div className={`signage-weather layout-${zone.weatherLayout || "icon-left"} ${title ? "has-title" : "no-title"} ${hasDetails ? "has-details" : "no-details"}`}>
+    <div className="signage-weather-heading">
+      {title && (zone.richTextJson
+        ? <SignageRichText zone={zone} value={zone.richTextJson} fallback={title} className="signage-weather-title" />
+        : <b className="signage-weather-title">{title}</b>)}
+    </div>
+    <div className="signage-weather-main">
+      {fields.has("icon") && <WeatherConditionArtwork className="signage-weather-icon" conditions={weather?.conditions} icon={icon} monochrome={zone.weatherIconStyle === "white"} />}
+      <div className="signage-weather-reading">
+        {fields.has("temperature") && weather?.temperature != null
+          ? <strong className="signage-weather-temperature">{degreeValue(weather.temperature)}</strong>
+          : !weather && <strong className="signage-weather-temperature">{fallbackText || "Weather"}</strong>}
+        {fields.has("conditions") && weather?.conditions && <span className="signage-weather-conditions">{weather.conditions.toUpperCase()}</span>}
+      </div>
     </div>
     {details.length > 0
-      ? <ul className="signage-weather-details" style={{ fontSize: `${zone.weatherDetailsSize || 22}px` }}>{details.map((item, index) => <li key={`${zone.id}-weather-${index}`}>{item}</li>)}</ul>
+      ? <ul className="signage-weather-details">{details.map((item, index) => <li className={`signage-weather-${item.kind}`} key={`${zone.id}-weather-${index}`}>
+        {item.kind === "precipitation" && <WeatherDropArtwork className="signage-weather-drop" />}
+        {item.kind === "wind" && <WeatherWindArtwork className="signage-weather-wind-icon" />}
+        <span className="signage-weather-detail-value">{item.value}</span>
+        {item.kind === "wind" && item.direction && <small className="signage-weather-wind-direction">{item.direction}</small>}
+      </li>)}</ul>
       : !weather && cache?.items?.length ? <ul className="signage-weather-details">{cache.items.map((item, index) => <li key={`${zone.id}-weather-${index}`}>{item}</li>)}</ul> : null}
   </div>;
 }
@@ -1169,13 +1200,22 @@ function SignageWeather({ zone }: { zone: SignageZone }) {
 function SignageCalendar({ zone }: { zone: SignageZone }) {
   const fields = new Set((zone.calendarFields || "date,time,title").split(",").map(value => value.trim().toLowerCase()).filter(Boolean));
   const allEvents = zone.cached?.events || [];
-  const events = zone.calendarMaxItems && zone.calendarMaxItems > 0 ? allEvents.slice(0, zone.calendarMaxItems) : allEvents;
+  const limit = zone.calendarMaxItems && zone.calendarMaxItems > 0 ? zone.calendarMaxItems : 4;
+  const events = allEvents.slice(0, limit);
   if (!events.length) {
     const items = zone.cached?.items || [];
-    const visible = zone.calendarMaxItems && zone.calendarMaxItems > 0 ? items.slice(0, zone.calendarMaxItems) : items;
-    return visible.length ? <ul className="signage-calendar-list">{visible.map((item, index) => <li key={`${zone.id}-calendar-${index}`}>{item}</li>)}</ul> : <strong>{zone.content || "Calendar feed"}</strong>;
+    const visible = items.slice(0, limit);
+    return <div className="signage-calendar">{zone.richTextJson
+      ? <SignageRichText zone={zone} value={zone.richTextJson} fallback={zone.title || "Upcoming events"} className="signage-calendar-heading" />
+      : <b className="signage-calendar-heading">{zone.title || "Upcoming events"}</b>}
+      {visible.length
+        ? <ul className="signage-calendar-list">{visible.map((item, index) => <li key={`${zone.id}-calendar-${index}`}><b>{item}</b></li>)}</ul>
+        : <strong>{zone.content || "Calendar feed"}</strong>}
+    </div>;
   }
-  return <ol className="signage-calendar-list">
+  return <div className="signage-calendar">{zone.richTextJson
+    ? <SignageRichText zone={zone} value={zone.richTextJson} fallback={zone.title || "Upcoming events"} className="signage-calendar-heading" />
+    : <b className="signage-calendar-heading">{zone.title || "Upcoming events"}</b>}<ol className="signage-calendar-list">
     {events.map((event, index) => {
       const starts = event.startsAt ? new Date(event.startsAt) : undefined;
       const ends = event.endsAt ? new Date(event.endsAt) : undefined;
@@ -1191,11 +1231,11 @@ function SignageCalendar({ zone }: { zone: SignageZone }) {
           {dateText && <span>{dateText}</span>}
           {timeText && <span>{timeText}</span>}
         </time>}
-        {fields.has("description") && event.description && <span>{event.description}</span>}
-        {fields.has("location") && event.location && <small>{event.location}</small>}
+        {fields.has("description") && event.description && <p className="signage-calendar-description">{event.description}</p>}
+        {fields.has("location") && event.location && <small className="signage-calendar-location">{event.location}</small>}
       </li>;
     })}
-  </ol>;
+  </ol></div>;
 }
 
 function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, onEnded, onBlocked }: {
@@ -1242,9 +1282,9 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
       if (!paused) position += now - previous;
       previous = now;
       setImagePosition(position);
-      setOpacity(visualOpacity(item, position, duration));
+      setOpacity(visualOpacity(item, position, duration ?? Number.MAX_SAFE_INTEGER));
       onStatus({ state: paused ? "paused" : "playing", lessonId: playlist.playlistId, itemId: item.itemId, positionMs: Math.round(position), durationMs: duration, volumePercent: item.volumePercent });
-      if (position >= duration) {
+      if (duration != null && position >= duration) {
         window.clearInterval(timer);
         onEnded();
       }
@@ -1303,11 +1343,12 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
     const media = mediaRef.current;
     if (!media) return;
     const position = Math.max(0, (media.currentTime * 1_000) - item.startMs);
-    const resolvedDuration = duration || Math.max(0, media.duration * 1_000 - item.startMs);
-    const fade = fadeOpacity(item, position, resolvedDuration);
-    setOpacity(visualOpacity(item, position, resolvedDuration));
+    const resolvedDuration = duration ?? (Number.isFinite(media.duration) ? Math.max(0, media.duration * 1_000 - item.startMs) : undefined);
+    const visualDuration = resolvedDuration ?? Number.MAX_SAFE_INTEGER;
+    const fade = fadeOpacity(item, position, visualDuration);
+    setOpacity(visualOpacity(item, position, visualDuration));
     media.volume = item.muted ? 0 : Math.min(1, Math.max(0, item.volumePercent / 100) * fade);
-    onStatus({ state: media.paused ? "paused" : "playing", lessonId: playlist.playlistId, itemId: item.itemId, positionMs: Math.round(position), durationMs: Math.round(resolvedDuration), volumePercent: item.volumePercent });
+    onStatus({ state: media.paused ? "paused" : "playing", lessonId: playlist.playlistId, itemId: item.itemId, positionMs: Math.round(position), durationMs: resolvedDuration == null ? undefined : Math.round(resolvedDuration), volumePercent: item.volumePercent });
     if (item.endMs && media.currentTime * 1_000 >= item.endMs) {
       media.pause();
       onEnded();
@@ -1492,10 +1533,11 @@ function schedulePhase(playlist: Playlist): { kind: "idle" | "preroll" | "countd
   return playlist.preRoll?.items.length && now >= preRollStart ? { kind: "preroll", seekMs: 0 } : { kind: "idle", seekMs: 0 };
 }
 
-function effectiveDuration(item: CueItem) {
+function effectiveDuration(item: CueItem): number | undefined {
   if (item.endMs != null) return Math.max(0, item.endMs - item.startMs);
   if (item.durationMs != null) return Math.max(0, item.durationMs - item.startMs);
-  return Math.max(1, item.imageDurationSeconds || 10) * 1_000;
+  if (item.imageDurationSeconds != null) return Math.max(1, item.imageDurationSeconds) * 1_000;
+  return undefined;
 }
 
 function fadeOpacity(item: CueItem, position: number, duration: number) {
@@ -1536,6 +1578,7 @@ function manifestItemCount(manifest?: Manifest) {
     ...playlist.items,
     ...(playlist.preRoll?.items || []),
     ...(playlist.countdown ? [playlist.countdown.item] : []),
+    ...(playlist.postLesson?.items || []),
   ]) || [];
   const signageItems = manifest?.signageSchedule?.flatMap(sign => sign.media ? [sign.media] : []) || [];
   return new Set([...lessonItems, ...signageItems].map(item => item.itemId)).size;

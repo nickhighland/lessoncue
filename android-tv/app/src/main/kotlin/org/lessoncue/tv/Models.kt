@@ -25,6 +25,7 @@ data class CueItem(
     val notes: String = "",
     val flexibleTime: Boolean = false,
     val imageDurationSeconds: Int? = null,
+    val estimatedDurationSeconds: Int? = null,
     val fadeInMs: Int = 0,
     val fadeOutMs: Int = 0,
     val fitMode: String = "fit",
@@ -114,6 +115,7 @@ data class LessonPlaylist(
     val preRollStartsAt: Instant?,
     val countdown: CountdownCue?,
     val preRoll: PreRollCue?,
+    val postLesson: PreRollCue? = null,
     val items: List<CueItem>
 )
 

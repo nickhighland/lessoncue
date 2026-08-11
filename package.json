@@ -1,6 +1,6 @@
 {
   "name": "lessoncue",
-  "version": "0.40.15",
+  "version": "0.40.38",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -15,6 +15,10 @@
     "test:protocol": "node scripts/validate-protocol-contract.mjs",
     "test:e2e": "playwright test",
     "test:a11y": "playwright test tests/browser/zz-accessibility.spec.ts",
+    "test:real-use": "node scripts/ai-real-use-runner.mjs",
+    "test:real-use:fixtures": "node scripts/ai-real-use-fixtures.mjs",
+    "test:real-use:unit": "node --test tests/ai-real-use-runner.test.mjs",
+    "test:bundle": "npm run build:admin && node scripts/check-bundle-budget.mjs",
     "lint": "eslint \"web-admin/**/*.{ts,tsx}\"",
     "db:generate": "drizzle-kit generate"
   },

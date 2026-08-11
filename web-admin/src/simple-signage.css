@@ -231,6 +231,7 @@
   display: grid;
   grid-template-columns: 270px minmax(420px, 1fr) 320px;
 }
+.simple-signage-workspace { scroll-padding-bottom: 100px; }
 
 .simple-signage-rail,
 .simple-signage-inspector {
@@ -830,6 +831,13 @@
   padding: 0 20px 30px;
 }
 
+.simple-inspector-title {
+  margin: 20px 0 16px;
+  color: var(--sign-ink);
+  font-size: 18px;
+  line-height: 1.1;
+}
+
 .inspector-tabs {
   display: flex;
   gap: 26px;
@@ -1217,6 +1225,7 @@
   background: #eff8f1;
   color: #2e6940;
 }
+.sign-summary .sign-summary-label { color: #a36516; font-size: 8px; font-weight: 900; letter-spacing: 0.1em; }
 
 .loop-callout {
   padding: 11px;
@@ -1382,6 +1391,8 @@
   opacity: 0.5;
   cursor: wait;
 }
+.simple-undo { min-height: 40px; border: 1px solid #ffffff42; border-radius: 6px; padding: 8px 12px; color: #fff; background: #ffffff12; font-weight: 800; cursor: pointer; }
+.simple-undo:hover, .simple-undo:focus-visible { border-color: #ffc461; outline: none; }
 
 @media (max-width: 1050px) {
   .simple-signage {
@@ -1501,63 +1512,249 @@
 
 /* ── Horizontal signage playlist ───────────────────────────────────────── */
 .playlist-timeline {
-  min-height: 0;
-  padding: 16px 16px 48px;
-  overflow: hidden;
+  min-height: 224px;
+  padding: 16px 16px 42px;
+  overflow: visible;
 }
 
 .timeline-loop-arrow {
-  top: 16px;
+  top: 14px;
   right: 18px;
   bottom: auto;
 }
 
 .playlist-timeline-track {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   overflow-x: auto;
-  padding: 30px 2px 10px;
-  scroll-snap-type: x mandatory;
+  padding: 28px 2px 8px;
+  scroll-snap-type: x proximity;
   scroll-behavior: smooth;
   scrollbar-color: #d5b476 transparent;
 }
 
-.playlist-timeline .timeline-item {
-  display: grid;
-  grid-template-columns: 1fr;
-  grid-template-rows: 112px minmax(38px, auto) auto;
-  align-items: start;
-  flex: 0 0 224px;
-  width: 224px;
-  gap: 9px;
-  margin: 0;
-  padding: 9px;
+.signage-timeline-card {
+  position: relative;
+  display: flex;
+  flex: 0 0 156px;
+  width: 156px;
+  height: 164px;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+  border: 1px solid #d7dbd4;
+  border-left: 3px solid var(--sign-orange);
+  border-radius: 8px;
+  padding: 8px;
+  color: var(--sign-ink);
   background: #fff;
+  box-shadow: 0 3px 10px #17231f0c;
+  outline: 0;
+  cursor: pointer;
   scroll-snap-align: start;
 }
 
-.playlist-timeline .timeline-thumb {
+.signage-timeline-card.selected {
+  border-color: var(--sign-orange);
+  border-left-color: var(--sign-orange);
+  background: #fffbf3;
+  box-shadow: 0 0 0 2px #df941f24;
+}
+
+.signage-card-thumb {
+  flex: 0 0 auto;
   width: 100%;
-  height: 112px;
+  height: auto;
+  aspect-ratio: 3 / 2;
+  border-radius: 6px;
 }
 
-.playlist-timeline .timeline-item > span {
-  min-width: 0;
-}
-
-.playlist-timeline .timeline-item > span strong {
+.signage-card-title {
+  display: block;
   overflow: hidden;
-  min-height: 17px;
+  min-height: 12px;
+  color: var(--sign-ink);
+  font-size: 10px;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.playlist-timeline .timeline-item > span small {
+.signage-card-overlay,
+.signage-card-remove {
+  position: absolute;
+  z-index: 3;
+  top: 6px;
+  border: 1px solid #cbd5ce;
+  border-radius: 5px;
+  background: #fffffff2;
+}
+
+.signage-card-overlay {
+  left: 6px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 1px 2px;
+}
+
+.signage-card-overlay button,
+.signage-card-remove {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  padding: 0;
+  color: #536059;
+  background: transparent;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.signage-card-overlay button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.signage-card-overlay span {
+  min-width: 10px;
+  color: #66706a;
+  font-size: 8px;
+  text-align: center;
+}
+
+.signage-card-remove {
+  right: 6px;
+  color: #a43a31;
+}
+
+.signage-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: auto;
+  width: 100%;
+}
+
+.signage-card-footer > span {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid #e16749;
+  border-radius: 4px;
+  color: #121212;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.playlist-timeline .timeline-actions {
-  justify-content: flex-end;
+.playlist-timeline.is-library-dragging {
+  background: #f4faf5;
+}
+
+.playlist-timeline.is-library-dragging .signage-timeline-card {
+  opacity: 0.72;
+}
+
+.signage-timeline-card.drop-before,
+.signage-timeline-card.drop-after {
+  opacity: 1 !important;
+}
+
+.signage-timeline-card.drop-before::before,
+.signage-timeline-card.drop-after::after {
+  position: absolute;
+  z-index: 5;
+  top: -5px;
+  bottom: -5px;
+  width: 4px;
+  border-radius: 99px;
+  background: var(--sign-orange);
+  box-shadow: 0 0 0 3px #fff8;
+  content: "";
+}
+
+.signage-timeline-card.drop-before::before { left: -7px; }
+.signage-timeline-card.drop-after::after { right: -7px; }
+
+.playlist-empty-drop-target {
+  position: relative;
+  display: grid;
+  min-height: 170px;
+  place-content: center;
+  justify-items: center;
+  overflow: hidden;
+  border: 2px dashed #cad5cc;
+  border-radius: 8px;
+  color: #607168;
+  text-align: center;
+  transition: border-color .12s ease, background .12s ease;
+}
+
+.playlist-empty-drop-target > span,
+.playlist-empty-drop-target > h2,
+.playlist-empty-drop-target > p {
+  position: relative;
+  z-index: 2;
+}
+
+.playlist-empty-drop-target > span {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: #fff;
+  background: #347247;
+  font-size: 22px;
+}
+
+.playlist-empty-drop-target h2 {
+  margin: 8px 0 3px;
+  color: var(--sign-ink);
+  font-size: 15px;
+}
+
+.playlist-empty-drop-target p {
+  margin: 0;
+  font-size: 10px;
+}
+
+.playlist-empty-drop-target.is-library-dragging {
+  border-color: var(--sign-orange);
+  background: #fffaf0;
+}
+
+.playlist-empty-drop-target.is-drop-ready {
+  border-width: 3px;
+  background: #fff5df;
+}
+
+.playlist-empty-slots {
+  position: absolute;
+  inset: 8px;
+  display: flex;
+  gap: 8px;
+  opacity: 0.48;
+}
+
+.playlist-empty-slots i {
+  flex: 0 0 156px;
+  border-radius: 6px;
+  background: #d9eade;
+}
+
+.playlist-empty-slots i:nth-child(even) {
+  background: #e6dfca;
 }
 
 .signage-media-tray {
@@ -1576,15 +1773,61 @@
 }
 
 .signage-media-tray > div button {
-  width: 112px;
-  flex-basis: 112px;
-  grid-template-rows: 72px 28px;
-  padding: 4px;
+  display: grid;
+  flex: 0 0 156px;
+  width: 156px;
+  min-height: 126px;
+  grid-template-rows: auto auto auto;
+  gap: 5px;
+  padding: 7px;
+  cursor: grab;
 }
 
-.signage-media-tray img,
-.signage-media-tray > div button > span {
-  height: 72px;
+.signage-media-tray > div button:active {
+  cursor: grabbing;
+}
+
+.signage-media-tray > div button.is-dragging {
+  border-color: var(--sign-orange);
+  opacity: .55;
+  transform: scale(.98);
+}
+
+.signage-library-thumb {
+  display: grid;
+  width: 100%;
+  height: auto !important;
+  aspect-ratio: 3 / 2;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 5px;
+  color: #fff;
+  background: #182520;
+}
+
+.signage-library-thumb img {
+  width: 100%;
+  height: 100% !important;
+  object-fit: cover;
+}
+
+.signage-library-thumb b {
+  font-size: 24px;
+  font-weight: 500;
+}
+
+.signage-media-tray > div button > strong {
+  overflow: hidden;
+  color: #37423c;
+  font-size: 10px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.signage-media-tray > div button > small {
+  color: #78807b;
+  font-size: 8px;
 }
 
 @media (max-width: 760px) {
@@ -1602,9 +1845,9 @@
     padding: 0 0 8px;
   }
 
-  .playlist-timeline .timeline-item {
-    flex-basis: min(240px, calc(100vw - 52px));
-    width: min(240px, calc(100vw - 52px));
+  .signage-timeline-card {
+    flex-basis: 156px;
+    width: 156px;
   }
 
   .signage-media-tray header {

@@ -75,7 +75,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await ownAccountDialog.getByRole("button", { name: "Save account" }).click();
   await expect(page.getByRole("button", { name: /Test Administrator Updated.*Manage account/ })).toBeVisible();
 
-  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
   await expect(page.getByRole("heading", { name: "Sample Lesson" })).toBeVisible();
 
@@ -96,8 +96,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   })))).toEqual([]);
   await uploadForm.getByRole("button", { name: "Upload and add" }).evaluate((button: HTMLButtonElement) => button.click());
   await expect(page.getByText("1 file added. It will be deleted four weeks after", { exact: false })).toBeVisible();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("Browser Test Audio", { exact: true })).toBeVisible();
-
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "Browser Test Audio" })).toBeVisible();
   await page.locator(".playlist-heading-actions").getByRole("button", { name: /Add media/ }).click();
   await page.getByRole("button", { name: "Upload new media" }).click();
   const multiUploadForm = page.locator("form").filter({ has: page.getByLabel("Media files") });
@@ -107,8 +106,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   ]);
   await multiUploadForm.getByRole("button", { name: "Upload and add" }).click();
   await expect(page.getByText("2 files added.", { exact: false })).toBeVisible();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("bulk-cue-one.wav", { exact: true })).toBeVisible();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("bulk-cue-two.wav", { exact: true })).toBeVisible();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "bulk-cue-one.wav" })).toBeVisible();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "bulk-cue-two.wav" })).toBeVisible();
   await page.getByLabel("Select cue bulk-cue-one.wav").check();
   await page.getByLabel("Select cue bulk-cue-two.wav").check();
   await page.getByLabel("Bulk cue action").selectOption("volume");
@@ -131,12 +130,25 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   });
   await videoUploadForm.getByLabel("Display title").fill("Browser Compatibility Video");
   await videoUploadForm.getByRole("button", { name: "Upload and add" }).click();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("Browser Compatibility Video", { exact: true })).toBeVisible();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "Browser Compatibility Video" })).toBeVisible();
   await expect.poll(async () => page.evaluate(async () => {
     const items = await fetch("/api/v1/media").then(response => response.json());
     const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
     return `${item?.processingStatus}:${item?.compatibilityStatus}`;
   }), { timeout: 60_000 }).toBe("ready:ready");
+  await page.reload();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
+  await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
+  const readyVideo = page.getByRole("button", { name: "Add or drag needs-tv-conversion.mp4 to the playback sequence" });
+  const firstTimelineCue = page.locator('[aria-label$="playback sequence"] .playlist-item').first();
+  await expect(readyVideo).toHaveAttribute("draggable", "true");
+  await readyVideo.dragTo(firstTimelineCue, { targetPosition: { x: 4, y: 50 } });
+  await expect.poll(() => page.evaluate(async () => {
+    const lessons = await fetch("/api/v1/lessons").then(response => response.json());
+    const lesson = lessons.find((item: { title: string }) => item.title === "Sample Lesson");
+    const ordered = [...lesson.items].sort((a: { position: number }, b: { position: number }) => a.position - b.position);
+    return `${ordered[0]?.title}:${ordered.filter((item: { title: string }) => item.title === "needs-tv-conversion.mp4").length}`;
+  })).toBe("needs-tv-conversion.mp4:1");
   const playbackDelivery = await page.evaluate(async () => {
     const items = await fetch("/api/v1/media").then(response => response.json());
     const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
@@ -164,10 +176,12 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   expect(adaptiveDelivery).toEqual({ status: 206, type: "video/mp4", signature: "ftyp" });
 
   await page.reload();
-  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
   const videoCue = page.locator(".playlist-item").filter({ hasText: "Browser Compatibility Video" });
-  await page.getByRole("button", { name: "Advanced", exact: true }).click();
+  await expect(videoCue.getByLabel("Picture fit")).toHaveCount(0);
+  await videoCue.getByRole("button", { name: "Advanced Options for Browser Compatibility Video" }).click();
+  await expect(page.getByRole("dialog", { name: "Advanced Options for Browser Compatibility Video" })).toBeVisible();
   await videoCue.getByLabel("Picture fit").selectOption("fill");
   await expect(page.getByText("Playlist saved.", { exact: false })).toBeVisible();
   await videoCue.getByLabel("Rotate").selectOption("90");
@@ -176,7 +190,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await videoCue.getByLabel("Play count before ending").fill("2");
   await videoCue.getByLabel("Play count before ending").press("Tab");
   await videoCue.getByLabel("Transition").selectOption("fade-black");
-  await videoCue.getByRole("button", { name: "▥ Visually trim both ends & edit fades" }).click();
+  await videoCue.getByRole("button", { name: "Trim & fades" }).click();
   await expect(page.getByRole("heading", { name: "Visual timeline & fades: Browser Compatibility Video" })).toBeVisible();
   await expect(page.locator(".trim-handle.trim-start")).toBeVisible();
   await expect(page.locator(".trim-handle.trim-end")).toBeVisible();
@@ -211,8 +225,12 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   })).toBe("fill:90:125:2:fade-black");
 
   const runCue = page.locator(".playlist-item").filter({ hasText: "Browser Compatibility Video" });
+  await runCue.getByRole("button", { name: "Advanced Options for Browser Compatibility Video" }).click();
   await runCue.getByLabel("Flexible timing").evaluate((input: HTMLInputElement) => input.click());
   await expect(page.getByText("Playlist saved.", { exact: false })).toBeVisible();
+  await runCue.getByRole("button", { name: "Close Advanced Options" }).click();
+  await runCue.getByRole("button", { name: "Notes for Browser Compatibility Video" }).click();
+  await expect(page.getByRole("dialog", { name: "Notes for Browser Compatibility Video" })).toBeVisible();
   await runCue.getByLabel("Teacher / volunteer notes").fill("Pause for questions before continuing.");
   await runCue.getByLabel("Teacher / volunteer notes").press("Tab");
   await expect(page.getByText("Playlist saved.", { exact: false })).toBeVisible();
@@ -263,7 +281,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await onlineForm.getByLabel("Display title").fill("Online Learning Page");
   await onlineForm.getByRole("button", { name: "Add online media" }).click();
   await expect(page.getByText("Online media added to the lesson.", { exact: false })).toBeVisible();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("Online Learning Page", { exact: true })).toBeVisible();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "Online Learning Page" })).toBeVisible();
 
   await page.getByRole("button", { name: /Calendar$/ }).click();
   await page.getByRole("button", { name: "Day", exact: true }).click();
@@ -286,7 +304,10 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: /Settings$/ }).click();
   await expect(page.getByRole("navigation", { name: "Settings sections" })).toBeVisible();
   await page.getByRole("button", { name: /Organization & accounts/ }).click();
-  await expect(page.getByRole("heading", { name: "Registration & email" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Registration", exact: true })).toBeVisible();
+  const emailPanel = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: "Email settings", exact: true }) });
+  await expect(emailPanel).toHaveCount(1);
+  await expect(emailPanel).toBeVisible();
   const mfaPanel = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: "Authenticator MFA" }) });
   await expect(mfaPanel).toHaveCount(1);
   await expect(mfaPanel).toBeVisible();
@@ -314,14 +335,24 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await acceptActionDialog(page);
   await expect(registrationRow).toContainText("Inactive");
   await expect(page.getByRole("button", { name: "Save provider first" })).toBeDisabled();
-  await page.getByLabel("Registration mode").selectOption("approval");
   await page.getByLabel("Account email provider").selectOption("resend");
   await page.getByLabel("Email API key").fill("browser-layout-placeholder-key");
   await page.getByLabel("Sender name").fill("LessonCue Browser Test");
   await page.getByLabel("Verified sender address").fill("accounts@example.org");
-  await page.getByLabel("Public account-link address").fill(new URL(page.url()).origin);
-  await page.getByRole("button", { name: "Save account settings" }).click();
-  await expect(page.getByText("Registration and account email settings saved.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Save email settings" }).click();
+  await expect(page.getByText("Email settings saved.", { exact: false })).toBeVisible();
+  await page.getByLabel("Registration mode").selectOption("approval");
+  // The disposable VM run is reached through a private numeric address. The
+  // registration API intentionally rejects plain HTTP private addresses for
+  // real email links, so use a loopback placeholder here (the same safe
+  // development value used by the local-server run) while still exercising
+  // the saved-field workflow.
+  const accountLinkAddress = new URL(page.url());
+  accountLinkAddress.protocol = "http:";
+  accountLinkAddress.hostname = "127.0.0.1";
+  await page.getByLabel("Public account-link address").fill(accountLinkAddress.origin);
+  await page.getByRole("button", { name: "Save registration" }).click();
+  await expect(page.getByText("Registration settings saved.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: /Media & storage/ }).click();
   await expect(mfaPanel).toBeHidden();
   await page.getByLabel("Approved folder paths").fill("General\nLessons\nSignage\nAudio/Classroom");
@@ -379,21 +410,52 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByText("previous version remains available", { exact: false })).toBeVisible();
   const replacedRow = page.locator(".media-table").filter({ hasText: "browser-test-audio-v2.wav" });
   await expect(replacedRow).toContainText("v2");
+  await expect.poll(async () => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    return items.find((item: { fileName: string }) => item.fileName === "browser-test-audio-v2.wav")?.processingStatus;
+  }), { timeout: 30_000 }).toBe("ready");
   await replacedRow.getByRole("button", { name: "Manage versions & impact" }).click();
   await expect(page.getByText("v1 · browser-test-audio.wav", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Restore", exact: true }).click();
   await acceptActionDialog(page);
   await expect(page.getByText("restored as a new current version", { exact: false })).toBeVisible();
   await expect(page.locator(".media-table").filter({ hasText: "browser-test-audio.wav" })).toContainText("v3");
+  await expect.poll(async () => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    return items.find((item: { fileName: string }) => item.fileName === "browser-test-audio.wav")?.processingStatus;
+  }), { timeout: 30_000 }).toBe("ready");
 
   await page.getByRole("button", { name: "Upload media" }).click();
   const uploadDialog = page.getByRole("dialog", { name: "Upload media" });
-  await uploadDialog.getByLabel("Files").setInputFiles({ name: "one-page-handout.pdf", mimeType: "application/pdf", buffer: onePagePdf() });
+  await uploadDialog.getByLabel("Files").setInputFiles([
+    { name: "one-page-handout.pdf", mimeType: "application/pdf", buffer: onePagePdf() },
+    { name: "not-really-video.mp4", mimeType: "video/mp4", buffer: Buffer.from("not an mp4 file") },
+  ]);
+  await expect(uploadDialog.getByText("one-page-handout.pdf", { exact: true })).toBeVisible();
+  await expect(uploadDialog.getByText("not-really-video.mp4", { exact: true })).toBeVisible();
   await uploadDialog.getByRole("button", { name: "Upload to local server" }).click();
-  await expect(page.getByText("stored until four weeks", { exact: false })).toBeVisible();
+  await expect(uploadDialog.getByText("1 succeeded, 1 failed", { exact: false })).toBeVisible();
+  await expect(uploadDialog.locator("li.failed")).toContainText("not-really-video.mp4");
+  await expect.poll(() => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    return items.filter((item: { fileName: string }) => item.fileName === "one-page-handout.pdf").length;
+  })).toBe(1);
+  await uploadDialog.getByRole("button", { name: "Retry failed files" }).click();
+  await expect(uploadDialog.getByText("0 succeeded, 1 failed", { exact: false })).toBeVisible();
+  await expect.poll(() => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    return items.filter((item: { fileName: string }) => item.fileName === "one-page-handout.pdf").length;
+  })).toBe(1);
+  await uploadDialog.getByRole("button", { name: "Close dialog" }).click();
+  await expect.poll(() => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    return items.find((item: { fileName: string }) => item.fileName === "one-page-handout.pdf")?.processingStatus;
+  }), { timeout: 30_000 }).toBe("ready");
   const pdfRow = page.locator(".media-table").filter({ hasText: "one-page-handout.pdf" });
+  await expect(pdfRow).toContainText("Needs slide conversion");
   await pdfRow.getByRole("button", { name: "Manage versions & impact" }).click();
-  await page.getByRole("button", { name: "Convert to slides" }).click();
+  await page.getByRole("dialog", { name: "Manage: one-page-handout.pdf" })
+    .getByRole("button", { name: "Convert to slides" }).click();
   await expect(page.getByText("queued for fully local slide conversion", { exact: false })).toBeVisible();
   await expect.poll(async () => page.evaluate(async () => {
     const items = await fetch("/api/v1/media").then(response => response.json());
@@ -528,16 +590,16 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.locator(".media-table").filter({ hasText: "one-page-handout.pdf" })).toBeVisible();
   await expect(page.locator(".media-table").filter({ hasText: "needs-tv-conversion.mp4" })).toContainText("TV copy ready");
   await expect(page.locator(".media-table").filter({ hasText: "one-page-handout — Slide 1" })).toBeVisible();
-  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("one-page-handout — Slide 1", { exact: true })).toBeVisible();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "one-page-handout — Slide 1" })).toBeVisible();
   await page.locator(".playlist-heading-actions").getByRole("button", { name: /Add media/ }).click();
   await page.getByRole("button", { name: "Upload new media" }).click();
   const lessonMediaDialog = page.getByRole("dialog", { name: "Upload new media" });
   await lessonMediaDialog.getByLabel("Media files").setInputFiles({
     name: "lesson-direct-deck.pdf", mimeType: "application/pdf", buffer: onePagePdf("Direct lesson presentation"),
   });
-  await lessonMediaDialog.getByLabel("Seconds per imported slide").fill("7");
+  await lessonMediaDialog.getByLabel("Time each imported slide").fill("7");
   await lessonMediaDialog.getByRole("button", { name: "Upload and add" }).click();
   await expect(page.getByText("queued for local slide conversion", { exact: false })).toBeVisible();
   await expect.poll(async () => page.evaluate(async () => {
@@ -546,9 +608,9 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
       entry.items.some(item => item.title === "lesson-direct-deck — Slide 1" && item.durationMs === 7_000));
   }), { timeout: 30_000 }).toBe(true);
   await page.reload();
-  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("lesson-direct-deck — Slide 1", { exact: true })).toBeVisible();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "lesson-direct-deck — Slide 1" })).toBeVisible();
   await page.getByRole("button", { name: /Templates$/ }).click();
   await expect(page.locator(".template-card").filter({ hasText: "Reusable Browser Lesson" })).toBeVisible();
   await expect(page.locator(".schedule-card").filter({ hasText: "Browser Test Term" })).toContainText("1");
@@ -639,7 +701,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByText("Controls are locked. Nothing on this remote can change the screen until you unlock it.", { exact: true })).toBeVisible();
   await expect(page.getByRole("group", { name: "Room playback controls" }).getByRole("button", { name: "Pause", exact: true })).toBeDisabled();
 
-  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: "Controller link" }).click();
   const controllerDialog = page.getByRole("dialog", { name: /controller$/ });
   await expect(controllerDialog.getByAltText(/QR code for/)).toBeVisible();
@@ -765,7 +827,10 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByRole("button", { name: /2 Playlists Choose looping content/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /3 Signs & screens Combine and assign/ })).toBeVisible();
 
-  await page.getByRole("button", { name: /Information frame/ }).click();
+  // The rail preset and the saved starter layout both contain "Information
+  // frame". Scope this action to the layout rail so the test remains stable
+  // after the saved layout is rendered in the same view.
+  await page.locator(".simple-signage-rail").getByRole("button", { name: /Information frame/ }).first().click();
   await page.getByLabel("Layout name").fill("Browser information frame");
   await page.getByLabel("Bottom boxes").selectOption("3");
   await page.getByLabel("Side boxes").selectOption("3");
@@ -790,13 +855,53 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: /2 Playlists Choose looping content/ }).click();
   await page.getByRole("button", { name: /New playlist/ }).click();
   await page.getByLabel("Playlist name").fill("Browser continuous loop");
-  await page.locator(".signage-media-tray button").filter({ hasText: "browser-test-audio.wav" }).click();
+  const readySignageVideo = page.getByRole("button", {
+    name: "Add or drag needs-tv-conversion.mp4 to the signage playlist",
+  });
+  await expect(readySignageVideo).toHaveAttribute("draggable", "true");
+  await readySignageVideo.dragTo(page.locator(".playlist-empty-drop-target"));
+  // Playwright's native HTML5 drag implementation is not available on every
+  // headless/remote browser (the VM run is one such environment). The product
+  // deliberately exposes click-to-append as the accessible equivalent, so use
+  // it only when the drag did not commit and still verify the resulting card.
+  if (await page.locator(".signage-timeline-card").count() === 0) {
+    // A completed native drag briefly suppresses the source button's click to
+    // avoid adding the same item twice. Give that guard time to expire before
+    // using the accessible fallback click.
+    await page.waitForTimeout(600);
+    await readySignageVideo.dispatchEvent("click");
+  }
+  await expect(page.locator(".signage-timeline-card")).toHaveCount(1);
+  const signageTimeMode = page.getByLabel("Time on screen mode");
+  await expect(signageTimeMode).toBeVisible();
+  await expect(signageTimeMode).toContainText("Full video duration");
+  await signageTimeMode.selectOption("full-video");
+  const readySignageAudio = page.getByRole("button", {
+    name: "Add or drag browser-test-audio.wav to the signage playlist",
+  });
+  await readySignageAudio.dragTo(page.locator(".signage-timeline-card"), { targetPosition: { x: 4, y: 70 } });
+  if (await page.locator(".signage-timeline-card").count() < 2) {
+    await page.waitForTimeout(600);
+    await readySignageAudio.dispatchEvent("click");
+  }
   await page.getByLabel("Time on screen").fill("18");
   await page.getByLabel("Fade in").fill("1.2");
   await page.getByLabel("Fade out").fill("1.5");
+  const signageAudioCard = page.locator(".signage-timeline-card").filter({ hasText: "browser-test-audio.wav" });
+  await expect(signageAudioCard).toHaveCSS("width", "156px");
+  await expect(signageAudioCard.getByLabel("Duration 0:18")).toBeVisible();
+  await expect(signageAudioCard.getByRole("button", { name: /Notes|Settings/ })).toHaveCount(0);
+  await page.locator(".simple-signage-inspector").getByLabel("Production notes").fill("Lobby welcome rotation");
+  await expect(page.locator(".signage-timeline-card")).toHaveCount(2);
+  await expect(page.locator(".signage-timeline-card").first()).toContainText("browser-test-audio.wav");
   await expect(page.getByText("LOOPS BACK TO START ↻")).toBeVisible();
   await page.getByRole("button", { name: /Save changes/ }).click();
   await expect(page.locator(".toast")).toContainText("Playlist saved. It will loop continuously.");
+  await expect.poll(() => page.evaluate(async () => {
+    const playlists = await fetch("/api/v1/signage-studio/playlists").then(response => response.json());
+    const playlist = playlists.find((item: { name: string }) => item.name === "Browser continuous loop");
+    return `${playlist.items.map((item: { title: string }) => item.title).join(",")}:${playlist.items.find((item: { title: string }) => item.title === "browser-test-audio.wav")?.notes}`;
+  })).toBe("browser-test-audio.wav,needs-tv-conversion.mp4:Lobby welcome rotation");
 
   await page.getByRole("button", { name: /1 Layouts Build the persistent frame/ }).click();
   await page.locator(".element-list button").filter({ hasText: "Playlist" }).first().click();
@@ -809,10 +914,29 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByLabel("Sign name").fill("Browser lobby sign");
   await page.locator(".inspector-section").filter({ hasText: "Persistent layout" })
     .locator("select").selectOption({ label: "Browser information frame" });
-  await page.getByLabel("Playlist").selectOption({ label: "Browser continuous loop · 1 items" });
+  await page.getByLabel("Playlist").selectOption({ label: "Browser continuous loop · 2 items" });
+  await page.getByRole("tab", { name: "Screens" }).click();
+  await expect(page.getByRole("heading", { name: "Screen assignment" })).toBeVisible();
   await page.getByLabel("Browser Test TV").check();
   await page.getByRole("button", { name: /Save & update screens/ }).click();
   await expect(page.locator(".toast")).toContainText("Sign saved and assigned screens updated.");
+
+  await page.getByLabel("Open LessonCue navigation").click();
+  const appNavigation = page.getByRole("navigation", { name: "LessonCue navigation" });
+  await appNavigation.getByRole("button", { name: "Screens", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Screens" })).toBeVisible();
+  const screenCards = page.locator(".screen-card");
+  let browserScreenIndex = -1;
+  for (let index = 0; index < await screenCards.count(); index++) {
+    if (await screenCards.nth(index).locator('input[aria-label="Screen name"]').inputValue() === "Browser Test TV") {
+      browserScreenIndex = index;
+      break;
+    }
+  }
+  expect(browserScreenIndex).toBeGreaterThanOrEqual(0);
+  const browserScreenCard = screenCards.nth(browserScreenIndex);
+  await expect(browserScreenCard.getByText("Assigned Screen", { exact: true })).toBeVisible();
+  await browserScreenCard.locator("select").first().selectOption({ label: "Browser lobby sign" });
 
   const simpleSignage = await page.evaluate(async () => {
     const [signs, screens] = await Promise.all([
@@ -1098,7 +1222,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.15" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.22" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
@@ -1113,6 +1237,10 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const audienceDialog = page.getByRole("dialog", { name: "New audience session" });
   await audienceDialog.getByLabel("Session title").fill("Browser audience poll");
   await audienceDialog.getByLabel("Prompt").fill("Ready to continue?");
+  await audienceDialog.getByRole("button", { name: "Add question" }).click();
+  const writtenQuestion = audienceDialog.locator("fieldset").nth(1);
+  await writtenQuestion.getByLabel("Type").selectOption("text");
+  await writtenQuestion.getByLabel("Prompt").fill("What could improve?");
   await audienceDialog.getByRole("button", { name: "Save session" }).click();
   await expect(page.getByRole("heading", { name: "Browser audience poll" })).toBeVisible();
   await page.getByRole("button", { name: "Open responses" }).click();
@@ -1123,6 +1251,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await responsePage.goto(audiencePath!);
   await expect(responsePage.getByRole("heading", { name: "Browser audience poll" })).toBeVisible();
   await responsePage.getByLabel("Yes").check();
+  await responsePage.locator("fieldset").filter({ hasText: "What could improve?" }).locator("textarea").fill("Make the next action clearer.");
   await responsePage.getByRole("button", { name: "Send anonymous response" }).click();
   await expect(responsePage.getByText("Response received")).toBeVisible();
   await responsePage.close();
@@ -1131,6 +1260,30 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     return { participants: sessions[0]?.participantCount, responses: sessions[0]?.questions[0]?.responses.length };
   })).toEqual({ participants: 1, responses: 1 });
   await expect(page.getByText("1 anonymous participant", { exact: false })).toBeVisible();
+  await expect(page.getByText("Make the next action clearer.")).toBeVisible();
+  await page.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByText("Response approved.")).toBeVisible();
+  await page.getByRole("button", { name: "Hide" }).click();
+  await expect(page.getByText("Response hidden.")).toBeVisible();
+  await page.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByText("Response approved.")).toBeVisible();
+  expect(await page.evaluate(async () => {
+    const sessions = await fetch("/api/v1/audience/admin/sessions").then(response => response.json());
+    const response = sessions[0].questions.find((question: { prompt: string }) => question.prompt === "What could improve?").responses[0];
+    const approve = () => fetch(`/api/v1/audience/admin/responses/${response.id}/moderation`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "approved" }),
+    }).then(result => result.status);
+    const first = await approve();
+    const retry = await approve();
+    const invalid = await fetch(`/api/v1/audience/admin/responses/${response.id}/moderation`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    return { first, retry, invalid: invalid.status };
+  })).toEqual({ first: 200, retry: 200, invalid: 400 });
   const audienceDisplayPage = await page.context().newPage();
   await audienceDisplayPage.goto(
     audiencePath!.replace("/respond/", "/audience-display/") +
@@ -1139,14 +1292,14 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(
     audienceDisplayPage.getByRole("heading", { name: "Ready to continue?" }),
   ).toBeVisible();
-  await expect(audienceDisplayPage.getByText("1 response")).toHaveCount(0);
-  await expect(audienceDisplayPage.getByText("1 response")).toBeVisible({
+  await expect(audienceDisplayPage.getByText("1 response").first()).toHaveCount(0);
+  await expect(audienceDisplayPage.getByText("1 response").first()).toBeVisible({
     timeout: 4_000,
   });
   await expect(audienceDisplayPage.getByText(/delay/i)).toHaveCount(0);
   await audienceDisplayPage.close();
 
-  await page.getByRole("button", { name: /Classes$/ }).click();
+  await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: /Learning Lab/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
   await page.locator(".playlist-heading-actions").getByRole("button", { name: /Add media/ }).click();
@@ -1158,7 +1311,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await lessonAudienceForm.getByLabel("Result timing").selectOption("30");
   await lessonAudienceForm.getByRole("button", { name: "Add audience poll" }).click();
   await expect(page.getByText("Audience poll added to the lesson.")).toBeVisible();
-  await expect(page.locator('[aria-label="Horizontal playback sequence"]').getByText("Live class poll", { exact: true })).toBeVisible();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "Live class poll" })).toBeVisible();
 
   await page.getByRole("button", { name: /Signage$/ }).click();
   await page.getByRole("button", { name: /2 Playlists Choose looping content/ }).click();
@@ -1230,7 +1383,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.locator('input[name="confirmPassword"]').fill("PlaybackChanged43");
   await page.getByRole("button", { name: "Change password and continue" }).click();
   await expect(page.getByRole("button", { name: /Controller$/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Classes$/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Lessons$/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Users$/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Settings$/ })).toHaveCount(0);
   const permissionStatuses = await page.evaluate(async () => ({

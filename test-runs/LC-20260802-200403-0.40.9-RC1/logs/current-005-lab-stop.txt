@@ -1,0 +1,6 @@
+command: /Users/nickhighland/Library/Android/sdk/platform-tools/adb -s emulator-5554 emu kill
+start_local: 2026-08-02T21:02:41-0400
+OK: killing emulator, bye bye
+OK
+finish_local: 2026-08-02T21:02:41-0400
+exit_code: 0

@@ -277,7 +277,7 @@ public static class AudienceInteractionApi
     private static async Task<IResult> ModerateResponse(Guid id, AudienceModerationInput input, HttpContext context,
         LessonCueDb db, CancellationToken ct)
     {
-        var status = input.Status.Trim().ToLowerInvariant();
+        var status = input.Status?.Trim().ToLowerInvariant();
         if (status is not ("approved" or "rejected"))
             return Results.BadRequest(new { error = "Moderation status must be approved or rejected." });
         var item = await db.AudienceResponses.SingleOrDefaultAsync(x => x.Id == id, ct);

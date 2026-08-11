@@ -168,7 +168,8 @@ public sealed class LessonTemplateItem
     public long? EndMs { get; set; }
     public int VolumePercent { get; set; } = 100;
     public int? ImageDurationSeconds { get; set; }
-    [MaxLength(24)] public string EndBehavior { get; set; } = "advance";
+    public int? EstimatedDurationSeconds { get; set; }
+    [MaxLength(24)] public string EndBehavior { get; set; } = "pause";
     public bool AllowSkip { get; set; } = true;
     [MaxLength(2000)] public string Notes { get; set; } = "";
     public int FadeInMs { get; set; }
@@ -231,7 +232,8 @@ public sealed class PlaylistItem
     public long? EndMs { get; set; }
     public int VolumePercent { get; set; } = 100;
     public int? ImageDurationSeconds { get; set; }
-    [MaxLength(24)] public string EndBehavior { get; set; } = "advance";
+    public int? EstimatedDurationSeconds { get; set; }
+    [MaxLength(24)] public string EndBehavior { get; set; } = "pause";
     public bool AllowSkip { get; set; } = true;
     [MaxLength(2000)] public string Notes { get; set; } = "";
     public int FadeInMs { get; set; }
@@ -667,7 +669,7 @@ public sealed record LessonInput(Guid ClassId, DateOnly Date, string Title, Date
     string? SubstituteNotes = null, string? PreRollMonitorUrl = null);
 public sealed record PlaylistItemInput(string Title, string Type, string? Role, decimal Position,
     Guid? MediaId, long? DurationMs, long StartMs, long? EndMs, int VolumePercent,
-    int? ImageDurationSeconds, string? EndBehavior, bool AllowSkip, string? FitMode = null,
+    int? ImageDurationSeconds, int? EstimatedDurationSeconds, string? EndBehavior, bool AllowSkip, string? FitMode = null,
     int RotationDegrees = 0, int CropLeftPercent = 0, int CropTopPercent = 0,
     int CropRightPercent = 0, int CropBottomPercent = 0, bool Muted = false,
     int PlaybackRatePercent = 100, int RepeatCount = 1, string? BackgroundColor = null,
@@ -720,6 +722,9 @@ public sealed record ProfileUpdateInput(string DisplayName, string Username, str
 public sealed record RegistrationSettingsInput(string Mode, string PublicBaseUrl, string EmailProvider,
     string EmailFromAddress, string EmailFromName, string? ApiKey);
 public sealed record RegistrationModeInput(string Mode);
+public sealed record RegistrationSectionInput(string Mode, string PublicBaseUrl);
+public sealed record EmailSettingsInput(string EmailProvider, string EmailFromAddress,
+    string EmailFromName, string? ApiKey);
 public sealed record TestAccountEmailInput(string Recipient);
 public sealed record RegistrationCodeInput(string Label, DateTimeOffset? ExpiresAt, int? MaxUses);
 public sealed record AudienceSessionInput(string Title, bool ShowLiveResults = false,
@@ -728,7 +733,7 @@ public sealed record AudienceQuestionInput(Guid? Id, string Type, string Prompt,
     bool Required = true, int MaxSelections = 1, bool ModerateResponses = true);
 public sealed record AudienceResponseInput(string ParticipantToken, List<AudienceAnswerInput>? Answers);
 public sealed record AudienceAnswerInput(Guid QuestionId, List<string>? Choices, string? Text);
-public sealed record AudienceModerationInput(string Status);
+public sealed record AudienceModerationInput(string? Status);
 public sealed record AudienceDisplayMediaInput(bool ShowResults = true, int ResultDelaySeconds = 0);
 public sealed record LessonUpdateInput(string? Title, DateOnly? Date, DateTimeOffset? AvailableFrom,
     DateTimeOffset? ExpiresAt, DateTimeOffset? DesignatedStartAt, bool? PreRollEnabled, Guid? CountdownItemId,
@@ -738,7 +743,8 @@ public sealed record LessonUpdateInput(string? Title, DateOnly? Date, DateTimeOf
     string? PreRollMonitorUrl = null, bool ClearPreRollMonitorUrl = false);
 public sealed record PlaylistItemUpdateInput(string? Title, string? Type, string? Role, Guid? MediaId,
     long? DurationMs, long? StartMs, long? EndMs, int? VolumePercent, int? ImageDurationSeconds,
-    string? EndBehavior, bool? AllowSkip, bool ClearEndMs = false, string? Notes = null,
+    int? EstimatedDurationSeconds, string? EndBehavior, bool? AllowSkip, bool ClearEndMs = false,
+    bool ClearImageDuration = false, bool ClearEstimatedDuration = false, string? Notes = null,
     int? FadeInMs = null, int? FadeOutMs = null, bool? NormalizeAudio = null,
     List<CuePointInput>? CuePoints = null, string? FitMode = null, int? RotationDegrees = null,
     int? CropLeftPercent = null, int? CropTopPercent = null, int? CropRightPercent = null,
@@ -756,7 +762,8 @@ public sealed record ScreenUpdateInput(string? Name, Guid? AssignedClassId, bool
     bool ClearAssignment = false, string? TagsCsv = null, string? Site = null,
     bool? AllowDiagnosticScreenshots = null, string? SignageOrientation = null,
     int? SignageWidth = null, int? SignageHeight = null, bool? SignageOnly = null,
-    bool? PermanentPairing = null, bool AllowUnsupportedContent = false);
+    bool? PermanentPairing = null, bool AllowUnsupportedContent = false,
+    Guid? AssignedSignageId = null, bool ClearSignageAssignment = false);
 public sealed record ScreenAssignmentCheckInput(Guid? AssignedClassId);
 public sealed record ScreenControlInput(string Action, Guid? LessonId = null, Guid? ItemId = null, long? PositionMs = null);
 public sealed record UserInput(string Username, string DisplayName, string? Email, string Role, string? Password,
@@ -814,7 +821,8 @@ public sealed record SignageZoneInput(string Id, string Type, string? Title = nu
     bool ClockShowPeriod = true, bool ClockShowWeekday = true, bool ClockShowYear = true,
     int CalendarMaxItems = 0, string? CalendarFields = null,
     Guid? AudienceSessionId = null, string? AudienceCode = null, bool AudienceShowResults = true,
-    int AudienceResultDelaySeconds = 0);
+    int AudienceResultDelaySeconds = 0,
+    int FontScalePercent = 10);
 public sealed record SignageLayoutResourceInput(string Name, string? Folder, string? Description,
     bool IsTemplate, string? BackgroundColor, int CanvasWidth, int CanvasHeight, int SafeAreaPercent,
     List<SignageZoneInput>? Zones, Guid? BackgroundAudioAssetId = null, string? ThumbnailDataUrl = null);
@@ -825,7 +833,7 @@ public sealed record SignageContentPlaylistItemInput(string Id, string Kind, str
     string? AppType = null, string? SourceUrl = null, int DurationSeconds = 10,
     string? Transition = null, bool Hidden = false, bool Transparent = false, string? TagsCsv = null,
     int VolumePercent = 100, bool Muted = false, int FadeInMs = 0, int FadeOutMs = 0,
-    string? Fit = null);
+    string? Fit = null, string? Notes = null);
 public sealed record SignageContentPlaylistInput(string Name, string? Folder, string? PlaybackMode,
     string? Synchronization, List<SignageContentPlaylistItemInput>? Items);
 public sealed record SignagePlaylistSaveInput(Guid? Id, SignageContentPlaylistInput Playlist);
@@ -851,6 +859,8 @@ public sealed record LinkInput(string Url, string? Title, bool Download = false,
 public sealed record UploadCreateInput(string FileName, long TotalBytes, string? ContentType = null,
     string? ExpectedSha256 = null, bool Persistent = false, Guid? LessonId = null,
     string? Folder = null, string? TagsCsv = null, long? DurationMs = null);
+public sealed record MediaPreflightInput(string FileName, long TotalBytes,
+    string? ContentType = null, bool Persistent = false, Guid? LessonId = null);
 public sealed record UploadCompleteInput(string? FileName = null, string? ContentType = null, int? TotalChunks = null,
     long? DurationMs = null, bool? Persistent = null, Guid? LessonId = null,
     string? Folder = null, string? TagsCsv = null);
@@ -863,7 +873,7 @@ public sealed record MediaBulkInput(List<Guid> MediaIds, string? Action, DateOnl
     string? Folder = null, string? TagsCsv = null, List<MediaRenameInput>? Renames = null);
 public sealed record MediaOrganizeInput(string? FileName, string? Folder, string? TagsCsv);
 public sealed record MediaTaxonomyInput(List<string>? Folders, List<string>? Tags);
-public sealed record PresentationLessonInput(Guid LessonId, int ImageDurationSeconds = 10);
+public sealed record PresentationLessonInput(Guid LessonId, int? ImageDurationSeconds = null);
 public sealed record LessonTemplateFromLessonInput(Guid LessonId, string Name, string? Description = null);
 public sealed record LessonTemplateReplaceInput(Guid LessonId);
 public sealed record LessonTemplateUpdateInput(string Name, string? Description, string? DefaultTitle,
