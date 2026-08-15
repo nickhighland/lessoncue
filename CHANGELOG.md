@@ -4,20 +4,14 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
-## v0.40.43 — new-network and remote SSH runbook
+## v0.40.43 — installation and network guidance
 
 ### User changes
 
-- Added a complete guide for moving LessonCue to a new LAN, accessing it by
-  numeric IP, using Cloudflare Access for Infrastructure SSH, and updating the
-  route when DHCP assigns a new address.
-- Added credential-rotation, tunnel kill-switch, WARP split-tunnel, and
-  troubleshooting instructions for operators.
+- Improved installation and LAN recovery guidance for administrators.
 
 ### Developer changes
 
-- Replaced the planning-only remote SSH note with the operational runbook in
-  `docs/remote-ssh-access.md`.
 - Updated the Docker/Avahi installation example to use the permanent
   `lessoncue.local` hostname.
 
