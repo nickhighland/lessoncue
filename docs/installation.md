@@ -61,7 +61,7 @@ sudo systemctl enable --now lessoncue-cloudflared
 
 ### Optional: remote SSH with Cloudflare Access for Infrastructure
 
-The LessonCue web tunnel and SSH access are separate routes. The web tunnel does not expose port 22 and does not create an SSH identity. For a remote maintenance path, use a dedicated Cloudflare Tunnel hostname and an Access for Infrastructure application that routes only to `ssh://127.0.0.1:22`. Keep this hostname different from the LessonCue web hostname and allow only named operators. The setup and credential requirements are documented in [remote SSH access](remote-ssh-access.md); it is not automatically provisioned by the web Settings toggle.
+The LessonCue web tunnel and SSH access are separate routes. The web tunnel does not expose port 22 and does not create an SSH identity. If remote maintenance is required, keep its Cloudflare Access configuration and credentials in private operator documentation; do not store them in this repository. It is not automatically provisioned by the web Settings toggle.
 
 The connector needs outbound access to Cloudflare on port `7844` (UDP for QUIC or TCP for HTTP/2). If the service is active but no edge connection appears, verify the tunnel token in Cloudflare, allow outbound TCP or UDP `7844`, and select **Retry tunnel connection** in LessonCue. The published hostname route controls where requests go after the connector reaches Cloudflare; it does not establish the edge connection itself.
 
