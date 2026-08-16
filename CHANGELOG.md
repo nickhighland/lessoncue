@@ -4,6 +4,29 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.44 — Activities and game-show platform
+
+### User changes
+
+- Added Activities Studio with reusable teacher-created games, direct launch,
+  lesson integration, grid/list library views, filtering, manual arranging,
+  favorites, archiving, and bulk management.
+- Added game-show experiences including Trivia, Read the Room, Punchline,
+  Fake Out, Survey Board, Order Up, Match Minds, Doodle & Guess, Beat the
+  Clock, Bracket Battle, Four Corners, and shared game-show utilities.
+- Added phone participation with QR join codes, moderated responses, teams,
+  scoring, host controls, reconnect-safe sessions, and flexible content counts.
+- Signage is now always live; the obsolete organization feature checkbox was
+  removed.
+
+### Developer changes
+
+- Added shared Activity definitions, live sessions, engine registry, role-safe
+  projections, server-authoritative actions, scoring, timers, SignalR updates,
+  and migration-safe persistence.
+- Added Activity lesson-cue protocol, OpenAPI coverage, server validation,
+  browser display/participant/host surfaces, and end-to-end coverage.
+
 ## v0.40.43 — installation and network guidance
 
 ### User changes
