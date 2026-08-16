@@ -265,7 +265,7 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Category Blitz
 - [x] Name Five
 - [x] Alphabet Challenge
-- [ ] Last One Standing with turn order, timeout, elimination, and duplicate detection
+- [x] Last One Standing turn order, duplicate detection, and elimination; timeout remains a follow-up
 - [x] Chain Reaction starter template
 - [x] Word Association
 - [x] Word Storm variants with repeated-word aggregation

@@ -176,13 +176,19 @@ public sealed class ActivitySessionService(
         var envelope = await BuildEnvelopeAsync(run, ProjectionRole.Participant, ct, participant.Id);
         var roundId = CurrentRoundId(run, ParseConfig(run));
         var phase = GetPhase(run);
+        var currentConfig = ParseConfig(run);
+        var rawState = ParseObject(run.StateJson);
+        var isTurnBasedWord = run.ActivityDefinition.Type == ActivityTypes.Word && BoolValue(currentConfig, "turnBased");
+        var isEliminated = isTurnBasedWord && ReadStringArray(rawState, "eliminatedParticipantIds").Contains(participant.Id.ToString(), StringComparer.OrdinalIgnoreCase);
+        var isCurrentTurn = isTurnBasedWord && StringValue(rawState, "turnParticipantId") == participant.Id.ToString();
         var hasSubmission = await db.ActivitySubmissions.AnyAsync(x => x.ActivityRunId == runId && x.ParticipantId == participant.Id && x.RoundId == roundId, ct);
         var hasVote = await db.ActivityVotes.AnyAsync(x => x.ActivityRunId == runId && x.VoterParticipantId == participant.Id && x.RoundId == roundId, ct);
         // Creative and bluffing rounds intentionally have two separate inputs:
         // submit a response first, then vote in a later phase. Do not let the
         // first input disable the second one on the participant phone.
-        var hasSubmitted = phase == ActivityPhases.Voting ? hasVote : hasSubmission || hasVote;
+        var hasSubmitted = isTurnBasedWord ? false : phase == ActivityPhases.Voting ? hasVote : hasSubmission || hasVote;
         var canRespond = phase is ActivityPhases.AcceptingResponses or ActivityPhases.Voting or ActivityPhases.Prompt;
+        if (isTurnBasedWord) canRespond = canRespond && isCurrentTurn && !isEliminated;
         return new ActivityParticipantView(envelope, participant.Id, participant.DisplayName, participant.TeamId?.ToString(), hasSubmitted, canRespond);
     }
 
@@ -824,16 +830,22 @@ public sealed class ActivitySessionService(
         switch (action)
         {
             case "open": case "openresponses": case "startwords":
-                state["phase"] = ActivityPhases.AcceptingResponses; state["responsesOpen"] = true; state["responsesLocked"] = false; return (true, null);
+                state["phase"] = ActivityPhases.AcceptingResponses; state["responsesOpen"] = true; state["responsesLocked"] = false;
+                if (BoolValue(config, "turnBased")) InitializeWordTurn(run, state);
+                return (true, null);
             case "close": case "closeresponses": case "lock":
                 state["phase"] = ActivityPhases.ResponsesLocked; state["responsesOpen"] = false; state["responsesLocked"] = true; return (true, null);
             case "reveal": case "showwords":
                 state["phase"] = ActivityPhases.Reveal; state["responsesOpen"] = false; state["responsesLocked"] = true; state["resultsVisible"] = true; await ScoreWordAsync(run, config, state, ct); return (true, null);
             case "next": case "nextround":
                 if (index >= Math.Max(0, rounds.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
-                state["currentRoundIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["resultsVisible"] = false; state.Remove("wordCloud"); return (true, null);
+                state["currentRoundIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["resultsVisible"] = false; state.Remove("wordCloud");
+                if (BoolValue(config, "turnBased")) InitializeWordTurn(run, state); else ClearWordTurn(state);
+                return (true, null);
             case "previous": case "prev":
-                state["currentRoundIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state.Remove("wordCloud"); return (true, null);
+                state["currentRoundIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state.Remove("wordCloud");
+                if (BoolValue(config, "turnBased")) InitializeWordTurn(run, state); else ClearWordTurn(state);
+                return (true, null);
             case "showleaderboard": state["phase"] = ActivityPhases.Leaderboard; return (true, null);
             default: return (false, $"Unrecognized word action '{action}'.");
         }
@@ -846,6 +858,45 @@ public sealed class ActivitySessionService(
         var words = ReadWords(payload);
         if (words.Count is < 1 or > 30) return (false, "Send between 1 and 30 short words.");
         var roundId = CurrentRoundId(run, config);
+        var turnBased = BoolValue(config, "turnBased");
+        if (turnBased)
+        {
+            if (StringValue(state, "turnParticipantId") != participant.Id.ToString()) return (false, $"Wait for your turn. {StringValue(state, "turnParticipantName") ?? "Another player"} is up next.");
+            var maxWords = Math.Clamp(IntValue(config, "maxWords", 1), 1, 30);
+            if (words.Count > maxWords) return (false, $"This round accepts at most {maxWords} word{(maxWords == 1 ? "" : "s")} per turn.");
+            var usedWords = ReadStringArray(state, "usedWords");
+            var duplicate = words.FirstOrDefault(word => usedWords.Contains(word, StringComparer.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(duplicate) && BoolValue(config, "eliminateOnDuplicate"))
+            {
+                AddWordTurnElimination(state, participant);
+                state["lastTurnMessage"] = $"{participant.DisplayName} repeated “{duplicate}” and is out.";
+                AdvanceWordTurn(run, state);
+                return (true, null);
+            }
+            if (!string.IsNullOrWhiteSpace(duplicate)) return (false, $"“{duplicate}” was already used. Try another word.");
+            AppendWordTurnWords(state, words);
+            var turnStatus = BoolValue(config, "requireModeration", true) ? "pending" : "approved";
+            var existingTurn = await db.ActivitySubmissions.SingleOrDefaultAsync(x => x.ActivityRunId == run.Id && x.ParticipantId == participant.Id && x.RoundId == roundId, ct);
+            var existingWords = existingTurn is null ? [] : ReadStringArray(ParseObject(existingTurn.PayloadJson), "words").Select(NormalizeWord).ToList();
+            var combinedWords = existingWords.Concat(words).Distinct(StringComparer.OrdinalIgnoreCase).Take(200).ToArray();
+            var turnJson = JsonSerializer.Serialize(new { words = combinedWords }, ActivityJsonDefaults.Options);
+            if (existingTurn is null)
+            {
+                db.ActivitySubmissions.Add(new ActivitySubmission { ActivityRunId = run.Id, ParticipantId = participant.Id, RoundId = roundId, Kind = "word", PayloadJson = turnJson, ModerationStatus = turnStatus });
+            }
+            else
+            {
+                existingTurn.Kind = "word";
+                existingTurn.PayloadJson = turnJson;
+                existingTurn.ModerationStatus = turnStatus;
+                existingTurn.Hidden = false;
+                existingTurn.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+            state["submissionCount"] = await db.ActivitySubmissions.CountAsync(x => x.ActivityRunId == run.Id && x.RoundId == roundId, ct) + (existingTurn is null ? 1 : 0);
+            state["lastTurnMessage"] = $"{participant.DisplayName} added {words.Count} word{(words.Count == 1 ? "" : "s")} to the chain.";
+            AdvanceWordTurn(run, state);
+            return (true, null);
+        }
         var existing = await db.ActivitySubmissions.SingleOrDefaultAsync(x => x.ActivityRunId == run.Id && x.ParticipantId == participant.Id && x.RoundId == roundId, ct);
         var status = BoolValue(config, "requireModeration", true) ? "pending" : "approved";
         var json = JsonSerializer.Serialize(new { words }, ActivityJsonDefaults.Options);
@@ -2147,6 +2198,16 @@ public sealed class ActivitySessionService(
                 projected["correctOrder"] = new JsonArray(ReadStringArray(state, "correctOrder").Select(item => (JsonNode)item).ToArray());
             }
         }
+        else if (run.ActivityDefinition.Type == ActivityTypes.Word && BoolValue(config, "turnBased"))
+        {
+            projected.Remove("turnParticipantId");
+            projected.Remove("eliminatedParticipantIds");
+            if (participantId.HasValue)
+            {
+                projected["isCurrentTurn"] = StringValue(state, "turnParticipantId") == participantId.Value.ToString();
+                projected["isEliminated"] = ReadStringArray(state, "eliminatedParticipantIds").Contains(participantId.Value.ToString(), StringComparer.OrdinalIgnoreCase);
+            }
+        }
         else if (run.ActivityDefinition.Type == ActivityTypes.MatchPlayer)
         {
             var targetId = StringValue(state, "targetParticipantId");
@@ -2406,6 +2467,100 @@ public sealed class ActivitySessionService(
         var raw = ReadStringArray(payload, "words");
         if (raw.Count == 0) raw = ReadString(payload, "text").Split([',', '\n', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
         return raw.Select(NormalizeWord).Where(item => item.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).Take(30).ToList();
+    }
+
+    private static void InitializeWordTurn(ActivityRun run, JsonObject state)
+    {
+        var order = run.Participants.Where(item => item.Status != "removed").OrderBy(item => item.JoinedAt).Select(item => item.Id.ToString()).ToArray();
+        state["turnOrder"] = new JsonArray(order.Select(item => (JsonNode)item).ToArray());
+        state["turnIndex"] = 0;
+        state["usedWords"] = new JsonArray();
+        state["eliminatedParticipantIds"] = new JsonArray();
+        state.Remove("lastTurnMessage");
+        SetWordTurnParticipant(run, state, 0);
+    }
+
+    private static void ClearWordTurn(JsonObject state)
+    {
+        state.Remove("turnOrder");
+        state.Remove("turnIndex");
+        state.Remove("turnParticipantId");
+        state.Remove("turnParticipantName");
+        state.Remove("usedWords");
+        state.Remove("eliminatedParticipantIds");
+        state.Remove("lastTurnMessage");
+    }
+
+    private static void AddWordTurnElimination(JsonObject state, ActivityParticipant participant)
+    {
+        var eliminated = ReadStringArray(state, "eliminatedParticipantIds");
+        if (eliminated.Contains(participant.Id.ToString(), StringComparer.OrdinalIgnoreCase)) return;
+        var next = new JsonArray(eliminated.Select(item => (JsonNode)item).ToArray());
+        next.Add(participant.Id.ToString());
+        state["eliminatedParticipantIds"] = next;
+    }
+
+    private static void AppendWordTurnWords(JsonObject state, IReadOnlyList<string> words)
+    {
+        var used = new JsonArray(ReadStringArray(state, "usedWords").Select(item => (JsonNode)item).ToArray());
+        foreach (var word in words) used.Add(word);
+        state["usedWords"] = used;
+    }
+
+    private static void AdvanceWordTurn(ActivityRun run, JsonObject state)
+    {
+        var order = ReadStringArray(state, "turnOrder");
+        var eliminated = ReadStringArray(state, "eliminatedParticipantIds");
+        if (order.Count == 0)
+        {
+            state["phase"] = ActivityPhases.ResponsesLocked;
+            state["responsesOpen"] = false;
+            state["responsesLocked"] = true;
+            return;
+        }
+
+        var currentIndex = IntValue(state, "turnIndex", -1);
+        for (var offset = 1; offset <= order.Count; offset++)
+        {
+            var nextIndex = (currentIndex + offset + order.Count) % order.Count;
+            var nextId = order[nextIndex];
+            if (eliminated.Contains(nextId, StringComparer.OrdinalIgnoreCase)) continue;
+            SetWordTurnParticipant(run, state, nextIndex);
+            state["phase"] = ActivityPhases.AcceptingResponses;
+            state["responsesOpen"] = true;
+            state["responsesLocked"] = false;
+            return;
+        }
+
+        state.Remove("turnParticipantId");
+        state.Remove("turnParticipantName");
+        state["phase"] = ActivityPhases.ResponsesLocked;
+        state["responsesOpen"] = false;
+        state["responsesLocked"] = true;
+    }
+
+    private static void SetWordTurnParticipant(ActivityRun run, JsonObject state, int index)
+    {
+        var order = ReadStringArray(state, "turnOrder");
+        if (order.Count == 0 || index < 0 || index >= order.Count)
+        {
+            state.Remove("turnParticipantId");
+            state.Remove("turnParticipantName");
+            return;
+        }
+
+        var id = order[index];
+        var participant = run.Participants.FirstOrDefault(item => item.Id.ToString() == id && item.Status != "removed");
+        if (participant is null)
+        {
+            state.Remove("turnParticipantId");
+            state.Remove("turnParticipantName");
+            return;
+        }
+
+        state["turnIndex"] = index;
+        state["turnParticipantId"] = participant.Id.ToString();
+        state["turnParticipantName"] = participant.DisplayName;
     }
 
     private static string NormalizeWord(string value)

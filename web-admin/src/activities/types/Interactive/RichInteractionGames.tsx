@@ -82,6 +82,7 @@ export const WordDisplay: React.FC<ActivityComponentProps> = ({ envelope }) => {
   const words = listOf(state.wordCloud);
   return <RichStage title={stringOf(config.title, envelope.name || 'Word Storm')} kicker={`☁ ${stringOf(config.presetLabel, 'WORD STORM')}`} phase={state.phase} joinCode={state.joinCode} participantCount={state.participantCount}>
     <div className="interactive-prompt-card"><span className="interactive-round-label">CATEGORY · {stringOf(round.category, 'OPEN CATEGORY')}</span><p>{stringOf(round.prompt, 'Add words to the storm.')}</p></div>
+    {config.turnBased === true && <div className="interactive-help">{stringOf(state.lastTurnMessage) || `TURN · ${stringOf(state.turnParticipantName, 'the next player')}`}</div>}
     {words.length ? <div className="word-cloud" aria-label="Approved word cloud">{words.map((word, index) => <span className="word-cloud-chip" style={{ '--word-size': `${Math.min(2.6, 1 + numberOf(word.count, 1) * .28)}rem` } as React.CSSProperties} key={`${stringOf(word.word)}-${index}`}>{stringOf(word.word)}<small>{numberOf(word.count, 1)}</small></span>)}</div> : <div className="interactive-help">Submit several answers. Approved words will grow as the room repeats them.</div>}
     <ActivityLeaderboard state={state} showPodium={state.phase === 'finalResults' || state.phase === 'complete'} />
   </RichStage>;

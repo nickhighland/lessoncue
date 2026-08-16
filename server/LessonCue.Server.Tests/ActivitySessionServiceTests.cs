@@ -353,6 +353,49 @@ public sealed class ActivitySessionServiceTests
     }
 
     [Fact]
+    public async Task LastOneStandingAdvancesTurnsAndEliminatesDuplicateWords()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Last One Standing", ActivityTypes.Word, Config: JsonDocument.Parse("""
+                {"title":"Last One Standing","preset":"lastOneStanding","turnBased":true,"maxWords":1,"eliminateOnDuplicate":true,"requireModeration":false,"rounds":[{"id":"r1","prompt":"Name a team strength","category":"Teamwork","points":10}]}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            var first = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "First Player"), TestContext.Current.CancellationToken);
+            var second = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Second Player"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken)).Success);
+
+            var firstOpen = await sessions.GetParticipantViewAsync(run.Id, first.Token, TestContext.Current.CancellationToken);
+            var secondOpen = await sessions.GetParticipantViewAsync(run.Id, second.Token, TestContext.Current.CancellationToken);
+            Assert.Contains("\"isCurrentTurn\":true", JsonSerializer.Serialize(firstOpen!.State.State, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("\"isCurrentTurn\":false", JsonSerializer.Serialize(secondOpen!.State.State, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase);
+
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(first.Token, "submit", JsonDocument.Parse("{\"text\":\"trust\"}").RootElement), TestContext.Current.CancellationToken)).Success);
+            var secondTurn = await sessions.GetParticipantViewAsync(run.Id, second.Token, TestContext.Current.CancellationToken);
+            Assert.Contains("\"isCurrentTurn\":true", JsonSerializer.Serialize(secondTurn!.State.State, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(second.Token, "submit", JsonDocument.Parse("{\"text\":\"trust\"}").RootElement), TestContext.Current.CancellationToken)).Success);
+
+            var secondEliminated = await sessions.GetParticipantViewAsync(run.Id, second.Token, TestContext.Current.CancellationToken);
+            var firstNext = await sessions.GetParticipantViewAsync(run.Id, first.Token, TestContext.Current.CancellationToken);
+            var eliminatedStateJson = JsonSerializer.Serialize(secondEliminated!.State.State, ActivityJsonDefaults.Options);
+            Assert.Contains("\"isEliminated\":true", eliminatedStateJson, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("repeated", eliminatedStateJson, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("\"isCurrentTurn\":true", JsonSerializer.Serialize(firstNext!.State.State, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase);
+            Assert.False((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(second.Token, "submit", JsonDocument.Parse("{\"text\":\"another\"}").RootElement), TestContext.Current.CancellationToken)).Success);
+
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(first.Token, "submit", JsonDocument.Parse("{\"text\":\"listening\"}").RootElement), TestContext.Current.CancellationToken)).Success);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "lock"), TestContext.Current.CancellationToken);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "reveal"), TestContext.Current.CancellationToken)).Success);
+            var host = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            var scoreJson = JsonSerializer.Serialize(host!.ScoreEvents, ActivityJsonDefaults.Options);
+            Assert.Contains("\"amount\":20", scoreJson, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
     public async Task MatchMindsKeepsTheTargetAnswerPrivateAndScoresMatchingPredictions()
     {
         var (db, activities, sessions, connection) = await CreateAsync();
