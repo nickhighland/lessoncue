@@ -626,3 +626,59 @@ test("Drawing and survey editors apply creative board templates with editable en
     }, [drawingId, surveyId]);
   }
 });
+
+test("Ordering, word, and match editors reuse named templates with flexible content", async ({ page }) => {
+  await authenticate(page);
+  const tag = Date.now();
+  const orderingName = `Preset Ordering ${tag}`;
+  const wordName = `Preset Word ${tag}`;
+  const matchName = `Preset Match ${tag}`;
+  const orderingId = await createActivity(page, "Order Up", orderingName);
+  let wordId = "";
+  let matchId = "";
+  try {
+    await page.getByLabel("Ordering format preset").selectOption("timeline");
+    await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
+    await expect(page.locator("textarea").nth(1)).toHaveValue("Put these events in chronological order.");
+    await expect(page.getByLabel("Item 4")).toHaveValue("Fourth event");
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    const savedOrdering = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; rounds: Array<{ items: Array<unknown> }> } }, orderingId);
+    expect(savedOrdering.presetType).toBe("timeline");
+    expect(savedOrdering.config.preset).toBe("timeline");
+    expect(savedOrdering.config.rounds[0].items).toHaveLength(4);
+
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    wordId = await createActivity(page, "Word Storm", wordName);
+    await page.getByLabel("Word format preset").selectOption("nameFive");
+    await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
+    await expect(page.locator("textarea").nth(1)).toHaveValue("Name five examples that fit the prompt.");
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    const savedWord = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; maxWords: number } }, wordId);
+    expect(savedWord.presetType).toBe("nameFive");
+    expect(savedWord.config.preset).toBe("nameFive");
+    expect(savedWord.config.maxWords).toBe(5);
+
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    matchId = await createActivity(page, "Match Minds", matchName);
+    await page.getByLabel("Match format preset").selectOption("friendMatch");
+    await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
+    await expect(page.locator("textarea").nth(1)).toHaveValue("Which option would your friend pick?");
+    await expect(page.getByLabel("Choice 3")).toHaveValue("Option C");
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    const savedMatch = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; rounds: Array<{ options: string[] }> } }, matchId);
+    expect(savedMatch.presetType).toBe("friendMatch");
+    expect(savedMatch.config.preset).toBe("friendMatch");
+    expect(savedMatch.config.rounds[0].options).toHaveLength(3);
+  } finally {
+    await page.evaluate(async ids => {
+      await fetch("/api/v1/activities/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: ids.filter(Boolean) }),
+      });
+    }, [orderingId, wordId, matchId]);
+  }
+});

@@ -248,36 +248,37 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 
 ### Ordering, Ranking, Matching & Sorting
 
-- [ ] Timeline
-- [ ] Rank It
-- [ ] Verse Scramble
-- [ ] Missing Step
-- [ ] Cause & Effect
+- [x] Timeline
+- [x] Rank It
+- [x] Verse Scramble
+- [x] Missing Step
+- [x] Cause & Effect
+- [x] Order Up as the shared editable ordering template
 - [ ] Match-Up
-- [ ] Sorting Hat
+- [x] Sorting Hat
 - [ ] Connections
-- [ ] Odd One Out
+- [x] Odd One Out
 - [ ] Add accessible non-drag input for every ordering/sorting preset
 
 ### Word & Category
 
-- [ ] Category Blitz
-- [ ] Name Five
-- [ ] Alphabet Challenge
+- [x] Category Blitz
+- [x] Name Five
+- [x] Alphabet Challenge
 - [ ] Last One Standing with turn order, timeout, elimination, and duplicate detection
-- [ ] Chain Reaction
-- [ ] Word Association
-- [ ] Word Storm variants with repeated-word aggregation
-- [ ] One Word Too Far
+- [x] Chain Reaction starter template
+- [x] Word Association
+- [x] Word Storm variants with repeated-word aggregation
+- [x] One Word Too Far starter template
 
 ### Match-the-Player
 
-- [ ] Same Brain
-- [ ] Know Your Leader
-- [ ] Friend Match
-- [ ] Newlywed Game
-- [ ] How Well Do You Know Me?
-- [ ] Guess My Answer
+- [x] Same Brain
+- [x] Know Your Leader
+- [x] Friend Match
+- [x] Newlywed Game
+- [x] How Well Do You Know Me?
+- [x] Guess My Answer
 - [ ] Support A/B, multiple-choice, and host-judged short-text matching
 
 ### Media Reveal & Observation
