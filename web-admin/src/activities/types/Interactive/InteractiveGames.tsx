@@ -3,6 +3,7 @@ import type { ActivityComponentProps, ActivityEditorProps } from '../../activity
 import type { ActivityStateEnvelope } from '../../types';
 import { ActivityApi } from '../../api';
 import { ActivityRevealCurtain, ActivityScoreBurst, ActivityWinnerBanner } from '../../ActivityMotion';
+import { ActivityLeaderboard } from '../../ActivityLeaderboard';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -12,12 +13,6 @@ const listOf = (value: unknown): JsonRecord[] => Array.isArray(value) ? value.fi
 const stringOf = (value: unknown, fallback = '') => typeof value === 'string' ? value : fallback;
 const numberOf = (value: unknown, fallback = 0) => typeof value === 'number' ? value : fallback;
 const phaseLabel = (phase: unknown) => stringOf(phase, 'lobby').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
-const LeaderboardPanel: React.FC<{ state: JsonRecord }> = ({ state }) => {
-  const entries = listOf(state.leaderboard);
-  if (!entries.length) return null;
-  return <div className="interactive-leaderboard"><span className="interactive-round-label">SCOREBOARD</span>{entries.slice(0, 5).map((entry, index) => <div key={stringOf(entry.id, String(index))}><b>{numberOf(entry.rank, index + 1)}</b><span>{stringOf(entry.name, 'Player')}</span><strong>{numberOf(entry.score)} pts</strong></div>)}</div>;
-};
-
 const StageShell: React.FC<{ children: React.ReactNode; title: string; kicker: string; phase?: unknown; joinCode?: unknown; participantCount?: unknown }> = ({ children, title, kicker, phase, joinCode, participantCount }) => (
   <div className="activity-stage interactive-game-stage">
     <div className="activity-stage-content">
@@ -45,7 +40,7 @@ export const BuzzerDisplay: React.FC<ActivityComponentProps> = ({ envelope }) =>
       </div>
       <ActivityWinnerBanner visible={Boolean(state.buzzWinnerName)} winner={stringOf(state.buzzWinnerName)} subtitle="BUZZ FIRST" />
       <ActivityRevealCurtain visible={Boolean(state.answerRevealed)} kicker="ANSWER">{stringOf(state.revealedAnswer, 'Reveal the answer from the host.')}</ActivityRevealCurtain>
-      <LeaderboardPanel state={state} />
+      <ActivityLeaderboard state={state} showPodium={state.phase === 'finalResults' || state.phase === 'complete'} />
       <div className="interactive-help">Watch the clue ladder. When the host opens the buzzers, tap your giant buzzer.</div>
     </StageShell>
   );
@@ -68,7 +63,7 @@ export const PunchlineDisplay: React.FC<ActivityComponentProps> = ({ envelope })
       )}
       <ActivityScoreBurst visible={Boolean(state.winningSubmissionId) && Boolean(state.resultsVisible)} amount={numberOf(state.winningPoints, numberOf(state.pointsAwarded))} />
       <div className="interactive-help">Answers are anonymous until the host chooses the reveal.</div>
-      <LeaderboardPanel state={state} />
+      <ActivityLeaderboard state={state} showPodium={state.phase === 'finalResults' || state.phase === 'complete'} />
     </StageShell>
   );
 };
@@ -89,7 +84,7 @@ export const FakeOutDisplay: React.FC<ActivityComponentProps> = ({ envelope }) =
         </div>
       )}
       <div className="interactive-help">Spot the real answer. A convincing bluff can still score.</div>
-      <LeaderboardPanel state={state} />
+      <ActivityLeaderboard state={state} showPodium={state.phase === 'finalResults' || state.phase === 'complete'} />
     </StageShell>
   );
 };

@@ -3,6 +3,7 @@ import type { ActivityComponentProps, ActivityEditorProps } from '../../activity
 import type { ActivityStateEnvelope } from '../../types';
 import { ActivityApi } from '../../api';
 import { ActivityCountdown, ActivityRevealCurtain, useActivityCountdown } from '../../ActivityMotion';
+import { ActivityLeaderboard } from '../../ActivityLeaderboard';
 
 type JsonRecord = Record<string, unknown>;
 const stateOf = (envelope: ActivityStateEnvelope) => (envelope.state || {}) as JsonRecord;
@@ -60,6 +61,7 @@ export const PhysicalRoomDisplay: React.FC<ActivityComponentProps> = ({ envelope
     {visibleChoices.length > 0 && <div className="physical-room-choice-grid" aria-label="Room choices">{visibleChoices.map((choice, index) => <div className={`physical-room-choice physical-room-choice-${index % 6}`} key={`${choice}-${index}`}><span>{index + 1}</span><strong>{choice}</strong></div>)}</div>}
     {timerActive && <ActivityCountdown remainingMs={remaining} durationMs={duration} label={stringOf(state.challengeStatus) === 'paused' ? 'PAUSED' : 'TIME LEFT'} />}
     <ActivityRevealCurtain visible={state.revealed === true} title="Show your choice and explain it.">{stringOf(round?.revealText, 'Show your choice and explain it.')}</ActivityRevealCurtain>
+    <ActivityLeaderboard state={state} mode="teams" showPodium={state.phase === 'finalResults' || state.phase === 'complete'} />
     {state.phase === 'lobby' && <div className="interactive-help">The host will start the room when everyone is ready.</div>}
   </PhysicalShell>;
 };

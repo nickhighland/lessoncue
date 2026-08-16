@@ -13,7 +13,7 @@ This is the active implementation sequence. It covers the next product-value lay
 - [x] Initial teacher-entered Bracket Battle with seeded pairings, byes, voting, host winner selection, and role-safe display state.
 - [x] Add live participant/team entrants from the session roster; keep generic drawing/creative/image/finalist adapters as the next composition step.
 - [x] Complete the first host recovery controls: close voting, skip a broken matchup, remove an entrant, reset, score, and end; shared score undo remains available.
-- [x] Connect tournament wins to shared score events when `pointsPerWin` is configured; leaderboard/podium presentation remains next.
+- [x] Connect tournament wins to shared score events when `pointsPerWin` is configured and show the shared live leaderboard/podium presentation.
 - [x] Add reusable tournament templates for Sudden Death, Survivor Trivia, Rock Paper Scissors Royale, and Heads or Tails; keep them on the Bracket engine and allow the teacher to apply/edit the template.
 
 ### 2. Build the no-phone Physical Room slice
@@ -46,7 +46,7 @@ This is the active implementation sequence. It covers the next product-value lay
 - [x] Add a shared host sound control with volume and mute, independent of lesson media volume.
 - [x] Add reusable reveal, score-burst, countdown, and winner presentation primitives; integrate them into representative buzzer, creative, bracket, stage, and physical-room displays.
 - [x] Add reduced-motion CSS for the shared motion primitives; host progression remains manual and skippable.
-- [ ] Add leaderboard rank-movement animation and wire the shared podium treatment into final live-session results.
+- [x] Add leaderboard rank-movement animation and wire the shared podium treatment into final live-session results.
 
 ### 6. Expand presets only after the engines prove stable
 

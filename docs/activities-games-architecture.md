@@ -44,7 +44,7 @@ For anonymous creative games, responses are held for host approval by default. T
 | Media | Existing `MediaAsset` and activity assets/playback URLs | Reuse media storage and playback. Reveal transformations are presentation state, not new derivative files. |
 | Tests | Activity reducer/service tests, Audience tests, protocol tests, browser workflow/accessibility tests | Extend these suites with engine, projection, reconnect, concurrency, and end-to-end activity coverage. |
 | Rich interaction slices | `RichInteractionGames.tsx`, `ActivityParticipant.tsx`, and the shared session reducers | Drawing uses bounded normalized vector strokes; Ordering uses an accessible move-list and partial position scoring; Word Storm uses moderated normalized words and a reusable cloud projection. |
-| Shared presentation motion | `ActivityMotion.tsx` and `activity.css` | Engines reuse server-timestamp countdowns plus common reveal, score-burst, winner, and reduced-motion treatments. Presentation remains a renderer concern; the server still owns timing and state transitions. |
+| Shared presentation motion | `ActivityMotion.tsx`, `ActivityLeaderboard.tsx`, and `activity.css` | Engines reuse server-timestamp countdowns plus common reveal, score-burst, winner, rank-movement, podium, and reduced-motion treatments. Presentation remains a renderer concern; the server still owns timing and state transitions. |
 
 ## Definition versus session
 

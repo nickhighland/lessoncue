@@ -2191,6 +2191,35 @@
 .interactive-leaderboard > div { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: .7rem; align-items: center; padding: .55rem .35rem; border-top: 1px solid rgba(255,255,255,.11); }
 .interactive-leaderboard > div b { color: #f7bf4e; }
 .interactive-leaderboard > div span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-shared-leaderboard { position: relative; overflow: hidden; }
+.activity-shared-leaderboard-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .35rem; }
+.activity-shared-leaderboard-heading small { color: rgba(255,255,255,.54); font-size: .7rem; font-weight: 800; letter-spacing: .06em; }
+.activity-shared-leaderboard-row { grid-template-columns: 32px minmax(0, 1fr) 28px auto !important; }
+.activity-shared-leaderboard-row > b { color: #f7bf4e; font-variant-numeric: tabular-nums; }
+.activity-shared-leaderboard-row > strong { color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.activity-leaderboard-name { min-width: 0; }
+.activity-leaderboard-movement { display: inline-grid; width: 24px; height: 24px; place-items: center; border-radius: 999px; font-size: .95rem; font-weight: 950; line-height: 1; }
+.activity-leaderboard-movement.up { color: #b9f7d4; background: rgba(52,211,153,.18); animation: activityLeaderboardMove .8s ease both; }
+.activity-leaderboard-movement.down { color: #ffc1b2; background: rgba(244,114,94,.18); animation: activityLeaderboardMove .8s ease both; }
+.activity-live-podium { width: min(760px, 100%); margin: 1.7rem auto 0; padding: 1.25rem 1rem 1rem; border: 1px solid rgba(247,191,78,.34); border-radius: 22px; background: radial-gradient(circle at 50% 0%, rgba(247,191,78,.2), transparent 50%), rgba(0,0,0,.24); text-align: center; }
+.activity-live-podium-kicker { color: #f7bf4e; font-size: .72rem; font-weight: 950; letter-spacing: .16em; }
+.activity-live-podium-places { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: .7rem; margin-top: 1rem; }
+.activity-live-podium-place { display: grid; min-height: 7rem; align-content: end; gap: .25rem; padding: .8rem .55rem .7rem; border: 1px solid rgba(255,255,255,.14); border-radius: 15px 15px 8px 8px; background: rgba(255,255,255,.08); }
+.activity-live-podium-place.first { min-height: 9rem; border-color: rgba(247,191,78,.7); background: linear-gradient(180deg, rgba(247,191,78,.3), rgba(255,255,255,.08)); }
+.activity-live-podium-place.second { min-height: 7.5rem; }
+.activity-live-podium-place > span { color: #f7bf4e; font-size: 1.3rem; font-weight: 950; }
+.activity-live-podium-place strong { overflow: hidden; color: #fff; font-size: clamp(.85rem, 2vw, 1.1rem); text-overflow: ellipsis; white-space: nowrap; }
+.activity-live-podium-place small { color: rgba(255,255,255,.68); font-size: .72rem; font-weight: 800; }
+@keyframes activityLeaderboardMove { 0% { opacity: 0; transform: translateY(6px) scale(.8); } 60% { opacity: 1; transform: translateY(-2px) scale(1.12); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
+@media (max-width: 560px) {
+  .activity-shared-leaderboard-row { grid-template-columns: 26px minmax(0, 1fr) 24px auto !important; gap: .45rem; }
+  .activity-shared-leaderboard-row > strong { font-size: .85rem; }
+  .activity-live-podium-places { gap: .35rem; }
+  .activity-live-podium-place { padding-inline: .3rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity-leaderboard-movement { animation: none; }
+}
 .interactive-host-controller { gap: .8rem; }
 .activity-session-panel { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(200px, 1.2fr); gap: .75rem; margin: 0 0 .85rem; padding: .9rem; border: 1px solid var(--line); border-radius: 14px; background: #fff; color: var(--ink); }
 .activity-library-chip { display: inline-flex; align-items: center; padding: .25rem .5rem; border-radius: 999px; background: #edf5f0; color: var(--green); font-size: .7rem; font-weight: 800; }

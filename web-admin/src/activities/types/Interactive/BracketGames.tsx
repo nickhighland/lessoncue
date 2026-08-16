@@ -3,6 +3,7 @@ import type { ActivityComponentProps, ActivityEditorProps } from '../../activity
 import type { ActivityStateEnvelope } from '../../types';
 import { ActivityApi } from '../../api';
 import { ActivityRevealCurtain, ActivityWinnerBanner } from '../../ActivityMotion';
+import { ActivityLeaderboard } from '../../ActivityLeaderboard';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -105,6 +106,7 @@ export const BracketDisplay: React.FC<ActivityComponentProps> = ({ envelope }) =
     <div className="bracket-board" aria-label="Tournament bracket">
       {rounds.map(round => <section className="bracket-round" key={round}><span className="interactive-round-label">ROUND {round}</span>{matches.filter(match => numberOf(match.round, 1) === round).map((match, index) => <div className={`bracket-mini-match ${stringOf(match.status) === 'complete' ? 'complete' : ''}`} key={stringOf(match.id, `${round}-${index}`)}><span>{stringOf(match.entrantA, 'Bye')}</span><b>{stringOf(match.winnerId) ? '✓' : '·'}</b><span>{stringOf(match.entrantB, 'Bye')}</span></div>)}</section>)}
     </div>
+    <ActivityLeaderboard state={state} showPodium={state.phase === 'finalResults' || state.phase === 'complete'} />
     <div className="interactive-help">The host opens each matchup, the room votes, and the host advances the winner.</div>
   </BracketShell>;
 };

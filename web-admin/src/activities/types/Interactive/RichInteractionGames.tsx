@@ -3,6 +3,7 @@ import type { ActivityComponentProps, ActivityEditorProps } from '../../activity
 import type { ActivityStateEnvelope } from '../../types';
 import { ActivityApi } from '../../api';
 import { ActivityCountdown, ActivityRevealCurtain, ActivityWinnerBanner, useActivityCountdown } from '../../ActivityMotion';
+import { ActivityLeaderboard } from '../../ActivityLeaderboard';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -27,12 +28,6 @@ const RichStage: React.FC<{ children: React.ReactNode; title: string; kicker: st
   </div>
 );
 
-const LeaderboardPanel: React.FC<{ state: JsonRecord }> = ({ state }) => {
-  const entries = listOf(state.leaderboard);
-  if (!entries.length) return null;
-  return <div className="interactive-leaderboard"><span className="interactive-round-label">SCOREBOARD</span>{entries.slice(0, 5).map((entry, index) => <div key={stringOf(entry.id, String(index))}><b>{numberOf(entry.rank, index + 1)}</b><span>{stringOf(entry.name, 'Player')}</span><strong>{numberOf(entry.score)} pts</strong></div>)}</div>;
-};
-
 const DrawingSvg: React.FC<{ strokes: unknown; className?: string }> = ({ strokes, className = '' }) => (
   <svg className={`drawing-svg ${className}`} viewBox="0 0 1 1" role="img" aria-label="Submitted drawing">
     <rect width="1" height="1" rx=".035" fill="rgba(255,255,255,.06)" />
@@ -53,7 +48,7 @@ export const DrawingDisplay: React.FC<ActivityComponentProps> = ({ envelope }) =
   return <RichStage title={stringOf(config.title, envelope.name || 'Doodle & Guess')} kicker="🎨 DRAWING ROUND" phase={state.phase} joinCode={state.joinCode} participantCount={state.participantCount}>
     <div className="interactive-prompt-card"><span className="interactive-round-label">DRAW THIS</span><p>{stringOf(prompt.prompt, 'Draw something surprising.')}</p></div>
     {showGallery ? <div className="drawing-response-grid">{drawings.map((drawing, index) => <div className={`drawing-card ${stringOf(state.winningSubmissionId) === stringOf(drawing.id) ? 'winner' : ''}`} key={stringOf(drawing.id, String(index))}><span className="drawing-card-number">{String(index + 1).padStart(2, '0')}</span><DrawingSvg strokes={drawing.strokes} /><small>{stringOf(state.winningSubmissionId) === stringOf(drawing.id) ? 'ROOM FAVORITE' : 'ANONYMOUS DRAWING'}</small></div>)}{!drawings.length && <div className="interactive-empty-card">Waiting for approved drawings…</div>}</div> : <div className="interactive-help">Use your phone as a sketchpad. The host will reveal the gallery when the drawing window closes.</div>}
-    <LeaderboardPanel state={state} />
+    <ActivityLeaderboard state={state} showPodium={state.phase === 'finalResults' || state.phase === 'complete'} />
   </RichStage>;
 };
 
@@ -73,7 +68,7 @@ export const OrderingDisplay: React.FC<ActivityComponentProps> = ({ envelope }) 
     <div className="interactive-prompt-card"><span className="interactive-round-label">PUT THESE IN ORDER</span><p>{stringOf(round.prompt, 'Arrange the items in the best order.')}</p></div>
     <OrderingItems items={listOf(round.items)} correctOrder={stringList(state.correctOrder)} reveal={reveal} />
     {!reveal && <div className="interactive-help">Move the cards on your phone. Exact positions earn the most points.</div>}
-    <LeaderboardPanel state={state} />
+    <ActivityLeaderboard state={state} showPodium={state.phase === 'finalResults' || state.phase === 'complete'} />
   </RichStage>;
 };
 
@@ -86,7 +81,7 @@ export const WordDisplay: React.FC<ActivityComponentProps> = ({ envelope }) => {
   return <RichStage title={stringOf(config.title, envelope.name || 'Word Storm')} kicker="☁ WORD STORM" phase={state.phase} joinCode={state.joinCode} participantCount={state.participantCount}>
     <div className="interactive-prompt-card"><span className="interactive-round-label">CATEGORY · {stringOf(round.category, 'OPEN CATEGORY')}</span><p>{stringOf(round.prompt, 'Add words to the storm.')}</p></div>
     {words.length ? <div className="word-cloud" aria-label="Approved word cloud">{words.map((word, index) => <span className="word-cloud-chip" style={{ '--word-size': `${Math.min(2.6, 1 + numberOf(word.count, 1) * .28)}rem` } as React.CSSProperties} key={`${stringOf(word.word)}-${index}`}>{stringOf(word.word)}<small>{numberOf(word.count, 1)}</small></span>)}</div> : <div className="interactive-help">Submit several answers. Approved words will grow as the room repeats them.</div>}
-    <LeaderboardPanel state={state} />
+    <ActivityLeaderboard state={state} showPodium={state.phase === 'finalResults' || state.phase === 'complete'} />
   </RichStage>;
 };
 
@@ -103,7 +98,7 @@ export const MatchPlayerDisplay: React.FC<ActivityComponentProps> = ({ envelope 
     <div className="match-option-grid">{options.map((option, index) => <div className={`match-option-card ${isRevealed && index === revealedIndex ? 'matched' : ''}`} key={`${option}-${index}`}><b>{String.fromCharCode(65 + index)}</b><span>{option}</span>{isRevealed && index === revealedIndex && <em>MATCHED ANSWER</em>}</div>)}</div>
     {isRevealed && <div className="interactive-winner-card"><span>ROOM MATCHES</span><strong>{numberOf(state.matchCount)} {numberOf(state.matchCount) === 1 ? 'player' : 'players'} thought alike</strong></div>}
     {!isRevealed && <div className="interactive-help">The selected player answers in private. Everyone else predicts before the reveal.</div>}
-    <LeaderboardPanel state={state} />
+    <ActivityLeaderboard state={state} showPodium={state.phase === 'finalResults' || state.phase === 'complete'} />
   </RichStage>;
 };
 
@@ -122,7 +117,7 @@ export const StageChallengeDisplay: React.FC<ActivityComponentProps> = ({ envelo
     {(running || status === 'paused') ? <ActivityCountdown remainingMs={remaining} durationMs={duration} label={status === 'paused' ? 'PAUSED' : 'TIME REMAINING'} urgentAtSeconds={10} /> : <div className={`stage-timer-card ${status === 'success' ? 'success' : status === 'failure' ? 'failure' : ''}`}><span>{status === 'success' ? 'SUCCESS' : status === 'failure' ? 'TIME / TRY COMPLETE' : 'READY'}</span><strong>{`${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`}</strong></div>}
     <ActivityRevealCurtain visible={status === 'success' || status === 'failure'} kicker={status === 'success' ? 'SUCCESS' : 'RESULT'}>{status === 'success' ? 'Challenge complete!' : 'Give it another try.'}</ActivityRevealCurtain>
     <ActivityWinnerBanner visible={status === 'success' && Boolean(state.selectedParticipantName)} winner={stringOf(state.selectedParticipantName)} subtitle="CHALLENGE WINNER" />
-    <LeaderboardPanel state={state} />
+    <ActivityLeaderboard state={state} showPodium={state.phase === 'finalResults' || state.phase === 'complete'} />
   </RichStage>;
 };
 
