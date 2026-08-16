@@ -8,6 +8,10 @@ export function isAudiencePath(path: string) {
   return path === "/respond" || path.startsWith("/respond/");
 }
 
+export function isActivityParticipantPath(path: string) {
+  return path.startsWith("/play/");
+}
+
 export function isAudienceDisplayPath(path: string) {
   return path.startsWith("/audience-display/");
 }

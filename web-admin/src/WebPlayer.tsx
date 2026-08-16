@@ -1,6 +1,7 @@
 import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { WeatherConditionArtwork, WeatherDropArtwork, WeatherWindArtwork } from "./WeatherArtwork";
+import { ActivityDisplay } from "./activities/ActivityDisplay";
 
 const APP_VERSION = "0.40.22";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
@@ -48,6 +49,14 @@ export type CueItem = {
   offlineEligible?: boolean;
   renderSupport?: "supported" | "fallback";
   fallbackMessage?: string;
+  activityDefinitionId?: string;
+  activity?: {
+    definitionId: string;
+    activityType: string;
+    definitionVersion: number;
+    name: string;
+    requiresNetwork: boolean;
+  };
 };
 type Playlist = {
   playlistId: string;
@@ -1371,6 +1380,20 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
       <small>Use Previous or Next to continue through the lesson.</small>
     </div>
   </div>;
+
+  if (item.type === "activity" || item.activity || item.activityDefinitionId) {
+    const defId = item.activity?.definitionId || item.activityDefinitionId;
+    return (
+      <div className="web-player-stage activity" style={stageStyle}>
+        <ActivityDisplay
+          definitionId={defId}
+          lessonId={playlist.playlistId}
+          lessonItemId={item.itemId}
+          interactive={false}
+        />
+      </div>
+    );
+  }
 
   if (online) return <div className="web-player-stage online" style={stageStyle}>
     <iframe ref={frameRef} title={item.title} src={youtubeApiUrl(item.playbackUrl!)} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" referrerPolicy="strict-origin-when-cross-origin" style={mediaStyle} onLoad={() => { frameRef.current?.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: item.itemId }), "*"); configureOnlineFrame(frameRef.current, item, paused); }} />

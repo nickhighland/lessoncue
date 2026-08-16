@@ -5,6 +5,8 @@ import { TimelineEditor } from "../media-editor";
 import { Lesson, LessonClass, Media, MediaFormats, MediaTaxonomy, MediaUploadControl, PlaylistItem, Screen, StorageStatus, TemporaryControllerSession } from "../models";
 import { DateBadge, Empty, Field, Modal, PageHead, QrCode, RetentionChoices, RoleSummary, TaxonomyFields, formTags } from "../ui";
 import { classControllerUrl, controllerSlug, cueDurationLabel, cuePlannedDurationMs, defaultEndBehaviorForRole, errorText, formatBytes, formatDate, formatDuration, formatFriendlyDuration, intervalsOverlap, isConvertibleDocument, isPresentationFileName, lessonPlannedDurationMs, roleName, toLocalInput } from "../utils";
+import { ActivityApi } from "../../activities/api";
+import type { ActivityDefinition } from "../../activities/types";
 
 export function ClassesView({
   classes,
@@ -895,7 +897,9 @@ export function LessonEditor({
   onPresentNow?: (lesson: Lesson) => void;
 }) {
   const [showAdd, setShowAdd] = useState(false);
-  const [addMode, setAddMode] = useState<"chooser" | "upload" | "poll" | "online" | "existing">("chooser");
+  const [addMode, setAddMode] = useState<"chooser" | "upload" | "poll" | "online" | "existing" | "activity">("chooser");
+  const [availableActivities, setAvailableActivities] = useState<ActivityDefinition[]>([]);
+  const [selectedActivityId, setSelectedActivityId] = useState<string>("");
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadControl, setUploadControl] = useState<MediaUploadControl>();
@@ -1168,6 +1172,36 @@ export function LessonEditor({
     });
     setNewCueId(created.id);
     setActiveSequenceSection(role as PlaylistItem["role"]);
+    return created;
+  }
+  async function addActivityToLesson(
+    activity: ActivityDefinition,
+    role = "lesson",
+    position?: number
+  ) {
+    const created = await api<{ id: string }>(`/api/v1/lessons/${lesson.id}/items`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: activity.name,
+        type: "activity",
+        role,
+        position: position ?? (items.length + 1) * 1000,
+        activityDefinitionId: activity.id,
+        durationMs: null,
+        startMs: 0,
+        endMs: null,
+        volumePercent: 100,
+        imageDurationSeconds: null,
+        estimatedDurationSeconds: null,
+        endBehavior: defaultEndBehaviorForRole(role),
+        allowSkip: true,
+      }),
+    });
+    setNewCueId(created.id);
+    setActiveSequenceSection(role as PlaylistItem["role"]);
+    setShowAdd(false);
+    refresh();
+    notify("Activity added to lesson playlist.");
     return created;
   }
   async function addItem(event: FormEvent<HTMLFormElement>) {
@@ -1765,7 +1799,7 @@ export function LessonEditor({
       </section>
       {showAdd && canUpload && (
         <Modal
-          title={addMode === "chooser" ? "Add media to the lesson" : addMode === "upload" ? "Upload new media" : addMode === "poll" ? "Add an audience poll" : addMode === "online" ? "Add online media or slides" : "Choose existing media"}
+          title={addMode === "chooser" ? "Add media to the lesson" : addMode === "upload" ? "Upload new media" : addMode === "poll" ? "Add an audience poll" : addMode === "activity" ? "Add an interactive activity or game" : addMode === "online" ? "Add online media or slides" : "Choose existing media"}
           onClose={() => { if (!uploading) { setShowAdd(false); setAddMode("chooser"); } }}
         >
           {addMode === "chooser" ? (
@@ -1773,6 +1807,19 @@ export function LessonEditor({
               <button className="add-media-choice" onClick={() => setAddMode("upload")}>
                 <strong>Upload new media</strong>
                 <span>Select files from this computer. Presentations are converted locally.</span>
+              </button>
+              <button className="add-media-choice" onClick={async () => {
+                try {
+                  const list = await ActivityApi.listActivities();
+                  setAvailableActivities(list);
+                  if (list.length > 0) setSelectedActivityId(list[0].id);
+                  setAddMode("activity");
+                } catch (err) {
+                  notify(errorText(err));
+                }
+              }}>
+                <strong>🎪 Interactive Activity or Game</strong>
+                <span>Add a spin wheel, scoreboard, random picker, prize grid, or trivia quiz.</span>
               </button>
               <button className="add-media-choice" onClick={() => setAddMode("poll")}>
                 <strong>Add an audience poll</strong>
@@ -1936,6 +1983,85 @@ export function LessonEditor({
                       {uploading ? "Adding…" : onlineMode === "download" ? "Queue download and add" : onlineMode === "slides" ? "Import slides and add" : "Add online media"}
                     </button>
                   </form>
+                </section>
+              )}
+              {addMode === "activity" && (
+                <section>
+                  <h3>Add interactive activity or game</h3>
+                  <p>Choose an activity from your Activities Studio library to add as a cue in this lesson.</p>
+                  {availableActivities.length === 0 ? (
+                    <div style={{ padding: "1.5rem", background: "var(--mint)", borderRadius: "12px", textAlign: "center", border: "1px solid var(--line)" }}>
+                      <p style={{ margin: "0 0 1rem", color: "var(--muted)" }}>
+                        No activities created yet in the Activities Studio.
+                      </p>
+                      <button
+                        type="button"
+                        className="button primary"
+                        onClick={async () => {
+                          try {
+                            const created = await ActivityApi.createActivity({
+                              name: "Spin the Wheel",
+                              type: "wheel",
+                              description: "Customizable spin wheel game",
+                              config: {
+                                title: "Spin Wheel",
+                                items: [
+                                  { id: "1", label: "Prize 1", weight: 1 },
+                                  { id: "2", label: "Prize 2", weight: 1 },
+                                  { id: "3", label: "Prize 3", weight: 1 },
+                                  { id: "4", label: "Prize 4", weight: 1 }
+                                ],
+                                removeWinner: true
+                              }
+                            });
+                            await addActivityToLesson(created);
+                          } catch (err) {
+                            notify(errorText(err));
+                          }
+                        }}
+                      >
+                        ✨ Create Default Spin Wheel & Add
+                      </button>
+                    </div>
+                  ) : (
+                    <form
+                      className="stack"
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        const target = availableActivities.find((a) => a.id === selectedActivityId) || availableActivities[0];
+                        if (target) {
+                          const formData = new FormData(e.currentTarget);
+                          const role = String(formData.get("role") || "lesson");
+                          await addActivityToLesson(target, role);
+                        }
+                      }}
+                    >
+                      <Field label="Choose activity">
+                        <select
+                          value={selectedActivityId}
+                          onChange={(e) => setSelectedActivityId(e.target.value)}
+                          required
+                        >
+                          {availableActivities.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.name} ({a.type})
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label="Playlist role">
+                        <select name="role">
+                          <option value="lesson">Main lesson</option>
+                          <option value="preRoll">Pre-roll loop</option>
+                          <option value="countdown">Countdown video</option>
+                          <option value="postLesson">Post-lesson loop</option>
+                        </select>
+                      </Field>
+                      <button type="submit" className="button primary">
+                        Add activity to lesson
+                      </button>
+                    </form>
+                  )}
                 </section>
               )}
               {addMode === "existing" && playableMedia.length > 0 && (

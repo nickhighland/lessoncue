@@ -144,6 +144,9 @@ builder.Services.AddSingleton<IPasswordHasher<AdminAccount>, PasswordHasher<Admi
 builder.Services.AddSingleton<IPasswordHasher<Organization>, PasswordHasher<Organization>>();
 builder.Services.AddSingleton<AdminMfaService>();
 builder.Services.AddSingleton<ControllerSessionService>();
+builder.Services.AddSingleton<LessonCue.Server.Activities.IActivityRandomSource, LessonCue.Server.Activities.CryptoRandomSource>();
+builder.Services.AddScoped<LessonCue.Server.Activities.ActivityService>();
+builder.Services.AddScoped<LessonCue.Server.Activities.ActivitySessionService>();
 builder.Services.AddSignalR();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(options =>
 {
@@ -222,6 +225,25 @@ builder.Services.AddRateLimiter(options =>
             // A classroom commonly shares one NAT address. Keep abuse bounded
             // without preventing a room of participants from submitting at once.
             PermitLimit = 120,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+    options.AddPolicy("activity-public", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            // Public display snapshots and participant reconnect fallbacks are
+            // shared by a classroom NAT. SignalR carries normal updates, but
+            // the fallback must still accommodate a large local room.
+            PermitLimit = 1200,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+    options.AddPolicy("activity-submit", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 600,
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0
         }));
@@ -442,6 +464,7 @@ api.MapGet("/migration/export", (
 
 app.MapLessonCueAdmin(mediaPath, dataPath, serverId, serverName);
 app.MapAudienceInteraction();
+LessonCue.Server.Activities.ActivityApi.Map(app);
 
 api.MapGet("/media/{mediaId:guid}/file", async (Guid mediaId, LessonCueDb db, CancellationToken ct) =>
 {
@@ -512,8 +535,6 @@ api.MapGet("/signage/{signageId:guid}/zones/{zoneId}/stream/{fileName}", async (
     Guid signageId, string zoneId, string fileName, LessonCueDb db, LiveStreamRelayService streams,
     CancellationToken ct) =>
 {
-    var signageEnabled = await db.Organizations.AsNoTracking().AnyAsync(value => value.SignageEnabled, ct);
-    if (!signageEnabled) return Results.NotFound();
     var signage = await db.SignagePlaylists.AsNoTracking().SingleOrDefaultAsync(x => x.Id == signageId && x.Enabled, ct);
     SignageZoneInput? zone = null;
     if (signage is not null)
@@ -552,7 +573,6 @@ api.MapGet("/signage/{signageId:guid}/zones/{zoneId}/stream/{fileName}", async (
 api.MapGet("/signage/{signageId:guid}/zones/{zoneId}/html", async (
     Guid signageId, string zoneId, LessonCueDb db, HttpContext context, CancellationToken ct) =>
 {
-    if (!await db.Organizations.AsNoTracking().AnyAsync(value => value.SignageEnabled, ct)) return Results.NotFound();
     var signage = await db.SignagePlaylists.AsNoTracking().SingleOrDefaultAsync(
         value => value.Id == signageId && value.Enabled, ct);
     if (signage is null) return Results.NotFound();
@@ -729,6 +749,7 @@ api.MapPost("/tv/status", async (TvStatusInput input, HttpRequest request, Lesso
 });
 
 app.MapHub<SyncHub>("/hubs/sync").RequireAuthorization();
+app.MapHub<LessonCue.Server.Activities.ActivityHub>("/hubs/activities");
 app.MapFallbackToFile("index.html");
 app.Run();
 

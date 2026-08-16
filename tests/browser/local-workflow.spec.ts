@@ -311,7 +311,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   const mfaPanel = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: "Authenticator MFA" }) });
   await expect(mfaPanel).toHaveCount(1);
   await expect(mfaPanel).toBeVisible();
-  await page.getByLabel("Enable Signage").check();
+  // Signage is always live now; there is no organization-level feature gate.
+  await expect(page.getByLabel("Enable Signage")).toHaveCount(0);
   await expect.poll(() => page.evaluate(async () =>
     (await fetch("/api/v1/admin/bootstrap").then(response => response.json())).settings.signageEnabled
   )).toBe(true);

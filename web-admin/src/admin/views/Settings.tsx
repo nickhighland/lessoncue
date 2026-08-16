@@ -100,9 +100,6 @@ export function Settings({
   const [hardwareAcceleration, setHardwareAcceleration] = useState(
     bootstrap.settings.hardwareAccelerationEnabled,
   );
-  const [signageEnabled, setSignageEnabled] = useState(
-    bootstrap.settings.signageEnabled,
-  );
   const [checkingHardware, setCheckingHardware] = useState(false);
   const [mediaFolders, setMediaFolders] = useState(
     bootstrap.mediaTaxonomy.folders.join("\n"),
@@ -265,9 +262,6 @@ export function Settings({
           defaultRetentionDays: Number(values.defaultRetentionDays),
           requireLocalRoomControllers:
             form.get("requireLocalRoomControllers") === "on",
-          ...(form.has("signageEnabled")
-            ? { signageEnabled: form.get("signageEnabled") === "on" }
-            : {}),
           signageSourceAllowlist: String(values.signageSourceAllowlist || "")
             .split(/[\s,]+/)
             .map((value) => value.trim())
@@ -276,22 +270,6 @@ export function Settings({
       });
       refresh();
       notify("Organization settings saved.");
-    } catch (e) {
-      notify(errorText(e));
-    }
-  }
-  async function saveSignageAvailability(enabled: boolean) {
-    try {
-      await api("/api/v1/organization/signage-availability", {
-        method: "PUT",
-        body: JSON.stringify({ enabled }),
-      });
-      refresh();
-      notify(
-        enabled
-          ? "Signage enabled."
-          : "Signage disabled and hidden from users.",
-      );
     } catch (e) {
       notify(errorText(e));
     }
@@ -969,36 +947,6 @@ export function Settings({
               canServiceSettings={canServiceSettings}
             />
             {canServiceSettings && <ServiceAdminMfaPanel notify={notify} />}
-            {canServiceSettings && (
-              <CollapsibleSettingsSection
-                label="Preview features"
-                className="settings-panel settings-accounts settings-preview-features"
-              >
-                <h2>Preview features</h2>
-                <p className="settings-copy">
-                  Choose which optional features are available to your organization.
-                </p>
-                <div className="stack">
-                  <label className="check-row">
-                    <input
-                      type="checkbox"
-                      checked={signageEnabled}
-                      onChange={(event) => {
-                        const enabled = event.target.checked;
-                        setSignageEnabled(enabled);
-                        void saveSignageAvailability(enabled);
-                      }}
-                    />{" "}
-                    Enable Signage
-                  </label>
-                  <p className="settings-copy">
-                    Signage is currently a preview feature. When it is off, its
-                    navigation, editor, APIs, and display output are unavailable
-                    while existing sign data remains safely stored.
-                  </p>
-                </div>
-              </CollapsibleSettingsSection>
-            )}
           </div>
         )}
         {restorePreview && (
@@ -1485,7 +1433,7 @@ export function Settings({
                     />
                   </Field>
                 </div>
-                {o.signageEnabled && <div className="settings-subsection">
+                <div className="settings-subsection">
                   <h3>Approved signage information sources</h3>
                   <p>
                     Enter one trusted website origin per line, such as
@@ -1503,7 +1451,7 @@ export function Settings({
                       placeholder="https://example.org"
                     />
                   </Field>
-                </div>}
+                </div>
                 <div className="settings-subsection">
                   <h3>Room controller access</h3>
                   <label className="check-row">

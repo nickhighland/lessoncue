@@ -12,10 +12,12 @@ public sealed class ManifestService(LessonCueDb db)
 
         var now = generatedAt ?? DateTimeOffset.UtcNow;
         var organization = await db.Organizations.AsNoTracking()
-            .Select(x => new { x.TimeZone, x.SignageEnabled }).FirstOrDefaultAsync(cancellationToken);
+            .Select(x => new { x.TimeZone }).FirstOrDefaultAsync(cancellationToken);
         var timeZone = organization?.TimeZone ?? "UTC";
         var lessonsQuery = db.Lessons.AsNoTracking().Include(x => x.Class).Include(x => x.Items)
-            .ThenInclude(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants).AsSplitQuery().AsQueryable();
+            .ThenInclude(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants)
+            .Include(x => x.Items).ThenInclude(x => x.ActivityDefinition)
+            .AsSplitQuery().AsQueryable();
         if (screen.SignageOnly)
             lessonsQuery = lessonsQuery.Where(_ => false);
         else if (screen.AssignedClassId is { } classId)
@@ -23,10 +25,8 @@ public sealed class ManifestService(LessonCueDb db)
 
         var lessons = (await lessonsQuery.Where(x => !x.Archived).OrderBy(x => x.Date).ToListAsync(cancellationToken))
             .ToList();
-        var signage = organization?.SignageEnabled == true
-            ? await db.SignagePlaylists.AsNoTracking().Include(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants)
-                .Where(x => x.Enabled && x.Mode == "sign").ToListAsync(cancellationToken)
-            : [];
+        var signage = await db.SignagePlaylists.AsNoTracking().Include(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants)
+            .Where(x => x.Enabled && x.Mode == "sign").ToListAsync(cancellationToken);
         signage = screen.AssignedSignageId is { } assignedSignageId
             ? signage.Where(item => item.Id == assignedSignageId).ToList()
             : [];
@@ -168,7 +168,8 @@ public sealed class ManifestService(LessonCueDb db)
                 item.MediaAssetId is { } mediaId && media?.SourceKind != "link" && !string.IsNullOrWhiteSpace(media?.RelativePath)
                     ? $"/api/v1/media/{mediaId}/playback" : null,
             playbackUrl = render.CanRender && media is { SourceKind: "link" } online
-                ? YouTubeMedia.EmbedUrl(online.SourceUrl) ?? online.SourceUrl : null,
+                ? YouTubeMedia.EmbedUrl(online.SourceUrl) ?? online.SourceUrl
+                : (render.CanRender && (item.ActivityDefinitionId.HasValue || item.Type == "activity") ? $"/player?screen={screen.Id}&cue={item.Id}" : null),
             sha256 = useVariant ? variant!.Sha256 : compatible && !useNative ? media?.CompatibilitySha256 : media?.Sha256,
             sizeBytes = useVariant ? variant!.SizeBytes : compatible && !useNative ? media?.CompatibilitySizeBytes : media?.SizeBytes,
             contentType = useVariant || compatible && !useNative ? "video/mp4" : media?.ContentType,
@@ -192,7 +193,7 @@ public sealed class ManifestService(LessonCueDb db)
             offlineEligible = media?.OfflineEligible ?? false,
             sourceKind = media?.SourceKind,
             sourceUrl = media?.SourceUrl,
-            linkKind = media?.LinkKind,
+            linkKind = media?.LinkKind ?? (item.ActivityDefinitionId.HasValue || item.Type == "activity" ? "activity" : null),
             item.Notes,
             item.FadeInMs,
             item.FadeOutMs,
@@ -209,6 +210,15 @@ public sealed class ManifestService(LessonCueDb db)
             item.TransitionStyle,
             item.TransitionDurationMs,
             item.FlexibleTime,
+            activityDefinitionId = item.ActivityDefinitionId,
+            activity = item.ActivityDefinitionId.HasValue ? new
+            {
+                definitionId = item.ActivityDefinitionId.Value,
+                activityType = item.ActivityDefinition?.Type ?? item.Type,
+                definitionVersion = item.ActivityDefinition?.Version ?? 1,
+                name = item.ActivityDefinition?.Name ?? item.Title,
+                requiresNetwork = true
+            } : null,
             cuePoints = ParseCuePoints(item.CuePointsJson)
         };
     }

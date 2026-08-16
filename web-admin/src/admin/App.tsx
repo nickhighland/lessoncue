@@ -1,13 +1,14 @@
 import { AccessibleDialogHost } from "../AccessibleDialogs";
 import { AudienceAdmin, AudienceDisplayApp, AudienceResponseApp } from "../AudienceInteraction";
 import { WebPlayerApp } from "../WebPlayer";
+import { ActivityParticipantApp } from "../activities/ActivityParticipant";
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
 import { FormEvent, lazy, ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { Dashboard } from "./views/Dashboard";
 import { AccountProfile, Audit, Backup, Bootstrap, Lesson, LessonClass, LessonTemplate, Media, Permission, RecurringSchedule, Screen, Session, Signage, UpdateStatus, User, View } from "./models";
 import { BrandMark, Field, Modal } from "./ui";
-import { errorText, formatBytes, isAccountLinkPath, isAudienceDisplayPath, isAudiencePath, isControllerPath, isWebPlayerPath } from "./utils";
+import { errorText, formatBytes, isAccountLinkPath, isActivityParticipantPath, isAudienceDisplayPath, isAudiencePath, isControllerPath, isWebPlayerPath } from "./utils";
 // Preserve the legacy editor stylesheet while older signage layouts remain supported.
 import "./views/LegacySignage";
 
@@ -20,10 +21,12 @@ const Settings = lazy(() => import("./views/Settings").then((module) => ({ defau
 const TemplatesView = lazy(() => import("./views/Templates").then((module) => ({ default: module.TemplatesView })));
 const UsersView = lazy(() => import("./views/Users").then((module) => ({ default: module.UsersView })));
 const SimpleSignage = lazy(() => import("../SimpleSignage").then((module) => ({ default: module.SimpleSignage })));
+const ActivityLibrary = lazy(() => import("../activities/ActivityLibrary").then((module) => ({ default: module.ActivityLibrary })));
 
 export function App() {
   let content: ReactNode;
   if (isWebPlayerPath(location.pathname)) content = <WebPlayerApp />;
+  else if (isActivityParticipantPath(location.pathname)) content = <ActivityParticipantApp />;
   else if (isAudienceDisplayPath(location.pathname))
     content = <AudienceDisplayApp />;
   else if (isAudiencePath(location.pathname))
@@ -1016,8 +1019,7 @@ export function Shell({
       (view === "classes" && !canPlan) ||
       (view === "templates" && !canPlan) ||
       (view === "audience" && !canPlan) ||
-      (view === "signage" &&
-        (!canPlan || !bootstrap?.settings.signageEnabled)) ||
+      (view === "signage" && !canPlan) ||
       (view === "users" && !canManageUsers) ||
       (view === "settings" &&
         !canManageAppSettings &&
@@ -1048,13 +1050,14 @@ export function Shell({
       ? [
           { key: "classes" as View, icon: "▤", label: "Lessons" },
           { key: "templates" as View, icon: "↻", label: "Templates" },
+          { key: "activities" as View, icon: "✦", label: "Activities" },
           { key: "audience" as View, icon: "◉", label: "Audience" },
         ]
       : []),
     { key: "calendar" as View, icon: "□", label: "Calendar" },
     { key: "media" as View, icon: "▶", label: "Media Library" },
     { key: "screens" as View, icon: "▣", label: "Screens" },
-    ...(canPlan && bootstrap?.settings.signageEnabled
+    ...(canPlan
       ? [{ key: "signage" as View, icon: "◇", label: "Signage" }]
       : []),
     ...(canManageUsers
@@ -1069,7 +1072,7 @@ export function Shell({
   ];
   const nav = navItems.map((item) => [item.key, item.icon, item.label] as [View, string, string]);
   const navSections: { label: string; keys: View[] }[] = [
-    { label: "Teaching", keys: ["dashboard", "controller", "classes", "templates", "audience", "calendar"] },
+    { label: "Teaching", keys: ["dashboard", "controller", "classes", "templates", "activities", "audience", "calendar"] },
     { label: "Media & Devices", keys: ["media", "screens", "signage"] },
     { label: "Administration", keys: ["users", "settings"] },
   ];
@@ -1349,6 +1352,7 @@ export function Shell({
                   notify={setNotice}
                 />
               )}
+              {view === "activities" && <ActivityLibrary />}
               {view === "calendar" && <CalendarView lessons={lessons} />}
               {view === "media" && (
                 <MediaView
@@ -1376,10 +1380,9 @@ export function Shell({
                   refresh={refresh}
                   notify={setNotice}
                   canManage={canManageScreens}
-                  signageEnabled={bootstrap.settings.signageEnabled}
                 />
               )}
-              {view === "signage" && bootstrap?.settings.signageEnabled && (
+              {view === "signage" && (
                 <SimpleSignage
                   media={media}
                   screens={screens}

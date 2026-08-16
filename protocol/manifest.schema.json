@@ -363,6 +363,23 @@
         "backgroundColor": { "type": "string" },
         "transitionStyle": { "enum": ["cut", "fade", "fade-black"] },
         "transitionDurationMs": { "type": "integer", "minimum": 0, "maximum": 30000 },
+        "activityDefinitionId": { "type": ["string", "null"] },
+        "activity": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": ["definitionId", "activityType", "definitionVersion", "name", "requiresNetwork"],
+              "properties": {
+                "definitionId": { "type": "string" },
+                "activityType": { "type": "string" },
+                "definitionVersion": { "type": "integer" },
+                "name": { "type": "string" },
+                "requiresNetwork": { "type": "boolean" }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
         "cuePoints": {
           "type": "array",
           "maxItems": 50,
