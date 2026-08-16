@@ -4,6 +4,7 @@ import { ActivityApi } from '../../api';
 
 interface SurveyAnswer { id?: string; rank: number; text: string; points?: number; count?: number; }
 interface SurveyQuestion { id?: string; prompt: string; answers?: SurveyAnswer[]; items?: SurveyAnswer[]; }
+interface SurveyMatchSuggestion { rank: number; text: string; confidence: number; matchedBy?: string; }
 interface SurveyState {
   answers?: Array<{ rank: number; revealed: boolean }>;
   currentQuestionIndex?: number;
@@ -17,6 +18,8 @@ interface SurveyState {
   stealOpen?: boolean;
   stealTeamName?: string;
   lastBoardEvent?: string;
+  surveyMatchInput?: string;
+  surveyMatchSuggestions?: SurveyMatchSuggestion[];
 }
 interface SurveyConfig {
   title?: string;
@@ -50,6 +53,8 @@ export const SurveyBoardController: React.FC<ActivityComponentProps> = ({ envelo
   const roundId = currentQuestion?.id || `round-${currentIndex + 1}`;
   const latestAnswer = hostView?.submissions.find(submission => submission.roundId === roundId && submission.kind === 'surveyAnswer');
   const latestAnswerText = latestAnswer && typeof latestAnswer.payload.text === 'string' ? latestAnswer.payload.text : '';
+  const submittedAnswerText = state.surveyMatchInput || latestAnswerText;
+  const suggestions = Array.isArray(state.surveyMatchSuggestions) ? state.surveyMatchSuggestions : [];
 
   const sendAction = async (action: string, payload?: Record<string, unknown>) => {
     if (isBusy) return;
@@ -83,11 +88,18 @@ export const SurveyBoardController: React.FC<ActivityComponentProps> = ({ envelo
         </div>
       )}
 
-      {latestAnswerText && (
+      {submittedAnswerText && (
         <div className="act-ctrl-card survey-controller-answer-preview">
           <span className="controller-eyebrow">ANSWER TO JUDGE</span>
-          <strong>“{latestAnswerText}”</strong>
+          <strong>“{submittedAnswerText}”</strong>
           <small>{state.stealOpen ? `${state.stealTeamName || 'The steal team'} submitted this answer.` : 'Choose the matching board answer below.'}</small>
+          <div className="act-controller-button-row">
+            <button type="button" className="act-btn act-btn-secondary" onClick={() => sendAction('suggestmatch')} disabled={isBusy}>Find likely board match</button>
+          </div>
+          {suggestions.length > 0 && <div className="survey-match-suggestions" aria-label="Suggested survey matches">
+            <span className="controller-eyebrow">CONSERVATIVE SUGGESTION · MANUAL CONFIRMATION REQUIRED</span>
+            {suggestions.map(suggestion => <button key={suggestion.rank} type="button" className="act-btn act-btn-gold" onClick={() => sendAction('revealitem', { rank: suggestion.rank })} disabled={isBusy}><span>#{suggestion.rank} · {suggestion.text}</span><strong>{suggestion.confidence}% match</strong></button>)}
+          </div>}
         </div>
       )}
 

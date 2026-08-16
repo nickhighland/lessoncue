@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -1760,6 +1761,8 @@ public sealed class ActivitySessionService(
                 state.Remove("stealTeamId");
                 state.Remove("stealTeamName");
                 state["strikeLimit"] = SurveyStrikeLimit(config);
+                state.Remove("surveyMatchInput");
+                state.Remove("surveyMatchSuggestions");
                 if (SurveyTeamMode(config)) EnsureSurveyTeamTurn(run, state, false);
                 return (true, null);
             case "resetbuzzers":
@@ -1769,8 +1772,16 @@ public sealed class ActivitySessionService(
                 state["buzzWinnerParticipantId"] = null;
                 state["buzzWinnerName"] = null;
                 state["buzzWinnerTeamId"] = null;
+                state.Remove("surveyMatchInput");
+                state.Remove("surveyMatchSuggestions");
                 state["phase"] = ActivityPhases.AcceptingResponses;
                 return (true, null);
+            case "suggestmatch":
+            {
+                var suggestions = SurveyMatchSuggestions(config, state);
+                state["surveyMatchSuggestions"] = suggestions;
+                return (true, null);
+            }
             case "matchanswer": case "revealitem":
                 var rank = ReadInt(payload, "rank", 0); var answers = AnswersFor(questions.Count > index ? questions[index] as JsonObject : null, config);
                 var answer = answers.FirstOrDefault(x => IntValue(x, "rank") == rank); if (answer is null) return (false, "That survey answer was not found.");
@@ -1792,6 +1803,8 @@ public sealed class ActivitySessionService(
                 state["stealOpen"] = false;
                 state.Remove("stealTeamId");
                 state.Remove("stealTeamName");
+                state.Remove("surveyMatchInput");
+                state.Remove("surveyMatchSuggestions");
                 return (true, null);
             case "revealall":
                 var allAnswers = AnswersFor(questions.Count > index ? questions[index] as JsonObject : null, config);
@@ -1801,6 +1814,8 @@ public sealed class ActivitySessionService(
                 state["stealOpen"] = false;
                 state.Remove("stealTeamId");
                 state.Remove("stealTeamName");
+                state.Remove("surveyMatchInput");
+                state.Remove("surveyMatchSuggestions");
                 state["revealedRanks"] = new JsonArray(allAnswers.Select(item => (JsonNode)IntValue(item, "rank")).Where(item => item.GetValue<int>() > 0).ToArray());
                 state.Remove("revealedRank"); state.Remove("revealedAnswer"); state.Remove("revealedPoints");
                 return (true, null);
@@ -1828,9 +1843,9 @@ public sealed class ActivitySessionService(
                 return (true, null);
             case "next": case "nextquestion":
                 if (index >= Math.Max(0, questions.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
-                state["currentQuestionIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["strikes"] = 0; state.Remove("revealedRank"); state.Remove("revealedRanks"); state.Remove("revealedAnswer"); state.Remove("revealedPoints"); state["buzzLocked"] = false; state["responsesOpen"] = false; state["stealOpen"] = false; state.Remove("stealTeamId"); state.Remove("stealTeamName"); if (SurveyTeamMode(config)) EnsureSurveyTeamTurn(run, state, true); return (true, null);
+                state["currentQuestionIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["strikes"] = 0; state.Remove("revealedRank"); state.Remove("revealedRanks"); state.Remove("revealedAnswer"); state.Remove("revealedPoints"); state["buzzLocked"] = false; state["responsesOpen"] = false; state["stealOpen"] = false; state.Remove("stealTeamId"); state.Remove("stealTeamName"); state.Remove("surveyMatchInput"); state.Remove("surveyMatchSuggestions"); if (SurveyTeamMode(config)) EnsureSurveyTeamTurn(run, state, true); return (true, null);
             case "prev": case "prevquestion": case "previous":
-                state["currentQuestionIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["strikes"] = 0; state.Remove("revealedRank"); state.Remove("revealedRanks"); state.Remove("revealedAnswer"); state.Remove("revealedPoints"); state["buzzLocked"] = false; state["responsesOpen"] = false; state["stealOpen"] = false; state.Remove("stealTeamId"); state.Remove("stealTeamName"); return (true, null);
+                state["currentQuestionIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["strikes"] = 0; state.Remove("revealedRank"); state.Remove("revealedRanks"); state.Remove("revealedAnswer"); state.Remove("revealedPoints"); state["buzzLocked"] = false; state["responsesOpen"] = false; state["stealOpen"] = false; state.Remove("stealTeamId"); state.Remove("stealTeamName"); state.Remove("surveyMatchInput"); state.Remove("surveyMatchSuggestions"); return (true, null);
             default: return (false, $"Unrecognized survey action '{action}'.");
         }
     }
@@ -1848,6 +1863,8 @@ public sealed class ActivitySessionService(
         var json = JsonSerializer.Serialize(new { text }, ActivityJsonDefaults.Options);
         if (existing is null) db.ActivitySubmissions.Add(new ActivitySubmission { ActivityRunId = run.Id, ParticipantId = participant.Id, RoundId = roundId, Kind = "surveyAnswer", PayloadJson = json });
         else { existing.PayloadJson = json; existing.UpdatedAt = DateTimeOffset.UtcNow; }
+        state["surveyMatchInput"] = text;
+        state.Remove("surveyMatchSuggestions");
         state["buzzWinnerParticipantId"] = participant.Id.ToString(); state["buzzWinnerName"] = participant.DisplayName; state["buzzWinnerTeamId"] = participant.TeamId?.ToString(); state["buzzLocked"] = true; state["responsesOpen"] = false; state["phase"] = ActivityPhases.Judging;
         return (true, null);
     }
@@ -2279,6 +2296,8 @@ public sealed class ActivitySessionService(
         {
             projected.Remove("currentTeamId");
             projected.Remove("stealTeamId");
+            projected.Remove("surveyMatchInput");
+            projected.Remove("surveyMatchSuggestions");
             if (participantId.HasValue)
             {
                 var participant = run.Participants.FirstOrDefault(item => item.Id == participantId.Value);
@@ -2728,6 +2747,102 @@ public sealed class ActivitySessionService(
         return true;
     }
     private static List<JsonObject> AnswersFor(JsonObject? question, JsonObject config) => (ArrayValue(question, "answers").Count > 0 ? ArrayValue(question, "answers") : ArrayValue(question, "items")).OfType<JsonObject>().ToList();
+
+    private static JsonArray SurveyMatchSuggestions(JsonObject config, JsonObject state)
+    {
+        var submitted = (StringValue(state, "surveyMatchInput") ?? "").Trim();
+        var questions = ArrayValue(config, "questions");
+        var index = Math.Clamp(IntValue(state, "currentQuestionIndex"), 0, Math.Max(0, questions.Count - 1));
+        var answers = AnswersFor(questions.Count > index ? questions[index] as JsonObject : null, config);
+        if (submitted.Length == 0 || answers.Count == 0) return [];
+
+        var matches = answers.Select(answer =>
+        {
+            var best = SurveyAnswerMatch(submitted, answer);
+            return new
+            {
+                Rank = IntValue(answer, "rank"),
+                Text = StringValue(answer, "text", ""),
+                Score = best.Score,
+                MatchedBy = best.MatchedBy
+            };
+        })
+        .Where(match => match.Rank > 0 && match.Score >= 0.82)
+        .OrderByDescending(match => match.Score)
+        .ThenBy(match => match.Rank)
+        .ToArray();
+
+        // Do not offer a guess when two board entries are nearly equally
+        // plausible. The host can always reveal any answer manually.
+        if (matches.Length > 1 && matches[0].Score - matches[1].Score < 0.08) return [];
+        return new JsonArray(matches.Take(3).Select(match => (JsonNode)new JsonObject
+        {
+            ["rank"] = match.Rank,
+            ["text"] = match.Text,
+            ["confidence"] = (int)Math.Round(match.Score * 100),
+            ["matchedBy"] = match.MatchedBy
+        }).ToArray());
+    }
+
+    private static (double Score, string MatchedBy) SurveyAnswerMatch(string submitted, JsonObject answer)
+    {
+        var normalizedSubmission = NormalizeSurveyText(submitted);
+        var answerText = StringValue(answer, "text") ?? "";
+        var candidates = new List<(string Text, string MatchedBy)> { (answerText, "answer text") };
+        candidates.AddRange(ReadStringArray(answer, "aliases").Select(alias => (alias, "alias")));
+
+        var best = (Score: 0d, MatchedBy: "");
+        foreach (var candidate in candidates)
+        {
+            var normalizedCandidate = NormalizeSurveyText(candidate.Text);
+            if (normalizedCandidate.Length == 0) continue;
+            if (normalizedSubmission == normalizedCandidate) return (1d, candidate.MatchedBy);
+
+            var submissionTokens = normalizedSubmission.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var candidateTokens = normalizedCandidate.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (submissionTokens.Length > 0 && submissionTokens.All(token => candidateTokens.Contains(token, StringComparer.Ordinal)) && submissionTokens.All(token => token.Length >= 4))
+                best = best.Score < 0.88 ? (0.88, "word match") : best;
+
+            var distance = SurveyEditDistance(normalizedSubmission, normalizedCandidate);
+            var maximum = Math.Max(normalizedSubmission.Length, normalizedCandidate.Length);
+            if (maximum > 0)
+            {
+                var score = 1d - (double)distance / maximum;
+                if (score > best.Score) best = (score, "close spelling");
+            }
+        }
+        return best;
+    }
+
+    private static string NormalizeSurveyText(string value)
+    {
+        var decomposed = (value ?? "").Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(decomposed.Length);
+        foreach (var character in decomposed)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(character) == UnicodeCategory.NonSpacingMark) continue;
+            builder.Append(char.IsLetterOrDigit(character) ? char.ToLowerInvariant(character) : ' ');
+        }
+        return string.Join(' ', builder.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    }
+
+    private static int SurveyEditDistance(string left, string right)
+    {
+        var previous = Enumerable.Range(0, right.Length + 1).ToArray();
+        for (var leftIndex = 1; leftIndex <= left.Length; leftIndex++)
+        {
+            var current = new int[right.Length + 1];
+            current[0] = leftIndex;
+            for (var rightIndex = 1; rightIndex <= right.Length; rightIndex++)
+            {
+                current[rightIndex] = Math.Min(
+                    Math.Min(current[rightIndex - 1] + 1, previous[rightIndex] + 1),
+                    previous[rightIndex - 1] + (left[leftIndex - 1] == right[rightIndex - 1] ? 0 : 1));
+            }
+            previous = current;
+        }
+        return previous[right.Length];
+    }
 
     private static void EnsureSurveyTeamTurn(ActivityRun run, JsonObject state, bool advance)
     {

@@ -373,6 +373,39 @@ public sealed class ActivitySessionServiceTests
     }
 
     [Fact]
+    public async Task SurveyBoardOffersConservativeAliasSuggestionsWithoutRemovingManualHostJudgment()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Suggested Survey", ActivityTypes.SurveyBoard, Config: JsonDocument.Parse("""
+                {"title":"Suggested Survey","questions":[{"id":"q1","prompt":"Name a warm drink","answers":[{"id":"a1","rank":1,"text":"Tea","aliases":["chai"],"points":60},{"id":"a2","rank":2,"text":"Cocoa","points":40}]}]}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            var joined = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Contestant"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(joined.Token, "submit", JsonDocument.Parse("{\"text\":\"chai\"}").RootElement), TestContext.Current.CancellationToken)).Success);
+
+            var suggestion = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "suggestmatch"), TestContext.Current.CancellationToken);
+            Assert.True(suggestion.Success, suggestion.Error);
+            var host = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            var hostState = JsonSerializer.Serialize(host!.State.State, ActivityJsonDefaults.Options);
+            Assert.Contains("\"rank\":1", hostState, StringComparison.Ordinal);
+            Assert.Contains("\"confidence\":100", hostState, StringComparison.Ordinal);
+            var displayState = JsonSerializer.Serialize((await sessions.GetDisplayEnvelopeAsync(run.Id, TestContext.Current.CancellationToken))!.State, ActivityJsonDefaults.Options);
+            Assert.DoesNotContain("surveyMatchSuggestions", displayState, StringComparison.Ordinal);
+
+            // A suggestion never makes the decision; the host can intentionally
+            // choose a different board item and the selected item is what scores.
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "matchanswer", JsonDocument.Parse("{\"rank\":2}").RootElement), TestContext.Current.CancellationToken)).Success);
+            var scoredHost = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            Assert.Contains("\"amount\":40", JsonSerializer.Serialize(scoredHost!.ScoreEvents, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
     public async Task DrawingSubmissionsStayPrivateUntilApprovedAndTheRoomCanVoteOnTheGallery()
     {
         var (db, activities, sessions, connection) = await CreateAsync();

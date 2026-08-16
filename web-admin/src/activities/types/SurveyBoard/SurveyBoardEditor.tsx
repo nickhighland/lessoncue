@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ActivityPresetPicker } from '../../ActivityPresetPicker';
 import { SURVEY_PRESETS } from '../../activityPresetRegistry';
 
-interface SurveyAnswer { id: string; rank: number; text: string; points: number; count?: number; }
+interface SurveyAnswer { id: string; rank: number; text: string; points: number; count?: number; aliases?: string[]; }
 interface SurveyQuestion { id: string; prompt: string; answers?: SurveyAnswer[]; items?: SurveyAnswer[]; }
 interface SurveyBoardConfig {
   title?: string;
@@ -25,7 +25,8 @@ function normalizeQuestions(config: SurveyBoardConfig): SurveyQuestion[] {
         id: answer.id || `${qIndex + 1}-${answer.rank || index + 1}`,
         rank: answer.rank || index + 1,
         text: answer.text,
-        points: answer.points ?? answer.count ?? 0
+        points: answer.points ?? answer.count ?? 0,
+        aliases: answer.aliases || []
       }))
     }));
   }
@@ -36,7 +37,8 @@ function normalizeQuestions(config: SurveyBoardConfig): SurveyQuestion[] {
       id: answer.id || `1-${answer.rank || index + 1}`,
       rank: answer.rank || index + 1,
       text: answer.text,
-      points: answer.points ?? answer.count ?? 0
+      points: answer.points ?? answer.count ?? 0,
+      aliases: answer.aliases || []
     }))
   }];
 }
@@ -58,7 +60,8 @@ export const SurveyBoardEditor: React.FC<{
         id: answer.id,
         rank: answer.rank,
         text: answer.text,
-        points: answer.points
+        points: answer.points,
+        aliases: answer.aliases || []
       }))
     })) });
   };
@@ -164,6 +167,7 @@ export const SurveyBoardEditor: React.FC<{
               <div className="survey-editor-answer survey-editor-answer-points" key={answer.id || index}>
                 <span>#{answer.rank}</span>
                 <input value={answer.text} onChange={event => updateAnswer(index, { text: event.target.value })} aria-label={`Answer ${index + 1}`} />
+                <input className="survey-answer-aliases" value={(answer.aliases || []).join(', ')} onChange={event => updateAnswer(index, { aliases: event.target.value.split(',').map(alias => alias.trim()).filter(Boolean) })} aria-label={`Accepted aliases for response ${index + 1}`} placeholder="Aliases (comma separated)" />
                 <input type="number" min={0} value={answer.points} onChange={event => updateAnswer(index, { points: Number(event.target.value) || 0 })} aria-label={`Points for answer ${index + 1}`} />
                 <button type="button" className="button danger" onClick={() => removeAnswer(index)} disabled={(currentQuestion.answers || []).length <= 1} aria-label={`Remove answer ${index + 1}`}>×</button>
               </div>

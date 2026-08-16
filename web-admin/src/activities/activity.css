@@ -1071,6 +1071,22 @@
   font-size: 1.1rem;
 }
 
+.survey-match-suggestions {
+  display: grid;
+  gap: 0.45rem;
+  padding-top: 0.35rem;
+}
+
+.survey-match-suggestions .act-btn {
+  justify-content: space-between;
+  text-align: left;
+}
+
+.survey-match-suggestions .act-btn strong {
+  color: inherit;
+  font-size: 0.8rem;
+}
+
 .survey-rules-card {
   display: grid;
   gap: 0.7rem;
@@ -1437,7 +1453,7 @@
 }
 
 .survey-editor-answer-points {
-  grid-template-columns: 32px minmax(0, 1fr) 92px auto;
+  grid-template-columns: 32px minmax(0, 1.2fr) minmax(150px, 1fr) 92px auto;
 }
 
 @media (max-width: 760px) {
@@ -1497,13 +1513,19 @@
     grid-template-columns: 28px minmax(0, 1fr) auto;
   }
 
+  .survey-editor-answer-points .survey-answer-aliases {
+    grid-column: 2 / 4;
+    grid-row: 2;
+  }
+
   .survey-editor-answer-points input[type="number"] {
     grid-column: 2;
+    grid-row: 3;
   }
 
   .survey-editor-answer-points button {
     grid-column: 3;
-    grid-row: 1;
+    grid-row: 3;
   }
 }
 
