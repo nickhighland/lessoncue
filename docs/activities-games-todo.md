@@ -89,6 +89,7 @@ Still needed for a large or heavily curated library:
 - [x] Role-safe host, participant, and display projections.
 - [x] QR/join-code lobby with anonymous browser participants and reconnect handling.
 - [x] Shared participants, teams, score events, moderation, timers, and SignalR updates.
+- [x] Config-driven poll scoring for Majority Rules, Minority Report, and Prediction Machine, with the live distribution hidden until reveal.
 - [x] End-to-end vertical slices for Trivia, Read the Room, Buzzer Battle/Clue Ladder, Punchline, Fake Out, Survey Showdown, Doodle & Guess, Order Up, Word Storm, Match Minds, Mystery Image, and Beat the Clock.
 - [x] Initial shared Utility engine slice: Coin Flip, Dice, Random Number, Mystery Boxes, Challenge Picker, Random Person, Random Team, Countdown, and live-roster Team Generator.
 - [x] Flexible multiple-choice answers; choices are no longer fixed at four.

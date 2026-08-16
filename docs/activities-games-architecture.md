@@ -112,7 +112,7 @@ The server never stores IP addresses, browser fingerprints, or unnecessary devic
 The first vertical slices share these engines rather than creating one runtime per named game:
 
 1. Quiz & Answer: Trivia, Fact or Fiction, rapid review, numeric and host-judged variants.
-2. Poll & Prediction: Read the Room, Majority Rules, Hot Take, predictions, and opinion scales.
+2. Poll & Prediction: Read the Room, Majority Rules, Minority Report, Prediction Machine, Hot Take, predictions, and opinion scales. Poll presets can opt into server-side majority, minority, or room-prediction scoring while live vote distributions remain hidden until reveal.
 3. Buzzer & Progressive Clue: Buzzer Battle, Clue Ladder, Mystery Person/Place/Object.
 4. Creative Response & Voting: Punchline, Caption This, Bad Advice, and similar moderated response games.
 5. Bluffing & Deception: Fake Out and related truth/false-answer voting.

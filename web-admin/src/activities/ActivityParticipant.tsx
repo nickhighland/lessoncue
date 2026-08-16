@@ -120,16 +120,18 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
   const [selected, setSelected] = useState<string | null>(null);
   const isChoice = envelope.type === 'trivia' || envelope.type === 'rapidFire' || envelope.type === 'poll' || envelope.type === 'prediction';
   const isTurnBasedWord = envelope.type === 'word' && config.turnBased === true;
+  const pollMode = textOf(config.pollMode);
+  const choiceKicker = envelope.type !== 'poll' ? undefined : pollMode === 'minority' ? 'PREDICT THE MINORITY' : pollMode === 'majority' ? 'PREDICT THE MAJORITY' : pollMode === 'prediction' ? 'PREDICT THE ROOM' : 'CHOOSE ONE';
 
   const submitText = (event: FormEvent) => { event.preventDefault(); if (text.trim()) { onAction('submit', { text: text.trim() }); setText(''); } };
-  const sendChoice = (index: number) => { setSelected(String(index)); onAction(envelope.type === 'trivia' || envelope.type === 'rapidFire' ? 'answer' : 'vote', { optionIndex: index }); };
+  const sendChoice = (index: number) => { setSelected(String(index)); onAction(envelope.type === 'trivia' || envelope.type === 'rapidFire' ? 'answer' : envelope.type === 'poll' && pollMode ? 'predict' : 'vote', { optionIndex: index }); };
   const sendMatchChoice = (index: number) => { setSelected(String(index)); onAction(state.isTarget === true ? 'answer' : 'predict', { optionIndex: index }); };
   const sendBracketChoice = (index: number) => { const entrantId = textOf(bracketOptions[index]?.entrantId); setSelected(entrantId); onAction('vote', { entrantId }); };
   const submitVote = (id: string) => onAction('vote', { targetId: id });
 
   return <main className="activity-participant-page"><div className="participant-game-shell"><header className="participant-game-header"><div><span className="participant-kicker">{textOf(envelope.name, 'LIVE ACTIVITY')}</span><h1>{title}</h1></div><div className="participant-identity"><strong>{view.displayName}</strong><small>{view.hasSubmitted ? 'Response saved' : phase.replace(/([a-z])([A-Z])/g, '$1 $2')}</small></div></header>{error && <div className="participant-error" role="alert">{error}</div>}
     {phase === 'lobby' || phase === 'setup' ? <section className="participant-waiting"><span className="waiting-orb">✦</span><h2>You’re in.</h2><p>Waiting for the host to start the game.</p><div className="participant-count">{numberOf(state.participantCount)} players joined</div></section> :
-      phase === 'acceptingResponses' && isChoice ? <ChoiceInput prompt={prompt} options={options} selected={selected === null ? null : Number(selected)} disabled={busy || view.hasSubmitted} onSelect={sendChoice} /> :
+      phase === 'acceptingResponses' && isChoice ? <ChoiceInput kicker={choiceKicker} prompt={prompt} options={options} selected={selected === null ? null : Number(selected)} disabled={busy || view.hasSubmitted} onSelect={sendChoice} /> :
       phase === 'acceptingResponses' && envelope.type === 'buzzer' ? <section className="participant-buzzer-card"><h2>{prompt}</h2><button className="participant-buzzer" disabled={busy || Boolean(state.buzzWinnerParticipantId)} onClick={() => onAction('buzz')}>{state.buzzWinnerName ? `${textOf(state.buzzWinnerName)} buzzed first` : 'BUZZ'}</button></section> :
       phase === 'acceptingResponses' && envelope.type === 'drawing' ? <DrawingInput prompt={prompt} disabled={busy || view.hasSubmitted} onSubmit={strokes => onAction('submit', { strokes })} /> :
       phase === 'acceptingResponses' && envelope.type === 'ordering' ? <OrderingInput prompt={prompt} items={orderingItems} disabled={busy || view.hasSubmitted} onSubmit={order => onAction('sort', { order })} /> :

@@ -171,6 +171,72 @@ public sealed class ActivitySessionServiceTests
     }
 
     [Fact]
+    public async Task PredictionPollHidesLiveDistributionAndScoresRoomPredictionsOnReveal()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Prediction Machine", ActivityTypes.Poll, Config: JsonDocument.Parse("""
+                {"title":"Prediction Machine","preset":"predictionMachine","presetLabel":"PREDICTION MACHINE","pollMode":"prediction","points":75,"question":"Which option will the room choose most often?","options":["Option A","Option B","Option C"]}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            var first = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "First"), TestContext.Current.CancellationToken);
+            var second = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Second"), TestContext.Current.CancellationToken);
+            var third = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Third"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(first.Token, "predict", JsonDocument.Parse("{\"optionIndex\":0}").RootElement), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(second.Token, "predict", JsonDocument.Parse("{\"optionIndex\":1}").RootElement), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(third.Token, "predict", JsonDocument.Parse("{\"optionIndex\":0}").RootElement), TestContext.Current.CancellationToken)).Success);
+
+            var beforeReveal = await sessions.GetDisplayEnvelopeAsync(run.Id, TestContext.Current.CancellationToken);
+            var beforeRevealJson = JsonSerializer.Serialize(beforeReveal!.State, ActivityJsonDefaults.Options);
+            Assert.Contains("\"totalVotes\":3", beforeRevealJson, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("\"votes\":{}", beforeRevealJson, StringComparison.OrdinalIgnoreCase);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "reveal"), TestContext.Current.CancellationToken)).Success);
+
+            var afterReveal = await sessions.GetDisplayEnvelopeAsync(run.Id, TestContext.Current.CancellationToken);
+            var afterRevealJson = JsonSerializer.Serialize(afterReveal!.State, ActivityJsonDefaults.Options);
+            Assert.Contains("\"scoringMode\":\"prediction\"", afterRevealJson, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("\"winningOptionIndex\":0", afterRevealJson, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("\"winningVoteCount\":2", afterRevealJson, StringComparison.OrdinalIgnoreCase);
+            var host = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            Assert.Equal(2, host!.ScoreEvents.Count);
+            Assert.All(host.ScoreEvents, score => Assert.Contains("\"amount\":75", JsonSerializer.Serialize(score, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    [Fact]
+    public async Task MinorityPollScoresEveryTiedLeastPopularChoice()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Minority Report", ActivityTypes.Poll, Config: JsonDocument.Parse("""
+                {"title":"Minority Report","pollMode":"minority","points":40,"question":"Which option will the fewest people choose?","options":["Option A","Option B","Option C"]}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            var first = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "First"), TestContext.Current.CancellationToken);
+            var second = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Second"), TestContext.Current.CancellationToken);
+            var third = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Third"), TestContext.Current.CancellationToken);
+            var fourth = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Fourth"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken);
+            foreach (var (token, optionIndex) in new[] { (first.Token, 0), (second.Token, 0), (third.Token, 1), (fourth.Token, 2) })
+                Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(token, "predict", JsonDocument.Parse($"{{\"optionIndex\":{optionIndex}}}").RootElement), TestContext.Current.CancellationToken)).Success);
+
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "reveal"), TestContext.Current.CancellationToken)).Success);
+            var display = await sessions.GetDisplayEnvelopeAsync(run.Id, TestContext.Current.CancellationToken);
+            var displayJson = JsonSerializer.Serialize(display!.State, ActivityJsonDefaults.Options);
+            Assert.Contains("\"scoringMode\":\"minority\"", displayJson, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("\"winningOptionIndices\":[1,2]", displayJson, StringComparison.OrdinalIgnoreCase);
+            var host = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            Assert.Equal(2, host!.ScoreEvents.Count);
+            Assert.All(host.ScoreEvents, score => Assert.Contains("\"amount\":40", JsonSerializer.Serialize(score, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    [Fact]
     public async Task CreativeResponsesAreModeratedBeforeTheyReachTheDisplay()
     {
         var (db, activities, sessions, connection) = await CreateAsync();

@@ -539,13 +539,19 @@ public sealed class ActivitySessionService(
             case "open": case "openresponses": state["phase"] = ActivityPhases.AcceptingResponses; state["responsesOpen"] = true; state["responsesLocked"] = false; return (true, null);
             case "close": case "closeresponses": case "lock": state["phase"] = ActivityPhases.ResponsesLocked; state["responsesOpen"] = false; state["responsesLocked"] = true; return (true, null);
             case "showresults": case "reveal":
-                state["phase"] = ActivityPhases.Reveal; state["resultsVisible"] = true; state["answerRevealed"] = run.ActivityDefinition!.Type == ActivityTypes.Prediction; state["responsesOpen"] = false;
+                var pollMode = PollScoringMode(config);
+                state["phase"] = ActivityPhases.Reveal; state["resultsVisible"] = true; state["answerRevealed"] = run.ActivityDefinition!.Type == ActivityTypes.Prediction || pollMode.Length > 0; state["responsesOpen"] = false;
                 if (run.ActivityDefinition!.Type == ActivityTypes.Prediction && !BoolValue(state, "scoresApplied"))
                 {
                     var correct = IntValue(rounds[index] as JsonObject, "correctIndex");
                     state["revealedCorrectIndex"] = correct;
                     state["revealedExplanation"] = StringValue(rounds[index] as JsonObject, "explanation");
                     await ScorePredictionAsync(run, CurrentRoundId(run, config), correct, ct);
+                    state["scoresApplied"] = true;
+                }
+                else if (run.ActivityDefinition!.Type == ActivityTypes.Poll && pollMode.Length > 0 && !BoolValue(state, "scoresApplied"))
+                {
+                    await ScorePollOutcomeAsync(run, config, state, rounds[index] as JsonObject ?? config, CurrentRoundId(run, config), pollMode, ct);
                     state["scoresApplied"] = true;
                 }
                 return (true, null);
@@ -1848,6 +1854,38 @@ public sealed class ActivitySessionService(
         }
     }
 
+    private async Task ScorePollOutcomeAsync(ActivityRun run, JsonObject config, JsonObject state, JsonObject round, string roundId, string mode, CancellationToken ct)
+    {
+        var options = ArrayValue(round, "options");
+        if (options.Count == 0) options = ArrayValue(config, "options");
+        if (options.Count == 0) return;
+
+        var counts = run.Votes
+            .Where(vote => vote.RoundId == roundId && int.TryParse(vote.TargetId, out var option) && option >= 0 && option < options.Count)
+            .GroupBy(vote => int.Parse(vote.TargetId))
+            .ToDictionary(group => group.Key, group => group.Count());
+        if (counts.Count == 0) return;
+
+        var optionCounts = Enumerable.Range(0, options.Count).Select(index => new { Index = index, Count = counts.GetValueOrDefault(index) }).ToArray();
+        var targetCount = mode == "minority" ? optionCounts.Min(item => item.Count) : optionCounts.Max(item => item.Count);
+        var winners = optionCounts.Where(item => item.Count == targetCount).Select(item => item.Index).ToArray();
+        state["scoringMode"] = mode;
+        state["winningOptionIndices"] = new JsonArray(winners.Select(item => (JsonNode)item).ToArray());
+        state["winningOptionIndex"] = winners[0];
+        state["winningVoteCount"] = targetCount;
+
+        var points = IntValue(round, "points", IntValue(config, "points", 100));
+        if (points == 0) return;
+        var reason = mode switch
+        {
+            "minority" => "Minority prediction",
+            "prediction" => "Room prediction",
+            _ => "Majority prediction"
+        };
+        foreach (var vote in run.Votes.Where(vote => vote.RoundId == roundId && int.TryParse(vote.TargetId, out var option) && winners.Contains(option)))
+            await AwardScoreAsync(run, vote.VoterParticipantId, null, points, reason, roundId, ct);
+    }
+
     private async Task ScoreCreativeAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct)
     {
         var roundId = CurrentRoundId(run, config);
@@ -2151,7 +2189,13 @@ public sealed class ActivitySessionService(
         }
         var roundId = CurrentRoundId(run, config);
         var submissions = run.Submissions.Where(x => x.RoundId == roundId && x.ModerationStatus == "approved" && !x.Hidden).ToList();
-        if (run.ActivityDefinition!.Type == ActivityTypes.Punchline)
+        if ((run.ActivityDefinition!.Type is ActivityTypes.Poll or ActivityTypes.Prediction) && !BoolValue(state, "resultsVisible"))
+        {
+            // Keep the live response count useful without leaking the current
+            // distribution to phones before the host reveals it.
+            projected["votes"] = new JsonObject();
+        }
+        else if (run.ActivityDefinition.Type == ActivityTypes.Punchline)
         {
             projected["submissions"] = new JsonArray(submissions.Select(x => (JsonNode)new JsonObject { ["id"] = x.Id.ToString(), ["text"] = StringValue(ParseObject(x.PayloadJson), "text") ?? "" }).ToArray());
         }
@@ -2417,6 +2461,11 @@ public sealed class ActivitySessionService(
     {
         var requested = StringValue(config, "utilityType", ActivityUtilityTypes.CoinFlip) ?? ActivityUtilityTypes.CoinFlip;
         return ActivityUtilityTypes.IsValid(requested) ? requested : ActivityUtilityTypes.CoinFlip;
+    }
+    private static string PollScoringMode(JsonObject config)
+    {
+        var mode = (StringValue(config, "pollMode") ?? "").Trim().ToLowerInvariant();
+        return mode is "majority" or "minority" or "prediction" ? mode : "";
     }
     private static string FirstPlayPhase(string type) => type is ActivityTypes.Poll or ActivityTypes.Prediction or ActivityTypes.Punchline or ActivityTypes.FakeOut ? ActivityPhases.Prompt : ActivityPhases.RoundIntro;
     private static string NormalizeCode(string value) => (value ?? "").Trim().Replace("-", "").ToUpperInvariant();

@@ -129,13 +129,13 @@ export const POLL_PRESETS: ActivityPresetTemplate[] = [
     id: 'majorityRules',
     label: 'Majority Rules',
     description: 'Let the largest group answer the question for the room.',
-    config: { preset: 'majorityRules', presetLabel: 'MAJORITY RULES', question: 'Which option do you think most people will choose?', options: ['Option A', 'Option B', 'Option C'] }
+    config: { preset: 'majorityRules', presetLabel: 'MAJORITY RULES', pollMode: 'majority', question: 'Which option do you think most people will choose?', options: ['Option A', 'Option B', 'Option C'], points: 100 }
   },
   {
     id: 'minorityReport',
     label: 'Minority Report',
     description: 'Invite the room to predict the least popular answer.',
-    config: { preset: 'minorityReport', presetLabel: 'MINORITY REPORT', question: 'Which option will the fewest people choose?', options: ['Option A', 'Option B', 'Option C'] }
+    config: { preset: 'minorityReport', presetLabel: 'MINORITY REPORT', pollMode: 'minority', question: 'Which option will the fewest people choose?', options: ['Option A', 'Option B', 'Option C'], points: 100 }
   },
   {
     id: 'splitDecision',
@@ -178,7 +178,7 @@ export const POLL_PRESETS: ActivityPresetTemplate[] = [
   { id: 'oneOfUs', label: 'One of Us', description: 'Use the group’s own names or roles as poll choices.', config: { preset: 'oneOfUs', presetLabel: 'ONE OF US', question: 'Who best fits this prompt?', options: ['Person A', 'Person B', 'Person C'] } },
   { id: 'knowYourGroup', label: 'Know Your Group', description: 'Ask a question that reveals how well the room knows itself.', config: { preset: 'knowYourGroup', presetLabel: 'KNOW YOUR GROUP', question: 'Which answer best describes this group?', options: ['Option A', 'Option B', 'Option C', 'Option D'] } },
   { id: 'yearbookAwards', label: 'Yearbook Awards', description: 'Let the room nominate a person or team for a playful award.', config: { preset: 'yearbookAwards', presetLabel: 'YEARBOOK AWARDS', question: 'Who wins this made-up award?', options: ['Person A', 'Person B', 'Person C'] } },
-  { id: 'predictionMachine', label: 'Prediction Machine', description: 'Predict what the room will choose, then compare prediction to reality.', config: { preset: 'predictionMachine', presetLabel: 'PREDICTION MACHINE', question: 'Which option will the room choose most often?', options: ['Option A', 'Option B', 'Option C'] } },
+  { id: 'predictionMachine', label: 'Prediction Machine', description: 'Predict what the room will choose, then compare prediction to reality.', config: { preset: 'predictionMachine', presetLabel: 'PREDICTION MACHINE', pollMode: 'prediction', question: 'Which option will the room choose most often?', options: ['Option A', 'Option B', 'Option C'], points: 100 } },
   { id: 'tinyHillToDieOn', label: 'Tiny Hill to Die On', description: 'Take a harmless, strong position and see whether the room agrees.', config: { preset: 'tinyHillToDieOn', presetLabel: 'TINY HILL TO DIE ON', question: 'Which tiny opinion deserves your full support?', options: ['Option A', 'Option B', 'Option C'] } }
 ];
 

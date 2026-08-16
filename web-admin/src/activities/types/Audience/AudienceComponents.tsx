@@ -30,8 +30,12 @@ export const PollDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ env
     votes?: Record<string, number>;
     totalVotes?: number;
     resultsVisible?: boolean;
+    winningOptionIndex?: number;
+    winningOptionIndices?: number[];
+    scoringMode?: string;
+    winningVoteCount?: number;
   }) || {};
-  const config = (envelope as unknown as { config?: { question?: string; prompt?: string; options?: unknown[]; presetLabel?: string } }).config || {};
+  const config = (envelope as unknown as { config?: { question?: string; prompt?: string; options?: unknown[]; presetLabel?: string; pollMode?: string } }).config || {};
   const options = normalizePollOptions(config.options).length ? normalizePollOptions(config.options) : [
     { id: '1', text: 'Option A' },
     { id: '2', text: 'Option B' }
@@ -39,6 +43,8 @@ export const PollDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ env
   const votes = state.votes || {};
   const totalVotes = state.totalVotes || Object.values(votes).reduce((sum, count) => sum + count, 0);
   const resultsVisible = state.resultsVisible !== false;
+  const winningOptions = state.winningOptionIndices?.length ? state.winningOptionIndices : typeof state.winningOptionIndex === 'number' ? [state.winningOptionIndex] : [];
+  const scoringLabel = state.scoringMode === 'minority' ? 'MINORITY PICKS SCORE' : state.scoringMode === 'prediction' ? 'ROOM PREDICTIONS SCORE' : state.scoringMode === 'majority' ? 'MAJORITY PICKS SCORE' : '';
 
   const colors = ['#00F0FF', '#FF007F', '#FFE600', '#00FF66', '#B026FF', '#FF9100'];
 
@@ -49,15 +55,17 @@ export const PollDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ env
           <div className="stage-kicker">📊 {config.presetLabel || 'LIVE AUDIENCE POLL'} · {totalVotes} {totalVotes === 1 ? 'VOTE' : 'VOTES'}</div>
           <h1 className="activity-title">{config.question || config.prompt || envelope.name || 'Live Poll'}</h1>
         </div>
+        {resultsVisible && scoringLabel && <div className="poll-scoring-banner">{scoringLabel}{typeof state.winningVoteCount === 'number' && <strong>{state.winningVoteCount} {state.winningVoteCount === 1 ? 'pick' : 'picks'}</strong>}</div>}
 
         <div className="poll-results-list">
           {options.map((opt, idx) => {
             const optionVotes = votes[opt.id] ?? votes[String(idx)] ?? 0;
             const percent = totalVotes > 0 ? Math.round((optionVotes / totalVotes) * 100) : 0;
             const color = colors[idx % colors.length];
+            const winner = resultsVisible && winningOptions.includes(idx);
 
             return (
-              <div key={opt.id || idx} className="poll-result-row" style={{ borderColor: color }}>
+              <div key={opt.id || idx} className={`poll-result-row ${winner ? 'winner' : ''}`} style={{ borderColor: color }}>
                 {/* Fill Bar Behind */}
                 <div
                   className="poll-result-fill"
@@ -70,6 +78,7 @@ export const PollDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ env
                     {resultsVisible ? <>
                       <span style={{ color }}>{percent}%</span>
                       <small>({optionVotes})</small>
+                      {winner && <b className="poll-winner-badge">SCORE</b>}
                     </> : <span className="poll-results-hidden">Results hidden</span>}
                   </div>
                 </div>
@@ -155,9 +164,14 @@ export const PollEditor: React.FC<{
   config: Record<string, unknown>;
   onChange: (updated: Record<string, unknown>) => void;
 }> = ({ config, onChange }) => {
-  const current = config as { question?: string; prompt?: string; options?: unknown[]; preset?: string; presetLabel?: string };
+  const current = config as { question?: string; prompt?: string; options?: unknown[]; preset?: string; presetLabel?: string; pollMode?: string; points?: number };
   const options = normalizePollOptions(current.options);
   const updateOptions = (next: PollOption[]) => onChange({ ...current, options: next.map(option => option.text), question: current.question || current.prompt || '' });
+  const applyPreset = (preset: { config: Record<string, unknown> }) => {
+    const next = { ...current, ...preset.config };
+    if (typeof preset.config.pollMode !== 'string') delete next.pollMode;
+    onChange(next);
+  };
   return (
     <div className="activity-editor-form">
       <ActivityPresetPicker
@@ -165,8 +179,21 @@ export const PollEditor: React.FC<{
         value={typeof current.preset === 'string' ? current.preset : 'readTheRoom'}
         templates={POLL_PRESETS}
         onPresetChange={preset => onChange({ ...current, preset: preset.id, presetLabel: preset.label.toUpperCase() })}
-        onApply={preset => onChange({ ...current, ...preset.config })}
+        onApply={applyPreset}
       />
+      <div className="activity-editor-row">
+        <label className="activity-editor-label">Scoring mode
+          <select value={current.pollMode || ''} onChange={event => onChange({ ...current, pollMode: event.target.value || undefined })}>
+            <option value="">Live poll only</option>
+            <option value="majority">Majority prediction</option>
+            <option value="minority">Minority prediction</option>
+            <option value="prediction">Predict the room</option>
+          </select>
+        </label>
+        {current.pollMode && <label className="activity-editor-label">Points per correct prediction
+          <input type="number" min={0} max={1000} value={current.points ?? 100} onChange={event => onChange({ ...current, points: Math.max(0, Math.min(1000, Number(event.target.value) || 0)) })} />
+        </label>}
+      </div>
       <label className="activity-editor-label">Poll question
         <textarea rows={2} value={current.question || current.prompt || ''} onChange={event => onChange({ ...current, question: event.target.value })} placeholder="What should the room choose?" />
       </label>
