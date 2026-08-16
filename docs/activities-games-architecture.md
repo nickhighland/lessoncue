@@ -117,7 +117,7 @@ The first vertical slices share these engines rather than creating one runtime p
 4. Creative Response & Voting: Punchline, Caption This, Bad Advice, and similar moderated response games.
 5. Bluffing & Deception: Fake Out and related truth/false-answer voting.
 6. Survey Board: ranked answers, strikes, buzzers, steals, and host matching.
-7. Drawing: Doodle & Guess now has bounded mobile vector strokes, moderation, gallery voting, and a room-favorite reveal.
+7. Drawing: Doodle & Guess now has bounded mobile vector strokes, a touch-safe pen/eraser toolbar with undo, clear, brush sizes, and a small color palette, moderation, gallery voting, and a room-favorite reveal.
 8. Ordering/Ranking: Order Up now has teacher-authored item lists, accessible phone controls, public answer projection, and partial position scoring.
 9. Word/Category: Word Storm now has moderated multi-word submissions, exact normalized duplicate aggregation, and a scalable word-cloud reveal. Last One Standing reuses that engine with server-authoritative turns, one-word-per-turn limits, exact duplicate detection, and elimination without creating a second runtime.
 10. Match-the-Player: Match Minds uses a role-specific participant projection so the selected player answers privately while others predict.

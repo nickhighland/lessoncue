@@ -236,6 +236,7 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Logo Disaster
 - [x] Invention Lab
 - [x] Draw the Description
+- [x] Add a touch-safe mobile drawing toolbar with pen, eraser, undo, clear, brush sizes, and a small color palette.
 - [ ] Telephone Draw chain: phrase → drawing → description → drawing → description
 - [ ] Add chain replay and animated reveal once the base drawing flow is stable
 

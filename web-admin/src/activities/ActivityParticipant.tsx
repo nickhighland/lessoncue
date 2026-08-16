@@ -156,6 +156,10 @@ const DrawingInput: React.FC<{ prompt: string; disabled: boolean; onSubmit: (str
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [strokes, setStrokes] = useState<DrawingStroke[]>([]);
   const [drawing, setDrawing] = useState(false);
+  const [tool, setTool] = useState<'pen' | 'eraser'>('pen');
+  const [color, setColor] = useState('#f8fafc');
+  const [width, setWidth] = useState(.012);
+  const palette = ['#f8fafc', '#f2c35a', '#ff6b8b', '#67e8f9', '#7cf29a'];
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -187,16 +191,26 @@ const DrawingInput: React.FC<{ prompt: string; disabled: boolean; onSubmit: (str
   const begin = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (disabled) return;
     event.currentTarget.setPointerCapture(event.pointerId);
+    const point = pointFor(event);
+    if (tool === 'eraser') {
+      setStrokes(current => current.filter(stroke => !stroke.points.some(([x, y]) => Math.hypot(x - point[0], y - point[1]) <= Math.max(width * 2.5, .022))));
+      setDrawing(true);
+      return;
+    }
     setDrawing(true);
-    setStrokes(current => [...current, { points: [pointFor(event)], color: '#f8fafc', width: .012 }]);
+    setStrokes(current => [...current, { points: [point], color, width }]);
   };
   const move = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!drawing || disabled) return;
     const point = pointFor(event);
+    if (tool === 'eraser') {
+      setStrokes(current => current.filter(stroke => !stroke.points.some(([x, y]) => Math.hypot(x - point[0], y - point[1]) <= Math.max(width * 2.5, .022))));
+      return;
+    }
     setStrokes(current => { if (!current.length) return current; const next = [...current]; const last = next[next.length - 1]; next[next.length - 1] = { ...last, points: [...last.points, point] }; return next; });
   };
   const end = () => setDrawing(false);
-  return <section className="participant-input-card drawing-input-card"><span className="participant-kicker">SKETCH IT</span><h2>{prompt}</h2><canvas ref={canvasRef} className="drawing-canvas" aria-label="Draw your answer" style={{ touchAction: 'none' }} onPointerDown={begin} onPointerMove={move} onPointerUp={end} onPointerCancel={end} /><div className="drawing-tool-row"><button type="button" className="participant-secondary-button" disabled={disabled || !strokes.length} onClick={() => setStrokes(current => current.slice(0, -1))}>Undo</button><button type="button" className="participant-secondary-button" disabled={disabled || !strokes.length} onClick={() => setStrokes([])}>Clear</button><button type="button" className="participant-primary-button" disabled={disabled || !strokes.length} onClick={() => onSubmit(strokes)}>{disabled ? 'Drawing saved' : 'Submit drawing'}</button></div>{disabled && <small className="participant-saved-note">Your drawing is locked in.</small>}</section>;
+  return <section className="participant-input-card drawing-input-card"><span className="participant-kicker">SKETCH IT</span><h2>{prompt}</h2><canvas ref={canvasRef} className="drawing-canvas" aria-label="Draw your answer" style={{ touchAction: 'none' }} onPointerDown={begin} onPointerMove={move} onPointerUp={end} onPointerCancel={end} /><div className="drawing-tool-controls" role="toolbar" aria-label="Drawing tools"><button type="button" className={`participant-secondary-button ${tool === 'pen' ? 'selected' : ''}`} aria-pressed={tool === 'pen'} disabled={disabled} onClick={() => setTool('pen')}>✎ Pen</button><button type="button" className={`participant-secondary-button ${tool === 'eraser' ? 'selected' : ''}`} aria-pressed={tool === 'eraser'} disabled={disabled} onClick={() => setTool('eraser')}>⌫ Eraser</button><label>Size<select aria-label="Brush size" value={String(width)} disabled={disabled} onChange={event => setWidth(Number(event.target.value))}><option value="0.008">Fine</option><option value="0.012">Medium</option><option value="0.022">Bold</option><option value="0.04">Marker</option></select></label></div><div className="drawing-palette" role="toolbar" aria-label="Ink color">{palette.map(swatch => <button key={swatch} type="button" className={color === swatch && tool === 'pen' ? 'selected' : ''} aria-label={`Use ${swatch} ink`} aria-pressed={color === swatch && tool === 'pen'} disabled={disabled} onClick={() => { setColor(swatch); setTool('pen'); }} style={{ background: swatch }} />)}</div><div className="drawing-tool-row"><button type="button" className="participant-secondary-button" disabled={disabled || !strokes.length} onClick={() => setStrokes(current => current.slice(0, -1))}>Undo</button><button type="button" className="participant-secondary-button" disabled={disabled || !strokes.length} onClick={() => setStrokes([])}>Clear</button><button type="button" className="participant-primary-button" disabled={disabled || !strokes.length} onClick={() => onSubmit(strokes)}>{disabled ? 'Drawing saved' : 'Submit drawing'}</button></div>{disabled && <small className="participant-saved-note">Your drawing is locked in.</small>}</section>;
 };
 
 const OrderingInput: React.FC<{ prompt: string; items: JsonRecord[]; disabled: boolean; onSubmit: (order: string[]) => void }> = ({ prompt, items, disabled, onSubmit }) => {
