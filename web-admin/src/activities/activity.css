@@ -2194,6 +2194,7 @@
 .interactive-host-controller { gap: .8rem; }
 .activity-session-panel { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(200px, 1.2fr); gap: .75rem; margin: 0 0 .85rem; padding: .9rem; border: 1px solid var(--line); border-radius: 14px; background: #fff; color: var(--ink); }
 .activity-library-chip { display: inline-flex; align-items: center; padding: .25rem .5rem; border-radius: 999px; background: #edf5f0; color: var(--green); font-size: .7rem; font-weight: 800; }
+.activity-library-usage-chip { background: #eef7f1; color: #286143; border: 1px solid #c9e5d3; }
 .activity-library-toolbar { display: grid; gap: .8rem; margin: 1.25rem 0 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: 0 8px 24px rgba(28, 43, 39, .06); }
 .activity-library-toolbar-row { display: flex; align-items: end; flex-wrap: wrap; gap: .75rem; }
 .activity-library-toolbar-row > label { display: grid; gap: .3rem; min-width: 150px; color: var(--muted); font-size: .75rem; font-weight: 800; }
@@ -2249,11 +2250,81 @@
 .activity-library-confirmation { display: grid; gap: .8rem; }
 .activity-library-confirmation p { margin: 0; }
 .activity-library-confirmation-actions { display: flex; justify-content: flex-end; gap: .65rem; padding-top: .5rem; }
+.activity-library-dependency-list { display: grid; gap: .45rem; margin: 1rem 0 0; max-height: 10rem; overflow: auto; }
+.activity-library-dependency-list > div { display: grid; gap: .1rem; padding: .55rem .7rem; border: 1px solid var(--line); border-radius: .55rem; background: #fbfcfa; }
+.activity-library-dependency-list span { color: var(--muted); font-size: .78rem; }
 .activity-editor-draft-status { display: inline-flex; align-items: center; min-height: 28px; padding: .25rem .55rem; border-radius: 999px; font-size: .7rem; font-weight: 900; letter-spacing: .03em; white-space: nowrap; }
 .activity-editor-draft-status.saved { background: #edf5f0; color: var(--green); }
 .activity-editor-draft-status.dirty { background: #fff3d7; color: #8a5a0b; }
+.activity-editor-usage-note { color: #286143; font-size: .72rem; margin-top: .25rem; max-width: 36rem; }
 .activity-editor-close-confirmation { display: grid; gap: .8rem; }
 .activity-editor-close-confirmation p { margin: 0; }
+
+/* Shared game-show motion primitives. Engines provide the content; these
+   components provide one consistent countdown/reveal/score/winner language. */
+.activity-motion-countdown {
+  display: grid;
+  justify-items: center;
+  gap: .25rem;
+  min-width: 13rem;
+  padding: .9rem 1.25rem 1rem;
+  border: 2px solid rgba(255,255,255,.22);
+  border-radius: 1rem;
+  background: rgba(4, 20, 18, .86);
+  box-shadow: 0 10px 30px rgba(0,0,0,.22), inset 0 0 22px rgba(255,255,255,.04);
+}
+.activity-motion-countdown span,
+.activity-motion-reveal > span,
+.activity-motion-score-burst span,
+.activity-motion-winner > span { color: var(--act-gold); font-size: .72rem; font-weight: 900; letter-spacing: .16em; text-transform: uppercase; }
+.activity-motion-countdown strong { color: #fff; font-size: clamp(2rem, 5vw, 3.8rem); font-variant-numeric: tabular-nums; line-height: 1; }
+.activity-motion-countdown-track { width: 100%; height: .35rem; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.12); }
+.activity-motion-countdown-track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--act-green-bright), var(--act-gold)); transition: width .25s linear; }
+.activity-motion-countdown.urgent { border-color: #ff9f43; box-shadow: 0 0 24px rgba(255,159,67,.28); }
+.activity-motion-countdown.urgent strong { color: #ffbd70; animation: activityMotionPulse .8s ease-in-out infinite alternate; }
+.activity-motion-countdown.compact { min-width: 8rem; padding: .55rem .8rem .65rem; }
+.activity-motion-countdown.compact strong { font-size: 2rem; }
+.activity-motion-reveal,
+.activity-motion-winner {
+  display: grid;
+  justify-items: center;
+  gap: .45rem;
+  width: min(90vw, 58rem);
+  margin: 1rem auto;
+  padding: 1.35rem 1.75rem 1.6rem;
+  text-align: center;
+  border: 2px solid var(--act-gold);
+  border-radius: 1.25rem;
+  background: linear-gradient(135deg, rgba(34,54,45,.96), rgba(8,24,22,.96));
+  box-shadow: var(--act-glow-gold), 0 18px 50px rgba(0,0,0,.3);
+  animation: activityMotionReveal .45s cubic-bezier(.2,.9,.25,1.15) both;
+}
+.activity-motion-reveal h2 { margin: .15rem 0 .1rem; color: #fff; font-size: clamp(1.4rem, 3vw, 2.4rem); }
+.activity-motion-reveal > div { color: #fff; font-size: clamp(1.3rem, 3.5vw, 2.8rem); font-weight: 900; }
+.activity-motion-score-burst {
+  display: inline-grid;
+  justify-items: center;
+  gap: .05rem;
+  padding: .55rem .95rem;
+  border-radius: .85rem;
+  background: rgba(216,140,30,.16);
+  color: #fff;
+  animation: activityMotionScore .55s cubic-bezier(.2,.9,.25,1.15) both;
+}
+.activity-motion-score-burst strong { color: #ffe08f; font-size: clamp(1.6rem, 4vw, 2.8rem); line-height: 1; }
+.activity-motion-score-burst.negative { background: rgba(255,93,93,.16); }
+.activity-motion-score-burst.negative strong { color: #ff9a9a; }
+.activity-motion-winner { border-color: var(--act-green-bright); box-shadow: var(--act-glow-green), 0 18px 50px rgba(0,0,0,.3); }
+.activity-motion-winner > span { color: var(--act-green-bright); }
+.activity-motion-winner strong { color: #fff; font-size: clamp(2rem, 6vw, 4.5rem); line-height: 1; text-shadow: 0 0 24px rgba(52,211,153,.45); }
+.activity-motion-winner small { color: #c9e5d3; font-size: 1rem; font-weight: 800; }
+@keyframes activityMotionReveal { from { opacity: 0; transform: translateY(1rem) scale(.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes activityMotionScore { from { opacity: 0; transform: translateY(.8rem) scale(.75); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes activityMotionPulse { from { transform: scale(1); } to { transform: scale(1.06); } }
+@media (prefers-reduced-motion: reduce) {
+  .activity-motion-reveal, .activity-motion-winner, .activity-motion-score-burst, .activity-motion-countdown.urgent strong { animation: none; }
+  .activity-motion-countdown-track i { transition: none; }
+}
 .activity-editor-unsaved-modal { z-index: 10001 !important; }
 .activity-editor-preview-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; background: #091c1d; }
 .activity-editor-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .75rem 1.25rem; border-bottom: 1px solid #2e3d38; background: #122521; color: #fff; }

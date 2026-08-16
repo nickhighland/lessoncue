@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { ActivityComponentProps, ActivityEditorProps } from '../../activityRegistry';
 import type { ActivityStateEnvelope } from '../../types';
 import { ActivityApi } from '../../api';
+import { ActivityRevealCurtain, ActivityWinnerBanner } from '../../ActivityMotion';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -12,11 +13,62 @@ const stringOf = (value: unknown, fallback = '') => typeof value === 'string' ? 
 const numberOf = (value: unknown, fallback = 0) => typeof value === 'number' ? value : fallback;
 const phaseLabel = (value: unknown) => stringOf(value, 'lobby').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
 
-const BracketShell: React.FC<{ children: React.ReactNode; title: string; phase?: unknown; joinCode?: unknown; participantCount?: unknown }> = ({ children, title, phase, joinCode, participantCount }) => (
+const BRACKET_PRESETS: Record<string, () => JsonRecord> = {
+  bracketBattle: () => ({
+    preset: 'bracketBattle',
+    presetLabel: 'BRACKET BATTLE',
+    title: 'Bracket Battle',
+    entrantSource: 'teacher',
+    entrants: ['North Team', 'South Team', 'East Team', 'West Team'].map((label, index) => ({ id: `entrant-${index + 1}`, label })),
+    pointsPerWin: 100
+  }),
+  rockPaperScissors: () => ({
+    preset: 'rockPaperScissors',
+    presetLabel: 'ROCK · PAPER · SCISSORS',
+    title: 'Rock Paper Scissors Royale',
+    entrantSource: 'participants',
+    entrants: [],
+    pointsPerWin: 100
+  }),
+  suddenDeath: () => ({
+    preset: 'suddenDeath',
+    presetLabel: 'SUDDEN DEATH',
+    title: 'Sudden Death',
+    entrantSource: 'participants',
+    entrants: [],
+    pointsPerWin: 250
+  }),
+  survivorTrivia: () => ({
+    preset: 'survivorTrivia',
+    presetLabel: 'SURVIVOR TRIVIA',
+    title: 'Survivor Trivia',
+    entrantSource: 'teams',
+    entrants: [],
+    pointsPerWin: 150
+  }),
+  headsOrTails: () => ({
+    preset: 'headsOrTails',
+    presetLabel: 'HEADS OR TAILS',
+    title: 'Heads or Tails',
+    entrantSource: 'participants',
+    entrants: [],
+    pointsPerWin: 50
+  })
+};
+
+const BRACKET_PRESET_LABELS: Record<string, string> = {
+  bracketBattle: 'Bracket Battle',
+  rockPaperScissors: 'Rock Paper Scissors Royale',
+  suddenDeath: 'Sudden Death',
+  survivorTrivia: 'Survivor Trivia',
+  headsOrTails: 'Heads or Tails'
+};
+
+const BracketShell: React.FC<{ children: React.ReactNode; title: string; kicker?: string; phase?: unknown; joinCode?: unknown; participantCount?: unknown }> = ({ children, title, kicker = '🏆 BRACKET BATTLE', phase, joinCode, participantCount }) => (
   <div className="activity-stage interactive-game-stage bracket-stage">
     <div className="activity-stage-content">
       <div className="activity-header">
-        <div className="stage-kicker">🏆 BRACKET BATTLE · {phaseLabel(phase)}</div>
+        <div className="stage-kicker">{kicker} · {phaseLabel(phase)}</div>
         <h1 className="activity-title">{title}</h1>
       </div>
       {stringOf(joinCode) && <div className="interactive-join-banner"><span>JOIN THE GAME</span><strong>/play/{stringOf(joinCode)}</strong><b>CODE {stringOf(joinCode)}</b><small>{numberOf(participantCount)} joined</small></div>}
@@ -38,7 +90,7 @@ const CurrentMatch: React.FC<{ match: JsonRecord; phase: unknown }> = ({ match, 
       {items.length === 2 && <b className="bracket-versus">VS</b>}
     </div>
     {phase === 'voting' && <div className="interactive-help">Choose the entrant you think should advance. The host reveals the result.</div>}
-    {phase === 'reveal' && <div className="interactive-winner-card"><span>ADVANCING</span><strong>{items.find(item => item.id === winnerId)?.label || 'Winner selected'}</strong></div>}
+    <ActivityRevealCurtain visible={phase === 'reveal'} kicker="ADVANCING">{items.find(item => item.id === winnerId)?.label || 'Winner selected'}</ActivityRevealCurtain>
   </div>;
 };
 
@@ -48,8 +100,8 @@ export const BracketDisplay: React.FC<ActivityComponentProps> = ({ envelope }) =
   const current = state.currentMatch && typeof state.currentMatch === 'object' ? state.currentMatch as JsonRecord : null;
   const matches = listOf(state.bracketMatches);
   const rounds = [...new Set(matches.map(match => numberOf(match.round, 1)))].sort((a, b) => a - b);
-  return <BracketShell title={stringOf(config.title, envelope.name || 'Bracket Battle')} phase={state.phase} joinCode={state.joinCode} participantCount={state.participantCount}>
-    {current ? <CurrentMatch match={current} phase={state.phase} /> : <div className="interactive-winner-card"><span>CHAMPION</span><strong>{stringOf(state.bracketChampion, 'The final winner will appear here.')}</strong></div>}
+  return <BracketShell title={stringOf(config.title, envelope.name || 'Bracket Battle')} kicker={`🏆 ${stringOf(config.presetLabel, 'BRACKET BATTLE')}`} phase={state.phase} joinCode={state.joinCode} participantCount={state.participantCount}>
+    {current ? <CurrentMatch match={current} phase={state.phase} /> : <ActivityWinnerBanner visible={true} winner={stringOf(state.bracketChampion, 'The final winner will appear here.')} subtitle="CHAMPION" />}
     <div className="bracket-board" aria-label="Tournament bracket">
       {rounds.map(round => <section className="bracket-round" key={round}><span className="interactive-round-label">ROUND {round}</span>{matches.filter(match => numberOf(match.round, 1) === round).map((match, index) => <div className={`bracket-mini-match ${stringOf(match.status) === 'complete' ? 'complete' : ''}`} key={stringOf(match.id, `${round}-${index}`)}><span>{stringOf(match.entrantA, 'Bye')}</span><b>{stringOf(match.winnerId) ? '✓' : '·'}</b><span>{stringOf(match.entrantB, 'Bye')}</span></div>)}</section>)}
     </div>
@@ -91,10 +143,23 @@ export const BracketController: React.FC<ActivityComponentProps> = ({ envelope, 
 };
 
 export const BracketEditor: React.FC<ActivityEditorProps> = ({ config, onChange }) => {
+  const selectedPreset = stringOf(config.preset, 'bracketBattle');
   const entrants = listOf(config.entrants);
   const entrantSource = stringOf(config.entrantSource, 'teacher');
   const updateEntrants = (next: JsonRecord[]) => onChange({ ...config, entrants: next });
+  const applyPreset = () => {
+    const factory = BRACKET_PRESETS[selectedPreset] || BRACKET_PRESETS.bracketBattle;
+    onChange({ ...config, ...factory() });
+  };
   return <div className="activity-editor-stack">
+    <div className="activity-editor-card preset-picker-card">
+      <div className="activity-editor-card-heading"><strong>Tournament format</strong><span className="activity-library-chip">One bracket engine · multiple game styles</span></div>
+      <div className="activity-editor-row">
+        <select aria-label="Tournament preset" value={selectedPreset} onChange={event => onChange({ ...config, preset: event.target.value })}>{Object.entries(BRACKET_PRESET_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+        <button type="button" className="button" onClick={applyPreset}>Apply preset template</button>
+      </div>
+      <p className="muted">Templates set a friendly starting roster and participation mode. You can still rename entrants, switch to live participants/teams, and change the score value.</p>
+    </div>
     <label>Title<input value={stringOf(config.title)} onChange={event => onChange({ ...config, title: event.target.value })} /></label>
     <label>Entrants come from<select value={entrantSource} onChange={event => onChange({ ...config, entrantSource: event.target.value })}><option value="teacher">Teacher-entered list</option><option value="participants">Joined participants</option><option value="teams">Live teams</option></select></label>
     <label>Points per win<input type="number" min={0} max={1000} value={numberOf(config.pointsPerWin, 0)} onChange={event => onChange({ ...config, pointsPerWin: Number(event.target.value) || 0 })} /></label>

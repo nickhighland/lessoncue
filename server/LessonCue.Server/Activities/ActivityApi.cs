@@ -94,6 +94,41 @@ public static class ActivityApi
             return Results.Ok(result);
         }).RequireAuthorization(LessonCuePermissions.Planning);
 
+        api.MapPost("/activities/bulk-archive", async (
+            ActivityBulkDeleteInput input,
+            ActivityService service,
+            CancellationToken ct) =>
+        {
+            if (input.Ids is null || input.Ids.Count == 0 || input.Ids.Count > 500)
+                return Results.BadRequest(new { error = "Select between 1 and 500 activities." });
+            var result = await service.ArchiveDefinitionsAsync(input.Ids, ct);
+            return Results.Ok(result);
+        }).RequireAuthorization(LessonCuePermissions.Planning);
+
+        api.MapPost("/activities/bulk-restore", async (
+            ActivityBulkDeleteInput input,
+            ActivityService service,
+            CancellationToken ct) =>
+        {
+            if (input.Ids is null || input.Ids.Count == 0 || input.Ids.Count > 500)
+                return Results.BadRequest(new { error = "Select between 1 and 500 activities." });
+            var result = await service.RestoreDefinitionsAsync(input.Ids, ct);
+            return Results.Ok(result);
+        }).RequireAuthorization(LessonCuePermissions.Planning);
+
+        api.MapPost("/activities/bulk-duplicate", async (
+            ActivityBulkDuplicateInput input,
+            ClaimsPrincipal user,
+            ActivityService service,
+            CancellationToken ct) =>
+        {
+            if (input.Ids is null || input.Ids.Count == 0 || input.Ids.Count > 500)
+                return Results.BadRequest(new { error = "Select between 1 and 500 activities." });
+            var username = user.FindFirstValue(ClaimTypes.Name) ?? "admin";
+            var copies = await service.DuplicateDefinitionsAsync(input.Ids, input.NameSuffix, username, ct);
+            return Results.Ok(copies.Select(MapDefinitionDetail));
+        }).RequireAuthorization(LessonCuePermissions.Planning);
+
         api.MapPut("/activities/library-order", async (
             ActivityLibraryOrderInput input,
             ActivityService service,
@@ -397,7 +432,8 @@ public static class ActivityApi
             item.ArchivedAt,
             item.LibraryPosition,
             item.Version,
-            AssetCount = item.Assets.Count
+            AssetCount = item.Assets.Count,
+            Usage = item.Usage
         };
     }
 
@@ -430,6 +466,7 @@ public static class ActivityApi
             item.ArchivedAt,
             item.LibraryPosition,
             item.Version,
+            Usage = item.Usage,
             Assets = item.Assets.OrderBy(a => a.Position).Select(a => new
             {
                 a.Id,

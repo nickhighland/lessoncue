@@ -361,23 +361,26 @@ test("Game Show Utilities can pick the live roster and run a server countdown", 
 
 test("Activities Studio supports grid/list views, filters, arranging, and bulk deletion", async ({ page }) => {
   await authenticate(page);
-  await page.evaluate(async () => {
+  const activityTag = Date.now().toString();
+  const triviaName = `Library Trivia ${activityTag}`;
+  const bracketName = `Library Bracket ${activityTag}`;
+  await page.evaluate(async ({ triviaName, bracketName }) => {
     const definitions = [
       {
-        name: "Library Trivia",
+        name: triviaName,
         type: "trivia",
         description: "A quiz used to verify library controls.",
         config: {
-          title: "Library Trivia",
+          title: triviaName,
           questions: [{ id: "q1", prompt: "Which answer is first?", options: ["A", "B"], correctIndex: 0 }],
         },
       },
       {
-        name: "Library Bracket",
+        name: bracketName,
         type: "bracket",
         description: "A tournament used to verify library controls.",
         config: {
-          title: "Library Bracket",
+          title: bracketName,
           entrants: [
             { id: "a", label: "Alpha" },
             { id: "b", label: "Beta" },
@@ -393,43 +396,59 @@ test("Activities Studio supports grid/list views, filters, arranging, and bulk d
       });
       if (!response.ok) throw new Error(`Could not create ${definition.name}: ${await response.text()}`);
     }
-  });
+  }, { triviaName, bracketName });
 
   await page.getByRole("button", { name: /Activities$/ }).click();
   await expect(page.getByRole("heading", { name: "Activities Studio" })).toBeVisible();
   await expect(page.locator(".activity-library-grid")).toBeVisible();
 
   await page.getByRole("button", { name: "List view" }).click();
-  await expect(page.getByText("Library Trivia", { exact: true })).toBeVisible();
-  await expect(page.getByText("Library Bracket", { exact: true })).toBeVisible();
+  await expect(page.getByText(triviaName, { exact: true })).toBeVisible();
+  await expect(page.getByText(bracketName, { exact: true })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("lessoncue.activityView"))).toBe("list");
 
   await page.getByLabel("Game family").selectOption("quiz");
-  await expect(page.getByText("Library Trivia", { exact: true })).toBeVisible();
-  await expect(page.getByText("Library Bracket", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(triviaName, { exact: true })).toBeVisible();
+  await expect(page.getByText(bracketName, { exact: true })).toHaveCount(0);
   await page.getByLabel("Game family").selectOption("all");
 
   await page.getByRole("button", { name: "Arrange", exact: true }).click();
-  await expect(page.getByRole("button", { name: /Move Library Trivia later/ })).toBeVisible();
-  await page.getByRole("button", { name: /Move Library Trivia later/ }).click();
+  await expect(page.getByRole("button", { name: new RegExp(`Move ${triviaName} later`) })).toBeVisible();
+  await page.getByRole("button", { name: new RegExp(`Move ${triviaName} later`) }).click();
   await expect(page.getByRole("status")).toContainText("Activity order saved.");
   await page.getByRole("button", { name: "Done arranging" }).click();
 
   await page.getByRole("button", { name: "Grid view" }).click();
+  await expect(page.getByText("Not used in lessons").first()).toBeVisible();
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)\./ })).toBeVisible();
   await page.getByRole("button", { name: /Activities$/ }).click();
   await expect(page.locator(".activity-library-grid")).toBeVisible();
 
-  await page.getByRole("checkbox", { name: "Select Library Trivia" }).check();
-  await page.getByRole("checkbox", { name: "Select Library Bracket" }).check();
+  await page.getByRole("checkbox", { name: `Select ${triviaName}`, exact: true }).check();
+  await page.getByRole("checkbox", { name: `Select ${bracketName}`, exact: true }).check();
+  await page.getByRole("button", { name: "Duplicate selected" }).click();
+  await expect(page.getByRole("status")).toContainText("2 activities duplicated.");
+
+  await page.getByRole("checkbox", { name: `Select ${triviaName}`, exact: true }).check();
+  await page.getByRole("checkbox", { name: `Select ${bracketName}`, exact: true }).check();
+  await page.getByRole("button", { name: "Archive selected" }).click();
+  await expect(page.getByRole("status")).toContainText("2 activities archived.");
+  await page.getByRole("checkbox", { name: "Show archived" }).check();
+  await page.getByRole("checkbox", { name: `Select ${triviaName}`, exact: true }).check();
+  await page.getByRole("checkbox", { name: `Select ${bracketName}`, exact: true }).check();
+  await page.getByRole("button", { name: "Restore selected" }).click();
+  await expect(page.getByRole("status")).toContainText("2 activities restored.");
+
+  await page.getByRole("checkbox", { name: `Select ${triviaName}`, exact: true }).check();
+  await page.getByRole("checkbox", { name: `Select ${bracketName}`, exact: true }).check();
   await page.getByRole("button", { name: "Delete selected" }).click();
   const confirmation = page.getByRole("dialog", { name: "Delete 2 activities?" });
   await expect(confirmation).toBeVisible();
   await confirmation.getByRole("button", { name: "Delete selected" }).click();
   await expect(page.getByRole("status")).toContainText("2 deleted");
-  await expect(page.getByText("Library Trivia", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("Library Bracket", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(triviaName, { exact: true })).toHaveCount(0);
+  await expect(page.getByText(bracketName, { exact: true })).toHaveCount(0);
 });
 
 test("Activities editor previews draft snapshots and protects unsaved changes", async ({ page }) => {

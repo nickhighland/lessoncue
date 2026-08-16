@@ -16,6 +16,21 @@ const stableDraftValue = (value: unknown): unknown => {
 
 const activityDraftSnapshot = (name: string, description: string, config: Record<string, unknown>) => JSON.stringify(stableDraftValue({ name, description, config }));
 
+const activityUsageLabel = (activity: ActivityDefinition): string => {
+  const usage = activity.usage;
+  if (!usage?.isInUse) return 'Not used in lessons';
+  const lessonText = usage.lessonCount === 1 ? '1 lesson' : `${usage.lessonCount} lessons`;
+  const templateText = usage.templateCount === 1 ? '1 template' : `${usage.templateCount} templates`;
+  const references = [usage.lessonCount ? lessonText : '', usage.templateCount ? templateText : ''].filter(Boolean);
+  const runText = usage.activeRunCount > 0 ? ` · ${usage.activeRunCount} live run${usage.activeRunCount === 1 ? '' : 's'}` : '';
+  return `Used in ${references.join(' and ')}${runText}`;
+};
+
+const activityUsageNames = (activity: ActivityDefinition): string[] => [
+  ...(activity.usage?.lessonNames || []).map(name => `Lesson: ${name}`),
+  ...(activity.usage?.templateNames || []).map(name => `Template: ${name}`)
+];
+
 export const ActivityLibrary: React.FC = () => {
   const [activities, setActivities] = useState<ActivityDefinition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -150,6 +165,7 @@ export const ActivityLibrary: React.FC = () => {
   const selectedActivities = activities.filter(activity => selectedIds.has(activity.id));
   const activeSelected = selectedActivities.filter(activity => !activity.archivedAt);
   const archivedSelected = selectedActivities.filter(activity => Boolean(activity.archivedAt));
+  const activeSelectedInUse = activeSelected.filter(activity => activity.usage?.isInUse);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
 
   const setSelection = (id: string, selected: boolean) => {
@@ -331,20 +347,56 @@ export const ActivityLibrary: React.FC = () => {
     }
   };
 
+  const handleArchiveSelected = async () => {
+    if (!activeSelected.length) return;
+    setBulkBusy(true);
+    try {
+      const ids = activeSelected.map(activity => activity.id);
+      const result = await ActivityApi.bulkArchiveActivities(ids);
+      if (selectedActivity && ids.includes(selectedActivity.id)) setSelectedActivity(null);
+      setSelectedIds(current => {
+        const next = new Set(current);
+        ids.forEach(id => next.delete(id));
+        return next;
+      });
+      await fetchActivities();
+      setStatusMessage(`${result.archivedIds.length} ${result.archivedIds.length === 1 ? 'activity' : 'activities'} archived. Lesson links were preserved.`);
+    } catch (err) {
+      setStatusMessage(`Archive failed: ${(err as Error).message}`);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const handleRestoreSelected = async () => {
     if (!archivedSelected.length) return;
     setBulkBusy(true);
     try {
-      await Promise.all(archivedSelected.map(activity => ActivityApi.restoreActivity(activity.id)));
+      const result = await ActivityApi.bulkRestoreActivities(archivedSelected.map(activity => activity.id));
       setSelectedIds(current => {
         const next = new Set(current);
-        archivedSelected.forEach(activity => next.delete(activity.id));
+        result.restoredIds.forEach(id => next.delete(id));
         return next;
       });
       await fetchActivities();
-      setStatusMessage(`${archivedSelected.length} ${archivedSelected.length === 1 ? 'activity' : 'activities'} restored.`);
+      setStatusMessage(`${result.restoredIds.length} ${result.restoredIds.length === 1 ? 'activity' : 'activities'} restored.`);
     } catch (err) {
       setStatusMessage(`Restore failed: ${(err as Error).message}`);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const handleDuplicateSelected = async () => {
+    if (!selectedActivities.length) return;
+    setBulkBusy(true);
+    try {
+      const copies = await ActivityApi.bulkDuplicateActivities(selectedActivities.map(activity => activity.id));
+      setSelectedIds(new Set());
+      await fetchActivities();
+      setStatusMessage(`${copies.length} ${copies.length === 1 ? 'activity' : 'activities'} duplicated.`);
+    } catch (err) {
+      setStatusMessage(`Duplicate failed: ${(err as Error).message}`);
     } finally {
       setBulkBusy(false);
     }
@@ -496,10 +548,16 @@ export const ActivityLibrary: React.FC = () => {
             <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select all visible activities" />
             <strong>{selectedActivities.length} selected</strong>
           </label>
-          <span>{activeSelected.length ? 'Delete removes unused activities or archives activities still used by lessons.' : 'Archived activities can be restored.'}</span>
+          <span>
+            {activeSelected.length
+              ? `${activeSelectedInUse.length} in-use · Archive preserves every lesson link; delete removes unused activities.`
+              : 'Archived activities can be restored.'}
+          </span>
           <div>
             {archivedSelected.length > 0 && <button type="button" className="button" onClick={() => void handleRestoreSelected()} disabled={bulkBusy}>Restore selected</button>}
+            {activeSelected.length > 0 && <button type="button" className="button" onClick={() => void handleArchiveSelected()} disabled={bulkBusy}>Archive selected</button>}
             {activeSelected.length > 0 && <button type="button" className="button danger" onClick={() => setPendingDeleteIds(activeSelected.map(activity => activity.id))} disabled={bulkBusy}>Delete selected</button>}
+            <button type="button" className="button" onClick={() => void handleDuplicateSelected()} disabled={bulkBusy}>Duplicate selected</button>
             <button type="button" className="button" onClick={() => setSelectedIds(new Set())} disabled={bulkBusy}>Clear selection</button>
           </div>
         </section>
@@ -559,6 +617,7 @@ export const ActivityLibrary: React.FC = () => {
                   {!desc.requiresPhones && <span className="activity-library-chip">📺 No phones needed</span>}
                   {desc.supportsTeams && <span className="activity-library-chip">👥 Teams</span>}
                   {desc.engineType && <span className="activity-library-chip">{desc.engineType}</span>}
+                  <span className={`activity-library-chip ${act.usage?.isInUse ? 'activity-library-usage-chip' : ''}`}>{activityUsageLabel(act)}</span>
                 </div>
                 <div className="activity-library-card-footer">
                   <span>{desc.name}</span>
@@ -585,7 +644,7 @@ export const ActivityLibrary: React.FC = () => {
                 <button type="button" className={`activity-library-favorite ${favoriteIds.has(act.id) ? 'active' : ''}`} onClick={event => { event.stopPropagation(); toggleFavorite(act.id); }} aria-label={`${favoriteIds.has(act.id) ? 'Remove' : 'Add'} ${act.name} ${favoriteIds.has(act.id) ? 'from' : 'to'} favorites`} aria-pressed={favoriteIds.has(act.id)}>★</button>
                 <button type="button" className="activity-library-list-name" onClick={() => handleSelectActivity(act)}><strong>{act.name}</strong><small>{act.description || desc.description}</small></button>
                 <span className="activity-library-list-type">{desc.name}</span>
-                <span className="activity-library-list-tags">{desc.requiresPhones ? '📱 Phones' : '📺 No phones'}{desc.supportsTeams ? ' · 👥 Teams' : ''}</span>
+                <span className="activity-library-list-tags">{desc.requiresPhones ? '📱 Phones' : '📺 No phones'}{desc.supportsTeams ? ' · 👥 Teams' : ''} · {activityUsageLabel(act)}</span>
                 <span className="activity-library-list-date">{archived ? 'Archived' : `Updated ${new Date(act.updatedAt).toLocaleDateString()}`}</span>
                 {arrangeMode && !archived && <span className="activity-library-arrow-actions"><button type="button" onClick={() => moveActivity(act.id, -1)} disabled={index === 0} aria-label={`Move ${act.name} earlier`}>↑</button><button type="button" onClick={() => moveActivity(act.id, 1)} disabled={index === filtered.length - 1} aria-label={`Move ${act.name} later`}>↓</button></span>}
                 <button type="button" className="button" onClick={() => handleSelectActivity(act)}>Open</button>
@@ -645,6 +704,14 @@ export const ActivityLibrary: React.FC = () => {
                 : `Remove these ${pendingDeleteIds.length} activities from the library?`}
             </p>
             <p className="muted">Activities still used by a lesson or live run will be archived so existing lessons keep working. Unused activities will be permanently deleted.</p>
+            <div className="activity-library-dependency-list">
+              {pendingDeleteIds.map(id => {
+                const activity = activities.find(item => item.id === id);
+                if (!activity) return null;
+                const names = activityUsageNames(activity);
+                return <div key={id}><strong>{activity.name}</strong><span>{activityUsageLabel(activity)}{names.length ? ` · ${names.slice(0, 3).join(', ')}` : ''}</span></div>;
+              })}
+            </div>
             <div className="activity-library-confirmation-actions">
               <button type="button" className="button" onClick={() => setPendingDeleteIds(null)} disabled={bulkBusy}>Cancel</button>
               <button type="button" className="button danger" onClick={() => void confirmDelete()} disabled={bulkBusy}>{bulkBusy ? 'Deleting…' : 'Delete selected'}</button>
@@ -705,6 +772,10 @@ export const ActivityLibrary: React.FC = () => {
                   />
                   <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: '2px' }}>
                     Type: {getActivityDescriptor(selectedActivity.type).name}
+                  </div>
+                  <div className="activity-editor-usage-note">
+                    {activityUsageLabel(selectedActivity)}
+                    {selectedActivity.usage?.isInUse && <span> · Lesson links stay attached when archived.</span>}
                   </div>
                 </div>
                 <span className={`activity-editor-draft-status ${isEditorDirty ? 'dirty' : 'saved'}`} role="status">

@@ -127,6 +127,59 @@ public sealed class ActivityServiceTests
     }
 
     [Fact]
+    public async Task ActivityLibraryReportsDependenciesAndSupportsBulkManagement()
+    {
+        var (db, service, conn) = await CreateTestServiceAsync();
+        await using (conn)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var definition = await service.CreateDefinitionAsync(new ActivityDefinitionInput("Review Game", ActivityTypes.Trivia), "teacher", ct);
+            var lessonClass = new LessonClass { Name = "Activity Test Class" };
+            var lesson = new Lesson
+            {
+                ClassId = lessonClass.Id,
+                Date = new DateOnly(2026, 8, 15),
+                Title = "Friday Review"
+            };
+            lesson.Items.Add(new PlaylistItem
+            {
+                LessonId = lesson.Id,
+                Title = "Review Game Cue",
+                Type = "activity",
+                ActivityDefinitionId = definition.Id
+            });
+            var template = new LessonTemplate { Name = "Weekly Review Template" };
+            template.Items.Add(new LessonTemplateItem
+            {
+                TemplateId = template.Id,
+                Title = "Template Game Cue",
+                Type = "activity",
+                ActivityDefinitionId = definition.Id
+            });
+            db.AddRange(lessonClass, lesson, template);
+            await db.SaveChangesAsync(ct);
+
+            var listed = Assert.Single(await service.ListDefinitionsAsync(ct: ct));
+            Assert.Equal(1, listed.Usage.LessonCount);
+            Assert.Equal(1, listed.Usage.TemplateCount);
+            Assert.Contains("Friday Review", listed.Usage.LessonNames);
+            Assert.Contains("Weekly Review Template", listed.Usage.TemplateNames);
+            Assert.True(listed.Usage.IsInUse);
+
+            var archived = await service.ArchiveDefinitionsAsync([definition.Id], ct);
+            Assert.Contains(definition.Id, archived.ArchivedIds);
+            var restored = await service.RestoreDefinitionsAsync([definition.Id], ct);
+            Assert.Contains(definition.Id, restored.RestoredIds);
+
+            var copies = await service.DuplicateDefinitionsAsync([definition.Id], " — Copy", "teacher", ct);
+            var copy = Assert.Single(copies);
+            Assert.Equal("Review Game — Copy", copy.Name);
+            Assert.False(copy.Usage.IsInUse);
+        }
+    }
+
+    [Fact]
     public async Task WheelReducer_WeightedSelectionAndZeroWeightExcluded()
     {
         var deterministicRandom = new DeterministicRandomSource(42);

@@ -643,6 +643,8 @@ export const ACTIVITY_REGISTRY: Record<string, ActivityTypeEntry> = {
     supportsTeams: true,
     createDefaultConfig: () => ({
       title: 'Bracket Battle',
+      preset: 'bracketBattle',
+      presetLabel: 'BRACKET BATTLE',
       entrants: [
         { id: 'entrant-1', label: 'North Team' },
         { id: 'entrant-2', label: 'South Team' },
@@ -671,6 +673,8 @@ export const ACTIVITY_REGISTRY: Record<string, ActivityTypeEntry> = {
     supportsTeams: true,
     createDefaultConfig: () => ({
       title: 'Four Corners',
+      preset: 'fourCorners',
+      presetLabel: 'FOUR CORNERS',
       rounds: [{ id: 'round-1', title: 'Four Corners', instructions: 'Choose a corner of the room. When the timer ends, the host reveals the prompt.', choices: ['North', 'South', 'East', 'West'], seconds: 30, revealText: 'Show your corner and explain your choice.' }],
       randomizeChoices: false
     }),

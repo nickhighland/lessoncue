@@ -49,6 +49,27 @@ export class ActivityApi {
     });
   }
 
+  static async bulkArchiveActivities(ids: string[]): Promise<{ deletedIds: string[]; archivedIds: string[]; missingIds: string[] }> {
+    return api<{ deletedIds: string[]; archivedIds: string[]; missingIds: string[] }>('/api/v1/activities/bulk-archive', {
+      method: 'POST',
+      body: JSON.stringify({ ids })
+    });
+  }
+
+  static async bulkRestoreActivities(ids: string[]): Promise<{ restoredIds: string[]; missingIds: string[] }> {
+    return api<{ restoredIds: string[]; missingIds: string[] }>('/api/v1/activities/bulk-restore', {
+      method: 'POST',
+      body: JSON.stringify({ ids })
+    });
+  }
+
+  static async bulkDuplicateActivities(ids: string[], nameSuffix = ' (Copy)'): Promise<ActivityDefinition[]> {
+    return api<ActivityDefinition[]>('/api/v1/activities/bulk-duplicate', {
+      method: 'POST',
+      body: JSON.stringify({ ids, nameSuffix })
+    });
+  }
+
   static async restoreActivity(id: string): Promise<void> {
     return api<void>(`/api/v1/activities/${id}/restore`, { method: 'POST', body: '{}' });
   }

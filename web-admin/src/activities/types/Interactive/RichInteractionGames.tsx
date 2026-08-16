@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { ActivityComponentProps, ActivityEditorProps } from '../../activityRegistry';
 import type { ActivityStateEnvelope } from '../../types';
 import { ActivityApi } from '../../api';
+import { ActivityCountdown, ActivityRevealCurtain, ActivityWinnerBanner, useActivityCountdown } from '../../ActivityMotion';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -111,23 +112,16 @@ export const StageChallengeDisplay: React.FC<ActivityComponentProps> = ({ envelo
   const config = configOf(envelope);
   const challenges = listOf(config.challenges);
   const challenge = challenges[numberOf(state.currentChallengeIndex)] || challenges[0] || {};
-  const [now, setNow] = useState(() => Date.now());
   const running = state.challengeStatus === 'running';
-  React.useEffect(() => {
-    if (!running) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 250);
-    return () => window.clearInterval(timer);
-  }, [running, state.timerStartedAt, state.timerPausedAt]);
   const duration = numberOf(state.timerDurationMs);
-  const startedAt = Date.parse(stringOf(state.timerStartedAt));
-  const pausedAt = Date.parse(stringOf(state.timerPausedAt));
-  const endPoint = Number.isFinite(startedAt) ? (Number.isFinite(pausedAt) ? pausedAt : now) : now;
-  const remaining = Math.max(0, duration - Math.max(0, endPoint - (Number.isFinite(startedAt) ? startedAt : now)));
+  const remaining = useActivityCountdown({ durationMs: duration, startedAt: state.timerStartedAt, pausedAt: state.timerPausedAt, running });
   const seconds = duration ? Math.ceil(remaining / 1000) : numberOf(challenge.seconds, 60);
   const status = stringOf(state.outcome, stringOf(state.challengeStatus, 'ready'));
   return <RichStage title={stringOf(config.title, envelope.name || 'Beat the Clock')} kicker="⏱ HOST CHALLENGE" phase={state.phase}>
     <div className="stage-challenge-card"><span className="interactive-round-label">CHALLENGE {numberOf(state.currentChallengeIndex) + 1} OF {challenges.length || 1}</span><h2>{stringOf(challenge.title, 'Your challenge')}</h2><p>{stringOf(challenge.instructions, 'The host will explain the challenge.')}</p>{stringOf(state.selectedParticipantName) && <strong className="stage-contestant">CONTESTANT · {stringOf(state.selectedParticipantName)}</strong>}</div>
-    <div className={`stage-timer-card ${running && seconds <= 10 ? 'urgent' : ''} ${status === 'success' ? 'success' : status === 'failure' ? 'failure' : ''}`}><span>{status === 'success' ? 'SUCCESS' : status === 'failure' ? 'TIME / TRY COMPLETE' : running ? 'TIME REMAINING' : 'READY'}</span><strong>{`${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`}</strong></div>
+    {(running || status === 'paused') ? <ActivityCountdown remainingMs={remaining} durationMs={duration} label={status === 'paused' ? 'PAUSED' : 'TIME REMAINING'} urgentAtSeconds={10} /> : <div className={`stage-timer-card ${status === 'success' ? 'success' : status === 'failure' ? 'failure' : ''}`}><span>{status === 'success' ? 'SUCCESS' : status === 'failure' ? 'TIME / TRY COMPLETE' : 'READY'}</span><strong>{`${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`}</strong></div>}
+    <ActivityRevealCurtain visible={status === 'success' || status === 'failure'} kicker={status === 'success' ? 'SUCCESS' : 'RESULT'}>{status === 'success' ? 'Challenge complete!' : 'Give it another try.'}</ActivityRevealCurtain>
+    <ActivityWinnerBanner visible={status === 'success' && Boolean(state.selectedParticipantName)} winner={stringOf(state.selectedParticipantName)} subtitle="CHALLENGE WINNER" />
     <LeaderboardPanel state={state} />
   </RichStage>;
 };

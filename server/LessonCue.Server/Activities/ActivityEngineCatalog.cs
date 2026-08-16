@@ -159,6 +159,8 @@ public static class InteractiveActivityDefaults
         ActivityTypes.Bracket => new
         {
             title = "Bracket Battle",
+            preset = "bracketBattle",
+            presetLabel = "BRACKET BATTLE",
             entrantSource = "teacher",
             pointsPerWin = 0,
             entrants = new[]
@@ -173,6 +175,8 @@ public static class InteractiveActivityDefaults
         ActivityTypes.PhysicalRoom => new
         {
             title = "Four Corners",
+            preset = "fourCorners",
+            presetLabel = "FOUR CORNERS",
             rounds = new[]
             {
                 new

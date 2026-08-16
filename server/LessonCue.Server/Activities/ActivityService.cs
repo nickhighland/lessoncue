@@ -114,6 +114,7 @@ public sealed class ActivityService(
         }
 
         var list = await query.ToListAsync(ct);
+        await PopulateUsageAsync(list, ct);
         return list
             .OrderBy(x => x.LibraryPosition)
             .ThenByDescending(x => x.UpdatedAt)
@@ -123,10 +124,12 @@ public sealed class ActivityService(
 
     public async Task<ActivityDefinition?> GetDefinitionAsync(Guid id, CancellationToken ct = default)
     {
-        return await db.ActivityDefinitions
+        var definition = await db.ActivityDefinitions
             .Include(x => x.Assets).ThenInclude(a => a.Media)
             .Include(x => x.ThumbnailMedia)
             .SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (definition is not null) await PopulateUsageAsync([definition], ct);
+        return definition;
     }
 
     public async Task<ActivityDefinition> CreateDefinitionAsync(
@@ -185,6 +188,7 @@ public sealed class ActivityService(
 
         db.ActivityDefinitions.Add(definition);
         await db.SaveChangesAsync(ct);
+        await PopulateUsageAsync([definition], ct);
         return definition;
     }
 
@@ -237,6 +241,7 @@ public sealed class ActivityService(
         }
 
         await db.SaveChangesAsync(ct);
+        await PopulateUsageAsync([definition], ct);
         return definition;
     }
 
@@ -296,7 +301,75 @@ public sealed class ActivityService(
 
         db.ActivityDefinitions.Add(copy);
         await db.SaveChangesAsync(ct);
+        await PopulateUsageAsync([copy], ct);
         return copy;
+    }
+
+    public async Task<List<ActivityDefinition>> DuplicateDefinitionsAsync(
+        IReadOnlyCollection<Guid> ids,
+        string? nameSuffix,
+        string createdBy,
+        CancellationToken ct = default)
+    {
+        var requested = NormalizeIds(ids);
+        if (requested.Length == 0) return [];
+
+        var sources = await db.ActivityDefinitions
+            .Include(x => x.Assets)
+            .Where(x => requested.Contains(x.Id))
+            .ToListAsync(ct);
+        var byId = sources.ToDictionary(x => x.Id);
+        var nextLibraryPosition = (await db.ActivityDefinitions
+            .Select(x => (int?)x.LibraryPosition)
+            .MaxAsync(ct) ?? -1) + 1;
+        var suffix = string.IsNullOrWhiteSpace(nameSuffix) ? " (Copy)" : nameSuffix.TrimEnd();
+        suffix = suffix.Length > 48 ? suffix[..48] : suffix;
+        var copies = new List<ActivityDefinition>();
+
+        foreach (var sourceId in requested)
+        {
+            if (!byId.TryGetValue(sourceId, out var source)) continue;
+            var copy = new ActivityDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = TrimActivityName($"{source.Name}{suffix}"),
+                Type = source.Type,
+                EngineType = source.EngineType,
+                PresetType = source.PresetType,
+                SchemaVersion = source.SchemaVersion,
+                Description = source.Description,
+                ConfigJson = source.ConfigJson,
+                ThemeJson = source.ThemeJson,
+                SettingsJson = source.SettingsJson,
+                ModifiersJson = source.ModifiersJson,
+                PresentationJson = source.PresentationJson,
+                ThumbnailMediaId = source.ThumbnailMediaId,
+                CreatedBy = createdBy,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+                LibraryPosition = nextLibraryPosition++,
+                Version = 1
+            };
+
+            foreach (var asset in source.Assets)
+            {
+                copy.Assets.Add(new ActivityAsset
+                {
+                    ActivityDefinitionId = copy.Id,
+                    MediaId = asset.MediaId,
+                    Role = asset.Role,
+                    Position = asset.Position,
+                    MetadataJson = asset.MetadataJson
+                });
+            }
+
+            copies.Add(copy);
+            db.ActivityDefinitions.Add(copy);
+        }
+
+        await db.SaveChangesAsync(ct);
+        await PopulateUsageAsync(copies, ct);
+        return copies;
     }
 
     public async Task<bool> DeleteOrArchiveDefinitionAsync(Guid id, CancellationToken ct = default)
@@ -362,6 +435,54 @@ public sealed class ActivityService(
         return new ActivityBulkMutationResult(deletedIds, archivedIds, missingIds);
     }
 
+    public async Task<ActivityBulkMutationResult> ArchiveDefinitionsAsync(
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken ct = default)
+    {
+        var requested = NormalizeIds(ids);
+        if (requested.Length == 0) return new ActivityBulkMutationResult([], [], []);
+
+        var definitions = await db.ActivityDefinitions
+            .Where(x => requested.Contains(x.Id) && x.ArchivedAt == null)
+            .ToListAsync(ct);
+        var knownIds = definitions.Select(x => x.Id).ToHashSet();
+        var missingIds = requested.Where(id => !knownIds.Contains(id)).ToArray();
+        var now = DateTimeOffset.UtcNow;
+        foreach (var definition in definitions)
+        {
+            definition.ArchivedAt = now;
+            definition.UpdatedAt = now;
+        }
+
+        await db.SaveChangesAsync(ct);
+        return new ActivityBulkMutationResult([], definitions.Select(x => x.Id).ToArray(), missingIds);
+    }
+
+    public async Task<ActivityBulkRestoreResult> RestoreDefinitionsAsync(
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken ct = default)
+    {
+        var requested = NormalizeIds(ids);
+        if (requested.Length == 0) return new ActivityBulkRestoreResult([], []);
+
+        var definitions = await db.ActivityDefinitions
+            .Where(x => requested.Contains(x.Id) && x.ArchivedAt != null)
+            .ToListAsync(ct);
+        var restoredIds = new List<Guid>();
+        foreach (var definition in definitions)
+        {
+            definition.ArchivedAt = null;
+            definition.UpdatedAt = DateTimeOffset.UtcNow;
+            definition.Version++;
+            restoredIds.Add(definition.Id);
+        }
+
+        var knownIds = restoredIds.ToHashSet();
+        var missingIds = requested.Where(id => !knownIds.Contains(id)).ToArray();
+        await db.SaveChangesAsync(ct);
+        return new ActivityBulkRestoreResult(restoredIds, missingIds);
+    }
+
     public async Task<bool> RestoreDefinitionAsync(Guid id, CancellationToken ct = default)
     {
         var definition = await db.ActivityDefinitions.SingleOrDefaultAsync(x => x.Id == id, ct);
@@ -371,6 +492,64 @@ public sealed class ActivityService(
         definition.Version++;
         await db.SaveChangesAsync(ct);
         return true;
+    }
+
+    private static Guid[] NormalizeIds(IEnumerable<Guid> ids) => ids
+        .Where(id => id != Guid.Empty)
+        .Distinct()
+        .Take(500)
+        .ToArray();
+
+    private static string TrimActivityName(string name) => name.Length <= 160
+        ? name
+        : name[..160].TrimEnd();
+
+    private async Task PopulateUsageAsync(IReadOnlyCollection<ActivityDefinition> definitions, CancellationToken ct)
+    {
+        if (definitions.Count == 0) return;
+        var ids = definitions.Select(x => x.Id).ToArray();
+
+        var lessonReferences = await db.PlaylistItems
+            .AsNoTracking()
+            .Where(x => x.ActivityDefinitionId.HasValue && ids.Contains(x.ActivityDefinitionId.Value))
+            .Select(x => new
+            {
+                DefinitionId = x.ActivityDefinitionId!.Value,
+                x.LessonId,
+                LessonName = x.Lesson!.Title
+            })
+            .ToListAsync(ct);
+        var templateReferences = await db.LessonTemplateItems
+            .AsNoTracking()
+            .Where(x => x.ActivityDefinitionId.HasValue && ids.Contains(x.ActivityDefinitionId.Value))
+            .Select(x => new
+            {
+                DefinitionId = x.ActivityDefinitionId!.Value,
+                x.TemplateId,
+                TemplateName = x.Template!.Name
+            })
+            .ToListAsync(ct);
+        var runs = await db.ActivityRuns
+            .AsNoTracking()
+            .Where(x => ids.Contains(x.ActivityDefinitionId))
+            .Select(x => new { x.ActivityDefinitionId, x.Status })
+            .ToListAsync(ct);
+
+        foreach (var definition in definitions)
+        {
+            var lessonRows = lessonReferences.Where(x => x.DefinitionId == definition.Id).ToArray();
+            var templateRows = templateReferences.Where(x => x.DefinitionId == definition.Id).ToArray();
+            var runRows = runs.Where(x => x.ActivityDefinitionId == definition.Id).ToArray();
+            definition.Usage = new ActivityDefinitionUsage
+            {
+                LessonCount = lessonRows.Select(x => x.LessonId).Distinct().Count(),
+                TemplateCount = templateRows.Select(x => x.TemplateId).Distinct().Count(),
+                RunCount = runRows.Length,
+                ActiveRunCount = runRows.Count(x => x.Status != ActivityRunStatuses.Ended),
+                LessonNames = lessonRows.Select(x => x.LessonName).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x).Take(8).ToArray(),
+                TemplateNames = templateRows.Select(x => x.TemplateName).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x).Take(8).ToArray()
+            };
+        }
     }
 
     public async Task<bool> ReorderDefinitionsAsync(

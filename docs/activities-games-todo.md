@@ -14,14 +14,14 @@ This is the active implementation sequence. It covers the next product-value lay
 - [x] Add live participant/team entrants from the session roster; keep generic drawing/creative/image/finalist adapters as the next composition step.
 - [x] Complete the first host recovery controls: close voting, skip a broken matchup, remove an entrant, reset, score, and end; shared score undo remains available.
 - [x] Connect tournament wins to shared score events when `pointsPerWin` is configured; leaderboard/podium presentation remains next.
-- [ ] Add Sudden Death, Survivor Trivia, Rock Paper Scissors Royale, and Heads or Tails as registry presets.
+- [x] Add reusable tournament templates for Sudden Death, Survivor Trivia, Rock Paper Scissors Royale, and Heads or Tails; keep them on the Bracket engine and allow the teacher to apply/edit the template.
 
 ### 2. Build the no-phone Physical Room slice
 
 - [x] Add one reusable physical-room runtime with prompts, instructions, round navigation, countdown metadata, pause/resume, randomize, reveal, and team awards.
 - [x] Prove the runtime with Four Corners; Stand/Sit remains a configuration/preset follow-up, and phones remain optional rather than required.
 - [x] Add large-TV display and a compact host controller with Previous, Next, Timer, Pause, Reset, Randomize, Reveal, Award Team, and End.
-- [ ] Add Move If…, Human Spectrum, Line Up, Find Someone Who, Simon Says Controller, Freeze Dance Controller, Challenge Wheel, Relay Board, Scavenger Hunt, Heads or Tails, and Rock Paper Scissors Royale over the same runtime.
+- [x] Add editable room templates for Move If…, Human Spectrum, Line Up, Find Someone Who, Simon Says Controller, Freeze Dance Controller, Challenge Wheel, Relay Board, Scavenger Hunt, Heads or Tails, and Rock Paper Scissors Royale over the same runtime.
 
 ### 3. Make utilities composable
 
@@ -36,15 +36,17 @@ This is the active implementation sequence. It covers the next product-value lay
 
 - [x] Grid/list views, filters, multi-select, safe bulk deletion, archive recovery, and manual arranging.
 - [x] Add favorites/pinning, thumbnails, and clearer setup/participation metadata.
-- [ ] Add editor dirty-state protection, lesson-dependency impact messaging, and preview snapshots.
-- [ ] Add bulk archive/restore/duplicate where the action is unambiguous.
+- [x] Add editor dirty-state protection and client-only preview snapshots for TV, participant, reveal, leaderboard, and podium modes.
+- [x] Add lesson/template/live-run dependency metadata and explain safe archive-versus-delete behavior before destructive actions.
+- [x] Add atomic bulk archive, restore, and duplicate operations alongside existing bulk delete.
 
 ### 5. Raise the game-show presentation floor
 
 - [x] Existing original Web Audio effects and reduced-motion CSS foundation.
 - [x] Add a shared host sound control with volume and mute, independent of lesson media volume.
-- [ ] Add reusable reveal, scoreboard movement, podium, countdown, timer-warning, and winner presentation primitives.
-- [ ] Ensure every new engine has a reduced-motion and manually skippable path.
+- [x] Add reusable reveal, score-burst, countdown, and winner presentation primitives; integrate them into representative buzzer, creative, bracket, stage, and physical-room displays.
+- [x] Add reduced-motion CSS for the shared motion primitives; host progression remains manual and skippable.
+- [ ] Add leaderboard rank-movement animation and wire the shared podium treatment into final live-session results.
 
 ### 6. Expand presets only after the engines prove stable
 
@@ -75,10 +77,10 @@ Still needed for a large or heavily curated library:
 
 - [ ] Add pagination or server-side search/filtering for very large libraries.
 - [x] Add thumbnails, favorites/pinning, and richer card metadata without making the selector harder to scan.
-- [ ] Add bulk archive/restore/duplicate operations where the action is unambiguous.
-- [ ] Add an editor dirty-state warning, preview snapshots, and lesson-dependency details before destructive actions.
+- [x] Add bulk archive/restore/duplicate operations where the action is unambiguous.
+- [x] Add an editor dirty-state warning, preview snapshots, and lesson-dependency details before destructive actions.
 - [x] Add browser coverage for list/grid persistence, arranging, filtering, and bulk deletion.
-- [ ] Add browser coverage for archived-item recovery and lesson-dependency messaging.
+- [ ] Add browser coverage for archived-item recovery and lesson-dependency messaging through a real lesson-linked fixture.
 
 ## Completed foundation — reference only
 
@@ -103,7 +105,7 @@ The first Bracket Battle vertical slice now supports teacher-entered entrants pl
 - [x] Add role-specific participant and display projections; never expose hidden matchup answers or unrevealed results early.
 - [x] Reuse live participant/team entrants and shared score events; leaderboard, timers, moderation, and richer reveal presentation remain follow-up work.
 - [x] Register Bracket Battle with a guided entrant editor, TV display, host controller, and phone voting input.
-- [ ] Add presets over the engine: Rock Paper Scissors Royale, Sudden Death, Survivor Trivia, and Heads or Tails.
+- [x] Add editable presets over the engine: Rock Paper Scissors Royale, Sudden Death, Survivor Trivia, and Heads or Tails.
 - [ ] Compose the engine with Trivia, Creative Response, Drawing, Poll/Vote, and Team modes without duplicating their runtimes.
 - [x] Add a deterministic server test covering multiple rounds and the final champion.
 - [ ] Add complete invalid-action, reconnection, and browser end-to-end matchup-to-final coverage.
@@ -116,7 +118,7 @@ The first Bracket Battle vertical slice now supports teacher-entered entrants pl
 - [x] Provide the host controls: Previous, Next, Start Timer, Pause, Reset, Randomize, Reveal, Award Team, and End.
 - [x] Make phone participation optional; the activity remains usable when no participants are connected.
 - [x] Add reusable physical prompts, team assignment, timer, scoreboard, and display-state primitives through the shared session panel and public projection.
-- [ ] Add presets: Four Corners, Stand/Sit, Move If…, Human Spectrum, Line Up, Find Someone Who, Simon Says Controller, Freeze Dance Controller, Challenge Wheel, Relay Board, Scavenger Hunt, Heads or Tails, and Rock Paper Scissors Royale.
+- [x] Add editable presets: Four Corners, Stand/Sit, Move If…, Human Spectrum, Line Up, Find Someone Who, Simon Says Controller, Freeze Dance Controller, Challenge Wheel, Relay Board, Scavenger Hunt, Heads or Tails, and Rock Paper Scissors Royale.
 - [x] Add large-TV presentation, keyboard-operable controls, and reduced-motion support; reconnect diagnostics and richer paused/reconnect states remain cross-cutting follow-up work.
 - [x] Add server and browser coverage for no-phone operation, timer control, randomization, reveal, and round navigation; richer team-score interaction remains follow-up work.
 

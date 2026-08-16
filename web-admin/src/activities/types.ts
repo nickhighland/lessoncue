@@ -36,6 +36,17 @@ export interface ActivityDefinition {
   version: number;
   assets?: ActivityAsset[];
   assetCount?: number;
+  usage?: ActivityDefinitionUsage;
+}
+
+export interface ActivityDefinitionUsage {
+  lessonCount: number;
+  templateCount: number;
+  runCount: number;
+  activeRunCount: number;
+  lessonNames: string[];
+  templateNames: string[];
+  isInUse: boolean;
 }
 
 export interface ActivityTheme {

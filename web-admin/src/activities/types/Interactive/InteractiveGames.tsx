@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { ActivityComponentProps, ActivityEditorProps } from '../../activityRegistry';
 import type { ActivityStateEnvelope } from '../../types';
 import { ActivityApi } from '../../api';
+import { ActivityRevealCurtain, ActivityScoreBurst, ActivityWinnerBanner } from '../../ActivityMotion';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -42,8 +43,8 @@ export const BuzzerDisplay: React.FC<ActivityComponentProps> = ({ envelope }) =>
         {!visibleClues.length && <div className="interactive-prompt-card"><span className="interactive-round-label">CLUE LADDER</span><p>The host will reveal clues one at a time.</p></div>}
         {visibleClues.map((clue, index) => <div className={`interactive-prompt-card ${index === visibleClues.length - 1 ? 'current' : 'past'}`} key={stringOf(clue.id, String(index))}><span className="interactive-round-label">CLUE {index + 1} OF {clues.length || 1}</span><p>{stringOf(clue.prompt, 'Clue')}</p></div>)}
       </div>
-      {Boolean(state.buzzWinnerName) && <div className="interactive-winner-card"><span>BUZZ FIRST</span><strong>{stringOf(state.buzzWinnerName)}</strong></div>}
-      {Boolean(state.answerRevealed) && <div className="interactive-answer-card"><span>ANSWER</span><strong>{stringOf(state.revealedAnswer, 'Reveal the answer from the host.')}</strong></div>}
+      <ActivityWinnerBanner visible={Boolean(state.buzzWinnerName)} winner={stringOf(state.buzzWinnerName)} subtitle="BUZZ FIRST" />
+      <ActivityRevealCurtain visible={Boolean(state.answerRevealed)} kicker="ANSWER">{stringOf(state.revealedAnswer, 'Reveal the answer from the host.')}</ActivityRevealCurtain>
       <LeaderboardPanel state={state} />
       <div className="interactive-help">Watch the clue ladder. When the host opens the buzzers, tap your giant buzzer.</div>
     </StageShell>
@@ -65,6 +66,7 @@ export const PunchlineDisplay: React.FC<ActivityComponentProps> = ({ envelope })
           {!submissions.length && <div className="interactive-empty-card">Waiting for approved answers…</div>}
         </div>
       )}
+      <ActivityScoreBurst visible={Boolean(state.winningSubmissionId) && Boolean(state.resultsVisible)} amount={numberOf(state.winningPoints, numberOf(state.pointsAwarded))} />
       <div className="interactive-help">Answers are anonymous until the host chooses the reveal.</div>
       <LeaderboardPanel state={state} />
     </StageShell>

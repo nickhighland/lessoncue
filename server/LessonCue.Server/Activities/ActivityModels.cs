@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -110,6 +111,23 @@ public sealed class ActivityDefinition
     public int LibraryPosition { get; set; }
     public int Version { get; set; } = 1;
     public List<ActivityAsset> Assets { get; set; } = [];
+
+    /// <summary>
+    /// Computed library metadata. It is populated by ActivityService and is not
+    /// persisted with the reusable definition itself.
+    /// </summary>
+    [NotMapped] public ActivityDefinitionUsage Usage { get; set; } = new();
+}
+
+public sealed class ActivityDefinitionUsage
+{
+    public int LessonCount { get; set; }
+    public int TemplateCount { get; set; }
+    public int RunCount { get; set; }
+    public int ActiveRunCount { get; set; }
+    public IReadOnlyList<string> LessonNames { get; set; } = [];
+    public IReadOnlyList<string> TemplateNames { get; set; } = [];
+    public bool IsInUse => LessonCount > 0 || TemplateCount > 0 || RunCount > 0;
 }
 
 public sealed class ActivityAsset
@@ -290,12 +308,20 @@ public sealed record ActivityDuplicateInput(
 public sealed record ActivityBulkDeleteInput(
     IReadOnlyList<Guid> Ids);
 
+public sealed record ActivityBulkDuplicateInput(
+    IReadOnlyList<Guid> Ids,
+    string? NameSuffix = " (Copy)");
+
 public sealed record ActivityLibraryOrderInput(
     IReadOnlyList<Guid> Ids);
 
 public sealed record ActivityBulkMutationResult(
     IReadOnlyList<Guid> DeletedIds,
     IReadOnlyList<Guid> ArchivedIds,
+    IReadOnlyList<Guid> MissingIds);
+
+public sealed record ActivityBulkRestoreResult(
+    IReadOnlyList<Guid> RestoredIds,
     IReadOnlyList<Guid> MissingIds);
 
 public sealed record ActivityRunCreateInput(
