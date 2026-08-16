@@ -502,6 +502,7 @@ test("Quiz and poll editors apply reusable named presets without changing engine
   const quizId = await createActivity(page, "Trivia Quiz", quizName);
   let pollId = "";
   try {
+    await expect(page.getByRole("option", { name: "Which Came First?", exact: true })).toBeAttached();
     await page.getByLabel("Quiz format preset").selectOption("factOrFiction");
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.locator("textarea").nth(1)).toHaveValue("A day on Venus is longer than a year on Venus.");
@@ -514,6 +515,7 @@ test("Quiz and poll editors apply reusable named presets without changing engine
 
     await page.getByRole("button", { name: "Close", exact: true }).click();
     pollId = await createActivity(page, "Live Poll", pollName);
+    await expect(page.getByRole("option", { name: "Prediction Machine", exact: true })).toBeAttached();
     await page.getByLabel("Poll format preset").selectOption("wouldYouRather");
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.getByLabel("Poll question")).toHaveValue("Would you rather be 30 minutes early or 5 minutes late?");
@@ -544,6 +546,7 @@ test("Buzzer, creative, and bluffing editors reuse named engine presets", async 
   let punchlineId = "";
   let fakeOutId = "";
   try {
+    await expect(page.getByRole("option", { name: "Secret Category", exact: true })).toBeAttached();
     await page.getByLabel("Buzzer format preset").selectOption("clueLadder");
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.locator('input[placeholder="Clue text"]').first()).toHaveValue("This answer can be found in many kitchens.");
@@ -556,6 +559,7 @@ test("Buzzer, creative, and bluffing editors reuse named engine presets", async 
 
     await page.getByRole("button", { name: "Close", exact: true }).click();
     punchlineId = await createActivity(page, "Punchline", punchlineName);
+    await expect(page.getByRole("option", { name: "Explain It Badly", exact: true })).toBeAttached();
     await page.getByLabel("Creative format preset").selectOption("captionThis");
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.locator("textarea").nth(1)).toHaveValue("Write the caption this picture deserves.");

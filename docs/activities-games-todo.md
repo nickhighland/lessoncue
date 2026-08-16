@@ -151,15 +151,15 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Minority Report
 - [x] Split Decision
 - [x] Would You Rather
-- [ ] This or That Gauntlet
+- [x] This or That Gauntlet starter poll template
 - [x] Hot Take
-- [ ] Consensus as a ranking/prediction configuration
-- [ ] One of Us
+- [x] Consensus starter poll template
+- [x] One of Us
 - [x] Most Likely To
-- [ ] Know Your Group
-- [ ] Yearbook Awards
-- [ ] Prediction Machine
-- [ ] Tiny Hill to Die On
+- [x] Know Your Group
+- [x] Yearbook Awards
+- [x] Prediction Machine starter poll template
+- [x] Tiny Hill to Die On
 - [x] Unpopular Opinion
 - [x] Worst Choice Possible
 
@@ -168,21 +168,21 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Fact or Fiction
 - [x] Two Truths & a Lie
 - [x] Spot the Fake
-- [ ] Who Said It?
+- [x] Who Said It?
 - [x] Finish the Quote
 - [x] Fill the Blank
-- [ ] Which Lesson?
-- [ ] Recap Race
-- [ ] Key Word
-- [ ] Before or After
-- [ ] Which Came First?
+- [x] Which Lesson?
+- [x] Recap Race
+- [x] Key Word
+- [x] Before or After
+- [x] Which Came First?
 - [x] Higher or Lower
-- [ ] Over / Under
+- [x] Over / Under
 - [x] Guess the Number
-- [ ] Closest Without Going Over
-- [ ] The Price Is Wrong
-- [ ] Definitely Real
-- [ ] That Can’t Be Right
+- [x] Closest Without Going Over
+- [x] The Price Is Wrong
+- [x] Definitely Real
+- [x] That Can’t Be Right
 - [x] Is It a Horse? as a generic configurable binary-classification preset, not a hard-coded horse game
 
 ### Buzzer & Progressive Clue
@@ -191,8 +191,8 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Mystery Place
 - [x] Mystery Object
 - [x] Common Thread
-- [ ] Secret Category
-- [ ] Concept Pyramid
+- [x] Secret Category
+- [x] Concept Pyramid
 - [x] Password
 - [ ] Verify declining clue values and optional lockout/steal behavior in the editor and host flow
 
@@ -209,22 +209,22 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Caption This
 - [x] Autocomplete
 - [x] Bad Advice
-- [ ] Explain It Badly
+- [x] Explain It Badly
 - [x] Wrong Answers Only
-- [ ] Rename It
-- [ ] New Product
+- [x] Rename It
+- [x] New Product
 - [x] Slogan Factory
 - [x] Movie Pitch
-- [ ] Headline
-- [ ] Deleted Scene
-- [ ] Alternate Ending
-- [ ] Plot Twist
-- [ ] Excuse Generator
-- [ ] Superpower / Catch
+- [x] Headline
+- [x] Deleted Scene
+- [x] Alternate Ending
+- [x] Plot Twist
+- [x] Excuse Generator
+- [x] Superpower / Catch
 - [x] Make It Worse
-- [ ] Explain This Photo
-- [ ] Who Approved This?
-- [ ] Worst Ranking
+- [x] Explain This Photo
+- [x] Who Approved This?
+- [x] Worst Ranking
 - [ ] Reuse mandatory moderation and support Gallery Vote plus Head-to-Head voting
 
 ### Drawing
