@@ -1,0 +1,29 @@
+import React from 'react';
+import type { ActivityPresetTemplate } from './activityPresetRegistry';
+
+export const ActivityPresetPicker: React.FC<{
+  label: string;
+  value?: string;
+  templates: ActivityPresetTemplate[];
+  onPresetChange: (preset: ActivityPresetTemplate) => void;
+  onApply: (preset: ActivityPresetTemplate) => void;
+}> = ({ label, value, templates, onPresetChange, onApply }) => {
+  const selected = templates.find(template => template.id === value) || templates[0];
+  if (!selected) return null;
+  return <section className="activity-preset-picker" aria-label={`${label} templates`}>
+    <div className="activity-editor-card-heading">
+      <div><strong>{label}</strong><small>{selected.description}</small></div>
+      <span className="activity-library-chip">Reusable engine</span>
+    </div>
+    <div className="activity-preset-picker-row">
+      <select aria-label={`${label} preset`} value={selected.id} onChange={event => {
+        const next = templates.find(template => template.id === event.target.value);
+        if (next) onPresetChange(next);
+      }}>
+        {templates.map(template => <option value={template.id} key={template.id}>{template.label}</option>)}
+      </select>
+      <button type="button" className="button" onClick={() => onApply(selected)}>Apply preset template</button>
+    </div>
+    <p className="activity-editor-help">Applying a template replaces this activity’s current content with editable starter material.</p>
+  </section>;
+};

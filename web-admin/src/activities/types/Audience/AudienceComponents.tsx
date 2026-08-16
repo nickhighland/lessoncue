@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { ActivityStateEnvelope } from '../../types';
 import { ActivityApi } from '../../api';
 import { launchConfetti } from '../../effects';
+import { ActivityPresetPicker } from '../../ActivityPresetPicker';
+import { POLL_PRESETS } from '../../activityPresetRegistry';
 
 // ============================================================================
 // Live Poll
@@ -29,7 +31,7 @@ export const PollDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ env
     totalVotes?: number;
     resultsVisible?: boolean;
   }) || {};
-  const config = (envelope as unknown as { config?: { question?: string; prompt?: string; options?: unknown[] } }).config || {};
+  const config = (envelope as unknown as { config?: { question?: string; prompt?: string; options?: unknown[]; presetLabel?: string } }).config || {};
   const options = normalizePollOptions(config.options).length ? normalizePollOptions(config.options) : [
     { id: '1', text: 'Option A' },
     { id: '2', text: 'Option B' }
@@ -44,7 +46,7 @@ export const PollDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ env
     <div className="activity-stage poll-stage">
       <div className="activity-stage-content">
         <div className="activity-header">
-          <div className="stage-kicker">📊 LIVE AUDIENCE POLL · {totalVotes} {totalVotes === 1 ? 'VOTE' : 'VOTES'}</div>
+          <div className="stage-kicker">📊 {config.presetLabel || 'LIVE AUDIENCE POLL'} · {totalVotes} {totalVotes === 1 ? 'VOTE' : 'VOTES'}</div>
           <h1 className="activity-title">{config.question || config.prompt || envelope.name || 'Live Poll'}</h1>
         </div>
 
@@ -153,11 +155,18 @@ export const PollEditor: React.FC<{
   config: Record<string, unknown>;
   onChange: (updated: Record<string, unknown>) => void;
 }> = ({ config, onChange }) => {
-  const current = config as { question?: string; prompt?: string; options?: unknown[] };
+  const current = config as { question?: string; prompt?: string; options?: unknown[]; preset?: string; presetLabel?: string };
   const options = normalizePollOptions(current.options);
   const updateOptions = (next: PollOption[]) => onChange({ ...current, options: next.map(option => option.text), question: current.question || current.prompt || '' });
   return (
     <div className="activity-editor-form">
+      <ActivityPresetPicker
+        label="Poll format"
+        value={typeof current.preset === 'string' ? current.preset : 'readTheRoom'}
+        templates={POLL_PRESETS}
+        onPresetChange={preset => onChange({ ...current, preset: preset.id, presetLabel: preset.label.toUpperCase() })}
+        onApply={preset => onChange({ ...current, ...preset.config })}
+      />
       <label className="activity-editor-label">Poll question
         <textarea rows={2} value={current.question || current.prompt || ''} onChange={event => onChange({ ...current, question: event.target.value })} placeholder="What should the room choose?" />
       </label>

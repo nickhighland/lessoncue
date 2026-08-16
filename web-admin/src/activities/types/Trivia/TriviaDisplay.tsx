@@ -13,6 +13,7 @@ interface TriviaQuestion {
 
 interface TriviaConfig {
   title?: string;
+  presetLabel?: string;
   questions?: TriviaQuestion[];
 }
 
@@ -68,7 +69,7 @@ export const TriviaDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ e
     <div ref={containerRef} className="activity-stage">
       <div className="activity-stage-content">
         <div className="activity-header">
-          <div className="stage-kicker">❓ {config.title || envelope.name || 'TRIVIA SHOWDOWN'} · QUESTION {qIndex + 1} OF {questions.length}</div>
+          <div className="stage-kicker">❓ {config.presetLabel || 'TRIVIA SHOWDOWN'} · QUESTION {qIndex + 1} OF {questions.length}</div>
           <h1 className="activity-title">{config.title || envelope.name || 'Trivia Showdown'}</h1>
           <div className="activity-subtitle">Choose your answer · the host controls the reveal</div>
         </div>

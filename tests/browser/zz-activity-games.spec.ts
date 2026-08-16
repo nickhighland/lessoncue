@@ -494,3 +494,42 @@ test("Activities editor previews draft snapshots and protects unsaved changes", 
     }, definitionId);
   }
 });
+
+test("Quiz and poll editors apply reusable named presets without changing engines", async ({ page }) => {
+  await authenticate(page);
+  const quizName = `Preset Quiz ${Date.now()}`;
+  const pollName = `Preset Poll ${Date.now()}`;
+  const quizId = await createActivity(page, "Trivia Quiz", quizName);
+  let pollId = "";
+  try {
+    await page.getByLabel("Quiz format preset").selectOption("factOrFiction");
+    await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
+    await expect(page.locator("textarea").nth(1)).toHaveValue("A day on Venus is longer than a year on Venus.");
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    const savedQuiz = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; questions: Array<{ options: string[] }> } }, quizId);
+    expect(savedQuiz.presetType).toBe("factOrFiction");
+    expect(savedQuiz.config.preset).toBe("factOrFiction");
+    expect(savedQuiz.config.questions[0].options).toHaveLength(2);
+
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    pollId = await createActivity(page, "Live Poll", pollName);
+    await page.getByLabel("Poll format preset").selectOption("wouldYouRather");
+    await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
+    await expect(page.getByLabel("Poll question")).toHaveValue("Would you rather be 30 minutes early or 5 minutes late?");
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    const savedPoll = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; options: string[] } }, pollId);
+    expect(savedPoll.presetType).toBe("wouldYouRather");
+    expect(savedPoll.config.preset).toBe("wouldYouRather");
+    expect(savedPoll.config.options).toHaveLength(2);
+  } finally {
+    await page.evaluate(async ids => {
+      await fetch("/api/v1/activities/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: ids.filter(Boolean) }),
+      });
+    }, [quizId, pollId]);
+  }
+});

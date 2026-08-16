@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { ActivityPresetPicker } from '../../ActivityPresetPicker';
+import { QUIZ_PRESETS } from '../../activityPresetRegistry';
 
 interface TriviaQuestion {
   id: string;
@@ -10,6 +12,8 @@ interface TriviaQuestion {
 
 interface TriviaConfig {
   title?: string;
+  preset?: string;
+  presetLabel?: string;
   questions?: TriviaQuestion[];
 }
 
@@ -91,6 +95,16 @@ export const TriviaEditor: React.FC<{
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      <ActivityPresetPicker
+        label="Quiz format"
+        value={typeof trConfig.preset === 'string' ? trConfig.preset : 'trivia'}
+        templates={QUIZ_PRESETS}
+        onPresetChange={preset => onChange({ ...config, preset: preset.id, presetLabel: preset.label.toUpperCase() })}
+        onApply={preset => {
+          onChange({ ...config, ...preset.config });
+          setActiveIndex(0);
+        }}
+      />
       <div>
         <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.25rem', color: 'var(--ink)' }}>
           Activity Title

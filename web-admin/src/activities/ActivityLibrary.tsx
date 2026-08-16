@@ -241,6 +241,7 @@ export const ActivityLibrary: React.FC = () => {
       const created = await ActivityApi.createActivity({
         name: `New ${desc.name}`,
         type,
+        presetType: desc.presetType,
         description: desc.description,
         config: desc.createDefaultConfig()
       });
@@ -262,6 +263,7 @@ export const ActivityLibrary: React.FC = () => {
       const updated = await ActivityApi.updateActivity(selectedActivity.id, {
         name: editingName.trim() || selectedActivity.name,
         type: selectedActivity.type,
+        presetType: typeof editingConfig.preset === 'string' ? editingConfig.preset : selectedActivity.presetType || getActivityDescriptor(selectedActivity.type).presetType,
         description: editingDescription.trim(),
         config: editingConfig
       });

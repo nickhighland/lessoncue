@@ -50,7 +50,8 @@ This is the active implementation sequence. It covers the next product-value lay
 
 ### 6. Expand presets only after the engines prove stable
 
-- [ ] Add the named poll, quiz, buzzer, bluffing, creative, drawing, survey, ordering, word, match, media, stage, physical, and adventure presets listed below through registry configuration.
+- [x] Add the first registry-backed Quiz and Poll templates; teachers can apply Fact or Fiction, Two Truths & a Lie, Spot the Fake, Finish the Quote, Fill the Blank, Higher or Lower, Guess the Number, Is It a Horse?, Would You Rather, Majority Rules, Minority Report, Split Decision, Hot Take, Most Likely To, Unpopular Opinion, and Worst Choice Possible, then edit the starter content.
+- [ ] Add the remaining named poll, quiz, buzzer, bluffing, creative, drawing, survey, ordering, word, match, media, stage, physical, and adventure presets listed below through registry configuration.
 - [ ] Prefer an existing engine plus modifiers over another bespoke runtime.
 - [ ] Add one deterministic server test and one representative browser path for each new engine family before broad preset expansion.
 
@@ -146,43 +147,43 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 
 ### Poll & Prediction
 
-- [ ] Majority Rules
-- [ ] Minority Report
-- [ ] Split Decision
-- [ ] Would You Rather
+- [x] Majority Rules
+- [x] Minority Report
+- [x] Split Decision
+- [x] Would You Rather
 - [ ] This or That Gauntlet
-- [ ] Hot Take
+- [x] Hot Take
 - [ ] Consensus as a ranking/prediction configuration
 - [ ] One of Us
-- [ ] Most Likely To
+- [x] Most Likely To
 - [ ] Know Your Group
 - [ ] Yearbook Awards
 - [ ] Prediction Machine
 - [ ] Tiny Hill to Die On
-- [ ] Unpopular Opinion
-- [ ] Worst Choice Possible
+- [x] Unpopular Opinion
+- [x] Worst Choice Possible
 
 ### Quiz & Answer
 
-- [ ] Fact or Fiction
-- [ ] Two Truths & a Lie
-- [ ] Spot the Fake
+- [x] Fact or Fiction
+- [x] Two Truths & a Lie
+- [x] Spot the Fake
 - [ ] Who Said It?
-- [ ] Finish the Quote
-- [ ] Fill the Blank
+- [x] Finish the Quote
+- [x] Fill the Blank
 - [ ] Which Lesson?
 - [ ] Recap Race
 - [ ] Key Word
 - [ ] Before or After
 - [ ] Which Came First?
-- [ ] Higher or Lower
+- [x] Higher or Lower
 - [ ] Over / Under
-- [ ] Guess the Number
+- [x] Guess the Number
 - [ ] Closest Without Going Over
 - [ ] The Price Is Wrong
 - [ ] Definitely Real
 - [ ] That Can’t Be Right
-- [ ] Is It a Horse? as a generic configurable binary-classification preset, not a hard-coded horse game
+- [x] Is It a Horse? as a generic configurable binary-classification preset, not a hard-coded horse game
 
 ### Buzzer & Progressive Clue
 
