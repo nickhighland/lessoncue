@@ -283,21 +283,21 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 
 ### Media Reveal & Observation
 
-- [ ] Zoomed In
-- [ ] Blur Reveal
-- [ ] Silhouette
-- [ ] Missing Piece
+- [x] Zoomed In
+- [x] Blur Reveal
+- [x] Silhouette
+- [x] Missing Piece
 - [ ] What’s Different?
 - [ ] Memory Grid
-- [ ] Flash Frame
+- [x] Flash Frame
 - [ ] Emoji Decode
-- [ ] Picture Puzzler
+- [x] Picture Puzzler
 - [ ] Rebus Rush
 - [ ] Sound Check
 - [ ] Sound Bite
 - [ ] Backwards Audio
 - [ ] One Second Challenge
-- [ ] Freeze Frame
+- [x] Freeze Frame
 - [ ] What Happens Next?
 - [ ] Add client-side transformations: pixelate, blur, zoom, crop, silhouette, timed flash, progressive exposure, audio duration/reverse, and video pause
 - [ ] Reuse the existing media library and playback URLs; never modify source media or create an unnecessary upload system

@@ -1,4 +1,6 @@
 import React from 'react';
+import { ActivityPresetPicker } from '../../ActivityPresetPicker';
+import { MEDIA_REVEAL_PRESETS } from '../../activityPresetRegistry';
 
 interface ImageRevealConfig {
   title?: string;
@@ -8,6 +10,8 @@ interface ImageRevealConfig {
   style?: string;
   prompt?: string;
   answer?: string;
+  preset?: string;
+  presetLabel?: string;
 }
 
 export const ImageRevealEditor: React.FC<{
@@ -18,6 +22,7 @@ export const ImageRevealEditor: React.FC<{
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      <ActivityPresetPicker label="Reveal format" value={irConfig.preset || 'mysteryImage'} templates={MEDIA_REVEAL_PRESETS} onPresetChange={preset => onChange({ ...irConfig, preset: preset.id, presetLabel: preset.label.toUpperCase() })} onApply={preset => onChange({ ...irConfig, ...preset.config })} />
       <div>
         <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.25rem', color: 'var(--ink)' }}>
           Activity Title
@@ -29,6 +34,24 @@ export const ImageRevealEditor: React.FC<{
           placeholder="e.g. Mystery Object Reveal"
           style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '8px', background: '#fff', color: 'var(--ink)', border: '1px solid var(--line)' }}
         />
+      </div>
+
+      <div>
+        <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.25rem', color: 'var(--ink)' }}>
+          Reveal style
+        </label>
+        <select
+          aria-label="Reveal style"
+          value={irConfig.style || 'blur'}
+          onChange={e => onChange({ ...irConfig, style: e.target.value })}
+          style={{ width: '180px', padding: '0.5rem 0.75rem', borderRadius: '8px', background: '#fff', color: 'var(--ink)', border: '1px solid var(--line)' }}
+        >
+          <option value="blur">Progressive blur</option>
+          <option value="pixel">Pixel / scan</option>
+          <option value="zoom">Zoomed detail</option>
+          <option value="silhouette">Silhouette</option>
+          <option value="crop">Missing piece</option>
+        </select>
       </div>
 
       <div>

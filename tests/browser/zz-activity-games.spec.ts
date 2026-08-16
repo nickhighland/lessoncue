@@ -682,3 +682,32 @@ test("Ordering, word, and match editors reuse named templates with flexible cont
     }, [orderingId, wordId, matchId]);
   }
 });
+
+test("Media reveal editors apply named visual formats without changing the source link", async ({ page }) => {
+  await authenticate(page);
+  const activityName = `Preset Media ${Date.now()}`;
+  const definitionId = await createActivity(page, "Image Reveal", activityName);
+  try {
+    await page.getByLabel("Reveal format preset").selectOption("silhouette");
+    await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
+    await expect(page.locator('input[placeholder="e.g. Mystery Object Reveal"]')).toHaveValue("Silhouette");
+    await expect(page.getByLabel("Reveal style")).toHaveValue("silhouette");
+    await expect(page.locator('input[type="number"]')).toHaveValue("5");
+    await page.locator('input[placeholder="https://... or /api/v1/media/..."]').fill("/api/v1/media/example-image");
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    const saved = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; style: string; imageUrl: string } }, definitionId);
+    expect(saved.presetType).toBe("silhouette");
+    expect(saved.config.preset).toBe("silhouette");
+    expect(saved.config.style).toBe("silhouette");
+    expect(saved.config.imageUrl).toBe("/api/v1/media/example-image");
+  } finally {
+    await page.evaluate(async id => {
+      await fetch("/api/v1/activities/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [id] }),
+      });
+    }, definitionId);
+  }
+});
