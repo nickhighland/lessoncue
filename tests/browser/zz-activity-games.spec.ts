@@ -533,3 +533,55 @@ test("Quiz and poll editors apply reusable named presets without changing engine
     }, [quizId, pollId]);
   }
 });
+
+test("Buzzer, creative, and bluffing editors reuse named engine presets", async ({ page }) => {
+  await authenticate(page);
+  const tag = Date.now();
+  const buzzerName = `Preset Buzzer ${tag}`;
+  const punchlineName = `Preset Punchline ${tag}`;
+  const fakeOutName = `Preset Fake Out ${tag}`;
+  const buzzerId = await createActivity(page, "Buzzer Battle", buzzerName);
+  let punchlineId = "";
+  let fakeOutId = "";
+  try {
+    await page.getByLabel("Buzzer format preset").selectOption("clueLadder");
+    await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
+    await expect(page.locator('input[placeholder="Clue text"]').first()).toHaveValue("This answer can be found in many kitchens.");
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    const savedBuzzer = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; clues: Array<{ points: number }> } }, buzzerId);
+    expect(savedBuzzer.presetType).toBe("clueLadder");
+    expect(savedBuzzer.config.preset).toBe("clueLadder");
+    expect(savedBuzzer.config.clues.map(clue => clue.points)).toEqual([300, 200, 100]);
+
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    punchlineId = await createActivity(page, "Punchline", punchlineName);
+    await page.getByLabel("Creative format preset").selectOption("captionThis");
+    await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
+    await expect(page.locator("textarea").nth(1)).toHaveValue("Write the caption this picture deserves.");
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    const savedPunchline = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string } }, punchlineId);
+    expect(savedPunchline.presetType).toBe("captionThis");
+    expect(savedPunchline.config.preset).toBe("captionThis");
+
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    fakeOutId = await createActivity(page, "Fake Out", fakeOutName);
+    await page.getByLabel("Bluffing format preset").selectOption("confessions");
+    await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
+    await expect(page.locator('input[placeholder="The true answer"]')).toHaveValue("Add the real confession");
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    const savedFakeOut = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string } }, fakeOutId);
+    expect(savedFakeOut.presetType).toBe("confessions");
+    expect(savedFakeOut.config.preset).toBe("confessions");
+  } finally {
+    await page.evaluate(async ids => {
+      await fetch("/api/v1/activities/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: ids.filter(Boolean) }),
+      });
+    }, [buzzerId, punchlineId, fakeOutId]);
+  }
+});

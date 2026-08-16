@@ -50,7 +50,7 @@ This is the active implementation sequence. It covers the next product-value lay
 
 ### 6. Expand presets only after the engines prove stable
 
-- [x] Add the first registry-backed Quiz and Poll templates; teachers can apply Fact or Fiction, Two Truths & a Lie, Spot the Fake, Finish the Quote, Fill the Blank, Higher or Lower, Guess the Number, Is It a Horse?, Would You Rather, Majority Rules, Minority Report, Split Decision, Hot Take, Most Likely To, Unpopular Opinion, and Worst Choice Possible, then edit the starter content.
+- [x] Add the first registry-backed Quiz, Poll, Buzzer, Creative, and Bluffing templates; teachers can apply named formats and edit the starter content without switching engines.
 - [ ] Add the remaining named poll, quiz, buzzer, bluffing, creative, drawing, survey, ordering, word, match, media, stage, physical, and adventure presets listed below through registry configuration.
 - [ ] Prefer an existing engine plus modifiers over another bespoke runtime.
 - [ ] Add one deterministic server test and one representative browser path for each new engine family before broad preset expansion.
@@ -187,41 +187,41 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 
 ### Buzzer & Progressive Clue
 
-- [ ] Mystery Person
-- [ ] Mystery Place
-- [ ] Mystery Object
-- [ ] Common Thread
+- [x] Mystery Person
+- [x] Mystery Place
+- [x] Mystery Object
+- [x] Common Thread
 - [ ] Secret Category
 - [ ] Concept Pyramid
-- [ ] Password
+- [x] Password
 - [ ] Verify declining clue values and optional lockout/steal behavior in the editor and host flow
 
 ### Bluffing & Deception
 
-- [ ] Who Wrote That?
-- [ ] Confessions
-- [ ] Secret Talent
-- [ ] Why Is This Here?
+- [x] Who Wrote That?
+- [x] Confessions
+- [x] Secret Talent
+- [x] Why Is This Here?
 - [ ] Support correct-answer points, successful-bluff points, optional host-favorite points, and anonymous reveal
 
 ### Creative Response & Voting
 
-- [ ] Caption This
-- [ ] Autocomplete
-- [ ] Bad Advice
+- [x] Caption This
+- [x] Autocomplete
+- [x] Bad Advice
 - [ ] Explain It Badly
-- [ ] Wrong Answers Only
+- [x] Wrong Answers Only
 - [ ] Rename It
 - [ ] New Product
-- [ ] Slogan Factory
-- [ ] Movie Pitch
+- [x] Slogan Factory
+- [x] Movie Pitch
 - [ ] Headline
 - [ ] Deleted Scene
 - [ ] Alternate Ending
 - [ ] Plot Twist
 - [ ] Excuse Generator
 - [ ] Superpower / Catch
-- [ ] Make It Worse
+- [x] Make It Worse
 - [ ] Explain This Photo
 - [ ] Who Approved This?
 - [ ] Worst Ranking
