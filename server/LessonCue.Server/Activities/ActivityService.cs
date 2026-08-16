@@ -122,6 +122,40 @@ public sealed class ActivityService(
             .ToList();
     }
 
+    public async Task<ActivityDefinitionPage> ListDefinitionsPageAsync(
+        string? type = null,
+        string? search = null,
+        bool includeArchived = false,
+        int page = 1,
+        int pageSize = 100,
+        CancellationToken ct = default)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        var query = db.ActivityDefinitions
+            .Include(x => x.Assets)
+            .Include(x => x.ThumbnailMedia)
+            .AsNoTracking();
+
+        if (!includeArchived) query = query.Where(x => x.ArchivedAt == null);
+        if (!string.IsNullOrWhiteSpace(type)) query = query.Where(x => x.Type == type);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLowerInvariant();
+            query = query.Where(x => x.Name.ToLower().Contains(term) || x.Description.ToLower().Contains(term));
+        }
+
+        var totalCount = await query.CountAsync(ct);
+        var items = await query
+            .OrderBy(x => x.LibraryPosition)
+            .ThenBy(x => x.Name)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+        await PopulateUsageAsync(items, ct);
+        return new ActivityDefinitionPage(items, page, pageSize, totalCount);
+    }
+
     public async Task<ActivityDefinition?> GetDefinitionAsync(Guid id, CancellationToken ct = default)
     {
         var definition = await db.ActivityDefinitions

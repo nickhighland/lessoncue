@@ -111,6 +111,14 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
   const rawOptions = Array.isArray(question.options) && question.options.length ? question.options : Array.isArray(config.options) ? config.options : [];
   const options = rawOptions.map(option => option && typeof option === 'object' ? option as JsonRecord : { value: option });
   const submissions = listOf(state.submissions);
+  const creativeHeadToHead = envelope.type === 'punchline' && textOf(config.votingStyle, 'gallery') === 'headToHead';
+  const creativeCurrentMatch = objectOf(state.creativeCurrentMatch);
+  const creativeVoteOptions = creativeHeadToHead && textOf(creativeCurrentMatch.entrantAId)
+    ? [
+        { id: textOf(creativeCurrentMatch.entrantAId), text: textOf(creativeCurrentMatch.entrantA, 'Response A') },
+        ...(textOf(creativeCurrentMatch.entrantBId) ? [{ id: textOf(creativeCurrentMatch.entrantBId), text: textOf(creativeCurrentMatch.entrantB, 'Response B') }] : [])
+      ]
+    : submissions;
   const bluffOptions = listOf(state.options);
   const bracketMatch = listOf(state.bracketMatches).find(match => textOf(match.id) === textOf(state.currentMatchId)) || objectOf(state.currentMatch);
   const bracketOptions = [
@@ -118,22 +126,53 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
     { id: textOf(bracketMatch.entrantBId), label: textOf(bracketMatch.entrantB, 'Entrant B') }
   ].filter(option => option.id).map(option => ({ value: option.label, entrantId: option.id }));
   const [selected, setSelected] = useState<string | null>(null);
-  const isChoice = envelope.type === 'trivia' || envelope.type === 'rapidFire' || envelope.type === 'poll' || envelope.type === 'prediction';
+  const quizModifiers = objectOf(config.modifiers);
+  const quizWager = objectOf(quizModifiers.wager);
+  const quizSpeedBonus = objectOf(quizModifiers.speedBonus);
+  const quizLives = objectOf(quizModifiers.lives);
+  const quizDoubleOrNothing = objectOf(quizModifiers.doubleOrNothing);
+  const wagerEnabled = (envelope.type === 'trivia' || envelope.type === 'rapidFire') && quizWager.enabled === true;
+  const doubleOrNothingEnabled = (envelope.type === 'trivia' || envelope.type === 'rapidFire') && quizDoubleOrNothing.enabled === true;
+  const [wager, setWager] = useState('');
+  const [doubleRisk, setDoubleRisk] = useState(false);
+  const quizAnswerMode = envelope.type === 'trivia' ? textOf(question.answerMode, 'choice') : 'choice';
+  const isChoice = ((envelope.type === 'trivia' || envelope.type === 'rapidFire') && quizAnswerMode === 'choice') || envelope.type === 'poll' || envelope.type === 'prediction';
+  const isQuizFreeResponse = envelope.type === 'trivia' && (quizAnswerMode === 'text' || quizAnswerMode === 'shorttext' || quizAnswerMode === 'number');
   const isTurnBasedWord = envelope.type === 'word' && config.turnBased === true;
   const pollMode = textOf(config.pollMode);
   const choiceKicker = envelope.type !== 'poll' ? undefined : pollMode === 'minority' ? 'PREDICT THE MINORITY' : pollMode === 'majority' ? 'PREDICT THE MAJORITY' : pollMode === 'prediction' ? 'PREDICT THE ROOM' : 'CHOOSE ONE';
   const waitingForSurveyTeam = envelope.type === 'surveyBoard' && phase === 'acceptingResponses' && state.isActiveTeam === false;
 
   const submitText = (event: FormEvent) => { event.preventDefault(); if (text.trim()) { onAction('submit', { text: text.trim() }); setText(''); } };
-  const sendChoice = (index: number) => { setSelected(String(index)); onAction(envelope.type === 'trivia' || envelope.type === 'rapidFire' ? 'answer' : envelope.type === 'poll' && pollMode ? 'predict' : 'vote', { optionIndex: index }); };
+  const submitQuizResponse = (event: FormEvent) => {
+    event.preventDefault();
+    if (!text.trim()) return;
+    if (quizAnswerMode === 'number') {
+      const number = Number(text.trim());
+      if (!Number.isFinite(number)) return;
+      onAction('answer', { number, ...quizModifierPayload() });
+    } else {
+      onAction('answer', { text: text.trim(), ...quizModifierPayload() });
+    }
+    setText('');
+  };
+  const quizModifierPayload = () => ({
+    ...(wagerEnabled ? { wager: Math.max(0, Math.round(Number(wager) || 0)) } : {}),
+    ...(doubleOrNothingEnabled ? { doubleOrNothing: doubleRisk } : {})
+  });
+  const quizModifierControls = (wagerEnabled || doubleOrNothingEnabled || quizSpeedBonus.enabled === true || quizLives.enabled === true)
+    ? <QuizModifierControls wagerEnabled={wagerEnabled} wager={wager} setWager={setWager} maxWager={numberOf(quizWager.maxPoints, 500)} doubleOrNothingEnabled={doubleOrNothingEnabled} doubleRisk={doubleRisk} setDoubleRisk={setDoubleRisk} speedBonusEnabled={quizSpeedBonus.enabled === true} livesEnabled={quizLives.enabled === true} />
+    : undefined;
+  const sendChoice = (index: number) => { setSelected(String(index)); onAction(envelope.type === 'trivia' || envelope.type === 'rapidFire' ? 'answer' : envelope.type === 'poll' && pollMode ? 'predict' : 'vote', { optionIndex: index, ...((envelope.type === 'trivia' || envelope.type === 'rapidFire') ? quizModifierPayload() : {}) }); };
   const sendMatchChoice = (index: number) => { setSelected(String(index)); onAction(state.isTarget === true ? 'answer' : 'predict', { optionIndex: index }); };
   const sendBracketChoice = (index: number) => { const entrantId = textOf(bracketOptions[index]?.entrantId); setSelected(entrantId); onAction('vote', { entrantId }); };
   const submitVote = (id: string) => onAction('vote', { targetId: id });
 
   return <main className="activity-participant-page"><div className="participant-game-shell"><header className="participant-game-header"><div><span className="participant-kicker">{textOf(envelope.name, 'LIVE ACTIVITY')}</span><h1>{title}</h1></div><div className="participant-identity"><strong>{view.displayName}</strong><small>{view.hasSubmitted ? 'Response saved' : phase.replace(/([a-z])([A-Z])/g, '$1 $2')}</small></div></header>{error && <div className="participant-error" role="alert">{error}</div>}
     {phase === 'lobby' || phase === 'setup' ? <section className="participant-waiting"><span className="waiting-orb">✦</span><h2>You’re in.</h2><p>Waiting for the host to start the game.</p><div className="participant-count">{numberOf(state.participantCount)} players joined</div></section> :
-      phase === 'acceptingResponses' && isChoice ? <ChoiceInput kicker={choiceKicker} prompt={prompt} options={options} selected={selected === null ? null : Number(selected)} disabled={busy || view.hasSubmitted} onSelect={sendChoice} /> :
-      phase === 'acceptingResponses' && envelope.type === 'buzzer' ? <section className="participant-buzzer-card"><h2>{prompt}</h2><button className="participant-buzzer" disabled={busy || Boolean(state.buzzWinnerParticipantId)} onClick={() => onAction('buzz')}>{state.buzzWinnerName ? `${textOf(state.buzzWinnerName)} buzzed first` : 'BUZZ'}</button></section> :
+      phase === 'acceptingResponses' && isChoice ? <ChoiceInput kicker={choiceKicker} prompt={prompt} options={options} selected={selected === null ? null : Number(selected)} disabled={busy || view.hasSubmitted} onSelect={sendChoice} modifierControls={quizModifierControls} /> :
+      phase === 'acceptingResponses' && isQuizFreeResponse ? <TextResponse prompt={prompt} text={text} setText={setText} submit={submitQuizResponse} disabled={busy || view.hasSubmitted} inputType={quizAnswerMode === 'number' ? 'number' : 'text'} kicker={quizAnswerMode === 'number' ? 'NUMBER LOCK-IN' : 'SHORT ANSWER'} placeholder={quizAnswerMode === 'number' ? 'Type a number…' : 'Type your answer…'} submitLabel="Lock in answer" modifierControls={quizModifierControls} /> :
+      phase === 'acceptingResponses' && envelope.type === 'buzzer' ? <section className="participant-buzzer-card"><h2>{prompt}</h2><button className="participant-buzzer" disabled={busy || Boolean(state.buzzWinnerName) || state.isLockedOut === true} onClick={() => onAction('buzz')}>{state.isLockedOut === true ? 'LOCKED OUT' : state.buzzWinnerName ? `${textOf(state.buzzWinnerName)} buzzed first` : 'BUZZ'}</button>{state.isLockedOut === true && <small className="participant-saved-note">You can watch this clue, but you cannot buzz again.</small>}</section> :
       phase === 'acceptingResponses' && envelope.type === 'drawing' ? <DrawingInput prompt={prompt} disabled={busy || view.hasSubmitted} onSubmit={strokes => onAction('submit', { strokes })} /> :
       phase === 'acceptingResponses' && envelope.type === 'ordering' ? <OrderingInput prompt={prompt} items={orderingItems} disabled={busy || view.hasSubmitted} onSubmit={order => onAction('sort', { order })} /> :
       phase === 'acceptingResponses' && envelope.type === 'matchPlayer' ? <ChoiceInput kicker={state.isTarget === true ? 'ANSWER PRIVATELY' : 'PREDICT THE TARGET'} prompt={prompt} options={options} selected={selected === null ? null : Number(selected)} disabled={busy || view.hasSubmitted} onSelect={sendMatchChoice} /> :
@@ -141,16 +180,23 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
       phase === 'acceptingResponses' && waitingForSurveyTeam ? <section className="participant-waiting"><span className="waiting-orb">⏳</span><h2>{state.stealOpen === true ? `${textOf(state.stealTeamName, 'The steal team')} is up` : `${textOf(state.currentTeamName, 'Another team')} is up`}</h2><p>Watch the board. Your team will get the next chance.</p></section> :
       phase === 'acceptingResponses' && (envelope.type === 'punchline' || envelope.type === 'fakeOut' || envelope.type === 'surveyBoard') ? <TextResponse prompt={prompt} text={text} setText={setText} submit={submitText} disabled={busy || view.hasSubmitted} /> :
       phase === 'voting' && envelope.type === 'bracket' ? <ChoiceInput kicker="VOTE TO ADVANCE" prompt="Which entrant should move forward?" options={bracketOptions} selected={bracketOptions.findIndex(option => option.entrantId === selected)} disabled={busy || view.hasSubmitted || bracketOptions.length < 2} onSelect={sendBracketChoice} /> :
-      phase === 'voting' && envelope.type === 'punchline' ? <VoteInput items={submissions} selected={selected} disabled={busy || view.hasSubmitted} onSelect={id => { setSelected(id); submitVote(id); }} /> :
+      phase === 'voting' && envelope.type === 'punchline' ? <VoteInput items={creativeVoteOptions} selected={selected} disabled={busy || view.hasSubmitted || creativeVoteOptions.length < 2} onSelect={id => { setSelected(id); submitVote(id); }} /> :
       phase === 'voting' && envelope.type === 'fakeOut' ? <VoteInput items={bluffOptions} selected={selected} disabled={busy || view.hasSubmitted} onSelect={id => { setSelected(id); submitVote(id); }} /> :
       phase === 'judging' || phase === 'responsesLocked' ? <section className="participant-waiting"><span className="waiting-orb">⏳</span><h2>Locked in.</h2><p>The host is reviewing the room.</p></section> :
       phase === 'reveal' || phase === 'leaderboard' || phase === 'finalResults' ? <section className="participant-waiting"><span className="waiting-orb">✨</span><h2>Reveal time.</h2><p>Look up at the main display.</p></section> : <section className="participant-waiting"><h2>Watch the stage.</h2><p>Your next input will appear here.</p></section>}
     <button className="participant-leave-button" onClick={onLeave}>Leave this device</button></div></main>;
 };
 
-const ChoiceInput: React.FC<{ kicker?: string; prompt: string; options: JsonRecord[]; selected: number | null; disabled: boolean; onSelect: (index: number) => void }> = ({ kicker = 'CHOOSE ONE', prompt, options, selected, disabled, onSelect }) => <section className="participant-input-card"><span className="participant-kicker">{kicker}</span><h2>{prompt}</h2><div className="participant-choice-list">{options.map((option, index) => <button key={index} className={selected === index ? 'selected' : ''} disabled={disabled} onClick={() => onSelect(index)}><span>{String.fromCharCode(65 + index)}</span>{textOf(option.value, textOf(option.label, textOf(option)))}</button>)}</div>{disabled && <small className="participant-saved-note">Your answer is locked in.</small>}</section>;
+const ChoiceInput: React.FC<{ kicker?: string; prompt: string; options: JsonRecord[]; selected: number | null; disabled: boolean; onSelect: (index: number) => void; modifierControls?: React.ReactNode }> = ({ kicker = 'CHOOSE ONE', prompt, options, selected, disabled, onSelect, modifierControls }) => <section className="participant-input-card"><span className="participant-kicker">{kicker}</span><h2>{prompt}</h2>{modifierControls}<div className="participant-choice-list">{options.map((option, index) => <button key={index} className={selected === index ? 'selected' : ''} disabled={disabled} onClick={() => onSelect(index)}><span>{String.fromCharCode(65 + index)}</span>{textOf(option.value, textOf(option.label, textOf(option)))}</button>)}</div>{disabled && <small className="participant-saved-note">Your answer is locked in.</small>}</section>;
 
-const TextResponse: React.FC<{ prompt: string; text: string; setText: (value: string) => void; submit: (event: FormEvent) => void; disabled: boolean }> = ({ prompt, text, setText, submit, disabled }) => <section className="participant-input-card"><span className="participant-kicker">YOUR RESPONSE</span><h2>{prompt}</h2><form onSubmit={submit}><textarea maxLength={1000} value={text} onChange={event => setText(event.target.value)} placeholder="Type your answer…" disabled={disabled} /><button className="participant-primary-button" disabled={disabled || !text.trim()}>Send response</button></form>{disabled && <small className="participant-saved-note">Your response is locked in.</small>}</section>;
+const TextResponse: React.FC<{ prompt: string; text: string; setText: (value: string) => void; submit: (event: FormEvent) => void; disabled: boolean; inputType?: 'text' | 'number'; kicker?: string; placeholder?: string; submitLabel?: string; modifierControls?: React.ReactNode }> = ({ prompt, text, setText, submit, disabled, inputType = 'text', kicker = 'YOUR RESPONSE', placeholder = 'Type your answer…', submitLabel = 'Send response', modifierControls }) => <section className="participant-input-card"><span className="participant-kicker">{kicker}</span><h2>{prompt}</h2>{modifierControls}<form onSubmit={submit}>{inputType === 'number' ? <input className="participant-number-input" type="number" inputMode="decimal" step="any" value={text} onChange={event => setText(event.target.value)} placeholder={placeholder} disabled={disabled} /> : <textarea maxLength={1000} value={text} onChange={event => setText(event.target.value)} placeholder={placeholder} disabled={disabled} />}<button className="participant-primary-button" disabled={disabled || !text.trim()}>{submitLabel}</button></form>{disabled && <small className="participant-saved-note">Your response is locked in.</small>}</section>;
+
+const QuizModifierControls: React.FC<{ wagerEnabled: boolean; wager: string; setWager: (value: string) => void; maxWager: number; doubleOrNothingEnabled: boolean; doubleRisk: boolean; setDoubleRisk: (value: boolean) => void; speedBonusEnabled: boolean; livesEnabled: boolean }> = ({ wagerEnabled, wager, setWager, maxWager, doubleOrNothingEnabled, doubleRisk, setDoubleRisk, speedBonusEnabled, livesEnabled }) => <div className="participant-quiz-modifiers" aria-label="Quiz options">
+  {wagerEnabled && <label>Wager points<input type="number" min={0} max={maxWager} inputMode="numeric" value={wager} onChange={event => setWager(event.target.value)} placeholder={`0–${maxWager}`} /></label>}
+  {doubleOrNothingEnabled && <label className="checkbox-row"><input type="checkbox" checked={doubleRisk} onChange={event => setDoubleRisk(event.target.checked)} /> Risk it for double points</label>}
+  {speedBonusEnabled && <small>Fast correct answers earn a speed bonus.</small>}
+  {livesEnabled && <small>Misses cost a life.</small>}
+</div>;
 
 type DrawingStroke = { points: Array<[number, number]>; color: string; width: number };
 

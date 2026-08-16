@@ -58,7 +58,7 @@ export const QUIZ_PRESETS: ActivityPresetTemplate[] = [
       preset: 'finishTheQuote',
       presetLabel: 'FINISH THE QUOTE',
       title: 'Finish the Quote',
-      questions: [{ id: 'question-1', prompt: 'Finish this phrase: Better late than ____.', options: ['never', 'always', 'maybe'], correctIndex: 0 }]
+      questions: [{ id: 'question-1', prompt: 'Finish this phrase: Better late than ____.', answerMode: 'text', acceptedAnswers: ['never'], correctText: 'never' }]
     }
   },
   {
@@ -69,7 +69,7 @@ export const QUIZ_PRESETS: ActivityPresetTemplate[] = [
       preset: 'fillTheBlank',
       presetLabel: 'FILL THE BLANK',
       title: 'Fill the Blank',
-      questions: [{ id: 'question-1', prompt: 'A triangle has ____ sides.', options: ['2', '3', '4'], correctIndex: 1 }]
+      questions: [{ id: 'question-1', prompt: 'A triangle has ____ sides.', answerMode: 'text', acceptedAnswers: ['3'], correctText: '3' }]
     }
   },
   {
@@ -91,7 +91,7 @@ export const QUIZ_PRESETS: ActivityPresetTemplate[] = [
       preset: 'guessTheNumber',
       presetLabel: 'GUESS THE NUMBER',
       title: 'Guess the Number',
-      questions: [{ id: 'question-1', prompt: 'Which range contains the mystery number?', options: ['Under 10', '10–20', 'Over 20'], correctIndex: 1 }]
+      questions: [{ id: 'question-1', prompt: 'What is the mystery number?', answerMode: 'number', targetNumber: 42, tolerance: 0, scoringMode: 'exact', points: 100 }]
     }
   },
   {
@@ -112,10 +112,12 @@ export const QUIZ_PRESETS: ActivityPresetTemplate[] = [
   { id: 'beforeOrAfter', label: 'Before or After', description: 'Place a fact, event, or idea on the correct side of a reference point.', config: { preset: 'beforeOrAfter', presetLabel: 'BEFORE OR AFTER', title: 'Before or After', questions: [{ id: 'question-1', prompt: 'Did this happen before or after the reference event?', options: ['Before', 'After', 'At the same time'], correctIndex: 0 }] } },
   { id: 'whichCameFirst', label: 'Which Came First?', description: 'Compare two items and choose the earlier one.', config: { preset: 'whichCameFirst', presetLabel: 'WHICH CAME FIRST?', title: 'Which Came First?', questions: [{ id: 'question-1', prompt: 'Which came first?', options: ['Item A', 'Item B'], correctIndex: 0 }] } },
   { id: 'overUnder', label: 'Over / Under', description: 'Make a quick estimate relative to a teacher-defined number.', config: { preset: 'overUnder', presetLabel: 'OVER / UNDER', title: 'Over / Under', questions: [{ id: 'question-1', prompt: 'Is the value over or under the reference number?', options: ['Over', 'Under', 'Exactly equal'], correctIndex: 0 }] } },
-  { id: 'closestWithoutGoingOver', label: 'Closest Without Going Over', description: 'Choose the closest estimate that stays within the target.', config: { preset: 'closestWithoutGoingOver', presetLabel: 'CLOSEST WITHOUT GOING OVER', title: 'Closest Without Going Over', questions: [{ id: 'question-1', prompt: 'Which estimate is closest without going over?', options: ['Estimate A', 'Estimate B', 'Estimate C'], correctIndex: 1 }] } },
-  { id: 'priceIsWrong', label: 'The Price Is Wrong', description: 'Use an intentionally surprising estimate as a lesson-friendly number game.', config: { preset: 'priceIsWrong', presetLabel: 'THE PRICE IS WRONG', title: 'The Price Is Wrong', questions: [{ id: 'question-1', prompt: 'Which estimate is closest to the real value?', options: ['Estimate A', 'Estimate B', 'Estimate C'], correctIndex: 1 }] } },
+  { id: 'closestWithoutGoingOver', label: 'Closest Without Going Over', description: 'Let everyone submit a number; the closest valid guess wins the round.', config: { preset: 'closestWithoutGoingOver', presetLabel: 'CLOSEST WITHOUT GOING OVER', title: 'Closest Without Going Over', questions: [{ id: 'question-1', prompt: 'How many pages are in the book? Closest guess without going over wins.', answerMode: 'number', targetNumber: 100, scoringMode: 'closestWithoutGoingOver', points: 100 }] } },
+  { id: 'priceIsWrong', label: 'The Price Is Wrong', description: 'Use an intentionally surprising estimate as a lesson-friendly number game.', config: { preset: 'priceIsWrong', presetLabel: 'THE PRICE IS WRONG', title: 'The Price Is Wrong', questions: [{ id: 'question-1', prompt: 'What is the real price? Closest guess wins.', answerMode: 'number', targetNumber: 19.99, scoringMode: 'closest', points: 100 }] } },
   { id: 'definitelyReal', label: 'Definitely Real', description: 'Separate the authentic fact from teacher-authored decoys.', config: { preset: 'definitelyReal', presetLabel: 'DEFINITELY REAL', title: 'Definitely Real', questions: [{ id: 'question-1', prompt: 'Which statement is definitely real?', options: ['Statement A', 'Statement B', 'Statement C'], correctIndex: 0 }] } },
-  { id: 'thatCantBeRight', label: 'That Can’t Be Right', description: 'Spot the answer that breaks the rules of the topic.', config: { preset: 'thatCantBeRight', presetLabel: 'THAT CAN’T BE RIGHT', title: 'That Can’t Be Right', questions: [{ id: 'question-1', prompt: 'Which answer cannot be right?', options: ['Answer A', 'Answer B', 'Answer C'], correctIndex: 2 }] } }
+  { id: 'thatCantBeRight', label: 'That Can’t Be Right', description: 'Spot the answer that breaks the rules of the topic.', config: { preset: 'thatCantBeRight', presetLabel: 'THAT CAN’T BE RIGHT', title: 'That Can’t Be Right', questions: [{ id: 'question-1', prompt: 'Which answer cannot be right?', options: ['Answer A', 'Answer B', 'Answer C'], correctIndex: 2 }] } },
+  { id: 'wagerTrivia', label: 'Wager Trivia', description: 'Risk a few points before each answer for a bigger swing when you are right.', config: { preset: 'wagerTrivia', presetLabel: 'WAGER TRIVIA', title: 'Wager Trivia', modifiers: { wager: { enabled: true, maxPoints: 100, defaultPoints: 25 } }, questions: [{ id: 'question-1', prompt: 'Which planet is known as the Red Planet?', options: ['Venus', 'Mars', 'Jupiter'], correctIndex: 1, points: 100 }] } },
+  { id: 'survivorTrivia', label: 'Survivor Trivia', description: 'Keep answering while you still have lives; the last players standing reach the final reveal.', config: { preset: 'survivorTrivia', presetLabel: 'SURVIVOR TRIVIA', title: 'Survivor Trivia', modifiers: { lives: { enabled: true, startingLives: 3, eliminateAtZero: true } }, questions: [{ id: 'question-1', prompt: 'Which planet is known as the Red Planet?', options: ['Venus', 'Mars', 'Jupiter'], correctIndex: 1, points: 100 }] } }
 ];
 
 export const POLL_PRESETS: ActivityPresetTemplate[] = [
@@ -173,7 +175,7 @@ export const POLL_PRESETS: ActivityPresetTemplate[] = [
     description: 'Ask the group to identify the most delightfully terrible option.',
     config: { preset: 'worstChoicePossible', presetLabel: 'WORST CHOICE POSSIBLE', question: 'Which is the worst choice for a team mascot?', options: ['A sleepy turtle', 'A confused pigeon', 'A very loud alarm clock'] }
   },
-  { id: 'thisOrThatGauntlet', label: 'This or That Gauntlet', description: 'Run a sequence of quick two-choice decisions.', config: { preset: 'thisOrThatGauntlet', presetLabel: 'THIS OR THAT GAUNTLET', question: 'Which side wins this round?', options: ['This', 'That'] } },
+  { id: 'thisOrThatGauntlet', label: 'This or That Gauntlet', description: 'Run a sequence of quick two-choice decisions.', config: { preset: 'thisOrThatGauntlet', presetLabel: 'THIS OR THAT GAUNTLET', rounds: [{ id: 'round-1', question: 'Which is worse: being 30 minutes early or 5 minutes late?', options: ['30 minutes early', '5 minutes late'] }, { id: 'round-2', question: 'Which would you rather give up for a week?', options: ['Music', 'Dessert'] }, { id: 'round-3', question: 'Which wins a rainy afternoon?', options: ['A movie marathon', 'A board game'] }] } },
   { id: 'consensus', label: 'Consensus', description: 'Find the option the room can agree on before revealing the distribution.', config: { preset: 'consensus', presetLabel: 'CONSENSUS', question: 'Which choice could the room agree to?', options: ['Option A', 'Option B', 'Option C'] } },
   { id: 'oneOfUs', label: 'One of Us', description: 'Use the group’s own names or roles as poll choices.', config: { preset: 'oneOfUs', presetLabel: 'ONE OF US', question: 'Who best fits this prompt?', options: ['Person A', 'Person B', 'Person C'] } },
   { id: 'knowYourGroup', label: 'Know Your Group', description: 'Ask a question that reveals how well the room knows itself.', config: { preset: 'knowYourGroup', presetLabel: 'KNOW YOUR GROUP', question: 'Which answer best describes this group?', options: ['Option A', 'Option B', 'Option C', 'Option D'] } },
@@ -269,7 +271,7 @@ export const BUZZER_PRESETS: ActivityPresetTemplate[] = [
 ];
 
 export const PUNCHLINE_PRESETS: ActivityPresetTemplate[] = [
-  { id: 'punchline', label: 'Punchline', description: 'Finish a prompt with the funniest answer you can.', config: { preset: 'punchline', presetLabel: 'PUNCHLINE', title: 'Punchline', prompts: [{ id: 'prompt-1', prompt: 'The worst possible school mascot would be ______.', points: 100 }], requireModeration: true, votingSeconds: 30 } },
+  { id: 'punchline', label: 'Punchline', description: 'Finish a prompt with the funniest answer you can.', config: { preset: 'punchline', presetLabel: 'PUNCHLINE', title: 'Punchline', prompts: [{ id: 'prompt-1', prompt: 'The worst possible school mascot would be ______.', points: 100 }], requireModeration: true, votingSeconds: 30, votingStyle: 'gallery', headToHeadMatchPoints: 0 } },
   { id: 'captionThis', label: 'Caption This', description: 'Write a caption for a teacher-selected image or scene.', config: { preset: 'captionThis', presetLabel: 'CAPTION THIS', title: 'Caption This', prompts: [{ id: 'prompt-1', prompt: 'Write the caption this picture deserves.', points: 100 }], requireModeration: true, votingSeconds: 30 } },
   { id: 'autocomplete', label: 'Autocomplete', description: 'Complete a sentence in the most surprising way.', config: { preset: 'autocomplete', presetLabel: 'AUTOCOMPLETE', title: 'Autocomplete', prompts: [{ id: 'prompt-1', prompt: 'I knew it was going to be a long day when ______.', points: 100 }], requireModeration: true, votingSeconds: 30 } },
   { id: 'badAdvice', label: 'Bad Advice', description: 'Give the least helpful answer to a very real problem.', config: { preset: 'badAdvice', presetLabel: 'BAD ADVICE', title: 'Bad Advice', prompts: [{ id: 'prompt-1', prompt: 'What is the worst advice for someone who forgot their homework?', points: 100 }], requireModeration: true, votingSeconds: 30 } },

@@ -107,6 +107,10 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
         modelBuilder.Entity<Activities.ActivityDefinition>().HasIndex(x => x.LibraryPosition);
         modelBuilder.Entity<Activities.ActivityDefinition>().HasMany(x => x.Assets).WithOne(x => x.ActivityDefinition)
             .HasForeignKey(x => x.ActivityDefinitionId).OnDelete(DeleteBehavior.Cascade);
+        // Activity assets keep their record when media is soft-deleted. Match
+        // the MediaAsset filter so Includes do not turn the required
+        // relationship into an unexpected inner join.
+        modelBuilder.Entity<Activities.ActivityAsset>().HasQueryFilter(x => x.Media != null && x.Media.DeletedAt == null);
         modelBuilder.Entity<Activities.ActivityRun>().HasIndex(x => new { x.ActivityDefinitionId, x.LessonId });
         modelBuilder.Entity<Activities.ActivityRun>().HasIndex(x => x.LessonItemId);
         modelBuilder.Entity<Activities.ActivityRun>().HasOne(x => x.ActivityDefinition).WithMany()

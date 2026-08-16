@@ -4,6 +4,7 @@ import type { ActivityStateEnvelope } from '../../types';
 import { ActivityApi } from '../../api';
 import { ActivityRevealCurtain, ActivityWinnerBanner } from '../../ActivityMotion';
 import { ActivityLeaderboard } from '../../ActivityLeaderboard';
+import { EmbeddedUtilityEditor } from './InteractiveGames';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -113,14 +114,39 @@ export const BracketDisplay: React.FC<ActivityComponentProps> = ({ envelope }) =
 
 export const BracketController: React.FC<ActivityComponentProps> = ({ envelope, onCommandSent }) => {
   const state = stateOf(envelope);
-  const current = state.currentMatch && typeof state.currentMatch === 'object' ? state.currentMatch as JsonRecord : null;
+  const config = configOf(envelope);
+  const entrants = listOf(state.bracketEntrants).length ? listOf(state.bracketEntrants) : listOf(config.entrants);
+  const rawCurrent = state.currentMatch && typeof state.currentMatch === 'object'
+    ? state.currentMatch as JsonRecord
+    : listOf(state.matchups).find(match => stringOf(match.id) === stringOf(state.currentMatchId));
+  const entrantLabel = (id: unknown, fallback: string) => stringOf(entrants.find(entrant => stringOf(entrant.id) === stringOf(id))?.label, fallback);
+  const current: JsonRecord | null = rawCurrent ? {
+    ...rawCurrent,
+    entrantA: stringOf(rawCurrent.entrantA, entrantLabel(rawCurrent.entrantAId, 'Entrant A')),
+    entrantB: stringOf(rawCurrent.entrantB, entrantLabel(rawCurrent.entrantBId, 'Entrant B'))
+  } : null;
   const [busy, setBusy] = useState(false);
+  const [sourceRunId, setSourceRunId] = useState('');
+  const [handoffMessage, setHandoffMessage] = useState('');
   const send = async (action: string, payload?: JsonRecord) => {
     setBusy(true);
     try { await ActivityApi.executeCommand(envelope.runId, { action, payload }); onCommandSent?.(); }
     finally { setBusy(false); }
   };
+  const importFinalists = async () => {
+    if (!sourceRunId.trim()) return;
+    setBusy(true);
+    setHandoffMessage('');
+    try {
+      const result = await ActivityApi.importBracketFinalists(envelope.runId, sourceRunId.trim());
+      setHandoffMessage(`${result.imported} finalists imported. The bracket is ready to start.`);
+      onCommandSent?.();
+    } catch (error) {
+      setHandoffMessage(`Could not import finalists: ${(error as Error).message}`);
+    } finally { setBusy(false); }
+  };
   const status = stringOf(current?.status, 'pending');
+  const phase = stringOf(state.phase, 'lobby');
   const aId = stringOf(current?.entrantAId);
   const bId = stringOf(current?.entrantBId);
   const aLabel = stringOf(current?.entrantA, 'Entrant A');
@@ -140,6 +166,7 @@ export const BracketController: React.FC<ActivityComponentProps> = ({ envelope, 
       <button type="button" className="act-btn act-btn-secondary" disabled={busy} onClick={() => void send('showbracket')}>Show bracket</button>
       <button type="button" className="act-btn act-btn-danger" disabled={busy} onClick={() => void send('finish')}>End tournament</button>
     </div>
+    <div className="act-ctrl-card bracket-handoff-card"><strong>Import finalists from another activity</strong><small>Paste the completed source run ID to bring its top players or teams into this bracket. The target roster is used when names match.</small><div className="activity-editor-row"><input value={sourceRunId} onChange={event => setSourceRunId(event.target.value)} placeholder="Source activity run ID" aria-label="Source activity run ID" /><button type="button" className="act-btn act-btn-secondary" disabled={busy || phase !== 'lobby' || !sourceRunId.trim()} onClick={() => void importFinalists()}>Import finalists</button></div>{handoffMessage && <span className="muted" role="status">{handoffMessage}</span>}</div>
     {current && <div className="act-ctrl-card bracket-controller-match"><span className="interactive-round-label">CURRENT MATCHUP</span><strong>{aLabel} <em>vs</em> {bLabel || 'BYE'}</strong><small>{status === 'open' ? 'Voting is open.' : status === 'complete' ? 'Winner selected. Advance when ready.' : 'Waiting for the host to open this matchup.'}</small></div>}
   </div>;
 };
@@ -148,6 +175,7 @@ export const BracketEditor: React.FC<ActivityEditorProps> = ({ config, onChange 
   const selectedPreset = stringOf(config.preset, 'bracketBattle');
   const entrants = listOf(config.entrants);
   const entrantSource = stringOf(config.entrantSource, 'teacher');
+  const entrantSelection = stringOf(config.entrantSelection, 'all');
   const updateEntrants = (next: JsonRecord[]) => onChange({ ...config, entrants: next });
   const applyPreset = () => {
     const factory = BRACKET_PRESETS[selectedPreset] || BRACKET_PRESETS.bracketBattle;
@@ -164,11 +192,14 @@ export const BracketEditor: React.FC<ActivityEditorProps> = ({ config, onChange 
     </div>
     <label>Title<input value={stringOf(config.title)} onChange={event => onChange({ ...config, title: event.target.value })} /></label>
     <label>Entrants come from<select value={entrantSource} onChange={event => onChange({ ...config, entrantSource: event.target.value })}><option value="teacher">Teacher-entered list</option><option value="participants">Joined participants</option><option value="teams">Live teams</option></select></label>
+    <label>Roster selection<select value={entrantSelection} onChange={event => onChange({ ...config, entrantSelection: event.target.value })}><option value="all">Use everyone in the roster</option><option value="random">Randomly draw a roster at start</option></select></label>
+    {entrantSelection === 'random' && <label>Random roster size<input type="number" min={2} max={32} value={numberOf(config.randomEntrantCount, Math.max(2, Math.min(8, entrants.length || 8)))} onChange={event => onChange({ ...config, randomEntrantCount: Math.max(2, Math.min(32, Number(event.target.value) || 2)) })} /><small className="muted">The server draws this many entrants once when the tournament starts.</small></label>}
     <label>Points per win<input type="number" min={0} max={1000} value={numberOf(config.pointsPerWin, 0)} onChange={event => onChange({ ...config, pointsPerWin: Number(event.target.value) || 0 })} /></label>
     {entrantSource === 'teacher' ? <>
       <p className="muted">Teacher-entered entrants can be people, teams, ideas, drawings, or finalists from another activity. Dynamic participant/team sources are seeded when the host starts.</p>
       {entrants.map((entrant, index) => <div className="activity-editor-row bracket-editor-row" key={stringOf(entrant.id, String(index))}><strong>{index + 1}</strong><input value={stringOf(entrant.label)} aria-label={`Entrant ${index + 1}`} placeholder={`Entrant ${index + 1}`} onChange={event => { const next = [...entrants]; next[index] = { ...entrant, label: event.target.value }; updateEntrants(next); }} /><button type="button" className="button danger" disabled={entrants.length <= 2} onClick={() => updateEntrants(entrants.filter((_, itemIndex) => itemIndex !== index))}>Remove</button></div>)}
       <button type="button" className="button" disabled={entrants.length >= 32} onClick={() => updateEntrants([...entrants, { id: `entrant-${Date.now()}`, label: `Entrant ${entrants.length + 1}` }])}>+ Add entrant</button>
     </> : <div className="activity-editor-callout"><strong>Live roster mode</strong><span>The host must have at least two active {entrantSource} before starting. The bracket will use their live names and IDs.</span></div>}
+    <EmbeddedUtilityEditor config={config} onChange={onChange} />
   </div>;
 };

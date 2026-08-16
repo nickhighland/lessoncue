@@ -8,7 +8,8 @@ import type {
   ActivityRunCreateInput,
   ActivitySessionPublicView,
   ActivityParticipantView,
-  ActivityHostView
+  ActivityHostView,
+  ActivityDefinitionPage
 } from './types';
 
 export class ActivityApi {
@@ -18,6 +19,14 @@ export class ActivityApi {
     if (search) params.set('search', search);
     if (includeArchived) params.set('includeArchived', 'true');
     return api<ActivityDefinition[]>(`/api/v1/activities?${params.toString()}`);
+  }
+
+  static async listActivityPage(type?: string, search?: string, includeArchived?: boolean, page = 1, pageSize = 100): Promise<ActivityDefinitionPage> {
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+    if (type) params.set('type', type);
+    if (search) params.set('search', search);
+    if (includeArchived) params.set('includeArchived', 'true');
+    return api<ActivityDefinitionPage>(`/api/v1/activities/library?${params.toString()}`);
   }
 
   static async getActivity(id: string): Promise<ActivityDefinition> {
@@ -150,6 +159,13 @@ export class ActivityApi {
 
   static async assignParticipantTeam(runId: string, participantId: string, teamId?: string | null): Promise<void> {
     return api<void>(`/api/v1/activity-sessions/${runId}/participants/team`, { method: 'POST', body: JSON.stringify({ participantId, teamId: teamId || null }) });
+  }
+
+  static async importBracketFinalists(runId: string, sourceRunId: string, limit?: number): Promise<{ imported: number; sourceRunId: string }> {
+    return api<{ imported: number; sourceRunId: string }>(`/api/v1/activity-sessions/${runId}/bracket-finalists`, {
+      method: 'POST',
+      body: JSON.stringify({ sourceRunId, limit: limit || null })
+    });
   }
 }
 

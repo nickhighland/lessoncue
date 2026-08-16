@@ -180,6 +180,29 @@ public sealed class ActivityServiceTests
     }
 
     [Fact]
+    public async Task ActivityLibraryCanReturnBoundedPagesWithServerSideSearch()
+    {
+        var (db, service, conn) = await CreateTestServiceAsync();
+        await using (conn)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            await service.CreateDefinitionAsync(new ActivityDefinitionInput("Paged Alpha", ActivityTypes.Trivia, Description: "Large library test"), "teacher", ct);
+            await service.CreateDefinitionAsync(new ActivityDefinitionInput("Paged Beta", ActivityTypes.Trivia, Description: "Large library test"), "teacher", ct);
+            await service.CreateDefinitionAsync(new ActivityDefinitionInput("Other Activity", ActivityTypes.Trivia), "teacher", ct);
+
+            var firstPage = await service.ListDefinitionsPageAsync(search: "Paged", page: 1, pageSize: 1, ct: ct);
+            Assert.Equal(2, firstPage.TotalCount);
+            Assert.Single(firstPage.Items);
+            Assert.Equal(1, firstPage.Page);
+            Assert.Equal(1, firstPage.PageSize);
+            var secondPage = await service.ListDefinitionsPageAsync(search: "Paged", page: 2, pageSize: 1, ct: ct);
+            Assert.Single(secondPage.Items);
+            Assert.NotEqual(firstPage.Items[0].Id, secondPage.Items[0].Id);
+        }
+    }
+
+    [Fact]
     public async Task WheelReducer_WeightedSelectionAndZeroWeightExcluded()
     {
         var deterministicRandom = new DeterministicRandomSource(42);

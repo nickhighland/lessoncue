@@ -173,7 +173,7 @@ public static class LessonScheduleService
     private static async Task<Lesson> InstantiateLoadedAsync(LessonCueDb db, LessonTemplate template, Guid classId,
         DateOnly date, string? title, int? startMinutes, Guid? scheduleId, string actor, CancellationToken ct, bool save = true)
     {
-        var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+        var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
         var start = LocalDateTime(date, startMinutes ?? template.DefaultStartMinutes, organization.TimeZone);
         var lesson = new Lesson
         {

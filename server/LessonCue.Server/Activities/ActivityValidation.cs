@@ -75,6 +75,8 @@ public static class ActivityValidation
 
                 case ActivityTypes.Trivia:
                 {
+                    var modifierError = ValidateQuizModifiers(doc.RootElement, "Trivia");
+                    if (modifierError is not null) return modifierError;
                     var config = JsonSerializer.Deserialize<TriviaActivity.Config>(configJson, ActivityJsonDefaults.Options);
                     if (config?.Questions != null && config.Questions.Count is < 1 or > 100)
                         return "Trivia must contain between 1 and 100 questions.";
@@ -82,11 +84,35 @@ public static class ActivityValidation
                     {
                         foreach (var question in config.Questions)
                         {
-                            var optionCount = question.Options?.Count ?? 0;
-                            if (optionCount is < 2 or > 8)
-                                return "Trivia questions must have between 2 and 8 choices.";
-                            if (question.CorrectIndex < 0 || question.CorrectIndex >= optionCount)
-                                return "Trivia question correct answers must point to an existing choice.";
+                            var answerMode = (question.AnswerMode ?? "choice").Trim().ToLowerInvariant();
+                            if (answerMode == "choice")
+                            {
+                                var optionCount = question.Options?.Count ?? 0;
+                                if (optionCount is < 2 or > 8)
+                                    return "Trivia questions must have between 2 and 8 choices.";
+                                if (!question.CorrectIndex.HasValue || question.CorrectIndex.Value < 0 || question.CorrectIndex.Value >= optionCount)
+                                    return "Trivia question correct answers must point to an existing choice.";
+                            }
+                            else if (answerMode == "text" || answerMode == "shorttext")
+                            {
+                                var answerCount = question.AcceptedAnswers?.Count(answer => !string.IsNullOrWhiteSpace(answer)) ?? 0;
+                                if (answerCount == 0 && string.IsNullOrWhiteSpace(question.CorrectText))
+                                    return "Short-answer trivia questions must include at least one accepted answer.";
+                                if (answerCount > 20) return "Short-answer trivia questions may contain at most 20 accepted answers.";
+                            }
+                            else if (answerMode == "number")
+                            {
+                                if (!question.TargetNumber.HasValue || !double.IsFinite(question.TargetNumber.Value))
+                                    return "Number trivia questions must include a finite target number.";
+                                if (question.Tolerance.HasValue && (!double.IsFinite(question.Tolerance.Value) || question.Tolerance.Value < 0))
+                                    return "Number trivia tolerance must be zero or greater.";
+                                if (!string.IsNullOrWhiteSpace(question.ScoringMode) && !new[] { "exact", "closest", "closestWithoutGoingOver" }.Contains(question.ScoringMode.Trim(), StringComparer.OrdinalIgnoreCase))
+                                    return "Number trivia scoring mode is invalid.";
+                            }
+                            else
+                            {
+                                return "Trivia answer mode must be choice, text, or number.";
+                            }
                         }
                     }
                     break;
@@ -94,6 +120,8 @@ public static class ActivityValidation
 
                 case ActivityTypes.RapidFire:
                 {
+                    var modifierError = ValidateQuizModifiers(doc.RootElement, "Rapid Fire");
+                    if (modifierError is not null) return modifierError;
                     var config = JsonSerializer.Deserialize<RapidFireActivity.Config>(configJson, ActivityJsonDefaults.Options);
                     if (config?.Questions != null && config.Questions.Count is < 1 or > 100)
                         return "Rapid Fire must contain between 1 and 100 questions.";
@@ -158,6 +186,17 @@ public static class ActivityValidation
                         if (options.ValueKind != JsonValueKind.Array || options.GetArrayLength() is < 2 or > 8)
                             return $"{type} choices must contain between 2 and 8 entries.";
                     }
+                    if (audience.RootElement.TryGetProperty("rounds", out var rounds))
+                    {
+                        if (rounds.ValueKind != JsonValueKind.Array || rounds.GetArrayLength() is < 1 or > 100)
+                            return $"{type} must contain between 1 and 100 rounds.";
+                        foreach (var round in rounds.EnumerateArray())
+                        {
+                            if (round.ValueKind != JsonValueKind.Object || !round.TryGetProperty("options", out var roundOptions) ||
+                                roundOptions.ValueKind != JsonValueKind.Array || roundOptions.GetArrayLength() is < 2 or > 8)
+                                return $"{type} rounds must have between 2 and 8 choices.";
+                        }
+                    }
                     break;
                 }
 
@@ -166,6 +205,13 @@ public static class ActivityValidation
                     using var buzzer = JsonDocument.Parse(configJson);
                     if (buzzer.RootElement.TryGetProperty("clues", out var clues) && clues.ValueKind == JsonValueKind.Array && clues.GetArrayLength() is < 1 or > 100)
                         return "Buzzer Battle must contain between 1 and 100 clues.";
+                    foreach (var property in new[] { "wrongPenalty" })
+                        if (buzzer.RootElement.TryGetProperty(property, out var penalty) && (!penalty.TryGetInt32(out var amount) || amount is < 0 or > 10000))
+                            return "Buzzer penalties must be between 0 and 10,000.";
+                    if (buzzer.RootElement.TryGetProperty("clues", out var clueValues) && clueValues.ValueKind == JsonValueKind.Array)
+                        foreach (var clue in clueValues.EnumerateArray())
+                            if (clue.ValueKind == JsonValueKind.Object && clue.TryGetProperty("points", out var points) && (!points.TryGetInt32(out var value) || value is < 0 or > 10000))
+                                return "Buzzer clue points must be between 0 and 10,000.";
                     break;
                 }
 
@@ -174,6 +220,10 @@ public static class ActivityValidation
                     using var punchline = JsonDocument.Parse(configJson);
                     if (punchline.RootElement.TryGetProperty("prompts", out var prompts) && prompts.ValueKind == JsonValueKind.Array && prompts.GetArrayLength() is < 1 or > 100)
                         return "Punchline must contain between 1 and 100 prompts.";
+                    if (punchline.RootElement.TryGetProperty("votingStyle", out var votingStyle) && votingStyle.ValueKind == JsonValueKind.String && !new[] { "gallery", "headToHead" }.Contains(votingStyle.GetString(), StringComparer.OrdinalIgnoreCase))
+                        return "Punchline voting style must be gallery or head-to-head.";
+                    if (punchline.RootElement.TryGetProperty("headToHeadMatchPoints", out var matchPoints) && (!matchPoints.TryGetInt32(out var points) || points is < 0 or > 10_000))
+                        return "Punchline matchup points must be between 0 and 10,000.";
                     break;
                 }
 
@@ -182,6 +232,9 @@ public static class ActivityValidation
                     using var fakeOut = JsonDocument.Parse(configJson);
                     if (fakeOut.RootElement.TryGetProperty("rounds", out var rounds) && rounds.ValueKind == JsonValueKind.Array && rounds.GetArrayLength() is < 1 or > 100)
                         return "Fake Out must contain between 1 and 100 rounds.";
+                    foreach (var property in new[] { "truthPoints", "bluffPoints", "hostFavoritePoints" })
+                        if (fakeOut.RootElement.TryGetProperty(property, out var points) && (!points.TryGetInt32(out var value) || value is < 0 or > 10000))
+                            return "Fake Out scoring values must be between 0 and 10,000.";
                     break;
                 }
 
@@ -246,6 +299,12 @@ public static class ActivityValidation
                         ? sourceElement.GetString()
                         : "teacher";
                     if (source is not ("teacher" or "participants" or "teams")) return "Bracket entrant source must be teacher, participants, or teams.";
+                    var selection = bracket.RootElement.TryGetProperty("entrantSelection", out var selectionElement) && selectionElement.ValueKind == JsonValueKind.String
+                        ? selectionElement.GetString()
+                        : "all";
+                    if (selection is not ("all" or "random")) return "Bracket entrant selection must be all or random.";
+                    if (bracket.RootElement.TryGetProperty("randomEntrantCount", out var randomCount) && (!randomCount.TryGetInt32(out var count) || count is < 2 or > 32))
+                        return "Random bracket rosters must contain between 2 and 32 entrants.";
                     if (!bracket.RootElement.TryGetProperty("entrants", out var entrants) || entrants.ValueKind != JsonValueKind.Array)
                     {
                         if (source == "teacher") return "Bracket Battle needs at least two entrants.";
@@ -334,6 +393,35 @@ public static class ActivityValidation
         catch (JsonException ex)
         {
             return $"Malformed Config JSON: {ex.Message}";
+        }
+
+        return null;
+    }
+
+    private static string? ValidateQuizModifiers(JsonElement root, string label)
+    {
+        if (!root.TryGetProperty("modifiers", out var modifiers) || modifiers.ValueKind != JsonValueKind.Object) return null;
+
+        if (modifiers.TryGetProperty("wager", out var wager) && wager.ValueKind == JsonValueKind.Object)
+        {
+            var max = wager.TryGetProperty("maxPoints", out var maxElement) && maxElement.TryGetInt32(out var maxValue) ? maxValue : 500;
+            var defaultValue = wager.TryGetProperty("defaultPoints", out var defaultElement) && defaultElement.TryGetInt32(out var defaultPoints) ? defaultPoints : 0;
+            if (max is < 0 or > 10_000 || defaultValue is < 0 || defaultValue > max)
+                return $"{label} wager points must be between 0 and 10,000, with the default no higher than the maximum.";
+        }
+
+        if (modifiers.TryGetProperty("speedBonus", out var speed) && speed.ValueKind == JsonValueKind.Object)
+        {
+            var max = speed.TryGetProperty("maxPoints", out var maxElement) && maxElement.TryGetInt32(out var maxValue) ? maxValue : 50;
+            var window = speed.TryGetProperty("windowSeconds", out var windowElement) && windowElement.TryGetInt32(out var windowValue) ? windowValue : 20;
+            if (max is < 0 or > 2_000 || window is < 1 or > 600)
+                return $"{label} speed bonuses must be at most 2,000 points and use a 1–600 second window.";
+        }
+
+        if (modifiers.TryGetProperty("lives", out var lives) && lives.ValueKind == JsonValueKind.Object)
+        {
+            var startingLives = lives.TryGetProperty("startingLives", out var livesElement) && livesElement.TryGetInt32(out var lifeValue) ? lifeValue : 3;
+            if (startingLives is < 1 or > 9) return $"{label} must start with between 1 and 9 lives.";
         }
 
         return null;

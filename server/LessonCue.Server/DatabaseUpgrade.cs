@@ -641,7 +641,7 @@ public static class DatabaseUpgrade
             "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_Lessons_GeneratedByScheduleId_Date\" ON \"Lessons\" (\"GeneratedByScheduleId\", \"Date\");",
             cancellationToken);
 
-        var organization = await db.Organizations.FirstOrDefaultAsync(cancellationToken);
+        var organization = await db.Organizations.OrderBy(item => item.Id).FirstOrDefaultAsync(cancellationToken);
         if (organization is not null)
         {
             var current = MediaTaxonomy.Read(organization);

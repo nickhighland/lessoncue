@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using LessonCue.Server.Activities;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.Sqlite;
@@ -138,6 +139,43 @@ public sealed class ActivitySessionServiceTests
             Assert.True(firstBuzz.Success);
             Assert.False(secondBuzz.Success);
             Assert.Contains("closed", secondBuzz.Error ?? "", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task BuzzerSupportsDecliningClueValuesAndAnOptionalStealWindow()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Clue Ladder", ActivityTypes.Buzzer, Config: JsonDocument.Parse("""
+                {"title":"Clue Ladder","clues":[{"id":"c1","prompt":"Broad clue","answer":"Answer","points":300},{"id":"c2","prompt":"Specific clue","answer":"Answer","points":200}],"lockOutOnMiss":true,"stealOnMiss":false}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            var first = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "First"), TestContext.Current.CancellationToken);
+            var second = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Second"), TestContext.Current.CancellationToken);
+
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "revealclue"), TestContext.Current.CancellationToken);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(first.Token, "buzz"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "correct"), TestContext.Current.CancellationToken)).Success);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "next"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "revealclue"), TestContext.Current.CancellationToken);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(first.Token, "buzz"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "incorrect"), TestContext.Current.CancellationToken)).Success);
+
+            var noSteal = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(second.Token, "buzz"), TestContext.Current.CancellationToken);
+            Assert.False(noSteal.Success);
+            Assert.Equal(ActivityPhases.Reveal, JsonSerializer.Deserialize<JsonObject>(JsonSerializer.Serialize((await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken))!.State.State, ActivityJsonDefaults.Options))!["phase"]?.GetValue<string>());
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "opensteal"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(second.Token, "buzz"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "correct"), TestContext.Current.CancellationToken)).Success);
+
+            var host = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            var scoreJson = JsonSerializer.Serialize(host!.ScoreEvents, ActivityJsonDefaults.Options);
+            Assert.Contains("\"amount\":300", scoreJson, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("\"amount\":200", scoreJson, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -295,6 +333,40 @@ public sealed class ActivitySessionServiceTests
             Assert.Contains("\"isTruth\":true", JsonSerializer.Serialize(displayAfterReveal!.State, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase);
             var hostAfterReveal = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
             Assert.Contains("\"amount\":100", JsonSerializer.Serialize(hostAfterReveal!.ScoreEvents, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task FakeOutCanAwardHostFavoritePointsAndRevealAuthorsOnlyAfterReveal()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Fake Out Favorite", ActivityTypes.FakeOut, Config: JsonDocument.Parse("""
+                {"title":"Fake Out","rounds":[{"id":"r1","prompt":"Which statement is true?","truth":"A real answer"}],"requireModeration":false,"truthPoints":100,"bluffPoints":50,"hostFavoritePoints":25,"revealAuthors":true}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            var writer = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Bluffer"), TestContext.Current.CancellationToken);
+            var finder = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Finder"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(writer.Token, "submit", JsonDocument.Parse("{\"text\":\"A convincing fake\"}").RootElement), TestContext.Current.CancellationToken)).Success);
+            var hostBeforeVote = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            var submission = Assert.Single(hostBeforeVote!.Submissions);
+            var submissionId = submission.GetType().GetProperty("id")!.GetValue(submission)!.ToString();
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "openvoting"), TestContext.Current.CancellationToken);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(finder.Token, "vote", JsonDocument.Parse("{\"targetId\":\"truth\"}").RootElement), TestContext.Current.CancellationToken)).Success);
+            var beforeReveal = JsonSerializer.Serialize((await sessions.GetDisplayEnvelopeAsync(run.Id, TestContext.Current.CancellationToken))!.State, ActivityJsonDefaults.Options);
+            Assert.DoesNotContain("Bluffer", beforeReveal, StringComparison.Ordinal);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "hostfavorite", JsonDocument.Parse($"{{\"submissionId\":\"{submissionId}\"}}").RootElement), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "reveal"), TestContext.Current.CancellationToken)).Success);
+            var afterReveal = JsonSerializer.Serialize((await sessions.GetDisplayEnvelopeAsync(run.Id, TestContext.Current.CancellationToken))!.State, ActivityJsonDefaults.Options);
+            Assert.Contains("Bluffer", afterReveal, StringComparison.Ordinal);
+            var hostAfterReveal = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            var scoreJson = JsonSerializer.Serialize(hostAfterReveal!.ScoreEvents, ActivityJsonDefaults.Options);
+            Assert.Contains("\"amount\":100", scoreJson, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("\"amount\":25", scoreJson, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -916,6 +988,214 @@ public sealed class ActivitySessionServiceTests
 
             var invalid = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "generateteams", JsonDocument.Parse("{\"assignmentMode\":\"surprise\"}").RootElement), TestContext.Current.CancellationToken);
             Assert.False(invalid.Success);
+        }
+    }
+
+    [Fact]
+    public async Task QuizModifiersApplyServerWagersDoubleOrNothingAndLives()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Modifier Quiz", ActivityTypes.Trivia, Config: JsonDocument.Parse("""
+                {
+                  "title":"Modifier Quiz",
+                  "questions":[
+                    {"id":"q1","prompt":"Choose A","options":["A","B"],"correctIndex":0,"points":100},
+                    {"id":"q2","prompt":"Choose B","options":["A","B"],"correctIndex":1,"points":100}
+                  ],
+                  "modifiers":{
+                    "wager":{"enabled":true,"maxPoints":50,"defaultPoints":0},
+                    "speedBonus":{"enabled":false,"maxPoints":10,"windowSeconds":20},
+                    "lives":{"enabled":true,"startingLives":2,"eliminateAtZero":true},
+                    "doubleOrNothing":{"enabled":true}
+                  }
+                }
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            var joined = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Risk Taker"), TestContext.Current.CancellationToken);
+
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken)).Success);
+            var wrong = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(joined.Token, "answer", JsonDocument.Parse("""{"optionIndex":1,"wager":20,"doubleOrNothing":true}""").RootElement), TestContext.Current.CancellationToken);
+            Assert.True(wrong.Success, wrong.Error);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "reveal"), TestContext.Current.CancellationToken)).Success);
+
+            var afterWrong = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            Assert.Equal(1, afterWrong!.Participants.Single().GetType().GetProperty("lives")!.GetValue(afterWrong.Participants.Single()));
+            var wrongScores = await db.ActivityScoreEvents.Where(score => score.ActivityRunId == run.Id).ToListAsync(TestContext.Current.CancellationToken);
+            Assert.Contains(wrongScores, score => score.Amount == -100);
+            Assert.Contains(wrongScores, score => score.Amount == -20);
+
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "next"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken)).Success);
+            var correct = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(joined.Token, "answer", JsonDocument.Parse("""{"optionIndex":1,"wager":20,"doubleOrNothing":true}""").RootElement), TestContext.Current.CancellationToken);
+            Assert.True(correct.Success, correct.Error);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "reveal"), TestContext.Current.CancellationToken)).Success);
+
+            var afterCorrect = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            var allScores = await db.ActivityScoreEvents.Where(score => score.ActivityRunId == run.Id).ToListAsync(TestContext.Current.CancellationToken);
+            Assert.Contains(allScores, score => score.Amount == 240);
+            Assert.Equal(120, allScores.Where(score => score.ParticipantId == joined.Participant!.Id).Sum(score => score.Amount));
+            var participantView = await sessions.GetParticipantViewAsync(run.Id, joined.Token, TestContext.Current.CancellationToken);
+            Assert.Contains("myLives", JsonSerializer.Serialize(participantView!.State.State, ActivityJsonDefaults.Options), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task RapidFireUsesTheSharedServerTimerAndQuizScoringPath()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Rapid Fire", ActivityTypes.RapidFire, Config: JsonDocument.Parse("""
+                {"title":"Rapid Fire","questions":[{"id":"q1","prompt":"Pick B","options":["A","B"],"correctIndex":1,"points":80,"timerSeconds":5}],"modifiers":{"speedBonus":{"enabled":false}}}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            var joined = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Fast Player"), TestContext.Current.CancellationToken);
+            var started = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken);
+            Assert.True(started.Success, started.Error);
+            var startedState = JsonSerializer.SerializeToElement(started.State, ActivityJsonDefaults.Options);
+            Assert.True(startedState.GetProperty("isRunning").GetBoolean());
+            Assert.InRange(startedState.GetProperty("remainingMs").GetInt32(), 4500, 5000);
+            Assert.True(startedState.TryGetProperty("targetAt", out _));
+
+            var answer = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(joined.Token, "answer", JsonDocument.Parse("""{"optionIndex":1}""").RootElement), TestContext.Current.CancellationToken);
+            Assert.True(answer.Success, answer.Error);
+            var revealed = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "reveal"), TestContext.Current.CancellationToken);
+            Assert.True(revealed.Success, revealed.Error);
+            var host = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            var scores = await db.ActivityScoreEvents.Where(score => score.ActivityRunId == run.Id).ToListAsync(TestContext.Current.CancellationToken);
+            Assert.Contains(scores, score => score.Amount == 80 && score.ParticipantId == joined.Participant!.Id);
+            var revealedState = JsonSerializer.SerializeToElement(revealed.State, ActivityJsonDefaults.Options);
+            Assert.False(revealedState.GetProperty("isRunning").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, revealedState.GetProperty("targetAt").ValueKind);
+        }
+    }
+
+    [Fact]
+    public async Task CreativeHeadToHeadPairsApprovedResponsesAndAwardsMatchAndChampionPoints()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Head-to-Head Punchline", ActivityTypes.Punchline, Config: JsonDocument.Parse("""
+                {"title":"Head-to-Head Punchline","votingStyle":"headToHead","headToHeadMatchPoints":25,"requireModeration":false,"prompts":[{"id":"p1","prompt":"The worst mascot would be...","points":100}]}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            var first = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "First Writer"), TestContext.Current.CancellationToken);
+            var second = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Second Writer"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(first.Token, "submit", JsonDocument.Parse("""{"text":"A surprisingly tiny mascot"}""").RootElement), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(second.Token, "submit", JsonDocument.Parse("""{"text":"A mascot that only says homework"}""").RootElement), TestContext.Current.CancellationToken)).Success);
+
+            var openVoting = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "openvoting"), TestContext.Current.CancellationToken);
+            Assert.True(openVoting.Success, openVoting.Error);
+            var matchState = JsonSerializer.SerializeToElement(openVoting.State, ActivityJsonDefaults.Options);
+            Assert.Equal("voting", matchState.GetProperty("phase").GetString());
+            Assert.Equal("open", matchState.GetProperty("creativeMatches")[0].GetProperty("status").GetString());
+            var submissions = (await db.ActivitySubmissions.Where(item => item.ActivityRunId == run.Id).ToListAsync(TestContext.Current.CancellationToken)).OrderBy(item => item.SubmittedAt).ToList();
+            var firstSubmissionId = submissions[0].Id.ToString();
+            var secondSubmissionId = submissions[1].Id.ToString();
+            var participantView = await sessions.GetParticipantViewAsync(run.Id, first.Token, TestContext.Current.CancellationToken);
+            var participantState = JsonSerializer.SerializeToElement(participantView!.State.State, ActivityJsonDefaults.Options);
+            Assert.Contains("A surprisingly tiny mascot", participantState.GetProperty("creativeCurrentMatch").GetProperty("entrantA").GetString()! + participantState.GetProperty("creativeCurrentMatch").GetProperty("entrantB").GetString()!);
+            Assert.DoesNotContain("First Writer", JsonSerializer.Serialize(participantState, ActivityJsonDefaults.Options), StringComparison.Ordinal);
+
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(first.Token, "vote", JsonDocument.Parse($"{{\"targetId\":\"{firstSubmissionId}\"}}").RootElement), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(second.Token, "vote", JsonDocument.Parse($"{{\"targetId\":\"{secondSubmissionId}\"}}").RootElement), TestContext.Current.CancellationToken)).Success);
+            var reveal = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "reveal", JsonDocument.Parse($"{{\"winnerId\":\"{firstSubmissionId}\"}}").RootElement), TestContext.Current.CancellationToken);
+            Assert.True(reveal.Success, reveal.Error);
+            var revealState = JsonSerializer.SerializeToElement(reveal.State, ActivityJsonDefaults.Options);
+            Assert.Equal("finalResults", revealState.GetProperty("phase").GetString());
+            Assert.Equal(firstSubmissionId, revealState.GetProperty("creativeChampionId").GetString());
+            var host = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            var scores = await db.ActivityScoreEvents.Where(score => score.ActivityRunId == run.Id && score.ParticipantId == first.Participant!.Id).ToListAsync(TestContext.Current.CancellationToken);
+            Assert.Equal(125, scores.Sum(score => score.Amount));
+            var displayState = JsonSerializer.SerializeToElement((await sessions.GetDisplayEnvelopeAsync(run.Id, TestContext.Current.CancellationToken))!.State, ActivityJsonDefaults.Options);
+            Assert.DoesNotContain("First Writer", displayState.GetProperty("submissions").GetRawText(), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task ExistingEnginesCanRunAnEmbeddedUtilityWithoutCreatingAnotherRun()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Buzzer Bonus Utility", ActivityTypes.Buzzer, Config: JsonDocument.Parse("""
+                {"title":"Buzzer Bonus","clues":[{"id":"c1","prompt":"A clue","answer":"Answer","points":100}],"embeddedUtility":{"utilityType":"coinFlip","choices":["Heads","Tails"]}}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken);
+            var result = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "utility.flip"), TestContext.Current.CancellationToken);
+            Assert.True(result.Success, result.Error);
+            var state = JsonSerializer.SerializeToElement(result.State, ActivityJsonDefaults.Options);
+            Assert.Equal("coinFlip", state.GetProperty("embeddedUtilityState").GetProperty("result").GetProperty("kind").GetString());
+            Assert.DoesNotContain("embeddedUtilityState", JsonSerializer.Serialize((await sessions.GetDisplayEnvelopeAsync(run.Id, TestContext.Current.CancellationToken))!.Config, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task BracketCanDrawARandomSubsetFromTheLiveParticipantRoster()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Random Roster Bracket", ActivityTypes.Bracket, Config: JsonDocument.Parse("""
+                {"title":"Random Roster Bracket","entrantSource":"participants","entrantSelection":"random","randomEntrantCount":2,"pointsPerWin":10}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            var names = new[] { "Alex", "Jordan", "Casey", "Morgan" };
+            foreach (var name in names) await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, name), TestContext.Current.CancellationToken);
+            var started = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken);
+            Assert.True(started.Success, started.Error);
+            var state = JsonSerializer.SerializeToElement(started.State, ActivityJsonDefaults.Options);
+            var roster = state.GetProperty("bracketEntrants").EnumerateArray().Select(item => item.GetProperty("label").GetString()).ToArray();
+            Assert.Equal(2, roster.Length);
+            Assert.All(roster, label => Assert.Contains(label, names));
+            Assert.Equal(1, state.GetProperty("matchups").GetArrayLength());
+        }
+    }
+
+    [Fact]
+    public async Task BracketCanImportFinalistsFromAnotherActivityRun()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var sourceDefinition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Source Challenge", ActivityTypes.StageChallenge, Config: JsonDocument.Parse("""
+                {"title":"Source Challenge","challenges":[{"id":"c1","title":"Explain it","instructions":"Give your best explanation.","seconds":10,"points":90}]}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var sourceRun = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(sourceDefinition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            var sourceWinner = await sessions.JoinAsync(sourceRun.JoinCode!, new ActivityParticipantJoinInput(null, "Alex"), TestContext.Current.CancellationToken);
+            await sessions.JoinAsync(sourceRun.JoinCode!, new ActivityParticipantJoinInput(null, "Jordan"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(sourceRun.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(sourceRun.Id, new ActivityCommandEnvelope(null, null, "selectcontestant", JsonDocument.Parse($"{{\"participantId\":\"{sourceWinner.Participant!.Id}\"}}").RootElement), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(sourceRun.Id, new ActivityCommandEnvelope(null, null, "starttimer"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(sourceRun.Id, new ActivityCommandEnvelope(null, null, "success"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(sourceRun.Id, new ActivityCommandEnvelope(null, null, "finish"), TestContext.Current.CancellationToken);
+
+            var bracketDefinition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Finalist Bracket", ActivityTypes.Bracket, Config: JsonDocument.Parse("""
+                {"title":"Finalist Bracket","entrantSource":"participants","pointsPerWin":10}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var bracketRun = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(bracketDefinition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            await sessions.JoinAsync(bracketRun.JoinCode!, new ActivityParticipantJoinInput(null, "Alex"), TestContext.Current.CancellationToken);
+            await sessions.JoinAsync(bracketRun.JoinCode!, new ActivityParticipantJoinInput(null, "Jordan"), TestContext.Current.CancellationToken);
+
+            var imported = await sessions.ImportBracketFinalistsAsync(bracketRun.Id, sourceRun.Id, 2, TestContext.Current.CancellationToken);
+            Assert.True(imported.Success, imported.Error);
+            Assert.Equal(2, imported.Count);
+            var state = JsonSerializer.SerializeToElement((await sessions.GetHostViewAsync(bracketRun.Id, TestContext.Current.CancellationToken))!.State.State, ActivityJsonDefaults.Options);
+            Assert.Equal(sourceRun.Id.ToString(), state.GetProperty("bracketHandoffSourceRunId").GetString());
+            Assert.Equal(new[] { "Alex", "Jordan" }, state.GetProperty("bracketEntrants").EnumerateArray().Select(item => item.GetProperty("label").GetString()).OrderBy(value => value).ToArray());
         }
     }
 }

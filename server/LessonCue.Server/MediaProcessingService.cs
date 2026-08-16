@@ -88,7 +88,7 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
                 if (format.TryGetProperty("duration", out var duration) && double.TryParse(duration.GetString(),
                     NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds)) item.DurationMs = (long)(seconds * 1000);
             }
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             var uploadPolicy = UploadQuotaPolicy.Read(organization);
             if (!uploadPolicy.Allows(item.VideoCodec, item.AudioCodec))
             {
@@ -207,7 +207,7 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
                     $"-map 0:v:0 -map 0:a:0? -vf \"{filter}\" -c:v libx264 -preset medium -crf 20 " +
                     $"-profile:v high -level:v 4.1 -pix_fmt yuv420p -tag:v avc1 {ending}";
                 var accelerationEnabled = await db.Organizations.AsNoTracking()
-                    .Select(x => x.HardwareAccelerationEnabled).FirstAsync(ct);
+                    .OrderBy(item => item.Id).Select(x => x.HardwareAccelerationEnabled).FirstAsync(ct);
                 var result = await hardware.RunTranscodeAsync(accelerationEnabled, hardwareArgs, softwareArgs, work, ct);
                 item.CompatibilityTranscodeEngine = result.Engine;
             }

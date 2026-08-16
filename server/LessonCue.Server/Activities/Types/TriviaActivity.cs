@@ -7,12 +7,18 @@ public static class TriviaActivity
     public sealed record QuestionConfig(
         string Id,
         string Prompt,
-        List<string> Options,
-        int CorrectIndex,
+        List<string>? Options = null,
+        int? CorrectIndex = null,
         string? Explanation = null,
         int Points = 100,
         int? TimerSeconds = 20,
-        string? MediaUrl = null);
+        string? MediaUrl = null,
+        string AnswerMode = "choice",
+        string? CorrectText = null,
+        List<string>? AcceptedAnswers = null,
+        double? TargetNumber = null,
+        double? Tolerance = null,
+        string? ScoringMode = null);
 
     public sealed record Config(
         string Title = "Trivia Challenge",

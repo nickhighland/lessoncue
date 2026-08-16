@@ -483,6 +483,74 @@
   max-width: 1100px;
 }
 
+.trivia-free-response-card {
+  width: 100%;
+  max-width: 760px;
+  min-height: 180px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .65rem;
+  padding: 2rem;
+  border: 2px dashed rgba(242, 195, 90, .75);
+  border-radius: 24px;
+  background: radial-gradient(circle at 50% 0, rgba(242, 195, 90, .18), rgba(18, 38, 33, .94) 64%);
+  color: #fff;
+  text-align: center;
+  letter-spacing: .08em;
+}
+
+.trivia-free-response-card span:last-child {
+  max-width: 520px;
+  color: rgba(255,255,255,.72);
+  font-size: 1rem;
+  letter-spacing: 0;
+}
+
+.trivia-free-response-icon {
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  border-radius: 18px;
+  background: var(--act-gold);
+  color: #18251f;
+  font-size: 2rem;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.trivia-answer-reveal-card {
+  width: 100%;
+  max-width: 760px;
+  margin-top: 1.25rem;
+  padding: 1rem 1.5rem;
+  box-sizing: border-box;
+  border: 2px solid #37e59a;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(18, 116, 79, .95), rgba(18, 58, 47, .95));
+  color: #d7ffe9;
+  text-align: center;
+  box-shadow: 0 0 30px rgba(55, 229, 154, .28);
+  animation: popBounce .35s ease-out;
+}
+
+.trivia-answer-reveal-card span {
+  display: block;
+  margin-bottom: .35rem;
+  color: #a9f7cc;
+  font-size: .75rem;
+  font-weight: 950;
+  letter-spacing: .14em;
+}
+
+.trivia-answer-reveal-card strong {
+  display: block;
+  font-size: clamp(1.5rem, 4vw, 2.5rem);
+}
+
 .trivia-option-btn {
   background: rgba(24, 46, 40, 0.9);
   border: 2.5px solid rgba(255, 255, 255, 0.18);
@@ -1538,6 +1606,82 @@
   }
 }
 
+/* Optional utilities embedded in an existing game engine. */
+.embedded-utility-result,
+.embedded-utility-controller,
+.embedded-utility-editor {
+  border: 1px solid color-mix(in srgb, var(--accent, #8b7cff) 35%, transparent);
+  background: color-mix(in srgb, var(--panel, #17162a) 88%, #8b7cff 12%);
+  border-radius: 16px;
+}
+
+.embedded-utility-result {
+  display: grid;
+  gap: 0.25rem;
+  margin: 1rem auto;
+  max-width: 720px;
+  padding: 1rem 1.25rem;
+  text-align: center;
+}
+
+.embedded-utility-result span,
+.embedded-utility-controller small {
+  color: var(--muted, #aaa8c0);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.embedded-utility-result strong {
+  color: var(--text, #fff);
+  font-size: clamp(1.4rem, 4vw, 2.3rem);
+}
+
+.embedded-utility-result small,
+.embedded-utility-controller > div:first-child {
+  color: var(--muted, #aaa8c0);
+}
+
+.embedded-utility-controller,
+.embedded-utility-editor {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem;
+}
+
+.embedded-utility-controller > div:first-child {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.embedded-utility-last-result {
+  align-self: center;
+  color: var(--accent, #b9b1ff);
+  font-size: 0.85rem;
+}
+
+.fakeout-option-author {
+  display: block;
+  color: var(--accent, #b9b1ff);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.activity-library-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+  margin: 1.25rem 0 0.5rem;
+}
+
+.activity-library-pagination span {
+  color: var(--muted, #77738e);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
 /* Physical Room engine */
 .physical-room-stage .activity-stage-content {
   width: min(1180px, 94vw);
@@ -2354,6 +2498,7 @@
 .interactive-clue-ladder .interactive-prompt-card { margin: 0; }
 .interactive-clue-ladder .interactive-prompt-card.past { padding: 1rem 1.4rem; opacity: .62; transform: scale(.985); }
 .interactive-clue-ladder .interactive-prompt-card.past p { font-size: clamp(1rem, 2vw, 1.5rem); }
+.interactive-clue-value { display: inline-block; margin-top: .8rem; color: #f7bf4e; font-size: .7rem; font-weight: 900; letter-spacing: .14em; }
 .interactive-round-label { color: #f8c35a; font-size: .72rem; font-weight: 900; letter-spacing: .14em; }
 .interactive-winner-card, .interactive-answer-card { width: min(720px, 100%); margin: 1rem auto; padding: 1.1rem 1.5rem; border-radius: 18px; background: linear-gradient(115deg, #f4b63f, #d86742); color: #1d1b18; text-align: center; box-shadow: 0 12px 36px rgba(216,140,30,.3); }
 .interactive-winner-card span, .interactive-answer-card span { display: block; font-size: .68rem; font-weight: 900; letter-spacing: .14em; }
@@ -2573,6 +2718,21 @@
 .activity-preview-leaderboard-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .activity-preview-leaderboard-row b { color: #f2c35a; white-space: nowrap; }
 .activity-preview-utility-screen > small { color: rgba(255,255,255,.5); }
+
+/* Shared Quiz modifier controls keep risk/reward decisions legible on small phones. */
+.participant-quiz-modifiers { display: grid; gap: .55rem; margin: .8rem 0 1rem; padding: .75rem; border: 1px solid rgba(109,93,252,.22); border-radius: 14px; background: rgba(109,93,252,.07); text-align: left; }
+.participant-quiz-modifiers label { display: grid; gap: .3rem; color: var(--ink); font-weight: 800; font-size: .85rem; }
+.participant-quiz-modifiers input[type="number"] { width: 100%; box-sizing: border-box; min-height: 44px; padding: .6rem .7rem; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); font: inherit; }
+.participant-quiz-modifiers .checkbox-row { display: flex; align-items: center; gap: .5rem; }
+.participant-quiz-modifiers .checkbox-row input { width: 20px; height: 20px; }
+.participant-quiz-modifiers small { color: var(--muted); font-size: .78rem; }
+.quiz-modifier-editor { display: grid; gap: .7rem; }
+.quiz-modifier-fields { margin: -.15rem 0 .25rem; }
+.quiz-lives-strip { display: flex; gap: .55rem; width: min(1000px, 100%); margin: .8rem auto; overflow-x: auto; padding: .15rem .05rem .35rem; }
+.quiz-lives-strip span { display: grid; gap: .2rem; min-width: 110px; padding: .55rem .7rem; border: 1px solid rgba(255,255,255,.16); border-radius: 12px; background: rgba(255,255,255,.08); color: #fff; }
+.quiz-lives-strip span.eliminated { opacity: .42; filter: grayscale(1); }
+.quiz-lives-strip strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; }
+.quiz-lives-strip em { color: #ff718f; font-style: normal; letter-spacing: .1em; }
 .activity-preview-podium { display: flex; align-items: end; justify-content: center; gap: .7rem; width: min(700px, 100%); margin-top: 1.2rem; }
 .activity-preview-podium-place { display: grid; width: min(28vw, 170px); min-height: 130px; align-content: end; justify-items: center; gap: .35rem; padding: .8rem .55rem; border: 1px solid rgba(255,255,255,.16); border-radius: 13px 13px 0 0; background: rgba(255,255,255,.1); }
 .activity-preview-podium-place.first { min-height: 190px; border-color: rgba(242,195,90,.8); background: linear-gradient(rgba(242,195,90,.25), rgba(255,255,255,.08)); }
@@ -2667,7 +2827,8 @@
 .participant-code { margin: 1.1rem 0; font-size: clamp(2.1rem, 12vw, 4.2rem); font-weight: 950; letter-spacing: .18em; color: #f4c454; }
 .participant-card form { display: grid; gap: .8rem; text-align: left; }
 .participant-card label { display: grid; gap: .35rem; color: rgba(255,255,255,.8); font-size: .82rem; font-weight: 800; }
-.participant-card input, .participant-input-card textarea { width: 100%; box-sizing: border-box; padding: .85rem 1rem; border: 1px solid rgba(255,255,255,.23); border-radius: 13px; background: rgba(0,0,0,.25); color: #fff; font: inherit; }
+.participant-card input, .participant-input-card textarea, .participant-number-input { width: 100%; box-sizing: border-box; padding: .85rem 1rem; border: 1px solid rgba(255,255,255,.23); border-radius: 13px; background: rgba(0,0,0,.25); color: #fff; font: inherit; }
+.participant-number-input { min-height: 58px; font-size: 1.35rem; font-weight: 800; text-align: center; }
 .participant-primary-button { min-height: 56px; border: 0; border-radius: 14px; background: #f2b943; color: #1b2b25; font-size: 1rem; font-weight: 900; cursor: pointer; }
 .participant-primary-button:disabled { opacity: .5; cursor: wait; }
 .participant-card small { display: block; margin-top: 1.2rem; color: rgba(255,255,255,.55); }

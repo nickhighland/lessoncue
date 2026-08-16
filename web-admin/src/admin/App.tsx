@@ -1,17 +1,17 @@
 import { AccessibleDialogHost } from "../AccessibleDialogs";
-import { AudienceAdmin, AudienceDisplayApp, AudienceResponseApp } from "../AudienceInteraction";
-import { WebPlayerApp } from "../WebPlayer";
-import { ActivityParticipantApp } from "../activities/ActivityParticipant";
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
 import { FormEvent, lazy, ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
-import { Dashboard } from "./views/Dashboard";
 import { AccountProfile, Audit, Backup, Bootstrap, Lesson, LessonClass, LessonTemplate, Media, Permission, RecurringSchedule, Screen, Session, Signage, UpdateStatus, User, View } from "./models";
 import { BrandMark, Field, Modal } from "./ui";
 import { errorText, formatBytes, isAccountLinkPath, isActivityParticipantPath, isAudienceDisplayPath, isAudiencePath, isControllerPath, isWebPlayerPath } from "./utils";
-// Preserve the legacy editor stylesheet while older signage layouts remain supported.
-import "./views/LegacySignage";
 
+const ActivityParticipantApp = lazy(() => import("../activities/ActivityParticipant").then((module) => ({ default: module.ActivityParticipantApp })));
+const AudienceAdmin = lazy(() => import("../AudienceInteraction").then((module) => ({ default: module.AudienceAdmin })));
+const AudienceDisplayApp = lazy(() => import("../AudienceInteraction").then((module) => ({ default: module.AudienceDisplayApp })));
+const AudienceResponseApp = lazy(() => import("../AudienceInteraction").then((module) => ({ default: module.AudienceResponseApp })));
+const Dashboard = lazy(() => import("./views/Dashboard").then((module) => ({ default: module.Dashboard })));
+const WebPlayerApp = lazy(() => import("../WebPlayer").then((module) => ({ default: module.WebPlayerApp })));
 const ControllerView = lazy(() => import("./views/Controller").then((module) => ({ default: module.ControllerView })));
 const ClassesView = lazy(() => import("./views/Lessons").then((module) => ({ default: module.ClassesView })));
 const CalendarView = lazy(() => import("./views/Calendar").then((module) => ({ default: module.CalendarView })));
@@ -34,7 +34,7 @@ export function App() {
   else content = <AdminApp />;
   return (
     <>
-      {content}
+      <Suspense fallback={<Splash />}>{content}</Suspense>
       <AccessibleDialogHost />
     </>
   );

@@ -8,6 +8,10 @@ export default defineConfig({
   build: {
     outDir: fileURLToPath(new URL("../server/LessonCue.Server/wwwroot", import.meta.url)),
     emptyOutDir: true,
+    // hls.js is intentionally loaded only for HLS playback. Its lazy chunk is
+    // larger than Vite's default warning threshold, but it is not part of the
+    // initial admin bundle governed by scripts/check-bundle-budget.mjs.
+    chunkSizeWarningLimit: 600,
   },
   server: {
     host: "0.0.0.0",

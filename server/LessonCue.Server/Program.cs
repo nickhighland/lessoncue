@@ -50,7 +50,9 @@ builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 
 builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = 20L * 1024 * 1024 * 1024);
 
 builder.Services.AddDbContext<LessonCueDb>(options =>
-    options.UseSqlite($"Data Source={Path.Combine(databasePath, "lessoncue.db")}"));
+    options.UseSqlite(
+        $"Data Source={Path.Combine(databasePath, "lessoncue.db")}",
+        sqlite => sqlite.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)));
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(keyPath))
     .SetApplicationName("LessonCue");
@@ -404,6 +406,17 @@ catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMem
     app.Logger.LogCritical(ex, "LessonCue database initialization failed");
     await app.DisposeAsync();
     await RecoveryModeApp.RunAsync(args, port, dataPath, serverId.ToString(), ex);
+    return;
+}
+
+if (args.Contains("--seed-animal-activity-pack", StringComparer.Ordinal))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
+    var result = await LessonCue.Server.Activities.AnimalActivityPack.EnsureAsync(db);
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(result,
+        LessonCue.Server.Activities.ActivityJsonDefaults.Options));
+    await app.DisposeAsync();
     return;
 }
 

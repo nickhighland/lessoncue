@@ -12,7 +12,7 @@ public sealed class ManifestService(LessonCueDb db)
 
         var now = generatedAt ?? DateTimeOffset.UtcNow;
         var organization = await db.Organizations.AsNoTracking()
-            .Select(x => new { x.TimeZone }).FirstOrDefaultAsync(cancellationToken);
+            .OrderBy(item => item.Id).Select(x => new { x.TimeZone }).FirstOrDefaultAsync(cancellationToken);
         var timeZone = organization?.TimeZone ?? "UTC";
         var lessonsQuery = db.Lessons.AsNoTracking().Include(x => x.Class).Include(x => x.Items)
             .ThenInclude(x => x.MediaAsset).ThenInclude(x => x!.TranscodeVariants)

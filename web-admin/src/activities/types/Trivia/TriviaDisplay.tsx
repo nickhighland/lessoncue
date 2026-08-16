@@ -5,8 +5,9 @@ import { playChimeSound, playFanfareSound, launchConfetti } from '../../effects'
 interface TriviaQuestion {
   id: string;
   prompt: string;
-  options: string[];
-  correctIndex: number;
+  answerMode?: 'choice' | 'text' | 'number';
+  options?: string[];
+  correctIndex?: number;
   explanation?: string;
   timeLimitSeconds?: number;
 }
@@ -18,14 +19,20 @@ interface TriviaConfig {
 }
 
 interface TriviaState {
+  phase?: string;
   currentQuestionIndex?: number;
+  joinCode?: string;
+  participantCount?: number;
   responsesOpen?: boolean;
   answerRevealed?: boolean;
   explanationRevealed?: boolean;
   timerRemainingSeconds?: number | null;
   actionNonce?: number;
   revealedCorrectIndex?: number | null;
+  revealedAnswer?: string;
   revealedExplanation?: string;
+  myLives?: number;
+  quizLives?: Array<{ id: string; name: string; lives: number; active: boolean }>;
 }
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
@@ -47,6 +54,8 @@ export const TriviaDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ e
 
   const qIndex = state.currentQuestionIndex ?? 0;
   const currentQ = questions[qIndex] || questions[0];
+  const answerMode = currentQ.answerMode || 'choice';
+  const options = currentQ.options || [];
   const correctIndex = state.revealedCorrectIndex ?? currentQ?.correctIndex;
 
   useEffect(() => {
@@ -74,17 +83,27 @@ export const TriviaDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ e
           <div className="activity-subtitle">Choose your answer · the host controls the reveal</div>
         </div>
 
+        {state.joinCode && <div className="interactive-join-banner" aria-label="Join this activity on a phone">
+          <span>JOIN THE GAME</span>
+          <strong>/play/{state.joinCode}</strong>
+          <b>CODE {state.joinCode}</b>
+          <small>{state.participantCount || 0} joined</small>
+        </div>}
+
         {/* Question Prompt Card */}
         <div className="trivia-question-card">
           <div className="trivia-question-text">{currentQ.prompt}</div>
         </div>
 
-        {/* Variable-size choice board: editors can use 2–8 choices. */}
-        <div
+        {state.quizLives && state.quizLives.length > 0 && <div className="quiz-lives-strip" aria-label="Player lives">
+          {state.quizLives.map(player => <span className={player.active ? '' : 'eliminated'} key={player.id}><strong>{player.name}</strong><em>{'♥'.repeat(Math.max(0, Math.min(9, player.lives))) || 'OUT'}</em></span>)}
+        </div>}
+
+        {answerMode === 'choice' ? <div
           className="trivia-options-grid"
-          style={{ gridTemplateColumns: `repeat(${currentQ.options.length <= 2 ? 1 : currentQ.options.length <= 4 ? 2 : 4}, minmax(0, 1fr))` }}
+          style={{ gridTemplateColumns: `repeat(${options.length <= 2 ? 1 : options.length <= 4 ? 2 : 4}, minmax(0, 1fr))` }}
         >
-          {currentQ.options.map((opt, idx) => {
+          {options.map((opt, idx) => {
             const isCorrect = idx === correctIndex;
             const isRevealed = state.answerRevealed;
 
@@ -113,7 +132,13 @@ export const TriviaDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ e
               </div>
             );
           })}
-        </div>
+        </div> : <div className="trivia-free-response-card">
+          <span className="trivia-free-response-icon">{answerMode === 'number' ? '∑' : '✎'}</span>
+          <strong>{answerMode === 'number' ? 'NUMBER LOCK-IN' : 'SHORT ANSWER'}</strong>
+          <span>{state.answerRevealed && state.revealedAnswer ? 'The accepted answer is below.' : 'Lock in your response on your phone. The host will reveal it.'}</span>
+        </div>}
+
+        {answerMode !== 'choice' && state.answerRevealed && state.revealedAnswer && <div className="trivia-answer-reveal-card"><span>ANSWER</span><strong>{state.revealedAnswer}</strong></div>}
 
         {/* Explanation Card */}
         {state.explanationRevealed && (state.revealedExplanation || currentQ.explanation) && (

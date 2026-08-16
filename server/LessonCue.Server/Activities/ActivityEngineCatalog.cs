@@ -80,6 +80,7 @@ public static class InteractiveActivityDefaults
                 new { id = "clue-3", prompt = "It controls the tides.", answer = "The moon", points = 50 }
             },
             lockOutOnMiss = true,
+            stealOnMiss = true,
             wrongPenalty = 0
         },
         ActivityTypes.Punchline => new
@@ -90,7 +91,9 @@ public static class InteractiveActivityDefaults
                 new { id = "prompt-1", prompt = "The worst possible school mascot would be ______.", points = 100 }
             },
             requireModeration = true,
-            votingSeconds = 30
+            votingSeconds = 30,
+            votingStyle = "gallery",
+            headToHeadMatchPoints = 0
         },
         ActivityTypes.FakeOut => new
         {
@@ -102,7 +105,9 @@ public static class InteractiveActivityDefaults
             requireModeration = true,
             votingSeconds = 30,
             bluffPoints = 50,
-            truthPoints = 100
+            truthPoints = 100,
+            hostFavoritePoints = 25,
+            revealAuthors = true
         },
         ActivityTypes.Drawing => new
         {
@@ -162,6 +167,7 @@ public static class InteractiveActivityDefaults
             preset = "bracketBattle",
             presetLabel = "BRACKET BATTLE",
             entrantSource = "teacher",
+            entrantSelection = "all",
             pointsPerWin = 0,
             entrants = new[]
             {
@@ -263,7 +269,9 @@ public static class InteractiveActivityDefaults
                 buzzWinnerParticipantId = (string?)null,
                 buzzWinnerName = (string?)null,
                 buzzLocked = false,
+                responsesOpen = false,
                 answerRevealed = false,
+                stealOpen = false,
                 actionNonce = 0L
             },
             ActivityTypes.Punchline => new
@@ -285,6 +293,8 @@ public static class InteractiveActivityDefaults
                 votingOpen = false,
                 resultsVisible = false,
                 answerRevealed = false,
+                scoresApplied = false,
+                hostFavoriteScoreApplied = false,
                 actionNonce = 0L
             },
             ActivityTypes.SurveyBoard => new

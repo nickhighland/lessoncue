@@ -35,8 +35,14 @@ export const PollDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ env
     scoringMode?: string;
     winningVoteCount?: number;
   }) || {};
-  const config = (envelope as unknown as { config?: { question?: string; prompt?: string; options?: unknown[]; presetLabel?: string; pollMode?: string } }).config || {};
-  const options = normalizePollOptions(config.options).length ? normalizePollOptions(config.options) : [
+  const config = (envelope as unknown as { config?: { question?: string; prompt?: string; options?: unknown[]; rounds?: Array<{ question?: string; prompt?: string; options?: unknown[] }>; presetLabel?: string; pollMode?: string } }).config || {};
+  const rounds = Array.isArray(config.rounds) && config.rounds.length ? config.rounds : [];
+  const stateRoundIndex = typeof (state as { currentRoundIndex?: unknown }).currentRoundIndex === 'number'
+    ? (state as { currentRoundIndex: number }).currentRoundIndex
+    : 0;
+  const round = rounds[Math.min(Math.max(0, stateRoundIndex), Math.max(0, rounds.length - 1))];
+  const roundOptions = normalizePollOptions(round?.options);
+  const options = roundOptions.length ? roundOptions : normalizePollOptions(config.options).length ? normalizePollOptions(config.options) : [
     { id: '1', text: 'Option A' },
     { id: '2', text: 'Option B' }
   ];
@@ -53,7 +59,8 @@ export const PollDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ env
       <div className="activity-stage-content">
         <div className="activity-header">
           <div className="stage-kicker">📊 {config.presetLabel || 'LIVE AUDIENCE POLL'} · {totalVotes} {totalVotes === 1 ? 'VOTE' : 'VOTES'}</div>
-          <h1 className="activity-title">{config.question || config.prompt || envelope.name || 'Live Poll'}</h1>
+          <h1 className="activity-title">{round?.question || round?.prompt || config.question || config.prompt || envelope.name || 'Live Poll'}</h1>
+          {rounds.length > 1 && <div className="activity-subtitle">ROUND {Math.min(Math.max(0, stateRoundIndex), rounds.length - 1) + 1} OF {rounds.length}</div>}
         </div>
         {resultsVisible && scoringLabel && <div className="poll-scoring-banner">{scoringLabel}{typeof state.winningVoteCount === 'number' && <strong>{state.winningVoteCount} {state.winningVoteCount === 1 ? 'pick' : 'picks'}</strong>}</div>}
 
@@ -96,7 +103,10 @@ export const PollController: React.FC<{
   onCommandSent?: () => void;
 }> = ({ envelope, onCommandSent }) => {
   const [isBusy, setIsBusy] = useState(false);
-  const state = (envelope.state as { resultsVisible?: boolean; responsesOpen?: boolean }) || {};
+  const state = (envelope.state as { resultsVisible?: boolean; responsesOpen?: boolean; currentRoundIndex?: number }) || {};
+  const config = (envelope.config as { rounds?: unknown[] } | undefined) || {};
+  const roundCount = Array.isArray(config.rounds) ? config.rounds.length : 0;
+  const roundIndex = Math.min(Math.max(0, state.currentRoundIndex || 0), Math.max(0, roundCount - 1));
 
   const sendAction = async (action: string, payload?: Record<string, unknown>) => {
     if (isBusy) return;
@@ -116,6 +126,7 @@ export const PollController: React.FC<{
 
   return (
     <div className="act-ctrl-container">
+      {roundCount > 1 && <div className="act-ctrl-card activity-controller-summary"><div><span className="controller-eyebrow">POLL SEQUENCE</span><strong>Round {roundIndex + 1} of {roundCount}</strong><small>Advance only after the room has seen the current result.</small></div><div className="act-controller-button-row"><button type="button" className="act-btn act-btn-secondary" onClick={() => sendAction('previous')} disabled={isBusy || roundIndex <= 0}>‹ Previous</button><button type="button" className="act-btn act-btn-secondary" onClick={() => sendAction('next')} disabled={isBusy || roundIndex >= roundCount - 1}>Next ›</button></div></div>}
       <div className="act-controller-button-row">
         <button
           type="button"
@@ -164,11 +175,33 @@ export const PollEditor: React.FC<{
   config: Record<string, unknown>;
   onChange: (updated: Record<string, unknown>) => void;
 }> = ({ config, onChange }) => {
-  const current = config as { question?: string; prompt?: string; options?: unknown[]; preset?: string; presetLabel?: string; pollMode?: string; points?: number };
-  const options = normalizePollOptions(current.options);
-  const updateOptions = (next: PollOption[]) => onChange({ ...current, options: next.map(option => option.text), question: current.question || current.prompt || '' });
+  const current = config as { question?: string; prompt?: string; options?: unknown[]; rounds?: Array<{ id?: string; question?: string; prompt?: string; options?: unknown[] }>; preset?: string; presetLabel?: string; pollMode?: string; points?: number };
+  const hasRounds = Array.isArray(current.rounds);
+  const rounds = hasRounds && current.rounds?.length ? current.rounds : [{ id: 'round-1', question: current.question || current.prompt || '', options: current.options || ['Option A', 'Option B'] }];
+  const [activeIndex, setActiveIndex] = useState(0);
+  const roundIndex = Math.min(activeIndex, Math.max(0, rounds.length - 1));
+  const round = rounds[roundIndex] || rounds[0];
+  const options = normalizePollOptions(round?.options);
+  const updateRounds = (next: typeof rounds) => onChange({ ...current, rounds: next });
+  const updateRound = (changes: Partial<(typeof rounds)[number]>) => updateRounds(rounds.map((item, index) => index === roundIndex ? { ...item, ...changes } : item));
+  const updateOptions = (next: PollOption[]) => {
+    if (hasRounds) updateRound({ options: next.map(option => option.text) });
+    else onChange({ ...current, options: next.map(option => option.text), question: current.question || current.prompt || '' });
+  };
+  const addRound = () => {
+    const next = [...rounds, { id: `round-${Date.now()}`, question: `Round ${rounds.length + 1}`, options: ['Option A', 'Option B'] }];
+    updateRounds(next);
+    setActiveIndex(next.length - 1);
+  };
+  const removeRound = () => {
+    if (!hasRounds || rounds.length <= 1) return;
+    const next = rounds.filter((_, index) => index !== roundIndex);
+    updateRounds(next);
+    setActiveIndex(Math.max(0, roundIndex - 1));
+  };
   const applyPreset = (preset: { config: Record<string, unknown> }) => {
     const next = { ...current, ...preset.config };
+    if (!Array.isArray(preset.config.rounds)) delete next.rounds;
     if (typeof preset.config.pollMode !== 'string') delete next.pollMode;
     onChange(next);
   };
@@ -195,8 +228,10 @@ export const PollEditor: React.FC<{
         </label>}
       </div>
       <label className="activity-editor-label">Poll question
-        <textarea rows={2} value={current.question || current.prompt || ''} onChange={event => onChange({ ...current, question: event.target.value })} placeholder="What should the room choose?" />
+        <textarea rows={2} value={round?.question || round?.prompt || ''} onChange={event => hasRounds ? updateRound({ question: event.target.value }) : onChange({ ...current, question: event.target.value })} placeholder="What should the room choose?" />
       </label>
+      <div className="activity-editor-card-heading"><strong>{hasRounds ? `Rounds (${rounds.length})` : 'Single round'}</strong><div className="act-controller-button-row"><button type="button" className="button" onClick={addRound}>+ Add round</button>{hasRounds && <button type="button" className="button danger" onClick={removeRound} disabled={rounds.length <= 1}>Remove round</button>}</div></div>
+      {hasRounds && <div className="activity-editor-tabs" aria-label="Poll rounds">{rounds.map((item, index) => <button type="button" key={item.id || index} className={`button ${index === roundIndex ? 'primary' : ''}`} onClick={() => setActiveIndex(index)}>Round {index + 1}</button>)}</div>}
       <div className="activity-editor-card-heading"><strong>Choices ({options.length})</strong><button type="button" className="button" disabled={options.length >= 8} onClick={() => updateOptions([...options, { id: String(options.length), text: `Choice ${options.length + 1}` }])}>+ Add choice</button></div>
       <div className="survey-editor-answers">
         {options.map((option, index) => (

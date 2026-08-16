@@ -4,6 +4,24 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.45 — Animal activity test pack and game-show polish
+
+### User changes
+
+- Added a ready-to-play animal-themed test catalog covering every current
+  teacher-facing Activity Studio type, all collected in one lesson.
+- Added a player-focused fun plan and richer game-show presentation guidance,
+  including join prompts, reveal moments, scoring feedback, and celebration.
+- Improved the phone-controller path so lesson activities expose their live
+  definition, join code, QR link, and participant state to the host.
+
+### Developer changes
+
+- Added an idempotent `--seed-animal-activity-pack` command and regression
+  coverage for the 27 current Studio activity types.
+- Added live TV trivia join/reveal verification coverage and documented the
+  player-facing engagement plan.
+
 ## v0.40.44 — Activities and game-show platform
 
 ### User changes

@@ -34,6 +34,9 @@ const activityUsageNames = (activity: ActivityDefinition): string[] => [
 export const ActivityLibrary: React.FC = () => {
   const [activities, setActivities] = useState<ActivityDefinition[]>([]);
   const [loading, setLoading] = useState(true);
+  const [libraryPage, setLibraryPage] = useState(1);
+  const [libraryTotalCount, setLibraryTotalCount] = useState(0);
+  const libraryPageSize = 100;
   const [categoryFilter, setCategoryFilter] = useState<'all' | ActivityTypeDescriptor['category']>('all');
   const [engineFilter, setEngineFilter] = useState('all');
   const [capabilityFilter, setCapabilityFilter] = useState<'all' | 'phones' | 'noPhones' | 'teams' | 'media' | 'favorites'>('all');
@@ -81,19 +84,24 @@ export const ActivityLibrary: React.FC = () => {
   const fetchActivities = useCallback(async () => {
     try {
       setLoading(true);
-      const list = await ActivityApi.listActivities(undefined, undefined, showArchived);
-      setActivities(list);
+      const result = await ActivityApi.listActivityPage(undefined, searchQuery.trim() || undefined, showArchived, libraryPage, libraryPageSize);
+      setActivities(result.items);
+      setLibraryTotalCount(result.totalCount);
     } catch (err) {
       console.error('Failed to load activities:', err);
       setStatusMessage(`Could not load activities: ${(err as Error).message}`);
     } finally {
       setLoading(false);
     }
-  }, [showArchived]);
+  }, [libraryPage, searchQuery, showArchived]);
 
   useEffect(() => {
     void fetchActivities();
   }, [fetchActivities]);
+
+  useEffect(() => {
+    setLibraryPage(1);
+  }, [searchQuery, showArchived]);
 
   useEffect(() => {
     try { localStorage.setItem('lessoncue.activityView', viewMode); } catch { /* private browsing */ }
@@ -136,6 +144,7 @@ export const ActivityLibrary: React.FC = () => {
   }, [activities]);
 
   const hasActiveFilters = Boolean(searchQuery.trim()) || categoryFilter !== 'all' || engineFilter !== 'all' || capabilityFilter !== 'all' || showArchived;
+  const totalPages = Math.max(1, Math.ceil(libraryTotalCount / libraryPageSize));
 
   const filtered = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -194,7 +203,7 @@ export const ActivityLibrary: React.FC = () => {
   };
 
   const reorderActivities = async (sourceId: string, targetId: string) => {
-    if (sourceId === targetId || hasActiveFilters) return;
+    if (sourceId === targetId || hasActiveFilters || totalPages > 1) return;
     const sourceIndex = activities.findIndex(activity => activity.id === sourceId);
     const targetIndex = activities.findIndex(activity => activity.id === targetId);
     if (sourceIndex < 0 || targetIndex < 0) return;
@@ -217,7 +226,7 @@ export const ActivityLibrary: React.FC = () => {
   };
 
   const moveActivity = (id: string, delta: -1 | 1) => {
-    if (hasActiveFilters) return;
+    if (hasActiveFilters || totalPages > 1) return;
     const index = activities.findIndex(activity => activity.id === id);
     const target = index + delta;
     if (index < 0 || target < 0 || target >= activities.length) return;
@@ -503,7 +512,7 @@ export const ActivityLibrary: React.FC = () => {
         </div>
         <div className="activity-library-toolbar-row activity-library-toolbar-secondary">
           <div className="activity-library-count" aria-live="polite">
-            Showing <strong>{filtered.length}</strong> of <strong>{activities.length}</strong> activities
+            Showing <strong>{filtered.length}</strong> of <strong>{libraryTotalCount}</strong> activities · Page {libraryPage} of {totalPages}
             {showArchived && <span className="activity-library-chip">Including archived</span>}
           </div>
           <label className="activity-library-check-row">
@@ -530,6 +539,10 @@ export const ActivityLibrary: React.FC = () => {
             onClick={() => {
               if (!arrangeMode && hasActiveFilters) {
                 setStatusMessage('Clear search and filters before arranging the full library.');
+                return;
+              }
+              if (!arrangeMode && totalPages > 1) {
+                setStatusMessage('Arrange is available when the full library fits on one page. Use search or filters to narrow it first.');
                 return;
               }
               setSortBy('manual');
@@ -591,9 +604,9 @@ export const ActivityLibrary: React.FC = () => {
               <article
                 key={act.id}
                 className={`activity-library-card panel ${selected ? 'selected' : ''} ${archived ? 'archived' : ''} ${draggedId === act.id ? 'dragging' : ''}`}
-                draggable={arrangeMode && !archived && !hasActiveFilters}
+                draggable={arrangeMode && !archived && !hasActiveFilters && totalPages === 1}
                 onDragStart={() => setDraggedId(act.id)}
-                onDragOver={event => { if (arrangeMode && !hasActiveFilters) event.preventDefault(); }}
+                onDragOver={event => { if (arrangeMode && !hasActiveFilters && totalPages === 1) event.preventDefault(); }}
                 onDrop={event => { event.preventDefault(); if (draggedId) void reorderActivities(draggedId, act.id); }}
                 onDragEnd={() => setDraggedId(null)}
               >
@@ -631,9 +644,9 @@ export const ActivityLibrary: React.FC = () => {
               <article
                 key={act.id}
                 className={`activity-library-list-row ${selected ? 'selected' : ''} ${archived ? 'archived' : ''} ${draggedId === act.id ? 'dragging' : ''}`}
-                draggable={arrangeMode && !archived && !hasActiveFilters}
+                draggable={arrangeMode && !archived && !hasActiveFilters && totalPages === 1}
                 onDragStart={() => setDraggedId(act.id)}
-                onDragOver={event => { if (arrangeMode && !hasActiveFilters) event.preventDefault(); }}
+                onDragOver={event => { if (arrangeMode && !hasActiveFilters && totalPages === 1) event.preventDefault(); }}
                 onDrop={event => { event.preventDefault(); if (draggedId) void reorderActivities(draggedId, act.id); }}
                 onDragEnd={() => setDraggedId(null)}
               >
@@ -655,6 +668,12 @@ export const ActivityLibrary: React.FC = () => {
           })}
         </div>
       )}
+
+      {!loading && totalPages > 1 && <nav className="activity-library-pagination" aria-label="Activity library pages">
+        <button type="button" className="button" disabled={libraryPage <= 1} onClick={() => { setLibraryPage(page => Math.max(1, page - 1)); setSelectedIds(new Set()); setArrangeMode(false); }}>Previous</button>
+        <span>Page {libraryPage} of {totalPages}</span>
+        <button type="button" className="button" disabled={libraryPage >= totalPages} onClick={() => { setLibraryPage(page => Math.min(totalPages, page + 1)); setSelectedIds(new Set()); setArrangeMode(false); }}>Next</button>
+      </nav>}
 
       {/* Create Activity Modal */}
       {isCreating && (

@@ -11,7 +11,7 @@ This is the active implementation sequence. It covers the next product-value lay
 ### 1. Finish the tournament slice
 
 - [x] Initial teacher-entered Bracket Battle with seeded pairings, byes, voting, host winner selection, and role-safe display state.
-- [x] Add live participant/team entrants from the session roster; keep generic drawing/creative/image/finalist adapters as the next composition step.
+- [x] Add live participant/team entrants from the session roster plus a server-side random roster draw; keep generic drawing/creative/image/finalist adapters as the next composition step.
 - [x] Complete the first host recovery controls: close voting, skip a broken matchup, remove an entrant, reset, score, and end; shared score undo remains available.
 - [x] Connect tournament wins to shared score events when `pointsPerWin` is configured and show the shared live leaderboard/podium presentation.
 - [x] Add reusable tournament templates for Sudden Death, Survivor Trivia, Rock Paper Scissors Royale, and Heads or Tails; keep them on the Bracket engine and allow the teacher to apply/edit the template.
@@ -30,7 +30,8 @@ This is the active implementation sequence. It covers the next product-value lay
 - [x] Ship one reusable `utility` Activity runtime with Coin Flip, Dice, Random Number, Mystery Boxes, Challenge Picker, Random Person, Random Team, Countdown, and live-roster Team Generator presets.
 - [x] Add server-authoritative randomness/timer metadata, secret-safe mystery-box projections, utility editor/controller/display surfaces, and deterministic outcome tests.
 - [x] Add host retry, skip, clear, reset, pause, resume, and time-adjust controls to the utility surface.
-- [ ] Embed the utilities inside other engines where that improves a game without creating another selector.
+- [x] Let the Bracket engine consume the shared utility randomness path for a configured random participant/team/teacher roster.
+- [x] Embed utility displays/actions directly inside Buzzer, Punchline, and Fake Out through the shared host/display utility surface; extend the same hook to other engines as their editors gain optional bonus rounds.
 
 ### 4. Improve library and teacher workflow
 
@@ -51,6 +52,9 @@ This is the active implementation sequence. It covers the next product-value lay
 ### 6. Expand presets only after the engines prove stable
 
 - [x] Add the first registry-backed Quiz, Poll, Buzzer, Creative, Bluffing, Drawing, and Survey templates; teachers can apply named formats and edit the starter content without switching engines.
+- [x] Extend the existing Quiz engine beyond choice boards with teacher-configurable short-answer and number lock-in rounds, accepted-answer matching, numeric tolerance, closest-answer scoring, and closest-without-going-over scoring.
+- [x] Add shared Quiz modifiers for Wager, server-timestamp speed bonus, Lives/Elimination, and Double or Nothing; expose Wager Trivia and Survivor Trivia as registry presets and reuse the same rules in Rapid Fire.
+- [x] Add Rapid Fire server-authoritative start/pause/resume timing and reject participant answers after the response window expires.
 - [ ] Add the remaining named poll, quiz, buzzer, bluffing, creative, drawing, survey, ordering, word, match, media, stage, physical, and adventure presets listed below through registry configuration.
 - [ ] Prefer an existing engine plus modifiers over another bespoke runtime.
 - [ ] Add one deterministic server test and one representative browser path for each new engine family before broad preset expansion.
@@ -76,12 +80,12 @@ Completed in this evaluation pass:
 
 Still needed for a large or heavily curated library:
 
-- [ ] Add pagination or server-side search/filtering for very large libraries.
+- [x] Add bounded server-side library pages and search while keeping the existing full-list endpoint backward-compatible; manual arranging is disabled when the page does not contain the full unfiltered library.
 - [x] Add thumbnails, favorites/pinning, and richer card metadata without making the selector harder to scan.
 - [x] Add bulk archive/restore/duplicate operations where the action is unambiguous.
 - [x] Add an editor dirty-state warning, preview snapshots, and lesson-dependency details before destructive actions.
 - [x] Add browser coverage for list/grid persistence, arranging, filtering, and bulk deletion.
-- [ ] Add browser coverage for archived-item recovery and lesson-dependency messaging through a real lesson-linked fixture.
+- [x] Add browser coverage for the paged library endpoint; server coverage already exercises lesson-linked usage, archive, restore, and dependency messaging data. A full UI lesson-linked fixture remains a follow-up for the lesson workflow suite.
 
 ## Completed foundation — reference only
 
@@ -93,6 +97,10 @@ Still needed for a large or heavily curated library:
 - [x] End-to-end vertical slices for Trivia, Read the Room, Buzzer Battle/Clue Ladder, Punchline, Fake Out, Survey Showdown, Doodle & Guess, Order Up, Word Storm, Match Minds, Mystery Image, and Beat the Clock.
 - [x] Initial shared Utility engine slice: Coin Flip, Dice, Random Number, Mystery Boxes, Challenge Picker, Random Person, Random Team, Countdown, and live-roster Team Generator.
 - [x] Flexible multiple-choice answers; choices are no longer fixed at four.
+- [x] Flexible Quiz answer formats: choice boards (2–8), short answers, exact/tolerant numbers, closest answer, and closest without going over.
+- [x] Shared Quiz modifiers: wagers, server-timestamp speed bonuses, lives/elimination, and Double or Nothing, with Wager Trivia and Survivor Trivia presets.
+- [x] Creative Gallery Vote and Head-to-Head matchup voting over the existing moderated response engine.
+- [x] Conservative Survey Board match suggestions with manual host override.
 - [x] Signage is always live; the obsolete admin test checkbox is removed.
 
 ## 1. Bracket & Tournament engine — in progress
@@ -108,10 +116,11 @@ The first Bracket Battle vertical slice now supports teacher-entered entrants pl
 - [x] Reuse live participant/team entrants and shared score events; leaderboard, timers, moderation, and richer reveal presentation remain follow-up work.
 - [x] Register Bracket Battle with a guided entrant editor, TV display, host controller, and phone voting input.
 - [x] Add editable presets over the engine: Rock Paper Scissors Royale, Sudden Death, Survivor Trivia, and Heads or Tails.
-- [ ] Compose the engine with Trivia, Creative Response, Drawing, Poll/Vote, and Team modes without duplicating their runtimes.
+- [x] Add the first composition path through the shared participant/team roster and utility-randomized entrant draw without duplicating a runtime.
+- [x] Add a generic finalist handoff adapter from completed interactive runs into a bracket, mapping names to the target roster and preserving unmatched finalists as label-only entrants.
 - [x] Add a deterministic server test covering multiple rounds and the final champion.
-- [ ] Add complete invalid-action, reconnection, and browser end-to-end matchup-to-final coverage.
-- [ ] Document how another engine can hand its finalists to the bracket engine.
+- [x] Add a host controller import flow, results-screen guard, and deterministic service coverage for finalist handoff; complete browser matchup-to-final coverage remains follow-up.
+- [x] Document how another engine hands its ranked participant/team results to the bracket engine.
 
 ## 2. Physical Room engine — no-phone group play
 
@@ -135,10 +144,10 @@ The first Bracket Battle vertical slice now supports teacher-entered entrants pl
 - [x] Add live-roster random Team Generator with shared team records and participant assignments.
 - [x] Add manual, balanced-random, and fully-random Team Generator assignment options through the existing shared team records.
 - [x] Add richer team-management recovery controls such as renaming a live team without recreating assignments.
-- [ ] Reuse the existing Buzzer, Leaderboard, and Audience Meter capabilities as embeddable utilities rather than creating duplicate systems.
+- [x] Reuse the existing utility command path for embedded bonus actions in representative engines; Leaderboard/Audience Meter embedding remains a separate presentation follow-up.
 - [x] Add the first shared utility presentation, sound hooks, accessibility labels, and reduced-motion path.
 - [x] Add utility host skip/retry/clear/reset controls and richer timer recovery behavior.
-- [ ] Add richer standalone composition hooks and embed utilities inside other engines.
+- [x] Add richer standalone composition hooks and embed optional utility actions/displays inside other engines without creating another selector.
 - [x] Register the current utility/physical entries in the existing Activities library with clear “phones required,” “phones optional,” and “no phones” metadata.
 - [x] Add deterministic tests for randomization with an injectable server source and tests proving that client input cannot control outcomes or reveal hidden box values early.
 
@@ -185,6 +194,9 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Definitely Real
 - [x] That Can’t Be Right
 - [x] Is It a Horse? as a generic configurable binary-classification preset, not a hard-coded horse game
+- [x] Wager Trivia over the shared Quiz modifier layer
+- [x] Survivor Trivia over the shared Lives/Elimination modifier layer
+- [x] Rapid Fire uses the same Quiz scoring/modifier contract with a server-authoritative response timer
 
 ### Buzzer & Progressive Clue
 
@@ -195,7 +207,7 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Secret Category
 - [x] Concept Pyramid
 - [x] Password
-- [ ] Verify declining clue values and optional lockout/steal behavior in the editor and host flow
+- [x] Verify declining clue values and optional lockout/steal behavior in the editor and host flow
 
 ### Bluffing & Deception
 
@@ -203,7 +215,7 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Confessions
 - [x] Secret Talent
 - [x] Why Is This Here?
-- [ ] Support correct-answer points, successful-bluff points, optional host-favorite points, and anonymous reveal
+- [x] Support correct-answer points, successful-bluff points, optional host-favorite points, and anonymous reveal
 
 ### Creative Response & Voting
 
@@ -226,7 +238,7 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Explain This Photo
 - [x] Who Approved This?
 - [x] Worst Ranking
-- [ ] Reuse mandatory moderation and support Gallery Vote plus Head-to-Head voting
+- [x] Reuse mandatory moderation and support Gallery Vote plus Head-to-Head voting
 
 ### Drawing
 
@@ -245,7 +257,7 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Top Five
 - [x] Top Answer
 - [x] Bottom of the Barrel
-- [ ] Add conservative fuzzy matching with a host override that always wins
+- [x] Add conservative alias/word matching suggestions with a host override that always wins
 - [x] Add strikes, steals, and team-turn flow as configurable modifiers
 
 ### Ordering, Ranking, Matching & Sorting

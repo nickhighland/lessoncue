@@ -19,8 +19,8 @@ android {
         applicationId = "org.lessoncue.tv"
         minSdk = 26
         targetSdk = 36
-        versionCode = 102
-        versionName = "0.40.44"
+        versionCode = 103
+        versionName = "0.40.45"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "UPDATE_ENABLED", "false")
         buildConfigField(
@@ -78,7 +78,7 @@ android {
         buildConfig = true
         resValues = true
     }
-    sourceSets.getByName("test").resources.srcDir(rootProject.file("../protocol/fixtures"))
+    sourceSets.getByName("test").resources.directories.add(rootProject.file("../protocol/fixtures").path)
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 

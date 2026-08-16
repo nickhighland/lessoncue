@@ -315,6 +315,16 @@ public sealed record ActivityBulkDuplicateInput(
 public sealed record ActivityLibraryOrderInput(
     IReadOnlyList<Guid> Ids);
 
+public sealed record ActivityDefinitionPage(
+    IReadOnlyList<ActivityDefinition> Items,
+    int Page,
+    int PageSize,
+    int TotalCount);
+
+public sealed record ActivityBracketFinalistHandoffInput(
+    Guid SourceRunId,
+    int? Limit = null);
+
 public sealed record ActivityBulkMutationResult(
     IReadOnlyList<Guid> DeletedIds,
     IReadOnlyList<Guid> ArchivedIds,

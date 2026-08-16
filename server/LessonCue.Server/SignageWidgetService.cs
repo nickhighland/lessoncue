@@ -32,7 +32,7 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
         {
             await using var scope = scopeFactory.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(cancellationToken);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(cancellationToken);
             var allowlist = SignageLayout.ParseAllowlist(organization.SignageSourceAllowlistJson);
             var query = db.SignagePlaylists.Where(x => x.Enabled);
             if (signageId is { } id) query = query.Where(x => x.Id == id);

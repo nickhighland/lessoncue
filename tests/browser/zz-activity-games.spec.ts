@@ -81,11 +81,24 @@ async function hostState(page: Page, runId: string) {
   return page.evaluate(async id => {
     const response = await fetch(`/api/v1/activity-sessions/${id}/host-state`);
     return response.json() as Promise<{
+      state: { state: Record<string, unknown>; config?: Record<string, unknown> };
       participants: Array<{ id: string; displayName: string }>;
+      teams: Array<{ id: string; name: string; score: number }>;
       submissions: Array<{ id: string; moderationStatus: string }>;
       scoreEvents: Array<{ amount: number }>;
     }>;
   }, runId);
+}
+
+async function participantAction(page: Page, runId: string, token: string, action: string, payload?: Record<string, unknown>) {
+  return page.evaluate(async ({ id, participantToken, command, commandPayload }) => {
+    const response = await fetch(`/api/v1/activity-sessions/${id}/participant-action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ participantToken, action: command, payload: commandPayload || null }),
+    });
+    return { status: response.status, body: await response.json() };
+  }, { id: runId, participantToken: token, command: action, commandPayload: payload });
 }
 
 async function runState(page: Page, runId: string) {
@@ -133,6 +146,196 @@ test("Trivia runs from teacher launch through two phone answers and scored revea
   }
 });
 
+test("Trivia supports short-answer and number lock-in rounds without leaking answers", async ({ page, browser }) => {
+  await authenticate(page);
+  const definition = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/activities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Browser Flexible Quiz",
+        type: "trivia",
+        config: {
+          title: "Browser Flexible Quiz",
+          preset: "fillTheBlank",
+          questions: [
+            { id: "text-round", prompt: "Finish this phrase: Better late than ____.", answerMode: "text", acceptedAnswers: ["never", "not ever"], correctText: "never", points: 125 },
+            { id: "number-round", prompt: "What is the mystery number?", answerMode: "number", targetNumber: 42, tolerance: 1, scoringMode: "exact", points: 150 },
+          ],
+        },
+      }),
+    });
+    const body = await response.json() as { id: string };
+    if (!response.ok) throw new Error(JSON.stringify(body));
+    return body;
+  });
+  const run = await launch(page, definition.id);
+  const baseURL = new URL(page.url()).origin;
+  const firstContext = await browser.newContext({ baseURL });
+  const secondContext = await browser.newContext({ baseURL });
+  const first = await firstContext.newPage();
+  const second = await secondContext.newPage();
+  try {
+    for (const [participantPage, name] of [[first, "Alex"], [second, "Jordan"]] as const) {
+      await participantPage.goto(`/play/${run.joinCode}`);
+      await participantPage.getByLabel("Display name").fill(name);
+      await participantPage.getByRole("button", { name: "Join game" }).click();
+      await expect(participantPage.getByText("You’re in.")).toBeVisible();
+    }
+
+    await hostAction(page, run.runId, "start");
+    await hostAction(page, run.runId, "open");
+    for (const participantPage of [first, second]) {
+      await expect(participantPage.getByText("SHORT ANSWER", { exact: true })).toBeVisible();
+      await participantPage.locator("textarea").fill("never");
+      await participantPage.getByRole("button", { name: "Lock in answer" }).click();
+      await expect(participantPage.getByText("Your response is locked in.")).toBeVisible();
+    }
+
+    const firstToken = await first.evaluate(code => localStorage.getItem(`lessoncue:activity-participant:${code}`) || "", run.joinCode);
+    const beforeReveal = await first.evaluate(async ({ runId, participantToken }) => {
+      const response = await fetch(`/api/v1/activity-sessions/${runId}/participant-state?participantToken=${encodeURIComponent(participantToken)}`);
+      return response.json() as Promise<{ state: { config: { questions: Array<Record<string, unknown>> }; state: Record<string, unknown> } }>;
+    }, { runId: run.runId, participantToken: firstToken });
+    expect(beforeReveal.state.config.questions[0].correctText).toBeUndefined();
+    expect(beforeReveal.state.config.questions[0].acceptedAnswers).toBeUndefined();
+    expect(beforeReveal.state.state.revealedAnswer).toBeUndefined();
+
+    await hostAction(page, run.runId, "lock");
+    await hostAction(page, run.runId, "reveal");
+    const textReveal = await runState(page, run.runId);
+    expect(textReveal.revealedAnswer).toBe("never");
+    expect((await hostState(page, run.runId)).scoreEvents.filter(event => event.amount === 125)).toHaveLength(2);
+
+    await hostAction(page, run.runId, "next");
+    await hostAction(page, run.runId, "open");
+    for (const participantPage of [first, second]) {
+      await expect(participantPage.getByText("NUMBER LOCK-IN", { exact: true })).toBeVisible();
+      await participantPage.locator("input[type=number]").fill("42");
+      await participantPage.getByRole("button", { name: "Lock in answer" }).click();
+    }
+    await hostAction(page, run.runId, "lock");
+    await hostAction(page, run.runId, "reveal");
+    expect((await runState(page, run.runId)).revealedAnswer).toBe("42");
+    expect((await hostState(page, run.runId)).scoreEvents.filter(event => event.amount === 150)).toHaveLength(2);
+  } finally {
+    await firstContext.close();
+    await secondContext.close();
+  }
+});
+
+test("Wager Trivia exposes shared modifier controls and scores the server-authoritative result", async ({ page, browser }) => {
+  await authenticate(page);
+  const definition = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/activities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Browser Wager Trivia",
+        type: "trivia",
+        config: {
+          title: "Browser Wager Trivia",
+          modifiers: {
+            wager: { enabled: true, maxPoints: 50, defaultPoints: 10 },
+            doubleOrNothing: { enabled: true },
+            lives: { enabled: true, startingLives: 2, eliminateAtZero: true },
+          },
+          questions: [{ id: "q1", prompt: "Choose B", options: ["A", "B"], correctIndex: 1, points: 100 }],
+        },
+      }),
+    });
+    const body = await response.json() as { id: string };
+    if (!response.ok) throw new Error(JSON.stringify(body));
+    return body;
+  });
+  const run = await launch(page, definition.id);
+  const context = await browser.newContext({ baseURL: new URL(page.url()).origin });
+  const participant = await context.newPage();
+  try {
+    await participant.goto(`/play/${run.joinCode}`);
+    await participant.getByLabel("Display name").fill("Risk Taker");
+    await participant.getByRole("button", { name: "Join game" }).click();
+    await expect(participant.getByText("You’re in.")).toBeVisible();
+    await hostAction(page, run.runId, "start");
+    await hostAction(page, run.runId, "open");
+    await expect(participant.getByLabel("Quiz options")).toBeVisible();
+    await expect(participant.getByText("Wager points")).toBeVisible();
+    await expect(participant.getByText("Risk it for double points")).toBeVisible();
+    await participant.locator("input[type=number]").fill("20");
+    await participant.getByLabel("Risk it for double points").check();
+    await participant.locator(".participant-choice-list button").nth(1).click();
+    await hostAction(page, run.runId, "reveal");
+    const state = await hostState(page, run.runId);
+    expect(state.scoreEvents.some(event => event.amount === 240)).toBe(true);
+  } finally {
+    await context.close();
+  }
+});
+
+test("Read the Room sequences editable rounds with different choice counts", async ({ page, browser }) => {
+  await authenticate(page);
+  const definition = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/activities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Browser Poll Gauntlet",
+        type: "poll",
+        config: {
+          title: "Browser Poll Gauntlet",
+          preset: "thisOrThatGauntlet",
+          rounds: [
+            { id: "round-1", question: "Which side wins round one?", options: ["This", "That"] },
+            { id: "round-2", question: "Which choice wins round two?", options: ["A", "B", "C", "D", "E", "F"] },
+          ],
+        },
+      }),
+    });
+    const body = await response.json() as { id: string };
+    if (!response.ok) throw new Error(JSON.stringify(body));
+    return body;
+  });
+  const run = await launch(page, definition.id);
+  const baseURL = new URL(page.url()).origin;
+  const firstContext = await browser.newContext({ baseURL });
+  const secondContext = await browser.newContext({ baseURL });
+  const first = await firstContext.newPage();
+  const second = await secondContext.newPage();
+  try {
+    for (const [participantPage, name] of [[first, "Alex"], [second, "Jordan"]] as const) {
+      await participantPage.goto(`/play/${run.joinCode}`);
+      await participantPage.getByLabel("Display name").fill(name);
+      await participantPage.getByRole("button", { name: "Join game" }).click();
+      await expect(participantPage.getByText("You’re in.")).toBeVisible();
+    }
+
+    const firstToken = await first.evaluate(code => localStorage.getItem(`lessoncue:activity-participant:${code}`) || "", run.joinCode);
+    const secondToken = await second.evaluate(code => localStorage.getItem(`lessoncue:activity-participant:${code}`) || "", run.joinCode);
+    await hostAction(page, run.runId, "start");
+    await hostAction(page, run.runId, "open");
+    await expect(first.getByText("Which side wins round one?")).toBeVisible();
+    expect((await participantAction(page, run.runId, firstToken, "vote", { optionIndex: 0 })).status).toBe(200);
+    expect((await participantAction(page, run.runId, secondToken, "vote", { optionIndex: 1 })).status).toBe(200);
+    await hostAction(page, run.runId, "reveal");
+    expect((await runState(page, run.runId)).resultsVisible).toBe(true);
+
+    await hostAction(page, run.runId, "next");
+    expect((await runState(page, run.runId)).currentRoundIndex).toBe(1);
+    await hostAction(page, run.runId, "open");
+    await first.reload();
+    await expect(first.getByText("Which choice wins round two?")).toBeVisible();
+    await expect(first.locator(".participant-choice-list button")).toHaveCount(6);
+    expect((await participantAction(page, run.runId, firstToken, "vote", { optionIndex: 5 })).status).toBe(200);
+    expect((await participantAction(page, run.runId, secondToken, "vote", { optionIndex: 4 })).status).toBe(200);
+    await hostAction(page, run.runId, "reveal");
+    await hostAction(page, run.runId, "next");
+    expect((await runState(page, run.runId)).phase).toBe("finalResults");
+  } finally {
+    await firstContext.close();
+    await secondContext.close();
+  }
+});
+
 test("Punchline keeps anonymous responses moderated before voting", async ({ page, browser }) => {
   await authenticate(page);
   const definitionId = await createActivity(page, "Punchline", "Browser Punchline Vertical Slice");
@@ -171,6 +374,287 @@ test("Punchline keeps anonymous responses moderated before voting", async ({ pag
   } finally {
     await firstContext.close();
     await secondContext.close();
+  }
+});
+
+test("Punchline can resolve a moderated head-to-head matchup through the phone controller", async ({ page, browser }) => {
+  await authenticate(page);
+  const definition = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/activities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Browser Head-to-Head Punchline",
+        type: "punchline",
+        config: {
+          title: "Browser Head-to-Head Punchline",
+          votingStyle: "headToHead",
+          headToHeadMatchPoints: 25,
+          requireModeration: false,
+          prompts: [{ id: "prompt-1", prompt: "The worst mascot would be...", points: 100 }],
+        },
+      }),
+    });
+    const body = await response.json() as { id: string };
+    if (!response.ok) throw new Error(JSON.stringify(body));
+    return body;
+  });
+  const run = await launch(page, definition.id);
+  const baseURL = new URL(page.url()).origin;
+  const firstContext = await browser.newContext({ baseURL });
+  const secondContext = await browser.newContext({ baseURL });
+  const first = await firstContext.newPage();
+  const second = await secondContext.newPage();
+  try {
+    for (const [participantPage, name] of [[first, "Alex"], [second, "Jordan"]] as const) {
+      await participantPage.goto(`/play/${run.joinCode}`);
+      await participantPage.getByLabel("Display name").fill(name);
+      await participantPage.getByRole("button", { name: "Join game" }).click();
+      await expect(participantPage.getByText("You’re in.")).toBeVisible();
+    }
+    await hostAction(page, run.runId, "start");
+    await hostAction(page, run.runId, "open");
+    for (const [participantPage, answer] of [[first, "A tiny mascot"], [second, "A mascot made of toast"]] as const) {
+      await expect(participantPage.locator("textarea")).toBeVisible();
+      await participantPage.locator("textarea").fill(answer);
+      await participantPage.getByRole("button", { name: "Send response" }).click();
+    }
+    await expect.poll(async () => (await hostState(page, run.runId)).submissions.length).toBe(2);
+    await hostAction(page, run.runId, "lock");
+    await hostAction(page, run.runId, "openvoting");
+    await expect(first.locator(".participant-choice-list button")).toHaveCount(2);
+    const session = await hostState(page, run.runId);
+    const firstSubmissionId = session.submissions[0].id;
+    await first.locator(".participant-choice-list button").first().click();
+    await second.locator(".participant-choice-list button").first().click();
+    await hostAction(page, run.runId, "reveal", { winnerId: firstSubmissionId });
+    await expect.poll(async () => (await runState(page, run.runId)).phase).toBe("finalResults");
+    const scores = (await hostState(page, run.runId)).scoreEvents.map(event => event.amount);
+    expect(scores).toContain(25);
+    expect(scores).toContain(100);
+    await expect(first.getByText("Reveal time.")).toBeVisible();
+  } finally {
+    await firstContext.close();
+    await secondContext.close();
+  }
+});
+
+test("Buzzer Battle keeps the first buzz authoritative and locks out a miss", async ({ page, browser }) => {
+  await authenticate(page);
+  const definitionId = await createActivity(page, "Buzzer Battle", "Browser Buzzer Vertical Slice");
+  const run = await launch(page, definitionId);
+  const baseURL = new URL(page.url()).origin;
+  const firstContext = await browser.newContext({ baseURL });
+  const secondContext = await browser.newContext({ baseURL });
+  const first = await firstContext.newPage();
+  const second = await secondContext.newPage();
+  try {
+    for (const [participantPage, name] of [[first, "Alex"], [second, "Jordan"]] as const) {
+      await participantPage.goto(`/play/${run.joinCode}`);
+      await participantPage.getByLabel("Display name").fill(name);
+      await participantPage.getByRole("button", { name: "Join game" }).click();
+      await expect(participantPage.getByText("You’re in.")).toBeVisible();
+    }
+
+    await hostAction(page, run.runId, "start");
+    await hostAction(page, run.runId, "revealclue");
+    await expect(first.getByRole("button", { name: "BUZZ", exact: true })).toBeVisible();
+    await first.getByRole("button", { name: "BUZZ", exact: true }).click();
+    await expect.poll(async () => (await runState(page, run.runId)).buzzWinnerName).toBe("Alex");
+
+    const secondToken = await second.evaluate(code => localStorage.getItem(`lessoncue:activity-participant:${code}`) || "", run.joinCode);
+    const rejectedWhileLocked = await participantAction(page, run.runId, secondToken, "buzz");
+    expect(rejectedWhileLocked.status).toBe(400);
+
+    await hostAction(page, run.runId, "incorrect");
+    await expect.poll(async () => (await runState(page, run.runId)).phase).toBe("acceptingResponses");
+    const firstToken = await first.evaluate(code => localStorage.getItem(`lessoncue:activity-participant:${code}`) || "", run.joinCode);
+    const lockedOut = await participantAction(page, run.runId, firstToken, "buzz");
+    expect(lockedOut.status).toBe(400);
+    const secondBuzz = await participantAction(page, run.runId, secondToken, "buzz");
+    expect(secondBuzz.status).toBe(200);
+    await hostAction(page, run.runId, "correct");
+
+    const state = await hostState(page, run.runId);
+    expect(state.scoreEvents.some(event => event.amount === 100)).toBe(true);
+    expect((await runState(page, run.runId)).phase).toBe("reveal");
+  } finally {
+    await firstContext.close();
+    await secondContext.close();
+  }
+});
+
+test("Existing game engines can run an embedded server-authoritative utility", async ({ page }) => {
+  await authenticate(page);
+  const definition = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/activities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: `Embedded Utility ${Date.now()}`, type: "buzzer", config: { title: "Embedded Utility", clues: [{ id: "c1", prompt: "Clue", answer: "Answer", points: 100 }], embeddedUtility: { utilityType: "dice", diceSides: 6 } } })
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return await response.json() as { id: string };
+  });
+  try {
+    const run = await launch(page, definition.id);
+    await hostAction(page, run.runId, "start");
+    await hostAction(page, run.runId, "utility.roll");
+    const state = await runState(page, run.runId);
+    expect((state.embeddedUtilityState as { result: { kind: string; value: number } }).result.kind).toBe("dice");
+    expect((state.embeddedUtilityState as { result: { kind: string; value: number } }).result.value).toBeGreaterThanOrEqual(1);
+    expect((state.embeddedUtilityState as { result: { kind: string; value: number } }).result.value).toBeLessThanOrEqual(6);
+  } finally {
+    await page.evaluate(async id => {
+      await fetch("/api/v1/activities/bulk-delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [id] }) });
+    }, definition.id);
+  }
+});
+
+test("Fake Out keeps truth hidden as a label, moderates bluffs, and scores truth picks", async ({ page, browser }) => {
+  await authenticate(page);
+  const definitionId = await createActivity(page, "Fake Out", "Browser Fake Out Vertical Slice");
+  const run = await launch(page, definitionId);
+  const baseURL = new URL(page.url()).origin;
+  const firstContext = await browser.newContext({ baseURL });
+  const secondContext = await browser.newContext({ baseURL });
+  const first = await firstContext.newPage();
+  const second = await secondContext.newPage();
+  try {
+    for (const [participantPage, name] of [[first, "Alex"], [second, "Jordan"]] as const) {
+      await participantPage.goto(`/play/${run.joinCode}`);
+      await participantPage.getByLabel("Display name").fill(name);
+      await participantPage.getByRole("button", { name: "Join game" }).click();
+      await expect(participantPage.getByText("You’re in.")).toBeVisible();
+    }
+
+    await hostAction(page, run.runId, "start");
+    await hostAction(page, run.runId, "open");
+    for (const [participantPage, answer] of [[first, "A believable fake"], [second, "Another believable fake"]] as const) {
+      await expect(participantPage.locator("textarea")).toBeVisible();
+      await participantPage.locator("textarea").fill(answer);
+      await participantPage.getByRole("button", { name: "Send response" }).click();
+    }
+    await expect.poll(async () => (await hostState(page, run.runId)).submissions.length).toBe(2);
+    const pending = await hostState(page, run.runId);
+    expect(pending.submissions.every(item => item.moderationStatus === "pending")).toBe(true);
+    for (const submission of pending.submissions) await hostAction(page, run.runId, "moderate", { submissionId: submission.id, status: "approved" });
+
+    await hostAction(page, run.runId, "lock");
+    await hostAction(page, run.runId, "openvoting");
+    const beforeReveal = await runState(page, run.runId);
+    expect((beforeReveal.options as Array<{ isTruth?: boolean }>).some(option => option.isTruth === true)).toBe(false);
+    for (const participantPage of [first, second]) {
+      await expect(participantPage.locator(".participant-choice-list")).toBeVisible();
+      await participantPage.locator(".participant-choice-list button").last().click();
+    }
+    await hostAction(page, run.runId, "reveal");
+    const afterReveal = await runState(page, run.runId);
+    expect((afterReveal.options as Array<{ isTruth?: boolean }>).some(option => option.isTruth === true)).toBe(true);
+    const state = await hostState(page, run.runId);
+    expect(state.scoreEvents.filter(event => event.amount === 100)).toHaveLength(2);
+  } finally {
+    await firstContext.close();
+    await secondContext.close();
+  }
+});
+
+test("Survey Showdown supports team turns, strikes, conservative matching, and a steal", async ({ page, browser }) => {
+  await authenticate(page);
+  const definition = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/activities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Browser Survey Showdown",
+        type: "surveyBoard",
+        config: {
+          title: "Browser Survey Showdown",
+          teamPlay: true,
+          stealEnabled: true,
+          strikesToSteal: 3,
+          questions: [{
+            id: "question-1",
+            prompt: "Name a fruit people pack for lunch.",
+            answers: [
+              { id: "answer-1", rank: 1, text: "Apples", points: 40, aliases: ["apple"] },
+              { id: "answer-2", rank: 2, text: "Bananas", points: 30, aliases: ["banana"] },
+            ],
+          }],
+        },
+      }),
+    });
+    const body = await response.json() as { id: string };
+    if (!response.ok) throw new Error(JSON.stringify(body));
+    return body;
+  });
+  const run = await launch(page, definition.id);
+  const baseURL = new URL(page.url()).origin;
+  const northContext = await browser.newContext({ baseURL });
+  const southContext = await browser.newContext({ baseURL });
+  const north = await northContext.newPage();
+  const south = await southContext.newPage();
+  try {
+    for (const [participantPage, name] of [[north, "North Player"], [south, "South Player"]] as const) {
+      await participantPage.goto(`/play/${run.joinCode}`);
+      await participantPage.getByLabel("Display name").fill(name);
+      await participantPage.getByRole("button", { name: "Join game" }).click();
+      await expect(participantPage.getByText("You’re in.")).toBeVisible();
+    }
+
+    await page.evaluate(async runId => {
+      const response = await fetch(`/api/v1/activity-sessions/${runId}/teams`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify([{ name: "North" }, { name: "South" }]) });
+      if (!response.ok) throw new Error(await response.text());
+    }, run.runId);
+    let session = await hostState(page, run.runId);
+    const northTeam = session.teams.find(team => team.name === "North");
+    const southTeam = session.teams.find(team => team.name === "South");
+    const northPlayer = session.participants.find(participant => participant.displayName === "North Player");
+    const southPlayer = session.participants.find(participant => participant.displayName === "South Player");
+    expect(northTeam?.id).toBeTruthy();
+    expect(southTeam?.id).toBeTruthy();
+    await page.evaluate(async ({ runId, participantId, teamId }) => {
+      const response = await fetch(`/api/v1/activity-sessions/${runId}/participants/team`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ participantId, teamId }) });
+      if (!response.ok) throw new Error(await response.text());
+    }, { runId: run.runId, participantId: northPlayer?.id, teamId: northTeam?.id });
+    await page.evaluate(async ({ runId, participantId, teamId }) => {
+      const response = await fetch(`/api/v1/activity-sessions/${runId}/participants/team`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ participantId, teamId }) });
+      if (!response.ok) throw new Error(await response.text());
+    }, { runId: run.runId, participantId: southPlayer?.id, teamId: southTeam?.id });
+
+    await hostAction(page, run.runId, "start");
+    await hostAction(page, run.runId, "open");
+    await expect(north.locator("textarea")).toBeVisible();
+    await north.locator("textarea").fill("Pears");
+    await north.getByRole("button", { name: "Send response" }).click();
+    await hostAction(page, run.runId, "addstrike");
+    await hostAction(page, run.runId, "addstrike");
+    await hostAction(page, run.runId, "addstrike");
+    session = await hostState(page, run.runId);
+    expect(session.state.state.stealOpen).toBe(true);
+    expect(session.state.state.stealTeamName).toBe("South");
+    await south.reload();
+    const southView = await south.evaluate(async runId => {
+      const code = location.pathname.split("/")[2] || "";
+      const token = localStorage.getItem(`lessoncue:activity-participant:${code}`) || "";
+      return fetch(`/api/v1/activity-sessions/${runId}/participant-state?participantToken=${encodeURIComponent(token)}`).then(response => response.json()) as Promise<{ state: { state: Record<string, unknown> } }>;
+    }, run.runId);
+    expect(southView.state.state.isActiveTeam).toBe(true);
+    await expect(south.locator("textarea")).toBeVisible();
+    await south.locator("textarea").fill("Banana");
+    await south.getByRole("button", { name: "Send response" }).click();
+    await hostAction(page, run.runId, "suggestmatch");
+    session = await hostState(page, run.runId);
+    const suggestions = session.state.state.surveyMatchSuggestions as Array<{ rank: number; confidence: number }>;
+    expect(suggestions[0]?.rank).toBe(2);
+    expect(suggestions[0]?.confidence).toBeGreaterThanOrEqual(90);
+    await hostAction(page, run.runId, "revealitem", { rank: 2 });
+    session = await hostState(page, run.runId);
+    const stealScore = session.teams.find(team => team.name === "South")?.score || 0;
+    expect(stealScore).toBe(30);
+    expect((await runState(page, run.runId)).stealOpen).toBe(false);
+  } finally {
+    await northContext.close();
+    await southContext.close();
   }
 });
 
@@ -451,6 +935,39 @@ test("Activities Studio supports grid/list views, filters, arranging, and bulk d
   await expect(page.getByText(bracketName, { exact: true })).toHaveCount(0);
 });
 
+test("Activities library exposes bounded server-side pages for large collections", async ({ page }) => {
+  await authenticate(page);
+  const tag = Date.now();
+  const ids = await page.evaluate(async tagValue => {
+    const ids: string[] = [];
+    for (const suffix of ["One", "Two"]) {
+      const response = await fetch("/api/v1/activities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: `Paged Activity ${tagValue} ${suffix}`, type: "trivia", config: { title: "Paged", questions: [{ id: "q1", prompt: "Pick", options: ["A", "B"], correctIndex: 0 }] } })
+      });
+      if (!response.ok) throw new Error(await response.text());
+      ids.push((await response.json() as { id: string }).id);
+    }
+    return ids;
+  }, tag);
+  try {
+    const pageResult = await page.evaluate(async tagValue => {
+      const response = await fetch(`/api/v1/activities/library?page=1&pageSize=1&search=${encodeURIComponent(`Paged Activity ${tagValue}`)}`);
+      return { status: response.status, body: await response.json() as { items: Array<{ name: string }>; page: number; pageSize: number; totalCount: number } };
+    }, tag);
+    expect(pageResult.status).toBe(200);
+    expect(pageResult.body.page).toBe(1);
+    expect(pageResult.body.pageSize).toBe(1);
+    expect(pageResult.body.items).toHaveLength(1);
+    expect(pageResult.body.totalCount).toBe(2);
+  } finally {
+    await page.evaluate(async idsToDelete => {
+      await fetch("/api/v1/activities/bulk-delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: idsToDelete }) });
+    }, ids);
+  }
+});
+
 test("Activities editor previews draft snapshots and protects unsaved changes", async ({ page }) => {
   await authenticate(page);
   const definitionId = await createActivity(page, "Trivia Quiz", "Preview Dirty State Activity");
@@ -513,6 +1030,16 @@ test("Quiz and poll editors apply reusable named presets without changing engine
     expect(savedQuiz.config.preset).toBe("factOrFiction");
     expect(savedQuiz.config.questions[0].options).toHaveLength(2);
 
+    await page.getByLabel("Quiz format preset").selectOption("guessTheNumber");
+    await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
+    await expect(page.getByLabel("Answer format")).toHaveValue("number");
+    await expect(page.getByLabel("Target number")).toHaveValue("42");
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    const savedNumberQuiz = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { config: { preset: string; questions: Array<{ answerMode: string; targetNumber: number }> } }, quizId);
+    expect(savedNumberQuiz.config.preset).toBe("guessTheNumber");
+    expect(savedNumberQuiz.config.questions[0].answerMode).toBe("number");
+    expect(savedNumberQuiz.config.questions[0].targetNumber).toBe(42);
+
     await page.getByRole("button", { name: "Close", exact: true }).click();
     pollId = await createActivity(page, "Live Poll", pollName);
     await expect(page.getByRole("option", { name: "Prediction Machine", exact: true })).toBeAttached();
@@ -525,6 +1052,24 @@ test("Quiz and poll editors apply reusable named presets without changing engine
     expect(savedPoll.presetType).toBe("wouldYouRather");
     expect(savedPoll.config.preset).toBe("wouldYouRather");
     expect(savedPoll.config.options).toHaveLength(2);
+
+    await page.getByLabel("Poll format preset").selectOption("thisOrThatGauntlet");
+    await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Round 3", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    const savedGauntlet = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; rounds: Array<{ options: string[] }> } }, pollId);
+    expect(savedGauntlet.presetType).toBe("thisOrThatGauntlet");
+    expect(savedGauntlet.config.preset).toBe("thisOrThatGauntlet");
+    expect(savedGauntlet.config.rounds).toHaveLength(3);
+    expect(savedGauntlet.config.rounds[2].options).toHaveLength(2);
+
+    await page.getByLabel("Poll format preset").selectOption("wouldYouRather");
+    await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Round 3", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    const savedSingleRound = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { config: { preset: string; rounds?: unknown[] } }, pollId);
+    expect(savedSingleRound.config.preset).toBe("wouldYouRather");
+    expect(savedSingleRound.config.rounds).toBeUndefined();
   } finally {
     await page.evaluate(async ids => {
       await fetch("/api/v1/activities/bulk-delete", {

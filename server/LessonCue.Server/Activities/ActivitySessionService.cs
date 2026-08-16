@@ -100,6 +100,7 @@ public sealed class ActivitySessionService(
         var hash = TokenHash(run.Id, token);
         var participant = await db.ActivityParticipants
             .SingleOrDefaultAsync(x => x.ActivityRunId == run.Id && x.ParticipantTokenHash == hash, ct);
+        var isNewParticipant = participant is null;
 
         var displayName = NormalizeDisplayName(input.DisplayName);
         if (participant is null)
@@ -126,6 +127,13 @@ public sealed class ActivitySessionService(
                 participant.IsAnonymous = false;
             }
             participant.LastSeenAt = DateTimeOffset.UtcNow;
+        }
+
+        if (isNewParticipant && run.ActivityDefinition.Type is (ActivityTypes.Trivia or ActivityTypes.RapidFire))
+        {
+            var quizModifiers = QuizModifierSettings.FromConfig(ParseConfig(run));
+            if (quizModifiers.LivesEnabled && StringValue(ParseObject(run.StateJson), "phase") != ActivityPhases.Lobby)
+                participant.Lives = quizModifiers.StartingLives;
         }
 
         await db.SaveChangesAsync(ct);
@@ -180,10 +188,19 @@ public sealed class ActivitySessionService(
         var currentConfig = ParseConfig(run);
         var rawState = ParseObject(run.StateJson);
         var isTurnBasedWord = run.ActivityDefinition.Type == ActivityTypes.Word && BoolValue(currentConfig, "turnBased");
-        var isEliminated = isTurnBasedWord && ReadStringArray(rawState, "eliminatedParticipantIds").Contains(participant.Id.ToString(), StringComparer.OrdinalIgnoreCase);
+        var quizModifiers = QuizModifierSettings.FromConfig(currentConfig);
+        var isQuizEliminated = run.ActivityDefinition.Type is ActivityTypes.Trivia or ActivityTypes.RapidFire
+            && quizModifiers.LivesEnabled
+            && quizModifiers.EliminateAtZeroLives
+            && (participant.Status == "eliminated" || participant.Lives <= 0);
+        var isEliminated = isTurnBasedWord && ReadStringArray(rawState, "eliminatedParticipantIds").Contains(participant.Id.ToString(), StringComparer.OrdinalIgnoreCase)
+            || isQuizEliminated;
         var isCurrentTurn = isTurnBasedWord && StringValue(rawState, "turnParticipantId") == participant.Id.ToString();
         var hasSubmission = await db.ActivitySubmissions.AnyAsync(x => x.ActivityRunId == runId && x.ParticipantId == participant.Id && x.RoundId == roundId, ct);
-        var hasVote = await db.ActivityVotes.AnyAsync(x => x.ActivityRunId == runId && x.VoterParticipantId == participant.Id && x.RoundId == roundId, ct);
+        var voteRoundId = run.ActivityDefinition.Type == ActivityTypes.Punchline
+            ? CreativeVoteRoundId(run, currentConfig, rawState)
+            : roundId;
+        var hasVote = await db.ActivityVotes.AnyAsync(x => x.ActivityRunId == runId && x.VoterParticipantId == participant.Id && x.RoundId == voteRoundId, ct);
         // Creative and bluffing rounds intentionally have two separate inputs:
         // submit a response first, then vote in a later phase. Do not let the
         // first input disable the second one on the participant phone.
@@ -295,6 +312,13 @@ public sealed class ActivitySessionService(
             run.TimerPausedAt = null;
             run.TimerDurationMs = null;
             foreach (var participant in run.Participants) participant.Status = "active";
+            if (run.ActivityDefinition.Type is ActivityTypes.Trivia or ActivityTypes.RapidFire)
+            {
+                var resetConfig = ParseConfig(run);
+                var resetQuizModifiers = QuizModifierSettings.FromConfig(resetConfig);
+                foreach (var participant in run.Participants.Where(item => item.Status != "removed"))
+                    participant.Lives = resetQuizModifiers.StartingLives;
+            }
             db.ActivitySubmissions.RemoveRange(run.Submissions);
             db.ActivityVotes.RemoveRange(run.Votes);
             db.ActivityScoreEvents.RemoveRange(run.ScoreEvents);
@@ -387,8 +411,11 @@ public sealed class ActivitySessionService(
 
     private async Task<(bool Success, string? Error)> HandleHostActionAsync(ActivityRun run, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)
     {
+        if (action.StartsWith("utility.", StringComparison.OrdinalIgnoreCase) || action.StartsWith("embeddedutility.", StringComparison.OrdinalIgnoreCase))
+            return await HandleEmbeddedUtilityHostAsync(run, config, state, action, payload, ct);
         if (action is "start" or "startgame")
         {
+            var activityType = run.ActivityDefinition!.Type;
             if (run.ActivityDefinition!.Type == ActivityTypes.Bracket)
             {
                 await EnsureBracketEntrantsAsync(run, config, state, ct);
@@ -404,9 +431,24 @@ public sealed class ActivitySessionService(
             {
                 EnsureUtilityState(config, state);
             }
-            state["phase"] = FirstPlayPhase(run.ActivityDefinition!.Type);
+            state["phase"] = FirstPlayPhase(activityType);
             state["actionNonce"] = LongValue(state, "actionNonce") + 1;
-            if (run.ActivityDefinition.Type == ActivityTypes.RapidFire) state["isRunning"] = true;
+            if (activityType is ActivityTypes.Trivia or ActivityTypes.RapidFire)
+            {
+                InitializeQuizParticipants(run, config, state);
+                if (activityType == ActivityTypes.RapidFire)
+                {
+                    var now = DateTimeOffset.UtcNow;
+                    var durationMs = RapidFireDurationMs(config, state);
+                    state["phase"] = ActivityPhases.AcceptingResponses;
+                    state["responsesOpen"] = true;
+                    state["responsesLocked"] = false;
+                    state["isRunning"] = true;
+                    state["remainingMs"] = durationMs;
+                    state["targetAt"] = now.AddMilliseconds(durationMs).ToString("O");
+                    state["responseWindowStartedAt"] = now.ToString("O");
+                }
+            }
             run.Status = ActivityRunStatuses.Live;
             run.StartedAt ??= DateTimeOffset.UtcNow;
             return (true, null);
@@ -415,14 +457,25 @@ public sealed class ActivitySessionService(
         {
             run.Status = ActivityRunStatuses.Paused;
             run.TimerPausedAt = DateTimeOffset.UtcNow;
-            if (run.ActivityDefinition?.Type == ActivityTypes.RapidFire) state["isRunning"] = false;
+            if (run.ActivityDefinition?.Type == ActivityTypes.RapidFire)
+            {
+                state["remainingMs"] = RapidFireRemainingMs(state);
+                state["targetAt"] = null;
+                state["isRunning"] = false;
+            }
             return (true, null);
         }
         if (action is "resume")
         {
             run.Status = ActivityRunStatuses.Live;
             run.TimerPausedAt = null;
-            if (run.ActivityDefinition?.Type == ActivityTypes.RapidFire) state["isRunning"] = true;
+            if (run.ActivityDefinition?.Type == ActivityTypes.RapidFire)
+            {
+                var remainingMs = Math.Max(0, IntValue(state, "remainingMs"));
+                if (remainingMs <= 0) return (false, "This rapid-fire question has no time remaining.");
+                state["targetAt"] = DateTimeOffset.UtcNow.AddMilliseconds(remainingMs).ToString("O");
+                state["isRunning"] = true;
+            }
             return (true, null);
         }
         if (action is "awardpoints" or "score" or "award") return await AwardFromPayloadAsync(run, state, payload, ct);
@@ -481,25 +534,40 @@ public sealed class ActivitySessionService(
         {
             case "openresponses":
             case "open":
-                state["phase"] = ActivityPhases.AcceptingResponses; state["responsesOpen"] = true; state["responsesLocked"] = false; return (true, null);
+                state["phase"] = ActivityPhases.AcceptingResponses;
+                state["responsesOpen"] = true;
+                state["responsesLocked"] = false;
+                state["responseWindowStartedAt"] = DateTimeOffset.UtcNow.ToString("O");
+                return (true, null);
             case "closeresponses":
             case "lock":
                 state["phase"] = ActivityPhases.ResponsesLocked; state["responsesOpen"] = false; state["responsesLocked"] = true; return (true, null);
             case "revealanswer":
             case "reveal":
+                if (run.ActivityDefinition!.Type == ActivityTypes.RapidFire)
+                {
+                    state["remainingMs"] = RapidFireRemainingMs(state);
+                    state["targetAt"] = null;
+                    state["isRunning"] = false;
+                }
                 state["phase"] = ActivityPhases.Reveal; state["responsesOpen"] = false; state["responsesLocked"] = true; state["answerRevealed"] = true;
-                var correct = questions.Count == 0 ? 0 : IntValue(questions[index] as JsonObject, "correctIndex");
-                state["revealedCorrectIndex"] = correct;
-                var explanation = StringValue(questions.Count == 0 ? null : questions[index] as JsonObject, "explanation");
+                var question = questions.Count == 0 ? null : questions[index] as JsonObject;
+                var answerMode = QuizAnswerMode(question);
+                if (answerMode == "choice") state["revealedCorrectIndex"] = IntValue(question, "correctIndex");
+                else state.Remove("revealedCorrectIndex");
+                var revealedAnswer = QuizAnswerText(question);
+                if (!string.IsNullOrWhiteSpace(revealedAnswer)) state["revealedAnswer"] = revealedAnswer;
+                else state.Remove("revealedAnswer");
+                var explanation = StringValue(question, "explanation");
                 if (!string.IsNullOrWhiteSpace(explanation)) state["revealedExplanation"] = explanation;
                 if (!BoolValue(state, "scoresApplied"))
                 {
-                    await ScoreQuizAsync(run, questions, index, ct);
+                    await ScoreQuizAsync(run, questions, index, state, ct);
                     state["scoresApplied"] = true;
                 }
                 return (true, null);
             case "hideanswer":
-                state["answerRevealed"] = false; state.Remove("revealedCorrectIndex"); return (true, null);
+                state["answerRevealed"] = false; state.Remove("revealedCorrectIndex"); state.Remove("revealedAnswer"); return (true, null);
             case "revealexplanation":
                 state["explanationRevealed"] = true; return (true, null);
             case "nextquestion":
@@ -507,10 +575,10 @@ public sealed class ActivitySessionService(
             case "next":
                 if (index >= Math.Max(0, questions.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
                 state["currentQuestionIndex"] = index + 1; state["roundIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro;
-                state["responsesOpen"] = false; state["responsesLocked"] = false; state["answerRevealed"] = false; state.Remove("revealedCorrectIndex"); state.Remove("revealedExplanation"); state["scoresApplied"] = false; return (true, null);
+                state["responsesOpen"] = false; state["responsesLocked"] = false; state["answerRevealed"] = false; state.Remove("revealedCorrectIndex"); state.Remove("revealedAnswer"); state.Remove("revealedExplanation"); state["scoresApplied"] = false; state.Remove("responseWindowStartedAt"); state["targetAt"] = null; state["remainingMs"] = null; state["isRunning"] = false; return (true, null);
             case "prevquestion":
             case "previous":
-                state["currentQuestionIndex"] = Math.Max(0, index - 1); state["roundIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["answerRevealed"] = false; return (true, null);
+                state["currentQuestionIndex"] = Math.Max(0, index - 1); state["roundIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["answerRevealed"] = false; state.Remove("revealedCorrectIndex"); state.Remove("revealedAnswer"); state.Remove("responseWindowStartedAt"); state["targetAt"] = null; state["remainingMs"] = null; state["isRunning"] = false; return (true, null);
             case "showleaderboard": state["phase"] = ActivityPhases.Leaderboard; return (true, null);
             case "finish": state["phase"] = ActivityPhases.FinalResults; return (true, null);
             default: return (false, $"Unrecognized quiz action '{action}'.");
@@ -521,15 +589,49 @@ public sealed class ActivitySessionService(
     {
         if (action is not ("answer" or "submit" or "choose")) return (false, "Choose an answer while answers are open.");
         if (StringValue(state, "phase") != ActivityPhases.AcceptingResponses || !BoolValue(state, "responsesOpen")) return (false, "Answers are not open.");
+        if (run.ActivityDefinition!.Type == ActivityTypes.RapidFire && RapidFireRemainingMs(state) <= 0)
+            return (false, "This rapid-fire question has ended.");
+        var modifiers = QuizModifierSettings.FromConfig(config);
+        if (modifiers.LivesEnabled && modifiers.EliminateAtZeroLives && (participant.Status == "eliminated" || participant.Lives <= 0))
+            return (false, "You are out of lives for this game.");
         var questions = ArrayValue(config, "questions");
         var index = Math.Clamp(IntValue(state, "currentQuestionIndex"), 0, Math.Max(0, questions.Count - 1));
-        var optionIndex = ReadInt(payload, "optionIndex", ReadInt(payload, "answerIndex", -1));
         var question = questions.Count > index ? questions[index] as JsonObject : null;
-        var options = question is null ? [] : ArrayValue(question, "options");
-        if (optionIndex < 0 || optionIndex >= options.Count) return (false, "That answer is not available.");
+        var answerMode = QuizAnswerMode(question);
+        JsonObject answerPayload;
+        if (answerMode == "choice")
+        {
+            var optionIndex = ReadInt(payload, "optionIndex", ReadInt(payload, "answerIndex", -1));
+            var options = question is null ? [] : ArrayValue(question, "options");
+            if (optionIndex < 0 || optionIndex >= options.Count) return (false, "That answer is not available.");
+            answerPayload = new JsonObject { ["optionIndex"] = optionIndex };
+        }
+        else if (answerMode is "text" or "shorttext")
+        {
+            var text = ReadString(payload, "text").Trim();
+            if (text.Length is < 1 or > 1000) return (false, "Short answers must be between 1 and 1,000 characters.");
+            answerPayload = new JsonObject { ["text"] = text };
+        }
+        else if (answerMode == "number")
+        {
+            if (!TryReadDouble(payload, "number", out var number) && !TryReadDouble(payload, "text", out number))
+                return (false, "Enter a valid number.");
+            if (!double.IsFinite(number) || Math.Abs(number) > 1_000_000_000_000d) return (false, "That number is outside the allowed range.");
+            answerPayload = new JsonObject { ["number"] = number };
+        }
+        else return (false, "That answer format is not available.");
+
+        if (modifiers.WagerEnabled)
+        {
+            var wager = ReadInt(payload, "wager", modifiers.WagerDefaultPoints);
+            if (wager < 0 || wager > modifiers.WagerMaxPoints) return (false, $"Your wager must be between 0 and {modifiers.WagerMaxPoints} points.");
+            answerPayload["wager"] = wager;
+        }
+        if (modifiers.DoubleOrNothingEnabled)
+            answerPayload["doubleOrNothing"] = ReadBool(payload, "doubleOrNothing");
         var roundId = CurrentRoundId(run, config);
         var existing = await db.ActivitySubmissions.SingleOrDefaultAsync(x => x.ActivityRunId == run.Id && x.ParticipantId == participant.Id && x.RoundId == roundId, ct);
-        var payloadJson = JsonSerializer.Serialize(new { optionIndex }, ActivityJsonDefaults.Options);
+        var payloadJson = Serialize(answerPayload);
         if (existing is null) db.ActivitySubmissions.Add(new ActivitySubmission { ActivityRunId = run.Id, ParticipantId = participant.Id, RoundId = roundId, Kind = "quizAnswer", PayloadJson = payloadJson });
         else { existing.PayloadJson = payloadJson; existing.UpdatedAt = DateTimeOffset.UtcNow; }
         state["responseCount"] = await db.ActivitySubmissions.CountAsync(x => x.ActivityRunId == run.Id && x.RoundId == roundId, ct) + (existing is null ? 1 : 0);
@@ -602,26 +704,95 @@ public sealed class ActivitySessionService(
     private async Task<(bool Success, string? Error)> HandleBuzzerHostAsync(ActivityRun run, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)
     {
         var clues = ArrayValue(config, "clues");
+        if (clues.Count == 0) return (false, "Add at least one clue before starting this buzzer game.");
         var index = Math.Clamp(IntValue(state, "currentClueIndex"), 0, Math.Max(0, clues.Count - 1));
         switch (action)
         {
-            case "open": case "openbuzzers": state["phase"] = ActivityPhases.AcceptingResponses; state["buzzLocked"] = false; state["buzzWinnerParticipantId"] = null; state["buzzWinnerName"] = null; return (true, null);
-            case "reopen": case "resetbuzzers": state["phase"] = ActivityPhases.AcceptingResponses; state["buzzLocked"] = false; state["buzzWinnerParticipantId"] = null; state["buzzWinnerName"] = null; return (true, null);
+            case "open": case "openbuzzers":
+                state["phase"] = ActivityPhases.AcceptingResponses;
+                state["responsesOpen"] = true;
+                state["buzzLocked"] = false;
+                state["stealOpen"] = false;
+                state["buzzWinnerParticipantId"] = null;
+                state["buzzWinnerName"] = null;
+                state["answerRevealed"] = false;
+                state.Remove("revealedAnswer");
+                return (true, null);
+            case "reopen": case "resetbuzzers":
+                if (StringValue(state, "phase") is not (ActivityPhases.Judging or ActivityPhases.AcceptingResponses or ActivityPhases.Reveal))
+                    return (false, "Open the buzzers before resetting them.");
+                state["phase"] = ActivityPhases.AcceptingResponses;
+                state["responsesOpen"] = true;
+                state["buzzLocked"] = false;
+                state["stealOpen"] = false;
+                state["buzzWinnerParticipantId"] = null;
+                state["buzzWinnerName"] = null;
+                state.Remove("lockedOutParticipantId");
+                state["answerRevealed"] = false;
+                state.Remove("revealedAnswer");
+                return (true, null);
+            case "opensteal":
+                if (StringValue(state, "phase") is not (ActivityPhases.Reveal or ActivityPhases.Judging))
+                    return (false, "There is no missed answer to steal right now.");
+                state["phase"] = ActivityPhases.AcceptingResponses;
+                state["responsesOpen"] = true;
+                state["buzzLocked"] = false;
+                state["stealOpen"] = true;
+                state["answerRevealed"] = false;
+                state.Remove("revealedAnswer");
+                return (true, null);
             case "revealclue": case "nextclue":
-                state["cluesRevealed"] = Math.Min(clues.Count, IntValue(state, "cluesRevealed") + 1); state["phase"] = ActivityPhases.AcceptingResponses; state["buzzLocked"] = false; return (true, null);
+                if (StringValue(state, "phase") is ActivityPhases.Lobby or ActivityPhases.RoundIntro or ActivityPhases.AcceptingResponses or ActivityPhases.Judging or ActivityPhases.Reveal)
+                {
+                    state["cluesRevealed"] = Math.Min(clues.Count, IntValue(state, "cluesRevealed") + 1);
+                    state["phase"] = ActivityPhases.AcceptingResponses;
+                    state["responsesOpen"] = true;
+                    state["buzzLocked"] = false;
+                    state["stealOpen"] = false;
+                    state["buzzWinnerParticipantId"] = null;
+                    state["buzzWinnerName"] = null;
+                    state.Remove("lockedOutParticipantId");
+                    state["answerRevealed"] = false;
+                    state.Remove("revealedAnswer");
+                    return (true, null);
+                }
+                return (false, "Reveal the next clue after the current buzzer result.");
             case "correct":
+                if (!Guid.TryParse(StringValue(state, "buzzWinnerParticipantId"), out var correctWinnerId)) return (false, "A player must buzz before marking an answer correct.");
                 state["phase"] = ActivityPhases.Reveal; state["answerRevealed"] = true;
-                if (!BoolValue(state, "scoresApplied")) { var points = IntValue(clues.Count > index ? clues[index] as JsonObject : null, "points", 100); var winner = StringValue(state, "buzzWinnerParticipantId"); if (Guid.TryParse(winner, out var id)) await AwardScoreAsync(run, id, null, points, "Correct buzzer answer", CurrentRoundId(run, config), ct); state["scoresApplied"] = true; }
+                state["responsesOpen"] = false;
+                state["stealOpen"] = false;
+                state["buzzLocked"] = true;
+                if (!BoolValue(state, "scoresApplied")) { var points = IntValue(clues.Count > index ? clues[index] as JsonObject : null, "points", 100); await AwardScoreAsync(run, correctWinnerId, null, points, "Correct buzzer answer", CurrentRoundId(run, config), ct); state["scoresApplied"] = true; state["pointsAwarded"] = points; }
                 state["revealedAnswer"] = StringValue(clues.Count > index ? clues[index] as JsonObject : null, "answer"); return (true, null);
             case "incorrect":
                 var loser = StringValue(state, "buzzWinnerParticipantId");
-                if (Guid.TryParse(loser, out var loserId) && BoolValue(config, "lockOutOnMiss", true)) state["lockedOutParticipantId"] = loserId.ToString();
+                if (!Guid.TryParse(loser, out var loserId)) return (false, "A player must buzz before marking an answer incorrect.");
+                if (BoolValue(config, "lockOutOnMiss", true)) state["lockedOutParticipantId"] = loserId.ToString();
                 var penalty = IntValue(config, "wrongPenalty");
-                if (Guid.TryParse(loser, out loserId) && penalty != 0) await AwardScoreAsync(run, loserId, null, -Math.Abs(penalty), "Incorrect buzzer answer", CurrentRoundId(run, config), ct);
-                state["buzzWinnerParticipantId"] = null; state["buzzWinnerName"] = null; state["buzzLocked"] = false; state["phase"] = ActivityPhases.AcceptingResponses; return (true, null);
+                if (penalty != 0) await AwardScoreAsync(run, loserId, null, -Math.Abs(penalty), "Incorrect buzzer answer", CurrentRoundId(run, config), ct);
+                var stealOnMiss = BoolValue(config, "stealOnMiss", true);
+                state["buzzWinnerParticipantId"] = null;
+                state["buzzWinnerName"] = null;
+                state["stealOpen"] = stealOnMiss;
+                state["buzzLocked"] = !stealOnMiss;
+                state["responsesOpen"] = stealOnMiss;
+                state["phase"] = stealOnMiss ? ActivityPhases.AcceptingResponses : ActivityPhases.Reveal;
+                state["answerRevealed"] = false;
+                return (true, null);
+            case "revealanswer": case "showanswer":
+                if (StringValue(state, "phase") is not (ActivityPhases.AcceptingResponses or ActivityPhases.Reveal or ActivityPhases.Judging))
+                    return (false, "Reveal the answer after a buzzer attempt.");
+                state["phase"] = ActivityPhases.Reveal;
+                state["responsesOpen"] = false;
+                state["buzzLocked"] = true;
+                state["stealOpen"] = false;
+                state["answerRevealed"] = true;
+                state["revealedAnswer"] = StringValue(clues.Count > index ? clues[index] as JsonObject : null, "answer");
+                return (true, null);
             case "next": case "nextround":
                 if (index >= Math.Max(0, clues.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
-                state["currentClueIndex"] = index + 1; state["cluesRevealed"] = 0; state["buzzWinnerParticipantId"] = null; state["buzzWinnerName"] = null; state["buzzLocked"] = false; state["answerRevealed"] = false; state.Remove("revealedAnswer"); state.Remove("lockedOutParticipantId"); state["scoresApplied"] = false; state["phase"] = ActivityPhases.RoundIntro; return (true, null);
+                state["currentClueIndex"] = index + 1; state["cluesRevealed"] = 0; state["buzzWinnerParticipantId"] = null; state["buzzWinnerName"] = null; state["buzzLocked"] = false; state["stealOpen"] = false; state["responsesOpen"] = false; state["answerRevealed"] = false; state.Remove("revealedAnswer"); state.Remove("lockedOutParticipantId"); state["scoresApplied"] = false; state.Remove("pointsAwarded"); state["phase"] = ActivityPhases.RoundIntro; return (true, null);
             default: return (false, $"Unrecognized buzzer action '{action}'.");
         }
     }
@@ -629,7 +800,7 @@ public sealed class ActivitySessionService(
     private Task<(bool Success, string? Error)> HandleBuzzerParticipantAsync(ActivityRun run, ActivityParticipant participant, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)
     {
         if (action is not ("buzz" or "answer")) return Task.FromResult((Success: false, Error: (string?)"Press the buzzer when it opens."));
-        if (StringValue(state, "phase") != ActivityPhases.AcceptingResponses || BoolValue(state, "buzzLocked")) return Task.FromResult((Success: false, Error: (string?)"The buzzer is closed."));
+        if (StringValue(state, "phase") != ActivityPhases.AcceptingResponses || !BoolValue(state, "responsesOpen", true) || BoolValue(state, "buzzLocked")) return Task.FromResult((Success: false, Error: (string?)"The buzzer is closed."));
         if (StringValue(state, "lockedOutParticipantId") == participant.Id.ToString()) return Task.FromResult((Success: false, Error: (string?)"You are locked out for this clue."));
         state["buzzWinnerParticipantId"] = participant.Id.ToString(); state["buzzWinnerName"] = participant.DisplayName; state["buzzLocked"] = true; state["phase"] = ActivityPhases.Judging;
         return Task.FromResult((true, (string?)null));
@@ -641,13 +812,29 @@ public sealed class ActivitySessionService(
         {
             case "open": case "openresponses": state["phase"] = ActivityPhases.AcceptingResponses; state["responsesOpen"] = true; state["responsesLocked"] = false; return (true, null);
             case "close": case "closeresponses": case "lock": state["phase"] = ActivityPhases.ResponsesLocked; state["responsesOpen"] = false; state["responsesLocked"] = true; return (true, null);
-            case "openvoting": state["phase"] = ActivityPhases.Voting; state["votingOpen"] = true; return (true, null);
+            case "openvoting":
+                if (CreativeVotingStyle(config) == "headToHead")
+                {
+                    await EnsureCreativeHeadToHeadStateAsync(run, config, state, ct);
+                    if (StringValue(state, "creativeCurrentMatchId") is null) return (false, "Approve at least two creative responses before opening head-to-head voting.");
+                    var currentMatch = CreativeMatch(state, StringValue(state, "creativeCurrentMatchId")!);
+                    if (currentMatch is not null) currentMatch["status"] = "open";
+                }
+                state["phase"] = ActivityPhases.Voting; state["votingOpen"] = true; return (true, null);
+            case "nextmatchup":
+                if (CreativeVotingStyle(config) != "headToHead") return (false, "This creative round uses gallery voting.");
+                await EnsureCreativeHeadToHeadStateAsync(run, config, state, ct);
+                if (StringValue(state, "creativeCurrentMatchId") is { } completedId && CreativeMatch(state, completedId) is { } completedMatch && StringValue(completedMatch, "status") == "complete")
+                    return AdvanceCreativeHeadToHead(state);
+                return await ResolveCreativeHeadToHeadAsync(run, config, state, payload, advance: true, ct);
             case "closevoting": case "reveal":
+                if (CreativeVotingStyle(config) == "headToHead")
+                    return await ResolveCreativeHeadToHeadAsync(run, config, state, payload, advance: false, ct);
                 state["phase"] = ActivityPhases.Reveal; state["votingOpen"] = false; state["resultsVisible"] = true; await ScoreCreativeAsync(run, config, state, ct); return (true, null);
             case "next": case "nextround":
                 var prompts = ArrayValue(config, "prompts"); var promptIndex = IntValue(state, "currentPromptIndex");
                 if (promptIndex >= Math.Max(0, prompts.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
-                state["currentPromptIndex"] = promptIndex + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["votingOpen"] = false; state["resultsVisible"] = false; return (true, null);
+            state["currentPromptIndex"] = promptIndex + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["votingOpen"] = false; state["resultsVisible"] = false; state.Remove("creativeMatches"); state.Remove("creativeCurrentMatchId"); state.Remove("creativeChampionId"); state.Remove("creativeChampionScoreApplied"); state.Remove("winningSubmissionId"); state.Remove("winningPoints"); state.Remove("revealedWinnerId"); return (true, null);
             case "showleaderboard": state["phase"] = ActivityPhases.Leaderboard; return (true, null);
             default: return (false, $"Unrecognized creative action '{action}'.");
         }
@@ -668,7 +855,7 @@ public sealed class ActivitySessionService(
             state["submissionCount"] = await db.ActivitySubmissions.CountAsync(x => x.ActivityRunId == run.Id && x.RoundId == roundId, ct) + (existing is null ? 1 : 0);
             return (true, null);
         }
-        if (action is "vote" or "choose") return await SaveVoteAsync(run, participant, state, payload, roundId, ct);
+        if (action is "vote" or "choose") return await SaveVoteAsync(run, participant, state, payload, CreativeVoteRoundId(run, config, state), ct, "creative");
         return (false, "Submit a response or vote when the host opens that phase.");
     }
 
@@ -679,12 +866,23 @@ public sealed class ActivitySessionService(
             case "open": case "openresponses": state["phase"] = ActivityPhases.AcceptingResponses; state["responsesOpen"] = true; state["responsesLocked"] = false; return (true, null);
             case "close": case "closeresponses": case "lock": state["phase"] = ActivityPhases.ResponsesLocked; state["responsesOpen"] = false; state["responsesLocked"] = true; return (true, null);
             case "openvoting": state["phase"] = ActivityPhases.Voting; state["votingOpen"] = true; return (true, null);
+            case "favorite": case "hostfavorite":
+                var favoriteId = ReadString(payload, "submissionId").Trim();
+                var favorite = run.Submissions.FirstOrDefault(item => item.Id.ToString() == favoriteId && item.RoundId == CurrentRoundId(run, config) && item.Kind == "bluff" && item.ModerationStatus == "approved" && !item.Hidden);
+                if (favorite is null) return (false, "Choose an approved bluff from this round.");
+                state["hostFavoriteSubmissionId"] = favorite.Id.ToString();
+                if (BoolValue(state, "scoresApplied") && !BoolValue(state, "hostFavoriteScoreApplied") && IntValue(config, "hostFavoritePoints", 0) > 0)
+                {
+                    await AwardScoreAsync(run, favorite.ParticipantId, null, IntValue(config, "hostFavoritePoints", 0), "Host favorite bluff", CurrentRoundId(run, config), ct);
+                    state["hostFavoriteScoreApplied"] = true;
+                }
+                return (true, null);
             case "closevoting": case "reveal":
                 state["phase"] = ActivityPhases.Reveal; state["votingOpen"] = false; state["resultsVisible"] = true; state["answerRevealed"] = true; await ScoreBluffAsync(run, config, state, ct); return (true, null);
             case "next": case "nextround":
                 var rounds = ArrayValue(config, "rounds"); var index = IntValue(state, "currentRoundIndex");
                 if (index >= Math.Max(0, rounds.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
-                state["currentRoundIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["votingOpen"] = false; state["resultsVisible"] = false; state["answerRevealed"] = false; return (true, null);
+                state["currentRoundIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["votingOpen"] = false; state["resultsVisible"] = false; state["answerRevealed"] = false; state["scoresApplied"] = false; state["hostFavoriteScoreApplied"] = false; state.Remove("hostFavoriteSubmissionId"); return (true, null);
             default: return (false, $"Unrecognized bluff action '{action}'.");
         }
     }
@@ -703,7 +901,7 @@ public sealed class ActivitySessionService(
             else { existing.PayloadJson = json; existing.ModerationStatus = status; existing.Hidden = false; existing.UpdatedAt = DateTimeOffset.UtcNow; }
             return (true, null);
         }
-        if (action is "vote" or "choose") return await SaveVoteAsync(run, participant, state, payload, roundId, ct);
+        if (action is "vote" or "choose") return await SaveVoteAsync(run, participant, state, payload, roundId, ct, "bluff", allowTruth: true, preventSelfVote: true);
         return (false, "Submit a fake answer or vote when the host opens that phase.");
     }
 
@@ -790,7 +988,7 @@ public sealed class ActivitySessionService(
             state["submissionCount"] = await db.ActivitySubmissions.CountAsync(x => x.ActivityRunId == run.Id && x.RoundId == roundId, ct) + (existing is null ? 1 : 0);
             return (true, null);
         }
-        if (action is "vote" or "choose") return await SaveVoteAsync(run, participant, state, payload, roundId, ct);
+        if (action is "vote" or "choose") return await SaveVoteAsync(run, participant, state, payload, roundId, ct, "drawing");
         return (false, "Draw or vote when the host opens that phase.");
     }
 
@@ -1267,6 +1465,75 @@ public sealed class ActivitySessionService(
             default:
                 return (false, $"Unrecognized utility action '{action}'.");
         }
+    }
+
+    private async Task<(bool Success, string? Error)> HandleEmbeddedUtilityHostAsync(ActivityRun run, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)
+    {
+        if (config["embeddedUtility"] is not JsonObject embeddedConfig)
+            return (false, "This activity has no embedded utility configured.");
+
+        var embeddedState = state["embeddedUtilityState"] as JsonObject ?? new JsonObject
+        {
+            ["phase"] = ActivityPhases.RoundIntro,
+            ["history"] = new JsonArray(),
+            ["revealedBoxIds"] = new JsonArray()
+        };
+        var prefixLength = action.StartsWith("embeddedutility.", StringComparison.OrdinalIgnoreCase) ? "embeddedutility.".Length : "utility.".Length;
+        var embeddedAction = action[prefixLength..].Trim().ToLowerInvariant();
+        (bool Success, string? Error) result;
+        var utilityType = UtilityType(embeddedConfig);
+        switch (embeddedAction)
+        {
+            case "flip":
+            case "roll":
+            case "draw":
+            case "pick":
+            case "execute":
+                result = ExecuteUtilityRandomAction(run, embeddedConfig, embeddedState, utilityType);
+                break;
+            case "pickperson":
+                result = ExecuteUtilityRandomAction(run, embeddedConfig, embeddedState, ActivityUtilityTypes.RandomPerson);
+                break;
+            case "pickteam":
+                result = ExecuteUtilityRandomAction(run, embeddedConfig, embeddedState, ActivityUtilityTypes.RandomTeam);
+                break;
+            case "revealbox":
+            case "openbox":
+                result = ExecuteUtilityMysteryBox(embeddedConfig, embeddedState, payload);
+                break;
+            case "starttimer":
+            case "startcountdown":
+                result = StartUtilityCountdown(embeddedConfig, embeddedState);
+                break;
+            case "pausetimer":
+            case "pausecountdown":
+                result = PauseUtilityCountdown(embeddedConfig, embeddedState);
+                break;
+            case "resumetimer":
+            case "resumecountdown":
+                result = ResumeUtilityCountdown(embeddedConfig, embeddedState);
+                break;
+            case "adjusttime":
+                result = AdjustUtilityCountdown(embeddedConfig, embeddedState, payload);
+                break;
+            case "settime":
+                result = SetUtilityCountdown(embeddedConfig, embeddedState, payload);
+                break;
+            case "clear":
+            case "reset":
+                result = ResetUtilityState(embeddedConfig, embeddedState);
+                break;
+            default:
+                return (false, $"Embedded utility action '{embeddedAction}' is not supported.");
+        }
+
+        if (result.Success)
+        {
+            embeddedState["actionNonce"] = LongValue(embeddedState, "actionNonce") + 1;
+            if (state["embeddedUtilityState"] is null) state["embeddedUtilityState"] = embeddedState;
+        }
+        await Task.CompletedTask;
+        return result;
     }
 
     private (bool Success, string? Error) ExecuteUtilityRandomAction(ActivityRun run, JsonObject config, JsonObject state, string utilityType)
@@ -1869,10 +2136,30 @@ public sealed class ActivitySessionService(
         return (true, null);
     }
 
-    private async Task<(bool Success, string? Error)> SaveVoteAsync(ActivityRun run, ActivityParticipant participant, JsonObject state, JsonElement? payload, string roundId, CancellationToken ct)
+    private async Task<(bool Success, string? Error)> SaveVoteAsync(ActivityRun run, ActivityParticipant participant, JsonObject state, JsonElement? payload, string roundId, CancellationToken ct, string? submissionKind = null, bool allowTruth = false, bool preventSelfVote = false)
     {
         var target = ReadString(payload, "targetId").Trim(); if (target.Length is < 1 or > 80) return (false, "Choose a response to vote for.");
         if (StringValue(state, "phase") != ActivityPhases.Voting || !BoolValue(state, "votingOpen")) return (false, "Voting is closed.");
+        if (submissionKind is not null)
+        {
+            if (allowTruth && string.Equals(target, "truth", StringComparison.OrdinalIgnoreCase))
+            {
+                // The truth is a valid anonymous option for bluffing rounds.
+            }
+            else if (!Guid.TryParse(target, out var submissionId))
+            {
+                return (false, "That response is not available for voting.");
+            }
+            else
+            {
+                var submissionRoundId = submissionKind == "creative" && roundId.LastIndexOf(':') is var separatorIndex and > 0
+                    ? roundId[..separatorIndex]
+                    : roundId;
+                var submission = run.Submissions.FirstOrDefault(item => item.Id == submissionId && item.RoundId == submissionRoundId && item.Kind == submissionKind && item.ModerationStatus == "approved" && !item.Hidden);
+                if (submission is null) return (false, "That response is not available for voting.");
+                if (preventSelfVote && submission.ParticipantId == participant.Id) return (false, "Choose another player's response.");
+            }
+        }
         var existing = await db.ActivityVotes.SingleOrDefaultAsync(x => x.ActivityRunId == run.Id && x.VoterParticipantId == participant.Id && x.RoundId == roundId, ct);
         var voteJson = JsonSerializer.Serialize(new { targetId = target }, ActivityJsonDefaults.Options);
         if (existing is null) db.ActivityVotes.Add(new ActivityVote { ActivityRunId = run.Id, VoterParticipantId = participant.Id, RoundId = roundId, TargetId = target, PayloadJson = voteJson });
@@ -1920,12 +2207,105 @@ public sealed class ActivitySessionService(
         submission.ModerationStatus = status; submission.Hidden = status == "rejected"; submission.UpdatedAt = DateTimeOffset.UtcNow; await Task.CompletedTask; return (true, null);
     }
 
-    private async Task ScoreQuizAsync(ActivityRun run, JsonArray questions, int index, CancellationToken ct)
+    private async Task ScoreQuizAsync(ActivityRun run, JsonArray questions, int index, JsonObject state, CancellationToken ct)
     {
-        var correct = IntValue(questions.Count > index ? questions[index] as JsonObject : null, "correctIndex"); var points = IntValue(questions.Count > index ? questions[index] as JsonObject : null, "points", 100); var roundId = CurrentRoundId(run, ParseConfig(run));
-        foreach (var submission in run.Submissions.Where(x => x.RoundId == roundId && x.Kind == "quizAnswer" && x.ModerationStatus == "approved"))
+        var config = ParseConfig(run);
+        var modifiers = QuizModifierSettings.FromConfig(config);
+        var question = questions.Count > index ? questions[index] as JsonObject : null;
+        var answerMode = QuizAnswerMode(question);
+        var correctIndex = IntValue(question, "correctIndex", -1);
+        var points = Math.Max(0, IntValue(question, "points", 100));
+        var roundId = CurrentRoundId(run, config);
+        var submissions = run.Submissions
+            .Where(x => x.RoundId == roundId && x.Kind == "quizAnswer" && x.ModerationStatus == "approved" && !x.Hidden)
+            .ToArray();
+        var correctSubmissions = new HashSet<Guid>();
+
+        if (answerMode == "choice")
         {
-            var answer = ParseObject(submission.PayloadJson); if (IntValue(answer, "optionIndex", -1) == correct) await AwardScoreAsync(run, submission.ParticipantId, null, points, "Correct answer", roundId, ct);
+            foreach (var submission in submissions)
+                if (IntValue(ParseObject(submission.PayloadJson), "optionIndex", -1) == correctIndex)
+                    correctSubmissions.Add(submission.Id);
+        }
+        else if (answerMode is "text" or "shorttext")
+        {
+            var accepted = ReadStringArray(question, "acceptedAnswers");
+            var correctText = StringValue(question, "correctText");
+            if (!string.IsNullOrWhiteSpace(correctText)) accepted.Add(correctText);
+            var normalizedAnswers = accepted.Select(NormalizeSurveyText).Where(value => value.Length > 0).ToHashSet(StringComparer.Ordinal);
+            foreach (var submission in submissions)
+            {
+                var answer = NormalizeSurveyText(StringValue(ParseObject(submission.PayloadJson), "text") ?? "");
+                if (answer.Length > 0 && normalizedAnswers.Contains(answer)) correctSubmissions.Add(submission.Id);
+            }
+        }
+        else if (answerMode == "number" && DoubleValue(question, "targetNumber") is double target)
+        {
+            var numericAnswers = submissions
+                .Select(submission => (Submission: submission, Number: DoubleValue(ParseObject(submission.PayloadJson), "number")))
+                .Where(item => item.Number.HasValue && double.IsFinite(item.Number.Value))
+                .Select(item => (item.Submission, Number: item.Number!.Value))
+                .ToArray();
+            var tolerance = Math.Max(0, DoubleValue(question, "tolerance") ?? 0);
+            var scoringMode = (StringValue(question, "scoringMode") ?? "exact").Trim().ToLowerInvariant();
+            IEnumerable<(ActivitySubmission Submission, double Number)> winners = scoringMode switch
+            {
+                "closest" => numericAnswers.Length == 0
+                    ? []
+                    : numericAnswers.Where(item => Math.Abs(item.Number - target) == numericAnswers.Min(candidate => Math.Abs(candidate.Number - target))),
+                "closestwithoutgoingover" => numericAnswers.Where(item => item.Number <= target).OrderByDescending(item => item.Number).Take(1),
+                _ => numericAnswers.Where(item => Math.Abs(item.Number - target) <= tolerance)
+            };
+            foreach (var winner in winners) correctSubmissions.Add(winner.Submission.Id);
+        }
+
+        var responseStartedAt = DateTimeOffsetValue(state, "responseWindowStartedAt");
+        foreach (var submission in submissions)
+        {
+            var participant = run.Participants.FirstOrDefault(item => item.Id == submission.ParticipantId && item.Status != "removed");
+            if (participant is null) continue;
+            var answer = ParseObject(submission.PayloadJson);
+            var isCorrect = correctSubmissions.Contains(submission.Id);
+            var wager = modifiers.WagerEnabled
+                ? Math.Clamp(IntValue(answer, "wager", modifiers.WagerDefaultPoints), 0, modifiers.WagerMaxPoints)
+                : 0;
+            var doubleOrNothing = modifiers.DoubleOrNothingEnabled && BoolValue(answer, "doubleOrNothing");
+            var earned = isCorrect ? points : 0;
+
+            if (isCorrect && modifiers.SpeedBonusEnabled && responseStartedAt.HasValue)
+            {
+                var elapsedSeconds = Math.Max(0, (submission.SubmittedAt - responseStartedAt.Value).TotalSeconds);
+                var remainingRatio = Math.Clamp(1d - elapsedSeconds / modifiers.SpeedBonusWindowSeconds, 0d, 1d);
+                earned += (int)Math.Round(modifiers.SpeedBonusMaxPoints * remainingRatio, MidpointRounding.AwayFromZero);
+            }
+
+            if (isCorrect && modifiers.WagerEnabled) earned += wager;
+            if (doubleOrNothing)
+            {
+                if (isCorrect) earned *= 2;
+                else if (points > 0) await AwardScoreAsync(run, participant.Id, null, -points, "Double or nothing", roundId, ct);
+            }
+
+            if (isCorrect && earned != 0)
+            {
+                var reason = answerMode switch
+                {
+                    "text" or "shorttext" => "Correct short answer",
+                    "number" => "Correct number",
+                    _ => "Correct answer"
+                };
+                await AwardScoreAsync(run, participant.Id, null, earned, reason, roundId, ct);
+            }
+            else if (!isCorrect && modifiers.WagerEnabled && wager > 0)
+            {
+                await AwardScoreAsync(run, participant.Id, null, -wager, "Quiz wager", roundId, ct);
+            }
+
+            if (!isCorrect && modifiers.LivesEnabled)
+            {
+                participant.Lives = Math.Max(0, participant.Lives - 1);
+                if (modifiers.EliminateAtZeroLives && participant.Lives == 0) participant.Status = "eliminated";
+            }
         }
     }
 
@@ -1981,8 +2361,168 @@ public sealed class ActivitySessionService(
         state["winningSubmissionId"] = winner.Id.ToString(); state["winningVoteCount"] = counts[0].Count();
     }
 
+    private async Task EnsureCreativeHeadToHeadStateAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct)
+    {
+        if (ArrayValue(state, "creativeMatches").Count > 0) return;
+        var roundId = CurrentRoundId(run, config);
+        var submissions = await db.ActivitySubmissions
+            .Where(item => item.ActivityRunId == run.Id && item.RoundId == roundId && item.Kind == "creative" && item.ModerationStatus == "approved" && !item.Hidden)
+            .ToListAsync(ct);
+        submissions = submissions.OrderBy(item => item.SubmittedAt).ThenBy(item => item.Id).ToList();
+        var matches = new JsonArray();
+        for (var index = 0; index < submissions.Count; index += 2)
+        {
+            var first = submissions[index].Id.ToString();
+            var second = index + 1 < submissions.Count ? submissions[index + 1].Id.ToString() : null;
+            var match = new JsonObject
+            {
+                ["id"] = $"creative-match-1-{(index / 2) + 1}",
+                ["round"] = 1,
+                ["entrantAId"] = first,
+                ["entrantBId"] = second,
+                ["status"] = second is null ? "complete" : "pending"
+            };
+            if (second is null) match["winnerId"] = first;
+            matches.Add(match);
+        }
+        state["creativeMatches"] = matches;
+        AdvanceCreativeHeadToHead(state);
+    }
+
+    private async Task<(bool Success, string? Error)> ResolveCreativeHeadToHeadAsync(ActivityRun run, JsonObject config, JsonObject state, JsonElement? payload, bool advance, CancellationToken ct)
+    {
+        await EnsureCreativeHeadToHeadStateAsync(run, config, state, ct);
+        var currentId = StringValue(state, "creativeCurrentMatchId");
+        var current = currentId is null ? null : CreativeMatch(state, currentId);
+        if (current is null) return (false, "There is no creative matchup to resolve.");
+        if (StringValue(current, "status") is not ("open" or "closed"))
+            return (false, "Open a creative matchup before resolving it.");
+
+        var firstId = StringValue(current, "entrantAId") ?? "";
+        var secondId = StringValue(current, "entrantBId") ?? "";
+        var winnerId = ReadString(payload, "winnerId").Trim();
+        if (winnerId.Length == 0)
+        {
+            var counts = run.Votes
+                .Where(vote => vote.RoundId == currentId && (vote.TargetId == firstId || vote.TargetId == secondId))
+                .GroupBy(vote => vote.TargetId)
+                .Select(group => new { Id = group.Key, Count = group.Count() })
+                .OrderByDescending(group => group.Count)
+                .ThenBy(group => group.Id, StringComparer.Ordinal)
+                .ToArray();
+            if (counts.Length == 0 || (counts.Length > 1 && counts[0].Count == counts[1].Count))
+                return (false, "Choose the winner when the head-to-head vote is tied or empty.");
+            winnerId = counts[0].Id;
+        }
+        if (winnerId != firstId && winnerId != secondId) return (false, "The winner must be one of the two creative responses.");
+
+        current["winnerId"] = winnerId;
+        current["status"] = "complete";
+        state["revealedWinnerId"] = winnerId;
+        state["votingOpen"] = false;
+        state["phase"] = ActivityPhases.Reveal;
+        await AwardCreativeMatchAsync(run, config, current, winnerId, currentId!, ct);
+
+        if (advance) AdvanceCreativeHeadToHead(state);
+        else
+        {
+            var allComplete = ArrayValue(state, "creativeMatches").OfType<JsonObject>().All(match => StringValue(match, "status") == "complete");
+            if (allComplete) AdvanceCreativeHeadToHead(state);
+        }
+        if (StringValue(state, "creativeChampionId") is { } championId)
+            await AwardCreativeChampionAsync(run, config, state, championId, ct);
+        return (true, null);
+    }
+
+    private async Task AwardCreativeMatchAsync(ActivityRun run, JsonObject config, JsonObject match, string winnerId, string roundId, CancellationToken ct)
+    {
+        if (BoolValue(match, "scoreApplied")) return;
+        var points = IntValue(config, "headToHeadMatchPoints", 0);
+        if (points > 0 && Guid.TryParse(winnerId, out var submissionId))
+        {
+            var submission = run.Submissions.FirstOrDefault(item => item.Id == submissionId && item.Kind == "creative");
+            if (submission is not null) await AwardScoreAsync(run, submission.ParticipantId, null, points, "Creative matchup win", roundId, ct);
+        }
+        match["scoreApplied"] = true;
+    }
+
+    private async Task AwardCreativeChampionAsync(ActivityRun run, JsonObject config, JsonObject state, string championId, CancellationToken ct)
+    {
+        if (BoolValue(state, "creativeChampionScoreApplied")) return;
+        if (!Guid.TryParse(championId, out var submissionId)) return;
+        var submission = run.Submissions.FirstOrDefault(item => item.Id == submissionId && item.Kind == "creative");
+        if (submission is null) return;
+        var prompts = ArrayValue(config, "prompts");
+        var index = Math.Clamp(IntValue(state, "currentPromptIndex"), 0, Math.Max(0, prompts.Count - 1));
+        var points = IntValue(prompts.Count > index ? prompts[index] as JsonObject : null, "points", 100);
+        if (points > 0) await AwardScoreAsync(run, submission.ParticipantId, null, points, "Creative champion", CurrentRoundId(run, config), ct);
+        state["winningPoints"] = points;
+        state["creativeChampionScoreApplied"] = true;
+    }
+
+    private static (bool Success, string? Error) AdvanceCreativeHeadToHead(JsonObject state)
+    {
+        var matches = ArrayValue(state, "creativeMatches");
+        var currentRound = matches.OfType<JsonObject>().Select(match => IntValue(match, "round", 1)).DefaultIfEmpty(1).Max();
+        var pending = matches.OfType<JsonObject>().FirstOrDefault(match => StringValue(match, "status") == "pending" && IntValue(match, "round", 1) == currentRound);
+        if (pending is not null)
+        {
+            state["creativeCurrentMatchId"] = StringValue(pending, "id");
+            state["creativeCurrentRound"] = currentRound;
+            state["phase"] = ActivityPhases.RoundIntro;
+            state["votingOpen"] = false;
+            return (true, null);
+        }
+
+        var roundMatches = matches.OfType<JsonObject>().Where(match => IntValue(match, "round", 1) == currentRound).ToArray();
+        if (roundMatches.Length == 0) return (false, "There are no creative responses to match.");
+        var winners = roundMatches.Select(match => StringValue(match, "winnerId")).Where(value => !string.IsNullOrWhiteSpace(value)).Cast<string>().ToArray();
+        if (winners.Length <= 1)
+        {
+            state["creativeChampionId"] = winners.FirstOrDefault();
+            state.Remove("creativeCurrentMatchId");
+            state["phase"] = ActivityPhases.FinalResults;
+            state["votingOpen"] = false;
+            state["resultsVisible"] = true;
+            state["winningSubmissionId"] = winners.FirstOrDefault();
+            return (true, null);
+        }
+
+        var nextRound = currentRound + 1;
+        var nextMatches = new List<JsonObject>();
+        for (var index = 0; index < winners.Length; index += 2)
+        {
+            var first = winners[index];
+            var second = index + 1 < winners.Length ? winners[index + 1] : null;
+            var match = new JsonObject
+            {
+                ["id"] = $"creative-match-{nextRound}-{(index / 2) + 1}",
+                ["round"] = nextRound,
+                ["entrantAId"] = first,
+                ["entrantBId"] = second,
+                ["status"] = second is null ? "complete" : "pending"
+            };
+            if (second is null) match["winnerId"] = first;
+            nextMatches.Add(match);
+            matches.Add(match);
+        }
+        var nextPending = nextMatches.FirstOrDefault(match => StringValue(match, "status") == "pending");
+        if (nextPending is null) return AdvanceCreativeHeadToHead(state);
+        state["creativeCurrentRound"] = nextRound;
+        state["creativeCurrentMatchId"] = StringValue(nextPending, "id");
+        state["phase"] = ActivityPhases.RoundIntro;
+        state["votingOpen"] = false;
+        state.Remove("revealedWinnerId");
+        return (true, null);
+    }
+
+    private static JsonObject? CreativeMatch(JsonObject state, string id) => ArrayValue(state, "creativeMatches")
+        .OfType<JsonObject>()
+        .FirstOrDefault(match => StringValue(match, "id") == id);
+
     private async Task ScoreBluffAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct)
     {
+        if (BoolValue(state, "scoresApplied")) return;
         var roundId = CurrentRoundId(run, config); var rounds = ArrayValue(config, "rounds"); var index = IntValue(state, "currentRoundIndex"); var truth = StringValue(rounds.Count > index ? rounds[index] as JsonObject : null, "truth") ?? "";
         var truthPoints = IntValue(config, "truthPoints", 100); var bluffPoints = IntValue(config, "bluffPoints", 50);
         foreach (var vote in run.Votes.Where(x => x.RoundId == roundId))
@@ -1993,6 +2533,15 @@ public sealed class ActivitySessionService(
                 var submission = run.Submissions.FirstOrDefault(x => x.Id == submissionId); if (submission is not null) await AwardScoreAsync(run, submission.ParticipantId, null, bluffPoints, "A player chose your bluff", roundId, ct);
             }
         }
+        var favoriteId = StringValue(state, "hostFavoriteSubmissionId");
+        var favorite = run.Submissions.FirstOrDefault(item => item.Id.ToString() == favoriteId && item.RoundId == roundId && item.Kind == "bluff" && item.ModerationStatus == "approved" && !item.Hidden);
+        var favoritePoints = IntValue(config, "hostFavoritePoints", 0);
+        if (favorite is not null && favoritePoints > 0)
+        {
+            await AwardScoreAsync(run, favorite.ParticipantId, null, favoritePoints, "Host favorite bluff", roundId, ct);
+            state["hostFavoriteScoreApplied"] = true;
+        }
+        state["scoresApplied"] = true;
         state["truth"] = truth;
     }
 
@@ -2140,33 +2689,166 @@ public sealed class ActivitySessionService(
     private async Task EnsureBracketEntrantsAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct)
     {
         var source = StringValue(config, "entrantSource", "teacher");
-        if (source is not ("participants" or "teams") || ArrayValue(state, "bracketEntrants").Count > 0) return;
+        if (ArrayValue(state, "bracketEntrants").Count > 0) return;
 
-        var entrants = new JsonArray();
+        var roster = new List<JsonObject>();
         if (source == "participants")
         {
             var participants = await db.ActivityParticipants
                 .Where(participant => participant.ActivityRunId == run.Id && participant.Status != "removed")
                 .ToListAsync(ct);
-            foreach (var participant in participants.OrderBy(participant => participant.JoinedAt).Take(32))
-                entrants.Add(new JsonObject { ["id"] = participant.Id.ToString(), ["label"] = participant.DisplayName });
+            roster.AddRange(participants.OrderBy(participant => participant.JoinedAt).Take(32).Select(participant => new JsonObject { ["id"] = participant.Id.ToString(), ["label"] = participant.DisplayName }));
         }
-        else
+        else if (source == "teams")
         {
             var teams = await db.ActivityTeams
                 .Where(team => team.ActivityRunId == run.Id && team.Active)
                 .OrderBy(team => team.Position)
                 .Take(32)
                 .ToListAsync(ct);
-            foreach (var team in teams)
-                entrants.Add(new JsonObject { ["id"] = team.Id.ToString(), ["label"] = team.Name });
+            roster.AddRange(teams.Select(team => new JsonObject { ["id"] = team.Id.ToString(), ["label"] = team.Name }));
+        }
+        else
+        {
+            roster.AddRange(ArrayValue(config, "entrants").OfType<JsonObject>().Select(item => (JsonObject)item.DeepClone()));
         }
 
-        state["bracketEntrants"] = entrants;
+        var randomSelection = string.Equals(StringValue(config, "entrantSelection", "all"), "random", StringComparison.OrdinalIgnoreCase);
+        if (randomSelection)
+        {
+            random.Shuffle(roster);
+            var requestedCount = Math.Clamp(IntValue(config, "randomEntrantCount", roster.Count), 2, 32);
+            roster = roster.Take(requestedCount).ToList();
+        }
+
+        if (source is not "teacher" || randomSelection)
+            state["bracketEntrants"] = new JsonArray(roster.Select(item => (JsonNode)item).ToArray());
     }
 
     private static JsonArray BracketEntrants(JsonObject config, JsonObject state) =>
         ArrayValue(state, "bracketEntrants") is { Count: > 0 } entrants ? entrants : ArrayValue(config, "entrants");
+
+    /// <summary>
+    /// Copies the strongest participants or teams from a completed activity run
+    /// into a not-yet-started bracket run. The target run remains authoritative:
+    /// names are mapped to its current roster where possible and unmatched
+    /// finalists become label-only entrants rather than leaking source IDs.
+    /// </summary>
+    public async Task<(bool Success, string? Error, int Count)> ImportBracketFinalistsAsync(
+        Guid targetRunId,
+        Guid sourceRunId,
+        int? requestedLimit = null,
+        CancellationToken ct = default)
+    {
+        var gate = Locks.GetOrAdd(targetRunId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            var target = await LoadRunAsync(targetRunId, ct);
+            var source = await LoadRunAsync(sourceRunId, ct);
+            if (target?.ActivityDefinition is null || target.ActivityDefinition.Type != ActivityTypes.Bracket)
+                return (false, "Finalists can only be imported into a bracket activity.", 0);
+            if (source?.ActivityDefinition is null || !ActivityEngineCatalog.IsInteractive(source.ActivityDefinition))
+                return (false, "Choose a completed interactive activity as the finalist source.", 0);
+            if (target.Id == source.Id) return (false, "A bracket cannot import finalists from itself.", 0);
+
+            var targetState = ParseObject(target.StateJson);
+            var targetPhase = StringValue(targetState, "phase", ActivityPhases.Lobby);
+            if (target.Status is not (ActivityRunStatuses.Prepared or ActivityRunStatuses.Live) || targetPhase is not (ActivityPhases.Lobby or ActivityPhases.Setup))
+                return (false, "Import finalists before the bracket starts.", 0);
+            var sourcePhase = GetPhase(source);
+            if (source.Status != ActivityRunStatuses.Ended && sourcePhase is not (ActivityPhases.Leaderboard or ActivityPhases.FinalResults or ActivityPhases.Complete))
+                return (false, "The source activity must be on its results screen before finalists can be imported.", 0);
+
+            var candidates = BuildBracketHandoffCandidates(source);
+            var limit = Math.Clamp(requestedLimit ?? Math.Min(8, candidates.Count), 2, 32);
+            if (candidates.Count < 2) return (false, "The source activity does not have at least two finalist candidates.", 0);
+
+            var chosen = candidates
+                .OrderByDescending(candidate => candidate.Score)
+                .ThenBy(candidate => candidate.Label, StringComparer.OrdinalIgnoreCase)
+                .Take(limit)
+                .ToList();
+            var targetParticipants = target.Participants.Where(item => item.Status != "removed").ToArray();
+            var targetTeams = target.Teams.Where(item => item.Active).ToArray();
+            var entrants = new JsonArray();
+            foreach (var candidate in chosen)
+            {
+                var participant = candidate.ParticipantId.HasValue
+                    ? targetParticipants.FirstOrDefault(item => SameRosterName(item.DisplayName, candidate.Label))
+                    : null;
+                var team = candidate.TeamId.HasValue
+                    ? targetTeams.FirstOrDefault(item => SameRosterName(item.Name, candidate.Label))
+                    : null;
+                var mappedId = participant?.Id.ToString() ?? team?.Id.ToString() ?? $"handoff-{Guid.NewGuid():N}";
+                entrants.Add(new JsonObject
+                {
+                    ["id"] = mappedId,
+                    ["label"] = candidate.Label,
+                    ["sourceRunId"] = source.Id.ToString(),
+                    ["sourceParticipantId"] = candidate.ParticipantId?.ToString(),
+                    ["sourceTeamId"] = candidate.TeamId?.ToString(),
+                    ["sourceScore"] = candidate.Score
+                });
+            }
+
+            targetState["bracketEntrants"] = entrants;
+            targetState["bracketHandoffSourceRunId"] = source.Id.ToString();
+            targetState["bracketHandoffSourceName"] = source.ActivityDefinition.Name;
+            targetState["matchups"] = new JsonArray();
+            targetState["currentMatchId"] = null;
+            targetState["currentRound"] = 1;
+            targetState["bracketChampionId"] = null;
+            targetState["revealedWinnerId"] = null;
+            targetState["votingOpen"] = false;
+            targetState["phase"] = ActivityPhases.Lobby;
+            target.StateJson = Serialize(targetState);
+            target.CurrentPhase = ActivityPhases.Lobby;
+            target.Revision++;
+            target.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(ct);
+            await BroadcastDisplayAsync(target.Id, ct);
+            return (true, null, chosen.Count);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private sealed record BracketHandoffCandidate(string Label, Guid? ParticipantId, Guid? TeamId, int Score);
+
+    private static List<BracketHandoffCandidate> BuildBracketHandoffCandidates(ActivityRun source)
+    {
+        var participantScores = source.ScoreEvents
+            .Where(score => !score.IsUndone && score.ParticipantId.HasValue)
+            .GroupBy(score => score.ParticipantId!.Value)
+            .ToDictionary(group => group.Key, group => group.Sum(score => score.Amount));
+        var teamScores = source.ScoreEvents
+            .Where(score => !score.IsUndone && score.TeamId.HasValue)
+            .GroupBy(score => score.TeamId!.Value)
+            .ToDictionary(group => group.Key, group => group.Sum(score => score.Amount));
+
+        if (teamScores.Count > 0)
+        {
+            return source.Teams
+                .Where(team => team.Active)
+                .Select(team => new BracketHandoffCandidate(team.Name, null, team.Id, teamScores.GetValueOrDefault(team.Id)))
+                .OrderByDescending(candidate => candidate.Score)
+                .ThenBy(candidate => candidate.Label, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        return source.Participants
+            .Where(participant => participant.Status != "removed")
+            .Select(participant => new BracketHandoffCandidate(participant.DisplayName, participant.Id, null, participantScores.GetValueOrDefault(participant.Id)))
+            .OrderByDescending(candidate => candidate.Score)
+            .ThenBy(candidate => candidate.Label, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static bool SameRosterName(string left, string right) =>
+        string.Equals(string.Join(' ', left.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)), string.Join(' ', right.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)), StringComparison.OrdinalIgnoreCase);
 
     private static (bool Success, string? Error) AdvanceBracket(JsonObject state)
     {
@@ -2270,6 +2952,22 @@ public sealed class ActivitySessionService(
             projected["leaderboard"] = new JsonArray(individualScores.Select((item, index) => (JsonNode)new JsonObject { ["rank"] = index + 1, ["id"] = item.Id.ToString(), ["name"] = item.DisplayName, ["score"] = item.Score }).ToArray());
             projected["teamLeaderboard"] = new JsonArray(run.Teams.Where(team => team.Active).OrderByDescending(team => team.Score).Select((team, index) => (JsonNode)new JsonObject { ["rank"] = index + 1, ["id"] = team.Id.ToString(), ["name"] = team.Name, ["icon"] = team.Icon, ["score"] = team.Score }).ToArray());
         }
+        if (run.ActivityDefinition!.Type is ActivityTypes.Trivia or ActivityTypes.RapidFire)
+        {
+            var quizModifiers = QuizModifierSettings.FromConfig(config);
+            if (quizModifiers.LivesEnabled)
+            {
+                projected["quizLives"] = new JsonArray(run.Participants.Where(item => item.Status != "removed").Select(item => (JsonNode)new JsonObject
+                {
+                    ["id"] = item.Id.ToString(),
+                    ["name"] = item.DisplayName,
+                    ["lives"] = item.Lives,
+                    ["active"] = item.Status != "eliminated"
+                }).ToArray());
+                if (participantId.HasValue)
+                    projected["myLives"] = run.Participants.FirstOrDefault(item => item.Id == participantId.Value)?.Lives ?? quizModifiers.StartingLives;
+            }
+        }
         var roundId = CurrentRoundId(run, config);
         var submissions = run.Submissions.Where(x => x.RoundId == roundId && x.ModerationStatus == "approved" && !x.Hidden).ToList();
         if ((run.ActivityDefinition!.Type is ActivityTypes.Poll or ActivityTypes.Prediction) && !BoolValue(state, "resultsVisible"))
@@ -2281,16 +2979,59 @@ public sealed class ActivitySessionService(
         else if (run.ActivityDefinition.Type == ActivityTypes.Punchline)
         {
             projected["submissions"] = new JsonArray(submissions.Select(x => (JsonNode)new JsonObject { ["id"] = x.Id.ToString(), ["text"] = StringValue(ParseObject(x.PayloadJson), "text") ?? "" }).ToArray());
+            if (CreativeVotingStyle(config) == "headToHead")
+            {
+                var submissionText = submissions.ToDictionary(item => item.Id.ToString(), item => StringValue(ParseObject(item.PayloadJson), "text") ?? "", StringComparer.OrdinalIgnoreCase);
+                var matches = new JsonArray();
+                foreach (var match in ArrayValue(state, "creativeMatches").OfType<JsonObject>())
+                {
+                    var firstId = StringValue(match, "entrantAId");
+                    var secondId = StringValue(match, "entrantBId");
+                    matches.Add(new JsonObject
+                    {
+                        ["id"] = StringValue(match, "id"),
+                        ["round"] = IntValue(match, "round", 1),
+                        ["entrantAId"] = firstId,
+                        ["entrantA"] = firstId is not null && submissionText.TryGetValue(firstId, out var firstText) ? firstText : "Response A",
+                        ["entrantBId"] = secondId,
+                        ["entrantB"] = secondId is not null && submissionText.TryGetValue(secondId, out var secondText) ? secondText : "Bye",
+                        ["winnerId"] = StringValue(match, "winnerId"),
+                        ["status"] = StringValue(match, "status", "pending")
+                    });
+                }
+                projected["creativeMatches"] = matches;
+                var currentId = StringValue(state, "creativeCurrentMatchId");
+                var current = currentId is null ? null : matches.OfType<JsonObject>().FirstOrDefault(item => StringValue(item, "id") == currentId);
+                if (current is not null) projected["creativeCurrentMatch"] = current.DeepClone();
+            }
         }
         else if (run.ActivityDefinition.Type == ActivityTypes.FakeOut)
         {
-            var options = new JsonArray(submissions.Select(x => (JsonNode)new JsonObject { ["id"] = x.Id.ToString(), ["text"] = StringValue(ParseObject(x.PayloadJson), "text") ?? "", ["isTruth"] = false }).ToArray());
+            var visibleBluffs = participantId.HasValue
+                ? submissions.Where(submission => submission.ParticipantId != participantId.Value)
+                : submissions;
             var fakePhase = StringValue(state, "phase");
+            var revealAuthors = BoolValue(config, "revealAuthors", true) && (fakePhase is ActivityPhases.Reveal or ActivityPhases.FinalResults);
+            var options = new JsonArray(visibleBluffs.Select(x =>
+            {
+                var option = new JsonObject { ["id"] = x.Id.ToString(), ["text"] = StringValue(ParseObject(x.PayloadJson), "text") ?? "", ["isTruth"] = false };
+                if (revealAuthors) option["author"] = run.Participants.FirstOrDefault(participant => participant.Id == x.ParticipantId)?.DisplayName ?? "Anonymous";
+                return (JsonNode)option;
+            }).ToArray());
             if (fakePhase is ActivityPhases.Voting or ActivityPhases.Reveal or ActivityPhases.FinalResults)
             {
-                options.Add(new JsonObject { ["id"] = "truth", ["text"] = StringValue(ArrayValue(config, "rounds").Count > IntValue(state, "currentRoundIndex") ? ArrayValue(config, "rounds")[IntValue(state, "currentRoundIndex")] as JsonObject : null, "truth") ?? "", ["isTruth"] = fakePhase is ActivityPhases.Reveal or ActivityPhases.FinalResults });
+                var truthOption = new JsonObject { ["id"] = "truth", ["text"] = StringValue(ArrayValue(config, "rounds").Count > IntValue(state, "currentRoundIndex") ? ArrayValue(config, "rounds")[IntValue(state, "currentRoundIndex")] as JsonObject : null, "truth") ?? "", ["isTruth"] = fakePhase is ActivityPhases.Reveal or ActivityPhases.FinalResults };
+                if (revealAuthors) truthOption["author"] = "THE REAL ANSWER";
+                options.Add(truthOption);
             }
             projected["options"] = options;
+        }
+        else if (run.ActivityDefinition.Type == ActivityTypes.Buzzer)
+        {
+            projected.Remove("buzzWinnerParticipantId");
+            projected.Remove("lockedOutParticipantId");
+            if (participantId.HasValue)
+                projected["isLockedOut"] = StringValue(state, "lockedOutParticipantId") == participantId.Value.ToString();
         }
         else if (run.ActivityDefinition.Type == ActivityTypes.SurveyBoard)
         {
@@ -2461,7 +3202,17 @@ public sealed class ActivitySessionService(
         var projected = ParseObject(Serialize(config));
         if (type is ActivityTypes.Trivia or ActivityTypes.RapidFire)
         {
-            foreach (var item in ArrayValue(projected, "questions")) if (item is JsonObject question) { question.Remove("correctIndex"); if (!BoolValue(state, "explanationRevealed")) question.Remove("explanation"); }
+            foreach (var item in ArrayValue(projected, "questions"))
+            {
+                if (item is not JsonObject question) continue;
+                question.Remove("correctIndex");
+                question.Remove("correctText");
+                question.Remove("acceptedAnswers");
+                question.Remove("targetNumber");
+                question.Remove("tolerance");
+                question.Remove("scoringMode");
+                if (!BoolValue(state, "explanationRevealed")) question.Remove("explanation");
+            }
         }
         else if (type is ActivityTypes.Prediction)
         {
@@ -2491,6 +3242,15 @@ public sealed class ActivitySessionService(
         else if (type == ActivityTypes.Utility)
         {
             foreach (var box in ArrayValue(projected, "boxes").OfType<JsonObject>())
+            {
+                box.Remove("value");
+                box.Remove("prize");
+                box.Remove("points");
+            }
+        }
+        if (projected["embeddedUtility"] is JsonObject embedded)
+        {
+            foreach (var box in ArrayValue(embedded, "boxes").OfType<JsonObject>())
             {
                 box.Remove("value");
                 box.Remove("prize");
@@ -2552,6 +3312,49 @@ public sealed class ActivitySessionService(
         var item = ArrayValue(config, arrayName).Count > index ? ArrayValue(config, arrayName)[index] as JsonObject : null;
         return StringValue(item, "id") ?? $"round-{index + 1}";
     }
+
+    private static string CreativeVotingStyle(JsonObject config)
+    {
+        var style = (StringValue(config, "votingStyle") ?? "gallery").Trim().ToLowerInvariant();
+        return style == "headtohead" ? "headToHead" : "gallery";
+    }
+
+    private static string CreativeVoteRoundId(ActivityRun run, JsonObject config, JsonObject state)
+    {
+        var baseRoundId = CurrentRoundId(run, config);
+        if (CreativeVotingStyle(config) != "headToHead") return baseRoundId;
+        var matchId = StringValue(state, "creativeCurrentMatchId");
+        return string.IsNullOrWhiteSpace(matchId) ? baseRoundId : $"{baseRoundId}:{matchId}";
+    }
+
+    private static void InitializeQuizParticipants(ActivityRun run, JsonObject config, JsonObject state)
+    {
+        var modifiers = QuizModifierSettings.FromConfig(config);
+        if (!modifiers.LivesEnabled || BoolValue(state, "quizLivesInitialized")) return;
+        foreach (var participant in run.Participants.Where(item => item.Status != "removed"))
+        {
+            participant.Lives = modifiers.StartingLives;
+            if (participant.Status == "eliminated") participant.Status = "active";
+        }
+        state["quizLivesInitialized"] = true;
+    }
+
+    private static int RapidFireDurationMs(JsonObject config, JsonObject state)
+    {
+        var questions = ArrayValue(config, "questions");
+        var index = Math.Clamp(IntValue(state, "currentQuestionIndex"), 0, Math.Max(0, questions.Count - 1));
+        var question = questions.Count > index ? questions[index] as JsonObject : null;
+        var seconds = Math.Clamp(IntValue(question, "timerSeconds", IntValue(config, "defaultTimerSeconds", 15)), 3, 600);
+        return seconds * 1000;
+    }
+
+    private static int RapidFireRemainingMs(JsonObject state)
+    {
+        var targetAt = DateTimeOffsetValue(state, "targetAt");
+        if (targetAt.HasValue) return Math.Max(0, (int)Math.Min(int.MaxValue, (targetAt.Value - DateTimeOffset.UtcNow).TotalMilliseconds));
+        return Math.Max(0, IntValue(state, "remainingMs"));
+    }
+
     private static string UtilityType(JsonObject config)
     {
         var requested = StringValue(config, "utilityType", ActivityUtilityTypes.CoinFlip) ?? ActivityUtilityTypes.CoinFlip;
@@ -2569,17 +3372,44 @@ public sealed class ActivitySessionService(
     private static JsonObject ParseObject(string json) { try { return JsonNode.Parse(json)?.AsObject() ?? []; } catch (JsonException) { return []; } }
     private static string Serialize(JsonNode node) => node.ToJsonString(ActivityJsonDefaults.Options);
     private static object? ParseUntyped(string json) { try { return JsonSerializer.Deserialize<object>(json, ActivityJsonDefaults.Options); } catch (JsonException) { return null; } }
+    private static string QuizAnswerMode(JsonObject? question)
+    {
+        var mode = (StringValue(question, "answerMode") ?? "choice").Trim().ToLowerInvariant();
+        return mode is "text" or "shorttext" or "number" ? mode : "choice";
+    }
+    private static string? QuizAnswerText(JsonObject? question)
+    {
+        if (question is null) return null;
+        return QuizAnswerMode(question) switch
+        {
+            "text" or "shorttext" => ReadStringArray(question, "acceptedAnswers").FirstOrDefault() ?? StringValue(question, "correctText"),
+            "number" when DoubleValue(question, "targetNumber") is double number => number.ToString("0.##########", CultureInfo.InvariantCulture),
+            _ => ArrayValue(question, "options").Count > IntValue(question, "correctIndex", -1)
+                && IntValue(question, "correctIndex", -1) >= 0
+                ? ArrayValue(question, "options")[IntValue(question, "correctIndex", -1)]?.GetValue<string>()
+                : null
+        };
+    }
     private static string? StringValue(JsonObject? obj, string key) => obj is not null && obj.TryGetPropertyValue(key, out var value) ? value?.GetValue<string>() : null;
     private static string? StringValue(JsonObject? obj, string key, string fallback) => StringValue(obj, key) ?? fallback;
     private static bool BoolValue(JsonObject? obj, string key, bool fallback = false) => obj is not null && obj.TryGetPropertyValue(key, out var value) && value is not null ? value.GetValue<bool>() : fallback;
     private static int IntValue(JsonObject? obj, string key, int fallback = 0) => obj is not null && obj.TryGetPropertyValue(key, out var value) && value is not null ? value.GetValue<int>() : fallback;
     private static long LongValue(JsonObject? obj, string key, long fallback = 0) => obj is not null && obj.TryGetPropertyValue(key, out var value) && value is not null ? value.GetValue<long>() : fallback;
+    private static double? DoubleValue(JsonObject? obj, string key) => obj is not null && obj.TryGetPropertyValue(key, out var value) && value is JsonValue jsonValue && jsonValue.TryGetValue<double>(out var result) ? result : null;
     private static DateTimeOffset? DateTimeOffsetValue(JsonObject? obj, string key) => obj is not null && obj.TryGetPropertyValue(key, out var value) && value is not null && DateTimeOffset.TryParse(value.GetValue<string>(), out var result) ? result : null;
     private static JsonArray ArrayValue(JsonObject? obj, string key) => obj?.TryGetPropertyValue(key, out var value) == true && value is JsonArray array ? array : [];
     private static bool SurveyTeamMode(JsonObject config) => BoolValue(config, "teamPlay") || BoolValue(config, "stealEnabled");
     private static int SurveyStrikeLimit(JsonObject config) => Math.Clamp(IntValue(config, "strikesToSteal", 3), 1, 5);
     private static string ReadString(JsonElement? payload, string key) => payload?.TryGetProperty(key, out var value) == true && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
     private static int ReadInt(JsonElement? payload, string key, int fallback) => payload?.TryGetProperty(key, out var value) == true && value.TryGetInt32(out var result) ? result : fallback;
+    private static bool ReadBool(JsonElement? payload, string key) => payload?.TryGetProperty(key, out var value) == true && value.ValueKind == JsonValueKind.True;
+    private static bool TryReadDouble(JsonElement? payload, string key, out double result)
+    {
+        result = 0;
+        if (payload?.TryGetProperty(key, out var value) != true) return false;
+        if (value.ValueKind == JsonValueKind.Number) return value.TryGetDouble(out result);
+        return value.ValueKind == JsonValueKind.String && double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out result);
+    }
     private static Guid? ReadGuid(JsonElement? payload, string key) => Guid.TryParse(ReadString(payload, key), out var id) ? id : null;
     private static List<string> ReadStringArray(JsonObject? obj, string key)
     {

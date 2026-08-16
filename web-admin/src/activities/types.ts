@@ -49,6 +49,13 @@ export interface ActivityDefinitionUsage {
   isInUse: boolean;
 }
 
+export interface ActivityDefinitionPage {
+  items: ActivityDefinition[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+}
+
 export interface ActivityTheme {
   preset?: 'neon' | 'stage' | 'retro' | 'arcade' | 'cyberpunk' | 'clean';
   primaryColor?: string;

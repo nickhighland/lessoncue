@@ -55,6 +55,25 @@ public static class ActivityApi
             return Results.Ok(definitions.Select(MapDefinitionSummary));
         }).RequireAuthorization(LessonCuePermissions.Planning);
 
+        api.MapGet("/activities/library", async (
+            string? type,
+            string? search,
+            bool? includeArchived,
+            int? page,
+            int? pageSize,
+            ActivityService service,
+            CancellationToken ct) =>
+        {
+            var result = await service.ListDefinitionsPageAsync(type, search, includeArchived ?? false, page ?? 1, pageSize ?? 100, ct);
+            return Results.Ok(new
+            {
+                items = result.Items.Select(MapDefinitionSummary),
+                result.Page,
+                result.PageSize,
+                result.TotalCount
+            });
+        }).RequireAuthorization(LessonCuePermissions.Planning);
+
         api.MapGet("/activities/{id:guid}", async (Guid id, ActivityService service, CancellationToken ct) =>
         {
             var definition = await service.GetDefinitionAsync(id, ct);
@@ -400,6 +419,14 @@ public static class ActivityApi
         hostSessions.MapPost("/{id:guid}/participants/team", async (Guid id, ActivityParticipantTeamInput input, ActivitySessionService sessions, CancellationToken ct) =>
         {
             return await sessions.AssignParticipantAsync(id, input.ParticipantId, input.TeamId, ct) ? Results.NoContent() : Results.BadRequest(new { error = "Participant or team not found." });
+        });
+        hostSessions.MapPost("/{id:guid}/bracket-finalists", async (Guid id, ActivityBracketFinalistHandoffInput input, ActivitySessionService sessions, CancellationToken ct) =>
+        {
+            if (input.SourceRunId == Guid.Empty || input.SourceRunId == id) return Results.BadRequest(new { error = "Choose a different source activity run." });
+            var result = await sessions.ImportBracketFinalistsAsync(id, input.SourceRunId, input.Limit, ct);
+            return result.Success
+                ? Results.Ok(new { imported = result.Count, sourceRunId = input.SourceRunId })
+                : Results.BadRequest(new { error = result.Error ?? "Could not import finalists." });
         });
     }
 

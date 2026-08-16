@@ -251,7 +251,7 @@ public sealed class BackupPolicyService : BackgroundService
                     await using var scope = scopes.CreateAsyncScope();
                     var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
                     var timeZone = await db.Organizations.AsNoTracking()
-                        .Select(x => x.TimeZone)
+                        .OrderBy(item => item.Id).Select(x => x.TimeZone)
                         .FirstOrDefaultAsync(stoppingToken) ?? "UTC";
                     var boundary = LatestBoundary(policy, timeZone, DateTimeOffset.UtcNow);
                     var recentlyAttempted = policy.LastAttemptAt is not null &&
