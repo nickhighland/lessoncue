@@ -2249,6 +2249,59 @@
 .activity-library-confirmation { display: grid; gap: .8rem; }
 .activity-library-confirmation p { margin: 0; }
 .activity-library-confirmation-actions { display: flex; justify-content: flex-end; gap: .65rem; padding-top: .5rem; }
+.activity-editor-draft-status { display: inline-flex; align-items: center; min-height: 28px; padding: .25rem .55rem; border-radius: 999px; font-size: .7rem; font-weight: 900; letter-spacing: .03em; white-space: nowrap; }
+.activity-editor-draft-status.saved { background: #edf5f0; color: var(--green); }
+.activity-editor-draft-status.dirty { background: #fff3d7; color: #8a5a0b; }
+.activity-editor-close-confirmation { display: grid; gap: .8rem; }
+.activity-editor-close-confirmation p { margin: 0; }
+.activity-editor-unsaved-modal { z-index: 10001 !important; }
+.activity-editor-preview-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; background: #091c1d; }
+.activity-editor-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .75rem 1.25rem; border-bottom: 1px solid #2e3d38; background: #122521; color: #fff; }
+.activity-editor-preview-heading > div { display: grid; gap: .2rem; }
+.activity-editor-preview-heading strong { font-size: .9rem; }
+.activity-editor-preview-note { color: #b4c9c0; font-size: .72rem; }
+.activity-editor-preview-tabs { display: flex; flex-wrap: wrap; gap: .35rem; padding: .55rem 1.25rem; border-bottom: 1px solid #2e3d38; background: #1c2b27; }
+.activity-editor-preview-tabs button { min-height: 34px; padding: .35rem .7rem; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #c0d1cb; font: inherit; font-size: .76rem; font-weight: 800; cursor: pointer; }
+.activity-editor-preview-tabs button:hover, .activity-editor-preview-tabs button:focus-visible { border-color: rgba(242, 185, 67, .7); color: #fff; }
+.activity-editor-preview-tabs button.active { background: var(--gold); color: #111; }
+.activity-editor-preview-canvas { position: relative; flex: 1; min-height: 0; overflow: auto; background: #091c1d; }
+.activity-editor-preview-canvas > * { min-height: 100%; }
+.activity-preview-display, .activity-preview-display > .activity-stage { min-height: 100%; height: 100%; }
+.activity-preview-display .activity-stage { min-height: 100%; overflow: auto; }
+.activity-preview-display .activity-stage-content { min-height: 100%; padding: clamp(1rem, 3vw, 2.5rem); }
+.activity-preview-participant { min-height: 100%; padding: 1rem; box-sizing: border-box; }
+.activity-preview-participant-card { width: min(620px, 100%); margin: 0 auto; }
+.activity-preview-phone-header { display: flex; align-items: center; gap: .7rem; padding: .8rem 0 1rem; }
+.activity-preview-phone-header .participant-mark { width: 42px; height: 42px; border-radius: 13px; font-size: 1.2rem; }
+.activity-preview-phone-header > div { display: grid; gap: .15rem; min-width: 0; }
+.activity-preview-phone-header > div strong { overflow: hidden; color: #fff; font-size: 1rem; text-overflow: ellipsis; white-space: nowrap; }
+.activity-preview-demo-pill { margin-left: auto; padding: .25rem .5rem; border: 1px solid rgba(242, 195, 90, .55); border-radius: 999px; color: #f2c35a; font-size: .65rem; font-weight: 900; letter-spacing: .08em; }
+.activity-preview-participant .participant-input-card, .activity-preview-participant .participant-waiting { margin-top: .5rem; }
+.activity-preview-participant .participant-input-card textarea { min-height: 100px; }
+.activity-preview-interaction-note { display: block; margin-top: .75rem; color: rgba(255,255,255,.55); text-align: center; }
+.activity-preview-physical-card p { max-width: 34rem; margin: .5rem auto 0; }
+.activity-preview-participant-footer { display: flex; justify-content: space-between; gap: .75rem; margin-top: .8rem; padding: .65rem .8rem; border-top: 1px solid rgba(255,255,255,.12); color: rgba(255,255,255,.55); font-size: .68rem; }
+.activity-preview-utility-screen { display: flex; min-height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: .7rem; padding: clamp(1.25rem, 4vw, 3rem); box-sizing: border-box; background: radial-gradient(circle at 50% 15%, #244d42, #0d2522 62%, #071412); color: #fff; text-align: center; }
+.activity-preview-utility-screen h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(2rem, 5vw, 3.5rem); text-shadow: var(--act-glow-gold); }
+.activity-preview-utility-screen p { max-width: 38rem; margin: 0; color: #c0d1cb; }
+.activity-preview-screen-kicker { color: #f2c35a; font-size: .7rem; font-weight: 900; letter-spacing: .15em; }
+.activity-preview-leaderboard-list { display: grid; width: min(720px, 100%); gap: .55rem; margin-top: .8rem; }
+.activity-preview-leaderboard-row { display: grid; grid-template-columns: 2.2rem 2rem minmax(0, 1fr) auto; align-items: center; gap: .6rem; min-height: 58px; padding: .55rem .8rem; border: 1px solid rgba(255,255,255,.15); border-radius: 13px; background: rgba(255,255,255,.08); text-align: left; }
+.activity-preview-leaderboard-row:first-child { border-color: rgba(242,195,90,.75); box-shadow: 0 0 18px rgba(242,195,90,.14); }
+.activity-preview-rank { color: #f2c35a; font-size: 1.1rem; font-weight: 950; text-align: center; }
+.activity-preview-entry-icon { font-size: 1.25rem; }
+.activity-preview-leaderboard-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-preview-leaderboard-row b { color: #f2c35a; white-space: nowrap; }
+.activity-preview-utility-screen > small { color: rgba(255,255,255,.5); }
+.activity-preview-podium { display: flex; align-items: end; justify-content: center; gap: .7rem; width: min(700px, 100%); margin-top: 1.2rem; }
+.activity-preview-podium-place { display: grid; width: min(28vw, 170px); min-height: 130px; align-content: end; justify-items: center; gap: .35rem; padding: .8rem .55rem; border: 1px solid rgba(255,255,255,.16); border-radius: 13px 13px 0 0; background: rgba(255,255,255,.1); }
+.activity-preview-podium-place.first { min-height: 190px; border-color: rgba(242,195,90,.8); background: linear-gradient(rgba(242,195,90,.25), rgba(255,255,255,.08)); }
+.activity-preview-podium-place.second { min-height: 155px; }
+.activity-preview-podium-place.third { min-height: 115px; }
+.activity-preview-podium-place > span { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: #f2b943; color: #1b2b25; font-size: 1.1rem; font-weight: 950; }
+.activity-preview-podium-place strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-preview-podium-place small { color: #f2c35a; }
+.activity-preview-winner-banner { margin-top: 1rem; padding: .8rem 1.2rem; border: 1px solid rgba(242,195,90,.65); border-radius: 999px; background: rgba(242,195,90,.14); color: #f8d979; font-weight: 900; }
 .bracket-current-match { width: min(900px, 100%); padding: 1.25rem; border: 2px solid rgba(216, 140, 30, .7); border-radius: 22px; background: rgba(18, 38, 33, .9); box-shadow: 0 0 28px rgba(216, 140, 30, .18); }
 .bracket-versus-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 1rem; margin-top: .8rem; }
 .bracket-entrant-card { display: grid; min-height: 100px; align-content: center; justify-items: center; gap: .35rem; padding: 1rem; border: 2px solid rgba(255, 255, 255, .16); border-radius: 15px; background: rgba(255, 255, 255, .06); text-align: center; }

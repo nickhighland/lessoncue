@@ -2,10 +2,19 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ActivityDefinition, ActivityTypeDescriptor } from './types';
 import { ActivityApi } from './api';
 import { ACTIVITY_REGISTRY, getActivityDescriptor } from './activityRegistry';
-import { ActivityDisplay } from './ActivityDisplay';
-import { ActivityController } from './ActivityController';
+import { ActivityPreview, type ActivityPreviewMode } from './ActivityPreview';
 import { PageHead, Modal, Field, Empty } from '../admin/ui';
 import './activity.css';
+
+const stableDraftValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(stableDraftValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, item]) => [key, stableDraftValue(item)]));
+};
+
+const activityDraftSnapshot = (name: string, description: string, config: Record<string, unknown>) => JSON.stringify(stableDraftValue({ name, description, config }));
 
 export const ActivityLibrary: React.FC = () => {
   const [activities, setActivities] = useState<ActivityDefinition[]>([]);
@@ -33,11 +42,26 @@ export const ActivityLibrary: React.FC = () => {
   const [statusMessage, setStatusMessage] = useState('');
   const [selectedActivity, setSelectedActivity] = useState<ActivityDefinition | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [previewTab, setPreviewTab] = useState<'display' | 'controller'>('display');
+  const [previewTab, setPreviewTab] = useState<ActivityPreviewMode>('display');
   const [editingConfig, setEditingConfig] = useState<Record<string, unknown>>({});
   const [editingName, setEditingName] = useState('');
   const [editingDescription, setEditingDescription] = useState('');
+  const [savedDraftSnapshot, setSavedDraftSnapshot] = useState('');
+  const [pendingEditorClose, setPendingEditorClose] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  const draftDefinition = useMemo<ActivityDefinition | null>(() => selectedActivity ? {
+    ...selectedActivity,
+    name: editingName.trim() || selectedActivity.name,
+    description: editingDescription,
+    config: editingConfig
+  } : null, [editingConfig, editingDescription, editingName, selectedActivity]);
+
+  const isEditorDirty = Boolean(draftDefinition && activityDraftSnapshot(
+    draftDefinition.name,
+    draftDefinition.description,
+    draftDefinition.config
+  ) !== savedDraftSnapshot);
 
   const fetchActivities = useCallback(async () => {
     try {
@@ -59,6 +83,16 @@ export const ActivityLibrary: React.FC = () => {
   useEffect(() => {
     try { localStorage.setItem('lessoncue.activityView', viewMode); } catch { /* private browsing */ }
   }, [viewMode]);
+
+  useEffect(() => {
+    if (!isEditorDirty) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [isEditorDirty]);
 
   useEffect(() => {
     try { localStorage.setItem('lessoncue.activityFavorites', JSON.stringify([...favoriteIds])); } catch { /* private browsing */ }
@@ -179,6 +213,8 @@ export const ActivityLibrary: React.FC = () => {
     setEditingName(item.name);
     setEditingDescription(item.description || '');
     setEditingConfig(item.config || {});
+    setSavedDraftSnapshot(activityDraftSnapshot(item.name, item.description || '', item.config || {}));
+    setPendingEditorClose(false);
     setPreviewTab('display');
   };
 
@@ -203,8 +239,8 @@ export const ActivityLibrary: React.FC = () => {
     }
   };
 
-  const handleSaveEdit = async () => {
-    if (!selectedActivity) return;
+  const handleSaveEdit = async (closeAfterSave = false): Promise<boolean> => {
+    if (!selectedActivity) return false;
     setIsSaving(true);
     try {
       const updated = await ActivityApi.updateActivity(selectedActivity.id, {
@@ -214,13 +250,42 @@ export const ActivityLibrary: React.FC = () => {
         config: editingConfig
       });
       setSelectedActivity(updated);
+      setEditingName(updated.name);
+      setEditingDescription(updated.description || '');
+      setEditingConfig(updated.config || {});
+      setSavedDraftSnapshot(activityDraftSnapshot(updated.name, updated.description || '', updated.config || {}));
       await fetchActivities();
       setStatusMessage('Activity saved.');
+      if (closeAfterSave) {
+        setPendingEditorClose(false);
+        setSelectedActivity(null);
+      }
+      return true;
     } catch (err) {
       setStatusMessage(`Save failed: ${(err as Error).message}`);
+      return false;
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const closeEditor = () => {
+    if (isEditorDirty) {
+      setPendingEditorClose(true);
+      return;
+    }
+    setSelectedActivity(null);
+  };
+
+  const discardEditorChanges = () => {
+    if (selectedActivity) {
+      setEditingName(selectedActivity.name);
+      setEditingDescription(selectedActivity.description || '');
+      setEditingConfig(selectedActivity.config || {});
+      setSavedDraftSnapshot(activityDraftSnapshot(selectedActivity.name, selectedActivity.description || '', selectedActivity.config || {}));
+    }
+    setPendingEditorClose(false);
+    setSelectedActivity(null);
   };
 
   const handleDuplicate = async () => {
@@ -286,12 +351,12 @@ export const ActivityLibrary: React.FC = () => {
   };
 
   const handleExport = () => {
-    if (!selectedActivity) return;
-    const blob = new Blob([JSON.stringify(selectedActivity, null, 2)], { type: 'application/json' });
+    if (!draftDefinition) return;
+    const blob = new Blob([JSON.stringify(draftDefinition, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${selectedActivity.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.lcactivity`;
+    a.download = `${draftDefinition.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.lcactivity`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -593,7 +658,7 @@ export const ActivityLibrary: React.FC = () => {
         <div
           className="modal-backdrop"
           style={{ zIndex: 9999 }}
-          onMouseDown={e => e.currentTarget === e.target && setSelectedActivity(null)}
+          onMouseDown={e => e.currentTarget === e.target && closeEditor()}
         >
           <div
             className="modal"
@@ -642,6 +707,9 @@ export const ActivityLibrary: React.FC = () => {
                     Type: {getActivityDescriptor(selectedActivity.type).name}
                   </div>
                 </div>
+                <span className={`activity-editor-draft-status ${isEditorDirty ? 'dirty' : 'saved'}`} role="status">
+                  {isEditorDirty ? 'Unsaved changes' : 'Saved'}
+                </span>
               </div>
 
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -670,15 +738,15 @@ export const ActivityLibrary: React.FC = () => {
                 <button
                   type="button"
                   className="button primary"
-                  onClick={handleSaveEdit}
-                  disabled={isSaving}
+                  onClick={() => void handleSaveEdit()}
+                  disabled={isSaving || !isEditorDirty}
                 >
-                  {isSaving ? 'Saving...' : 'Save activity'}
+                  {isSaving ? 'Saving...' : isEditorDirty ? 'Save activity' : 'Saved'}
                 </button>
                 <button
                   type="button"
                   className="button"
-                  onClick={() => setSelectedActivity(null)}
+                  onClick={closeEditor}
                   style={{ marginLeft: '0.5rem' }}
                 >
                   Close
@@ -686,7 +754,7 @@ export const ActivityLibrary: React.FC = () => {
               </div>
             </div>
 
-            {/* Modal Body: Split Editor on Left, Live Stage Simulator on Right */}
+            {/* Modal Body: Split Editor on Left, client-only snapshot preview on Right */}
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(360px, 420px) 1fr', flex: 1, overflow: 'hidden' }}>
               {/* Left Config Editor Panel */}
               <div style={{ padding: '1.5rem', overflowY: 'auto', borderRight: '1px solid var(--line)', background: '#f9f8f5' }}>
@@ -713,58 +781,52 @@ export const ActivityLibrary: React.FC = () => {
                 })()}
               </div>
 
-              {/* Right Live Stage & Controller Simulator */}
-              <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#091c1d' }}>
-                {/* Simulator Mode Tabs */}
-                <div style={{ display: 'flex', gap: '0.5rem', padding: '0.6rem 1.25rem', background: '#1c2b27', borderBottom: '1px solid #2e3d38' }}>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewTab('display')}
-                    style={{
-                      background: previewTab === 'display' ? 'var(--gold)' : 'transparent',
-                      color: previewTab === 'display' ? '#000000' : '#c0d1cb',
-                      fontWeight: 700,
-                      border: 'none',
-                      padding: '0.35rem 0.9rem',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontSize: '0.88rem'
-                    }}
-                  >
-                    TV Stage Display
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewTab('controller')}
-                    style={{
-                      background: previewTab === 'controller' ? 'var(--gold)' : 'transparent',
-                      color: previewTab === 'controller' ? '#000000' : '#c0d1cb',
-                      fontWeight: 700,
-                      border: 'none',
-                      padding: '0.35rem 0.9rem',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontSize: '0.88rem'
-                    }}
-                  >
-                    Remote Controller
-                  </button>
+              {/* Right client-only snapshot preview */}
+              <div className="activity-editor-preview-panel">
+                <div className="activity-editor-preview-heading">
+                  <div>
+                    <span className="activity-preview-screen-kicker">PREVIEW SNAPSHOT</span>
+                    <strong>{isEditorDirty ? 'Showing your unsaved draft' : 'Showing the saved activity'}</strong>
+                  </div>
+                  <span className="activity-editor-preview-note">No live session is started</span>
                 </div>
-
-                {/* Simulator Canvas View */}
-                <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-                  {previewTab === 'display' ? (
-                    <ActivityDisplay definitionId={selectedActivity.id} interactive />
-                  ) : (
-                    <div style={{ padding: '1.5rem', maxWidth: '500px', margin: '0 auto', overflowY: 'auto', height: '100%', background: '#f9f8f5' }}>
-                      <ActivityController definitionId={selectedActivity.id} />
-                    </div>
-                  )}
+                <div className="activity-editor-preview-tabs" role="tablist" aria-label="Activity preview modes">
+                  {([
+                    ['display', 'TV / display'],
+                    ['participant', 'Participant'],
+                    ['reveal', 'Reveal'],
+                    ['leaderboard', 'Leaderboard'],
+                    ['podium', 'Podium']
+                  ] as Array<[ActivityPreviewMode, string]>).map(([mode, label]) => <button
+                    type="button"
+                    role="tab"
+                    aria-selected={previewTab === mode}
+                    className={previewTab === mode ? 'active' : ''}
+                    key={mode}
+                    onClick={() => setPreviewTab(mode)}
+                  >{label}</button>)}
+                </div>
+                <div className="activity-editor-preview-canvas" data-preview-mode={previewTab}>
+                  {draftDefinition && <ActivityPreview definition={draftDefinition} mode={previewTab} />}
                 </div>
               </div>
             </div>
           </div>
         </div>
+      )}
+
+      {pendingEditorClose && selectedActivity && (
+        <Modal title="Unsaved changes" className="activity-editor-unsaved-modal" onClose={() => setPendingEditorClose(false)}>
+          <div className="activity-editor-close-confirmation">
+            <p>You have draft changes to <strong>{editingName.trim() || selectedActivity.name}</strong>.</p>
+            <p className="muted">Save them before closing, keep editing, or discard this draft. The preview above is based on the same unsaved snapshot.</p>
+            <div className="activity-library-confirmation-actions">
+              <button type="button" className="button" onClick={() => setPendingEditorClose(false)} disabled={isSaving}>Keep editing</button>
+              <button type="button" className="button danger" onClick={discardEditorChanges} disabled={isSaving}>Discard changes</button>
+              <button type="button" className="button primary" onClick={() => void handleSaveEdit(true)} disabled={isSaving}>{isSaving ? 'Saving…' : 'Save and close'}</button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

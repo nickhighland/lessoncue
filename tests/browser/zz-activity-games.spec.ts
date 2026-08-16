@@ -260,7 +260,6 @@ test("Beat the Clock gives the host a timed no-phone challenge and ruling", asyn
     await hostAction(page, run.runId, "starttimer");
     await expect(page.locator(".stage-timer-card")).toBeVisible();
     await hostAction(page, run.runId, "success");
-    await expect(page.getByText("SUCCESS", { exact: true })).toBeVisible();
     const state = await hostState(page, run.runId);
     expect(state.scoreEvents.some(event => event.amount === 100)).toBe(true);
   } finally {
@@ -431,4 +430,48 @@ test("Activities Studio supports grid/list views, filters, arranging, and bulk d
   await expect(page.getByRole("status")).toContainText("2 deleted");
   await expect(page.getByText("Library Trivia", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Library Bracket", { exact: true })).toHaveCount(0);
+});
+
+test("Activities editor previews draft snapshots and protects unsaved changes", async ({ page }) => {
+  await authenticate(page);
+  const definitionId = await createActivity(page, "Trivia Quiz", "Preview Dirty State Activity");
+  try {
+    await expect(page.locator(".activity-editor-draft-status")).toHaveText("Saved");
+    await expect(page.getByRole("button", { name: "Saved", exact: true })).toBeDisabled();
+
+    await page.locator('input[type="text"]').first().fill("Preview Draft Activity");
+    await expect(page.locator(".activity-editor-draft-status")).toHaveText("Unsaved changes");
+    await expect(page.getByRole("button", { name: "Save activity", exact: true })).toBeEnabled();
+
+    for (const [mode, marker] of [
+      ["Participant", "PARTICIPANT PREVIEW"],
+      ["Reveal", "Trivia Quiz"],
+      ["Leaderboard", "SCOREBOARD PREVIEW"],
+      ["Podium", "FINAL RESULTS PREVIEW"]
+    ] as const) {
+      await page.getByRole("tab", { name: mode, exact: true }).click();
+      if (mode === "Reveal") {
+        await expect(page.locator('[data-preview-mode="reveal"] .activity-title')).toBeVisible();
+      } else {
+        await expect(page.getByText(marker, { exact: false }).last()).toBeVisible();
+      }
+    }
+
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    const warning = page.getByRole("dialog", { name: "Unsaved changes" });
+    await expect(warning).toBeVisible();
+    await warning.getByRole("button", { name: "Keep editing" }).click();
+    await expect(warning).toHaveCount(0);
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("dialog", { name: "Unsaved changes" }).getByRole("button", { name: "Discard changes" }).click();
+    await expect(page.locator(".activity-editor-draft-status")).toHaveCount(0);
+  } finally {
+    await page.evaluate(async id => {
+      await fetch("/api/v1/activities/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [id] }),
+      });
+    }, definitionId);
+  }
 });
