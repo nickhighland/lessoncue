@@ -3,6 +3,7 @@ import { api } from "../api";
 import { DownloadDiagnostic, Lesson, LessonClass, Screen, TemporaryControllerSession } from "../models";
 import { BrandMark, Empty, Field, PageHead } from "../ui";
 import { classControllerUrl, controllerRouteSlug, controllerSessionToken, controllerSlug, cuePlannedDurationMs, cuePoints, errorText, formatDate, formatDuration, formatFriendlyDuration, friendlyPlaybackState, isOnline, lessonPlannedDurationMs, parseDiagnosticJson, roleName, youtubeEmbedUrl } from "../utils";
+import { ActivityController } from "../../activities/ActivityController";
 
 export function ControllerView({
   screens,
@@ -482,6 +483,15 @@ export function ControllerView({
           <div className="controller-focus-now">
             <span>NOW</span><strong>{reportedItem?.title || "Nothing playing"}</strong>
           </div>
+          {((reportedItem?.type === "activity" || reportedItem?.activityDefinitionId) && (
+            <div style={{ width: "100%", margin: "0.5rem 0" }}>
+              <ActivityController
+                definitionId={reportedItem.activityDefinitionId}
+                lessonId={timingLesson?.id}
+                lessonItemId={reportedItem.id}
+              />
+            </div>
+          ))}
           <div className="controller-focus-next">
             <span>NEXT</span><strong>{reportedIndex >= 0 ? timingItems[reportedIndex + 1]?.title || "End of sequence" : orderedItems[0]?.title || "Choose a lesson"}</strong>
           </div>
@@ -627,6 +637,23 @@ export function ControllerView({
             >
               ■ Stop playback
             </button>
+            {((reportedItem?.type === "activity" || reportedItem?.activityDefinitionId) && (
+              <div style={{ marginTop: "1rem" }}>
+                <ActivityController
+                  definitionId={reportedItem.activityDefinitionId}
+                  lessonId={timingLesson?.id}
+                  lessonItemId={reportedItem.id}
+                />
+              </div>
+            )) || (selectedItem?.activityDefinitionId && (
+              <div style={{ marginTop: "1rem" }}>
+                <ActivityController
+                  definitionId={selectedItem.activityDefinitionId}
+                  lessonId={lesson?.id}
+                  lessonItemId={selectedItem.id}
+                />
+              </div>
+            ))}
           </section>
           <section className="panel controller-media">
             <Field label="Lesson">

@@ -264,6 +264,204 @@ paths:
         '200': { description: "Bulk playlist action completed and affected manifests invalidated" }
         '400': { description: "Invalid selection, action, role, volume, ending, or title prefix" }
         '404': { description: "A selected playlist item no longer exists" }
+  /api/v1/activities:
+    get:
+      operationId: listActivities
+      description: Returns saved interactive activity definitions with optional type and search filtering.
+      parameters:
+        - name: type
+          in: query
+          required: false
+          schema: { type: string }
+        - name: search
+          in: query
+          required: false
+          schema: { type: string }
+        - name: includeArchived
+          in: query
+          required: false
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: List of activity definitions
+    post:
+      operationId: createActivity
+      description: Creates a new interactive activity definition.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActivityDefinitionInput' }
+      responses:
+        '201':
+          description: Activity definition created
+        '400':
+          description: Invalid input or activity type
+  /api/v1/activities/bulk-delete:
+    post:
+      operationId: bulkDeleteActivities
+      description: Deletes selected activity definitions. Definitions still referenced by lessons, templates, or runs are archived instead so existing content remains valid.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActivityBulkDeleteInput' }
+      responses:
+        '200':
+          description: Bulk activity mutation result
+        '400':
+          description: Selection is empty or exceeds 500 activities
+  /api/v1/activities/library-order:
+    put:
+      operationId: reorderActivities
+      description: Saves the teacher's manual order for the active Activities library.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActivityLibraryOrderInput' }
+      responses:
+        '204': { description: Activity order saved }
+        '400': { description: Invalid library order }
+  /api/v1/activities/{id}:
+    get:
+      operationId: getActivity
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Activity definition details
+        '404':
+          description: Activity definition not found
+    put:
+      operationId: updateActivity
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActivityDefinitionInput' }
+      responses:
+        '200':
+          description: Activity definition updated
+        '400':
+          description: Invalid configuration
+        '404':
+          description: Activity definition not found
+    delete:
+      operationId: deleteActivity
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Activity definition deleted or archived
+        '404':
+          description: Activity definition not found
+  /api/v1/activities/{id}/restore:
+    post:
+      operationId: restoreActivity
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Activity definition restored }
+        '404': { description: Archived activity definition not found }
+  /api/v1/activities/{id}/duplicate:
+    post:
+      operationId: duplicateActivity
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Duplicated activity definition
+        '404':
+          description: Original activity definition not found
+  /api/v1/activity-runs:
+    post:
+      operationId: createOrGetActivityRun
+      description: Resolves or initializes an active live run for an activity definition.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActivityRunCreateInput' }
+      responses:
+        '200':
+          description: Active run state envelope
+  /api/v1/activity-runs/{id}:
+    get:
+      operationId: getActivityRun
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Current run state envelope
+        '404':
+          description: Run not found
+  /api/v1/activity-runs/{id}/command:
+    post:
+      operationId: executeActivityCommand
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActivityCommandEnvelope' }
+      responses:
+        '200':
+          description: Command succeeded
+        '400':
+          description: Invalid command
+        '409':
+          description: Revision mismatch conflict
+  /api/v1/activity-runs/{id}/reset:
+    post:
+      operationId: resetActivityRun
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Reset run state envelope
+        '404':
+          description: Run not found
+  /api/v1/activity-runs/{id}/end:
+    post:
+      operationId: endActivityRun
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Final run state envelope
+        '404':
+          description: Run not found
   /api/v1/lessons/{lessonId}/items:
     post:
       operationId: addPlaylistItem
@@ -3258,8 +3456,9 @@ components:
       required: [title, type]
       properties:
         title: { type: string }
-        type: { enum: [video, audio, image, liveStream, external] }
+        type: { enum: [video, audio, image, liveStream, external, activity] }
         mediaId: { type: [string, 'null'], format: uuid }
+        activityDefinitionId: { type: [string, 'null'], format: uuid }
         role: { enum: [lesson, preRoll, countdown] }
         position: { type: number }
         durationMs: { type: [integer, 'null'] }
@@ -3284,6 +3483,7 @@ components:
       type: object
       properties:
         title: { type: [string, 'null'] }
+        activityDefinitionId: { type: [string, 'null'], format: uuid }
         startMs: { type: [integer, 'null'], format: int64, minimum: 0 }
         endMs: { type: [integer, 'null'], format: int64, minimum: 0 }
         fadeInMs: { type: [integer, 'null'], minimum: 0, maximum: 30000 }
@@ -3399,3 +3599,48 @@ components:
         state: { enum: [idle, loading, buffering, playing, paused, completed, error] }
         screenshotRequestId: { type: [string, 'null'], format: uuid }
         screenshotExpiresAt: { type: [string, 'null'], format: date-time }
+    ActivityDefinitionInput:
+      type: object
+      required: [name, type]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        type: { type: string, minLength: 1, maxLength: 40 }
+        description: { type: string, maxLength: 1000 }
+        config: { type: object, additionalProperties: true }
+        theme: { type: object, additionalProperties: true }
+        thumbnailMediaId: { type: [string, 'null'], format: uuid }
+    ActivityBulkDeleteInput:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          minItems: 1
+          maxItems: 500
+          uniqueItems: true
+          items: { type: string, format: uuid }
+    ActivityLibraryOrderInput:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          maxItems: 500
+          uniqueItems: true
+          items: { type: string, format: uuid }
+    ActivityRunCreateInput:
+      type: object
+      required: [activityDefinitionId]
+      properties:
+        activityDefinitionId: { type: string, format: uuid }
+        lessonId: { type: [string, 'null'], format: uuid }
+        lessonItemId: { type: [string, 'null'], format: uuid }
+        scope: { type: [string, 'null'] }
+    ActivityCommandEnvelope:
+      type: object
+      required: [action]
+      properties:
+        commandId: { type: string }
+        expectedRevision: { type: [integer, 'null'], minimum: 1 }
+        action: { type: string }
+        payload: { type: object, additionalProperties: true }

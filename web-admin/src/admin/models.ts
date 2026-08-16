@@ -411,6 +411,7 @@ export type PlaylistItem = {
   transitionStyle: "cut" | "fade-black";
   transitionDurationMs: number;
   flexibleTime: boolean;
+  activityDefinitionId?: string;
 };
 export type Lesson = {
   id: string;
@@ -896,6 +897,7 @@ export type View =
   | "controller"
   | "classes"
   | "templates"
+  | "activities"
   | "calendar"
   | "media"
   | "screens"

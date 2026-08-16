@@ -367,7 +367,7 @@ function zone(type: string, zoneId = id("element")): Zone {
     common.qrValue =
       type === "wifi"
         ? "WIFI:T:WPA;S:Guest;P:password;;"
-        : "https://lessoncue.local";
+        : "http://lessoncue-test.local";
   }
   if (type === "audience") {
     common.title = "";

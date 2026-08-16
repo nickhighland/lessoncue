@@ -24,9 +24,8 @@ public sealed class Organization
     [MaxLength(12000)] public string MediaFoldersJson { get; set; } = "[\"General\",\"Lessons\",\"Signage\"]";
     [MaxLength(12000)] public string MediaTagsJson { get; set; } = "[\"Reusable\",\"Intro\",\"Outro\",\"Reference\"]";
     [MaxLength(12000)] public string SignageSourceAllowlistJson { get; set; } = "[]";
-    // Signage is an optional, preview feature. Keep it off until a Service Admin
-    // deliberately makes it available to this organization.
-    public bool SignageEnabled { get; set; }
+    // Retained for database and API compatibility. Signage is now always live.
+    public bool SignageEnabled { get; set; } = true;
     public int SignageModelVersion { get; set; }
     [JsonIgnore] public string? ControllerPinHash { get; set; }
     public bool RequireLocalRoomControllers { get; set; }
@@ -189,6 +188,8 @@ public sealed class LessonTemplateItem
     [MaxLength(24)] public string TransitionStyle { get; set; } = "cut";
     public int TransitionDurationMs { get; set; } = 500;
     public bool FlexibleTime { get; set; }
+    public Guid? ActivityDefinitionId { get; set; }
+    public Activities.ActivityDefinition? ActivityDefinition { get; set; }
 }
 
 public sealed class RecurringLessonSchedule
@@ -227,6 +228,8 @@ public sealed class PlaylistItem
     public decimal Position { get; set; }
     public Guid? MediaAssetId { get; set; }
     public MediaAsset? MediaAsset { get; set; }
+    public Guid? ActivityDefinitionId { get; set; }
+    public Activities.ActivityDefinition? ActivityDefinition { get; set; }
     public long? DurationMs { get; set; }
     public long StartMs { get; set; }
     public long? EndMs { get; set; }
@@ -673,7 +676,7 @@ public sealed record PlaylistItemInput(string Title, string Type, string? Role, 
     int RotationDegrees = 0, int CropLeftPercent = 0, int CropTopPercent = 0,
     int CropRightPercent = 0, int CropBottomPercent = 0, bool Muted = false,
     int PlaybackRatePercent = 100, int RepeatCount = 1, string? BackgroundColor = null,
-    string? TransitionStyle = null, int TransitionDurationMs = 500);
+    string? TransitionStyle = null, int TransitionDurationMs = 500, Guid? ActivityDefinitionId = null);
 public sealed record PairingRequestInput(string DeviceName, string Platform, string AppVersion, string? DevicePublicKey);
 public sealed record PairingConfirmInput(Guid RequestId, string Pin);
 public sealed record PairingPinInput(string? Pin, bool Automatic = false);
@@ -750,7 +753,7 @@ public sealed record PlaylistItemUpdateInput(string? Title, string? Type, string
     int? CropLeftPercent = null, int? CropTopPercent = null, int? CropRightPercent = null,
     int? CropBottomPercent = null, bool? Muted = null, int? PlaybackRatePercent = null,
     int? RepeatCount = null, string? BackgroundColor = null, string? TransitionStyle = null,
-    int? TransitionDurationMs = null, bool? FlexibleTime = null);
+    int? TransitionDurationMs = null, bool? FlexibleTime = null, Guid? ActivityDefinitionId = null);
 public sealed record CuePointInput(string Name, long PositionMs);
 public sealed record PlaylistReorderInput(List<Guid> ItemIds);
 public sealed record LessonBulkInput(List<Guid> LessonIds, string Action, Guid? ClassId = null,

@@ -39,6 +39,7 @@ public static class DisplayCapabilities
     [
         "lesson.image", "lesson.audio", "lesson.video", "lesson.live-stream",
         "lesson.youtube", "lesson.webpage", "lesson.audience-results",
+        "lesson.activity",
         "playback.trim", "playback.fade-through-black", "playback.transform",
         "playback.repeat", "remote.dpad"
     ];
@@ -105,6 +106,15 @@ public static class DisplayCapabilities
 
     public static DisplayRenderDecision LessonDecision(string? platform, PlaylistItem item)
     {
+        if (item.Type == "activity" || item.ActivityDefinitionId.HasValue)
+        {
+            if (!item.ActivityDefinitionId.HasValue)
+                return Unsupported($"“{item.Title}” has no activity attached.");
+            return Supports(platform, "lesson.activity")
+                ? new DisplayRenderDecision("supported", null)
+                : Unsupported($"“{item.Title}” is not supported by this display client.");
+        }
+
         var media = item.MediaAsset;
         if (media is null)
             return Unsupported($"“{item.Title}” has no media attached.");
@@ -209,6 +219,7 @@ public static class DisplayCapabilities
         "lesson.youtube" => "YouTube and embedded video",
         "lesson.webpage" => "Webpages",
         "lesson.audience-results" => "Audience results in lessons",
+        "lesson.activity" => "Interactive activities and games",
         "playback.trim" => "Trim points",
         "playback.fade-through-black" => "Audio and visual fades through black",
         "playback.transform" => "Crop, rotate, and fit",

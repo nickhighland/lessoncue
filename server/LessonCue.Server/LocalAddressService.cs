@@ -10,7 +10,7 @@ public sealed record LocalAddressStatus(
 
 public sealed class LocalAddressService : BackgroundService
 {
-    private const string DefaultHostname = "lessoncue";
+    private const string DefaultHostname = "lessoncue-test";
     private const string ProtectedRequestPath = "/var/lib/lessoncue/config/update-request";
     private readonly string _hostnamePath;
     private readonly string _resultPath;

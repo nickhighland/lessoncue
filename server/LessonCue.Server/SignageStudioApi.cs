@@ -10,13 +10,6 @@ public static class SignageStudioApi
     public static void MapSignageStudio(this IEndpointRouteBuilder routes)
     {
         var api = routes.MapGroup("/api/v1/signage-studio").RequireAuthorization();
-        api.AddEndpointFilter(async (context, next) =>
-        {
-            var db = context.HttpContext.RequestServices.GetRequiredService<LessonCueDb>();
-            var enabled = await db.Organizations.AsNoTracking().AnyAsync(value => value.SignageEnabled,
-                context.HttpContext.RequestAborted);
-            return enabled ? await next(context) : Results.NotFound();
-        });
         var planning = api.MapGroup("").RequireAuthorization(LessonCuePermissions.Planning);
         var operations = api.MapGroup("").RequireAuthorization(LessonCuePermissions.Screens);
 

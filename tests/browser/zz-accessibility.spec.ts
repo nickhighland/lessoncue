@@ -59,6 +59,10 @@ test("primary administration paths meet the automated WCAG 2.2 AA baseline", asy
 
   await scan(page, "dashboard");
 
+  await page.getByRole("button", { name: /Activities$/ }).click();
+  await expect(page.getByRole("heading", { name: "Activities Studio" })).toBeVisible();
+  await scan(page, "activities library");
+
   await page.getByRole("button", { name: /Lessons$/ }).click();
   await expect(page.getByRole("heading", { name: "Lessons" })).toBeVisible();
   await scan(page, "classes");

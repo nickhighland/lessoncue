@@ -387,7 +387,7 @@ public static class DatabaseUpgrade
             ["Organizations.MediaFoldersJson"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"MediaFoldersJson\" TEXT NOT NULL DEFAULT '[\"General\",\"Lessons\",\"Signage\"]'"),
             ["Organizations.MediaTagsJson"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"MediaTagsJson\" TEXT NOT NULL DEFAULT '[\"Reusable\",\"Intro\",\"Outro\",\"Reference\"]'"),
             ["Organizations.SignageSourceAllowlistJson"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"SignageSourceAllowlistJson\" TEXT NOT NULL DEFAULT '[]'"),
-            ["Organizations.SignageEnabled"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"SignageEnabled\" INTEGER NOT NULL DEFAULT 0"),
+            ["Organizations.SignageEnabled"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"SignageEnabled\" INTEGER NOT NULL DEFAULT 1"),
             ["Organizations.SignageModelVersion"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"SignageModelVersion\" INTEGER NOT NULL DEFAULT 0"),
             ["Organizations.ControllerPinHash"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"ControllerPinHash\" TEXT NULL"),
             ["Organizations.RequireLocalRoomControllers"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"RequireLocalRoomControllers\" INTEGER NOT NULL DEFAULT 0"),
@@ -589,6 +589,10 @@ public static class DatabaseUpgrade
                 await ExecuteAsync(connection, addition.Sql, cancellationToken);
         }
 
+        // Signage is a first-class surface now. Normalize legacy databases so
+        // old preview-toggle values cannot hide it after an upgrade.
+        await ExecuteAsync(connection, "UPDATE \"Organizations\" SET \"SignageEnabled\" = 1;", cancellationToken);
+
         // v0.38 replaces the scheduled/published signage model with reusable
         // layouts, looping content playlists, signs, and one active sign per
         // screen. The product owner explicitly chose to discard legacy signage
@@ -667,6 +671,182 @@ public static class DatabaseUpgrade
               WHERE "Title" = 'Teaching Video' AND "LessonId" IN
                 (SELECT "Id" FROM "Lessons" WHERE "Title" = 'Sample Lesson' AND "Date" = '2026-07-19');
             """, cancellationToken);
+
+        await ExecuteAsync(connection,
+            """
+            CREATE TABLE IF NOT EXISTS "ActivityDefinitions" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_ActivityDefinitions" PRIMARY KEY,
+                "Name" TEXT NOT NULL,
+                "Type" TEXT NOT NULL,
+                "Description" TEXT NOT NULL DEFAULT '',
+                "ConfigJson" TEXT NOT NULL DEFAULT '{}',
+                "ThemeJson" TEXT NOT NULL DEFAULT '{}',
+                "ThumbnailMediaId" TEXT NULL,
+                "CreatedBy" TEXT NOT NULL DEFAULT 'admin',
+                "CreatedAt" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL,
+                "ArchivedAt" TEXT NULL,
+                "LibraryPosition" INTEGER NOT NULL DEFAULT 0,
+                "Version" INTEGER NOT NULL DEFAULT 1,
+                CONSTRAINT "FK_ActivityDefinitions_MediaAssets_ThumbnailMediaId" FOREIGN KEY ("ThumbnailMediaId") REFERENCES "MediaAssets" ("Id") ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS "IX_ActivityDefinitions_Type" ON "ActivityDefinitions" ("Type");
+            CREATE INDEX IF NOT EXISTS "IX_ActivityDefinitions_Name" ON "ActivityDefinitions" ("Name");
+
+            CREATE TABLE IF NOT EXISTS "ActivityAssets" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_ActivityAssets" PRIMARY KEY,
+                "ActivityDefinitionId" TEXT NOT NULL,
+                "MediaId" TEXT NOT NULL,
+                "Role" TEXT NOT NULL DEFAULT 'content',
+                "Position" INTEGER NOT NULL DEFAULT 0,
+                "MetadataJson" TEXT NOT NULL DEFAULT '{}',
+                CONSTRAINT "FK_ActivityAssets_ActivityDefinitions_ActivityDefinitionId" FOREIGN KEY ("ActivityDefinitionId") REFERENCES "ActivityDefinitions" ("Id") ON DELETE CASCADE,
+                CONSTRAINT "FK_ActivityAssets_MediaAssets_MediaId" FOREIGN KEY ("MediaId") REFERENCES "MediaAssets" ("Id") ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS "IX_ActivityAssets_ActivityDefinitionId" ON "ActivityAssets" ("ActivityDefinitionId");
+
+            CREATE TABLE IF NOT EXISTS "ActivityRuns" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_ActivityRuns" PRIMARY KEY,
+                "ActivityDefinitionId" TEXT NOT NULL,
+                "LessonId" TEXT NULL,
+                "LessonItemId" TEXT NULL,
+                "Status" TEXT NOT NULL DEFAULT 'prepared',
+                "StateJson" TEXT NOT NULL DEFAULT '{}',
+                "Revision" INTEGER NOT NULL DEFAULT 1,
+                "StartedAt" TEXT NULL,
+                "UpdatedAt" TEXT NOT NULL,
+                "EndedAt" TEXT NULL,
+                "AudienceSessionId" TEXT NULL,
+                "RandomSeed" TEXT NULL,
+                "Scope" TEXT NULL,
+                CONSTRAINT "FK_ActivityRuns_ActivityDefinitions_ActivityDefinitionId" FOREIGN KEY ("ActivityDefinitionId") REFERENCES "ActivityDefinitions" ("Id") ON DELETE CASCADE,
+                CONSTRAINT "FK_ActivityRuns_Lessons_LessonId" FOREIGN KEY ("LessonId") REFERENCES "Lessons" ("Id") ON DELETE SET NULL,
+                CONSTRAINT "FK_ActivityRuns_PlaylistItems_LessonItemId" FOREIGN KEY ("LessonItemId") REFERENCES "PlaylistItems" ("Id") ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS "IX_ActivityRuns_ActivityDefinitionId_LessonId" ON "ActivityRuns" ("ActivityDefinitionId", "LessonId");
+            CREATE INDEX IF NOT EXISTS "IX_ActivityRuns_LessonItemId" ON "ActivityRuns" ("LessonItemId");
+
+            CREATE TABLE IF NOT EXISTS "ActivityParticipants" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_ActivityParticipants" PRIMARY KEY,
+                "ActivityRunId" TEXT NOT NULL,
+                "ParticipantTokenHash" TEXT NOT NULL,
+                "DisplayName" TEXT NOT NULL DEFAULT 'Guest',
+                "Status" TEXT NOT NULL DEFAULT 'active',
+                "TeamId" TEXT NULL,
+                "IsAnonymous" INTEGER NOT NULL DEFAULT 1,
+                "Lives" INTEGER NOT NULL DEFAULT 3,
+                "JoinedAt" TEXT NOT NULL,
+                "LastSeenAt" TEXT NOT NULL,
+                CONSTRAINT "FK_ActivityParticipants_ActivityRuns_ActivityRunId" FOREIGN KEY ("ActivityRunId") REFERENCES "ActivityRuns" ("Id") ON DELETE CASCADE,
+                CONSTRAINT "FK_ActivityParticipants_ActivityTeams_TeamId" FOREIGN KEY ("TeamId") REFERENCES "ActivityTeams" ("Id") ON DELETE SET NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_ActivityParticipants_ActivityRunId_ParticipantTokenHash" ON "ActivityParticipants" ("ActivityRunId", "ParticipantTokenHash");
+            CREATE INDEX IF NOT EXISTS "IX_ActivityParticipants_ActivityRunId_Status" ON "ActivityParticipants" ("ActivityRunId", "Status");
+
+            CREATE TABLE IF NOT EXISTS "ActivityTeams" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_ActivityTeams" PRIMARY KEY,
+                "ActivityRunId" TEXT NOT NULL,
+                "Name" TEXT NOT NULL,
+                "Color" TEXT NOT NULL DEFAULT '#6d5dfc',
+                "Icon" TEXT NOT NULL DEFAULT '★',
+                "Position" INTEGER NOT NULL DEFAULT 0,
+                "Score" INTEGER NOT NULL DEFAULT 0,
+                "Active" INTEGER NOT NULL DEFAULT 1,
+                CONSTRAINT "FK_ActivityTeams_ActivityRuns_ActivityRunId" FOREIGN KEY ("ActivityRunId") REFERENCES "ActivityRuns" ("Id") ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS "IX_ActivityTeams_ActivityRunId_Position" ON "ActivityTeams" ("ActivityRunId", "Position");
+
+            CREATE TABLE IF NOT EXISTS "ActivityScoreEvents" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_ActivityScoreEvents" PRIMARY KEY,
+                "ActivityRunId" TEXT NOT NULL,
+                "ParticipantId" TEXT NULL,
+                "TeamId" TEXT NULL,
+                "RoundId" TEXT NULL,
+                "Amount" INTEGER NOT NULL,
+                "Reason" TEXT NOT NULL,
+                "CreatedAt" TEXT NOT NULL,
+                "IsUndone" INTEGER NOT NULL DEFAULT 0,
+                "UndoneAt" TEXT NULL,
+                CONSTRAINT "FK_ActivityScoreEvents_ActivityRuns_ActivityRunId" FOREIGN KEY ("ActivityRunId") REFERENCES "ActivityRuns" ("Id") ON DELETE CASCADE,
+                CONSTRAINT "FK_ActivityScoreEvents_ActivityParticipants_ParticipantId" FOREIGN KEY ("ParticipantId") REFERENCES "ActivityParticipants" ("Id") ON DELETE SET NULL,
+                CONSTRAINT "FK_ActivityScoreEvents_ActivityTeams_TeamId" FOREIGN KEY ("TeamId") REFERENCES "ActivityTeams" ("Id") ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS "IX_ActivityScoreEvents_ActivityRunId_CreatedAt" ON "ActivityScoreEvents" ("ActivityRunId", "CreatedAt");
+
+            CREATE TABLE IF NOT EXISTS "ActivitySubmissions" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_ActivitySubmissions" PRIMARY KEY,
+                "ActivityRunId" TEXT NOT NULL,
+                "ParticipantId" TEXT NOT NULL,
+                "RoundId" TEXT NOT NULL,
+                "Kind" TEXT NOT NULL DEFAULT 'response',
+                "PayloadJson" TEXT NOT NULL DEFAULT '{}',
+                "ModerationStatus" TEXT NOT NULL DEFAULT 'approved',
+                "Hidden" INTEGER NOT NULL DEFAULT 0,
+                "SubmittedAt" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL,
+                CONSTRAINT "FK_ActivitySubmissions_ActivityRuns_ActivityRunId" FOREIGN KEY ("ActivityRunId") REFERENCES "ActivityRuns" ("Id") ON DELETE CASCADE,
+                CONSTRAINT "FK_ActivitySubmissions_ActivityParticipants_ParticipantId" FOREIGN KEY ("ParticipantId") REFERENCES "ActivityParticipants" ("Id") ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_ActivitySubmissions_ActivityRunId_RoundId_ParticipantId" ON "ActivitySubmissions" ("ActivityRunId", "RoundId", "ParticipantId");
+
+            CREATE TABLE IF NOT EXISTS "ActivityVotes" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_ActivityVotes" PRIMARY KEY,
+                "ActivityRunId" TEXT NOT NULL,
+                "VoterParticipantId" TEXT NOT NULL,
+                "RoundId" TEXT NOT NULL,
+                "TargetId" TEXT NOT NULL,
+                "PayloadJson" TEXT NOT NULL DEFAULT '{}',
+                "CreatedAt" TEXT NOT NULL,
+                CONSTRAINT "FK_ActivityVotes_ActivityRuns_ActivityRunId" FOREIGN KEY ("ActivityRunId") REFERENCES "ActivityRuns" ("Id") ON DELETE CASCADE,
+                CONSTRAINT "FK_ActivityVotes_ActivityParticipants_VoterParticipantId" FOREIGN KEY ("VoterParticipantId") REFERENCES "ActivityParticipants" ("Id") ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_ActivityVotes_ActivityRunId_RoundId_VoterParticipantId" ON "ActivityVotes" ("ActivityRunId", "RoundId", "VoterParticipantId");
+            """,
+            cancellationToken);
+
+        var activityDefinitionColumns = new (string Name, string Definition)[]
+        {
+            ("EngineType", "TEXT NOT NULL DEFAULT ''"),
+            ("PresetType", "TEXT NOT NULL DEFAULT ''"),
+            ("SchemaVersion", "INTEGER NOT NULL DEFAULT 1"),
+            ("SettingsJson", "TEXT NOT NULL DEFAULT '{}'"),
+            ("ModifiersJson", "TEXT NOT NULL DEFAULT '{}'"),
+            ("PresentationJson", "TEXT NOT NULL DEFAULT '{}'"),
+            ("LibraryPosition", "INTEGER NOT NULL DEFAULT 0"),
+        };
+        foreach (var column in activityDefinitionColumns)
+        {
+            if (!await ColumnExistsAsync(connection, "ActivityDefinitions", column.Name, cancellationToken))
+                await ExecuteAsync(connection, $"ALTER TABLE \"ActivityDefinitions\" ADD COLUMN \"{column.Name}\" {column.Definition};", cancellationToken);
+        }
+
+        var activityRunColumns = new (string Name, string Definition)[]
+        {
+            ("DefinitionSnapshotJson", "TEXT NOT NULL DEFAULT '{}'"),
+            ("JoinCode", "TEXT NULL"),
+            ("CurrentPhase", "TEXT NOT NULL DEFAULT 'lobby'"),
+            ("Mode", "TEXT NOT NULL DEFAULT 'everyone'"),
+            ("TimerStartedAt", "TEXT NULL"),
+            ("TimerDurationMs", "INTEGER NULL"),
+            ("TimerPausedAt", "TEXT NULL"),
+            ("RetentionDays", "INTEGER NOT NULL DEFAULT 7"),
+        };
+        foreach (var column in activityRunColumns)
+        {
+            if (!await ColumnExistsAsync(connection, "ActivityRuns", column.Name, cancellationToken))
+                await ExecuteAsync(connection, $"ALTER TABLE \"ActivityRuns\" ADD COLUMN \"{column.Name}\" {column.Definition};", cancellationToken);
+        }
+        await ExecuteAsync(connection, "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_ActivityRuns_JoinCode\" ON \"ActivityRuns\" (\"JoinCode\"); CREATE INDEX IF NOT EXISTS \"IX_ActivityDefinitions_EngineType\" ON \"ActivityDefinitions\" (\"EngineType\"); CREATE INDEX IF NOT EXISTS \"IX_ActivityDefinitions_LibraryPosition\" ON \"ActivityDefinitions\" (\"LibraryPosition\");", cancellationToken);
+
+        if (!await ColumnExistsAsync(connection, "PlaylistItems", "ActivityDefinitionId", cancellationToken))
+        {
+            await ExecuteAsync(connection, "ALTER TABLE \"PlaylistItems\" ADD COLUMN \"ActivityDefinitionId\" TEXT NULL;", cancellationToken);
+        }
+
+        if (!await ColumnExistsAsync(connection, "LessonTemplateItems", "ActivityDefinitionId", cancellationToken))
+        {
+            await ExecuteAsync(connection, "ALTER TABLE \"LessonTemplateItems\" ADD COLUMN \"ActivityDefinitionId\" TEXT NULL;", cancellationToken);
+        }
     }
 
     private static async Task<bool> ColumnExistsAsync(System.Data.Common.DbConnection connection, string table, string column, CancellationToken ct)
