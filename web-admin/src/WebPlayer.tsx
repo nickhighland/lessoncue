@@ -2,8 +2,9 @@ import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode,
 import QRCode from "qrcode";
 import { WeatherConditionArtwork, WeatherDropArtwork, WeatherWindArtwork } from "./WeatherArtwork";
 import { ActivityDisplay } from "./activities/ActivityDisplay";
+import "./signage-studio.css";
 
-const APP_VERSION = "0.40.22";
+const APP_VERSION = "0.40.45";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
