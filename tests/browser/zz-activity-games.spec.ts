@@ -711,3 +711,31 @@ test("Media reveal editors apply named visual formats without changing the sourc
     }, definitionId);
   }
 });
+
+test("Stage challenge editors apply host-led formats with editable timing and scoring", async ({ page }) => {
+  await authenticate(page);
+  const activityName = `Preset Stage ${Date.now()}`;
+  const definitionId = await createActivity(page, "Beat the Clock", activityName);
+  try {
+    await page.getByLabel("Stage challenge format preset").selectOption("teachItBack");
+    await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
+    await expect(page.locator('input[placeholder="Build a paper tower"]')).toHaveValue("Explain one idea in 30 seconds");
+    await expect(page.locator('textarea[placeholder="Challenge instructions"]')).toHaveValue("Teach the room the key idea using an example anyone can understand.");
+    await expect(page.locator('input[type="number"]').first()).toHaveValue("30");
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    const saved = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; challenges: Array<{ seconds: number; points: number }> } }, definitionId);
+    expect(saved.presetType).toBe("teachItBack");
+    expect(saved.config.preset).toBe("teachItBack");
+    expect(saved.config.challenges[0].seconds).toBe(30);
+    expect(saved.config.challenges[0].points).toBe(100);
+  } finally {
+    await page.evaluate(async id => {
+      await fetch("/api/v1/activities/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [id] }),
+      });
+    }, definitionId);
+  }
+});

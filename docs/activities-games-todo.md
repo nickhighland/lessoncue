@@ -304,15 +304,16 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 
 ### Host-Judged Stage Challenge
 
-- [ ] Teach It Back
-- [ ] Best Explanation
-- [ ] Scenario Judge
-- [ ] Example / Non-Example
-- [ ] Unnecessary Debate
-- [ ] Courtroom
-- [ ] Sell Me This
-- [ ] Pose Match
-- [ ] Photo Hunt
+- [x] Teach It Back
+- [x] Best Explanation
+- [x] Scenario Judge
+- [x] Example / Non-Example
+- [x] Unnecessary Debate
+- [x] Courtroom
+- [x] Sell Me This
+- [x] Pose Match
+- [x] Photo Hunt
+- [x] Beat the Clock and Minute to Win It starter templates
 - [ ] Add optional audience voting and configurable success/failure scoring
 
 ### Physical Room
