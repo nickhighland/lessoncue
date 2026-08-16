@@ -1013,6 +1013,69 @@
   text-shadow: 0 0 18px rgba(255,226,89,0.8);
 }
 
+.survey-board-turn-banner,
+.survey-controller-team-banner {
+  display: grid;
+  gap: 0.18rem;
+  margin: 0 auto 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(124, 242, 154, 0.35);
+  border-radius: 14px;
+  background: rgba(124, 242, 154, 0.1);
+  color: #ecfff1;
+  text-align: center;
+}
+
+.survey-board-turn-banner.steal,
+.survey-controller-team-banner.steal {
+  border-color: rgba(255, 210, 102, 0.65);
+  background: rgba(255, 210, 102, 0.14);
+  color: #fff4cc;
+}
+
+.survey-board-turn-banner span,
+.survey-controller-team-banner span {
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+}
+
+.survey-board-turn-banner strong,
+.survey-controller-team-banner strong {
+  font-size: 1.15rem;
+}
+
+.survey-board-turn-banner small,
+.survey-controller-team-banner small {
+  color: rgba(255, 255, 255, 0.74);
+}
+
+.survey-controller-team-banner {
+  margin: 0;
+  color: var(--ink);
+  text-align: left;
+}
+
+.survey-controller-team-banner small {
+  color: var(--muted);
+}
+
+.survey-controller-answer-preview {
+  display: grid;
+  gap: 0.3rem;
+  border-left: 4px solid var(--gold);
+}
+
+.survey-controller-answer-preview strong {
+  color: var(--ink);
+  font-size: 1.1rem;
+}
+
+.survey-rules-card {
+  display: grid;
+  gap: 0.7rem;
+}
+
 .survey-board-list {
   display: grid;
   width: min(100%, 1000px);

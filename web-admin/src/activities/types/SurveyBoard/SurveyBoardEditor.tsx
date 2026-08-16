@@ -4,7 +4,17 @@ import { SURVEY_PRESETS } from '../../activityPresetRegistry';
 
 interface SurveyAnswer { id: string; rank: number; text: string; points: number; count?: number; }
 interface SurveyQuestion { id: string; prompt: string; answers?: SurveyAnswer[]; items?: SurveyAnswer[]; }
-interface SurveyBoardConfig { title?: string; question?: string; answers?: SurveyAnswer[]; questions?: SurveyQuestion[]; preset?: string; presetLabel?: string; }
+interface SurveyBoardConfig {
+  title?: string;
+  question?: string;
+  answers?: SurveyAnswer[];
+  questions?: SurveyQuestion[];
+  preset?: string;
+  presetLabel?: string;
+  teamPlay?: boolean;
+  stealEnabled?: boolean;
+  strikesToSteal?: number;
+}
 
 function normalizeQuestions(config: SurveyBoardConfig): SurveyQuestion[] {
   if (config.questions?.length) {
@@ -106,13 +116,27 @@ export const SurveyBoardEditor: React.FC<{
         templates={SURVEY_PRESETS}
         onPresetChange={preset => onChange({ ...boardConfig, preset: preset.id, presetLabel: preset.label.toUpperCase() })}
         onApply={preset => {
-          onChange({ ...boardConfig, ...preset.config });
+          const next = { ...boardConfig, ...preset.config };
+          if (typeof preset.config.teamPlay !== 'boolean') delete next.teamPlay;
+          if (typeof preset.config.stealEnabled !== 'boolean') delete next.stealEnabled;
+          if (typeof preset.config.strikesToSteal !== 'number') delete next.strikesToSteal;
+          onChange(next);
           setActiveIndex(0);
         }}
       />
       <label className="activity-editor-label">Activity title
         <input value={boardConfig.title || ''} onChange={event => onChange({ ...boardConfig, title: event.target.value })} placeholder="e.g. Family Feud Face-off" />
       </label>
+
+      <div className="activity-editor-card survey-rules-card">
+        <strong>Round rules</strong>
+        <label className="checkbox-row"><input type="checkbox" checked={boardConfig.teamPlay === true} onChange={event => onChange({ ...boardConfig, teamPlay: event.target.checked })} /> Use team turns when teams are configured</label>
+        <label className="checkbox-row"><input type="checkbox" checked={boardConfig.stealEnabled === true} onChange={event => onChange({ ...boardConfig, teamPlay: event.target.checked ? true : boardConfig.teamPlay, stealEnabled: event.target.checked })} /> Open a steal after the strike limit</label>
+        {boardConfig.stealEnabled === true && <label className="activity-editor-label">Strikes before steal
+          <input type="number" min={1} max={5} value={boardConfig.strikesToSteal ?? 3} onChange={event => onChange({ ...boardConfig, strikesToSteal: Math.max(1, Math.min(5, Number(event.target.value) || 1)) })} />
+        </label>}
+        <small className="muted">Teams are assigned from the live session panel. Without teams, the board remains available to any joined player.</small>
+      </div>
 
       <div className="activity-question-tabs" aria-label="Survey questions">
         {questions.map((question, index) => (

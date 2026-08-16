@@ -246,7 +246,7 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Top Answer
 - [x] Bottom of the Barrel
 - [ ] Add conservative fuzzy matching with a host override that always wins
-- [ ] Add strikes, steals, and team-turn flow as configurable modifiers
+- [x] Add strikes, steals, and team-turn flow as configurable modifiers
 
 ### Ordering, Ranking, Matching & Sorting
 

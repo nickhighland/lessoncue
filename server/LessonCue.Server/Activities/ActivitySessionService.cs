@@ -325,22 +325,28 @@ public sealed class ActivitySessionService(
 
     public async Task<bool> SetTeamsAsync(Guid runId, IReadOnlyList<ActivityTeamInput> inputs, CancellationToken ct = default)
     {
-        var run = await LoadRunAsync(runId, ct);
-        if (run?.ActivityDefinition is null || !ActivityEngineCatalog.IsInteractive(run.ActivityDefinition)) return false;
         var gate = Locks.GetOrAdd(runId, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct);
         try
         {
-            run = await LoadRunAsync(runId, ct);
-            if (run is null) return false;
-            db.ActivityTeams.RemoveRange(run.Teams);
-            run.Teams.Clear();
+            var run = await LoadRunAsync(runId, ct);
+            if (run?.ActivityDefinition is null || !ActivityEngineCatalog.IsInteractive(run.ActivityDefinition)) return false;
+            var existingTeams = run.Teams.ToArray();
+            foreach (var participant in run.Participants)
+            {
+                if (participant.TeamId.HasValue && existingTeams.Any(team => team.Id == participant.TeamId.Value)) participant.TeamId = null;
+            }
+            db.ActivityTeams.RemoveRange(existingTeams);
+            if (existingTeams.Length > 0) await db.SaveChangesAsync(ct);
+
+            var replacementTeams = new List<ActivityTeam>();
             foreach (var (input, index) in inputs.Take(12).Select((value, index) => (value, index)))
             {
                 var name = NormalizeDisplayName(input.Name);
                 if (string.IsNullOrWhiteSpace(name)) name = $"Team {index + 1}";
-                run.Teams.Add(new ActivityTeam { ActivityRunId = run.Id, Name = name, Position = index, Color = input.Color ?? TeamColors[index % TeamColors.Length], Icon = input.Icon ?? TeamIcons[index % TeamIcons.Length] });
+                replacementTeams.Add(new ActivityTeam { ActivityRunId = run.Id, Name = name, Position = index, Color = input.Color ?? TeamColors[index % TeamColors.Length], Icon = input.Icon ?? TeamIcons[index % TeamIcons.Length] });
             }
+            db.ActivityTeams.AddRange(replacementTeams);
             await db.SaveChangesAsync(ct);
             await BroadcastDisplayAsync(run.Id, ct);
             return true;
@@ -1742,8 +1748,29 @@ public sealed class ActivitySessionService(
         var index = Math.Clamp(IntValue(state, "currentQuestionIndex"), 0, Math.Max(0, questions.Count - 1));
         switch (action)
         {
-            case "open": case "openbuzzers": state["phase"] = ActivityPhases.AcceptingResponses; state["buzzLocked"] = false; state["buzzWinnerParticipantId"] = null; state["buzzWinnerName"] = null; return (true, null);
-            case "resetbuzzers": case "reopen": state["buzzLocked"] = false; state["buzzWinnerParticipantId"] = null; state["buzzWinnerName"] = null; state["phase"] = ActivityPhases.AcceptingResponses; return (true, null);
+            case "open":
+            case "openbuzzers":
+                state["phase"] = ActivityPhases.AcceptingResponses;
+                state["responsesOpen"] = true;
+                state["buzzLocked"] = false;
+                state["buzzWinnerParticipantId"] = null;
+                state["buzzWinnerName"] = null;
+                state["buzzWinnerTeamId"] = null;
+                state["stealOpen"] = false;
+                state.Remove("stealTeamId");
+                state.Remove("stealTeamName");
+                state["strikeLimit"] = SurveyStrikeLimit(config);
+                if (SurveyTeamMode(config)) EnsureSurveyTeamTurn(run, state, false);
+                return (true, null);
+            case "resetbuzzers":
+            case "reopen":
+                state["buzzLocked"] = false;
+                state["responsesOpen"] = true;
+                state["buzzWinnerParticipantId"] = null;
+                state["buzzWinnerName"] = null;
+                state["buzzWinnerTeamId"] = null;
+                state["phase"] = ActivityPhases.AcceptingResponses;
+                return (true, null);
             case "matchanswer": case "revealitem":
                 var rank = ReadInt(payload, "rank", 0); var answers = AnswersFor(questions.Count > index ? questions[index] as JsonObject : null, config);
                 var answer = answers.FirstOrDefault(x => IntValue(x, "rank") == rank); if (answer is null) return (false, "That survey answer was not found.");
@@ -1753,21 +1780,57 @@ public sealed class ActivitySessionService(
                 state["revealedRanks"] = new JsonArray(revealedRanks.OrderBy(value => value).Select(value => (JsonNode)value).ToArray());
                 var points = IntValue(answer, "points", IntValue(answer, "count"));
                 if (newlyRevealed) state["revealedScore"] = IntValue(state, "revealedScore") + points;
-                var winner = StringValue(state, "buzzWinnerParticipantId"); if (newlyRevealed && Guid.TryParse(winner, out var winnerId)) await AwardScoreAsync(run, winnerId, null, points, "Matched survey answer", CurrentRoundId(run, config), ct); return (true, null);
+                var winner = StringValue(state, "buzzWinnerParticipantId");
+                var winnerTeamId = BoolValue(state, "stealOpen") ? StringValue(state, "stealTeamId") : StringValue(state, "buzzWinnerTeamId");
+                if (newlyRevealed)
+                {
+                    if (Guid.TryParse(winnerTeamId, out var scoreTeamId) && run.Teams.Any(team => team.Id == scoreTeamId && team.Active))
+                        await AwardScoreAsync(run, null, scoreTeamId, points, BoolValue(state, "stealOpen") ? "Steal survey answer" : "Matched survey answer", CurrentRoundId(run, config), ct);
+                    else if (Guid.TryParse(winner, out var winnerId))
+                        await AwardScoreAsync(run, winnerId, null, points, "Matched survey answer", CurrentRoundId(run, config), ct);
+                }
+                state["stealOpen"] = false;
+                state.Remove("stealTeamId");
+                state.Remove("stealTeamName");
+                return (true, null);
             case "revealall":
                 var allAnswers = AnswersFor(questions.Count > index ? questions[index] as JsonObject : null, config);
                 state["phase"] = ActivityPhases.Reveal;
                 state["buzzLocked"] = true;
+                state["responsesOpen"] = false;
+                state["stealOpen"] = false;
+                state.Remove("stealTeamId");
+                state.Remove("stealTeamName");
                 state["revealedRanks"] = new JsonArray(allAnswers.Select(item => (JsonNode)IntValue(item, "rank")).Where(item => item.GetValue<int>() > 0).ToArray());
                 state.Remove("revealedRank"); state.Remove("revealedAnswer"); state.Remove("revealedPoints");
                 return (true, null);
-            case "addstrike": case "strike": state["strikes"] = Math.Clamp(IntValue(state, "strikes") + 1, 0, 3); return (true, null);
+            case "addstrike":
+            case "strike":
+                var strikes = Math.Clamp(IntValue(state, "strikes") + 1, 0, SurveyStrikeLimit(config));
+                state["strikes"] = strikes;
+                if (strikes >= SurveyStrikeLimit(config) && BoolValue(config, "stealEnabled") && OpenSurveySteal(run, state)) return (true, null);
+                return (true, null);
             case "clearstrikes": state["strikes"] = 0; return (true, null);
+            case "closesteeal":
+            case "endsteal":
+                if (!BoolValue(state, "stealOpen")) return (false, "There is no steal attempt open.");
+                state["stealOpen"] = false;
+                state.Remove("stealTeamId");
+                state.Remove("stealTeamName");
+                state["responsesOpen"] = false;
+                state["buzzLocked"] = true;
+                state["phase"] = ActivityPhases.ResponsesLocked;
+                return (true, null);
+            case "showleaderboard":
+            case "leaderboard":
+                state["phase"] = ActivityPhases.Leaderboard;
+                state["responsesOpen"] = false;
+                return (true, null);
             case "next": case "nextquestion":
                 if (index >= Math.Max(0, questions.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
-                state["currentQuestionIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["strikes"] = 0; state.Remove("revealedRank"); state.Remove("revealedRanks"); state.Remove("revealedAnswer"); state.Remove("revealedPoints"); state["buzzLocked"] = false; return (true, null);
+                state["currentQuestionIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["strikes"] = 0; state.Remove("revealedRank"); state.Remove("revealedRanks"); state.Remove("revealedAnswer"); state.Remove("revealedPoints"); state["buzzLocked"] = false; state["responsesOpen"] = false; state["stealOpen"] = false; state.Remove("stealTeamId"); state.Remove("stealTeamName"); if (SurveyTeamMode(config)) EnsureSurveyTeamTurn(run, state, true); return (true, null);
             case "prev": case "prevquestion": case "previous":
-                state["currentQuestionIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["strikes"] = 0; state.Remove("revealedRank"); state.Remove("revealedRanks"); state.Remove("revealedAnswer"); state.Remove("revealedPoints"); state["buzzLocked"] = false; return (true, null);
+                state["currentQuestionIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["strikes"] = 0; state.Remove("revealedRank"); state.Remove("revealedRanks"); state.Remove("revealedAnswer"); state.Remove("revealedPoints"); state["buzzLocked"] = false; state["responsesOpen"] = false; state["stealOpen"] = false; state.Remove("stealTeamId"); state.Remove("stealTeamName"); return (true, null);
             default: return (false, $"Unrecognized survey action '{action}'.");
         }
     }
@@ -1775,14 +1838,17 @@ public sealed class ActivitySessionService(
     private async Task<(bool Success, string? Error)> HandleSurveyParticipantAsync(ActivityRun run, ActivityParticipant participant, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)
     {
         if (action is not ("answer" or "submit" or "buzz")) return (false, "Send an answer when the survey round is open.");
-        if (StringValue(state, "phase") != ActivityPhases.AcceptingResponses || BoolValue(state, "buzzLocked")) return (false, "The survey board is not accepting answers.");
+        if (StringValue(state, "phase") != ActivityPhases.AcceptingResponses || BoolValue(state, "buzzLocked") || !BoolValue(state, "responsesOpen", true)) return (false, "The survey board is not accepting answers.");
+        var targetTeamId = BoolValue(state, "stealOpen") ? StringValue(state, "stealTeamId") : StringValue(state, "currentTeamId");
+        if (SurveyTeamMode(config) && !string.IsNullOrWhiteSpace(targetTeamId) && participant.TeamId?.ToString() != targetTeamId)
+            return (false, BoolValue(state, "stealOpen") ? $"Only {StringValue(state, "stealTeamName", "the steal team")} can answer the steal." : $"It is {StringValue(state, "currentTeamName", "the active team")}’s turn.");
         var text = ReadString(payload, "text").Trim(); if (text.Length is < 1 or > 300) return (false, "Answers must be between 1 and 300 characters.");
         var roundId = CurrentRoundId(run, config);
         var existing = await db.ActivitySubmissions.SingleOrDefaultAsync(x => x.ActivityRunId == run.Id && x.ParticipantId == participant.Id && x.RoundId == roundId, ct);
         var json = JsonSerializer.Serialize(new { text }, ActivityJsonDefaults.Options);
         if (existing is null) db.ActivitySubmissions.Add(new ActivitySubmission { ActivityRunId = run.Id, ParticipantId = participant.Id, RoundId = roundId, Kind = "surveyAnswer", PayloadJson = json });
         else { existing.PayloadJson = json; existing.UpdatedAt = DateTimeOffset.UtcNow; }
-        state["buzzWinnerParticipantId"] = participant.Id.ToString(); state["buzzWinnerName"] = participant.DisplayName; state["buzzLocked"] = true; state["phase"] = ActivityPhases.Judging;
+        state["buzzWinnerParticipantId"] = participant.Id.ToString(); state["buzzWinnerName"] = participant.DisplayName; state["buzzWinnerTeamId"] = participant.TeamId?.ToString(); state["buzzLocked"] = true; state["responsesOpen"] = false; state["phase"] = ActivityPhases.Judging;
         return (true, null);
     }
 
@@ -2211,6 +2277,16 @@ public sealed class ActivitySessionService(
         }
         else if (run.ActivityDefinition.Type == ActivityTypes.SurveyBoard)
         {
+            projected.Remove("currentTeamId");
+            projected.Remove("stealTeamId");
+            if (participantId.HasValue)
+            {
+                var participant = run.Participants.FirstOrDefault(item => item.Id == participantId.Value);
+                var activeTeamId = BoolValue(state, "stealOpen") ? StringValue(state, "stealTeamId") : StringValue(state, "currentTeamId");
+                var teamRequired = SurveyTeamMode(config) && !string.IsNullOrWhiteSpace(activeTeamId);
+                projected["isActiveTeam"] = !teamRequired || participant?.TeamId?.ToString() == activeTeamId;
+                projected["isStealTeam"] = !BoolValue(state, "stealOpen") || participant?.TeamId?.ToString() == StringValue(state, "stealTeamId");
+            }
             var revealed = IntValue(state, "revealedRank", 0); if (revealed > 0)
             {
                 var answers = AnswersFor(ArrayValue(config, "questions").Count > IntValue(state, "currentQuestionIndex") ? ArrayValue(config, "questions")[IntValue(state, "currentQuestionIndex")] as JsonObject : null, config);
@@ -2481,6 +2557,8 @@ public sealed class ActivitySessionService(
     private static long LongValue(JsonObject? obj, string key, long fallback = 0) => obj is not null && obj.TryGetPropertyValue(key, out var value) && value is not null ? value.GetValue<long>() : fallback;
     private static DateTimeOffset? DateTimeOffsetValue(JsonObject? obj, string key) => obj is not null && obj.TryGetPropertyValue(key, out var value) && value is not null && DateTimeOffset.TryParse(value.GetValue<string>(), out var result) ? result : null;
     private static JsonArray ArrayValue(JsonObject? obj, string key) => obj?.TryGetPropertyValue(key, out var value) == true && value is JsonArray array ? array : [];
+    private static bool SurveyTeamMode(JsonObject config) => BoolValue(config, "teamPlay") || BoolValue(config, "stealEnabled");
+    private static int SurveyStrikeLimit(JsonObject config) => Math.Clamp(IntValue(config, "strikesToSteal", 3), 1, 5);
     private static string ReadString(JsonElement? payload, string key) => payload?.TryGetProperty(key, out var value) == true && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
     private static int ReadInt(JsonElement? payload, string key, int fallback) => payload?.TryGetProperty(key, out var value) == true && value.TryGetInt32(out var result) ? result : fallback;
     private static Guid? ReadGuid(JsonElement? payload, string key) => Guid.TryParse(ReadString(payload, key), out var id) ? id : null;
@@ -2650,6 +2728,47 @@ public sealed class ActivitySessionService(
         return true;
     }
     private static List<JsonObject> AnswersFor(JsonObject? question, JsonObject config) => (ArrayValue(question, "answers").Count > 0 ? ArrayValue(question, "answers") : ArrayValue(question, "items")).OfType<JsonObject>().ToList();
+
+    private static void EnsureSurveyTeamTurn(ActivityRun run, JsonObject state, bool advance)
+    {
+        var teams = run.Teams.Where(team => team.Active).OrderBy(team => team.Position).ToArray();
+        if (teams.Length == 0)
+        {
+            state.Remove("currentTeamId");
+            state.Remove("currentTeamName");
+            return;
+        }
+
+        var currentId = StringValue(state, "currentTeamId");
+        var currentIndex = Array.FindIndex(teams, team => team.Id.ToString() == currentId);
+        if (currentIndex < 0) currentIndex = 0;
+        else if (advance) currentIndex = (currentIndex + 1) % teams.Length;
+        var team = teams[currentIndex];
+        state["currentTeamId"] = team.Id.ToString();
+        state["currentTeamName"] = team.Name;
+    }
+
+    private static bool OpenSurveySteal(ActivityRun run, JsonObject state)
+    {
+        var teams = run.Teams.Where(team => team.Active).OrderBy(team => team.Position).ToArray();
+        if (teams.Length < 2) return false;
+        var currentId = StringValue(state, "currentTeamId");
+        var currentIndex = Array.FindIndex(teams, team => team.Id.ToString() == currentId);
+        if (currentIndex < 0) currentIndex = 0;
+        var stealTeam = teams[(currentIndex + 1) % teams.Length];
+        state["stealOpen"] = true;
+        state["stealTeamId"] = stealTeam.Id.ToString();
+        state["stealTeamName"] = stealTeam.Name;
+        state["buzzWinnerParticipantId"] = null;
+        state["buzzWinnerName"] = null;
+        state["buzzWinnerTeamId"] = null;
+        state["buzzLocked"] = false;
+        state["responsesOpen"] = true;
+        state["phase"] = ActivityPhases.AcceptingResponses;
+        state["lastBoardEvent"] = $"{stealTeam.Name} can steal the board.";
+        return true;
+    }
+
     private static ActivityCommandResult Fail(string error, ActivityRun? run) => new(false, error, run?.Revision ?? 0, run?.Status ?? "", run is null ? null : ParseUntyped(run.StateJson), DateTimeOffset.UtcNow);
     private enum ProjectionRole { Host, Display, Participant }
     private static readonly string[] TeamColors = ["#6d5dfc", "#f08b54", "#24a69a", "#e45f8d", "#d9a441", "#4578d4"];

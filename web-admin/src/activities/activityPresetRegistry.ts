@@ -313,7 +313,7 @@ export const SURVEY_PRESETS: ActivityPresetTemplate[] = [
     id: 'surveyShowdown',
     label: 'Survey Showdown',
     description: 'Reveal ranked answers with strikes, buzzers, and a team score.',
-    config: { preset: 'surveyShowdown', presetLabel: 'SURVEY SHOWDOWN', title: 'Survey Showdown', questions: [{ id: 'question-1', prompt: 'Name something people bring to a group meeting.', answers: [{ id: 'answer-1', rank: 1, text: 'Notebook', points: 40 }, { id: 'answer-2', rank: 2, text: 'Drink', points: 30 }, { id: 'answer-3', rank: 3, text: 'Questions', points: 20 }, { id: 'answer-4', rank: 4, text: 'A friend', points: 10 }] }] }
+    config: { preset: 'surveyShowdown', presetLabel: 'SURVEY SHOWDOWN', title: 'Survey Showdown', teamPlay: true, stealEnabled: true, strikesToSteal: 3, questions: [{ id: 'question-1', prompt: 'Name something people bring to a group meeting.', answers: [{ id: 'answer-1', rank: 1, text: 'Notebook', points: 40 }, { id: 'answer-2', rank: 2, text: 'Drink', points: 30 }, { id: 'answer-3', rank: 3, text: 'Questions', points: 20 }, { id: 'answer-4', rank: 4, text: 'A friend', points: 10 }] }] }
   },
   {
     id: 'topFive',

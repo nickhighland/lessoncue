@@ -1,11 +1,32 @@
 import React, { useState } from 'react';
-import type { ActivityStateEnvelope } from '../../types';
+import type { ActivityComponentProps } from '../../activityRegistry';
 import { ActivityApi } from '../../api';
 
 interface SurveyAnswer { id?: string; rank: number; text: string; points?: number; count?: number; }
 interface SurveyQuestion { id?: string; prompt: string; answers?: SurveyAnswer[]; items?: SurveyAnswer[]; }
-interface SurveyState { answers?: Array<{ rank: number; revealed: boolean }>; currentQuestionIndex?: number; strikes?: number; revealedScore?: number; phase?: string; buzzLocked?: boolean; }
-interface SurveyConfig { question?: string; answers?: SurveyAnswer[]; questions?: SurveyQuestion[]; }
+interface SurveyState {
+  answers?: Array<{ rank: number; revealed: boolean }>;
+  currentQuestionIndex?: number;
+  strikes?: number;
+  strikeLimit?: number;
+  revealedScore?: number;
+  phase?: string;
+  buzzLocked?: boolean;
+  responsesOpen?: boolean;
+  currentTeamName?: string;
+  stealOpen?: boolean;
+  stealTeamName?: string;
+  lastBoardEvent?: string;
+}
+interface SurveyConfig {
+  title?: string;
+  question?: string;
+  answers?: SurveyAnswer[];
+  questions?: SurveyQuestion[];
+  teamPlay?: boolean;
+  stealEnabled?: boolean;
+  strikesToSteal?: number;
+}
 
 const questionsFor = (config: SurveyConfig): SurveyQuestion[] => config.questions?.length
   ? config.questions
@@ -13,10 +34,7 @@ const questionsFor = (config: SurveyConfig): SurveyQuestion[] => config.question
 const answersFor = (question: SurveyQuestion): SurveyAnswer[] => question.answers || question.items || [];
 const pointsFor = (answer: SurveyAnswer) => answer.points ?? answer.count ?? 0;
 
-export const SurveyBoardController: React.FC<{
-  envelope: ActivityStateEnvelope;
-  onCommandSent?: () => void;
-}> = ({ envelope, onCommandSent }) => {
+export const SurveyBoardController: React.FC<ActivityComponentProps> = ({ envelope, onCommandSent, hostView }) => {
   const [isBusy, setIsBusy] = useState(false);
   const state = (envelope.state as SurveyState) || {};
   const config = ((envelope as unknown as { config?: SurveyConfig }).config || {});
@@ -26,6 +44,12 @@ export const SurveyBoardController: React.FC<{
   const answers = currentQuestion ? answersFor(currentQuestion) : [];
   const revealed = new Set((state.answers || []).filter(answer => answer.revealed).map(answer => answer.rank));
   const strikes = state.strikes || 0;
+  const strikeLimit = Math.max(1, Math.min(5, state.strikeLimit || config.strikesToSteal || 3));
+  const teamMode = config.teamPlay === true || config.stealEnabled === true;
+  const teamName = state.stealOpen ? state.stealTeamName : state.currentTeamName;
+  const roundId = currentQuestion?.id || `round-${currentIndex + 1}`;
+  const latestAnswer = hostView?.submissions.find(submission => submission.roundId === roundId && submission.kind === 'surveyAnswer');
+  const latestAnswerText = latestAnswer && typeof latestAnswer.payload.text === 'string' ? latestAnswer.payload.text : '';
 
   const sendAction = async (action: string, payload?: Record<string, unknown>) => {
     if (isBusy) return;
@@ -51,9 +75,26 @@ export const SurveyBoardController: React.FC<{
         <strong className="controller-score">{state.revealedScore || 0}<small> pts</small></strong>
       </div>
 
+      {teamMode && teamName && (
+        <div className={`survey-controller-team-banner ${state.stealOpen ? 'steal' : ''}`}>
+          <span>{state.stealOpen ? 'STEAL CHANCE' : 'CURRENT TEAM'}</span>
+          <strong>{teamName}</strong>
+          <small>{state.stealOpen ? 'Only this team can submit the steal.' : 'Only this team can answer until the board moves on.'}</small>
+        </div>
+      )}
+
+      {latestAnswerText && (
+        <div className="act-ctrl-card survey-controller-answer-preview">
+          <span className="controller-eyebrow">ANSWER TO JUDGE</span>
+          <strong>“{latestAnswerText}”</strong>
+          <small>{state.stealOpen ? `${state.stealTeamName || 'The steal team'} submitted this answer.` : 'Choose the matching board answer below.'}</small>
+        </div>
+      )}
+
       <div className="act-controller-button-row">
         <button type="button" className="act-btn act-btn-primary" onClick={() => sendAction('start')} disabled={isBusy || state.phase !== 'lobby'}>▶ Start board</button>
         <button type="button" className={`act-btn ${state.phase === 'acceptingResponses' ? 'act-btn-danger' : 'act-btn-primary'}`} onClick={() => sendAction(state.phase === 'acceptingResponses' ? 'resetbuzzers' : 'open')} disabled={isBusy}>{state.phase === 'acceptingResponses' ? 'Reset buzzers' : 'Open answers'}</button>
+        <button type="button" className="act-btn act-btn-gold" onClick={() => sendAction(state.phase === 'leaderboard' ? 'open' : 'showleaderboard')} disabled={isBusy || state.phase === 'lobby'}>{state.phase === 'leaderboard' ? 'Resume board' : 'Show leaderboard'}</button>
       </div>
 
       {questions.length > 1 && (
@@ -64,10 +105,11 @@ export const SurveyBoardController: React.FC<{
       )}
 
       <div className="act-ctrl-card">
-        <div className="controller-section-heading"><strong>Strikes</strong><span>{strikes}/3</span></div>
+        <div className="controller-section-heading"><strong>Strikes</strong><span>{strikes}/{strikeLimit}</span></div>
         <div className="act-controller-button-row">
-          <button type="button" className="act-btn act-btn-danger" onClick={() => sendAction('addstrike')} disabled={isBusy || strikes >= 3}>+1 Strike ✕</button>
+          <button type="button" className="act-btn act-btn-danger" onClick={() => sendAction('addstrike')} disabled={isBusy || strikes >= strikeLimit || Boolean(state.stealOpen)}>+1 Strike ✕</button>
           <button type="button" className="act-btn act-btn-secondary" onClick={() => sendAction('clearstrikes')} disabled={isBusy || strikes === 0}>Clear strikes</button>
+          {state.stealOpen && <button type="button" className="act-btn act-btn-secondary" onClick={() => sendAction('closesteeal')} disabled={isBusy}>Close steal</button>}
         </div>
       </div>
 

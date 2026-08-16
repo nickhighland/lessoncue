@@ -324,6 +324,55 @@ public sealed class ActivitySessionServiceTests
     }
 
     [Fact]
+    public async Task SurveyBoardTeamTurnsRestrictAnswersAndAwardACompletedStealToTheTeam()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Team Survey", ActivityTypes.SurveyBoard, Config: JsonDocument.Parse("""
+                {"title":"Team Survey","teamPlay":true,"stealEnabled":true,"strikesToSteal":2,"questions":[{"id":"q1","prompt":"Name a team strength","answers":[{"id":"a1","rank":1,"text":"Trust","points":50},{"id":"a2","rank":2,"text":"Listening","points":30}]}]}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            var first = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "First Team Player"), TestContext.Current.CancellationToken);
+            var second = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Second Team Player"), TestContext.Current.CancellationToken);
+
+            Assert.True(await sessions.SetTeamsAsync(run.Id, [new ActivityTeamInput("Team One"), new ActivityTeamInput("Team Two")], TestContext.Current.CancellationToken));
+            var teams = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            var teamOneId = Guid.Parse(teams!.Teams[0].GetType().GetProperty("id")!.GetValue(teams.Teams[0])!.ToString()!);
+            var teamTwoId = Guid.Parse(teams.Teams[1].GetType().GetProperty("id")!.GetValue(teams.Teams[1])!.ToString()!);
+            Assert.True(await sessions.AssignParticipantAsync(run.Id, first.Participant!.Id, teamOneId, TestContext.Current.CancellationToken));
+            Assert.True(await sessions.AssignParticipantAsync(run.Id, second.Participant!.Id, teamTwoId, TestContext.Current.CancellationToken));
+
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken)).Success);
+            var wrongTeam = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(second.Token, "submit", JsonDocument.Parse("{\"text\":\"too soon\"}").RootElement), TestContext.Current.CancellationToken);
+            Assert.False(wrongTeam.Success);
+            Assert.Contains("Team One", wrongTeam.Error ?? "", StringComparison.Ordinal);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(first.Token, "submit", JsonDocument.Parse("{\"text\":\"wrong\"}").RootElement), TestContext.Current.CancellationToken)).Success);
+
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "addstrike"), TestContext.Current.CancellationToken)).Success);
+            var steal = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "addstrike"), TestContext.Current.CancellationToken);
+            Assert.True(steal.Success, steal.Error);
+            var stealState = JsonSerializer.SerializeToElement(steal.State, ActivityJsonDefaults.Options);
+            Assert.True(stealState.GetProperty("stealOpen").GetBoolean());
+            Assert.Equal("Team Two", stealState.GetProperty("stealTeamName").GetString());
+
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(second.Token, "submit", JsonDocument.Parse("{\"text\":\"Trust\"}").RootElement), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "matchanswer", JsonDocument.Parse("{\"rank\":1}").RootElement), TestContext.Current.CancellationToken)).Success);
+            var host = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            var scores = JsonSerializer.Serialize(host!.ScoreEvents, ActivityJsonDefaults.Options);
+            Assert.Contains("\"amount\":50", scores, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(teamTwoId.ToString(), scores, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Steal survey answer", scores, StringComparison.Ordinal);
+
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "showleaderboard"), TestContext.Current.CancellationToken)).Success);
+            var leaderboard = await sessions.GetDisplayEnvelopeAsync(run.Id, TestContext.Current.CancellationToken);
+            Assert.Contains("Team Two", JsonSerializer.Serialize(leaderboard!.State, ActivityJsonDefaults.Options), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task DrawingSubmissionsStayPrivateUntilApprovedAndTheRoomCanVoteOnTheGallery()
     {
         var (db, activities, sessions, connection) = await CreateAsync();
