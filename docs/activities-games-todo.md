@@ -50,7 +50,7 @@ This is the active implementation sequence. It covers the next product-value lay
 
 ### 6. Expand presets only after the engines prove stable
 
-- [x] Add the first registry-backed Quiz, Poll, Buzzer, Creative, and Bluffing templates; teachers can apply named formats and edit the starter content without switching engines.
+- [x] Add the first registry-backed Quiz, Poll, Buzzer, Creative, Bluffing, Drawing, and Survey templates; teachers can apply named formats and edit the starter content without switching engines.
 - [ ] Add the remaining named poll, quiz, buzzer, bluffing, creative, drawing, survey, ordering, word, match, media, stage, physical, and adventure presets listed below through registry configuration.
 - [ ] Prefer an existing engine plus modifiers over another bespoke runtime.
 - [ ] Add one deterministic server test and one representative browser path for each new engine family before broad preset expansion.
@@ -229,20 +229,20 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 
 ### Drawing
 
-- [ ] Doodle as a simple drawing-only preset
-- [ ] Draw & Vote
-- [ ] Mascot Maker
-- [ ] Logo Disaster
-- [ ] Invention Lab
-- [ ] Draw the Description
+- [x] Doodle as a simple drawing-only preset
+- [x] Draw & Vote
+- [x] Mascot Maker
+- [x] Logo Disaster
+- [x] Invention Lab
+- [x] Draw the Description
 - [ ] Telephone Draw chain: phrase → drawing → description → drawing → description
 - [ ] Add chain replay and animated reveal once the base drawing flow is stable
 
 ### Survey Board
 
-- [ ] Top Five
-- [ ] Top Answer
-- [ ] Bottom of the Barrel
+- [x] Top Five
+- [x] Top Answer
+- [x] Bottom of the Barrel
 - [ ] Add conservative fuzzy matching with a host override that always wins
 - [ ] Add strikes, steals, and team-turn flow as configurable modifiers
 

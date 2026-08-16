@@ -585,3 +585,44 @@ test("Buzzer, creative, and bluffing editors reuse named engine presets", async 
     }, [buzzerId, punchlineId, fakeOutId]);
   }
 });
+
+test("Drawing and survey editors apply creative board templates with editable entries", async ({ page }) => {
+  await authenticate(page);
+  const tag = Date.now();
+  const drawingName = `Preset Drawing ${tag}`;
+  const surveyName = `Preset Survey ${tag}`;
+  const drawingId = await createActivity(page, "Doodle & Guess", drawingName);
+  let surveyId = "";
+  try {
+    await page.getByLabel("Drawing format preset").selectOption("mascotMaker");
+    await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
+    await expect(page.locator("textarea").nth(1)).toHaveValue("Design a mascot for a team that never gives up.");
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    const savedDrawing = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; prompts: Array<{ prompt: string }> } }, drawingId);
+    expect(savedDrawing.presetType).toBe("mascotMaker");
+    expect(savedDrawing.config.preset).toBe("mascotMaker");
+    expect(savedDrawing.config.prompts[0].prompt).toContain("mascot");
+
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    surveyId = await createActivity(page, "Survey Board", surveyName);
+    await page.getByLabel("Survey board format preset").selectOption("topFive");
+    await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
+    await expect(page.getByLabel("Prompt")).toHaveValue("What are five things that help a team succeed?");
+    await expect(page.getByRole("textbox", { name: "Answer 5" })).toHaveValue("Celebrate");
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    const savedSurvey = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; questions: Array<{ answers: Array<unknown> }> } }, surveyId);
+    expect(savedSurvey.presetType).toBe("topFive");
+    expect(savedSurvey.config.preset).toBe("topFive");
+    expect(savedSurvey.config.questions[0].answers).toHaveLength(5);
+  } finally {
+    await page.evaluate(async ids => {
+      await fetch("/api/v1/activities/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: ids.filter(Boolean) }),
+      });
+    }, [drawingId, surveyId]);
+  }
+});

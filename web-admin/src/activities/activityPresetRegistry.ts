@@ -266,3 +266,39 @@ export const FAKE_OUT_PRESETS: ActivityPresetTemplate[] = [
   { id: 'secretTalent', label: 'Secret Talent', description: 'Find the real talent hidden among decoys.', config: { preset: 'secretTalent', presetLabel: 'SECRET TALENT', title: 'Secret Talent', rounds: [{ id: 'round-1', prompt: 'Which secret talent belongs to the target player?', truth: 'Add the real talent', points: 100 }], requireModeration: true, votingSeconds: 30, bluffPoints: 50, truthPoints: 100 } },
   { id: 'whyIsThisHere', label: 'Why Is This Here?', description: 'Guess the true reason an object, image, or detail appears.', config: { preset: 'whyIsThisHere', presetLabel: 'WHY IS THIS HERE?', title: 'Why Is This Here?', rounds: [{ id: 'round-1', prompt: 'Why is this object in the scene?', truth: 'Add the real reason', points: 100 }], requireModeration: true, votingSeconds: 30, bluffPoints: 50, truthPoints: 100 } }
 ];
+
+export const DRAWING_PRESETS: ActivityPresetTemplate[] = [
+  { id: 'doodle', label: 'Doodle', description: 'Draw a quick prompt and reveal the anonymous gallery.', config: { preset: 'doodle', presetLabel: 'DOODLE', title: 'Doodle', prompts: [{ id: 'prompt-1', prompt: 'Draw something surprising.', points: 100 }], requireModeration: true, votingSeconds: 30 } },
+  { id: 'drawAndVote', label: 'Draw & Vote', description: 'Let the room choose the drawing that best answers the prompt.', config: { preset: 'drawAndVote', presetLabel: 'DRAW & VOTE', title: 'Draw & Vote', prompts: [{ id: 'prompt-1', prompt: 'Draw the best symbol for teamwork.', points: 100 }], requireModeration: true, votingSeconds: 30 } },
+  { id: 'mascotMaker', label: 'Mascot Maker', description: 'Invent a mascot for a group, class, or team.', config: { preset: 'mascotMaker', presetLabel: 'MASCOT MAKER', title: 'Mascot Maker', prompts: [{ id: 'prompt-1', prompt: 'Design a mascot for a team that never gives up.', points: 100 }], requireModeration: true, votingSeconds: 30 } },
+  { id: 'logoDisaster', label: 'Logo Disaster', description: 'Create the worst logo for an ordinary idea.', config: { preset: 'logoDisaster', presetLabel: 'LOGO DISASTER', title: 'Logo Disaster', prompts: [{ id: 'prompt-1', prompt: 'Design a logo for the least organized club in school.', points: 100 }], requireModeration: true, votingSeconds: 30 } },
+  { id: 'inventionLab', label: 'Invention Lab', description: 'Sketch a new invention and let the room name its purpose.', config: { preset: 'inventionLab', presetLabel: 'INVENTION LAB', title: 'Invention Lab', prompts: [{ id: 'prompt-1', prompt: 'Draw an invention that solves a tiny everyday problem.', points: 100 }], requireModeration: true, votingSeconds: 30 } },
+  { id: 'drawTheDescription', label: 'Draw the Description', description: 'Turn a teacher-authored description into a visual guess.', config: { preset: 'drawTheDescription', presetLabel: 'DRAW THE DESCRIPTION', title: 'Draw the Description', prompts: [{ id: 'prompt-1', prompt: 'Draw a place where you would never want to lose your keys.', points: 100 }], requireModeration: true, votingSeconds: 30 } }
+];
+
+export const SURVEY_PRESETS: ActivityPresetTemplate[] = [
+  {
+    id: 'surveyShowdown',
+    label: 'Survey Showdown',
+    description: 'Reveal ranked answers with strikes, buzzers, and a team score.',
+    config: { preset: 'surveyShowdown', presetLabel: 'SURVEY SHOWDOWN', title: 'Survey Showdown', questions: [{ id: 'question-1', prompt: 'Name something people bring to a group meeting.', answers: [{ id: 'answer-1', rank: 1, text: 'Notebook', points: 40 }, { id: 'answer-2', rank: 2, text: 'Drink', points: 30 }, { id: 'answer-3', rank: 3, text: 'Questions', points: 20 }, { id: 'answer-4', rank: 4, text: 'A friend', points: 10 }] }] }
+  },
+  {
+    id: 'topFive',
+    label: 'Top Five',
+    description: 'Build a ranked board of five teacher-authored answers.',
+    config: { preset: 'topFive', presetLabel: 'TOP FIVE', title: 'Top Five', questions: [{ id: 'question-1', prompt: 'What are five things that help a team succeed?', answers: [{ id: 'answer-1', rank: 1, text: 'Listen', points: 40 }, { id: 'answer-2', rank: 2, text: 'Practice', points: 30 }, { id: 'answer-3', rank: 3, text: 'Encourage', points: 20 }, { id: 'answer-4', rank: 4, text: 'Plan', points: 10 }, { id: 'answer-5', rank: 5, text: 'Celebrate', points: 5 }] }] }
+  },
+  {
+    id: 'topAnswer',
+    label: 'Top Answer',
+    description: 'Put the biggest answer on the board and let teams hunt for it.',
+    config: { preset: 'topAnswer', presetLabel: 'TOP ANSWER', title: 'Top Answer', questions: [{ id: 'question-1', prompt: 'What is the top answer to today’s question?', answers: [{ id: 'answer-1', rank: 1, text: 'Add the top answer', points: 100 }, { id: 'answer-2', rank: 2, text: 'Add another answer', points: 50 }, { id: 'answer-3', rank: 3, text: 'Add a third answer', points: 25 }] }] }
+  },
+  {
+    id: 'bottomOfTheBarrel',
+    label: 'Bottom of the Barrel',
+    description: 'Make the lowest-ranked answer the surprising target.',
+    config: { preset: 'bottomOfTheBarrel', presetLabel: 'BOTTOM OF THE BARREL', title: 'Bottom of the Barrel', questions: [{ id: 'question-1', prompt: 'What is the least expected answer to this question?', answers: [{ id: 'answer-1', rank: 1, text: 'Most common answer', points: 10 }, { id: 'answer-2', rank: 2, text: 'Less common answer', points: 25 }, { id: 'answer-3', rank: 3, text: 'Bottom-of-the-barrel answer', points: 50 }] }] }
+  }
+];

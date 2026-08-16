@@ -20,6 +20,7 @@ interface SurveyQuestion {
 
 interface SurveyConfig {
   title?: string;
+  presetLabel?: string;
   question?: string;
   answers?: SurveyAnswer[];
   questions?: SurveyQuestion[];
@@ -95,7 +96,7 @@ export const SurveyBoardDisplay: React.FC<{ envelope: ActivityStateEnvelope }> =
     <div ref={containerRef} className="activity-stage survey-board-stage">
       <div className="activity-stage-content">
         <div className="activity-header">
-          <div className="stage-kicker">📋 LIVE SURVEY BOARD · {currentIndex + 1}/{questions.length}</div>
+          <div className="stage-kicker">📋 {config.presetLabel || 'LIVE SURVEY BOARD'} · {currentIndex + 1}/{questions.length}</div>
           <h1 className="activity-title">{currentQuestion.prompt}</h1>
           <div className="activity-subtitle">{envelope.name || config.title || 'Survey Board'}</div>
         </div>

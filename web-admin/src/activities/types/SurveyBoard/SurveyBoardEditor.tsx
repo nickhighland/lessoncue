@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { ActivityPresetPicker } from '../../ActivityPresetPicker';
+import { SURVEY_PRESETS } from '../../activityPresetRegistry';
 
 interface SurveyAnswer { id: string; rank: number; text: string; points: number; count?: number; }
 interface SurveyQuestion { id: string; prompt: string; answers?: SurveyAnswer[]; items?: SurveyAnswer[]; }
-interface SurveyBoardConfig { title?: string; question?: string; answers?: SurveyAnswer[]; questions?: SurveyQuestion[]; }
+interface SurveyBoardConfig { title?: string; question?: string; answers?: SurveyAnswer[]; questions?: SurveyQuestion[]; preset?: string; presetLabel?: string; }
 
 function normalizeQuestions(config: SurveyBoardConfig): SurveyQuestion[] {
   if (config.questions?.length) {
@@ -98,6 +100,16 @@ export const SurveyBoardEditor: React.FC<{
 
   return (
     <div className="activity-editor-form">
+      <ActivityPresetPicker
+        label="Survey board format"
+        value={typeof boardConfig.preset === 'string' ? boardConfig.preset : 'surveyShowdown'}
+        templates={SURVEY_PRESETS}
+        onPresetChange={preset => onChange({ ...boardConfig, preset: preset.id, presetLabel: preset.label.toUpperCase() })}
+        onApply={preset => {
+          onChange({ ...boardConfig, ...preset.config });
+          setActiveIndex(0);
+        }}
+      />
       <label className="activity-editor-label">Activity title
         <input value={boardConfig.title || ''} onChange={event => onChange({ ...boardConfig, title: event.target.value })} placeholder="e.g. Family Feud Face-off" />
       </label>
