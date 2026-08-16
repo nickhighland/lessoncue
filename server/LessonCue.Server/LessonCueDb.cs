@@ -32,6 +32,14 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
     public DbSet<AudienceSession> AudienceSessions => Set<AudienceSession>();
     public DbSet<AudienceQuestion> AudienceQuestions => Set<AudienceQuestion>();
     public DbSet<AudienceResponse> AudienceResponses => Set<AudienceResponse>();
+    public DbSet<Activities.ActivityDefinition> ActivityDefinitions => Set<Activities.ActivityDefinition>();
+    public DbSet<Activities.ActivityRun> ActivityRuns => Set<Activities.ActivityRun>();
+    public DbSet<Activities.ActivityAsset> ActivityAssets => Set<Activities.ActivityAsset>();
+    public DbSet<Activities.ActivityParticipant> ActivityParticipants => Set<Activities.ActivityParticipant>();
+    public DbSet<Activities.ActivityTeam> ActivityTeams => Set<Activities.ActivityTeam>();
+    public DbSet<Activities.ActivityScoreEvent> ActivityScoreEvents => Set<Activities.ActivityScoreEvent>();
+    public DbSet<Activities.ActivitySubmission> ActivitySubmissions => Set<Activities.ActivitySubmission>();
+    public DbSet<Activities.ActivityVote> ActivityVotes => Set<Activities.ActivityVote>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -63,6 +71,8 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
             .HasForeignKey(x => x.LessonId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<Lesson>().HasIndex(x => new { x.GeneratedByScheduleId, x.Date }).IsUnique();
         modelBuilder.Entity<PlaylistItem>().Property(x => x.Position).HasPrecision(18, 6);
+        modelBuilder.Entity<PlaylistItem>().HasOne(x => x.ActivityDefinition).WithMany()
+            .HasForeignKey(x => x.ActivityDefinitionId).OnDelete(DeleteBehavior.SetNull);
         modelBuilder.Entity<LessonTemplate>().HasMany(x => x.Items).WithOne(x => x.Template)
             .HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<LessonTemplate>().HasMany(x => x.Schedules).WithOne(x => x.Template)
@@ -70,6 +80,8 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
         modelBuilder.Entity<LessonTemplateItem>().Property(x => x.Position).HasPrecision(18, 6);
         modelBuilder.Entity<LessonTemplateItem>().HasOne(x => x.MediaAsset).WithMany()
             .HasForeignKey(x => x.MediaAssetId).OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<LessonTemplateItem>().HasOne(x => x.ActivityDefinition).WithMany()
+            .HasForeignKey(x => x.ActivityDefinitionId).OnDelete(DeleteBehavior.SetNull);
         modelBuilder.Entity<RecurringLessonSchedule>().HasOne(x => x.Class).WithMany()
             .HasForeignKey(x => x.ClassId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<DeviceCredential>().HasIndex(x => x.TokenHash).IsUnique();
@@ -89,5 +101,42 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
             .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<AudienceResponse>().HasOne(x => x.Question).WithMany(x => x.Responses)
             .HasForeignKey(x => x.QuestionId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Activities.ActivityDefinition>().HasIndex(x => x.Type);
+        modelBuilder.Entity<Activities.ActivityDefinition>().HasIndex(x => x.Name);
+        modelBuilder.Entity<Activities.ActivityDefinition>().HasIndex(x => x.EngineType);
+        modelBuilder.Entity<Activities.ActivityDefinition>().HasIndex(x => x.LibraryPosition);
+        modelBuilder.Entity<Activities.ActivityDefinition>().HasMany(x => x.Assets).WithOne(x => x.ActivityDefinition)
+            .HasForeignKey(x => x.ActivityDefinitionId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Activities.ActivityRun>().HasIndex(x => new { x.ActivityDefinitionId, x.LessonId });
+        modelBuilder.Entity<Activities.ActivityRun>().HasIndex(x => x.LessonItemId);
+        modelBuilder.Entity<Activities.ActivityRun>().HasOne(x => x.ActivityDefinition).WithMany()
+            .HasForeignKey(x => x.ActivityDefinitionId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Activities.ActivityRun>().HasIndex(x => x.JoinCode).IsUnique();
+        modelBuilder.Entity<Activities.ActivityRun>().HasMany(x => x.Participants).WithOne(x => x.ActivityRun)
+            .HasForeignKey(x => x.ActivityRunId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Activities.ActivityRun>().HasMany(x => x.Teams).WithOne(x => x.ActivityRun)
+            .HasForeignKey(x => x.ActivityRunId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Activities.ActivityRun>().HasMany(x => x.ScoreEvents).WithOne(x => x.ActivityRun)
+            .HasForeignKey(x => x.ActivityRunId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Activities.ActivityRun>().HasMany(x => x.Submissions).WithOne(x => x.ActivityRun)
+            .HasForeignKey(x => x.ActivityRunId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Activities.ActivityRun>().HasMany(x => x.Votes).WithOne(x => x.ActivityRun)
+            .HasForeignKey(x => x.ActivityRunId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Activities.ActivityParticipant>().HasIndex(x => new { x.ActivityRunId, x.ParticipantTokenHash }).IsUnique();
+        modelBuilder.Entity<Activities.ActivityParticipant>().HasIndex(x => new { x.ActivityRunId, x.Status });
+        modelBuilder.Entity<Activities.ActivityParticipant>().HasOne(x => x.Team).WithMany(x => x.Members)
+            .HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<Activities.ActivityTeam>().HasIndex(x => new { x.ActivityRunId, x.Position });
+        modelBuilder.Entity<Activities.ActivityScoreEvent>().HasIndex(x => new { x.ActivityRunId, x.CreatedAt });
+        modelBuilder.Entity<Activities.ActivityScoreEvent>().HasOne(x => x.Participant).WithMany()
+            .HasForeignKey(x => x.ParticipantId).OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<Activities.ActivityScoreEvent>().HasOne(x => x.Team).WithMany()
+            .HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<Activities.ActivitySubmission>().HasIndex(x => new { x.ActivityRunId, x.RoundId, x.ParticipantId }).IsUnique();
+        modelBuilder.Entity<Activities.ActivitySubmission>().HasOne(x => x.Participant).WithMany()
+            .HasForeignKey(x => x.ParticipantId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Activities.ActivityVote>().HasIndex(x => new { x.ActivityRunId, x.RoundId, x.VoterParticipantId }).IsUnique();
+        modelBuilder.Entity<Activities.ActivityVote>().HasOne(x => x.VoterParticipant).WithMany()
+            .HasForeignKey(x => x.VoterParticipantId).OnDelete(DeleteBehavior.Cascade);
     }
 }

@@ -633,7 +633,7 @@ public static class AdminApi
                     TranscodeLeadDays = canManageService ? organization.TranscodeLeadDays : 0,
                     HardwareAccelerationEnabled = canManageService && organization.HardwareAccelerationEnabled,
                     organization.MediaFoldersJson,
-                    organization.MediaTagsJson, organization.SignageSourceAllowlistJson, organization.SignageEnabled,
+                    organization.MediaTagsJson, organization.SignageSourceAllowlistJson, signageEnabled = true,
                     organization.RequireLocalRoomControllers, organization.RegistrationMode,
                     PublicBaseUrl = canManageService ? organization.PublicBaseUrl : "",
                     EmailFromAddress = canManageService ? organization.EmailFromAddress : "",
@@ -1365,6 +1365,11 @@ public static class AdminApi
                 itemMedia = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == mediaId, ct);
                 if (itemMedia is null) return Results.BadRequest(new { error = "The selected media file does not exist." });
             }
+            if (input.ActivityDefinitionId is Guid actDefId)
+            {
+                var exists = await db.ActivityDefinitions.AnyAsync(x => x.Id == actDefId, ct);
+                if (!exists) return Results.BadRequest(new { error = "The selected activity does not exist." });
+            }
             var item = new PlaylistItem
             {
                 LessonId = lessonId,
@@ -1373,6 +1378,7 @@ public static class AdminApi
                 Role = role,
                 Position = input.Position,
                 MediaAssetId = input.MediaId,
+                ActivityDefinitionId = input.ActivityDefinitionId,
                 DurationMs = input.DurationMs,
                 StartMs = input.StartMs,
                 EndMs = input.EndMs,
@@ -1412,6 +1418,7 @@ public static class AdminApi
             return Results.Created($"/api/v1/lessons/{lessonId}/items/{item.Id}", new
             {
                 item.Id, item.Title, item.Type, item.Role, item.Position, item.MediaAssetId,
+                item.ActivityDefinitionId,
                 item.DurationMs, item.StartMs, item.EndMs, item.VolumePercent,
                 item.ImageDurationSeconds, item.EstimatedDurationSeconds, item.EndBehavior, item.AllowSkip, item.FitMode,
                 item.RotationDegrees, item.CropLeftPercent, item.CropTopPercent, item.CropRightPercent,
@@ -1473,6 +1480,7 @@ public static class AdminApi
             if (input.TransitionStyle is not null) item.TransitionStyle = input.TransitionStyle;
             if (input.TransitionDurationMs is not null) item.TransitionDurationMs = input.TransitionDurationMs.Value;
             if (input.FlexibleTime is not null) item.FlexibleTime = input.FlexibleTime.Value;
+            if (input.ActivityDefinitionId is not null) item.ActivityDefinitionId = input.ActivityDefinitionId;
             if (input.CuePoints is not null)
             {
                 if (input.CuePoints.Count > 50) return Results.BadRequest(new { error = "A media item can have at most 50 named markers." });
@@ -1681,12 +1689,9 @@ public static class AdminApi
             var lessonItems = await db.PlaylistItems.AsNoTracking().Where(x => x.MediaAssetId == id)
                 .Select(x => new { x.Id, itemTitle = x.Title, x.LessonId, lessonTitle = x.Lesson!.Title, x.Lesson.Date })
                 .OrderBy(x => x.Date).ToListAsync(ct);
-            var signageEnabled = await db.Organizations.AsNoTracking().AnyAsync(value => value.SignageEnabled, ct);
-            var signage = signageEnabled
-                ? (await db.SignagePlaylists.AsNoTracking().ToListAsync(ct))
-                    .Where(x => x.MediaAssetId == id || SignageLayout.ParseZones(x.ZonesJson).Any(zone => zone.MediaAssetId == id))
-                    .Select(x => new { x.Id, x.Name, x.Mode, x.Enabled }).OrderBy(x => x.Name).ToList()
-                : [];
+            var signage = (await db.SignagePlaylists.AsNoTracking().ToListAsync(ct))
+                .Where(x => x.MediaAssetId == id || SignageLayout.ParseZones(x.ZonesJson).Any(zone => zone.MediaAssetId == id))
+                .Select(x => new { x.Id, x.Name, x.Mode, x.Enabled }).OrderBy(x => x.Name).ToList();
             var templateItems = await db.LessonTemplateItems.AsNoTracking().Where(x => x.MediaAssetId == id)
                 .Select(x => new { x.Id, itemTitle = x.Title, x.TemplateId, templateName = x.Template!.Name })
                 .OrderBy(x => x.templateName).ToListAsync(ct);
@@ -2639,8 +2644,6 @@ public static class AdminApi
             {
                 if (!effectiveSignageOnly)
                     return Results.BadRequest(new { error = "Only signage-only screens can be assigned a Sign." });
-                if (!await db.Organizations.AsNoTracking().AnyAsync(value => value.SignageEnabled, ct))
-                    return Results.BadRequest(new { error = "Enable Signage in Settings before assigning a Sign." });
                 if (!await db.SignagePlaylists.AsNoTracking().AnyAsync(value => value.Id == input.AssignedSignageId &&
                         value.Mode == "sign" && value.Enabled, ct))
                     return Results.BadRequest(new { error = "The selected Sign no longer exists or is disabled." });
@@ -2649,8 +2652,6 @@ public static class AdminApi
             }
             if (input.SignageOnly is bool signageOnly)
             {
-                if (signageOnly && !await db.Organizations.AsNoTracking().AnyAsync(value => value.SignageEnabled, ct))
-                    return Results.BadRequest(new { error = "Enable Signage in Settings before creating a signage-only screen." });
                 screen.SignageOnly = signageOnly;
                 if (signageOnly) screen.AssignedClassId = null;
                 else screen.AssignedSignageId = null;
@@ -3024,7 +3025,9 @@ public static class AdminApi
                 SignageLayout.TryNormalizeAllowlist(input.SignageSourceAllowlist, out var origins, out _);
                 organization.SignageSourceAllowlistJson = JsonSerializer.Serialize(origins);
             }
-            if (input.SignageEnabled is not null) organization.SignageEnabled = input.SignageEnabled.Value;
+            // Kept in the input contract for older clients, but signage is now
+            // always available and cannot be hidden by an organization toggle.
+            organization.SignageEnabled = true;
             Audit(db, "organization.update", organization.Id, organization.Name); await db.SaveChangesAsync(ct);
             return Results.Ok(organization);
         });
@@ -3033,11 +3036,10 @@ public static class AdminApi
             LessonCueDb db, CancellationToken ct) =>
         {
             var organization = await db.Organizations.FirstAsync(ct);
-            organization.SignageEnabled = input.Enabled;
-            Audit(db, "organization.signage-availability", organization.Id,
-                input.Enabled ? "enabled" : "disabled");
+            organization.SignageEnabled = true;
+            Audit(db, "organization.signage-availability", organization.Id, "always-live");
             await db.SaveChangesAsync(ct);
-            return Results.Ok(new { signageEnabled = organization.SignageEnabled });
+            return Results.Ok(new { signageEnabled = true });
         });
 
         settings.MapPost("/hardware-acceleration/check", async (HardwareAccelerationService hardware,
@@ -3621,13 +3623,6 @@ public static class AdminApi
         });
 
         var signage = admin.MapGroup("/signage");
-        signage.AddEndpointFilter(async (context, next) =>
-        {
-            var db = context.HttpContext.RequestServices.GetRequiredService<LessonCueDb>();
-            var enabled = await db.Organizations.AsNoTracking().AnyAsync(value => value.SignageEnabled,
-                context.HttpContext.RequestAborted);
-            return enabled ? await next(context) : Results.NotFound();
-        });
         var planningSignage = signage.MapGroup("").RequireAuthorization(LessonCuePermissions.Planning);
 
         signage.MapGet("", async (LessonCueDb db, CancellationToken ct) =>
@@ -4349,7 +4344,8 @@ public static class AdminApi
         CropBottomPercent = source.CropBottomPercent, Muted = source.Muted,
         PlaybackRatePercent = source.PlaybackRatePercent, RepeatCount = source.RepeatCount,
         BackgroundColor = source.BackgroundColor, TransitionStyle = source.TransitionStyle,
-        TransitionDurationMs = source.TransitionDurationMs, FlexibleTime = source.FlexibleTime
+        TransitionDurationMs = source.TransitionDurationMs, FlexibleTime = source.FlexibleTime,
+        ActivityDefinitionId = source.ActivityDefinitionId
     };
 
     private static string? ValidatePlaybackSettings(string fitMode, int rotationDegrees,

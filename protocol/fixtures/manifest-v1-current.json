@@ -59,6 +59,13 @@
         "notes": null
       },
       {
+        "id": "lesson.activity",
+        "label": "Interactive activities and games",
+        "supported": true,
+        "fallback": "LessonCue will show an explanatory title card and keep remote navigation available.",
+        "notes": null
+      },
+      {
         "id": "playback.trim",
         "label": "Trim points",
         "supported": true,
@@ -1400,6 +1407,8 @@
           "transitionStyle": "cut",
           "transitionDurationMs": 500,
           "flexibleTime": true,
+          "activityDefinitionId": null,
+          "activity": null,
           "cuePoints": [
             {
               "name": "Discuss",

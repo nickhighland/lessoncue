@@ -15,7 +15,6 @@ export function ScreensView({
   refresh,
   notify,
   canManage,
-  signageEnabled,
 }: {
   screens: Screen[];
   classes: LessonClass[];
@@ -26,7 +25,6 @@ export function ScreensView({
   refresh: () => void;
   notify: (s: string) => void;
   canManage: boolean;
-  signageEnabled: boolean;
 }) {
   const active = screens.filter((s) => !s.revoked);
   const [expanded, setExpanded] = useState<string>();
@@ -335,7 +333,6 @@ export function ScreensView({
                     </Field>
                   )}
                   <div className="two-fields">
-                    {signageEnabled && (
                     <label className="switch-row compact">
                       <input
                         type="checkbox"
@@ -351,7 +348,6 @@ export function ScreensView({
                         <small>Excludes lessons and controller playback.</small>
                       </div>
                     </label>
-                    )}
                     <label className="switch-row compact">
                       <input
                         type="checkbox"
