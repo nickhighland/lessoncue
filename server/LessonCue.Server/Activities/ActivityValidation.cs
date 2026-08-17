@@ -254,6 +254,40 @@ public static class ActivityValidation
                     break;
                 }
 
+                case ActivityTypes.ImageReveal:
+                {
+                    using var reveal = JsonDocument.Parse(configJson);
+                    var mediaMode = reveal.RootElement.TryGetProperty("mediaMode", out var mediaModeElement) && mediaModeElement.ValueKind == JsonValueKind.String
+                        ? mediaModeElement.GetString()?.Trim().ToLowerInvariant()
+                        : "image";
+                    if (mediaMode is not ("image" or "memorygrid" or "audio"))
+                        return "Image Reveal media mode must be image, memoryGrid, or audio.";
+                    if (reveal.RootElement.TryGetProperty("totalStages", out var stages) && (!stages.TryGetInt32(out var count) || count is < 1 or > 24))
+                        return "Image Reveal must contain between 1 and 24 reveal stages.";
+                    if (reveal.RootElement.TryGetProperty("stages", out var legacyStages) && (!legacyStages.TryGetInt32(out var legacyCount) || legacyCount is < 1 or > 24))
+                        return "Image Reveal must contain between 1 and 24 reveal stages.";
+                    if (reveal.RootElement.TryGetProperty("autoIntervalSeconds", out var interval) && (!interval.TryGetInt32(out var seconds) || seconds is < 1 or > 60))
+                        return "Image Reveal auto-reveal must be between 1 and 60 seconds per stage.";
+                    if (reveal.RootElement.TryGetProperty("style", out var style) && style.ValueKind == JsonValueKind.String && !new[] { "blur", "pixel", "zoom", "silhouette", "crop" }.Contains(style.GetString(), StringComparer.OrdinalIgnoreCase))
+                        return "Image Reveal style is invalid.";
+                    if (mediaMode == "memorygrid")
+                    {
+                        if (!reveal.RootElement.TryGetProperty("memoryCards", out var memoryCards) || memoryCards.ValueKind != JsonValueKind.Array || memoryCards.GetArrayLength() is < 2 or > 100)
+                            return "Memory Grid must contain between 2 and 100 cards.";
+                        var cardIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var card in memoryCards.EnumerateArray())
+                        {
+                            if (!card.TryGetProperty("id", out var cardId) || cardId.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(cardId.GetString()) || !cardIds.Add(cardId.GetString()!))
+                                return "Memory Grid card IDs must be present and unique.";
+                            if (!card.TryGetProperty("label", out var label) || label.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(label.GetString()))
+                                return "Memory Grid cards need visible labels or symbols.";
+                        }
+                    }
+                    if (mediaMode == "audio" && reveal.RootElement.TryGetProperty("audioDurationSeconds", out var audioDuration) && (!audioDuration.TryGetInt32(out var audioSeconds) || audioSeconds is < 1 or > 600))
+                        return "Audio clues must be between 1 second and 10 minutes.";
+                    break;
+                }
+
                 case ActivityTypes.Drawing:
                 case ActivityTypes.Ordering:
                 case ActivityTypes.Word:
@@ -266,24 +300,101 @@ public static class ActivityValidation
                         return $"{type} must contain between 1 and 100 rounds.";
                     if (type == ActivityTypes.Ordering && rounds.ValueKind == JsonValueKind.Array)
                     {
+                        if (interactive.RootElement.TryGetProperty("scoringMode", out var scoringMode) &&
+                            (scoringMode.ValueKind != JsonValueKind.String || !new[] { "partial", "exact" }.Contains(scoringMode.GetString(), StringComparer.OrdinalIgnoreCase)))
+                            return "Ordering scoring mode must be partial or exact.";
                         foreach (var round in rounds.EnumerateArray())
                         {
-                            if (round.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array && items.GetArrayLength() is < 2 or > 50)
+                            var interactionMode = round.TryGetProperty("interactionMode", out var roundMode) && roundMode.ValueKind == JsonValueKind.String
+                                ? roundMode.GetString()?.Trim().ToLowerInvariant()
+                                : interactive.RootElement.TryGetProperty("interactionMode", out var rootMode) && rootMode.ValueKind == JsonValueKind.String
+                                    ? rootMode.GetString()?.Trim().ToLowerInvariant()
+                                    : "ordering";
+                            if (interactionMode == "matching")
+                            {
+                                if (!round.TryGetProperty("pairs", out var pairs) || pairs.ValueKind != JsonValueKind.Array || pairs.GetArrayLength() is < 2 or > 50)
+                                    return "Match-Up rounds must contain between 2 and 50 pairs.";
+                                var pairIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                                foreach (var pair in pairs.EnumerateArray())
+                                {
+                                    if (!pair.TryGetProperty("left", out var left) || left.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(left.GetString()) ||
+                                        !pair.TryGetProperty("right", out var right) || right.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(right.GetString()))
+                                        return "Every Match-Up pair needs left and right text.";
+                                    var id = pair.TryGetProperty("id", out var pairId) && pairId.ValueKind == JsonValueKind.String ? pairId.GetString() : null;
+                                    if (!string.IsNullOrWhiteSpace(id) && !pairIds.Add(id)) return "Match-Up pair IDs must be unique.";
+                                }
+                            }
+                            else if (interactionMode == "grouping")
+                            {
+                                if (!round.TryGetProperty("items", out var groupingItems) || groupingItems.ValueKind != JsonValueKind.Array || groupingItems.GetArrayLength() is < 2 or > 50)
+                                    return "Connections rounds must contain between 2 and 50 items.";
+                                if (!round.TryGetProperty("groups", out var groups) || groups.ValueKind != JsonValueKind.Array || groups.GetArrayLength() is < 2 or > 12)
+                                    return "Connections rounds must contain between 2 and 12 groups.";
+                                var itemIds = groupingItems.EnumerateArray().Select(item => item.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null).Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+                                foreach (var group in groups.EnumerateArray())
+                                {
+                                    if (!group.TryGetProperty("itemIds", out var groupItems) || groupItems.ValueKind != JsonValueKind.Array || groupItems.GetArrayLength() < 1)
+                                        return "Every Connections group needs at least one item.";
+                                    foreach (var itemId in groupItems.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String).Select(item => item.GetString() ?? ""))
+                                        if (!itemIds.Contains(itemId)) return "Connections groups may only contain items from the round.";
+                                }
+                            }
+                            else if (round.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array && items.GetArrayLength() is < 2 or > 50)
                                 return "Ordering rounds must contain between 2 and 50 items.";
+                            if (round.TryGetProperty("points", out var points) && (!points.TryGetInt32(out var value) || value is < 0 or > 10000))
+                                return "Ordering round points must be between 0 and 10,000.";
                         }
                     }
-                    if (type == ActivityTypes.Drawing && configJson.Length > 20000)
-                        return "Drawing activity configuration is too large.";
+                    if (type == ActivityTypes.Drawing)
+                    {
+                        if (configJson.Length > 20000) return "Drawing activity configuration is too large.";
+                        foreach (var property in new[] { "maxStrokes", "maxPointsPerStroke" })
+                            if (interactive.RootElement.TryGetProperty(property, out var limit) && (!limit.TryGetInt32(out var value) || value is < 1 or > 240))
+                                return "Drawing limits must be between 1 and 240.";
+                        if (interactive.RootElement.TryGetProperty("votingSeconds", out var votingSeconds) && (!votingSeconds.TryGetInt32(out var seconds) || seconds is < 5 or > 600))
+                            return "Drawing voting time must be between 5 seconds and 10 minutes.";
+                        if (interactive.RootElement.TryGetProperty("telephoneChain", out var telephoneChain) && telephoneChain.ValueKind == JsonValueKind.True)
+                        {
+                            if (!interactive.RootElement.TryGetProperty("chainSteps", out var chainSteps) || chainSteps.ValueKind != JsonValueKind.Array || chainSteps.GetArrayLength() is < 2 or > 12)
+                                return "Telephone Draw must contain between 2 and 12 chain steps.";
+                            foreach (var step in chainSteps.EnumerateArray())
+                            {
+                                if (!step.TryGetProperty("kind", out var kind) || kind.ValueKind != JsonValueKind.String || !new[] { "drawing", "description" }.Contains(kind.GetString(), StringComparer.OrdinalIgnoreCase))
+                                    return "Telephone Draw steps must be drawing or description steps.";
+                                if (!step.TryGetProperty("prompt", out var stepPrompt) || stepPrompt.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(stepPrompt.GetString()))
+                                    return "Telephone Draw steps need a prompt.";
+                            }
+                        }
+                    }
+                    if (type == ActivityTypes.Word)
+                    {
+                        if (interactive.RootElement.TryGetProperty("maxWords", out var maxWords) && (!maxWords.TryGetInt32(out var value) || value is < 1 or > 30))
+                            return "Word rounds may accept between 1 and 30 words per response.";
+                        if (interactive.RootElement.TryGetProperty("turnBased", out var turnBased) && turnBased.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                            return "Word turn-based mode must be true or false.";
+                        if (rounds.ValueKind == JsonValueKind.Array)
+                            foreach (var round in rounds.EnumerateArray())
+                                if (round.TryGetProperty("seconds", out var seconds) && (!seconds.TryGetInt32(out var duration) || duration is < 5 or > 600))
+                                    return "Word round timers must be between 5 seconds and 10 minutes.";
+                    }
                     if (type == ActivityTypes.MatchPlayer && rounds.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var round in rounds.EnumerateArray())
                         {
-                            if (round.TryGetProperty("options", out var options) && options.ValueKind == JsonValueKind.Array && options.GetArrayLength() is < 2 or > 8)
-                                return "Match Minds rounds must have between 2 and 8 options.";
+                            var answerMode = round.TryGetProperty("answerMode", out var mode) && mode.ValueKind == JsonValueKind.String ? mode.GetString() : "choice";
+                            if (answerMode is not ("choice" or "text")) return "Match Minds answer mode must be choice or text.";
+                            if (answerMode == "choice" && (!round.TryGetProperty("options", out var options) || options.ValueKind != JsonValueKind.Array || options.GetArrayLength() is < 2 or > 8))
+                                return "Choice-based Match Minds rounds must have between 2 and 8 options.";
+                            if (round.TryGetProperty("points", out var points) && (!points.TryGetInt32(out var value) || value is < 0 or > 10000))
+                                return "Match Minds round points must be between 0 and 10,000.";
                         }
                     }
                     if (type == ActivityTypes.StageChallenge && rounds.ValueKind == JsonValueKind.Array)
                     {
+                        if (interactive.RootElement.TryGetProperty("audienceVoting", out var audienceVoting) && audienceVoting.ValueKind != JsonValueKind.True && audienceVoting.ValueKind != JsonValueKind.False)
+                            return "Stage Challenge audienceVoting must be true or false.";
+                        if (interactive.RootElement.TryGetProperty("audienceVotePoints", out var audienceVotePoints) && (!audienceVotePoints.TryGetInt32(out var votePoints) || votePoints is < 0 or > 1000))
+                            return "Stage Challenge audience vote points must be between 0 and 1,000.";
                         foreach (var challenge in rounds.EnumerateArray())
                         {
                             if (challenge.TryGetProperty("seconds", out var seconds) && seconds.ValueKind == JsonValueKind.Number && (!seconds.TryGetInt32(out var duration) || duration is < 5 or > 3600))

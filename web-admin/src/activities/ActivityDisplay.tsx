@@ -109,6 +109,7 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
     className={`activity-display-root activity-theme-${envelope.theme?.preset || 'stage'}`}
     data-activity-status="ready"
     data-activity-type={envelope.type}
+    data-activity-preset={typeof envelope.config?.preset === 'string' ? envelope.config.preset : undefined}
     data-activity-run-id={envelope.runId}
     style={activityThemeVariables(envelope.theme)}
   >

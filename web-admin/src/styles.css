@@ -302,7 +302,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .status { display: inline-flex; align-items: center; gap: 6px; font-size: 9px; font-weight: 700; text-transform: uppercase; }
 .status i { width: 6px; height: 6px; border-radius: 50%; }
 .status.online { color: #26805c; } .status.online i { background: #3ab37b; }
-.status.offline { color: #899491; } .status.offline i { background: #9ea8a5; }
+.status.offline { color: #53615d; } .status.offline i { background: #71817c; }
 
 /* ── Empty States ────────────────────────────────────────────────────────── */
 .empty { display: grid; justify-items: center; text-align: center; color: var(--muted); padding: 52px 28px; }

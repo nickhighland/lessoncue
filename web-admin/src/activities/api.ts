@@ -109,10 +109,29 @@ export class ActivityApi {
   }
 
   static async executeCommand(runId: string, command: ActivityCommandEnvelope): Promise<ActivityCommandResult> {
-    return api<ActivityCommandResult>(`/api/v1/activity-runs/${runId}/command`, {
-      method: 'POST',
-      body: JSON.stringify(command)
-    });
+    const action = command.action.trim();
+    try {
+      const result = await api<ActivityCommandResult>(`/api/v1/activity-runs/${runId}/command`, {
+        method: 'POST',
+        body: JSON.stringify(command)
+      });
+      notifyActivityCommandLifecycle({
+        runId,
+        action,
+        outcome: result.success === false ? 'failed' : 'succeeded',
+        revision: result.revision,
+        message: result.error || undefined
+      });
+      return result;
+    } catch (error) {
+      notifyActivityCommandLifecycle({
+        runId,
+        action,
+        outcome: 'failed',
+        message: error instanceof Error ? error.message : 'The command could not be completed.'
+      });
+      throw error;
+    }
   }
 
   static async resetRun(runId: string): Promise<ActivityStateEnvelope> {
@@ -169,13 +188,40 @@ export class ActivityApi {
   }
 }
 
+export type ActivityCommandLifecycle = {
+  runId: string;
+  action: string;
+  outcome: 'succeeded' | 'failed';
+  revision?: number;
+  message?: string;
+};
+
+type ActivityCommandLifecycleCallback = (event: ActivityCommandLifecycle) => void;
+const activityCommandLifecycleSubscribers = new Set<ActivityCommandLifecycleCallback>();
+
+export const subscribeActivityCommandLifecycle = (callback: ActivityCommandLifecycleCallback): (() => void) => {
+  activityCommandLifecycleSubscribers.add(callback);
+  return () => activityCommandLifecycleSubscribers.delete(callback);
+};
+
+const notifyActivityCommandLifecycle = (event: ActivityCommandLifecycle) => {
+  activityCommandLifecycleSubscribers.forEach(callback => {
+    try { callback(event); } catch (error) { void error; }
+  });
+};
+
 export type StateUpdateCallback = (envelope: ActivityStateEnvelope) => void;
+
+export type ActivityConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
+type ActivityConnectionCallback = (state: ActivityConnectionState) => void;
 
 export class ActivityHubClient {
   private connection: signalR.HubConnection | null = null;
   private currentRunId: string | null = null;
   private subscribers = new Set<StateUpdateCallback>();
+  private connectionSubscribers = new Set<ActivityConnectionCallback>();
   private isConnecting = false;
+  private connectionState: ActivityConnectionState = 'disconnected';
 
   constructor() {
     this.initConnection();
@@ -197,11 +243,33 @@ export class ActivityHubClient {
     this.connection.on('ReceiveState', handleStateUpdate);
     this.connection.on('ActivityStateUpdated', handleStateUpdate);
 
+    this.connection.onreconnecting(() => {
+      this.setConnectionState('reconnecting');
+    });
+
     this.connection.onreconnected(() => {
+      this.setConnectionState('connected');
       if (this.currentRunId && this.connection?.state === signalR.HubConnectionState.Connected) {
         this.connection.invoke('JoinRun', this.currentRunId).catch(() => {});
       }
     });
+
+    this.connection.onclose(() => {
+      this.setConnectionState('disconnected');
+    });
+  }
+
+  private setConnectionState(state: ActivityConnectionState) {
+    this.connectionState = state;
+    this.connectionSubscribers.forEach(callback => {
+      try { callback(state); } catch (error) { void error; }
+    });
+  }
+
+  subscribeConnectionStatus(callback: ActivityConnectionCallback): () => void {
+    this.connectionSubscribers.add(callback);
+    callback(this.connectionState);
+    return () => this.connectionSubscribers.delete(callback);
   }
 
   private notifySubscribers(envelope: ActivityStateEnvelope) {
@@ -222,13 +290,16 @@ export class ActivityHubClient {
 
     if (this.connection?.state === signalR.HubConnectionState.Disconnected && !this.isConnecting) {
       this.isConnecting = true;
+      this.setConnectionState('connecting');
       try {
         await this.connection.start();
+        this.setConnectionState('connected');
         if (this.currentRunId) {
           await this.connection.invoke('JoinRun', this.currentRunId);
         }
       } catch (err) {
         console.warn('SignalR activity connection failed, fallback to polling:', err);
+        this.setConnectionState('disconnected');
       } finally {
         this.isConnecting = false;
       }

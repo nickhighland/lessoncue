@@ -13,7 +13,7 @@ const stringOf = (value: unknown, fallback = '') => typeof value === 'string' ? 
 const numberOf = (value: unknown, fallback = 0) => typeof value === 'number' ? value : fallback;
 const phaseLabel = (value: unknown) => stringOf(value, 'lobby').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
 
-const PHYSICAL_PRESETS: Record<string, { label: string; title: string; instructions: string; choices: string[]; seconds: number; revealText: string }> = {
+const PHYSICAL_PRESETS: Record<string, { label: string; title: string; instructions: string; choices: string[]; seconds: number; revealText: string; adventure?: boolean; rounds?: JsonRecord[] }> = {
   fourCorners: { label: 'Four Corners', title: 'Four Corners', instructions: 'Choose a corner of the room. When the timer ends, the host reveals the prompt.', choices: ['North', 'South', 'East', 'West'], seconds: 30, revealText: 'Show your corner and explain your choice.' },
   standSit: { label: 'Stand / Sit', title: 'Stand / Sit', instructions: 'Stand if the statement is true for you. Sit if it is not.', choices: ['Stand', 'Sit'], seconds: 20, revealText: 'Look around the room and notice the split.' },
   moveIf: { label: 'Move If…', title: 'Move If…', instructions: 'Move to the marked side of the room if the statement applies to you.', choices: ['Move', 'Stay'], seconds: 20, revealText: 'The room has made its choice.' },
@@ -26,7 +26,10 @@ const PHYSICAL_PRESETS: Record<string, { label: string; title: string; instructi
   relayBoard: { label: 'Relay Board', title: 'Relay Board', instructions: 'Teams send one player at a time to complete the visible relay task.', choices: ['Team 1', 'Team 2'], seconds: 60, revealText: 'Award the relay round.' },
   scavengerHunt: { label: 'Scavenger Hunt', title: 'Scavenger Hunt', instructions: 'Find or photograph the requested item and return before time runs out.', choices: [], seconds: 60, revealText: 'Show what each team found.' },
   headsOrTails: { label: 'Heads or Tails', title: 'Heads or Tails', instructions: 'Choose heads or tails, then hold your choice while the host reveals the result.', choices: ['Heads', 'Tails'], seconds: 15, revealText: 'Reveal the winning side.' },
-  rockPaperScissors: { label: 'Rock Paper Scissors Royale', title: 'Rock Paper Scissors Royale', instructions: 'Pair up, play one round, and winners move toward the center.', choices: ['Rock', 'Paper', 'Scissors'], seconds: 20, revealText: 'Winners advance; reset for the next wave.' }
+  rockPaperScissors: { label: 'Rock Paper Scissors Royale', title: 'Rock Paper Scissors Royale', instructions: 'Pair up, play one round, and winners move toward the center.', choices: ['Rock', 'Paper', 'Scissors'], seconds: 20, revealText: 'Winners advance; reset for the next wave.' },
+  animalRelay: { label: 'Animal Relay', title: 'Animal Relay', instructions: 'One player from each team completes the animal movement and tags the next teammate.', choices: ['Penguin waddle', 'Crab walk', 'Kangaroo hops'], seconds: 60, revealText: 'Award the team that completed the relay first.' },
+  silentLineUp: { label: 'Silent Line-Up', title: 'Silent Line-Up', instructions: 'Line up by the host’s category without speaking or using phones.', choices: ['Shortest to tallest', 'Oldest to youngest', 'Earliest to latest'], seconds: 60, revealText: 'Check the line and celebrate the silent teamwork.' },
+  adventure: { label: 'Adventure', title: 'Animal Adventure', instructions: 'Your animal team reaches a fork in the trail. Choose the next move.', choices: ['Follow the pawprints', 'Climb the lookout'], seconds: 30, revealText: 'The trail opens…', adventure: true, rounds: [{ id: 'node-1', title: 'The Moonlit Trail', instructions: 'Your animal team reaches a fork in the trail. Choose the next move.', choices: ['Follow the pawprints', 'Climb the lookout'], seconds: 30, revealText: 'The trail opens…', branches: { '0': 1, '1': 2 } }, { id: 'node-2', title: 'The Hidden Waterfall', instructions: 'The pawprints lead to a waterfall. What will the team do?', choices: ['Search behind the falls', 'Build a bridge'], seconds: 30, revealText: 'You discover a glowing animal badge.', branches: { '0': 3, '1': 3 } }, { id: 'node-3', title: 'The High Lookout', instructions: 'From the lookout, the team spots two routes across the valley.', choices: ['Call the flock', 'Take the sunny path'], seconds: 30, revealText: 'A friendly guide appears.', branches: { '0': 3, '1': 3 } }, { id: 'node-4', title: 'The Safari Celebration', instructions: 'You made it! Tell the room which animal helped your team most.', choices: [], seconds: 15, revealText: 'The adventure is complete. Give the winning team a roar!' }] }
 };
 
 const PhysicalShell: React.FC<{ title: string; kicker?: string; phase: unknown; children: React.ReactNode; joinCode?: unknown; participantCount?: unknown }> = ({ title, kicker = '🧭 PHYSICAL ROOM', phase, children, joinCode, participantCount }) => (
@@ -45,6 +48,7 @@ const PhysicalShell: React.FC<{ title: string; kicker?: string; phase: unknown; 
 export const PhysicalRoomDisplay: React.FC<ActivityComponentProps> = ({ envelope }) => {
   const state = stateOf(envelope);
   const config = configOf(envelope);
+  const isAdventure = config.adventure === true;
   const round = state.currentRound && typeof state.currentRound === 'object' ? state.currentRound as JsonRecord : null;
   const choices = listOf(round?.choices).map(choice => stringOf(choice.value, stringOf(choice.label, String(choice))));
   const fallbackChoices = Array.isArray(round?.choices) ? round?.choices.map(choice => stringOf(choice)) : [];
@@ -53,13 +57,15 @@ export const PhysicalRoomDisplay: React.FC<ActivityComponentProps> = ({ envelope
   const duration = numberOf(state.timerDurationMs);
   const timerActive = stringOf(state.challengeStatus) === 'running' || stringOf(state.challengeStatus) === 'paused';
   return <PhysicalShell title={stringOf(config.title, envelope.name || 'Physical Room')} kicker={`🧭 ${stringOf(config.presetLabel, 'PHYSICAL ROOM')}`} phase={state.phase} joinCode={state.joinCode} participantCount={state.participantCount}>
-    <section className="physical-room-prompt">
-      <span className="interactive-round-label">ROUND {numberOf(state.currentRoundIndex, 0) + 1} OF {numberOf(state.roundCount, 1)}</span>
+    <section className={`physical-room-prompt ${isAdventure ? 'adventure-prompt' : ''}`}>
+      <span className="interactive-round-label">{isAdventure ? `CHAPTER ${numberOf(state.currentRoundIndex, 0) + 1} OF ${numberOf(state.roundCount, 1)}` : `ROUND ${numberOf(state.currentRoundIndex, 0) + 1} OF ${numberOf(state.roundCount, 1)}`}</span>
       <h2>{stringOf(round?.title, 'Get ready')}</h2>
       <p>{stringOf(round?.instructions, 'Follow the host instructions and get into position.')}</p>
     </section>
     {visibleChoices.length > 0 && <div className="physical-room-choice-grid" aria-label="Room choices">{visibleChoices.map((choice, index) => <div className={`physical-room-choice physical-room-choice-${index % 6}`} key={`${choice}-${index}`}><span>{index + 1}</span><strong>{choice}</strong></div>)}</div>}
     {timerActive && <ActivityCountdown remainingMs={remaining} durationMs={duration} label={stringOf(state.challengeStatus) === 'paused' ? 'PAUSED' : 'TIME LEFT'} />}
+    {isAdventure && state.phase === 'acceptingResponses' && <div className="adventure-choice-callout">Choose a path on your phone—or let the host make the story call.</div>}
+    {isAdventure && stringOf(state.adventureLastChoice) && <div className="adventure-last-choice"><span>THE ROOM CHOSE</span><strong>{stringOf(state.adventureLastChoice)}</strong></div>}
     <ActivityRevealCurtain visible={state.revealed === true} title="Show your choice and explain it.">{stringOf(round?.revealText, 'Show your choice and explain it.')}</ActivityRevealCurtain>
     <ActivityLeaderboard state={state} mode="teams" showPodium={state.phase === 'finalResults' || state.phase === 'complete'} />
     {state.phase === 'lobby' && <div className="interactive-help">The host will start the room when everyone is ready.</div>}
@@ -68,29 +74,51 @@ export const PhysicalRoomDisplay: React.FC<ActivityComponentProps> = ({ envelope
 
 export const PhysicalRoomController: React.FC<ActivityComponentProps> = ({ envelope, onCommandSent, hostView }) => {
   const state = stateOf(envelope);
+  const config = configOf(envelope);
+  const rounds = listOf(config.rounds);
+  const currentRound = rounds[numberOf(state.currentRoundIndex, 0)] || rounds[0] || {};
+  const adventure = config.adventure === true;
+  const adventureChoices = Array.isArray(currentRound.choices) ? currentRound.choices.map(choice => stringOf(choice)) : [];
   const [busy, setBusy] = useState(false);
   const [awardPoints, setAwardPoints] = useState(100);
   const send = async (action: string, payload?: JsonRecord) => {
     setBusy(true);
     try { await ActivityApi.executeCommand(envelope.runId, { action, payload }); onCommandSent?.(); }
+    catch (error) { console.debug('Physical Room command was rejected; the host notice contains the reason.', error); }
     finally { setBusy(false); }
   };
+  const phase = stringOf(state.phase, 'lobby');
   const status = stringOf(state.challengeStatus, 'ready');
   const hasTimer = Boolean(numberOf(state.timerDurationMs));
+  const canStart = phase === 'lobby';
+  const canStartTimer = phase === 'roundIntro';
+  const canOpenChoices = adventure && phase === 'roundIntro' && adventureChoices.length > 0;
+  const canResolveChoices = adventure && phase === 'acceptingResponses' && adventureChoices.length > 0;
+  const canPause = phase === 'acceptingResponses' && status === 'running';
+  const canResume = phase === 'acceptingResponses' && status === 'paused';
+  const canReset = ['roundIntro', 'acceptingResponses', 'reveal', 'leaderboard'].includes(phase);
+  const canRandomize = phase === 'roundIntro';
+  const canReveal = phase === 'acceptingResponses' && (status === 'running' || status === 'paused');
+  const canShowLeaderboard = phase === 'reveal';
+  const canAdvance = phase === 'reveal' || phase === 'leaderboard';
+  const canGoBack = phase !== 'lobby' && phase !== 'complete' && numberOf(state.currentRoundIndex, 0) > 0;
+  const canEnd = phase !== 'lobby' && phase !== 'finalResults' && phase !== 'complete';
   return <div className="act-ctrl-container interactive-host-controller physical-room-controller">
     <div className="act-ctrl-card activity-controller-summary"><div><span className="controller-eyebrow">PHYSICAL ROOM CONTROL</span><strong>{phaseLabel(state.phase)}</strong><small>Everything needed is on the TV and in the room. Phones remain optional.</small></div><span className="controller-score">{numberOf(state.currentRoundIndex, 0) + 1}<small> round</small></span></div>
     <div className="act-controller-button-row">
-      <button type="button" className="act-btn act-btn-primary" disabled={busy} onClick={() => void send('start')}>Start room</button>
-      <button type="button" className="act-btn act-btn-secondary" disabled={busy} onClick={() => void send('previous')}>Previous</button>
-      <button type="button" className="act-btn act-btn-secondary" disabled={busy} onClick={() => void send('next')}>Next</button>
-      <button type="button" className="act-btn act-btn-primary" disabled={busy} onClick={() => void send('starttimer')}>Start timer</button>
-      <button type="button" className="act-btn act-btn-secondary" disabled={busy || !hasTimer || status !== 'running'} onClick={() => void send('pausetimer')}>Pause</button>
-      <button type="button" className="act-btn act-btn-secondary" disabled={busy || status !== 'paused'} onClick={() => void send('resumetimer')}>Resume</button>
-      <button type="button" className="act-btn act-btn-secondary" disabled={busy} onClick={() => void send('reset')}>Reset</button>
-      <button type="button" className="act-btn act-btn-secondary" disabled={busy} onClick={() => void send('randomize')}>Randomize</button>
-      <button type="button" className="act-btn act-btn-gold" disabled={busy} onClick={() => void send('reveal')}>Reveal</button>
-      <button type="button" className="act-btn act-btn-secondary" disabled={busy} onClick={() => void send('showleaderboard')}>Show leaderboard</button>
-      <button type="button" className="act-btn act-btn-danger" disabled={busy} onClick={() => void send('finish')}>End room</button>
+      {canStart && <button type="button" className="act-btn act-btn-primary" disabled={busy} onClick={() => void send('start')}>Start room</button>}
+      {canGoBack && <button type="button" className="act-btn act-btn-secondary" disabled={busy} onClick={() => void send('previous')}>Previous</button>}
+      {canAdvance && <button type="button" className="act-btn act-btn-secondary" disabled={busy} onClick={() => void send('next')}>Next</button>}
+      {canOpenChoices && <button type="button" className="act-btn act-btn-primary" disabled={busy} onClick={() => void send('openchoices')}>Open story choices</button>}
+      {canStartTimer && !adventure && <button type="button" className="act-btn act-btn-primary" disabled={busy} onClick={() => void send('starttimer')}>Start timer</button>}
+      {canPause && <button type="button" className="act-btn act-btn-secondary" disabled={busy || !hasTimer} onClick={() => void send('pausetimer')}>Pause</button>}
+      {canResume && <button type="button" className="act-btn act-btn-secondary" disabled={busy} onClick={() => void send('resumetimer')}>Resume</button>}
+      {canReset && <button type="button" className="act-btn act-btn-secondary" disabled={busy} onClick={() => void send('reset')}>Reset</button>}
+      {canRandomize && <button type="button" className="act-btn act-btn-secondary" disabled={busy} onClick={() => void send('randomize')}>Randomize</button>}
+      {canReveal && <button type="button" className="act-btn act-btn-gold" disabled={busy} onClick={() => void send('reveal')}>Reveal</button>}
+      {canResolveChoices && adventureChoices.map((choice, index) => <button type="button" className="act-btn act-btn-gold" disabled={busy} key={`${choice}-${index}`} onClick={() => void send('resolvechoice', { choiceIndex: index })}>Choose {index + 1}: {choice}</button>)}
+      {canShowLeaderboard && <button type="button" className="act-btn act-btn-secondary" disabled={busy} onClick={() => void send('showleaderboard')}>Show leaderboard</button>}
+      {canEnd && <button type="button" className="act-btn act-btn-danger" disabled={busy} onClick={() => void send('finish')}>End room</button>}
     </div>
     {hostView?.teams?.length ? <div className="act-ctrl-card physical-room-awards"><div><strong>Award a team</strong><span>Credit the room challenge without opening the full score panel.</span></div><label>Points<input type="number" min={-1000} max={1000} step={25} value={awardPoints} onChange={event => setAwardPoints(Number(event.target.value) || 0)} /></label><div className="act-controller-button-row">{hostView.teams.filter(team => team.active).map(team => <button type="button" className="act-btn act-btn-gold" key={team.id} disabled={busy} onClick={() => void send('awardpoints', { teamId: team.id, amount: awardPoints, reason: 'Physical room challenge' })}>+{awardPoints} · {team.name}</button>)}</div></div> : null}
     <div className="act-ctrl-card physical-room-controller-status"><strong>{status.toUpperCase()}</strong><span>{hostView?.teams?.length ? 'Use the quick award buttons above or the full session panel for score adjustments.' : 'Create teams in the session panel when the room needs team scoring.'}</span></div>
@@ -108,7 +136,8 @@ export const PhysicalRoomEditor: React.FC<ActivityEditorProps> = ({ config, onCh
       preset: selectedPreset,
       presetLabel: preset.label.toUpperCase(),
       title: preset.title,
-      rounds: [{ id: `round-${Date.now()}`, title: preset.title, instructions: preset.instructions, choices: preset.choices, seconds: preset.seconds, revealText: preset.revealText }]
+      adventure: preset.adventure === true,
+      rounds: preset.rounds || [{ id: `round-${Date.now()}`, title: preset.title, instructions: preset.instructions, choices: preset.choices, seconds: preset.seconds, revealText: preset.revealText }]
     });
   };
   return <div className="activity-editor-stack">

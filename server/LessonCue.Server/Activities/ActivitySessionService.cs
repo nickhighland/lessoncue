@@ -449,6 +449,12 @@ public sealed class ActivitySessionService(
                     state["responseWindowStartedAt"] = now.ToString("O");
                 }
             }
+            if (activityType == ActivityTypes.Drawing && BoolValue(config, "telephoneChain"))
+            {
+                state["telephoneStepIndex"] = 0;
+                state["telephoneStepKind"] = "drawing";
+                state["telephoneChainStarted"] = true;
+            }
             run.Status = ActivityRunStatuses.Live;
             run.StartedAt ??= DateTimeOffset.UtcNow;
             return (true, null);
@@ -520,7 +526,9 @@ public sealed class ActivitySessionService(
             ActivityTypes.Ordering => await HandleOrderingParticipantAsync(run, participant, config, state, action, payload, ct),
             ActivityTypes.Word => await HandleWordParticipantAsync(run, participant, config, state, action, payload, ct),
             ActivityTypes.MatchPlayer => await HandleMatchPlayerParticipantAsync(run, participant, config, state, action, payload, ct),
+            ActivityTypes.StageChallenge => await HandleStageChallengeParticipantAsync(run, participant, config, state, action, payload, ct),
             ActivityTypes.Bracket => await HandleBracketParticipantAsync(run, participant, config, state, action, payload, ct),
+            ActivityTypes.PhysicalRoom when BoolValue(config, "adventure") => await HandleAdventureParticipantAsync(run, participant, config, state, action, payload, ct),
             ActivityTypes.PhysicalRoom => (false, "This is a host-controlled room activity."),
             _ => (false, "This activity does not accept phone responses.")
         };
@@ -907,10 +915,48 @@ public sealed class ActivitySessionService(
 
     private Task<(bool Success, string? Error)> HandleMediaRevealHostAsync(ActivityRun run, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)
     {
+        var mediaMode = (StringValue(config, "mediaMode") ?? "image").Trim().ToLowerInvariant();
         var totalStages = Math.Clamp(IntValue(config, "totalStages", IntValue(config, "stages", 5)), 1, 50);
         var currentStage = Math.Clamp(IntValue(state, "currentStage"), 0, totalStages);
         switch (action)
         {
+            case "playaudio":
+                if (mediaMode != "audio") return Task.FromResult((false, (string?)"Audio playback is only available for audio rounds."));
+                state["audioNonce"] = LongValue(state, "audioNonce") + 1;
+                state["phase"] = ActivityPhases.AcceptingResponses;
+                return Task.FromResult((true, (string?)null));
+            case "showallcards":
+                if (mediaMode != "memorygrid") return Task.FromResult((false, (string?)"Memory cards are only available for Memory Grid rounds."));
+                state["memoryCardsVisible"] = true;
+                state["memoryTimerRunning"] = true;
+                state["memoryStartedAt"] = DateTimeOffset.UtcNow.ToString("O");
+                state["memoryDurationMs"] = Math.Clamp(IntValue(config, "memorySeconds", 8), 3, 60) * 1000L;
+                state["phase"] = ActivityPhases.AcceptingResponses;
+                return Task.FromResult((true, (string?)null));
+            case "hidecards":
+                if (mediaMode != "memorygrid") return Task.FromResult((false, (string?)"Memory cards are only available for Memory Grid rounds."));
+                state["memoryCardsVisible"] = false;
+                state["memoryTimerRunning"] = false;
+                state.Remove("memoryStartedAt");
+                state["phase"] = ActivityPhases.AcceptingResponses;
+                return Task.FromResult((true, (string?)null));
+            case "revealcard":
+                if (mediaMode != "memorygrid") return Task.FromResult((false, (string?)"Memory cards are only available for Memory Grid rounds."));
+                var cardId = ReadString(payload, "cardId").Trim();
+                var configuredCardIds = ArrayValue(config, "memoryCards").OfType<JsonObject>().Select(card => StringValue(card, "id") ?? "").Where(id => id.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (!configuredCardIds.Contains(cardId)) return Task.FromResult((false, (string?)"That memory card is not part of this round."));
+                var revealedCardIds = new HashSet<string>(ReadStringArray(state, "revealedCardIds"), StringComparer.OrdinalIgnoreCase);
+                revealedCardIds.Add(cardId);
+                state["revealedCardIds"] = new JsonArray(revealedCardIds.Select(id => (JsonNode)id).ToArray());
+                state["memoryCardsVisible"] = false;
+                state["memoryTimerRunning"] = false;
+                state["phase"] = ActivityPhases.Reveal;
+                return Task.FromResult((true, (string?)null));
+            case "clearcards":
+                state["revealedCardIds"] = new JsonArray();
+                state["memoryCardsVisible"] = false;
+                state["memoryTimerRunning"] = false;
+                return Task.FromResult((true, (string?)null));
             case "revealstage":
             case "nextstage":
             case "revealstep":
@@ -945,6 +991,10 @@ public sealed class ActivitySessionService(
                 state["currentStage"] = 0;
                 state["isAutoPlaying"] = false;
                 state["revealed"] = false;
+                state["revealedCardIds"] = new JsonArray();
+                state["memoryCardsVisible"] = false;
+                state["memoryTimerRunning"] = false;
+                state["audioNonce"] = 0L;
                 state["phase"] = ActivityPhases.Lobby;
                 state["actionNonce"] = LongValue(state, "actionNonce") + 1;
                 return Task.FromResult((true, (string?)null));
@@ -954,20 +1004,47 @@ public sealed class ActivitySessionService(
 
     private async Task<(bool Success, string? Error)> HandleDrawingHostAsync(ActivityRun run, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)
     {
+        var telephone = BoolValue(config, "telephoneChain");
+        var chainSteps = ArrayValue(config, "chainSteps");
         switch (action)
         {
             case "open": case "openresponses": case "startdrawing":
-                state["phase"] = ActivityPhases.AcceptingResponses; state["responsesOpen"] = true; state["responsesLocked"] = false; return (true, null);
+                state["phase"] = ActivityPhases.AcceptingResponses; state["responsesOpen"] = true; state["responsesLocked"] = false;
+                if (telephone) UpdateTelephoneStepState(config, state);
+                return (true, null);
             case "close": case "closeresponses": case "lock":
                 state["phase"] = ActivityPhases.ResponsesLocked; state["responsesOpen"] = false; state["responsesLocked"] = true; return (true, null);
             case "openvoting":
-                state["phase"] = ActivityPhases.Voting; state["votingOpen"] = true; return (true, null);
+                var votingSeconds = Math.Clamp(IntValue(config, "votingSeconds", 30), 5, 600);
+                state["phase"] = ActivityPhases.Voting;
+                state["votingOpen"] = true;
+                state["votingDurationMs"] = votingSeconds * 1000L;
+                state["votingStartedAt"] = DateTimeOffset.UtcNow.ToString("O");
+                state["votingTimerRunning"] = true;
+                return (true, null);
             case "closevoting": case "reveal":
-                state["phase"] = ActivityPhases.Reveal; state["votingOpen"] = false; state["resultsVisible"] = true; await ScoreDrawingAsync(run, config, state, ct); return (true, null);
+                state["phase"] = ActivityPhases.Reveal; state["votingOpen"] = false; state["votingTimerRunning"] = false; state["resultsVisible"] = true; await ScoreDrawingAsync(run, config, state, ct); return (true, null);
             case "next": case "nextround":
+                if (telephone) action = "nextstep";
+                else
+                {
                 var prompts = ArrayValue(config, "prompts"); var index = IntValue(state, "currentPromptIndex");
                 if (index >= Math.Max(0, prompts.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
-                state["currentPromptIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["votingOpen"] = false; state["resultsVisible"] = false; return (true, null);
+                state["currentPromptIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["votingOpen"] = false; state["votingTimerRunning"] = false; state["resultsVisible"] = false; return (true, null);
+                }
+                goto case "nextstep";
+            case "nextstep":
+                if (!telephone) return (false, "This drawing does not use a telephone chain.");
+                var stepIndex = IntValue(state, "telephoneStepIndex");
+                if (stepIndex >= Math.Max(0, chainSteps.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
+                state["telephoneStepIndex"] = stepIndex + 1;
+                state["phase"] = ActivityPhases.RoundIntro;
+                state["responsesOpen"] = false;
+                state["responsesLocked"] = false;
+                state["resultsVisible"] = false;
+                state["telephoneChainRevealed"] = false;
+                UpdateTelephoneStepState(config, state);
+                return (true, null);
             case "showleaderboard": state["phase"] = ActivityPhases.Leaderboard; return (true, null);
             default: return (false, $"Unrecognized drawing action '{action}'.");
         }
@@ -979,23 +1056,46 @@ public sealed class ActivitySessionService(
         if (action is "submit" or "draw" or "response")
         {
             if (StringValue(state, "phase") != ActivityPhases.AcceptingResponses || !BoolValue(state, "responsesOpen")) return (false, "Drawing is closed.");
-            if (!ValidateDrawingPayload(payload, out var error)) return (false, error);
+            var telephone = BoolValue(config, "telephoneChain");
+            var telephoneKind = StringValue(state, "telephoneStepKind", "drawing");
+            if (telephone && telephoneKind == "description")
+            {
+                var text = ReadString(payload, "text").Trim();
+                if (text.Length is < 1 or > 1000) return (false, "Descriptions must be between 1 and 1,000 characters.");
+            }
+            else if (!ValidateDrawingPayload(payload, config, out var error)) return (false, error);
             var existing = await db.ActivitySubmissions.SingleOrDefaultAsync(x => x.ActivityRunId == run.Id && x.ParticipantId == participant.Id && x.RoundId == roundId, ct);
             var status = BoolValue(config, "requireModeration", true) ? "pending" : "approved";
-            var json = payload!.Value.GetRawText();
-            if (existing is null) db.ActivitySubmissions.Add(new ActivitySubmission { ActivityRunId = run.Id, ParticipantId = participant.Id, RoundId = roundId, Kind = "drawing", PayloadJson = json, ModerationStatus = status });
+            var payloadObject = JsonNode.Parse(payload!.Value.GetRawText()) as JsonObject ?? new JsonObject();
+            if (telephone) { payloadObject["stepIndex"] = IntValue(state, "telephoneStepIndex"); payloadObject["kind"] = telephoneKind; }
+            var json = payloadObject.ToJsonString(ActivityJsonDefaults.Options);
+            if (existing is null) db.ActivitySubmissions.Add(new ActivitySubmission { ActivityRunId = run.Id, ParticipantId = participant.Id, RoundId = roundId, Kind = telephone ? "telephone" : "drawing", PayloadJson = json, ModerationStatus = status });
             else { existing.PayloadJson = json; existing.ModerationStatus = status; existing.Hidden = false; existing.UpdatedAt = DateTimeOffset.UtcNow; }
             state["submissionCount"] = await db.ActivitySubmissions.CountAsync(x => x.ActivityRunId == run.Id && x.RoundId == roundId, ct) + (existing is null ? 1 : 0);
             return (true, null);
         }
-        if (action is "vote" or "choose") return await SaveVoteAsync(run, participant, state, payload, roundId, ct, "drawing");
+        if (action is "vote" or "choose") return await SaveVoteAsync(run, participant, state, payload, roundId, ct, "drawing", preventSelfVote: true);
         return (false, "Draw or vote when the host opens that phase.");
+    }
+
+    private static void UpdateTelephoneStepState(JsonObject config, JsonObject state)
+    {
+        var steps = ArrayValue(config, "chainSteps");
+        var index = Math.Clamp(IntValue(state, "telephoneStepIndex"), 0, Math.Max(0, steps.Count - 1));
+        var step = steps.Count > index ? steps[index] as JsonObject : null;
+        state["telephoneStepKind"] = StringValue(step, "kind", "drawing");
+        state["telephoneStepLabel"] = StringValue(step, "label", $"Step {index + 1}");
+        state["telephoneStepPrompt"] = StringValue(step, "prompt", "Continue the chain.");
+        state["telephoneStepPhrase"] = StringValue(step, "phrase", "");
+        state["telephoneStepCount"] = steps.Count;
     }
 
     private async Task<(bool Success, string? Error)> HandleOrderingHostAsync(ActivityRun run, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)
     {
         var rounds = ArrayValue(config, "rounds");
         var index = Math.Clamp(IntValue(state, "currentRoundIndex"), 0, Math.Max(0, rounds.Count - 1));
+        var round = rounds.Count > index ? rounds[index] as JsonObject : null;
+        var interactionMode = OrderingInteractionMode(config, round);
         switch (action)
         {
             case "open": case "openresponses": case "startsorting":
@@ -1004,14 +1104,32 @@ public sealed class ActivitySessionService(
                 state["phase"] = ActivityPhases.ResponsesLocked; state["responsesOpen"] = false; state["responsesLocked"] = true; return (true, null);
             case "reveal": case "showanswer":
                 state["phase"] = ActivityPhases.Reveal; state["responsesOpen"] = false; state["responsesLocked"] = true; state["answerRevealed"] = true;
-                state["correctOrder"] = new JsonArray(ReadStringArray(rounds.Count > index ? rounds[index] as JsonObject : null, "correctOrder").Select(item => (JsonNode)item).ToArray());
+                state["orderingInteractionMode"] = interactionMode;
+                if (interactionMode == "matching")
+                {
+                    state["correctPairs"] = ArrayValue(round, "pairs").DeepClone();
+                    state.Remove("correctOrder");
+                    state.Remove("correctGroups");
+                }
+                else if (interactionMode == "grouping")
+                {
+                    state["correctGroups"] = ArrayValue(round, "groups").DeepClone();
+                    state.Remove("correctOrder");
+                    state.Remove("correctPairs");
+                }
+                else
+                {
+                    state["correctOrder"] = new JsonArray(ReadStringArray(round, "correctOrder").Select(item => (JsonNode)item).ToArray());
+                    state.Remove("correctPairs");
+                    state.Remove("correctGroups");
+                }
                 if (!BoolValue(state, "scoresApplied")) { await ScoreOrderingAsync(run, config, state, ct); state["scoresApplied"] = true; }
                 return (true, null);
             case "next": case "nextround":
                 if (index >= Math.Max(0, rounds.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
-                state["currentRoundIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["answerRevealed"] = false; state.Remove("correctOrder"); state["scoresApplied"] = false; return (true, null);
+                state["currentRoundIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["answerRevealed"] = false; state.Remove("correctOrder"); state.Remove("correctPairs"); state.Remove("correctGroups"); state["scoresApplied"] = false; return (true, null);
             case "previous": case "prev":
-                state["currentRoundIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["answerRevealed"] = false; state.Remove("correctOrder"); return (true, null);
+                state["currentRoundIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["answerRevealed"] = false; state.Remove("correctOrder"); state.Remove("correctPairs"); state.Remove("correctGroups"); return (true, null);
             case "showleaderboard": state["phase"] = ActivityPhases.Leaderboard; return (true, null);
             default: return (false, $"Unrecognized ordering action '{action}'.");
         }
@@ -1019,16 +1137,69 @@ public sealed class ActivitySessionService(
 
     private async Task<(bool Success, string? Error)> HandleOrderingParticipantAsync(ActivityRun run, ActivityParticipant participant, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)
     {
-        if (action is not ("submit" or "sort" or "answer")) return (false, "Arrange the items while the round is open.");
+        if (action is not ("submit" or "sort" or "answer" or "match" or "group")) return (false, "Arrange the items while the round is open.");
         if (StringValue(state, "phase") != ActivityPhases.AcceptingResponses || !BoolValue(state, "responsesOpen")) return (false, "Sorting is closed.");
-        var order = ReadStringArray(payload, "order");
-        if (order.Count < 1 || order.Count > 50 || order.Distinct(StringComparer.Ordinal).Count() != order.Count) return (false, "Your order must contain each item once.");
         var rounds = ArrayValue(config, "rounds"); var index = Math.Clamp(IntValue(state, "currentRoundIndex"), 0, Math.Max(0, rounds.Count - 1));
-        var items = ArrayValue(rounds.Count > index ? rounds[index] as JsonObject : null, "items").Select(item => StringValue(item as JsonObject, "id") ?? "").Where(item => item.Length > 0).ToHashSet(StringComparer.Ordinal);
-        if (items.Count > 0 && order.Any(item => !items.Contains(item))) return (false, "That ordering contains an unknown item.");
+        var round = rounds.Count > index ? rounds[index] as JsonObject : null;
+        var interactionMode = OrderingInteractionMode(config, round);
+        JsonObject answerPayload;
+        if (interactionMode == "matching")
+        {
+            if (payload?.TryGetProperty("matches", out var matchesElement) != true || matchesElement.ValueKind != JsonValueKind.Array)
+                return (false, "Match every item before submitting.");
+            var expectedPairs = ArrayValue(round, "pairs").OfType<JsonObject>().ToArray();
+            var leftIds = expectedPairs.Select(item => StringValue(item, "id") ?? "").Where(item => item.Length > 0).ToHashSet(StringComparer.Ordinal);
+            var submittedLeft = new HashSet<string>(StringComparer.Ordinal);
+            var submittedRight = new HashSet<string>(StringComparer.Ordinal);
+            var normalized = new JsonArray();
+            foreach (var match in matchesElement.EnumerateArray())
+            {
+                var leftId = match.TryGetProperty("leftId", out var leftValue) ? leftValue.GetString()?.Trim() ?? "" : "";
+                var rightId = match.TryGetProperty("rightId", out var rightValue) ? rightValue.GetString()?.Trim() ?? "" : "";
+                if (leftId.Length == 0 || rightId.Length == 0 || !leftIds.Contains(leftId) || !submittedLeft.Add(leftId) || !submittedRight.Add(rightId))
+                    return (false, "Each match must use every left item once.");
+                normalized.Add(new JsonObject { ["leftId"] = leftId, ["rightId"] = rightId });
+            }
+            if (normalized.Count != expectedPairs.Length) return (false, "Match every item before submitting.");
+            answerPayload = new JsonObject { ["matches"] = normalized };
+        }
+        else if (interactionMode == "grouping")
+        {
+            if (payload?.TryGetProperty("groups", out var groupsElement) != true || groupsElement.ValueKind != JsonValueKind.Array)
+                return (false, "Place every item into a group before submitting.");
+            var expectedItems = ArrayValue(round, "items").OfType<JsonObject>().Select(item => StringValue(item, "id") ?? "").Where(item => item.Length > 0).ToHashSet(StringComparer.Ordinal);
+            var submittedItems = new HashSet<string>(StringComparer.Ordinal);
+            var normalized = new JsonArray();
+            foreach (var group in groupsElement.EnumerateArray())
+            {
+                var groupId = group.TryGetProperty("groupId", out var groupValue) ? groupValue.GetString()?.Trim() ?? "" : "";
+                if (groupId.Length == 0 || group.TryGetProperty("itemIds", out var itemIdsElement) != true || itemIdsElement.ValueKind != JsonValueKind.Array)
+                    return (false, "Every group needs a name and its selected items.");
+                var itemIds = new JsonArray();
+                foreach (var item in itemIdsElement.EnumerateArray())
+                {
+                    var itemId = item.GetString()?.Trim() ?? "";
+                    if (itemId.Length == 0 || !expectedItems.Contains(itemId) || !submittedItems.Add(itemId)) return (false, "Place each item into one group only.");
+                    itemIds.Add(itemId);
+                }
+                if (itemIds.Count == 0) return (false, "Every group needs at least one item.");
+                normalized.Add(new JsonObject { ["groupId"] = groupId, ["itemIds"] = itemIds });
+            }
+            if (submittedItems.Count != expectedItems.Count) return (false, "Place every item into a group before submitting.");
+            answerPayload = new JsonObject { ["groups"] = normalized };
+        }
+        else
+        {
+            var order = ReadStringArray(payload, "order");
+            if (order.Count < 1 || order.Count > 50 || order.Distinct(StringComparer.Ordinal).Count() != order.Count) return (false, "Your order must contain each item once.");
+            var items = ArrayValue(round, "items").Select(item => StringValue(item as JsonObject, "id") ?? "").Where(item => item.Length > 0).ToHashSet(StringComparer.Ordinal);
+            if (items.Count > 0 && (order.Count != items.Count || order.Any(item => !items.Contains(item)) || items.Any(item => !order.Contains(item, StringComparer.Ordinal))))
+                return (false, "Your order must include every item exactly once.");
+            answerPayload = new JsonObject { ["order"] = new JsonArray(order.Select(item => (JsonNode)item).ToArray()) };
+        }
         var roundId = CurrentRoundId(run, config);
         var existing = await db.ActivitySubmissions.SingleOrDefaultAsync(x => x.ActivityRunId == run.Id && x.ParticipantId == participant.Id && x.RoundId == roundId, ct);
-        var json = JsonSerializer.Serialize(new { order }, ActivityJsonDefaults.Options);
+        var json = answerPayload.ToJsonString(ActivityJsonDefaults.Options);
         if (existing is null) db.ActivitySubmissions.Add(new ActivitySubmission { ActivityRunId = run.Id, ParticipantId = participant.Id, RoundId = roundId, Kind = "ordering", PayloadJson = json });
         else { existing.PayloadJson = json; existing.UpdatedAt = DateTimeOffset.UtcNow; }
         return (true, null);
@@ -1042,19 +1213,25 @@ public sealed class ActivitySessionService(
         {
             case "open": case "openresponses": case "startwords":
                 state["phase"] = ActivityPhases.AcceptingResponses; state["responsesOpen"] = true; state["responsesLocked"] = false;
+                var round = rounds.Count > index ? rounds[index] as JsonObject : null;
+                var seconds = Math.Clamp(IntValue(round, "seconds", IntValue(config, "seconds", 45)), 5, 600);
+                state["timerDurationMs"] = seconds * 1000L;
+                state["timerStartedAt"] = DateTimeOffset.UtcNow.ToString("O");
+                state["timerRunning"] = true;
+                state.Remove("timerPausedAt");
                 if (BoolValue(config, "turnBased")) InitializeWordTurn(run, state);
                 return (true, null);
             case "close": case "closeresponses": case "lock":
-                state["phase"] = ActivityPhases.ResponsesLocked; state["responsesOpen"] = false; state["responsesLocked"] = true; return (true, null);
+                state["phase"] = ActivityPhases.ResponsesLocked; state["responsesOpen"] = false; state["responsesLocked"] = true; state["timerRunning"] = false; return (true, null);
             case "reveal": case "showwords":
-                state["phase"] = ActivityPhases.Reveal; state["responsesOpen"] = false; state["responsesLocked"] = true; state["resultsVisible"] = true; await ScoreWordAsync(run, config, state, ct); return (true, null);
+                state["phase"] = ActivityPhases.Reveal; state["responsesOpen"] = false; state["responsesLocked"] = true; state["resultsVisible"] = true; state["timerRunning"] = false; await ScoreWordAsync(run, config, state, ct); return (true, null);
             case "next": case "nextround":
                 if (index >= Math.Max(0, rounds.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
-                state["currentRoundIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["resultsVisible"] = false; state.Remove("wordCloud");
+                state["currentRoundIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["resultsVisible"] = false; state["timerRunning"] = false; state.Remove("wordCloud");
                 if (BoolValue(config, "turnBased")) InitializeWordTurn(run, state); else ClearWordTurn(state);
                 return (true, null);
             case "previous": case "prev":
-                state["currentRoundIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state.Remove("wordCloud");
+                state["currentRoundIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["timerRunning"] = false; state.Remove("wordCloud");
                 if (BoolValue(config, "turnBased")) InitializeWordTurn(run, state); else ClearWordTurn(state);
                 return (true, null);
             case "showleaderboard": state["phase"] = ActivityPhases.Leaderboard; return (true, null);
@@ -1066,6 +1243,7 @@ public sealed class ActivitySessionService(
     {
         if (action is not ("submit" or "response" or "words")) return (false, "Send words while the round is open.");
         if (StringValue(state, "phase") != ActivityPhases.AcceptingResponses || !BoolValue(state, "responsesOpen")) return (false, "Word responses are closed.");
+        if (BoolValue(state, "timerRunning") && WordTimerRemainingMs(state) <= 0) return (false, "Time is up for this word round.");
         var words = ReadWords(payload);
         if (words.Count is < 1 or > 30) return (false, "Send between 1 and 30 short words.");
         var roundId = CurrentRoundId(run, config);
@@ -1108,6 +1286,8 @@ public sealed class ActivitySessionService(
             AdvanceWordTurn(run, state);
             return (true, null);
         }
+        var configuredMaxWords = Math.Clamp(IntValue(config, "maxWords", 30), 1, 30);
+        if (words.Count > configuredMaxWords) return (false, $"This round accepts at most {configuredMaxWords} word{(configuredMaxWords == 1 ? "" : "s")} per response.");
         var existing = await db.ActivitySubmissions.SingleOrDefaultAsync(x => x.ActivityRunId == run.Id && x.ParticipantId == participant.Id && x.RoundId == roundId, ct);
         var status = BoolValue(config, "requireModeration", true) ? "pending" : "approved";
         var json = JsonSerializer.Serialize(new { words }, ActivityJsonDefaults.Options);
@@ -1155,13 +1335,18 @@ public sealed class ActivitySessionService(
             case "showmatch":
                 var targetParticipantId = StringValue(state, "targetParticipantId");
                 var targetSubmission = run.Submissions.FirstOrDefault(item => item.RoundId == CurrentRoundId(run, config) && item.Kind == "matchTarget" && item.ParticipantId.ToString() == targetParticipantId);
-                var targetAnswer = targetSubmission is null ? -1 : IntValue(ParseObject(targetSubmission.PayloadJson), "optionIndex", -1);
-                if (targetAnswer < 0) return (false, "The target has not answered yet.");
+                var currentRound = rounds.Count > index ? rounds[index] as JsonObject : null;
+                var answerMode = (StringValue(currentRound, "answerMode") ?? "choice").Trim().ToLowerInvariant();
+                var targetPayload = targetSubmission is null ? null : ParseObject(targetSubmission.PayloadJson);
+                var targetAnswer = answerMode == "choice" && targetPayload is not null ? IntValue(targetPayload, "optionIndex", -1) : -1;
+                var targetText = answerMode == "text" ? StringValue(targetPayload, "text")?.Trim() : null;
+                if ((answerMode == "choice" && targetAnswer < 0) || (answerMode == "text" && string.IsNullOrWhiteSpace(targetText))) return (false, "The target has not answered yet.");
                 state["phase"] = ActivityPhases.Reveal;
                 state["responsesOpen"] = false;
                 state["responsesLocked"] = true;
                 state["answerRevealed"] = true;
-                state["revealedOptionIndex"] = targetAnswer;
+                if (answerMode == "choice") { state["revealedOptionIndex"] = targetAnswer; state.Remove("revealedMatchAnswer"); }
+                else { state.Remove("revealedOptionIndex"); state["revealedMatchAnswer"] = targetText; }
                 await ScoreMatchPlayerAsync(run, config, state, ct);
                 return (true, null);
             case "next":
@@ -1205,12 +1390,24 @@ public sealed class ActivitySessionService(
         var isTarget = targetId == participant.Id.ToString();
         if (isTarget && action is not ("answer" or "submit")) return (false, "The selected player should answer the prompt.");
         if (!isTarget && action is not ("predict" or "choose")) return (false, "Predict the target's answer.");
-        var optionIndex = ReadInt(payload, "optionIndex", -1);
-        if (optionIndex < 0 || optionIndex >= options.Count) return (false, "That choice is not available.");
+        var answerMode = (StringValue(round, "answerMode") ?? "choice").Trim().ToLowerInvariant();
+        JsonObject answerPayload;
+        if (answerMode == "text")
+        {
+            var text = ReadString(payload, "text").Trim();
+            if (text.Length is < 1 or > 200) return (false, "Text answers must be between 1 and 200 characters.");
+            answerPayload = new JsonObject { ["text"] = text };
+        }
+        else
+        {
+            var optionIndex = ReadInt(payload, "optionIndex", -1);
+            if (optionIndex < 0 || optionIndex >= options.Count) return (false, "That choice is not available.");
+            answerPayload = new JsonObject { ["optionIndex"] = optionIndex };
+        }
         var roundId = CurrentRoundId(run, config);
         var existing = await db.ActivitySubmissions.SingleOrDefaultAsync(item => item.ActivityRunId == run.Id && item.ParticipantId == participant.Id && item.RoundId == roundId, ct);
         var kind = isTarget ? "matchTarget" : "matchPrediction";
-        var json = JsonSerializer.Serialize(new { optionIndex }, ActivityJsonDefaults.Options);
+        var json = answerPayload.ToJsonString(ActivityJsonDefaults.Options);
         if (existing is null) db.ActivitySubmissions.Add(new ActivitySubmission { ActivityRunId = run.Id, ParticipantId = participant.Id, RoundId = roundId, Kind = kind, PayloadJson = json });
         else { existing.Kind = kind; existing.PayloadJson = json; existing.UpdatedAt = DateTimeOffset.UtcNow; }
         state["responseCount"] = await db.ActivitySubmissions.CountAsync(item => item.ActivityRunId == run.Id && item.RoundId == roundId, ct) + (existing is null ? 1 : 0);
@@ -1246,6 +1443,9 @@ public sealed class ActivitySessionService(
                 state.Remove("timerPausedAt");
                 state.Remove("outcome");
                 state["scoresApplied"] = false;
+                state["audienceVotingOpen"] = false;
+                state["audienceVoteCounts"] = new JsonObject();
+                state["audienceVoteScoreApplied"] = false;
                 return (true, null);
             case "pausetimer":
             case "pausechallenge":
@@ -1262,23 +1462,41 @@ public sealed class ActivitySessionService(
                 state.Remove("timerPausedAt");
                 state["challengeStatus"] = "running";
                 return (true, null);
+            case "openaudiencevote":
+            case "openvote":
+                if (!BoolValue(config, "audienceVoting")) return (false, "Enable audience voting in the activity settings first.");
+                if (string.IsNullOrWhiteSpace(StringValue(state, "selectedParticipantId"))) return (false, "Choose a contestant before opening the audience vote.");
+                if (StringValue(state, "challengeStatus") == "running") return (false, "Pause or finish the timer before opening the audience vote.");
+                state["phase"] = ActivityPhases.Voting;
+                state["audienceVotingOpen"] = true;
+                state["votingOpen"] = true;
+                return (true, null);
+            case "closeaudiencevote":
+            case "closevote":
+                if (StringValue(state, "phase") != ActivityPhases.Voting || !BoolValue(state, "audienceVotingOpen")) return (false, "The audience vote is not open.");
+                state["phase"] = ActivityPhases.Judging;
+                state["audienceVotingOpen"] = false;
+                state["votingOpen"] = false;
+                state["audienceVoteCounts"] = await GetStageAudienceVoteCountsAsync(run, config, ct);
+                return (true, null);
+            case "useaudiencevote":
+            case "resolveaudiencevote":
+                if (StringValue(state, "phase") == ActivityPhases.Voting)
+                {
+                    state["audienceVotingOpen"] = false;
+                    state["votingOpen"] = false;
+                }
+                if (StringValue(state, "phase") is not (ActivityPhases.Voting or ActivityPhases.Judging)) return (false, "Close the audience vote before using its result.");
+                var audienceCounts = await GetStageAudienceVoteCountsAsync(run, config, ct);
+                var audienceSuccess = IntValue(audienceCounts, "success");
+                var audienceFail = IntValue(audienceCounts, "fail");
+                if (audienceSuccess == audienceFail) return (false, audienceSuccess == 0 ? "The audience has not voted yet." : "The audience vote is tied; choose success or fail.");
+                state["audienceVoteCounts"] = audienceCounts;
+                return await ResolveStageChallengeAsync(run, config, state, challenge, audienceSuccess > audienceFail, ct);
             case "success":
             case "succeed":
             case "fail":
-                var succeeded = action is "success" or "succeed";
-                state["phase"] = ActivityPhases.Reveal;
-                state["challengeStatus"] = succeeded ? "success" : "failure";
-                state["outcome"] = succeeded ? "success" : "failure";
-                state["timerPausedAt"] = DateTimeOffset.UtcNow;
-                if (!BoolValue(state, "scoresApplied"))
-                {
-                    var selectedParticipantId = Guid.TryParse(StringValue(state, "selectedParticipantId"), out var participantGuid) ? participantGuid : (Guid?)null;
-                    var selectedTeamId = Guid.TryParse(StringValue(state, "selectedTeamId"), out var teamGuid) ? teamGuid : (Guid?)null;
-                    var amount = succeeded ? IntValue(challenge, "points", 100) : IntValue(challenge, "failPoints", 0);
-                    if (amount != 0 && (selectedParticipantId.HasValue || selectedTeamId.HasValue)) await AwardScoreAsync(run, selectedParticipantId, selectedTeamId, amount, succeeded ? "Stage challenge success" : "Stage challenge result", CurrentRoundId(run, config), ct);
-                    state["scoresApplied"] = true;
-                }
-                return (true, null);
+                return await ResolveStageChallengeAsync(run, config, state, challenge, action is "success" or "succeed", ct);
             case "next":
             case "nextchallenge":
                 if (index >= Math.Max(0, challenges.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
@@ -1286,7 +1504,7 @@ public sealed class ActivitySessionService(
                 state["phase"] = ActivityPhases.RoundIntro;
                 state["challengeStatus"] = "ready";
                 state["timerDurationMs"] = 0L;
-                state.Remove("timerStartedAt"); state.Remove("timerPausedAt"); state.Remove("outcome"); state.Remove("selectedParticipantId"); state.Remove("selectedParticipantName"); state.Remove("selectedTeamId");
+                state.Remove("timerStartedAt"); state.Remove("timerPausedAt"); state.Remove("outcome"); state.Remove("selectedParticipantId"); state.Remove("selectedParticipantName"); state.Remove("selectedTeamId"); state["audienceVotingOpen"] = false; state["votingOpen"] = false; state["audienceVoteCounts"] = new JsonObject(); state["audienceVoteScoreApplied"] = false;
                 return (true, null);
             case "previous":
             case "prevchallenge":
@@ -1302,6 +1520,79 @@ public sealed class ActivitySessionService(
         }
     }
 
+    private async Task<(bool Success, string? Error)> HandleStageChallengeParticipantAsync(ActivityRun run, ActivityParticipant participant, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)
+    {
+        if (!BoolValue(config, "audienceVoting")) return (false, "This stage challenge is host-judged without audience voting.");
+        if (StringValue(state, "phase") != ActivityPhases.Voting || !BoolValue(state, "audienceVotingOpen")) return (false, "The audience vote is closed.");
+        if (action is not ("vote" or "choose" or "submit")) return (false, "Choose whether the contestant succeeds.");
+        var outcome = ReadString(payload, "outcome").Trim().ToLowerInvariant();
+        if (outcome.Length == 0) outcome = ReadString(payload, "targetId").Trim().ToLowerInvariant();
+        if (outcome is not ("success" or "fail")) return (false, "Choose success or fail.");
+
+        var roundId = CurrentRoundId(run, config);
+        var existing = await db.ActivityVotes.SingleOrDefaultAsync(vote => vote.ActivityRunId == run.Id && vote.VoterParticipantId == participant.Id && vote.RoundId == roundId, ct);
+        var voteJson = JsonSerializer.Serialize(new { outcome }, ActivityJsonDefaults.Options);
+        if (existing is null)
+            db.ActivityVotes.Add(new ActivityVote { ActivityRunId = run.Id, VoterParticipantId = participant.Id, RoundId = roundId, TargetId = outcome, PayloadJson = voteJson });
+        else
+        {
+            existing.TargetId = outcome;
+            existing.PayloadJson = voteJson;
+            existing.CreatedAt = DateTimeOffset.UtcNow;
+        }
+        return (true, null);
+    }
+
+    private async Task<JsonObject> GetStageAudienceVoteCountsAsync(ActivityRun run, JsonObject config, CancellationToken ct)
+    {
+        var roundId = CurrentRoundId(run, config);
+        var outcomes = await db.ActivityVotes
+            .Where(vote => vote.ActivityRunId == run.Id && vote.RoundId == roundId && (vote.TargetId == "success" || vote.TargetId == "fail"))
+            .Select(vote => vote.TargetId)
+            .ToListAsync(ct);
+        return new JsonObject
+        {
+            ["success"] = outcomes.Count(outcome => outcome == "success"),
+            ["fail"] = outcomes.Count(outcome => outcome == "fail"),
+            ["total"] = outcomes.Count
+        };
+    }
+
+    private async Task<(bool Success, string? Error)> ResolveStageChallengeAsync(ActivityRun run, JsonObject config, JsonObject state, JsonObject? challenge, bool succeeded, CancellationToken ct)
+    {
+        state["phase"] = ActivityPhases.Reveal;
+        state["challengeStatus"] = succeeded ? "success" : "failure";
+        state["outcome"] = succeeded ? "success" : "failure";
+        state["timerPausedAt"] = DateTimeOffset.UtcNow;
+        state["audienceVotingOpen"] = false;
+        state["votingOpen"] = false;
+        if (!BoolValue(state, "scoresApplied"))
+        {
+            var selectedParticipantId = Guid.TryParse(StringValue(state, "selectedParticipantId"), out var participantGuid) ? participantGuid : (Guid?)null;
+            var selectedTeamId = Guid.TryParse(StringValue(state, "selectedTeamId"), out var teamGuid) ? teamGuid : (Guid?)null;
+            var amount = succeeded ? IntValue(challenge, "points", 100) : IntValue(challenge, "failPoints", 0);
+            if (amount != 0 && (selectedParticipantId.HasValue || selectedTeamId.HasValue)) await AwardScoreAsync(run, selectedParticipantId, selectedTeamId, amount, succeeded ? "Stage challenge success" : "Stage challenge result", CurrentRoundId(run, config), ct);
+            state["scoresApplied"] = true;
+        }
+        if (BoolValue(config, "audienceVoting") && !BoolValue(state, "audienceVoteScoreApplied"))
+        {
+            var counts = await GetStageAudienceVoteCountsAsync(run, config, ct);
+            state["audienceVoteCounts"] = counts;
+            var selectedOutcome = succeeded ? "success" : "fail";
+            var audiencePoints = Math.Clamp(IntValue(config, "audienceVotePoints", 25), 0, 1000);
+            if (audiencePoints > 0)
+            {
+                var matchingVoters = await db.ActivityVotes
+                    .Where(vote => vote.ActivityRunId == run.Id && vote.RoundId == CurrentRoundId(run, config) && vote.TargetId == selectedOutcome)
+                    .Select(vote => vote.VoterParticipantId)
+                    .ToListAsync(ct);
+                foreach (var voterId in matchingVoters) await AwardScoreAsync(run, voterId, null, audiencePoints, "Audience call bonus", CurrentRoundId(run, config), ct);
+            }
+            state["audienceVoteScoreApplied"] = true;
+        }
+        return (true, null);
+    }
+
     private async Task<(bool Success, string? Error)> HandlePhysicalRoomHostAsync(ActivityRun run, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)
     {
         var rounds = ArrayValue(config, "rounds");
@@ -1309,23 +1600,63 @@ public sealed class ActivitySessionService(
         var index = Math.Clamp(IntValue(state, "currentRoundIndex"), 0, rounds.Count - 1);
         var round = rounds[index] as JsonObject;
         var seconds = Math.Clamp(IntValue(round, "seconds", 30), 5, 3600);
+        var phase = StringValue(state, "phase", ActivityPhases.Lobby);
+        var status = StringValue(state, "challengeStatus", "ready");
+        var adventure = BoolValue(config, "adventure");
 
         switch (action)
         {
+            case "openchoices":
+            case "choosepath":
+                if (!adventure) return (false, "Choice branches are only available for Adventure activities.");
+                if (phase != ActivityPhases.RoundIntro) return (false, "Open choices from the story intro.");
+                state["phase"] = ActivityPhases.AcceptingResponses;
+                state["responsesOpen"] = true;
+                state["challengeStatus"] = "choicesOpen";
+                state["revealed"] = false;
+                return (true, null);
+            case "resolvechoice":
+            case "nextbranch":
+                if (!adventure || phase != ActivityPhases.AcceptingResponses) return (false, "Open the story choices before resolving the branch.");
+                var choiceIndex = ReadInt(payload, "choiceIndex", ReadInt(payload, "optionIndex", -1));
+                var storyChoices = ReadStringArray(round, "choices");
+                if (choiceIndex < 0 || choiceIndex >= storyChoices.Count) return (false, "Choose one of the visible story paths.");
+                var branches = round? ["branches"] as JsonObject;
+                var nextIndex = branches is not null && branches.TryGetPropertyValue(choiceIndex.ToString(CultureInfo.InvariantCulture), out var branchValue) && branchValue is not null
+                    ? branchValue.GetValue<int>()
+                    : index + 1;
+                nextIndex = Math.Clamp(nextIndex, 0, rounds.Count - 1);
+                var history = ArrayValue(state, "adventureHistory");
+                history.Add(new JsonObject { ["roundIndex"] = index, ["choiceIndex"] = choiceIndex, ["choice"] = storyChoices[choiceIndex], ["title"] = StringValue(round, "title") ?? $"Round {index + 1}" });
+                state["adventureHistory"] = history;
+                state["adventureLastChoice"] = storyChoices[choiceIndex];
+                state["currentRoundIndex"] = nextIndex;
+                state["responsesOpen"] = false;
+                if (nextIndex == index || nextIndex >= rounds.Count - 1 && ReadStringArray(rounds[nextIndex] as JsonObject, "choices").Count == 0)
+                {
+                    state["phase"] = ActivityPhases.Reveal;
+                    state["challengeStatus"] = "revealed";
+                    state["revealed"] = true;
+                }
+                else ResetPhysicalRoomRound(state);
+                return (true, null);
             case "next":
             case "nextround":
+                if (phase is not (ActivityPhases.Reveal or ActivityPhases.Leaderboard)) return (false, "Reveal the room round before advancing.");
                 if (index >= rounds.Count - 1) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
                 state["currentRoundIndex"] = index + 1;
                 ResetPhysicalRoomRound(state);
                 return (true, null);
             case "previous":
             case "prev":
+                if (phase is ActivityPhases.Lobby or ActivityPhases.Complete) return (false, "The room has not started.");
                 state["currentRoundIndex"] = Math.Max(0, index - 1);
                 ResetPhysicalRoomRound(state);
                 return (true, null);
             case "starttimer":
             case "startchallenge":
             case "timer":
+                if (phase != ActivityPhases.RoundIntro) return (false, "Start the room timer from the round intro.");
                 state["phase"] = ActivityPhases.AcceptingResponses;
                 state["challengeStatus"] = "running";
                 state["timerDurationMs"] = seconds * 1000L;
@@ -1335,12 +1666,13 @@ public sealed class ActivitySessionService(
                 return (true, null);
             case "pausetimer":
             case "pausechallenge":
-                if (DateTimeOffsetValue(state, "timerStartedAt") is null) return (false, "Start the room timer first.");
+                if (phase != ActivityPhases.AcceptingResponses || status != "running" || DateTimeOffsetValue(state, "timerStartedAt") is null) return (false, "The room timer is not running.");
                 state["timerPausedAt"] = DateTimeOffset.UtcNow;
                 state["challengeStatus"] = "paused";
                 return (true, null);
             case "resumetimer":
             case "resumechallenge":
+                if (phase != ActivityPhases.AcceptingResponses || status != "paused") return (false, "The room timer is not paused.");
                 var startedAt = DateTimeOffsetValue(state, "timerStartedAt");
                 var pausedAt = DateTimeOffsetValue(state, "timerPausedAt");
                 if (startedAt is null || pausedAt is null) return (false, "The room timer is not paused.");
@@ -1350,19 +1682,18 @@ public sealed class ActivitySessionService(
                 return (true, null);
             case "reset":
             case "resetround":
+                if (phase is ActivityPhases.Lobby or ActivityPhases.FinalResults or ActivityPhases.Complete) return (false, "There is no active room round to reset.");
                 ResetPhysicalRoomRound(state);
                 return (true, null);
             case "randomize":
+                if (phase != ActivityPhases.RoundIntro) return (false, "Randomize room choices before starting the timer.");
                 var choices = ReadStringArray(round, "choices");
-                for (var position = choices.Count - 1; position > 0; position--)
-                {
-                    var swap = RandomNumberGenerator.GetInt32(position + 1);
-                    (choices[position], choices[swap]) = (choices[swap], choices[position]);
-                }
+                random.Shuffle(choices);
                 state["randomizedChoices"] = new JsonArray(choices.Select(choice => (JsonNode)choice).ToArray());
                 return (true, null);
             case "reveal":
             case "show":
+                if (phase != ActivityPhases.AcceptingResponses || status is not ("running" or "paused")) return (false, "Run the room timer before revealing the round.");
                 state["phase"] = ActivityPhases.Reveal;
                 state["challengeStatus"] = "revealed";
                 state["revealed"] = true;
@@ -1370,6 +1701,7 @@ public sealed class ActivitySessionService(
                 return (true, null);
             case "showleaderboard":
             case "leaderboard":
+                if (phase != ActivityPhases.Reveal) return (false, "Reveal the room round before showing the leaderboard.");
                 state["phase"] = ActivityPhases.Leaderboard;
                 return (true, null);
             case "finish":
@@ -1390,6 +1722,7 @@ public sealed class ActivitySessionService(
         state.Remove("timerPausedAt");
         state["revealed"] = false;
         state["randomizedChoices"] = new JsonArray();
+        state["responsesOpen"] = false;
     }
 
     private static void EnsurePhysicalRoomState(JsonObject config, JsonObject state)
@@ -1401,6 +1734,26 @@ public sealed class ActivitySessionService(
         state["challengeStatus"] = StringValue(state, "challengeStatus", "ready");
         state["timerDurationMs"] = LongValue(state, "timerDurationMs");
         state["revealed"] = BoolValue(state, "revealed");
+        state["responsesOpen"] = BoolValue(state, "responsesOpen");
+        if (!state.ContainsKey("adventureHistory")) state["adventureHistory"] = new JsonArray();
+    }
+
+    private async Task<(bool Success, string? Error)> HandleAdventureParticipantAsync(ActivityRun run, ActivityParticipant participant, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)
+    {
+        if (action is not ("choose" or "vote" or "answer" or "submit")) return (false, "Choose a story path while the adventure is open.");
+        if (StringValue(state, "phase") != ActivityPhases.AcceptingResponses || !BoolValue(state, "responsesOpen")) return (false, "The story choices are closed.");
+        var rounds = ArrayValue(config, "rounds");
+        var index = Math.Clamp(IntValue(state, "currentRoundIndex"), 0, Math.Max(0, rounds.Count - 1));
+        var round = rounds.Count > index ? rounds[index] as JsonObject : null;
+        var choices = ReadStringArray(round, "choices");
+        var choiceIndex = ReadInt(payload, "choiceIndex", ReadInt(payload, "optionIndex", -1));
+        if (choiceIndex < 0 || choiceIndex >= choices.Count) return (false, "That story path is not available.");
+        var roundId = CurrentRoundId(run, config);
+        var voteJson = JsonSerializer.Serialize(new { choiceIndex, choice = choices[choiceIndex] }, ActivityJsonDefaults.Options);
+        var existing = await db.ActivityVotes.SingleOrDefaultAsync(vote => vote.ActivityRunId == run.Id && vote.VoterParticipantId == participant.Id && vote.RoundId == roundId, ct);
+        if (existing is null) db.ActivityVotes.Add(new ActivityVote { ActivityRunId = run.Id, VoterParticipantId = participant.Id, RoundId = roundId, TargetId = choiceIndex.ToString(CultureInfo.InvariantCulture), PayloadJson = voteJson });
+        else { existing.TargetId = choiceIndex.ToString(CultureInfo.InvariantCulture); existing.PayloadJson = voteJson; existing.CreatedAt = DateTimeOffset.UtcNow; }
+        return (true, null);
     }
 
     private async Task<(bool Success, string? Error)> HandleUtilityHostAsync(ActivityRun run, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)
@@ -2140,6 +2493,8 @@ public sealed class ActivitySessionService(
     {
         var target = ReadString(payload, "targetId").Trim(); if (target.Length is < 1 or > 80) return (false, "Choose a response to vote for.");
         if (StringValue(state, "phase") != ActivityPhases.Voting || !BoolValue(state, "votingOpen")) return (false, "Voting is closed.");
+        if (submissionKind == "drawing" && BoolValue(state, "votingTimerRunning") && DrawingVotingRemainingMs(state) <= 0)
+            return (false, "Voting time is up.");
         if (submissionKind is not null)
         {
             if (allowTruth && string.Equals(target, "truth", StringComparison.OrdinalIgnoreCase))
@@ -2549,6 +2904,7 @@ public sealed class ActivitySessionService(
     {
         var roundId = CurrentRoundId(run, config);
         var counts = run.Votes.Where(x => x.RoundId == roundId).GroupBy(x => x.TargetId).OrderByDescending(x => x.Count()).ThenBy(x => x.Key, StringComparer.Ordinal).ToList();
+        state["drawingVoteCounts"] = new JsonArray(counts.Select(item => (JsonNode)new JsonObject { ["submissionId"] = item.Key, ["votes"] = item.Count() }).ToArray());
         if (counts.Count == 0) return;
         var winner = run.Submissions.FirstOrDefault(x => x.Id.ToString() == counts[0].Key && x.Kind == "drawing" && x.ModerationStatus == "approved" && !x.Hidden);
         if (winner is null) return;
@@ -2562,16 +2918,76 @@ public sealed class ActivitySessionService(
     {
         var roundId = CurrentRoundId(run, config); var rounds = ArrayValue(config, "rounds"); var index = IntValue(state, "currentRoundIndex");
         var round = rounds.Count > index ? rounds[index] as JsonObject : null;
+        var interactionMode = OrderingInteractionMode(config, round);
+        var points = IntValue(round, "points", 100);
+        var scoringMode = (StringValue(config, "scoringMode") ?? "partial").Trim().ToLowerInvariant();
+        var results = new JsonArray();
+
+        if (interactionMode == "matching")
+        {
+            var expected = ArrayValue(round, "pairs").OfType<JsonObject>()
+                .Where(item => !string.IsNullOrWhiteSpace(StringValue(item, "left")) && !string.IsNullOrWhiteSpace(StringValue(item, "right")))
+                .ToDictionary(item => StringValue(item, "id") ?? StringValue(item, "left")!, item => StringValue(item, "right")!, StringComparer.OrdinalIgnoreCase);
+            foreach (var submission in run.Submissions.Where(x => x.RoundId == roundId && x.Kind == "ordering" && x.ModerationStatus == "approved" && !x.Hidden))
+            {
+                var submitted = ArrayValue(ParseObject(submission.PayloadJson), "matches").OfType<JsonObject>();
+                var pairCorrect = submitted.Count(item => StringValue(item, "rightId") is { } right && expected.TryGetValue(StringValue(item, "leftId") ?? "", out var expectedRight) && string.Equals(expectedRight, right, StringComparison.OrdinalIgnoreCase));
+                var earned = scoringMode == "exact" && pairCorrect != expected.Count ? 0 : (int)Math.Round(points * (pairCorrect / (double)Math.Max(1, expected.Count)), MidpointRounding.AwayFromZero);
+                results.Add(new JsonObject { ["participantId"] = submission.ParticipantId.ToString(), ["correctPairs"] = pairCorrect, ["totalPairs"] = expected.Count, ["earned"] = earned });
+                if (earned > 0) await AwardScoreAsync(run, submission.ParticipantId, null, earned, "Matching accuracy", roundId, ct);
+            }
+            state["orderingResults"] = results;
+            state["orderingScoringMode"] = scoringMode;
+            return;
+        }
+
+        if (interactionMode == "grouping")
+        {
+            var expected = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var group in ArrayValue(round, "groups").OfType<JsonObject>())
+            {
+                var groupId = StringValue(group, "id") ?? "";
+                foreach (var itemId in ReadStringArray(group, "itemIds"))
+                    if (groupId.Length > 0) expected[itemId] = groupId;
+            }
+            foreach (var submission in run.Submissions.Where(x => x.RoundId == roundId && x.Kind == "ordering" && x.ModerationStatus == "approved" && !x.Hidden))
+            {
+                var submitted = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var group in ArrayValue(ParseObject(submission.PayloadJson), "groups").OfType<JsonObject>())
+                {
+                    var groupId = StringValue(group, "groupId") ?? "";
+                    foreach (var itemId in ReadStringArray(group, "itemIds")) submitted[itemId] = groupId;
+                }
+                var groupCorrect = expected.Count(item => submitted.TryGetValue(item.Key, out var groupId) && string.Equals(groupId, item.Value, StringComparison.OrdinalIgnoreCase));
+                var earned = scoringMode == "exact" && groupCorrect != expected.Count ? 0 : (int)Math.Round(points * (groupCorrect / (double)Math.Max(1, expected.Count)), MidpointRounding.AwayFromZero);
+                results.Add(new JsonObject { ["participantId"] = submission.ParticipantId.ToString(), ["correctItems"] = groupCorrect, ["totalItems"] = expected.Count, ["earned"] = earned });
+                if (earned > 0) await AwardScoreAsync(run, submission.ParticipantId, null, earned, "Grouping accuracy", roundId, ct);
+            }
+            state["orderingResults"] = results;
+            state["orderingScoringMode"] = scoringMode;
+            return;
+        }
+
         var correct = ReadStringArray(round, "correctOrder");
         if (correct.Count == 0) return;
-        var points = IntValue(round, "points", 100);
         foreach (var submission in run.Submissions.Where(x => x.RoundId == roundId && x.Kind == "ordering" && x.ModerationStatus == "approved" && !x.Hidden))
         {
             var submitted = ReadStringArray(ParseObject(submission.PayloadJson), "order");
             var correctPositions = submitted.Select((item, itemIndex) => itemIndex < correct.Count && item == correct[itemIndex]).Count(isCorrect => isCorrect);
-            var earned = (int)Math.Round(points * (correctPositions / (double)correct.Count), MidpointRounding.AwayFromZero);
+            var earned = scoringMode == "exact" && correctPositions != correct.Count
+                ? 0
+                : (int)Math.Round(points * (correctPositions / (double)correct.Count), MidpointRounding.AwayFromZero);
+            results.Add(new JsonObject { ["participantId"] = submission.ParticipantId.ToString(), ["correctPositions"] = correctPositions, ["totalPositions"] = correct.Count, ["earned"] = earned });
             if (earned > 0) await AwardScoreAsync(run, submission.ParticipantId, null, earned, "Ordering accuracy", roundId, ct);
         }
+        state["orderingResults"] = results;
+        state["orderingScoringMode"] = scoringMode;
+    }
+
+    private static string OrderingInteractionMode(JsonObject config, JsonObject? round)
+    {
+        var mode = (StringValue(round, "interactionMode") ?? StringValue(config, "interactionMode") ?? "ordering").Trim().ToLowerInvariant();
+        return mode is "matching" or "grouping" ? mode : "ordering";
     }
 
     private async Task ScoreWordAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct)
@@ -2596,13 +3012,21 @@ public sealed class ActivitySessionService(
     {
         if (BoolValue(state, "scoresApplied")) return;
         var roundId = CurrentRoundId(run, config);
+        var rounds = ArrayValue(config, "rounds");
+        var currentRound = rounds.Count > IntValue(state, "currentRoundIndex") ? rounds[IntValue(state, "currentRoundIndex")] as JsonObject : null;
+        var answerMode = (StringValue(currentRound, "answerMode") ?? "choice").Trim().ToLowerInvariant();
         var answer = IntValue(state, "revealedOptionIndex", -1);
-        if (answer < 0) return;
-        var points = IntValue(ArrayValue(config, "rounds").Count > IntValue(state, "currentRoundIndex") ? ArrayValue(config, "rounds")[IntValue(state, "currentRoundIndex")] as JsonObject : null, "points", 100);
+        var answerText = StringValue(state, "revealedMatchAnswer");
+        if ((answerMode == "choice" && answer < 0) || (answerMode == "text" && string.IsNullOrWhiteSpace(answerText))) return;
+        var points = IntValue(currentRound, "points", 100);
         var matches = 0;
         foreach (var submission in run.Submissions.Where(item => item.RoundId == roundId && item.Kind == "matchPrediction" && !item.Hidden))
         {
-            if (IntValue(ParseObject(submission.PayloadJson), "optionIndex", -1) == answer)
+            var payload = ParseObject(submission.PayloadJson);
+            var isMatch = answerMode == "text"
+                ? string.Equals(NormalizeMatchText(StringValue(payload, "text")), NormalizeMatchText(answerText), StringComparison.OrdinalIgnoreCase)
+                : IntValue(payload, "optionIndex", -1) == answer;
+            if (isMatch)
             {
                 matches++;
                 await AwardScoreAsync(run, submission.ParticipantId, null, points, "Matched the target", roundId, ct);
@@ -3057,7 +3481,46 @@ public sealed class ActivitySessionService(
         else if (run.ActivityDefinition.Type == ActivityTypes.Drawing)
         {
             var drawingPhase = StringValue(state, "phase");
-            if (drawingPhase is ActivityPhases.Voting or ActivityPhases.Reveal or ActivityPhases.FinalResults or ActivityPhases.Leaderboard or ActivityPhases.Complete)
+            var telephone = BoolValue(config, "telephoneChain");
+            if (telephone)
+            {
+                var stepIndex = Math.Clamp(IntValue(state, "telephoneStepIndex"), 0, Math.Max(0, ArrayValue(config, "chainSteps").Count - 1));
+                var chainStep = ArrayValue(config, "chainSteps").Count > stepIndex ? ArrayValue(config, "chainSteps")[stepIndex] as JsonObject : null;
+                projected["telephoneStepIndex"] = stepIndex;
+                projected["telephoneStepKind"] = StringValue(chainStep, "kind", "drawing");
+                projected["telephoneStepLabel"] = StringValue(chainStep, "label", $"Step {stepIndex + 1}");
+                projected["telephoneStepPrompt"] = StringValue(chainStep, "prompt", "Continue the chain.");
+                projected["telephoneStepPhrase"] = StringValue(chainStep, "phrase", "");
+                projected["telephoneStepCount"] = ArrayValue(config, "chainSteps").Count;
+                if (participantId.HasValue && stepIndex > 0)
+                {
+                    var previous = run.Submissions.FirstOrDefault(submission => submission.ParticipantId == participantId.Value && submission.Kind == "telephone" && submission.RoundId == $"telephone-step-{stepIndex - 1}" && submission.ModerationStatus == "approved" && !submission.Hidden);
+                    if (previous is not null)
+                    {
+                        var previousPayload = ParseObject(previous.PayloadJson);
+                        projected["telephoneSourceStrokes"] = previousPayload["strokes"]?.DeepClone();
+                        projected["telephoneSourceText"] = StringValue(previousPayload, "text") ?? "";
+                    }
+                }
+                if (drawingPhase is ActivityPhases.Reveal or ActivityPhases.FinalResults or ActivityPhases.Leaderboard or ActivityPhases.Complete)
+                {
+                    projected["telephoneChain"] = new JsonArray(run.Submissions.Where(submission => submission.Kind == "telephone" && submission.ModerationStatus == "approved" && !submission.Hidden).OrderBy(submission => submission.SubmittedAt).ThenBy(submission => submission.Id).Select(submission =>
+                    {
+                        var chainPayload = ParseObject(submission.PayloadJson);
+                        return (JsonNode)new JsonObject
+                        {
+                            ["id"] = submission.Id.ToString(),
+                            ["stepIndex"] = IntValue(chainPayload, "stepIndex"),
+                            ["kind"] = StringValue(chainPayload, "kind", "drawing"),
+                            ["text"] = StringValue(chainPayload, "text", ""),
+                            ["strokes"] = chainPayload["strokes"]?.DeepClone() ?? new JsonArray()
+                        };
+                    }).ToArray());
+                }
+            }
+            if (drawingPhase == ActivityPhases.Voting && BoolValue(state, "votingTimerRunning"))
+                projected["votingTimerRemainingMs"] = DrawingVotingRemainingMs(state);
+            if (!telephone && drawingPhase is (ActivityPhases.Voting or ActivityPhases.Reveal or ActivityPhases.FinalResults or ActivityPhases.Leaderboard or ActivityPhases.Complete))
             {
                 projected["drawings"] = new JsonArray(submissions.Select(submission =>
                 {
@@ -3073,6 +3536,49 @@ public sealed class ActivitySessionService(
         else if (run.ActivityDefinition.Type == ActivityTypes.Ordering)
         {
             var orderingPhase = StringValue(state, "phase");
+            var rounds = ArrayValue(config, "rounds");
+            var index = Math.Clamp(IntValue(state, "currentRoundIndex"), 0, Math.Max(0, rounds.Count - 1));
+            var round = rounds.Count > index ? rounds[index] as JsonObject : null;
+            var interactionMode = OrderingInteractionMode(config, round);
+            projected["interactionMode"] = interactionMode;
+            projected["orderingInteractionMode"] = interactionMode;
+            if (interactionMode == "matching")
+            {
+                var pairs = ArrayValue(round, "pairs").OfType<JsonObject>().ToArray();
+                projected["matchingLeft"] = new JsonArray(pairs.Select((pair, pairIndex) => (JsonNode)new JsonObject
+                {
+                    ["id"] = StringValue(pair, "id") ?? $"pair-{pairIndex + 1}",
+                    ["label"] = StringValue(pair, "left") ?? "Left item"
+                }).ToArray());
+                projected["matchingRight"] = new JsonArray(pairs
+                    .Select((pair, pairIndex) => new { Id = StringValue(pair, "rightId") ?? StringValue(pair, "right") ?? $"right-{pairIndex + 1}", Label = StringValue(pair, "right") ?? "Right item" })
+                    .OrderBy(item => item.Label, StringComparer.OrdinalIgnoreCase)
+                    .Select(item => (JsonNode)new JsonObject { ["id"] = item.Id, ["label"] = item.Label }).ToArray());
+                if (orderingPhase is ActivityPhases.Reveal or ActivityPhases.FinalResults or ActivityPhases.Leaderboard or ActivityPhases.Complete)
+                    projected["correctPairs"] = state["correctPairs"]?.DeepClone();
+            }
+            else if (interactionMode == "grouping")
+            {
+                projected["groupingItems"] = new JsonArray(ArrayValue(round, "items").OfType<JsonObject>().Select((item, itemIndex) => (JsonNode)new JsonObject
+                {
+                    ["id"] = StringValue(item, "id") ?? $"item-{itemIndex + 1}",
+                    ["label"] = StringValue(item, "label") ?? "Item"
+                }).ToArray());
+                projected["groupingGroups"] = new JsonArray(ArrayValue(round, "groups").OfType<JsonObject>().Select((group, groupIndex) => (JsonNode)new JsonObject
+                {
+                    ["id"] = StringValue(group, "id") ?? $"group-{groupIndex + 1}",
+                    ["label"] = $"Group {groupIndex + 1}"
+                }).ToArray());
+                if (orderingPhase is ActivityPhases.Reveal or ActivityPhases.FinalResults or ActivityPhases.Leaderboard or ActivityPhases.Complete)
+                {
+                    projected["correctGroups"] = state["correctGroups"]?.DeepClone();
+                    projected["groupingGroups"] = new JsonArray(ArrayValue(round, "groups").OfType<JsonObject>().Select((group, groupIndex) => (JsonNode)new JsonObject
+                    {
+                        ["id"] = StringValue(group, "id") ?? $"group-{groupIndex + 1}",
+                        ["label"] = StringValue(group, "label") ?? $"Group {groupIndex + 1}"
+                    }).ToArray());
+                }
+            }
             if (orderingPhase is ActivityPhases.Reveal or ActivityPhases.FinalResults or ActivityPhases.Leaderboard or ActivityPhases.Complete)
             {
                 projected["correctOrder"] = new JsonArray(ReadStringArray(state, "correctOrder").Select(item => (JsonNode)item).ToArray());
@@ -3082,11 +3588,16 @@ public sealed class ActivitySessionService(
         {
             projected.Remove("turnParticipantId");
             projected.Remove("eliminatedParticipantIds");
+            if (BoolValue(state, "timerRunning")) projected["timerRemainingMs"] = WordTimerRemainingMs(state);
             if (participantId.HasValue)
             {
                 projected["isCurrentTurn"] = StringValue(state, "turnParticipantId") == participantId.Value.ToString();
                 projected["isEliminated"] = ReadStringArray(state, "eliminatedParticipantIds").Contains(participantId.Value.ToString(), StringComparer.OrdinalIgnoreCase);
             }
+        }
+        else if (run.ActivityDefinition.Type == ActivityTypes.Word)
+        {
+            if (BoolValue(state, "timerRunning")) projected["timerRemainingMs"] = WordTimerRemainingMs(state);
         }
         else if (run.ActivityDefinition.Type == ActivityTypes.MatchPlayer)
         {
@@ -3101,6 +3612,7 @@ public sealed class ActivitySessionService(
                 var options = ArrayValue(rounds.Count > index ? rounds[index] as JsonObject : null, "options");
                 var revealedIndex = IntValue(state, "revealedOptionIndex", -1);
                 if (revealedIndex >= 0 && revealedIndex < options.Count) projected["revealedAnswer"] = options[revealedIndex]?.GetValue<string>() ?? "";
+                if (StringValue(state, "revealedMatchAnswer") is { Length: > 0 } matchAnswer) projected["revealedAnswer"] = matchAnswer;
             }
         }
         else if (run.ActivityDefinition.Type == ActivityTypes.Bracket)
@@ -3150,6 +3662,20 @@ public sealed class ActivitySessionService(
                 if (participantId.HasValue) projected["hasVoted"] = await db.ActivityVotes.AnyAsync(vote => vote.ActivityRunId == run.Id && vote.VoterParticipantId == participantId.Value && vote.RoundId == activeMatchId, ct);
             }
         }
+        else if (run.ActivityDefinition.Type == ActivityTypes.StageChallenge)
+        {
+            projected.Remove("audienceVoteCounts");
+            projected.Remove("audienceVoteScoreApplied");
+            if (BoolValue(config, "audienceVoting"))
+            {
+                if (phase == ActivityPhases.Voting && BoolValue(state, "audienceVotingOpen"))
+                    projected["audienceVoteOptions"] = new JsonArray("success", "fail");
+                if (phase is ActivityPhases.Reveal or ActivityPhases.FinalResults or ActivityPhases.Leaderboard or ActivityPhases.Complete)
+                    projected["audienceVoteCounts"] = await GetStageAudienceVoteCountsAsync(run, config, ct);
+                if (participantId.HasValue)
+                    projected["hasAudienceVote"] = await db.ActivityVotes.AnyAsync(vote => vote.ActivityRunId == run.Id && vote.VoterParticipantId == participantId.Value && vote.RoundId == roundId, ct);
+            }
+        }
         else if (run.ActivityDefinition.Type == ActivityTypes.PhysicalRoom)
         {
             var rounds = ArrayValue(config, "rounds");
@@ -3166,6 +3692,17 @@ public sealed class ActivitySessionService(
                 ["revealText"] = StringValue(round, "revealText") ?? ""
             };
             projected["roundCount"] = rounds.Count;
+            projected["adventure"] = BoolValue(config, "adventure");
+            projected["responsesOpen"] = BoolValue(state, "responsesOpen");
+            if (BoolValue(config, "adventure"))
+            {
+                projected["adventureLastChoice"] = StringValue(state, "adventureLastChoice") ?? "";
+                projected["adventureHistory"] = state["adventureHistory"]?.DeepClone() ?? new JsonArray();
+                var choiceCounts = run.Votes.Where(vote => vote.RoundId == CurrentRoundId(run, config)).GroupBy(vote => vote.TargetId).ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
+                var projectedChoiceCounts = new JsonObject();
+                foreach (var choiceCount in choiceCounts) projectedChoiceCounts[choiceCount.Key] = choiceCount.Value;
+                projected["adventureChoiceCounts"] = projectedChoiceCounts;
+            }
         }
         else if (run.ActivityDefinition.Type == ActivityTypes.Utility)
         {
@@ -3190,9 +3727,23 @@ public sealed class ActivitySessionService(
                 projected["timerWarning"] = remainingMs > 0 && remainingMs <= warningMs;
             }
         }
-        else if (run.ActivityDefinition.Type == ActivityTypes.ImageReveal && BoolValue(state, "revealed"))
+        else if (run.ActivityDefinition.Type == ActivityTypes.ImageReveal)
         {
-            projected["revealedAnswer"] = StringValue(config, "answer") ?? "";
+            var mediaMode = (StringValue(config, "mediaMode") ?? "image").Trim().ToLowerInvariant();
+            if (mediaMode == "memorygrid")
+            {
+                projected["memoryCardsVisible"] = BoolValue(state, "memoryCardsVisible");
+                projected["memoryTimerRemainingMs"] = MemoryTimerRemainingMs(state);
+                var revealedCardIds = new HashSet<string>(ReadStringArray(state, "revealedCardIds"), StringComparer.OrdinalIgnoreCase);
+                projected["revealedCardIds"] = new JsonArray(revealedCardIds.Select(id => (JsonNode)id).ToArray());
+                projected["memoryCards"] = new JsonArray(ArrayValue(config, "memoryCards").OfType<JsonObject>().Select((card, index) =>
+                {
+                    var id = StringValue(card, "id") ?? $"card-{index + 1}";
+                    var canSeeLabel = !participantId.HasValue || BoolValue(state, "memoryCardsVisible") || revealedCardIds.Contains(id);
+                    return (JsonNode)new JsonObject { ["id"] = id, ["label"] = canSeeLabel ? StringValue(card, "label", "?") : "?" };
+                }).ToArray());
+            }
+            if (BoolValue(state, "revealed")) projected["revealedAnswer"] = StringValue(config, "answer") ?? "";
         }
         return projected;
     }
@@ -3233,11 +3784,26 @@ public sealed class ActivitySessionService(
         }
         else if (type == ActivityTypes.Ordering)
         {
-            foreach (var round in ArrayValue(projected, "rounds")) if (round is JsonObject item) item.Remove("correctOrder");
+            foreach (var round in ArrayValue(projected, "rounds")) if (round is JsonObject item)
+            {
+                item.Remove("correctOrder");
+                // Match-Up and Connections receive sanitized choices through
+                // the role-specific state projection. The answer mapping stays
+                // on the server until the host reveals it.
+                item.Remove("pairs");
+                item.Remove("groups");
+            }
+            if (projected.TryGetPropertyValue("scoringMode", out var scoringMode) && scoringMode is null) projected.Remove("scoringMode");
         }
         else if (type == ActivityTypes.ImageReveal)
         {
             projected.Remove("answer");
+            if (string.Equals(StringValue(projected, "mediaMode"), "memoryGrid", StringComparison.OrdinalIgnoreCase))
+                foreach (var card in ArrayValue(projected, "memoryCards").OfType<JsonObject>()) { card.Remove("label"); card.Remove("match"); }
+        }
+        else if (type == ActivityTypes.Drawing && BoolValue(config, "telephoneChain"))
+        {
+            projected.Remove("chainSteps");
         }
         else if (type == ActivityTypes.Utility)
         {
@@ -3247,6 +3813,10 @@ public sealed class ActivitySessionService(
                 box.Remove("prize");
                 box.Remove("points");
             }
+        }
+        else if (type == ActivityTypes.PhysicalRoom && BoolValue(config, "adventure"))
+        {
+            foreach (var round in ArrayValue(projected, "rounds").OfType<JsonObject>()) round.Remove("branches");
         }
         if (projected["embeddedUtility"] is JsonObject embedded)
         {
@@ -3307,6 +3877,7 @@ public sealed class ActivitySessionService(
     {
         var state = ParseObject(run.StateJson); var type = run.ActivityDefinition?.Type;
         if (type == ActivityTypes.Bracket) return StringValue(state, "currentMatchId") ?? "bracket-lobby";
+        if (type == ActivityTypes.Drawing && BoolValue(config, "telephoneChain")) return $"telephone-step-{IntValue(state, "telephoneStepIndex")}";
         var property = type is ActivityTypes.Trivia or ActivityTypes.RapidFire ? "currentQuestionIndex" : type == ActivityTypes.Buzzer ? "currentClueIndex" : type == ActivityTypes.SurveyBoard ? "currentQuestionIndex" : type is ActivityTypes.Punchline or ActivityTypes.Drawing ? "currentPromptIndex" : type == ActivityTypes.StageChallenge ? "currentChallengeIndex" : "currentRoundIndex";
         var index = IntValue(state, property); var arrayName = type is ActivityTypes.Trivia or ActivityTypes.RapidFire ? "questions" : type == ActivityTypes.Buzzer ? "clues" : type == ActivityTypes.SurveyBoard ? "questions" : type is ActivityTypes.Punchline or ActivityTypes.Drawing ? "prompts" : type == ActivityTypes.StageChallenge ? "challenges" : "rounds";
         var item = ArrayValue(config, arrayName).Count > index ? ArrayValue(config, arrayName)[index] as JsonObject : null;
@@ -3445,6 +4016,33 @@ public sealed class ActivitySessionService(
         return raw.Select(NormalizeWord).Where(item => item.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).Take(30).ToList();
     }
 
+    private static int WordTimerRemainingMs(JsonObject state)
+    {
+        var duration = Math.Max(0L, LongValue(state, "timerDurationMs"));
+        var started = DateTimeOffsetValue(state, "timerStartedAt");
+        if (duration <= 0 || started is null) return 0;
+        var end = DateTimeOffsetValue(state, "timerPausedAt") ?? DateTimeOffset.UtcNow;
+        return Math.Max(0, (int)Math.Min(int.MaxValue, duration - (end - started.Value).TotalMilliseconds));
+    }
+
+    private static int MemoryTimerRemainingMs(JsonObject state)
+    {
+        var duration = Math.Max(0L, LongValue(state, "memoryDurationMs"));
+        var started = DateTimeOffsetValue(state, "memoryStartedAt");
+        if (!BoolValue(state, "memoryTimerRunning") || duration <= 0 || started is null) return 0;
+        return Math.Max(0, (int)Math.Min(int.MaxValue, duration - (DateTimeOffset.UtcNow - started.Value).TotalMilliseconds));
+    }
+
+    private static int DrawingVotingRemainingMs(JsonObject state)
+    {
+        var duration = Math.Max(0L, LongValue(state, "votingDurationMs"));
+        var started = DateTimeOffsetValue(state, "votingStartedAt");
+        if (duration <= 0 || started is null) return 0;
+        return Math.Max(0, (int)Math.Min(int.MaxValue, duration - (DateTimeOffset.UtcNow - started.Value).TotalMilliseconds));
+    }
+
+    private static string NormalizeMatchText(string? value) => string.Join(" ", (value ?? "").Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries)).ToLowerInvariant();
+
     private static void InitializeWordTurn(ActivityRun run, JsonObject state)
     {
         var order = run.Participants.Where(item => item.Status != "removed").OrderBy(item => item.JoinedAt).Select(item => item.Id.ToString()).ToArray();
@@ -3545,7 +4143,7 @@ public sealed class ActivitySessionService(
         return normalized.Length > 80 ? normalized[..80] : normalized;
     }
 
-    private static bool ValidateDrawingPayload(JsonElement? payload, out string error)
+    private static bool ValidateDrawingPayload(JsonElement? payload, JsonObject config, out string error)
     {
         error = "";
         if (payload?.ValueKind != JsonValueKind.Object || payload.Value.TryGetProperty("strokes", out var strokes) != true || strokes.ValueKind != JsonValueKind.Array)
@@ -3553,16 +4151,18 @@ public sealed class ActivitySessionService(
             error = "A drawing must include strokes.";
             return false;
         }
-        if (payload.Value.GetRawText().Length > 100_000 || strokes.GetArrayLength() > 80)
+        var maxStrokes = Math.Clamp(IntValue(config, "maxStrokes", 80), 1, 240);
+        var maxPointsPerStroke = Math.Clamp(IntValue(config, "maxPointsPerStroke", IntValue(config, "maxStrokePoints", 120)), 1, 240);
+        if (payload.Value.GetRawText().Length > 100_000 || strokes.GetArrayLength() > maxStrokes)
         {
             error = "That drawing is too large.";
             return false;
         }
         foreach (var stroke in strokes.EnumerateArray())
         {
-            if (stroke.ValueKind != JsonValueKind.Object || stroke.TryGetProperty("points", out var points) != true || points.ValueKind != JsonValueKind.Array || points.GetArrayLength() is < 1 or > 120)
+            if (stroke.ValueKind != JsonValueKind.Object || stroke.TryGetProperty("points", out var points) != true || points.ValueKind != JsonValueKind.Array || points.GetArrayLength() is < 1 || points.GetArrayLength() > maxPointsPerStroke)
             {
-                error = "Each drawing stroke needs between 1 and 120 points.";
+                error = $"Each drawing stroke needs between 1 and {maxPointsPerStroke} points.";
                 return false;
             }
             foreach (var point in points.EnumerateArray())

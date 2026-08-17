@@ -41,7 +41,10 @@ async function createActivity(page: Page, presetName: string, activityName: stri
   await expect(page.getByRole("heading", { name: "Activities Studio" })).toBeVisible();
   await page.getByRole("button", { name: "+ Create activity" }).click();
   const chooser = page.getByRole("dialog", { name: "Choose an Activity Type" });
-  await chooser.getByText(presetName, { exact: true }).click();
+  // Named presets and blank building blocks intentionally share labels (for
+  // example, both expose “Punchline”). The named card is the first exact
+  // match and is the one this helper is meant to exercise.
+  await chooser.getByText(presetName, { exact: true }).first().click();
   await page.locator('input[type="text"]').first().fill(activityName);
   const saveResponse = page.waitForResponse(response => response.request().method() === "PUT" && response.url().includes("/api/v1/activities/") && response.ok());
   page.once("dialog", dialog => dialog.accept());
@@ -109,6 +112,22 @@ async function runState(page: Page, runId: string) {
     return body.state;
   }, runId);
 }
+
+test("The existing Activities chooser exposes named game formats from one searchable catalog", async ({ page }) => {
+  await authenticate(page);
+  await page.getByRole("button", { name: /Activities$/ }).click();
+  await expect(page.getByRole("heading", { name: "Activities Studio" })).toBeVisible();
+  await page.getByRole("button", { name: "+ Create activity" }).click();
+  const chooser = page.getByRole("dialog", { name: "Choose an Activity Type" });
+  await expect(chooser.getByRole("heading", { name: "Named game formats" })).toBeVisible();
+  await expect(chooser.getByRole("button", { name: /Telephone Draw/ })).toBeVisible();
+  await expect(chooser.getByRole("button", { name: /Connections/ })).toBeVisible();
+  await expect(chooser.getByRole("button", { name: /Adventure/ })).toBeVisible();
+  await chooser.getByLabel("Search game formats").fill("memory");
+  await expect(chooser.getByRole("button", { name: /Memory Grid/ })).toBeVisible();
+  await expect(chooser.getByText("No named formats match", { exact: false })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+});
 
 test("Trivia runs from teacher launch through two phone answers and scored reveal", async ({ page, browser }) => {
   await authenticate(page);
@@ -725,6 +744,60 @@ test("Match Minds gives the target a private answer and scores matching predicti
   }
 });
 
+test("Match Minds supports private text answers on phone controllers", async ({ page, browser }) => {
+  await authenticate(page);
+  const definition = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/activities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Browser Text Match Minds",
+        type: "matchPlayer",
+        config: {
+          title: "Browser Text Match Minds",
+          rounds: [{ id: "round-1", prompt: "Name a favorite animal", answerMode: "text", points: 100 }],
+        },
+      }),
+    });
+    const body = await response.json() as { id: string };
+    if (!response.ok) throw new Error(JSON.stringify(body));
+    return body;
+  });
+  const run = await launch(page, definition.id);
+  const baseURL = new URL(page.url()).origin;
+  const targetContext = await browser.newContext({ baseURL });
+  const predictorContext = await browser.newContext({ baseURL });
+  const target = await targetContext.newPage();
+  const predictor = await predictorContext.newPage();
+  try {
+    for (const [participantPage, name] of [[target, "Target"], [predictor, "Predictor"]] as const) {
+      await participantPage.goto(`/play/${run.joinCode}`);
+      await participantPage.getByLabel("Display name").fill(name);
+      await participantPage.getByRole("button", { name: "Join game" }).click();
+      await expect(participantPage.getByText("You’re in.")).toBeVisible();
+    }
+    await hostAction(page, run.runId, "start");
+    const lobby = await hostState(page, run.runId);
+    const targetId = lobby.participants.find(participant => participant.displayName === "Target")?.id;
+    expect(targetId).toBeTruthy();
+    await hostAction(page, run.runId, "selecttarget", { participantId: targetId });
+    await hostAction(page, run.runId, "open");
+    await expect(target.getByText("ANSWER PRIVATELY")).toBeVisible();
+    await expect(predictor.getByText("PREDICT THE TARGET")).toBeVisible();
+    await target.locator("textarea").fill("  red   panda ");
+    await target.getByRole("button", { name: "Lock in answer" }).click();
+    await predictor.locator("textarea").fill("red panda");
+    await predictor.getByRole("button", { name: "Lock in answer" }).click();
+    await hostAction(page, run.runId, "lock");
+    await hostAction(page, run.runId, "reveal");
+    await expect(predictor.getByText("Reveal time.")).toBeVisible();
+    expect((await hostState(page, run.runId)).scoreEvents.some(event => event.amount === 100)).toBe(true);
+  } finally {
+    await targetContext.close();
+    await predictorContext.close();
+  }
+});
+
 test("Beat the Clock gives the host a timed no-phone challenge and ruling", async ({ page, browser }) => {
   await authenticate(page);
   const definitionId = await createActivity(page, "Beat the Clock", "Browser Beat the Clock Vertical Slice");
@@ -751,6 +824,129 @@ test("Beat the Clock gives the host a timed no-phone challenge and ruling", asyn
   }
 });
 
+test("Stage Challenge can take an audience call before the host reveals", async ({ page, browser }) => {
+  await authenticate(page);
+  const definition = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/activities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Browser Audience Stage Challenge",
+        type: "stageChallenge",
+        config: {
+          title: "Browser Audience Stage Challenge",
+          audienceVoting: true,
+          audienceVotePoints: 15,
+          challenges: [{ id: "challenge-1", title: "Balance a banana", instructions: "Keep it balanced.", seconds: 10, points: 125 }],
+        },
+      }),
+    });
+    const body = await response.json() as { id: string };
+    if (!response.ok) throw new Error(JSON.stringify(body));
+    return body;
+  });
+  const run = await launch(page, definition.id);
+  const baseURL = new URL(page.url()).origin;
+  const contestantContext = await browser.newContext({ baseURL });
+  const voterContext = await browser.newContext({ baseURL });
+  const contestant = await contestantContext.newPage();
+  const voter = await voterContext.newPage();
+  try {
+    for (const [participantPage, name] of [[contestant, "Contestant"], [voter, "Voter"]] as const) {
+      await participantPage.goto(`/play/${run.joinCode}`);
+      await participantPage.getByLabel("Display name").fill(name);
+      await participantPage.getByRole("button", { name: "Join game" }).click();
+      await expect(participantPage.getByText("You’re in.")).toBeVisible();
+    }
+    const lobby = await hostState(page, run.runId);
+    const contestantId = lobby.participants.find(participant => participant.displayName === "Contestant")?.id;
+    expect(contestantId).toBeTruthy();
+    await hostAction(page, run.runId, "start");
+    await hostAction(page, run.runId, "selectcontestant", { participantId: contestantId });
+    await hostAction(page, run.runId, "starttimer");
+    await hostAction(page, run.runId, "pausetimer");
+    await hostAction(page, run.runId, "openaudiencevote");
+    await expect(voter.getByText("CALL THE CHALLENGE")).toBeVisible();
+    await voter.getByRole("button", { name: "Success" }).click();
+    await hostAction(page, run.runId, "closeaudiencevote");
+    await hostAction(page, run.runId, "useaudiencevote");
+    await expect(voter.getByText("Reveal time.")).toBeVisible();
+    const state = await hostState(page, run.runId);
+    expect(state.scoreEvents.some(event => event.amount === 125)).toBe(true);
+    expect(state.scoreEvents.some(event => event.amount === 15)).toBe(true);
+  } finally {
+    await contestantContext.close();
+    await voterContext.close();
+  }
+});
+
+test("Bracket Battle carries phone votes through semifinals and a final", async ({ page, browser }) => {
+  await authenticate(page);
+  const definition = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/activities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Browser Bracket Battle",
+        type: "bracket",
+        config: {
+          title: "Browser Bracket Battle",
+          entrants: [
+            { id: "a", label: "Alpha" },
+            { id: "b", label: "Beta" },
+            { id: "c", label: "Gamma" },
+            { id: "d", label: "Delta" },
+          ],
+          pointsPerWin: 10,
+        },
+      }),
+    });
+    const body = await response.json() as { id: string };
+    if (!response.ok) throw new Error(JSON.stringify(body));
+    return body;
+  });
+  const run = await launch(page, definition.id);
+  const baseURL = new URL(page.url()).origin;
+  const firstVoterContext = await browser.newContext({ baseURL });
+  const secondVoterContext = await browser.newContext({ baseURL });
+  const firstVoter = await firstVoterContext.newPage();
+  const secondVoter = await secondVoterContext.newPage();
+  try {
+    for (const [participantPage, name] of [[firstVoter, "First Voter"], [secondVoter, "Second Voter"]] as const) {
+      await participantPage.goto(`/play/${run.joinCode}`);
+      await participantPage.getByLabel("Display name").fill(name);
+      await participantPage.getByRole("button", { name: "Join game" }).click();
+      await expect(participantPage.getByText("You’re in.")).toBeVisible();
+    }
+
+    const playMatch = async (winnerId: string, expectRound: number) => {
+      await hostAction(page, run.runId, "open");
+      await expect(firstVoter.getByText("VOTE TO ADVANCE")).toBeVisible();
+      await expect(firstVoter.locator(".participant-choice-list button")).toHaveCount(2);
+      await firstVoter.locator(".participant-choice-list button").first().click();
+      await secondVoter.locator(".participant-choice-list button").first().click();
+      await hostAction(page, run.runId, "close");
+      await hostAction(page, run.runId, "reveal", { winnerId });
+      await expect(firstVoter.getByText("Reveal time.")).toBeVisible();
+      const revealed = await runState(page, run.runId);
+      expect(revealed.phase).toBe("reveal");
+      expect(revealed.currentRound).toBe(expectRound);
+      await hostAction(page, run.runId, "next");
+    };
+
+    await hostAction(page, run.runId, "start");
+    await playMatch("a", 1);
+    await playMatch("c", 1);
+    await playMatch("a", 2);
+    const final = await runState(page, run.runId);
+    expect(final.phase).toBe("finalResults");
+    expect(final.bracketChampionId).toBe("a");
+  } finally {
+    await firstVoterContext.close();
+    await secondVoterContext.close();
+  }
+});
+
 test("Four Corners runs with no phone participants and host-controlled pacing", async ({ page }) => {
   await authenticate(page);
   const definitionId = await createActivity(page, "Four Corners", "Browser Four Corners Vertical Slice");
@@ -761,6 +957,7 @@ test("Four Corners runs with no phone participants and host-controlled pacing", 
   expect(state.phase).toBe("roundIntro");
   expect((state.currentRound as { choices: string[] }).choices).toHaveLength(4);
 
+  await hostAction(page, run.runId, "randomize");
   await hostAction(page, run.runId, "starttimer");
   state = await runState(page, run.runId);
   expect(state.challengeStatus).toBe("running");
@@ -768,7 +965,6 @@ test("Four Corners runs with no phone participants and host-controlled pacing", 
   await hostAction(page, run.runId, "pausetimer");
   expect((await runState(page, run.runId)).challengeStatus).toBe("paused");
   await hostAction(page, run.runId, "resumetimer");
-  await hostAction(page, run.runId, "randomize");
   await hostAction(page, run.runId, "reveal");
   expect((await runState(page, run.runId)).revealed).toBe(true);
   await hostAction(page, run.runId, "next");
@@ -841,6 +1037,94 @@ test("Game Show Utilities can pick the live roster and run a server countdown", 
   expect((await runState(page, countdown.runId)).timerRunning).toBe(false);
   await hostAction(page, countdown.runId, "adjusttime", { deltaSeconds: 10 });
   expect((await runState(page, countdown.runId)).timerRemainingMs as number).toBeGreaterThan(0);
+});
+
+test("Activity controller shows live recovery state and command acknowledgements", async ({ page }) => {
+  await authenticate(page);
+  const definitionId = await createActivity(page, "Trivia Quiz", "Browser Controller Recovery Activity");
+  const prepared = await page.evaluate(async activityDefinitionId => {
+    const headers = { "Content-Type": "application/json" };
+    const lessons = await fetch("/api/v1/lessons").then(response => response.json()) as Array<{
+      id: string; classId: string; title: string; items: Array<{ position: number }>;
+    }>;
+    const lesson = lessons.find(item => item.title === "Sample Lesson") || lessons[0];
+    if (!lesson) throw new Error("The browser test lesson is unavailable.");
+    const position = Math.max(0, ...lesson.items.map(item => item.position)) + 1000;
+    const itemResponse = await fetch(`/api/v1/lessons/${lesson.id}/items`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        title: "Browser Controller Recovery Activity",
+        type: "activity",
+        role: "lesson",
+        position,
+        mediaId: null,
+        activityDefinitionId,
+        durationMs: null,
+        startMs: 0,
+        endMs: null,
+        volumePercent: 100,
+        imageDurationSeconds: null,
+        estimatedDurationSeconds: 60,
+        endBehavior: "pause",
+        allowSkip: true,
+      }),
+    });
+    if (!itemResponse.ok) throw new Error(await itemResponse.text());
+    const item = await itemResponse.json() as { id: string };
+    const bootstrap = await fetch("/api/v1/admin/bootstrap").then(response => response.json()) as { pairingPin: string };
+    const pairing = await fetch("/api/v1/pairing/request", {
+      method: "POST", headers,
+      body: JSON.stringify({ deviceName: "Browser Activity Controller TV", platform: "android-tv", appVersion: "0.40.47" }),
+    }).then(response => response.json()) as { requestId: string };
+    const identity = await fetch("/api/v1/pairing/confirm", {
+      method: "POST", headers,
+      body: JSON.stringify({ requestId: pairing.requestId, pin: bootstrap.pairingPin }),
+    }).then(response => response.json()) as { screenId: string; deviceToken: string };
+    const assignment = await fetch(`/api/v1/screens/${identity.screenId}`, {
+      method: "PATCH", headers,
+      body: JSON.stringify({ assignedClassId: lesson.classId, allowUnsupportedContent: true }),
+    });
+    if (!assignment.ok) throw new Error(await assignment.text());
+    const status = await fetch("/api/v1/tv/status", {
+      method: "POST",
+      headers: { ...headers, Authorization: `Bearer ${identity.deviceToken}` },
+      body: JSON.stringify({
+        screenId: identity.screenId,
+        appVersion: "0.40.47",
+        online: true,
+        freeBytes: 4_000_000_000,
+        manifestVersion: 1,
+        failedDownloads: 0,
+        playbackState: "playing",
+        lessonId: lesson.id,
+        itemId: item.id,
+        positionMs: 0,
+        durationMs: 60_000,
+      }),
+    });
+    if (!status.ok) throw new Error(await status.text());
+    return { screenId: identity.screenId };
+  }, definitionId);
+
+  const pinResponse = await page.evaluate(async () => (await fetch("/api/v1/controller-pin", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pin: "482731" }),
+  })).ok);
+  expect(pinResponse).toBe(true);
+  await page.goto("/universalremote");
+  await page.getByLabel("Six-digit controller PIN").fill("482731");
+  await page.getByRole("button", { name: "Open universal remote" }).click();
+  await page.getByLabel("Control this screen").selectOption(prepared.screenId);
+  const activityController = page.locator(".activity-controller-shell");
+  await expect(activityController.getByText("Browser Controller Recovery Activity", { exact: true })).toBeVisible();
+  await expect(activityController.getByRole("button", { name: "Refresh activity controller" })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Activity connection: Live connection" })).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: /Open answers/ }).click();
+  await expect(page.locator(".activity-command-notice")).toContainText(/openresponses sent · revision \d+/i);
+  await activityController.getByRole("button", { name: "Refresh activity controller" }).click();
+  await expect(activityController.getByRole("button", { name: "Refresh activity controller" })).toBeEnabled();
 });
 
 test("Activities Studio supports grid/list views, filters, arranging, and bulk deletion", async ({ page }) => {
@@ -1241,7 +1525,7 @@ test("Media reveal editors apply named visual formats without changing the sourc
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.locator('input[placeholder="e.g. Mystery Object Reveal"]')).toHaveValue("Silhouette");
     await expect(page.getByLabel("Reveal style")).toHaveValue("silhouette");
-    await expect(page.locator('input[type="number"]')).toHaveValue("5");
+    await expect(page.locator("#image-reveal-total-stages")).toHaveValue("5");
     await page.locator('input[placeholder="https://... or /api/v1/media/..."]').fill("/api/v1/media/example-image");
     await page.getByRole("button", { name: "Save activity", exact: true }).click();
     await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");

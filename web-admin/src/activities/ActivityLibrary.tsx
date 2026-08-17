@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ActivityDefinition, ActivityTypeDescriptor } from './types';
 import { ActivityApi } from './api';
 import { ACTIVITY_REGISTRY, getActivityDescriptor } from './activityRegistry';
+import { ACTIVITY_PRESET_CATALOG, type ActivityPresetCatalogEntry } from './activityPresetRegistry';
 import { ActivityPreview, type ActivityPreviewMode } from './ActivityPreview';
 import { PageHead, Modal, Field, Empty } from '../admin/ui';
 import './activity.css';
@@ -60,6 +61,7 @@ export const ActivityLibrary: React.FC = () => {
   const [statusMessage, setStatusMessage] = useState('');
   const [selectedActivity, setSelectedActivity] = useState<ActivityDefinition | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [chooserSearch, setChooserSearch] = useState('');
   const [previewTab, setPreviewTab] = useState<ActivityPreviewMode>('display');
   const [editingConfig, setEditingConfig] = useState<Record<string, unknown>>({});
   const [editingName, setEditingName] = useState('');
@@ -264,6 +266,34 @@ export const ActivityLibrary: React.FC = () => {
       setIsSaving(false);
     }
   };
+
+  const handleCreatePreset = async (preset: ActivityPresetCatalogEntry) => {
+    setIsSaving(true);
+    try {
+      const created = await ActivityApi.createActivity({
+        name: preset.label,
+        type: preset.type,
+        presetType: preset.id,
+        description: preset.description,
+        config: JSON.parse(JSON.stringify(preset.config)) as Record<string, unknown>
+      });
+      await fetchActivities();
+      handleSelectActivity(created);
+      setIsCreating(false);
+      setChooserSearch('');
+      setStatusMessage(`Created ${created.name}.`);
+    } catch (err) {
+      setStatusMessage(`Could not create ${preset.label}: ${(err as Error).message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const visibleChooserPresets = useMemo(() => {
+    const query = chooserSearch.trim().toLowerCase();
+    if (!query) return ACTIVITY_PRESET_CATALOG;
+    return ACTIVITY_PRESET_CATALOG.filter(preset => `${preset.label} ${preset.description} ${preset.category} ${preset.type}`.toLowerCase().includes(query));
+  }, [chooserSearch]);
 
   const handleSaveEdit = async (closeAfterSave = false): Promise<boolean> => {
     if (!selectedActivity) return false;
@@ -679,10 +709,48 @@ export const ActivityLibrary: React.FC = () => {
       {isCreating && (
         <Modal
           title="Choose an Activity Type"
-          onClose={() => setIsCreating(false)}
+          onClose={() => { if (!isSaving) { setIsCreating(false); setChooserSearch(''); } }}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
-            {Object.values(ACTIVITY_REGISTRY).map(entry => (
+          <div className="activity-chooser">
+            <div className="activity-chooser-intro">
+              <div>
+                <strong>Start with a named game format</strong>
+                <p>These are ready-to-edit templates built on the same Activities engines. You can still create a blank activity below.</p>
+              </div>
+              <input
+                type="search"
+                aria-label="Search game formats"
+                placeholder="Search games…"
+                value={chooserSearch}
+                onChange={event => setChooserSearch(event.target.value)}
+              />
+            </div>
+            <div className="activity-chooser-section">
+              <div className="activity-chooser-section-heading"><h3>Named game formats</h3><span>{visibleChooserPresets.length} available</span></div>
+              <div className="activity-chooser-grid">
+                {visibleChooserPresets.map(entry => (
+                  <button
+                    type="button"
+                    key={`preset:${entry.type}:${entry.id}`}
+                    onClick={() => void handleCreatePreset(entry)}
+                    className="activity-chooser-card"
+                    disabled={isSaving}
+                  >
+                    <span className="activity-chooser-icon" aria-hidden="true">{entry.icon}</span>
+                    <span className="activity-chooser-card-copy"><strong>{entry.label}</strong><small>{entry.description}</small></span>
+                    <span className="activity-chooser-meta">{entry.category.replace(/([a-z])([A-Z])/g, '$1 $2')} · {entry.requiresPhones ? 'phones' : 'no phones required'}</span>
+                  </button>
+                ))}
+              </div>
+              {!visibleChooserPresets.length && <p className="muted">No named formats match “{chooserSearch}”. Try another search.</p>}
+            </div>
+            <div className="activity-chooser-section activity-chooser-building-blocks">
+              <div className="activity-chooser-section-heading"><h3>Blank activity building blocks</h3><span>Use these for a custom setup</span></div>
+              <div className="activity-chooser-grid">
+            {Object.values(ACTIVITY_REGISTRY).filter(entry => {
+              const query = chooserSearch.trim().toLowerCase();
+              return !query || `${entry.name} ${entry.description} ${entry.type}`.toLowerCase().includes(query);
+            }).map(entry => (
               <div
                 key={entry.type}
                 onClick={() => handleCreateNew(entry.type)}
@@ -709,6 +777,8 @@ export const ActivityLibrary: React.FC = () => {
                 <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--muted)' }}>{entry.description}</p>
               </div>
             ))}
+              </div>
+            </div>
           </div>
         </Modal>
       )}

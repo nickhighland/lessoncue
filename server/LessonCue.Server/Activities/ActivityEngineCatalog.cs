@@ -118,7 +118,8 @@ public static class InteractiveActivityDefaults
             },
             requireModeration = true,
             votingSeconds = 30,
-            maxStrokePoints = 80
+            maxStrokes = 80,
+            maxPointsPerStroke = 120
         },
         ActivityTypes.Ordering => new
         {
@@ -143,7 +144,10 @@ public static class InteractiveActivityDefaults
                 new { id = "round-1", prompt = "Name something that helps a team work well.", category = "Teamwork", points = 10, seconds = 45 }
             },
             requireModeration = true,
-            allowDuplicates = false
+            allowDuplicates = false,
+            maxWords = 30,
+            turnBased = false,
+            eliminateOnDuplicate = false
         },
         ActivityTypes.MatchPlayer => new
         {
@@ -156,6 +160,8 @@ public static class InteractiveActivityDefaults
         ActivityTypes.StageChallenge => new
         {
             title = "Beat the Clock",
+            audienceVoting = false,
+            audienceVotePoints = 25,
             challenges = new[]
             {
                 new { id = "challenge-1", title = "Build a paper tower", instructions = "Build the tallest free-standing tower you can before the clock stops.", seconds = 60, points = 100, failPoints = 0 }
@@ -235,6 +241,11 @@ public static class InteractiveActivityDefaults
                 currentStage = 0,
                 isAutoPlaying = false,
                 revealed = false,
+                revealedCardIds = Array.Empty<string>(),
+                memoryCardsVisible = false,
+                memoryTimerRunning = false,
+                memoryDurationMs = 0L,
+                audioNonce = 0L,
                 actionNonce = 0L
             },
             ActivityTypes.Trivia or ActivityTypes.RapidFire => new
@@ -282,6 +293,9 @@ public static class InteractiveActivityDefaults
                 responsesLocked = false,
                 votingOpen = false,
                 resultsVisible = false,
+                telephoneStepIndex = 0,
+                telephoneStepKind = "drawing",
+                telephoneChainStarted = false,
                 actionNonce = 0L
             },
             ActivityTypes.FakeOut => new
@@ -356,6 +370,9 @@ public static class InteractiveActivityDefaults
                 timerDurationMs = 0L,
                 timerStartedAt = (DateTimeOffset?)null,
                 timerPausedAt = (DateTimeOffset?)null,
+                audienceVotingOpen = false,
+                audienceVoteCounts = new JsonObject(),
+                audienceVoteScoreApplied = false,
                 actionNonce = 0L
             },
             ActivityTypes.Bracket => new

@@ -72,6 +72,32 @@ public sealed class ActivityValidationTests
     }
 
     [Fact]
+    public void RichEngineSettingsValidateTheirNewRuntimeLimits()
+    {
+        var validDrawing = """{"title":"Doodle","maxStrokes":120,"maxPointsPerStroke":180,"votingSeconds":30,"prompts":[{"id":"p1","prompt":"Draw a fox"}]}""";
+        var invalidDrawing = """{"title":"Doodle","maxStrokes":0,"prompts":[{"id":"p1","prompt":"Draw a fox"}]}""";
+        var validOrdering = """{"title":"Timeline","scoringMode":"exact","rounds":[{"id":"r1","prompt":"Order it","items":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"correctOrder":["a","b"],"points":100}]}""";
+        var invalidOrdering = """{"title":"Timeline","scoringMode":"lenient","rounds":[{"id":"r1","prompt":"Order it","items":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"correctOrder":["a","b"]}]}""";
+        var validMatchText = """{"title":"Match Minds","rounds":[{"id":"r1","prompt":"Explain it","answerMode":"text","points":100}]}""";
+        var invalidMatch = """{"title":"Match Minds","rounds":[{"id":"r1","prompt":"Pick it","answerMode":"choice","options":["Only one"]}]}""";
+        var validWord = """{"title":"Name Five","maxWords":5,"rounds":[{"id":"r1","prompt":"Name animals","seconds":30}]}""";
+        var invalidWord = """{"title":"Name Five","maxWords":31,"rounds":[{"id":"r1","prompt":"Name animals","seconds":30}]}""";
+        var validReveal = """{"title":"Mystery Image","totalStages":8,"autoIntervalSeconds":4,"style":"pixel"}""";
+        var invalidReveal = """{"title":"Mystery Image","totalStages":25,"style":"spiral"}""";
+
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Drawing, "Valid drawing", validDrawing));
+        Assert.Contains("Drawing limits", ActivityValidation.ValidateDefinition(ActivityTypes.Drawing, "Invalid drawing", invalidDrawing));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Ordering, "Valid ordering", validOrdering));
+        Assert.Contains("partial or exact", ActivityValidation.ValidateDefinition(ActivityTypes.Ordering, "Invalid ordering", invalidOrdering));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.MatchPlayer, "Text match", validMatchText));
+        Assert.Contains("between 2 and 8 options", ActivityValidation.ValidateDefinition(ActivityTypes.MatchPlayer, "Invalid match", invalidMatch));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Word, "Valid word", validWord));
+        Assert.Contains("between 1 and 30", ActivityValidation.ValidateDefinition(ActivityTypes.Word, "Invalid word", invalidWord));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.ImageReveal, "Valid reveal", validReveal));
+        Assert.Contains("reveal stages", ActivityValidation.ValidateDefinition(ActivityTypes.ImageReveal, "Invalid reveal", invalidReveal));
+    }
+
+    [Fact]
     public void BuzzerAndBluffingScoringValuesAreBounded()
     {
         var validBuzzer = """{"title":"Clues","clues":[{"id":"c1","prompt":"Clue","answer":"Answer","points":300}],"lockOutOnMiss":true,"stealOnMiss":true}""";
@@ -90,5 +116,21 @@ public sealed class ActivityValidationTests
     {
         Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Trivia, "Legacy trivia", "{\"title\":\"Legacy trivia\"}"));
         Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.ImageShuffle, "Media to add later", "{\"title\":\"Media to add later\",\"images\":[]}"));
+    }
+
+    [Fact]
+    public void PlannedPresetConfigurationsValidateWithoutAFixedFourChoiceAssumption()
+    {
+        var matchUp = """{"title":"Match-Up","interactionMode":"matching","rounds":[{"id":"r1","prompt":"Match the animals","pairs":[{"id":"penguin","left":"Penguin","right":"Antarctica"},{"id":"camel","left":"Camel","right":"Desert"}]}]}""";
+        var connections = """{"title":"Connections","interactionMode":"grouping","rounds":[{"id":"r1","prompt":"Group the animals","items":[{"id":"cat","label":"Cat"},{"id":"dog","label":"Dog"},{"id":"eagle","label":"Eagle"},{"id":"hawk","label":"Hawk"}],"groups":[{"id":"pets","label":"Pets","itemIds":["cat","dog"]},{"id":"birds","label":"Birds","itemIds":["eagle","hawk"]}]}]}""";
+        var memoryGrid = """{"title":"Memory Grid","mediaMode":"memoryGrid","memorySeconds":6,"memoryCards":[{"id":"card-1","label":"Lion","match":"savanna"},{"id":"card-2","label":"Savanna","match":"savanna"}]}""";
+        var audioRound = """{"title":"Sound Check","mediaMode":"audio","audioDurationSeconds":1,"audioUrl":"/media/roar.mp3","prompt":"Name the animal."}""";
+        var telephoneDraw = """{"title":"Telephone Draw","telephoneChain":true,"chainSteps":[{"kind":"drawing","label":"Draw it","prompt":"Draw the animal.","phrase":"A dancing penguin"},{"kind":"description","label":"Describe it","prompt":"Describe what you see."},{"kind":"drawing","label":"Redraw it","prompt":"Draw the description."}]}""";
+
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Ordering, "Match-Up", matchUp));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Ordering, "Connections", connections));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.ImageReveal, "Memory Grid", memoryGrid));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.ImageReveal, "Sound Check", audioRound));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Drawing, "Telephone Draw", telephoneDraw));
     }
 }

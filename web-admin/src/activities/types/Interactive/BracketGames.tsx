@@ -81,6 +81,7 @@ const BracketShell: React.FC<{ children: React.ReactNode; title: string; kicker?
 
 const CurrentMatch: React.FC<{ match: JsonRecord; phase: unknown }> = ({ match, phase }) => {
   const winnerId = stringOf(match.winnerId);
+  const voteCounts = listOf(match.voteCounts);
   const items = [
     { id: stringOf(match.entrantAId), label: stringOf(match.entrantA, 'Entrant A') },
     { id: stringOf(match.entrantBId), label: stringOf(match.entrantB, 'Entrant B') }
@@ -92,6 +93,7 @@ const CurrentMatch: React.FC<{ match: JsonRecord; phase: unknown }> = ({ match, 
       {items.length === 2 && <b className="bracket-versus">VS</b>}
     </div>
     {phase === 'voting' && <div className="interactive-help">Choose the entrant you think should advance. The host reveals the result.</div>}
+    {phase === 'reveal' && voteCounts.length > 0 && <div className="bracket-vote-results" aria-label="Audience vote results">{voteCounts.map((vote, index) => <div key={stringOf(vote.entrantId, String(index))}><span>{stringOf(vote.label, 'Entrant')}</span><strong>{numberOf(vote.count)} votes</strong></div>)}</div>}
     <ActivityRevealCurtain visible={phase === 'reveal'} kicker="ADVANCING">{items.find(item => item.id === winnerId)?.label || 'Winner selected'}</ActivityRevealCurtain>
   </div>;
 };
@@ -131,6 +133,7 @@ export const BracketController: React.FC<ActivityComponentProps> = ({ envelope, 
   const send = async (action: string, payload?: JsonRecord) => {
     setBusy(true);
     try { await ActivityApi.executeCommand(envelope.runId, { action, payload }); onCommandSent?.(); }
+    catch (error) { console.debug('Bracket command was rejected; the host notice contains the reason.', error); }
     finally { setBusy(false); }
   };
   const importFinalists = async () => {

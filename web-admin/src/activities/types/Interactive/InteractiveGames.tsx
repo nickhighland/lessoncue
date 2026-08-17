@@ -101,7 +101,7 @@ export const FakeOutDisplay: React.FC<ActivityComponentProps> = ({ envelope }) =
 
 const QuickAction: React.FC<{ label: string; action: string; envelope: ActivityStateEnvelope; tone?: string; disabled?: boolean; payload?: JsonRecord; onCommandSent?: () => void }> = ({ label, action, envelope, tone = 'act-btn-primary', disabled = false, payload, onCommandSent }) => {
   const [busy, setBusy] = useState(false);
-  return <button type="button" className={`act-btn ${tone}`} disabled={busy || disabled} onClick={async () => { setBusy(true); try { await ActivityApi.executeCommand(envelope.runId, { action, payload }); onCommandSent?.(); } finally { setBusy(false); } }}>{busy ? 'Working…' : label}</button>;
+  return <button type="button" className={`act-btn ${tone}`} disabled={busy || disabled} onClick={async () => { setBusy(true); try { await ActivityApi.executeCommand(envelope.runId, { action, payload }); onCommandSent?.(); } catch (error) { console.debug('Activity command was rejected; the host notice contains the reason.', error); } finally { setBusy(false); } }}>{busy ? 'Working…' : label}</button>;
 };
 
 const EmbeddedUtilityDisplay: React.FC<{ config: JsonRecord; state: JsonRecord }> = ({ config, state }) => {

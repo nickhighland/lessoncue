@@ -246,7 +246,6 @@ export const WheelDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ en
         <div className="wheel-container">
           <div className={`wheel-pointer ${isPointerTicking ? 'ticking' : ''}`} />
           <canvas ref={canvasRef} className="wheel-canvas" aria-label={`Wheel with ${activeItems.length} entries`} />
-          <div className="wheel-center-hub">🎯</div>
         </div>
 
         {showWinner && state.winnerLabel && (
