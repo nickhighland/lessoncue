@@ -128,7 +128,39 @@ export const PhysicalRoomController: React.FC<ActivityComponentProps> = ({ envel
 export const PhysicalRoomEditor: React.FC<ActivityEditorProps> = ({ config, onChange }) => {
   const selectedPreset = stringOf(config.preset, 'fourCorners');
   const rounds = listOf(config.rounds);
+  const adventure = config.adventure === true;
   const updateRounds = (next: JsonRecord[]) => onChange({ ...config, rounds: next });
+  const nodeId = (round: JsonRecord, index: number) => stringOf(round.id, `node-${index + 1}`);
+  const branchTarget = (round: JsonRecord, choiceIndex: number, index: number) => {
+    const branches = round.branches && typeof round.branches === 'object' ? round.branches as JsonRecord : {};
+    const rawTarget = branches[String(choiceIndex)];
+    if (typeof rawTarget === 'number') return nodeId(rounds[rawTarget] || {}, rawTarget);
+    if (typeof rawTarget === 'string' && rawTarget.trim()) return rawTarget;
+    return rounds[index + 1] ? nodeId(rounds[index + 1], index + 1) : '__end__';
+  };
+  const renameNode = (index: number, value: string) => {
+    const currentId = nodeId(rounds[index], index);
+    const nextId = value.trim() || `node-${index + 1}`;
+    const next = rounds.map((round, roundIndex) => {
+      const updated: JsonRecord = { ...round, ...(roundIndex === index ? { id: nextId } : {}) };
+      const branches = updated.branches && typeof updated.branches === 'object' ? { ...(updated.branches as JsonRecord) } : null;
+      if (branches) {
+        Object.keys(branches).forEach(key => { if (branches[key] === currentId) branches[key] = nextId; });
+        updated.branches = branches;
+      }
+      return updated;
+    });
+    updateRounds(next);
+  };
+  const setBranchTarget = (roundIndex: number, choiceIndex: number, target: string) => {
+    const round = rounds[roundIndex];
+    if (!round) return;
+    const branches = round.branches && typeof round.branches === 'object' ? { ...(round.branches as JsonRecord) } : {};
+    branches[String(choiceIndex)] = target || '__end__';
+    const next = [...rounds];
+    next[roundIndex] = { ...round, branches };
+    updateRounds(next);
+  };
   const applyPreset = () => {
     const preset = PHYSICAL_PRESETS[selectedPreset] || PHYSICAL_PRESETS.fourCorners;
     onChange({
@@ -152,17 +184,32 @@ export const PhysicalRoomEditor: React.FC<ActivityEditorProps> = ({ config, onCh
     <label>Title<input value={stringOf(config.title)} onChange={event => onChange({ ...config, title: event.target.value })} /></label>
     <label className="checkbox-row"><input type="checkbox" checked={config.randomizeChoices === true} onChange={event => onChange({ ...config, randomizeChoices: event.target.checked })} /> Allow the host to randomize room choices</label>
     <p className="muted">Write short, visible instructions for activities that happen in the room. The TV paces the group; the host controls the round.</p>
+    {adventure && <div className="activity-editor-card adventure-node-map"><div className="activity-editor-card-heading"><strong>Adventure story map</strong><span className="activity-library-chip">Editable nodes · server-validated branches</span></div><p className="muted">Each round is a story node. After a choice, choose the next node—or finish the adventure. Node IDs keep links intact when the story is edited.</p></div>}
     {rounds.map((round, index) => {
       const choices = Array.isArray(round.choices) ? round.choices.map(choice => stringOf(choice)) : [];
       const updateRound = (updated: JsonRecord) => { const next = [...rounds]; next[index] = updated; updateRounds(next); };
+      const removeChoice = (choiceIndex: number) => {
+        const branches = round.branches && typeof round.branches === 'object' ? round.branches as JsonRecord : {};
+        const nextBranches: JsonRecord = {};
+        Object.entries(branches).forEach(([key, value]) => {
+          const numericKey = Number(key);
+          if (!Number.isInteger(numericKey) || numericKey === choiceIndex) return;
+          nextBranches[String(numericKey > choiceIndex ? numericKey - 1 : numericKey)] = value;
+        });
+        updateRound({ ...round, choices: choices.filter((_, itemIndex) => itemIndex !== choiceIndex), ...(adventure ? { branches: nextBranches } : {}) });
+      };
       return <div className="activity-editor-card physical-room-editor-card" key={stringOf(round.id, String(index))}>
         <div className="activity-editor-row"><strong>Round {index + 1}</strong><input value={stringOf(round.title)} placeholder="Four Corners" onChange={event => updateRound({ ...round, title: event.target.value })} /><input type="number" min={5} max={3600} value={numberOf(round.seconds, 30)} aria-label={`Round ${index + 1} seconds`} onChange={event => updateRound({ ...round, seconds: Number(event.target.value) || 30 })} /></div>
         <textarea value={stringOf(round.instructions)} placeholder="Choose a corner of the room." onChange={event => updateRound({ ...round, instructions: event.target.value })} />
-        <div className="physical-room-choice-editor"><div className="activity-editor-card-heading"><strong>Room choices ({choices.length})</strong><button type="button" className="button" onClick={() => updateRound({ ...round, choices: [...choices, `Choice ${choices.length + 1}`] })} disabled={choices.length >= 12}>+ Add choice</button></div>{choices.map((choice, choiceIndex) => <div className="activity-editor-row" key={`${choiceIndex}-${choice}`}><input value={choice} aria-label={`Round ${index + 1} choice ${choiceIndex + 1}`} placeholder={`Choice ${choiceIndex + 1}`} onChange={event => updateRound({ ...round, choices: choices.map((item, itemIndex) => itemIndex === choiceIndex ? event.target.value : item) })} /><button type="button" className="button danger" onClick={() => updateRound({ ...round, choices: choices.filter((_, itemIndex) => itemIndex !== choiceIndex) })} aria-label={`Remove round ${index + 1} choice ${choiceIndex + 1}`}>Remove</button></div>)}{choices.length === 0 && <small className="muted">No choices yet. This round can still be used for host-led instructions.</small>}</div>
+        {adventure && <div className="adventure-node-editor">
+          <label>Node ID<input value={nodeId(round, index)} onChange={event => renameNode(index, event.target.value)} placeholder={`node-${index + 1}`} /></label>
+          {choices.length > 0 ? <div className="adventure-branch-editor"><div className="activity-editor-card-heading"><strong>Story branches</strong><small className="muted">Where each choice leads</small></div>{choices.map((choice, choiceIndex) => <div className="adventure-branch-row" key={`${choiceIndex}-${choice}`}><span className="adventure-branch-choice">{choice || `Choice ${choiceIndex + 1}`}</span><select aria-label={`Round ${index + 1} choice ${choiceIndex + 1} destination`} value={branchTarget(round, choiceIndex, index)} onChange={event => setBranchTarget(index, choiceIndex, event.target.value)}>{rounds.map((targetRound, targetIndex) => <option key={nodeId(targetRound, targetIndex)} value={nodeId(targetRound, targetIndex)}>{targetIndex + 1}. {stringOf(targetRound.title, nodeId(targetRound, targetIndex))}</option>)}<option value="__end__">🏁 Finish adventure</option></select></div>)}</div> : <small className="muted">No choices makes this a terminal story node. The host will show the ending, then finish the adventure.</small>}
+        </div>}
+        <div className="physical-room-choice-editor"><div className="activity-editor-card-heading"><strong>Room choices ({choices.length})</strong><button type="button" className="button" onClick={() => updateRound({ ...round, choices: [...choices, `Choice ${choices.length + 1}`] })} disabled={choices.length >= 12}>+ Add choice</button></div>{choices.map((choice, choiceIndex) => <div className="activity-editor-row" key={`${choiceIndex}-${choice}`}><input value={choice} aria-label={`Round ${index + 1} choice ${choiceIndex + 1}`} placeholder={`Choice ${choiceIndex + 1}`} onChange={event => updateRound({ ...round, choices: choices.map((item, itemIndex) => itemIndex === choiceIndex ? event.target.value : item) })} /><button type="button" className="button danger" onClick={() => removeChoice(choiceIndex)} aria-label={`Remove round ${index + 1} choice ${choiceIndex + 1}`}>Remove</button></div>)}{choices.length === 0 && <small className="muted">No choices yet. This round can still be used for host-led instructions.</small>}</div>
         <input value={stringOf(round.revealText)} placeholder="Show your choice and explain it." onChange={event => updateRound({ ...round, revealText: event.target.value })} />
         <button type="button" className="button danger" disabled={rounds.length <= 1} onClick={() => updateRounds(rounds.filter((_, itemIndex) => itemIndex !== index))}>Remove round</button>
       </div>;
     })}
-    <button type="button" className="button" onClick={() => updateRounds([...rounds, { id: `round-${Date.now()}`, title: `Round ${rounds.length + 1}`, instructions: '', choices: [], seconds: 30, revealText: '' }])}>+ Add round</button>
+    <button type="button" className="button" onClick={() => updateRounds([...rounds, { id: adventure ? `node-${rounds.length + 1}` : `round-${Date.now()}`, title: adventure ? `Story node ${rounds.length + 1}` : `Round ${rounds.length + 1}`, instructions: '', choices: adventure ? ['Choose a path'] : [], branches: adventure ? { '0': '__end__' } : undefined, seconds: 30, revealText: '' }])}>{adventure ? '+ Add story node' : '+ Add round'}</button>
   </div>;
 };

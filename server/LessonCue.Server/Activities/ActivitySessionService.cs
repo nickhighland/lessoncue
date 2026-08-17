@@ -1621,28 +1621,42 @@ public sealed class ActivitySessionService(
                 var choiceIndex = ReadInt(payload, "choiceIndex", ReadInt(payload, "optionIndex", -1));
                 var storyChoices = ReadStringArray(round, "choices");
                 if (choiceIndex < 0 || choiceIndex >= storyChoices.Count) return (false, "Choose one of the visible story paths.");
-                var branches = round? ["branches"] as JsonObject;
-                var nextIndex = branches is not null && branches.TryGetPropertyValue(choiceIndex.ToString(CultureInfo.InvariantCulture), out var branchValue) && branchValue is not null
-                    ? branchValue.GetValue<int>()
-                    : index + 1;
-                nextIndex = Math.Clamp(nextIndex, 0, rounds.Count - 1);
+                var nextIndex = ResolveAdventureBranchIndex(round, choiceIndex, rounds, index + 1);
                 var history = ArrayValue(state, "adventureHistory");
                 history.Add(new JsonObject { ["roundIndex"] = index, ["choiceIndex"] = choiceIndex, ["choice"] = storyChoices[choiceIndex], ["title"] = StringValue(round, "title") ?? $"Round {index + 1}" });
                 state["adventureHistory"] = history;
                 state["adventureLastChoice"] = storyChoices[choiceIndex];
-                state["currentRoundIndex"] = nextIndex;
                 state["responsesOpen"] = false;
-                if (nextIndex == index || nextIndex >= rounds.Count - 1 && ReadStringArray(rounds[nextIndex] as JsonObject, "choices").Count == 0)
+                if (nextIndex < 0)
                 {
+                    state["adventureTerminal"] = true;
                     state["phase"] = ActivityPhases.Reveal;
                     state["challengeStatus"] = "revealed";
                     state["revealed"] = true;
                 }
-                else ResetPhysicalRoomRound(state);
+                else
+                {
+                    nextIndex = Math.Clamp(nextIndex, 0, rounds.Count - 1);
+                    state["currentRoundIndex"] = nextIndex;
+                    var targetIsTerminal = ReadStringArray(rounds[nextIndex] as JsonObject, "choices").Count == 0;
+                    state["adventureTerminal"] = nextIndex == index || targetIsTerminal;
+                    if (nextIndex == index || targetIsTerminal)
+                    {
+                        state["phase"] = ActivityPhases.Reveal;
+                        state["challengeStatus"] = "revealed";
+                        state["revealed"] = true;
+                    }
+                    else ResetPhysicalRoomRound(state);
+                }
                 return (true, null);
             case "next":
             case "nextround":
                 if (phase is not (ActivityPhases.Reveal or ActivityPhases.Leaderboard)) return (false, "Reveal the room round before advancing.");
+                if (adventure && (BoolValue(state, "adventureTerminal") || ReadStringArray(round, "choices").Count == 0))
+                {
+                    state["phase"] = ActivityPhases.FinalResults;
+                    return (true, null);
+                }
                 if (index >= rounds.Count - 1) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
                 state["currentRoundIndex"] = index + 1;
                 ResetPhysicalRoomRound(state);
@@ -1721,6 +1735,7 @@ public sealed class ActivitySessionService(
         state.Remove("timerStartedAt");
         state.Remove("timerPausedAt");
         state["revealed"] = false;
+        state["adventureTerminal"] = false;
         state["randomizedChoices"] = new JsonArray();
         state["responsesOpen"] = false;
     }
@@ -1735,7 +1750,30 @@ public sealed class ActivitySessionService(
         state["timerDurationMs"] = LongValue(state, "timerDurationMs");
         state["revealed"] = BoolValue(state, "revealed");
         state["responsesOpen"] = BoolValue(state, "responsesOpen");
+        state["adventureTerminal"] = BoolValue(state, "adventureTerminal");
         if (!state.ContainsKey("adventureHistory")) state["adventureHistory"] = new JsonArray();
+    }
+
+    private static int ResolveAdventureBranchIndex(JsonObject? round, int choiceIndex, JsonArray rounds, int fallback)
+    {
+        var branches = round?["branches"] as JsonObject;
+        if (branches is null || !branches.TryGetPropertyValue(choiceIndex.ToString(CultureInfo.InvariantCulture), out var branch) || branch is null)
+            return fallback;
+
+        if (branch is JsonValue value)
+        {
+            if (value.TryGetValue<int>(out var numericIndex)) return numericIndex;
+            if (value.TryGetValue<string>(out var targetId))
+            {
+                if (string.Equals(targetId, "__end__", StringComparison.OrdinalIgnoreCase)) return -1;
+                for (var index = 0; index < rounds.Count; index++)
+                {
+                    if (string.Equals(StringValue(rounds[index] as JsonObject, "id"), targetId, StringComparison.OrdinalIgnoreCase)) return index;
+                }
+            }
+        }
+
+        return fallback;
     }
 
     private async Task<(bool Success, string? Error)> HandleAdventureParticipantAsync(ActivityRun run, ActivityParticipant participant, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)

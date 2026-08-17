@@ -1545,6 +1545,54 @@ test("Media reveal editors apply named visual formats without changing the sourc
   }
 });
 
+test("Adventure and observation presets expose their differentiated editor surfaces", async ({ page }) => {
+  await authenticate(page);
+  const tag = Date.now();
+  const adventureId = await createActivity(page, "Adventure", `Browser Adventure ${tag}`);
+  let differenceId = "";
+  let emojiId = "";
+  let rebusId = "";
+  try {
+    await expect(page.getByText("Adventure story map", { exact: true })).toBeVisible();
+    await expect(page.getByText("Story branches", { exact: true }).first()).toBeVisible();
+    await expect(page.getByLabel("Round 1 choice 1 destination")).toHaveValue("node-2");
+    await page.getByLabel("Round 1 choice 1 destination").selectOption("__end__");
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    const savedAdventure = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { config: { adventure: boolean; rounds: Array<{ id: string; branches: Record<string, string> }> } }, adventureId);
+    expect(savedAdventure.config.adventure).toBe(true);
+    expect(savedAdventure.config.rounds[0].branches["0"]).toBe("__end__");
+
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    differenceId = await createActivity(page, "What's Different?", `Browser Difference ${tag}`);
+    await expect(page.getByText("What's Different? clue", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Media round type")).toHaveValue("difference");
+    await page.getByLabel("Second image URL").fill("/api/v1/media/second-safari-scene");
+    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    const savedDifference = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { config: { mediaMode: string; comparisonImageUrl: string } }, differenceId);
+    expect(savedDifference.config.mediaMode).toBe("difference");
+    expect(savedDifference.config.comparisonImageUrl).toBe("/api/v1/media/second-safari-scene");
+
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    emojiId = await createActivity(page, "Emoji Decode", `Browser Emoji ${tag}`);
+    await expect(page.getByText("Emoji Decode clue", { exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Emoji clue" })).toHaveValue("🐢🏁");
+
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    rebusId = await createActivity(page, "Rebus Rush", `Browser Rebus ${tag}`);
+    await expect(page.getByText("Rebus Rush clue", { exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Rebus clue" })).toHaveValue("🦊 + 🕳️");
+  } finally {
+    await page.evaluate(async ids => {
+      await fetch("/api/v1/activities/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: ids.filter(Boolean) }),
+      });
+    }, [adventureId, differenceId, emojiId, rebusId]);
+  }
+});
+
 test("Stage challenge editors apply host-led formats with editable timing and scoring", async ({ page }) => {
   await authenticate(page);
   const activityName = `Preset Stage ${Date.now()}`;

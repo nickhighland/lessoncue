@@ -1501,6 +1501,40 @@ public sealed class ActivitySessionServiceTests
     }
 
     [Fact]
+    public async Task AdventureResolvesNamedNodesAndCanFinishFromAChoice()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Named Animal Adventure", ActivityTypes.PhysicalRoom, Config: JsonDocument.Parse("""
+                {"title":"Named Animal Adventure","adventure":true,"rounds":[{"id":"start","title":"Choose a trail","instructions":"Pick a path.","choices":["Waterfall","Finish"],"branches":{"0":"waterfall","1":"__end__"}},{"id":"waterfall","title":"Waterfall","instructions":"Look closely.","choices":["Return"],"branches":{"0":"finish"}},{"id":"finish","title":"Safari Celebration","instructions":"Celebrate.","choices":[]}]}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            var player = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Explorer"), TestContext.Current.CancellationToken);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "openchoices"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(player.Token, "choose", JsonDocument.Parse("""{"choiceIndex":0}""").RootElement), TestContext.Current.CancellationToken)).Success);
+            var waterfall = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "resolvechoice", JsonDocument.Parse("""{"choiceIndex":0}""").RootElement), TestContext.Current.CancellationToken);
+            Assert.True(waterfall.Success, waterfall.Error);
+            var waterfallState = JsonSerializer.SerializeToElement(waterfall.State, ActivityJsonDefaults.Options);
+            Assert.Equal("waterfall", waterfallState.GetProperty("currentRound").GetProperty("id").GetString());
+
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "openchoices"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(player.Token, "choose", JsonDocument.Parse("""{"choiceIndex":0}""").RootElement), TestContext.Current.CancellationToken)).Success);
+            var finish = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "resolvechoice", JsonDocument.Parse("""{"choiceIndex":0}""").RootElement), TestContext.Current.CancellationToken);
+            Assert.True(finish.Success, finish.Error);
+            var finishState = JsonSerializer.SerializeToElement(finish.State, ActivityJsonDefaults.Options);
+            Assert.Equal("finish", finishState.GetProperty("currentRound").GetProperty("id").GetString());
+            Assert.Equal(ActivityPhases.Reveal, finishState.GetProperty("phase").GetString());
+            Assert.True(finishState.GetProperty("adventureTerminal").GetBoolean());
+            var ended = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "next"), TestContext.Current.CancellationToken);
+            Assert.True(ended.Success, ended.Error);
+            Assert.Equal(ActivityPhases.FinalResults, JsonSerializer.SerializeToElement(ended.State, ActivityJsonDefaults.Options).GetProperty("phase").GetString());
+        }
+    }
+
+    [Fact]
     public async Task TelephoneDrawCarriesTheChainFromDrawingToDescriptionToReplay()
     {
         var (db, activities, sessions, connection) = await CreateAsync();

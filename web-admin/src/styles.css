@@ -92,7 +92,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   transition: all 0.15s ease; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
 }
 .button.primary {
-  background: var(--gold); border-color: var(--gold); color: #1d170f;
+  background: var(--gold); border-color: var(--gold); color: #1f1a12;
   box-shadow: 0 2px 4px #31200b10;
 }
 .button.primary:hover { box-shadow: 0 4px 12px #d88c1e30; transform: translateY(-1px); }

@@ -260,8 +260,8 @@ public static class ActivityValidation
                     var mediaMode = reveal.RootElement.TryGetProperty("mediaMode", out var mediaModeElement) && mediaModeElement.ValueKind == JsonValueKind.String
                         ? mediaModeElement.GetString()?.Trim().ToLowerInvariant()
                         : "image";
-                    if (mediaMode is not ("image" or "memorygrid" or "audio"))
-                        return "Image Reveal media mode must be image, memoryGrid, or audio.";
+                    if (mediaMode is not ("image" or "memorygrid" or "audio" or "difference" or "emoji" or "rebus"))
+                        return "Image Reveal media mode must be image, memoryGrid, audio, difference, emoji, or rebus.";
                     if (reveal.RootElement.TryGetProperty("totalStages", out var stages) && (!stages.TryGetInt32(out var count) || count is < 1 or > 24))
                         return "Image Reveal must contain between 1 and 24 reveal stages.";
                     if (reveal.RootElement.TryGetProperty("stages", out var legacyStages) && (!legacyStages.TryGetInt32(out var legacyCount) || legacyCount is < 1 or > 24))
@@ -440,13 +440,48 @@ public static class ActivityValidation
                     using var physical = JsonDocument.Parse(configJson);
                     if (!physical.RootElement.TryGetProperty("rounds", out var rounds) || rounds.ValueKind != JsonValueKind.Array || rounds.GetArrayLength() is < 1 or > 100)
                         return "Physical Room needs between one and 100 rounds.";
+                    var adventure = physical.RootElement.TryGetProperty("adventure", out var adventureElement) && adventureElement.ValueKind == JsonValueKind.True;
+                    var nodeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    if (adventure)
+                    {
+                        foreach (var round in rounds.EnumerateArray())
+                        {
+                            if (round.ValueKind != JsonValueKind.Object) return "Each Physical Room round must be an object.";
+                            if (!round.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(id.GetString()))
+                                return "Adventure nodes need a non-empty id.";
+                            if (!nodeIds.Add(id.GetString()!)) return "Adventure node ids must be unique.";
+                        }
+                    }
                     foreach (var round in rounds.EnumerateArray())
                     {
                         if (round.ValueKind != JsonValueKind.Object) return "Each Physical Room round must be an object.";
                         if (round.TryGetProperty("seconds", out var seconds) && seconds.ValueKind == JsonValueKind.Number && (!seconds.TryGetInt32(out var duration) || duration is < 5 or > 3600))
                             return "Physical Room timers must be between 5 seconds and 60 minutes.";
-                        if (round.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array && choices.GetArrayLength() > 12)
-                            return "A Physical Room round cannot have more than 12 choices.";
+                        if (round.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array)
+                        {
+                            if (choices.GetArrayLength() > 12) return "A Physical Room round cannot have more than 12 choices.";
+                            if (adventure && round.TryGetProperty("branches", out var branches))
+                            {
+                                if (branches.ValueKind != JsonValueKind.Object) return "Adventure branches must be an object keyed by choice number.";
+                                foreach (var branch in branches.EnumerateObject())
+                                {
+                                    if (!int.TryParse(branch.Name, out var choiceIndex) || choiceIndex < 0 || choiceIndex >= choices.GetArrayLength())
+                                        return "Adventure branch choice indexes must point to a visible choice.";
+                                    if (branch.Value.ValueKind == JsonValueKind.Number)
+                                    {
+                                        if (!branch.Value.TryGetInt32(out var targetIndex) || targetIndex < 0 || targetIndex >= rounds.GetArrayLength())
+                                            return "Adventure branch indexes must point to an existing node.";
+                                    }
+                                    else if (branch.Value.ValueKind == JsonValueKind.String)
+                                    {
+                                        var targetId = branch.Value.GetString();
+                                        if (string.IsNullOrWhiteSpace(targetId) || (!string.Equals(targetId, "__end__", StringComparison.OrdinalIgnoreCase) && !nodeIds.Contains(targetId)))
+                                            return "Adventure branch targets must point to an existing node or finish the adventure.";
+                                    }
+                                    else return "Adventure branch targets must be node ids, node indexes, or __end__.";
+                                }
+                            }
+                        }
                     }
                     break;
                 }

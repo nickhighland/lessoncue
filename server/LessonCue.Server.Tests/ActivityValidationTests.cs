@@ -133,4 +133,30 @@ public sealed class ActivityValidationTests
         Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.ImageReveal, "Sound Check", audioRound));
         Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Drawing, "Telephone Draw", telephoneDraw));
     }
+
+    [Fact]
+    public void AdventureValidatesNodeIdsAndBranchTargets()
+    {
+        var valid = """{"title":"Animal Adventure","adventure":true,"rounds":[{"id":"start","choices":["Follow","Climb"],"branches":{"0":"waterfall","1":"__end__"}},{"id":"waterfall","choices":["Search"],"branches":{"0":"finish"}},{"id":"finish","choices":[]}] }""";
+        var duplicateId = """{"title":"Animal Adventure","adventure":true,"rounds":[{"id":"start","choices":[]},{"id":"start","choices":[]}] }""";
+        var invalidTarget = """{"title":"Animal Adventure","adventure":true,"rounds":[{"id":"start","choices":["Follow"],"branches":{"0":"missing"}}] }""";
+        var invalidChoice = """{"title":"Animal Adventure","adventure":true,"rounds":[{"id":"start","choices":["Follow"],"branches":{"1":"__end__"}}] }""";
+
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Valid adventure", valid));
+        Assert.Contains("ids must be unique", ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Duplicate nodes", duplicateId));
+        Assert.Contains("existing node", ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Missing target", invalidTarget));
+        Assert.Contains("visible choice", ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Invalid choice", invalidChoice));
+    }
+
+    [Fact]
+    public void ImageRevealAcceptsDifferentiatedObservationFormats()
+    {
+        var difference = """{"title":"What's Different?","mediaMode":"difference","imageUrl":"/one.png","comparisonImageUrl":"/two.png","answer":"The zebra has one extra stripe."}""";
+        var emoji = """{"title":"Emoji Decode","mediaMode":"emoji","emojiClue":"🦁👑","answer":"The Lion King"}""";
+        var rebus = """{"title":"Rebus Rush","mediaMode":"rebus","rebusClue":"🐝 + 🏠","answer":"Bee home"}""";
+
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.ImageReveal, "What's Different?", difference));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.ImageReveal, "Emoji Decode", emoji));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.ImageReveal, "Rebus Rush", rebus));
+    }
 }

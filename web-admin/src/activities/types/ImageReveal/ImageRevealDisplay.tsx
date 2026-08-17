@@ -32,6 +32,10 @@ interface ImageRevealConfig {
   audioTransform?: string;
   memorySeconds?: number;
   memoryCards?: Array<{ id: string; label: string; match?: string }>;
+  comparisonImageUrl?: string;
+  emojiClue?: string;
+  rebusClue?: string;
+  hint?: string;
 }
 
 export const ImageRevealDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ envelope }) => {
@@ -64,6 +68,9 @@ export const ImageRevealDisplay: React.FC<{ envelope: ActivityStateEnvelope }> =
 
   if (mediaMode === 'memorygrid') return <MemoryGridDisplay envelope={envelope} state={state} config={config} />;
   if (mediaMode === 'audio') return <AudioClueDisplay envelope={envelope} state={state} config={config} />;
+  if (mediaMode === 'difference') return <DifferenceDisplay envelope={envelope} state={state} config={config} />;
+  if (mediaMode === 'emoji') return <EmojiDecodeDisplay envelope={envelope} state={state} config={config} />;
+  if (mediaMode === 'rebus') return <RebusRushDisplay envelope={envelope} state={state} config={config} />;
 
   return (
     <div ref={containerRef} className="activity-stage">
@@ -97,6 +104,41 @@ export const ImageRevealDisplay: React.FC<{ envelope: ActivityStateEnvelope }> =
       </div>
     </div>
   );
+};
+
+const DifferenceDisplay: React.FC<{ envelope: ActivityStateEnvelope; state: ImageRevealState; config: ImageRevealConfig }> = ({ envelope, state, config }) => {
+  const revealed = state.revealed === true;
+  const firstImage = config.imageUrl || '/api/v1/media/placeholder';
+  const secondImage = config.comparisonImageUrl || firstImage;
+  return <div className="activity-stage media-difference-stage">
+    <div className="activity-stage-content">
+      <div className="activity-header"><div className="stage-kicker">🕵️ {config.presetLabel || "WHAT'S DIFFERENT?"} · OBSERVE CLOSELY</div><h1 className="activity-title">{config.title || envelope.name || "What's Different?"}</h1><div className="activity-subtitle">{revealed ? (state.revealedAnswer || config.answer || 'Difference revealed!') : (config.prompt || 'What changed between these two scenes?')}</div></div>
+      <div className="difference-board" aria-label="Two images to compare"><div className="difference-card"><span>A</span><img src={firstImage} alt="First scene" /></div><div className="difference-versus" aria-hidden="true">VS</div><div className="difference-card"><span>B</span><img src={secondImage} alt="Second scene" /></div></div>
+      <div className={`difference-answer ${revealed ? 'revealed' : ''}`}>{revealed ? <><span>THE CHANGE</span><strong>{state.revealedAnswer || config.answer || 'The host has not added the answer yet.'}</strong></> : <span>Spot the change, then wait for the reveal.</span>}</div>
+    </div>
+  </div>;
+};
+
+const EmojiDecodeDisplay: React.FC<{ envelope: ActivityStateEnvelope; state: ImageRevealState; config: ImageRevealConfig }> = ({ envelope, state, config }) => {
+  const revealed = state.revealed === true;
+  return <div className="activity-stage media-emoji-stage">
+    <div className="activity-stage-content">
+      <div className="activity-header"><div className="stage-kicker">😀 {config.presetLabel || 'EMOJI DECODE'} · CRACK THE CLUE</div><h1 className="activity-title">{config.title || envelope.name || 'Emoji Decode'}</h1><div className="activity-subtitle">{revealed ? (state.revealedAnswer || config.answer || 'Decoded!') : (config.prompt || 'What do these emojis mean?')}</div></div>
+      <div className="emoji-decode-card"><div className="emoji-decode-clue" aria-label="Emoji clue">{config.emojiClue || '❓'}</div><div className="emoji-decode-dots" aria-hidden="true">•••</div><div className={`emoji-decode-answer ${revealed ? 'revealed' : ''}`}>{revealed ? (state.revealedAnswer || config.answer || 'Add the answer in the editor') : '???'}</div></div>
+      {!revealed && config.hint && <div className="media-clue-hint">Hint: {config.hint}</div>}
+    </div>
+  </div>;
+};
+
+const RebusRushDisplay: React.FC<{ envelope: ActivityStateEnvelope; state: ImageRevealState; config: ImageRevealConfig }> = ({ envelope, state, config }) => {
+  const revealed = state.revealed === true;
+  return <div className="activity-stage media-rebus-stage">
+    <div className="activity-stage-content">
+      <div className="activity-header"><div className="stage-kicker">🧩 {config.presetLabel || 'REBUS RUSH'} · THINK SIDEWAYS</div><h1 className="activity-title">{config.title || envelope.name || 'Rebus Rush'}</h1><div className="activity-subtitle">{revealed ? (state.revealedAnswer || config.answer || 'Rebus solved!') : (config.prompt || 'Read the symbols as a phrase.')}</div></div>
+      <div className="rebus-rush-card"><div className="rebus-rush-clue" aria-label="Rebus clue">{config.rebusClue || '❓'}</div><div className="rebus-rush-rule" aria-hidden="true" /><div className={`rebus-rush-answer ${revealed ? 'revealed' : ''}`}>{revealed ? (state.revealedAnswer || config.answer || 'Add the answer in the editor') : 'What phrase is hiding here?'}</div></div>
+      {!revealed && config.hint && <div className="media-clue-hint">Hint: {config.hint}</div>}
+    </div>
+  </div>;
 };
 
 const AudioClueDisplay: React.FC<{ envelope: ActivityStateEnvelope; state: ImageRevealState; config: ImageRevealConfig }> = ({ envelope, state, config }) => {

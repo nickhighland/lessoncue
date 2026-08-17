@@ -21,6 +21,10 @@ interface ImageRevealConfig {
   audioTransform?: string;
   memorySeconds?: number;
   memoryCards?: Array<{ id: string; label: string; match?: string }>;
+  comparisonImageUrl?: string;
+  emojiClue?: string;
+  rebusClue?: string;
+  hint?: string;
 }
 
 export const ImageRevealEditor: React.FC<{
@@ -53,8 +57,20 @@ export const ImageRevealEditor: React.FC<{
           <option value="image">Progressive image reveal</option>
           <option value="memoryGrid">Memory Grid</option>
           <option value="audio">Audio clue</option>
+          <option value="difference">What's Different?</option>
+          <option value="emoji">Emoji Decode</option>
+          <option value="rebus">Rebus Rush</option>
         </select>
       </div>
+
+      {(mediaMode === 'difference' || mediaMode === 'emoji' || mediaMode === 'rebus') && <div className="activity-editor-card media-editor-card">
+        <strong>{mediaMode === 'difference' ? "What's Different?" : mediaMode === 'emoji' ? 'Emoji Decode' : 'Rebus Rush'} clue</strong>
+        {mediaMode === 'difference' && <label>Second image URL<input value={irConfig.comparisonImageUrl || ''} onChange={e => onChange({ ...irConfig, comparisonImageUrl: e.target.value })} placeholder="https://... or /api/v1/media/..." /></label>}
+        {mediaMode === 'emoji' && <label>Emoji clue<input value={irConfig.emojiClue || ''} onChange={e => onChange({ ...irConfig, emojiClue: e.target.value })} placeholder="🦁👑" /></label>}
+        {mediaMode === 'rebus' && <label>Rebus clue<input value={irConfig.rebusClue || ''} onChange={e => onChange({ ...irConfig, rebusClue: e.target.value })} placeholder="🐝 + 🏠" /></label>}
+        <label>Optional hint<input value={irConfig.hint || ''} onChange={e => onChange({ ...irConfig, hint: e.target.value })} placeholder="A small nudge for the room" /></label>
+        <small className="muted">These formats use the same server-authoritative reveal controls, but give the TV a purpose-built observation layout.</small>
+      </div>}
 
       {mediaMode === 'audio' && <div className="activity-editor-card media-editor-card">
         <strong>Audio clue</strong>

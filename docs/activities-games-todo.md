@@ -324,12 +324,12 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Blur Reveal
 - [x] Silhouette
 - [x] Missing Piece
-- [ ] What’s Different?
+- [x] What’s Different? with a dedicated two-scene comparison display and teacher-authored change answer
 - [x] Memory Grid
 - [x] Flash Frame
-- [ ] Emoji Decode
+- [x] Emoji Decode with a purpose-built clue/answer reveal layout
 - [x] Picture Puzzler
-- [ ] Rebus Rush
+- [x] Rebus Rush with a purpose-built symbol/phrase reveal layout
 - [x] Sound Check
 - [x] Sound Bite
 - [x] Backwards Audio
@@ -363,6 +363,7 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [ ] Define the later full node editor for scene, choice, poll, quiz, media, random, score, inventory, condition, and end nodes
 - [x] Build the first server-authoritative ordered choice/branch runtime over the shared Physical Room session contract
 - [x] Add Adventure as the first preset, with editable animal story nodes, phone voting, host resolution, and branch history
+- [x] Add a simple ordered node editor with stable node IDs, branch destination selectors, explicit finish targets, and server validation
 
 ## 5. Game-show presentation and sound polish
 
