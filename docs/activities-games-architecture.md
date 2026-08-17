@@ -182,6 +182,6 @@ The implementation is staged so each step is usable:
 4. Continue tournament composition, Physical Room differentiation, and utility composition. The named formats are discoverable in the existing library; the remaining work is richer finalist adapters, Leaderboard/Audience Meter embedding, browser recovery coverage, and replacing any remaining starter-only labels with rule-backed modifiers.
 5. Add the remaining advanced node types for Adventure, richer Telephone Draw chain composition, and additional power modifiers only when the shared contracts need them.
 
-The detailed remaining work, including preset expansion and presentation/controller polish, is tracked in [Activities & Games TODO](activities-games-todo.md).
+The detailed remaining work, including preset expansion and presentation/controller polish, is tracked in [Activities & Games TODO](activities-games-todo.md). Bundled visual/audio work follows the [Activities assets and sound policy](activities-assets-and-sound.md).
 
 The user-facing experience remains `Activities → choose a game → add content → save → add to lesson or launch`; engine names are implementation detail.
