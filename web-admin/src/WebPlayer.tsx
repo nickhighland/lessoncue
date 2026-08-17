@@ -4,7 +4,7 @@ import { WeatherConditionArtwork, WeatherDropArtwork, WeatherWindArtwork } from 
 import { ActivityDisplay } from "./activities/ActivityDisplay";
 import "./signage-studio.css";
 
-const APP_VERSION = "0.40.46";
+const APP_VERSION = "0.40.47";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -315,6 +315,18 @@ export function WebPlayerApp() {
     setActive({ ...current, index, seekMs: 0 });
   }
 
+  function seekRelative(deltaMs: number) {
+    const current = activeRef.current;
+    if (!current) return;
+    const item = current.items[current.index];
+    if (item.type === "activity" || item.activity || item.activityDefinitionId) return;
+    const observed = statusRef.current.itemId === item.itemId ? statusRef.current.positionMs : current.seekMs;
+    const duration = statusRef.current.durationMs ?? effectiveDuration(item);
+    const next = Math.max(0, Math.min(duration ?? Number.MAX_SAFE_INTEGER, observed + deltaMs));
+    setActive({ ...current, seekMs: next });
+    setUnlockNonce(value => value + 1);
+  }
+
   function finishItem() {
     const current = activeRef.current;
     if (!current) return;
@@ -583,6 +595,13 @@ export function WebPlayerApp() {
   const currentItem = active?.items[active.index];
   const nextItem = active && active.items[active.index + 1];
   const permanentSign = Boolean(manifest?.screen.signageOnly && manifest.screen.permanentPairing);
+  const currentDuration = currentItem && status.itemId === currentItem.itemId
+    ? status.durationMs ?? effectiveDuration(currentItem)
+    : currentItem ? effectiveDuration(currentItem) : undefined;
+  const currentPosition = currentItem && status.itemId === currentItem.itemId ? status.positionMs : active?.seekMs || 0;
+  const currentProgress = currentDuration && currentDuration > 0
+    ? Math.max(0, Math.min(100, currentPosition / currentDuration * 100))
+    : 0;
   usePreload(nextItem);
 
   function report(next: PlaybackStatus) {
@@ -613,15 +632,25 @@ export function WebPlayerApp() {
     /> : <PlayerLibrary manifest={manifest} connection={connection} permanentSign={permanentSign}
       onPlay={playlist => startPlayback(playlist, playlist.items)} />}
 
-    {active && controlsVisible && <div className="web-player-overlay">
-      <div><span>{active.mode === "preroll" ? "PRE-ROLL" : active.mode === "countdown" ? "COUNTDOWN" : active.mode === "postLesson" ? "POST-LESSON" : "NOW PLAYING"}</span><strong>{currentItem?.title}</strong><small>{active.playlist.title} · {active.index + 1} of {active.items.length}</small></div>
-      <div className="web-player-transport">
-        <button aria-label="Previous media" onClick={() => moveTo(Math.max(0, active.index - 1))}>‹‹</button>
-        <button aria-label={paused ? "Resume" : "Pause"} onClick={() => { setPaused(value => !value); setUnlockNonce(value => value + 1); }}>{paused ? "▶" : "Ⅱ"}</button>
-        <button aria-label="Next media" onClick={() => moveTo(active.index + 1)}>››</button>
-        <button aria-label="Stop playback" onClick={() => { setActive(undefined); setStatus(idleStatus); }}>■</button>
+    {active && controlsVisible && <>
+      <div className="web-player-metadata">
+        <span>{active.mode === "preroll" ? "PRE-ROLL" : active.mode === "countdown" ? "COUNTDOWN" : active.mode === "postLesson" ? "POST-LESSON" : "NOW PLAYING"}</span>
+        <strong>{currentItem?.title}</strong>
+        <small>{active.playlist.title} · Cue {active.index + 1} of {active.items.length}</small>
       </div>
-    </div>}
+      <div className="web-player-overlay">
+        <div className="web-player-progress" aria-hidden="true"><i style={{ width: `${currentProgress}%` }} /></div>
+        <div className="web-player-transport">
+          <button aria-label="Exit playback" onClick={() => { setActive(undefined); setStatus(idleStatus); }}><b>‹</b><span>Back</span></button>
+          <button aria-label="Previous media" onClick={() => moveTo(Math.max(0, active.index - 1))}><b>↶</b><span>Previous</span></button>
+          <button aria-label="Rewind 5 seconds" disabled={currentItem?.type === "activity"} onClick={() => seekRelative(-5_000)}><b>−5</b><span>Rewind</span></button>
+          <button className="primary" aria-label={paused ? "Resume" : "Pause"} disabled={currentItem?.type === "activity"} onClick={() => { setPaused(value => !value); setUnlockNonce(value => value + 1); }}><b>{paused ? "▶" : "Ⅱ"}</b><span>{paused ? "Play" : "Pause"}</span></button>
+          <button aria-label="Forward 5 seconds" disabled={currentItem?.type === "activity"} onClick={() => seekRelative(5_000)}><b>+5</b><span>Forward</span></button>
+          <button aria-label="Next media" onClick={() => moveTo(active.index + 1)}><b>↷</b><span>Next</span></button>
+        </div>
+        <time>{formatPlayerTime(currentPosition)} / {formatPlayerTime(currentDuration)}</time>
+      </div>
+    </>}
 
     {(autoplayBlocked || Boolean(active && currentItem && needsPlaybackGesture(currentItem) && !interactionUnlocked)) && <button className="autoplay-unlock" onClick={() => {
       setInteractionUnlocked(true);
@@ -1579,6 +1608,17 @@ function effectiveDuration(item: CueItem): number | undefined {
   if (item.durationMs != null) return Math.max(0, item.durationMs - item.startMs);
   if (item.imageDurationSeconds != null) return Math.max(1, item.imageDurationSeconds) * 1_000;
   return undefined;
+}
+
+function formatPlayerTime(value?: number) {
+  if (value == null || !Number.isFinite(value)) return '--:--';
+  const totalSeconds = Math.max(0, Math.floor(value / 1_000));
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    : `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 function fadeOpacity(item: CueItem, position: number, duration: number) {

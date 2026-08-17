@@ -1,5 +1,6 @@
 using System.Text.Json;
 using LessonCue.Server;
+using LessonCue.Server.Activities;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -8,6 +9,53 @@ namespace LessonCue.Server.Tests;
 
 public sealed class ManifestTests
 {
+    [Fact]
+    public async Task ActivityCueUsesDedicatedSharedDisplayRoute()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(cancellationToken);
+        var options = new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options;
+        await using var db = new LessonCueDb(options);
+        await db.Database.EnsureCreatedAsync(cancellationToken);
+
+        var lessonClass = new LessonClass { Name = "Game Room" };
+        var screen = new Screen { Name = "Game Room TV", AssignedClassId = lessonClass.Id };
+        var activity = new ActivityDefinition
+        {
+            Name = "Animal Trivia",
+            Type = ActivityTypes.Trivia,
+            ConfigJson = "{\"questions\":[{\"prompt\":\"Which mammal can fly?\",\"options\":[\"Bat\",\"Cat\"]}]}"
+        };
+        var lesson = new Lesson
+        {
+            ClassId = lessonClass.Id,
+            Date = new DateOnly(2026, 8, 16),
+            Title = "Activity display test"
+        };
+        var cue = new PlaylistItem
+        {
+            LessonId = lesson.Id,
+            Title = activity.Name,
+            Type = "activity",
+            ActivityDefinitionId = activity.Id
+        };
+        lesson.Items.Add(cue);
+        db.AddRange(new Organization { Name = "Test" }, lessonClass, screen, activity, lesson);
+        await db.SaveChangesAsync(cancellationToken);
+
+        var manifest = await new ManifestService(db).BuildAsync(screen.Id, cancellationToken);
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(manifest));
+        var manifestCue = document.RootElement.GetProperty("playlists")[0].GetProperty("items")[0];
+        var playbackUrl = manifestCue.GetProperty("playbackUrl").GetString();
+
+        Assert.Equal(
+            $"/activity-display?definitionId={activity.Id}&lessonId={lesson.Id}&lessonItemId={cue.Id}",
+            playbackUrl);
+        Assert.DoesNotContain("/player", playbackUrl);
+        Assert.Equal(activity.Id.ToString(), manifestCue.GetProperty("activity").GetProperty("definitionId").GetString());
+    }
+
     [Fact]
     public async Task BuildsScheduledManifestOnSqlite()
     {

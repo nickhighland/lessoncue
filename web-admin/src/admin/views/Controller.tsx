@@ -106,6 +106,9 @@ export function ControllerView({
   const [unlocking, setUnlocking] = useState(false);
   const [controlsLocked, setControlsLocked] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
+  // The remote is control-first. Selecting lessons, cues, lobby details, and
+  // team setup stays available, but only after the host explicitly opens it.
+  const [showOnTheFlySetup, setShowOnTheFlySetup] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [commandReceipt, setCommandReceipt] = useState<{
     version?: number;
@@ -195,6 +198,14 @@ export function ControllerView({
   const reportedItem = reportedLesson?.items.find(
     (item) => item.id === selectedScreen?.playbackItemId,
   );
+  const liveActivityItem =
+    reportedItem?.type === "activity" || reportedItem?.activityDefinitionId
+      ? reportedItem
+      : undefined;
+  const setupActivityItem =
+    selectedItem?.type === "activity" || selectedItem?.activityDefinitionId
+      ? selectedItem
+      : undefined;
   const timingLesson = reportedLesson || lesson;
   const timingItems = [...(timingLesson?.items || [])]
     .filter((item) => item.role === "lesson")
@@ -483,12 +494,13 @@ export function ControllerView({
           <div className="controller-focus-now">
             <span>NOW</span><strong>{reportedItem?.title || "Nothing playing"}</strong>
           </div>
-          {((reportedItem?.type === "activity" || reportedItem?.activityDefinitionId) && (
+          {((liveActivityItem?.activityDefinitionId) && (
             <div style={{ width: "100%", margin: "0.5rem 0" }}>
               <ActivityController
-                definitionId={reportedItem.activityDefinitionId}
+                definitionId={liveActivityItem.activityDefinitionId}
                 lessonId={timingLesson?.id}
-                lessonItemId={reportedItem.id}
+                lessonItemId={liveActivityItem.id}
+                showSessionSetup={showOnTheFlySetup}
               />
             </div>
           ))}
@@ -500,12 +512,34 @@ export function ControllerView({
           </div>
         </section>
       )}
+      <section className={`controller-mode-bar ${showOnTheFlySetup ? "setup-open" : "control-only"}`} aria-label="Remote mode">
+        <div>
+          <span className="controller-eyebrow">REMOTE MODE</span>
+          <strong>{showOnTheFlySetup ? "Setup & control" : "Control only"}</strong>
+          <small>
+            {showOnTheFlySetup
+              ? "Choose a lesson or cue, manage the phone lobby, and prepare a game on the fly."
+              : liveActivityItem
+                ? "Playback and live game controls are ready."
+                : "Playback controls are ready. Setup tools are tucked away."}
+          </small>
+        </div>
+        <button
+          type="button"
+          className={`button ${showOnTheFlySetup ? "primary" : ""} controller-setup-toggle`}
+          aria-expanded={showOnTheFlySetup}
+          aria-controls={showOnTheFlySetup ? "controller-setup-panel" : undefined}
+          onClick={() => setShowOnTheFlySetup((value) => !value)}
+        >
+          {showOnTheFlySetup ? "Hide setup" : "Open setup"}
+        </button>
+      </section>
       <fieldset
         className="controller-controls"
         disabled={controlsLocked}
         aria-label="Room playback controls"
       >
-        <div className="controller-grid">
+        <div className={`controller-grid ${showOnTheFlySetup ? "setup-open" : "control-only"}`}>
           <section className="panel controller-target">
             <Field label="Control this screen">
               <select
@@ -637,25 +671,28 @@ export function ControllerView({
             >
               ■ Stop playback
             </button>
-            {((reportedItem?.type === "activity" || reportedItem?.activityDefinitionId) && (
+            {liveActivityItem?.activityDefinitionId && (
               <div style={{ marginTop: "1rem" }}>
                 <ActivityController
-                  definitionId={reportedItem.activityDefinitionId}
+                  definitionId={liveActivityItem.activityDefinitionId}
                   lessonId={timingLesson?.id}
-                  lessonItemId={reportedItem.id}
+                  lessonItemId={liveActivityItem.id}
+                  showSessionSetup={showOnTheFlySetup}
                 />
               </div>
-            )) || (selectedItem?.activityDefinitionId && (
+            )}
+            {!liveActivityItem && showOnTheFlySetup && setupActivityItem?.activityDefinitionId && (
               <div style={{ marginTop: "1rem" }}>
                 <ActivityController
-                  definitionId={selectedItem.activityDefinitionId}
+                  definitionId={setupActivityItem.activityDefinitionId}
                   lessonId={lesson?.id}
-                  lessonItemId={selectedItem.id}
+                  lessonItemId={setupActivityItem.id}
+                  showSessionSetup
                 />
               </div>
-            ))}
+            )}
           </section>
-          <section className="panel controller-media">
+          {showOnTheFlySetup && <section id="controller-setup-panel" className="panel controller-media">
             <Field label="Lesson">
               <select
                 value={lesson?.id || ""}
@@ -813,7 +850,7 @@ export function ControllerView({
                 body="Assign a class to this screen or choose a lesson to begin."
               />
             )}
-          </section>
+          </section>}
         </div>
       </fieldset>
       <section className="controller-install">

@@ -4,6 +4,28 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.47 — Google TV Activity display polish and reliability
+
+### User changes
+
+- Fixed the Google TV Activity display so every game in a lesson continues
+  rendering when moving from one cue to the next.
+- Made the wheel, scoreboards, countdowns, survey boards, ordering games, and
+  other content-heavy Activities fit short TV WebView screens without
+  clipping.
+- Replaced the oversized native playback controls with a thin, translucent
+  fading transport and clear web-controller guidance for Activities.
+- Added visible loading, reconnect, and recovery states when a TV display
+  cannot reach the Activity server.
+
+### Developer changes
+
+- Added a dedicated `/activity-display` projection route for native TV clients
+  and keyed native WebViews to cue identity so destroyed views are never
+  reused for later Activities.
+- Added constrained-viewport browser coverage and a live 27-cue Google TV
+  walk covering every seeded Activity type.
+
 ## v0.40.46 — Google TV Activity playback fix
 
 ### User changes

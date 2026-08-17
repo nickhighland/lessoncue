@@ -4,9 +4,10 @@ import { FormEvent, lazy, ReactNode, Suspense, useCallback, useEffect, useRef, u
 import { api } from "./api";
 import { AccountProfile, Audit, Backup, Bootstrap, Lesson, LessonClass, LessonTemplate, Media, Permission, RecurringSchedule, Screen, Session, Signage, UpdateStatus, User, View } from "./models";
 import { BrandMark, Field, Modal } from "./ui";
-import { errorText, formatBytes, isAccountLinkPath, isActivityParticipantPath, isAudienceDisplayPath, isAudiencePath, isControllerPath, isWebPlayerPath } from "./utils";
+import { errorText, formatBytes, isAccountLinkPath, isActivityDisplayPath, isActivityParticipantPath, isAudienceDisplayPath, isAudiencePath, isControllerPath, isWebPlayerPath } from "./utils";
 
 const ActivityParticipantApp = lazy(() => import("../activities/ActivityParticipant").then((module) => ({ default: module.ActivityParticipantApp })));
+const ActivityTvDisplayApp = lazy(() => import("../activities/ActivityTvDisplay").then((module) => ({ default: module.ActivityTvDisplayApp })));
 const AudienceAdmin = lazy(() => import("../AudienceInteraction").then((module) => ({ default: module.AudienceAdmin })));
 const AudienceDisplayApp = lazy(() => import("../AudienceInteraction").then((module) => ({ default: module.AudienceDisplayApp })));
 const AudienceResponseApp = lazy(() => import("../AudienceInteraction").then((module) => ({ default: module.AudienceResponseApp })));
@@ -25,7 +26,8 @@ const ActivityLibrary = lazy(() => import("../activities/ActivityLibrary").then(
 
 export function App() {
   let content: ReactNode;
-  if (isWebPlayerPath(location.pathname)) content = <WebPlayerApp />;
+  if (isActivityDisplayPath(location.pathname)) content = <ActivityTvDisplayApp />;
+  else if (isWebPlayerPath(location.pathname)) content = <WebPlayerApp />;
   else if (isActivityParticipantPath(location.pathname)) content = <ActivityParticipantApp />;
   else if (isAudienceDisplayPath(location.pathname))
     content = <AudienceDisplayApp />;

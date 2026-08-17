@@ -13,19 +13,26 @@ internal fun shouldUseOnlinePlayback(item: CueItem?): Boolean =
     ))
 
 /**
- * The shared web player needs the paired display identity to load an Activity
- * cue. The native TV manifest deliberately does not include that token in the
- * cue URL, so add it only when the TV opens the Activity inside its WebView.
+ * New Activity cues use a dedicated public display projection and do not need
+ * the paired screen credential in the URL. Keep identity injection only for
+ * legacy /player Activity links so older manifests remain playable during an
+ * upgrade. The native app continues to authenticate manifest/control traffic.
  */
 internal fun activityPlaybackUrl(item: CueItem?, identity: DeviceIdentity?, clientVersion: String? = null): String? {
     val playbackUrl = item?.playbackUrl ?: return null
-    if (item.type != "activity" || identity == null) return playbackUrl
-    val separator = if ('?' in playbackUrl) '&' else '?'
-    val version = clientVersion?.takeIf(String::isNotBlank)
-        ?.let { "&tvVersion=${queryEncode(it)}" }
-        .orEmpty()
-    return "$playbackUrl${separator}screenId=${queryEncode(identity.screenId)}&token=${queryEncode(identity.token)}$version"
+    if (item.type != "activity") return playbackUrl
+    if (playbackUrl.contains("/activity-display")) {
+        return appendQuery(playbackUrl, "tvClient", "android-tv")
+            .let { value -> clientVersion?.takeIf(String::isNotBlank)?.let { appendQuery(value, "tvVersion", it) } ?: value }
+    }
+    if (identity == null) return playbackUrl
+    return appendQuery(playbackUrl, "screenId", identity.screenId)
+        .let { appendQuery(it, "token", identity.token) }
+        .let { value -> clientVersion?.takeIf(String::isNotBlank)?.let { appendQuery(value, "tvVersion", it) } ?: value }
 }
+
+private fun appendQuery(url: String, key: String, value: String): String =
+    "$url${if ('?' in url) '&' else '?'}${queryEncode(key)}=${queryEncode(value)}"
 
 private fun queryEncode(value: String): String =
     URLEncoder.encode(value, "UTF-8").replace("+", "%20")

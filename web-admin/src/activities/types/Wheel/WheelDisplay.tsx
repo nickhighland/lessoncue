@@ -44,6 +44,7 @@ export const WheelDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ en
   const state: WheelState = (envelope.state as WheelState) || {};
 
   const activeItems = items.filter(it => !(state.removedIds || []).includes(it.id) && (it.weight ?? 1) > 0);
+  const activeItemSignature = activeItems.map(item => `${item.id}:${item.label}:${item.weight}:${item.color || ''}`).join('|');
   const currentAngleRef = useRef(0);
   const [showWinner, setShowWinner] = useState(false);
   const lastSpinNonceRef = useRef<number | undefined>(undefined);
@@ -56,10 +57,17 @@ export const WheelDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ en
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const size = Math.min(window.innerWidth * 0.8, window.innerHeight * 0.65, 600);
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = size * dpr;
-    canvas.height = size * dpr;
+    // Size from the laid-out stage instead of CSS viewport-height units.
+    // Android WebView can cache vh as zero when Compose first attaches the
+    // native view at zero height, even after innerHeight becomes valid.
+    const stageBounds = containerRef.current?.getBoundingClientRect();
+    const fallbackWidth = stageBounds?.width || window.innerWidth;
+    const fallbackHeight = stageBounds?.height || window.innerHeight;
+    const size = Math.floor(Math.min(fallbackWidth * 0.6, fallbackHeight * 0.52, 640));
+    if (!Number.isFinite(size) || size < 80) return;
+    const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+    canvas.width = Math.round(size * dpr);
+    canvas.height = Math.round(size * dpr);
     canvas.style.width = `${size}px`;
     canvas.style.height = `${size}px`;
 
@@ -117,7 +125,7 @@ export const WheelDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ en
       ctx.shadowBlur = 4;
 
       const maxTextLen = radius - 60;
-      let text = item.label;
+      let text = String(item.label || item.id || `Entry ${index + 1}`);
       if (ctx.measureText(text).width > maxTextLen) {
         while (text.length > 3 && ctx.measureText(text + '…').width > maxTextLen) {
           text = text.slice(0, -1);
@@ -147,11 +155,31 @@ export const WheelDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ en
   };
 
   useEffect(() => {
-    drawWheel(currentAngleRef.current);
-  }, [activeItems.length, envelope.revision]);
+    let frame = 0;
+    const redraw = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => drawWheel(currentAngleRef.current));
+    };
+    redraw();
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(redraw);
+    if (containerRef.current) observer?.observe(containerRef.current);
+    window.addEventListener('resize', redraw);
+    window.addEventListener('orientationchange', redraw);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener('resize', redraw);
+      window.removeEventListener('orientationchange', redraw);
+    };
+    // Redraw from the complete item signature so label/color edits are visible
+    // even when the number of wheel entries does not change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeItemSignature, envelope.revision]);
 
   // Handle server-authoritative spin animation
   useEffect(() => {
+    let animationFrame = 0;
+    let cancelled = false;
     if (state.spinNonce !== undefined && state.spinNonce !== lastSpinNonceRef.current && state.targetAngle !== undefined && state.targetAngle !== null) {
       lastSpinNonceRef.current = state.spinNonce;
       setShowWinner(false);
@@ -167,6 +195,7 @@ export const WheelDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ en
       let lastTickAngle = startAngle;
 
       const animate = (now: number) => {
+        if (cancelled) return;
         const elapsed = now - startTime;
         const progress = Math.min(1, elapsed / durationMs);
 
@@ -185,7 +214,7 @@ export const WheelDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ en
         }
 
         if (progress < 1) {
-          requestAnimationFrame(animate);
+          animationFrame = requestAnimationFrame(animate);
         } else {
           currentAngleRef.current = target % (2 * Math.PI);
           setShowWinner(true);
@@ -194,8 +223,15 @@ export const WheelDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ en
         }
       };
 
-      requestAnimationFrame(animate);
+      animationFrame = requestAnimationFrame(animate);
     }
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(animationFrame);
+    };
+    // Spin identity and target are server-authoritative; unrelated state
+    // revisions must not restart an animation already in progress.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.spinNonce, state.targetAngle]);
 
   return (
@@ -209,7 +245,7 @@ export const WheelDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ en
 
         <div className="wheel-container">
           <div className={`wheel-pointer ${isPointerTicking ? 'ticking' : ''}`} />
-          <canvas ref={canvasRef} className="wheel-canvas" />
+          <canvas ref={canvasRef} className="wheel-canvas" aria-label={`Wheel with ${activeItems.length} entries`} />
           <div className="wheel-center-hub">🎯</div>
         </div>
 

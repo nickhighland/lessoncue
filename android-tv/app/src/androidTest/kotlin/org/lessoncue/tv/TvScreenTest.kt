@@ -1,6 +1,9 @@
 package org.lessoncue.tv
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
@@ -62,6 +65,37 @@ class TvScreenTest {
     }
 
     @Test
+    fun landingPageUsesTheNewHomeSectionsAndFourCuePreview() {
+        val manifest = ScreenManifest(
+            1,
+            "Room 204",
+            emptyList(),
+            listOf(lesson("animals"))
+        )
+
+        compose.setContent {
+            LibraryScreen(
+                manifest,
+                identity,
+                ConnectionMode.Online,
+                onStart = {},
+                onCheckForUpdates = {}
+            )
+        }
+
+        compose.onNodeWithText("Up Next").assertIsDisplayed()
+        compose.onNodeWithText("Available Lessons").assertIsDisplayed()
+        compose.onNodeWithText("Today's lessons").assertDoesNotExist()
+        compose.onNodeWithText("⇩  Updates").assertIsDisplayed()
+        compose.onNodeWithText("MEDIA CACHED").assertDoesNotExist()
+        compose.onNodeWithText("v${BuildConfig.VERSION_NAME}").assertIsDisplayed()
+        compose.onNodeWithTag("up-next-cue-pre-animals").assertIsDisplayed()
+        compose.onNodeWithTag("up-next-cue-countdown-animals").assertIsDisplayed()
+        compose.onNodeWithTag("up-next-cue-main-animals").assertIsDisplayed()
+        compose.onNodeWithTag("up-next-cue-second-animals").assertIsDisplayed()
+    }
+
+    @Test
     fun lessonDetailFocusesFirstRegularCueAndBackReturnsToLibrary() {
         var backed = false
         val playlist = lesson("lesson")
@@ -108,5 +142,37 @@ class TvScreenTest {
         compose.onNodeWithText("EMERGENCY OVERRIDE").assertIsDisplayed()
         compose.onNodeWithText("Lesson controls are temporarily unavailable. Interrupted playback will resume automatically.")
             .assertIsDisplayed()
+    }
+
+    @Test
+    fun activityPlaybackOverlayKeepsOnlyCompactNavigationControls() {
+        val activity = cue("animal-game", "activity").copy(
+            playbackUrl = "http://lessoncue.local/activity-display?definitionId=animal-game"
+        )
+
+        compose.setContent {
+            Box(Modifier.fillMaxSize()) {
+                PlaybackOverlay(
+                    visible = true,
+                    lessonTitle = "Animal Adventure",
+                    item = activity,
+                    itemIndex = 2,
+                    itemCount = 27,
+                    positionMs = 0,
+                    durationMs = null,
+                    playing = true,
+                    availabilityLabel = "ACTIVITY LIVE",
+                    actions = PlaybackOverlayActions({}, {}, {}, {}, {}, {}),
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        compose.onNodeWithText("USE THE WEB CONTROLLER TO PLAY").assertIsDisplayed()
+        compose.onNodeWithText("‹  Back").assertIsDisplayed()
+        compose.onNodeWithText("↶  Previous").assertIsDisplayed()
+        compose.onNodeWithText("↷  Next").assertIsDisplayed()
+        compose.onNodeWithText("−5  Rewind").assertDoesNotExist()
+        compose.onNodeWithText("Ⅱ  Pause").assertDoesNotExist()
     }
 }

@@ -12,6 +12,13 @@ export interface ActivityControllerProps {
   initialEnvelope?: ActivityStateEnvelope;
   lessonId?: string;
   lessonItemId?: string;
+  /**
+   * Lobby, participant, team, and moderation tools are useful when a host is
+   * setting up an activity, but they make a phone remote noisy during play.
+   * Keep them opt-in for remotes while preserving the full controller for
+   * other callers.
+   */
+  showSessionSetup?: boolean;
 }
 
 export const ActivityController: React.FC<ActivityControllerProps> = ({
@@ -19,7 +26,8 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
   definitionId,
   initialEnvelope,
   lessonId,
-  lessonItemId
+  lessonItemId,
+  showSessionSetup = false
 }) => {
   const [envelope, setEnvelope] = useState<ActivityStateEnvelope | null>(initialEnvelope || null);
   const [loading, setLoading] = useState(!initialEnvelope);
@@ -137,8 +145,9 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
   const controllerEnvelope = hostView?.state || envelope;
 
   return (
-    <div style={{ background: 'var(--mint)', border: '1px solid var(--line)', borderRadius: '16px', padding: '0.75rem', width: '100%', boxSizing: 'border-box' }}>
+    <div className="activity-controller-shell" style={{ background: 'var(--mint)', border: '1px solid var(--line)', borderRadius: '16px', padding: '0.75rem', width: '100%', boxSizing: 'border-box' }}>
       <div
+        className="activity-controller-header"
         style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -171,7 +180,7 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
         </div>
       </div>
 
-      {isInteractive && hostView && <ActivityHostSessionPanel hostView={hostView} onRefresh={() => fetchHostView(envelope.runId)} />}
+      {isInteractive && hostView && showSessionSetup && <ActivityHostSessionPanel hostView={hostView} onRefresh={() => fetchHostView(envelope.runId)} />}
 
       <ControllerComponent
         envelope={controllerEnvelope}

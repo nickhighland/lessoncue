@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import type { ActivityStateEnvelope } from './types';
+import React, { CSSProperties, useEffect, useState } from 'react';
+import type { ActivityStateEnvelope, ActivityTheme } from './types';
 import { ActivityApi, activityHub } from './api';
 import { getActivityDescriptor } from './activityRegistry';
 import './activity.css';
@@ -30,7 +30,10 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
 
     const initRun = async () => {
       try {
-        let activeRun = envelope;
+        setError(null);
+        setLoading(!initialEnvelope);
+        if (!initialEnvelope) setEnvelope(null);
+        let activeRun = initialEnvelope;
 
         if (!activeRun) {
           if (propRunId) {
@@ -44,7 +47,8 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
           }
         }
 
-        if (isCancelled || !activeRun) return;
+        if (isCancelled) return;
+        if (!activeRun) throw new Error('Activity run is not available.');
         setEnvelope(activeRun);
         setLoading(false);
 
@@ -69,13 +73,16 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
       isCancelled = true;
       if (unsubscribe) unsubscribe();
     };
-  }, [propRunId, definitionId, lessonId, lessonItemId]);
+  }, [propRunId, definitionId, initialEnvelope, lessonId, lessonItemId]);
 
   if (loading) {
     return (
-      <div className="activity-stage">
-        <div style={{ color: '#00f0ff', fontSize: '1.8rem', fontWeight: 800 }}>
-          ⚡ Loading Game Stage...
+      <div className="activity-display-root" data-activity-status="loading">
+        <div className="activity-stage activity-stage-message">
+          <div className="activity-stage-message-card">
+            <span>GET READY</span>
+            <strong>Loading the game stage…</strong>
+          </div>
         </div>
       </div>
     );
@@ -83,9 +90,13 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
 
   if (error || !envelope) {
     return (
-      <div className="activity-stage">
-        <div style={{ color: '#ef4444', fontSize: '1.5rem', fontWeight: 700 }}>
-          ⚠️ {error || 'Activity not available'}
+      <div className="activity-display-root" data-activity-status="error">
+        <div className="activity-stage activity-stage-message">
+          <div className="activity-stage-message-card error" role="alert">
+            <span>DISPLAY RECOVERY</span>
+            <strong>{error || 'Activity not available'}</strong>
+            <small>Use Previous or Next to continue, then try this cue again.</small>
+          </div>
         </div>
       </div>
     );
@@ -94,7 +105,13 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
   const descriptor = getActivityDescriptor(envelope.type);
   const DisplayComponent = descriptor.displayComponent;
 
-  return (
+  return <div
+    className={`activity-display-root activity-theme-${envelope.theme?.preset || 'stage'}`}
+    data-activity-status="ready"
+    data-activity-type={envelope.type}
+    data-activity-run-id={envelope.runId}
+    style={activityThemeVariables(envelope.theme)}
+  >
     <DisplayComponent
       envelope={envelope}
       // Interactive activity mechanics belong to the teacher controller. The
@@ -102,5 +119,34 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
       // the prop or passes the old preview default.
       interactive={false}
     />
-  );
+  </div>;
 };
+
+function activityThemeVariables(theme?: ActivityTheme | null): CSSProperties {
+  const primary = theme?.primaryColor || '#2a6e4a';
+  const secondary = theme?.secondaryColor || '#2563eb';
+  const accent = theme?.accentColor || '#f59e0b';
+  const background = theme?.backgroundColor || '#091c1d';
+  return {
+    '--act-gold': accent,
+    '--act-gold-start': accent,
+    '--act-gold-end': primary,
+    '--act-green': primary,
+    '--act-green-bright': secondary,
+    '--act-stage-bg': background,
+    '--act-stage-primary': primary,
+    '--act-stage-secondary': secondary,
+    '--act-stage-accent': accent,
+    '--act-stage-primary-soft': colorWithAlpha(primary, 0.26),
+    '--act-stage-secondary-soft': colorWithAlpha(secondary, 0.22),
+    '--act-stage-accent-soft': colorWithAlpha(accent, 0.18),
+    '--act-stage-text': theme?.textColor || '#ffffff',
+  } as CSSProperties;
+}
+
+function colorWithAlpha(value: string, alpha: number) {
+  const match = /^#([0-9a-f]{6})$/i.exec(value.trim());
+  if (!match) return value;
+  const number = Number.parseInt(match[1], 16);
+  return `rgba(${number >> 16}, ${(number >> 8) & 255}, ${number & 255}, ${alpha})`;
+}

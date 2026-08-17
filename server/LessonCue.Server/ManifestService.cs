@@ -92,9 +92,9 @@ public sealed class ManifestService(LessonCueDb db)
             ? start.AddMilliseconds(-duration)
             : (DateTimeOffset?)null;
         var preRollItems = ordered.Where(x => x.Role == "preRoll")
-            .Select(x => MapItem(x, screen, lesson.VolumePercent, lesson.Muted)).ToArray();
+            .Select(x => MapItem(x, screen, lesson.Id, lesson.VolumePercent, lesson.Muted)).ToArray();
         var postLessonItems = ordered.Where(x => x.Role == "postLesson")
-            .Select(x => MapItem(x, screen, lesson.VolumePercent, lesson.Muted)).ToArray();
+            .Select(x => MapItem(x, screen, lesson.Id, lesson.VolumePercent, lesson.Muted)).ToArray();
 
         return new
         {
@@ -114,7 +114,7 @@ public sealed class ManifestService(LessonCueDb db)
                 itemId = countdownItem.Id,
                 durationMs = countdownDuration.Value,
                 startAt = UtcTimestamp(countdownStart),
-                item = MapItem(countdownItem, screen, lesson.VolumePercent, lesson.Muted)
+                item = MapItem(countdownItem, screen, lesson.Id, lesson.VolumePercent, lesson.Muted)
             },
             preRoll = !lesson.PreRollEnabled || preRollItems.Length == 0 ? null : new
             {
@@ -129,7 +129,7 @@ public sealed class ManifestService(LessonCueDb db)
                 items = postLessonItems
             },
             items = ordered.Where(x => x.Role == "lesson")
-                .Select(x => MapItem(x, screen, lesson.VolumePercent, lesson.Muted)).ToArray()
+                .Select(x => MapItem(x, screen, lesson.Id, lesson.VolumePercent, lesson.Muted)).ToArray()
         };
     }
 
@@ -142,7 +142,7 @@ public sealed class ManifestService(LessonCueDb db)
         ? null
         : item.EndMs is { } end ? Math.Max(0, end - item.StartMs) : item.DurationMs ?? item.MediaAsset?.DurationMs;
 
-    private static object MapItem(PlaylistItem item, Screen screen, int lessonVolumePercent, bool lessonMuted)
+    private static object MapItem(PlaylistItem item, Screen screen, Guid lessonId, int lessonVolumePercent, bool lessonMuted)
     {
         var media = item.MediaAsset;
         var render = DisplayCapabilities.LessonDecision(screen.Platform, item);
@@ -169,7 +169,9 @@ public sealed class ManifestService(LessonCueDb db)
                     ? $"/api/v1/media/{mediaId}/playback" : null,
             playbackUrl = render.CanRender && media is { SourceKind: "link" } online
                 ? YouTubeMedia.EmbedUrl(online.SourceUrl) ?? online.SourceUrl
-                : (render.CanRender && (item.ActivityDefinitionId.HasValue || item.Type == "activity") ? $"/player?screen={screen.Id}&cue={item.Id}" : null),
+                : (render.CanRender && item.ActivityDefinitionId is { } definitionId
+                    ? $"/activity-display?definitionId={definitionId}&lessonId={lessonId}&lessonItemId={item.Id}"
+                    : null),
             sha256 = useVariant ? variant!.Sha256 : compatible && !useNative ? media?.CompatibilitySha256 : media?.Sha256,
             sizeBytes = useVariant ? variant!.SizeBytes : compatible && !useNative ? media?.CompatibilitySizeBytes : media?.SizeBytes,
             contentType = useVariant || compatible && !useNative ? "video/mp4" : media?.ContentType,

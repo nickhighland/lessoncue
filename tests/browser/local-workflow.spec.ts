@@ -686,10 +686,15 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.locator(".codec-list > span")).toContainText("H.264 / AVC");
   await expect(page.getByAltText("Diagnostic screenshot from Browser Test TV")).toBeVisible();
 
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/universalremote");
   await page.getByLabel("Six-digit controller PIN").fill("482731");
   await page.getByRole("button", { name: "Open universal remote" }).click();
   await expect(page.getByText("Needs attention", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Remote mode" })).toContainText("Control only");
+  await expect(page.locator(".controller-list")).toHaveCount(0);
+  await page.getByRole("button", { name: "Open setup" }).click();
+  await expect(page.getByRole("button", { name: "Hide setup" })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByText("Check the room display before participants arrive.", { exact: true })).toBeVisible();
   await expect(page.locator(".controller-list")).toContainText("Pause for questions before continuing.");
   await expect(page.locator(".controller-list")).toContainText("Flexible");
@@ -701,6 +706,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: "🔓 Lock controls" }).click();
   await expect(page.getByText("Controls are locked. Nothing on this remote can change the screen until you unlock it.", { exact: true })).toBeVisible();
   await expect(page.getByRole("group", { name: "Room playback controls" }).getByRole("button", { name: "Pause", exact: true })).toBeDisabled();
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: "Controller link" }).click();
@@ -1223,7 +1229,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.46" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.47" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();

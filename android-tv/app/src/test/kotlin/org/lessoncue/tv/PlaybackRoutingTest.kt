@@ -40,10 +40,28 @@ class PlaybackRoutingTest {
             playbackUrl = "http://192.168.4.3:8080/player?screen=screen-1&cue=activity-1"
         )
 
-        val url = activityPlaybackUrl(item, DeviceIdentity("screen-1", "device-token", "http://192.168.4.3:8080"), "0.40.46")
+        val url = activityPlaybackUrl(item, DeviceIdentity("screen-1", "device-token", "http://192.168.4.3:8080"), "0.40.47")
 
         assertTrue(url!!.contains("screenId=screen-1"))
         assertTrue(url.contains("token=device-token"))
-        assertTrue(url.contains("tvVersion=0.40.46"))
+        assertTrue(url.contains("tvVersion=0.40.47"))
+    }
+
+    @Test
+    fun dedicatedActivityDisplayDoesNotExposePairedCredential() {
+        val item = CueItem(
+            id = "activity-1",
+            title = "Wild Fact Frenzy",
+            type = "activity",
+            url = null,
+            playbackUrl = "http://192.168.4.3:8080/activity-display?definitionId=definition-1&lessonItemId=activity-1"
+        )
+
+        val url = activityPlaybackUrl(item, DeviceIdentity("screen-1", "device-token", "http://192.168.4.3:8080"), "0.40.47")
+
+        assertTrue(url!!.contains("tvClient=android-tv"))
+        assertTrue(url.contains("tvVersion=0.40.47"))
+        assertFalse(url.contains("screenId="))
+        assertFalse(url.contains("device-token"))
     }
 }
