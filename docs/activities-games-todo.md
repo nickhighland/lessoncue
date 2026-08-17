@@ -159,7 +159,7 @@ The first Bracket Battle vertical slice now supports teacher-entered entrants pl
 ## 3. Game-show utilities and composition
 
 - [x] Establish the shared utility registry metadata contract so utilities can run standalone from Activities and be embedded by future engines without another selector.
-- [ ] Add Wheel with teacher-provided choices and safe random selection.
+- [x] Add Wheel with teacher-provided choices and safe random selection; the existing server-authoritative Wheel reducer is now exposed as named Safari Spin and Spin Challenge Wheel presets in the primary Activities catalog.
 - [x] Add Random Person Picker and Random Team Picker using the live participant/team roster.
 - [x] Add Mystery Boxes with hidden values, server-side reveal, and optional score/action payloads.
 - [x] Add Countdown with pause, resume, reset, adjustment, and server timer metadata.

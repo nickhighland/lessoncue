@@ -68,6 +68,19 @@ async function launch(page: Page, definitionId: string) {
   }, definitionId);
 }
 
+async function launchHostOnly(page: Page, definitionId: string) {
+  return page.evaluate(async id => {
+    const response = await fetch("/api/v1/activity-runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ activityDefinitionId: id }),
+    });
+    const body = await response.json() as { runId: string; state?: Record<string, unknown> };
+    if (!response.ok || !body.runId) throw new Error(JSON.stringify(body));
+    return { runId: body.runId };
+  }, definitionId);
+}
+
 async function hostAction(page: Page, runId: string, action: string, payload?: Record<string, unknown>) {
   const result = await page.evaluate(async ({ id, command, commandPayload }) => {
     const response = await fetch(`/api/v1/activity-runs/${id}/command`, {
@@ -123,10 +136,41 @@ test("The existing Activities chooser exposes named game formats from one search
   await expect(chooser.getByRole("button", { name: /Telephone Draw/ })).toBeVisible();
   await expect(chooser.getByRole("button", { name: /Connections/ })).toBeVisible();
   await expect(chooser.getByRole("button", { name: /Adventure/ })).toBeVisible();
+  await expect(chooser.getByRole("button", { name: /Safari Spin/ })).toBeVisible();
+  await expect(chooser.getByRole("button", { name: /Coin Flip/ })).toBeVisible();
   await chooser.getByLabel("Search game formats").fill("memory");
   await expect(chooser.getByRole("button", { name: /Memory Grid/ })).toBeVisible();
   await expect(chooser.getByText("No named formats match", { exact: false })).toHaveCount(0);
   await page.keyboard.press("Escape");
+});
+
+test("Wheel and utility presets use the existing live run and controller paths", async ({ page }) => {
+  await authenticate(page);
+  const wheelId = await createActivity(page, "Safari Spin", "Browser Safari Spin");
+  const wheelDefinition = await page.evaluate(async id => {
+    const response = await fetch(`/api/v1/activities/${id}`);
+    return response.json() as Promise<{ type: string; presetType?: string; config: { items?: unknown[] } }>;
+  }, wheelId);
+  expect(wheelDefinition.type).toBe("wheel");
+  expect(wheelDefinition.presetType).toBe("safariSpin");
+  expect(wheelDefinition.config.items).toHaveLength(4);
+  const wheelRun = await launchHostOnly(page, wheelId);
+  await hostAction(page, wheelRun.runId, "spin");
+  expect((await runState(page, wheelRun.runId)).winnerLabel).toBeTruthy();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+
+  const utilityId = await createActivity(page, "Coin Flip", "Browser Animal Coin Flip");
+  const utilityDefinition = await page.evaluate(async id => {
+    const response = await fetch(`/api/v1/activities/${id}`);
+    return response.json() as Promise<{ type: string; presetType?: string; config: { utilityType?: string } }>;
+  }, utilityId);
+  expect(utilityDefinition.type).toBe("utility");
+  expect(utilityDefinition.presetType).toBe("coinFlip");
+  expect(utilityDefinition.config.utilityType).toBe("coinFlip");
+  const utilityRun = await launchHostOnly(page, utilityId);
+  await hostAction(page, utilityRun.runId, "start");
+  await hostAction(page, utilityRun.runId, "flip");
+  expect((await runState(page, utilityRun.runId)).result).toBeTruthy();
 });
 
 test("Trivia runs from teacher launch through two phone answers and scored reveal", async ({ page, browser }) => {

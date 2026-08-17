@@ -430,6 +430,26 @@ export const PHYSICAL_ROOM_PRESETS: ActivityPresetTemplate[] = [
   { id: 'adventure', label: 'Adventure', description: 'Make a room-wide choice and follow the story to its next branch.', config: { preset: 'adventure', presetLabel: 'ADVENTURE', title: 'Animal Adventure', adventure: true, rounds: [{ id: 'node-1', title: 'The Moonlit Trail', instructions: 'Your animal team reaches a fork in the trail. Choose the next move.', choices: ['Follow the pawprints', 'Climb the lookout'], seconds: 30, revealText: 'The trail opens…', branches: { '0': 1, '1': 2 } }, { id: 'node-2', title: 'The Hidden Waterfall', instructions: 'The pawprints lead to a waterfall. What will the team do?', choices: ['Search behind the falls', 'Build a bridge'], seconds: 30, revealText: 'You discover a glowing animal badge.', branches: { '0': 3, '1': 3 } }, { id: 'node-3', title: 'The High Lookout', instructions: 'From the lookout, the team spots two routes across the valley.', choices: ['Call the flock', 'Take the sunny path'], seconds: 30, revealText: 'A friendly guide appears.', branches: { '0': 3, '1': 3 } }, { id: 'node-4', title: 'The Safari Celebration', instructions: 'You made it! Tell the room which animal helped your team most.', choices: [], seconds: 15, revealText: 'The adventure is complete. Give the winning team a roar!' }] } }
 ];
 
+/** Utility formats stay in the same catalog, even though their runtime is
+ * intentionally compact. Wheel remains on the existing legacy wheel type so
+ * older definitions keep their reducer and presentation behavior. */
+export const WHEEL_PRESETS: ActivityPresetTemplate[] = [
+  { id: 'safariSpin', label: 'Safari Spin', description: 'Spin through animal teams, movement prompts, or a teacher-authored prize pool.', config: { preset: 'safariSpin', presetLabel: 'SAFARI SPIN', title: 'Safari Spin', removeWinner: true, spinDurationSeconds: 5, items: [{ id: 'lion', label: 'Lion team', weight: 1, color: '#d88c1e' }, { id: 'penguin', label: 'Penguin waddle', weight: 1, color: '#2563eb' }, { id: 'giraffe', label: 'Giraffe stretch', weight: 1, color: '#b86632' }, { id: 'otter', label: 'Otter high five', weight: 1, color: '#2a6e4a' }] } },
+  { id: 'spinChallengeWheel', label: 'Spin Challenge Wheel', description: 'Spin a safe, quick challenge for the room, then run it on the clock.', config: { preset: 'spinChallengeWheel', presetLabel: 'SPIN CHALLENGE WHEEL', title: 'Spin Challenge Wheel', removeWinner: false, items: [{ id: 'paws', label: 'Do ten animal hops', weight: 1 }, { id: 'sound', label: 'Make an animal sound', weight: 1 }, { id: 'statue', label: 'Freeze like a statue', weight: 1 }, { id: 'story', label: 'Tell a ten-second animal story', weight: 1 }] } }
+];
+
+export const UTILITY_PRESETS: ActivityPresetTemplate[] = [
+  { id: 'coinFlip', label: 'Coin Flip', description: 'Make a fast two-choice decision with an original game-show reveal.', config: { preset: 'coinFlip', presetLabel: 'COIN FLIP', title: 'Animal Coin Flip', utilityType: 'coinFlip', choices: ['Heads', 'Tails'] } },
+  { id: 'dice', label: 'Dice', description: 'Roll a server-randomized die for points, order, or a bonus round.', config: { preset: 'dice', presetLabel: 'DICE', title: 'Safari Dice', utilityType: 'dice', diceSides: 6 } },
+  { id: 'randomNumber', label: 'Random Number', description: 'Draw a number from a teacher-defined range.', config: { preset: 'randomNumber', presetLabel: 'RANDOM NUMBER', title: 'Mystery Number', utilityType: 'randomNumber', minimum: 1, maximum: 100 } },
+  { id: 'randomPerson', label: 'Random Person Picker', description: 'Pick an active participant without storing names in the reusable activity.', config: { preset: 'randomPerson', presetLabel: 'RANDOM PERSON', title: 'Who’s Up Next?', utilityType: 'randomPerson' } },
+  { id: 'randomTeam', label: 'Random Team Picker', description: 'Pick one of the live teams for the next challenge.', config: { preset: 'randomTeam', presetLabel: 'RANDOM TEAM', title: 'Which Team Goes First?', utilityType: 'randomTeam' } },
+  { id: 'mysteryBoxes', label: 'Mystery Boxes', description: 'Reveal hidden points or animal-themed challenges one box at a time.', config: { preset: 'mysteryBoxes', presetLabel: 'MYSTERY BOXES', title: 'Mystery Safari Boxes', utilityType: 'mysteryBoxes', boxes: [{ id: 'box-1', label: '🐘 Elephant Box', value: 'Choose the next category', points: 50 }, { id: 'box-2', label: '🦊 Fox Box', value: 'Double the next score', points: 100 }, { id: 'box-3', label: '🦉 Owl Box', value: 'Ask for one hint', points: 25 }] } },
+  { id: 'challengePicker', label: 'Challenge Picker', description: 'Choose one teacher-authored challenge for the room.', config: { preset: 'challengePicker', presetLabel: 'CHALLENGE PICKER', title: 'Pick a Safari Challenge', utilityType: 'challengePicker', challenges: [{ id: 'challenge-1', label: 'Penguin Waddle', instructions: 'Waddle across the room and back.', points: 50 }, { id: 'challenge-2', label: 'Owl Eyes', instructions: 'Stand perfectly still while the host counts to ten.', points: 50 }, { id: 'challenge-3', label: 'Monkey Memory', instructions: 'Remember and repeat three animal names in order.', points: 100 }] } },
+  { id: 'teamGenerator', label: 'Team Generator', description: 'Create balanced or random teams from the live roster.', config: { preset: 'teamGenerator', presetLabel: 'TEAM GENERATOR', title: 'Safari Team Generator', utilityType: 'teamGenerator', teamCount: 2, teamAssignmentMode: 'balanced' } },
+  { id: 'countdown', label: 'Countdown', description: 'Run a clear, server-authoritative timer for any room challenge.', config: { preset: 'countdown', presetLabel: 'COUNTDOWN', title: 'Safari Countdown', utilityType: 'countdown', durationSeconds: 60, warningThresholdSeconds: 10 } }
+];
+
 export interface ActivityPresetCatalogEntry extends ActivityPresetTemplate {
   type: string;
   category: string;
@@ -461,5 +481,7 @@ export const ACTIVITY_PRESET_CATALOG: ActivityPresetCatalogEntry[] = [
   ...catalogFrom(MATCH_PRESETS, 'matchPlayer', 'match', '🤝', true, true),
   ...catalogFrom(MEDIA_REVEAL_PRESETS, 'imageReveal', 'media', '🖼️', false, true),
   ...catalogFrom(STAGE_PRESETS, 'stageChallenge', 'stage', '🎬', false, true),
-  ...catalogFrom(PHYSICAL_ROOM_PRESETS, 'physicalRoom', 'physical', '🏃', false, true)
+  ...catalogFrom(PHYSICAL_ROOM_PRESETS, 'physicalRoom', 'physical', '🏃', false, true),
+  ...catalogFrom(WHEEL_PRESETS, 'wheel', 'utilities', '🎡', false, true),
+  ...catalogFrom(UTILITY_PRESETS, 'utility', 'utilities', '🎲', false, true)
 ];
