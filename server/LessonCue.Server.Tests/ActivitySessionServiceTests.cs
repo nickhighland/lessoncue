@@ -1535,6 +1535,64 @@ public sealed class ActivitySessionServiceTests
     }
 
     [Fact]
+    public async Task AdventureTypedNodesRunThroughTheSharedAuthoritativeReducer()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Typed Animal Adventure", ActivityTypes.PhysicalRoom, Config: JsonDocument.Parse("""
+                {"title":"Typed Animal Adventure","adventure":true,"rounds":[
+                  {"id":"scene","nodeType":"scene","title":"The trailhead","nextTarget":"poll"},
+                  {"id":"poll","nodeType":"poll","title":"Choose a route","choices":["River","Ridge"],"branches":{"0":"quiz","1":"end"}},
+                  {"id":"quiz","nodeType":"quiz","title":"Animal clue","choices":["Otter","Owl"],"correctIndex":0,"branches":{"0":"random","1":"random"}},
+                  {"id":"random","nodeType":"random","title":"Wind in the trees","randomTargets":["score"]},
+                  {"id":"score","nodeType":"score","title":"Bonus cache","scoreDelta":100,"scoreTarget":"allTeams","nextTarget":"inventory"},
+                  {"id":"inventory","nodeType":"inventory","title":"Found badge","inventoryKey":"badge","inventoryValue":"moon badge","nextTarget":"condition"},
+                  {"id":"condition","nodeType":"condition","title":"A locked gate","conditionKey":"badge","conditionEquals":"moon badge","trueTarget":"end","falseTarget":"end"},
+                  {"id":"end","nodeType":"end","title":"Safari celebration"}]}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            await sessions.SetTeamsAsync(run.Id, [new ActivityTeamInput("Explorers"), new ActivityTeamInput("Trackers")], TestContext.Current.CancellationToken);
+            var player = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Explorer"), TestContext.Current.CancellationToken);
+
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken)).Success);
+            var scene = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "resolvenode"), TestContext.Current.CancellationToken);
+            Assert.True(scene.Success, scene.Error);
+            Assert.Equal("poll", JsonSerializer.SerializeToElement(scene.State, ActivityJsonDefaults.Options).GetProperty("currentRound").GetProperty("id").GetString());
+
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "openchoices"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(player.Token, "choose", JsonDocument.Parse("""{"choiceIndex":0}""").RootElement), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "resolvechoice", JsonDocument.Parse("""{"choiceIndex":0}""").RootElement), TestContext.Current.CancellationToken)).Success);
+
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "openchoices"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(player.Token, "choose", JsonDocument.Parse("""{"choiceIndex":0}""").RootElement), TestContext.Current.CancellationToken)).Success);
+            var quiz = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "resolvechoice", JsonDocument.Parse("""{"choiceIndex":0}""").RootElement), TestContext.Current.CancellationToken);
+            Assert.True(quiz.Success, quiz.Error);
+            Assert.Equal("random", JsonSerializer.SerializeToElement(quiz.State, ActivityJsonDefaults.Options).GetProperty("currentRound").GetProperty("id").GetString());
+
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "resolvenode"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "resolvenode"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "resolvenode"), TestContext.Current.CancellationToken)).Success);
+            var condition = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "resolvenode"), TestContext.Current.CancellationToken);
+            Assert.True(condition.Success, condition.Error);
+            var conditionState = JsonSerializer.SerializeToElement(condition.State, ActivityJsonDefaults.Options);
+            Assert.Equal("end", conditionState.GetProperty("currentRound").GetProperty("id").GetString());
+            Assert.Equal(ActivityPhases.Reveal, conditionState.GetProperty("phase").GetString());
+
+            var host = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            Assert.Contains("adventureScoreDelta", JsonSerializer.Serialize(host!.State, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("100", JsonSerializer.Serialize(host.ScoreEvents, ActivityJsonDefaults.Options), StringComparison.Ordinal);
+            var display = await sessions.GetDisplayEnvelopeAsync(run.Id, TestContext.Current.CancellationToken);
+            var publicJson = JsonSerializer.Serialize(display, ActivityJsonDefaults.Options);
+            Assert.DoesNotContain("correctIndex", publicJson, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("scoreTarget", publicJson, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("conditionKey", publicJson, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("randomTargets", publicJson, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
     public async Task TelephoneDrawCarriesTheChainFromDrawingToDescriptionToReplay()
     {
         var (db, activities, sessions, connection) = await CreateAsync();

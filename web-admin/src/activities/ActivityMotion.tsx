@@ -59,10 +59,13 @@ export const ActivityRevealCurtain: React.FC<{
   visible: boolean;
   kicker?: string;
   title?: string;
+  /** Renderer-only pacing. Host actions remain immediately available. */
+  pacing?: string;
   children: React.ReactNode;
-}> = ({ visible, kicker = 'REVEAL', title, children }) => {
+}> = ({ visible, kicker = 'REVEAL', title, pacing = 'dramatic', children }) => {
   if (!visible) return null;
-  return <section className="activity-motion-reveal" aria-live="polite">
+  const safePacing = pacing === 'quick' || pacing === 'epic' ? pacing : 'dramatic';
+  return <section className={`activity-motion-reveal pacing-${safePacing}`} data-reveal-pacing={safePacing} aria-live="polite">
     <span>{kicker}</span>
     {title && <h2>{title}</h2>}
     <div>{children}</div>
@@ -94,4 +97,3 @@ export const ActivityWinnerBanner: React.FC<{
     {typeof score === 'number' && <small>{score.toLocaleString()} points</small>}
   </section>;
 };
-

@@ -977,6 +977,17 @@ export const ActivityLibrary: React.FC = () => {
                       Ambient motion
                     </label>
                   </div>
+                  <label>Reveal pacing
+                    <select
+                      aria-label="Reveal pacing"
+                      value={typeof editingConfig.revealPacing === 'string' ? editingConfig.revealPacing : 'dramatic'}
+                      onChange={event => setEditingConfig({ ...editingConfig, revealPacing: event.target.value })}
+                    >
+                      <option value="quick">Quick</option>
+                      <option value="dramatic">Dramatic</option>
+                      <option value="epic">Epic</option>
+                    </select>
+                  </label>
                   <small className="muted">Motion respects reduced-motion settings. Game audio stays separate from lesson media volume.</small>
                 </section>
 

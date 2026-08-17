@@ -1627,6 +1627,13 @@ test("Adventure and observation presets expose their differentiated editor surfa
     await expect(page.getByText("Adventure story map", { exact: true })).toBeVisible();
     await expect(page.getByText("Story branches", { exact: true }).first()).toBeVisible();
     await expect(page.getByLabel("Round 1 choice 1 destination")).toHaveValue("node-2");
+    await page.getByLabel("Round 1 node type").selectOption("media");
+    await expect(page.getByLabel("Round 1 media URL")).toBeVisible();
+    await page.getByLabel("Round 1 node type").selectOption("score");
+    await expect(page.getByLabel("Score effect")).toBeVisible();
+    await page.getByLabel("Round 1 node type").selectOption("condition");
+    await expect(page.getByLabel("Round 1 true destination")).toBeVisible();
+    await page.getByLabel("Round 1 node type").selectOption("choice");
     await page.getByLabel("Round 1 choice 1 destination").selectOption("__end__");
     await page.getByRole("button", { name: "Save activity", exact: true }).click();
     await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");

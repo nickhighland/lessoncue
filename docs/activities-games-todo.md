@@ -360,7 +360,7 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 
 ### Branching Adventure
 
-- [ ] Define the later full node editor for scene, choice, poll, quiz, media, random, score, inventory, condition, and end nodes
+- [x] Define the full node vocabulary and editor for scene, choice, poll, quiz, media, random, score, inventory, condition, and end nodes
 - [x] Build the first server-authoritative ordered choice/branch runtime over the shared Physical Room session contract
 - [x] Add Adventure as the first preset, with editable animal story nodes, phone voting, host resolution, and branch history
 - [x] Add a simple ordered node editor with stable node IDs, branch destination selectors, explicit finish targets, and server validation
@@ -373,7 +373,7 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Ensure the shared animation system has a reduced-motion path and host-controlled/skippable progression; full per-engine coverage remains a follow-up.
 - [x] Tune current TV layouts for readability across classroom distances: large type, high contrast, limited information per screen, and no tiny admin controls.
 - [x] Add theme/presentation variants that are recognizably LessonCue and do not copy commercial game-show artwork, sound, or trade dress. Named catalog presets now seed stage, neon, retro, arcade, cyberpunk, or clean treatments; teachers can change the TV theme, sound pack, and ambient-motion preference in the existing editor.
-- [ ] Add suspense/reveal pacing without making the host wait unnecessarily; every transition must be manually advanceable or skippable.
+- [x] Add renderer-only suspense/reveal pacing without making the host wait unnecessarily; every transition remains manually advanceable and reduced-motion safe.
 - [x] Add audio/image asset licensing notes and original asset attribution guidance in [Activities assets and sound policy](activities-assets-and-sound.md); new bundled assets still require an entry before release.
 
 ## 6. Controller and operational follow-through

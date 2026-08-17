@@ -1608,51 +1608,47 @@ public sealed class ActivitySessionService(
         {
             case "openchoices":
             case "choosepath":
+            {
                 if (!adventure) return (false, "Choice branches are only available for Adventure activities.");
                 if (phase != ActivityPhases.RoundIntro) return (false, "Open choices from the story intro.");
+                var nodeType = AdventureNodeType(round);
+                var storyChoices = ReadStringArray(round, "choices");
+                if (nodeType == ActivityAdventureNodeTypes.Random)
+                    return await ResolveAdventureNodeAsync(run, config, state, round, index, null, rounds, payload, ct);
+                if (nodeType == ActivityAdventureNodeTypes.End || (storyChoices.Count == 0 && nodeType == ActivityAdventureNodeTypes.Choice))
+                    return await ResolveAdventureNodeAsync(run, config, state, round, index, null, rounds, payload, ct);
+                if (storyChoices.Count == 0)
+                    return (false, "This story node has no choices. Use Resolve node to continue it.");
                 state["phase"] = ActivityPhases.AcceptingResponses;
                 state["responsesOpen"] = true;
                 state["challengeStatus"] = "choicesOpen";
                 state["revealed"] = false;
                 return (true, null);
+            }
+            case "resolvenode":
+            case "resolveadventure":
+            {
+                if (!adventure || phase != ActivityPhases.RoundIntro) return (false, "Resolve story nodes from the story intro.");
+                var nodeType = AdventureNodeType(round);
+                var nodeChoices = ReadStringArray(round, "choices");
+                if (nodeType is ActivityAdventureNodeTypes.Choice or ActivityAdventureNodeTypes.Poll or ActivityAdventureNodeTypes.Quiz && nodeChoices.Count > 0)
+                    return (false, "Open the visible story choices before resolving this node.");
+                return await ResolveAdventureNodeAsync(run, config, state, round, index, null, rounds, payload, ct);
+            }
             case "resolvechoice":
             case "nextbranch":
+            {
                 if (!adventure || phase != ActivityPhases.AcceptingResponses) return (false, "Open the story choices before resolving the branch.");
                 var choiceIndex = ReadInt(payload, "choiceIndex", ReadInt(payload, "optionIndex", -1));
                 var storyChoices = ReadStringArray(round, "choices");
                 if (choiceIndex < 0 || choiceIndex >= storyChoices.Count) return (false, "Choose one of the visible story paths.");
-                var nextIndex = ResolveAdventureBranchIndex(round, choiceIndex, rounds, index + 1);
-                var history = ArrayValue(state, "adventureHistory");
-                history.Add(new JsonObject { ["roundIndex"] = index, ["choiceIndex"] = choiceIndex, ["choice"] = storyChoices[choiceIndex], ["title"] = StringValue(round, "title") ?? $"Round {index + 1}" });
-                state["adventureHistory"] = history;
-                state["adventureLastChoice"] = storyChoices[choiceIndex];
-                state["responsesOpen"] = false;
-                if (nextIndex < 0)
-                {
-                    state["adventureTerminal"] = true;
-                    state["phase"] = ActivityPhases.Reveal;
-                    state["challengeStatus"] = "revealed";
-                    state["revealed"] = true;
-                }
-                else
-                {
-                    nextIndex = Math.Clamp(nextIndex, 0, rounds.Count - 1);
-                    state["currentRoundIndex"] = nextIndex;
-                    var targetIsTerminal = ReadStringArray(rounds[nextIndex] as JsonObject, "choices").Count == 0;
-                    state["adventureTerminal"] = nextIndex == index || targetIsTerminal;
-                    if (nextIndex == index || targetIsTerminal)
-                    {
-                        state["phase"] = ActivityPhases.Reveal;
-                        state["challengeStatus"] = "revealed";
-                        state["revealed"] = true;
-                    }
-                    else ResetPhysicalRoomRound(state);
-                }
-                return (true, null);
+                return await ResolveAdventureNodeAsync(run, config, state, round, index, choiceIndex, rounds, payload, ct);
+            }
             case "next":
             case "nextround":
+            {
                 if (phase is not (ActivityPhases.Reveal or ActivityPhases.Leaderboard)) return (false, "Reveal the room round before advancing.");
-                if (adventure && (BoolValue(state, "adventureTerminal") || ReadStringArray(round, "choices").Count == 0))
+                if (adventure && (BoolValue(state, "adventureTerminal") || IsAdventureTerminalNode(round)))
                 {
                     state["phase"] = ActivityPhases.FinalResults;
                     return (true, null);
@@ -1661,6 +1657,7 @@ public sealed class ActivitySessionService(
                 state["currentRoundIndex"] = index + 1;
                 ResetPhysicalRoomRound(state);
                 return (true, null);
+            }
             case "previous":
             case "prev":
                 if (phase is ActivityPhases.Lobby or ActivityPhases.Complete) return (false, "The room has not started.");
@@ -1738,6 +1735,10 @@ public sealed class ActivitySessionService(
         state["adventureTerminal"] = false;
         state["randomizedChoices"] = new JsonArray();
         state["responsesOpen"] = false;
+        state.Remove("adventureAnswerCorrect");
+        state.Remove("adventureCorrectIndex");
+        state.Remove("adventureConditionResult");
+        state.Remove("adventureRandomChoice");
     }
 
     private static void EnsurePhysicalRoomState(JsonObject config, JsonObject state)
@@ -1760,20 +1761,204 @@ public sealed class ActivitySessionService(
         if (branches is null || !branches.TryGetPropertyValue(choiceIndex.ToString(CultureInfo.InvariantCulture), out var branch) || branch is null)
             return fallback;
 
-        if (branch is JsonValue value)
+        return ResolveAdventureTargetIndex(branch, rounds, fallback);
+    }
+
+    private static string AdventureNodeType(JsonObject? round)
+    {
+        var value = (StringValue(round, "nodeType", ActivityAdventureNodeTypes.Choice) ?? ActivityAdventureNodeTypes.Choice).Trim().ToLowerInvariant();
+        return ActivityAdventureNodeTypes.IsValid(value) ? value : ActivityAdventureNodeTypes.Choice;
+    }
+
+    private static bool IsAdventureTerminalNode(JsonObject? round)
+    {
+        if (round is null) return true;
+        var nodeType = AdventureNodeType(round);
+        return nodeType == ActivityAdventureNodeTypes.End || (nodeType == ActivityAdventureNodeTypes.Choice && ReadStringArray(round, "choices").Count == 0);
+    }
+
+    private static int ResolveAdventureTargetIndex(JsonNode? target, JsonArray rounds, int fallback)
+    {
+        if (target is not JsonValue value) return fallback;
+        try
         {
-            if (value.TryGetValue<int>(out var numericIndex)) return numericIndex;
+            if (value.TryGetValue<int>(out var numericIndex)) return numericIndex >= 0 && numericIndex < rounds.Count ? numericIndex : fallback;
             if (value.TryGetValue<string>(out var targetId))
             {
                 if (string.Equals(targetId, "__end__", StringComparison.OrdinalIgnoreCase)) return -1;
                 for (var index = 0; index < rounds.Count; index++)
-                {
                     if (string.Equals(StringValue(rounds[index] as JsonObject, "id"), targetId, StringComparison.OrdinalIgnoreCase)) return index;
-                }
             }
         }
-
+        catch (InvalidOperationException) { }
         return fallback;
+    }
+
+    private static JsonNode? AdventureTarget(JsonObject? round, string key)
+        => round?.TryGetPropertyValue(key, out var target) == true ? target : null;
+
+    private static int AdventureSequentialTarget(int index, JsonArray rounds) => index + 1 < rounds.Count ? index + 1 : -1;
+
+    private static int ResolveAdventureNextIndex(JsonObject? round, string nodeType, int index, JsonArray rounds, bool? conditionResult = null)
+    {
+        var fallback = AdventureSequentialTarget(index, rounds);
+        if (nodeType == ActivityAdventureNodeTypes.Condition)
+        {
+            var targetKey = conditionResult == true ? "trueTarget" : "falseTarget";
+            var target = AdventureTarget(round, targetKey) ?? (round?["branches"] as JsonObject)?[conditionResult == true ? "true" : "false"];
+            return ResolveAdventureTargetIndex(target, rounds, fallback);
+        }
+        var next = AdventureTarget(round, "nextTarget") ?? AdventureTarget(round, "next") ?? (round?["branches"] as JsonObject)?["next"];
+        return ResolveAdventureTargetIndex(next, rounds, fallback);
+    }
+
+    private async Task<(bool Success, string? Error)> ResolveAdventureNodeAsync(
+        ActivityRun run,
+        JsonObject config,
+        JsonObject state,
+        JsonObject? round,
+        int index,
+        int? choiceIndex,
+        JsonArray rounds,
+        JsonElement? payload,
+        CancellationToken ct)
+    {
+        if (round is null) return (false, "The Adventure node is missing.");
+        var nodeType = AdventureNodeType(round);
+        var choices = ReadStringArray(round, "choices");
+        string? selectedChoice = null;
+        if (choiceIndex.HasValue)
+        {
+            if (choiceIndex.Value < 0 || choiceIndex.Value >= choices.Count) return (false, "Choose one of the visible story paths.");
+            selectedChoice = choices[choiceIndex.Value];
+        }
+
+        bool? conditionResult = null;
+        var effectText = StringValue(round, "revealText", "");
+        if (nodeType == ActivityAdventureNodeTypes.Quiz && choiceIndex.HasValue)
+        {
+            var correctIndex = IntValue(round, "correctIndex", -1);
+            conditionResult = correctIndex >= 0 && choiceIndex.Value == correctIndex;
+            state["adventureAnswerCorrect"] = conditionResult.Value;
+            if (correctIndex >= 0) state["adventureCorrectIndex"] = correctIndex;
+            effectText = conditionResult.Value ? "Correct path! The adventure team earns the clue." : "Not quite—the trail takes a different turn.";
+        }
+        else if (nodeType == ActivityAdventureNodeTypes.Condition)
+        {
+            var conditionKey = StringValue(round, "conditionKey", "") ?? "";
+            var inventory = state["adventureInventory"] as JsonObject;
+            var actual = inventory?[conditionKey]?.ToString() ?? StringValue(state, conditionKey, "");
+            var expected = StringValue(round, "conditionEquals", "");
+            conditionResult = string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
+            state["adventureConditionResult"] = conditionResult.Value;
+            effectText = conditionResult.Value ? "The team has the item it needs." : "The team needs another clue before this route opens.";
+        }
+        else if (nodeType == ActivityAdventureNodeTypes.Random)
+        {
+            var targets = ArrayValue(round, "randomTargets");
+            if (targets.Count == 0 && round?["branches"] is JsonObject randomBranches)
+                targets = new JsonArray(randomBranches.Select(item => item.Value?.DeepClone()).Where(item => item is not null).ToArray());
+            if (targets.Count == 0) return (false, "Random Adventure nodes need at least one destination.");
+            var picked = random.NextInt(0, targets.Count);
+            state["adventureRandomChoice"] = picked;
+            effectText = StringValue(round, "revealText", "The trail chooses a new direction.");
+        }
+
+        if (nodeType == ActivityAdventureNodeTypes.Score)
+        {
+            var delta = IntValue(round, "scoreDelta");
+            var target = (StringValue(round, "scoreTarget", "team") ?? "team").Trim().ToLowerInvariant();
+            if (delta != 0 && target != "none")
+            {
+                if (target == "allteams")
+                {
+                    foreach (var team in run.Teams.Where(item => item.Active)) await AwardScoreAsync(run, null, team.Id, delta, "Adventure story effect", CurrentRoundId(run, config), ct);
+                }
+                else if (target == "participant")
+                {
+                    var participantId = ReadGuid(payload, "participantId");
+                    if (participantId.HasValue) await AwardScoreAsync(run, participantId, null, delta, "Adventure story effect", CurrentRoundId(run, config), ct);
+                }
+                else
+                {
+                    Guid? teamId = ReadGuid(payload, "teamId");
+                    if (!teamId.HasValue && Guid.TryParse(StringValue(state, "currentTeamId"), out var currentTeamId)) teamId = currentTeamId;
+                    teamId ??= run.Teams.FirstOrDefault(item => item.Active)?.Id;
+                    if (teamId.HasValue) await AwardScoreAsync(run, null, teamId, delta, "Adventure story effect", CurrentRoundId(run, config), ct);
+                }
+            }
+            state["adventureScoreDelta"] = delta;
+            effectText = delta >= 0 ? $"The team found a bonus worth {delta} points." : $"The trail costs the team {Math.Abs(delta)} points.";
+        }
+        else if (nodeType == ActivityAdventureNodeTypes.Inventory)
+        {
+            var key = StringValue(round, "inventoryKey", "item") ?? "item";
+            var value = StringValue(round, "inventoryValue", "true") ?? "true";
+            var inventory = state["adventureInventory"] as JsonObject ?? new JsonObject();
+            inventory[key] = value;
+            state["adventureInventory"] = inventory;
+            state["adventureInventoryLastKey"] = key;
+            state["adventureInventoryLastValue"] = value;
+            effectText = StringValue(round, "revealText", $"The team added {value} to its pack.");
+        }
+
+        var nextIndex = -1;
+        if (nodeType == ActivityAdventureNodeTypes.End)
+        {
+            nextIndex = -1;
+        }
+        else if (nodeType == ActivityAdventureNodeTypes.Random)
+        {
+            var targets = ArrayValue(round, "randomTargets");
+            if (targets.Count == 0 && round?["branches"] is JsonObject randomBranches)
+                targets = new JsonArray(randomBranches.Select(item => item.Value?.DeepClone()).Where(item => item is not null).ToArray());
+            var picked = Math.Clamp(IntValue(state, "adventureRandomChoice"), 0, Math.Max(0, targets.Count - 1));
+            nextIndex = ResolveAdventureTargetIndex(targets[picked], rounds, AdventureSequentialTarget(index, rounds));
+        }
+        else if (choiceIndex.HasValue)
+        {
+            nextIndex = ResolveAdventureBranchIndex(round, choiceIndex.Value, rounds, AdventureSequentialTarget(index, rounds));
+        }
+        else
+        {
+            nextIndex = ResolveAdventureNextIndex(round, nodeType, index, rounds, conditionResult);
+        }
+
+        var history = ArrayValue(state, "adventureHistory");
+        var historyEntry = new JsonObject
+        {
+            ["roundIndex"] = index,
+            ["nodeType"] = nodeType,
+            ["title"] = StringValue(round, "title") ?? $"Node {index + 1}",
+            ["effectText"] = effectText ?? ""
+        };
+        if (choiceIndex.HasValue) { historyEntry["choiceIndex"] = choiceIndex.Value; historyEntry["choice"] = selectedChoice ?? ""; }
+        history.Add(historyEntry);
+        state["adventureHistory"] = history;
+        state["adventureLastChoice"] = selectedChoice ?? (nodeType == ActivityAdventureNodeTypes.Random ? "The story chose a path" : "");
+        state["adventureEffectText"] = effectText ?? "";
+        state["responsesOpen"] = false;
+        if (nextIndex < 0)
+        {
+            state["adventureTerminal"] = true;
+            state["phase"] = ActivityPhases.Reveal;
+            state["challengeStatus"] = "revealed";
+            state["revealed"] = true;
+        }
+        else
+        {
+            nextIndex = Math.Clamp(nextIndex, 0, rounds.Count - 1);
+            state["currentRoundIndex"] = nextIndex;
+            state["adventureTerminal"] = IsAdventureTerminalNode(rounds[nextIndex] as JsonObject);
+            if (BoolValue(state, "adventureTerminal"))
+            {
+                state["phase"] = ActivityPhases.Reveal;
+                state["challengeStatus"] = "revealed";
+                state["revealed"] = true;
+            }
+            else ResetPhysicalRoomRound(state);
+        }
+        return (true, null);
     }
 
     private async Task<(bool Success, string? Error)> HandleAdventureParticipantAsync(ActivityRun run, ActivityParticipant participant, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)
@@ -3721,14 +3906,25 @@ public sealed class ActivitySessionService(
             var round = rounds.Count > index ? rounds[index] as JsonObject : null;
             var choices = ReadStringArray(round, "choices");
             var randomized = ReadStringArray(state, "randomizedChoices");
-            projected["currentRound"] = new JsonObject
+            var currentRound = new JsonObject
             {
                 ["id"] = StringValue(round, "id") ?? $"round-{index + 1}",
                 ["title"] = StringValue(round, "title") ?? StringValue(round, "prompt") ?? $"Round {index + 1}",
                 ["instructions"] = StringValue(round, "instructions") ?? StringValue(round, "prompt") ?? "Follow the host's instructions.",
                 ["choices"] = new JsonArray((randomized.Count > 0 ? randomized : choices).Select(choice => (JsonNode)choice).ToArray()),
-                ["revealText"] = StringValue(round, "revealText") ?? ""
+                ["revealText"] = StringValue(round, "revealText") ?? "",
+                ["nodeType"] = AdventureNodeType(round)
             };
+            foreach (var mediaKey in new[] { "mediaUrl", "mediaId", "mediaCaption" })
+                if (StringValue(round, mediaKey) is { Length: > 0 } mediaValue) currentRound[mediaKey] = mediaValue;
+            if (BoolValue(config, "adventure"))
+            {
+                if (StringValue(state, "adventureEffectText") is { Length: > 0 } effectText) currentRound["effectText"] = effectText;
+                if (state.ContainsKey("adventureAnswerCorrect")) currentRound["answerCorrect"] = BoolValue(state, "adventureAnswerCorrect");
+                if (state.ContainsKey("adventureConditionResult")) currentRound["conditionResult"] = BoolValue(state, "adventureConditionResult");
+                if (state["adventureInventory"] is JsonObject inventory) currentRound["inventory"] = inventory.DeepClone();
+            }
+            projected["currentRound"] = currentRound;
             projected["roundCount"] = rounds.Count;
             projected["adventure"] = BoolValue(config, "adventure");
             projected["responsesOpen"] = BoolValue(state, "responsesOpen");
@@ -3740,6 +3936,8 @@ public sealed class ActivitySessionService(
                 var projectedChoiceCounts = new JsonObject();
                 foreach (var choiceCount in choiceCounts) projectedChoiceCounts[choiceCount.Key] = choiceCount.Value;
                 projected["adventureChoiceCounts"] = projectedChoiceCounts;
+                projected.Remove("adventureCorrectIndex");
+                projected.Remove("adventureRandomChoice");
             }
         }
         else if (run.ActivityDefinition.Type == ActivityTypes.Utility)
@@ -3854,7 +4052,22 @@ public sealed class ActivitySessionService(
         }
         else if (type == ActivityTypes.PhysicalRoom && BoolValue(config, "adventure"))
         {
-            foreach (var round in ArrayValue(projected, "rounds").OfType<JsonObject>()) round.Remove("branches");
+            foreach (var round in ArrayValue(projected, "rounds").OfType<JsonObject>())
+            {
+                round.Remove("branches");
+                round.Remove("correctIndex");
+                round.Remove("scoreDelta");
+                round.Remove("scoreTarget");
+                round.Remove("inventoryKey");
+                round.Remove("inventoryValue");
+                round.Remove("conditionKey");
+                round.Remove("conditionEquals");
+                round.Remove("trueTarget");
+                round.Remove("falseTarget");
+                round.Remove("next");
+                round.Remove("nextTarget");
+                round.Remove("randomTargets");
+            }
         }
         if (projected["embeddedUtility"] is JsonObject embedded)
         {

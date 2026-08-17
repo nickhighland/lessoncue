@@ -149,6 +149,30 @@ public sealed class ActivityValidationTests
     }
 
     [Fact]
+    public void AdventureNodeTypesValidateTheirOwnConfiguration()
+    {
+        var valid = """
+            {"title":"Graph","adventure":true,"rounds":[
+            {"id":"scene","nodeType":"scene","nextTarget":"poll"},
+            {"id":"poll","nodeType":"poll","choices":["River","Ridge"],"branches":{"0":"quiz","1":"random"}},
+            {"id":"quiz","nodeType":"quiz","choices":["Fox","Owl"],"correctIndex":0,"branches":{"0":"score","1":"score"}},
+            {"id":"random","nodeType":"random","randomTargets":["score","inventory"]},
+            {"id":"score","nodeType":"score","scoreDelta":100,"scoreTarget":"team","nextTarget":"inventory"},
+            {"id":"inventory","nodeType":"inventory","inventoryKey":"badge","inventoryValue":"moon badge","nextTarget":"condition"},
+            {"id":"condition","nodeType":"condition","conditionKey":"badge","conditionEquals":"moon badge","trueTarget":"end","falseTarget":"scene"},
+            {"id":"end","nodeType":"end"}] }
+            """;
+        var unknown = """{"title":"Graph","adventure":true,"rounds":[{"id":"n1","nodeType":"teleport"}]}""";
+        var badQuiz = """{"title":"Graph","adventure":true,"rounds":[{"id":"n1","nodeType":"quiz","choices":["A","B"],"correctIndex":3}]}""";
+        var badCondition = """{"title":"Graph","adventure":true,"rounds":[{"id":"n1","nodeType":"condition","conditionKey":"badge","trueTarget":"missing"}]}""";
+
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Typed graph", valid));
+        Assert.Contains("not supported", ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Unknown node", unknown));
+        Assert.Contains("correctIndex", ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Bad quiz", badQuiz));
+        Assert.Contains("existing node", ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Bad condition", badCondition));
+    }
+
+    [Fact]
     public void ImageRevealAcceptsDifferentiatedObservationFormats()
     {
         var difference = """{"title":"What's Different?","mediaMode":"difference","imageUrl":"/one.png","comparisonImageUrl":"/two.png","answer":"The zebra has one extra stripe."}""";

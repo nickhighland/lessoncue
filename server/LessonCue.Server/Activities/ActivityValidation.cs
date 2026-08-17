@@ -455,8 +455,76 @@ public static class ActivityValidation
                     foreach (var round in rounds.EnumerateArray())
                     {
                         if (round.ValueKind != JsonValueKind.Object) return "Each Physical Room round must be an object.";
+                        var nodeType = ActivityAdventureNodeTypes.Choice;
+                        if (adventure && round.TryGetProperty("nodeType", out var nodeTypeElement))
+                        {
+                            if (nodeTypeElement.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(nodeTypeElement.GetString()))
+                                return "Adventure node types must be strings.";
+                            nodeType = nodeTypeElement.GetString()!.Trim().ToLowerInvariant();
+                            if (!ActivityAdventureNodeTypes.IsValid(nodeType))
+                                return $"Adventure node type '{nodeType}' is not supported.";
+                        }
                         if (round.TryGetProperty("seconds", out var seconds) && seconds.ValueKind == JsonValueKind.Number && (!seconds.TryGetInt32(out var duration) || duration is < 5 or > 3600))
                             return "Physical Room timers must be between 5 seconds and 60 minutes.";
+                        var choiceCount = round.TryGetProperty("choices", out var choicesElement) && choicesElement.ValueKind == JsonValueKind.Array
+                            ? choicesElement.GetArrayLength()
+                            : 0;
+                        if (adventure && nodeType is ActivityAdventureNodeTypes.Poll or ActivityAdventureNodeTypes.Quiz && choiceCount is < 2 or > 12)
+                            return $"Adventure {nodeType} nodes need between 2 and 12 choices.";
+                        if (adventure && nodeType == ActivityAdventureNodeTypes.Quiz && round.TryGetProperty("correctIndex", out var correctIndex) && (!correctIndex.TryGetInt32(out var answerIndex) || answerIndex < 0 || answerIndex >= choiceCount))
+                            return "Adventure quiz correctIndex must point to a visible choice.";
+                        if (adventure && nodeType == ActivityAdventureNodeTypes.End && choiceCount > 0)
+                            return "Adventure end nodes cannot contain choices.";
+                        if (adventure && nodeType == ActivityAdventureNodeTypes.Media)
+                        {
+                            foreach (var mediaKey in new[] { "mediaUrl", "mediaId" })
+                            {
+                                if (round.TryGetProperty(mediaKey, out var mediaValue) && mediaValue.ValueKind != JsonValueKind.String)
+                                    return $"Adventure media {mediaKey} must be a string.";
+                            }
+                        }
+                        if (adventure && nodeType == ActivityAdventureNodeTypes.Score)
+                        {
+                            if (round.TryGetProperty("scoreDelta", out var scoreDelta) && (!scoreDelta.TryGetInt32(out var delta) || delta is < -10000 or > 10000))
+                                return "Adventure scoreDelta must be between -10,000 and 10,000.";
+                            if (round.TryGetProperty("scoreTarget", out var scoreTarget) && (scoreTarget.ValueKind != JsonValueKind.String || !new[] { "team", "allTeams", "participant", "none" }.Contains(scoreTarget.GetString(), StringComparer.OrdinalIgnoreCase)))
+                                return "Adventure scoreTarget must be team, allTeams, participant, or none.";
+                        }
+                        if (adventure && nodeType == ActivityAdventureNodeTypes.Inventory)
+                        {
+                            if (!round.TryGetProperty("inventoryKey", out var inventoryKey) || inventoryKey.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(inventoryKey.GetString()) || inventoryKey.GetString()!.Length > 80)
+                                return "Adventure inventory nodes need an inventoryKey of 1–80 characters.";
+                            if (round.TryGetProperty("inventoryValue", out var inventoryValue) && (inventoryValue.ValueKind != JsonValueKind.String || inventoryValue.GetString()!.Length > 200))
+                                return "Adventure inventoryValue must be at most 200 characters.";
+                        }
+                        if (adventure && nodeType == ActivityAdventureNodeTypes.Condition)
+                        {
+                            if (!round.TryGetProperty("conditionKey", out var conditionKey) || conditionKey.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(conditionKey.GetString()) || conditionKey.GetString()!.Length > 80)
+                                return "Adventure condition nodes need a conditionKey of 1–80 characters.";
+                            foreach (var targetKey in new[] { "trueTarget", "falseTarget" })
+                            {
+                                if (round.TryGetProperty(targetKey, out var target) && ValidateAdventureTarget(target, rounds.GetArrayLength(), nodeIds, $"Adventure {targetKey}") is { } targetError)
+                                    return targetError;
+                            }
+                        }
+                        if (adventure && nodeType is ActivityAdventureNodeTypes.Scene or ActivityAdventureNodeTypes.Media or ActivityAdventureNodeTypes.Score or ActivityAdventureNodeTypes.Inventory)
+                        {
+                            foreach (var targetKey in new[] { "next", "nextTarget" })
+                            {
+                                if (round.TryGetProperty(targetKey, out var target) && ValidateAdventureTarget(target, rounds.GetArrayLength(), nodeIds, "Adventure next target") is { } targetError)
+                                    return targetError;
+                            }
+                        }
+                        if (adventure && nodeType == ActivityAdventureNodeTypes.Random && round.TryGetProperty("randomTargets", out var randomTargets))
+                        {
+                            if (randomTargets.ValueKind != JsonValueKind.Array || randomTargets.GetArrayLength() is < 1 or > 12)
+                                return "Adventure randomTargets must contain between 1 and 12 destinations.";
+                            foreach (var target in randomTargets.EnumerateArray())
+                                if (ValidateAdventureTarget(target, rounds.GetArrayLength(), nodeIds, "Adventure random target") is { } targetError)
+                                    return targetError;
+                        }
+                        if (adventure && nodeType == ActivityAdventureNodeTypes.Random && !round.TryGetProperty("randomTargets", out _) && (!round.TryGetProperty("branches", out var randomBranches) || randomBranches.ValueKind != JsonValueKind.Object || randomBranches.EnumerateObject().Any() == false))
+                            return "Adventure random nodes need at least one destination.";
                         if (round.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array)
                         {
                             if (choices.GetArrayLength() > 12) return "A Physical Room round cannot have more than 12 choices.";
@@ -467,18 +535,8 @@ public static class ActivityValidation
                                 {
                                     if (!int.TryParse(branch.Name, out var choiceIndex) || choiceIndex < 0 || choiceIndex >= choices.GetArrayLength())
                                         return "Adventure branch choice indexes must point to a visible choice.";
-                                    if (branch.Value.ValueKind == JsonValueKind.Number)
-                                    {
-                                        if (!branch.Value.TryGetInt32(out var targetIndex) || targetIndex < 0 || targetIndex >= rounds.GetArrayLength())
-                                            return "Adventure branch indexes must point to an existing node.";
-                                    }
-                                    else if (branch.Value.ValueKind == JsonValueKind.String)
-                                    {
-                                        var targetId = branch.Value.GetString();
-                                        if (string.IsNullOrWhiteSpace(targetId) || (!string.Equals(targetId, "__end__", StringComparison.OrdinalIgnoreCase) && !nodeIds.Contains(targetId)))
-                                            return "Adventure branch targets must point to an existing node or finish the adventure.";
-                                    }
-                                    else return "Adventure branch targets must be node ids, node indexes, or __end__.";
+                                    if (ValidateAdventureTarget(branch.Value, rounds.GetArrayLength(), nodeIds, "Adventure branch target") is { } targetError)
+                                        return targetError;
                                 }
                             }
                         }
@@ -542,6 +600,22 @@ public static class ActivityValidation
         }
 
         return null;
+    }
+
+    private static string? ValidateAdventureTarget(JsonElement target, int roundCount, HashSet<string> nodeIds, string label)
+    {
+        if (target.ValueKind == JsonValueKind.Number)
+        {
+            if (!target.TryGetInt32(out var targetIndex) || targetIndex < 0 || targetIndex >= roundCount)
+                return $"{label} indexes must point to an existing node.";
+            return null;
+        }
+        if (target.ValueKind != JsonValueKind.String)
+            return $"{label} must be a node id, node index, or __end__.";
+        var targetId = target.GetString();
+        return string.IsNullOrWhiteSpace(targetId) || (!string.Equals(targetId, "__end__", StringComparison.OrdinalIgnoreCase) && !nodeIds.Contains(targetId))
+            ? $"{label}s must point to an existing node or finish the adventure."
+            : null;
     }
 
     private static string? ValidateQuizModifiers(JsonElement root, string label)

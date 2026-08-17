@@ -76,6 +76,30 @@ public static class ActivityUtilityAssignmentModes
     public static bool IsValid(string value) => All.Contains(value, StringComparer.OrdinalIgnoreCase);
 }
 
+/// <summary>
+/// Adventure nodes are intentionally small, composable building blocks. A
+/// node type changes how the existing Physical Room reducer interprets the
+/// node; it does not create a second activity runtime.
+/// </summary>
+public static class ActivityAdventureNodeTypes
+{
+    public const string Scene = "scene";
+    public const string Choice = "choice";
+    public const string Poll = "poll";
+    public const string Quiz = "quiz";
+    public const string Media = "media";
+    public const string Random = "random";
+    public const string Score = "score";
+    public const string Inventory = "inventory";
+    public const string Condition = "condition";
+    public const string End = "end";
+
+    public static readonly string[] All =
+    [Scene, Choice, Poll, Quiz, Media, Random, Score, Inventory, Condition, End];
+
+    public static bool IsValid(string value) => All.Contains(value, StringComparer.OrdinalIgnoreCase);
+}
+
 public static class ActivityRunStatuses
 {
     public const string Prepared = "prepared";
