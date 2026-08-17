@@ -4,6 +4,23 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.46 — Google TV Activity playback fix
+
+### User changes
+
+- Fixed Activity lesson cues on Google TV so they open the shared LessonCue
+  web player instead of incorrectly showing “Media unavailable” or its pairing
+  screen.
+- Fixed Activity cues to open the requested round immediately, pass the paired
+  TV identity securely to the shared player, and avoid the unnecessary first-
+  play media prompt over the game.
+
+### Developer changes
+
+- Added TV playback-routing regression coverage for Activity cues that use a
+  web-player URL without a downloadable media asset, including paired identity
+  and web-player cache-busting coverage.
+
 ## v0.40.45 — Animal activity test pack and game-show polish
 
 ### User changes

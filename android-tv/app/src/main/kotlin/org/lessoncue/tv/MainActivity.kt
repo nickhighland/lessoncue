@@ -414,7 +414,7 @@ fun LessonCueApp() {
                             kotlinx.coroutines.delay(250)
                         }
                     }
-                    PlayerScreen(current.playlist, current.items, current.itemIndex, current.seekMs, playbackControl,
+                    PlayerScreen(current.playlist, current.items, current.itemIndex, current.seekMs, playbackControl, activeIdentity,
                     onTelemetry = { playbackTelemetry = it },
                     onExit = { scope.launch { store.load()?.let { identity ->
                         val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
@@ -1578,7 +1578,7 @@ private fun playbackRemoteModifier(
 @Composable
 @SuppressLint("UnsafeOptInUsageError")
 private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: Int, seekMs: Long,
-    control: ControlCommand?, onTelemetry: (PlaybackTelemetry) -> Unit, onExit: () -> Unit,
+    control: ControlCommand?, identity: DeviceIdentity?, onTelemetry: (PlaybackTelemetry) -> Unit, onExit: () -> Unit,
     onFinished: () -> Unit, onNext: (Int) -> Unit) {
     val item = items.getOrNull(index)
     BackHandler(onBack = onExit)
@@ -1598,8 +1598,8 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         )
         return
     }
-    if (item?.playbackUrl != null && item.linkKind in setOf("youtube", "embedded", "webpage", "external")) {
-        OnlineMediaScreen(playlist, items, index, item, control, onTelemetry, onExit, onNext)
+    if (item != null && shouldUseOnlinePlayback(item)) {
+        OnlineMediaScreen(playlist, items, index, item, control, identity, onTelemetry, onExit, onNext)
         return
     }
     if (item?.url == null) {
@@ -1869,7 +1869,7 @@ private fun UnavailableMediaScreen(
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun OnlineMediaScreen(playlist: LessonPlaylist, items: List<CueItem>, index: Int, item: CueItem,
-    control: ControlCommand?, onTelemetry: (PlaybackTelemetry) -> Unit, onExit: () -> Unit,
+    control: ControlCommand?, identity: DeviceIdentity?, onTelemetry: (PlaybackTelemetry) -> Unit, onExit: () -> Unit,
     onNext: (Int) -> Unit) {
     val context = LocalContext.current
     var locallyPaused by remember(item.id) { mutableStateOf(false) }
@@ -1896,7 +1896,7 @@ private fun OnlineMediaScreen(playlist: LessonPlaylist, items: List<CueItem>, in
             webViewClient = WebViewClient()
             webChromeClient = WebChromeClient()
             setBackgroundColor(android.graphics.Color.BLACK)
-            loadUrl(item.playbackUrl!!)
+            loadUrl(activityPlaybackUrl(item, identity, BuildConfig.VERSION_NAME) ?: item.playbackUrl!!)
         }
     }
     val remoteModifier = playbackRemoteModifier(item.id) { action ->

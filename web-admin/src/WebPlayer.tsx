@@ -4,7 +4,7 @@ import { WeatherConditionArtwork, WeatherDropArtwork, WeatherWindArtwork } from 
 import { ActivityDisplay } from "./activities/ActivityDisplay";
 import "./signage-studio.css";
 
-const APP_VERSION = "0.40.45";
+const APP_VERSION = "0.40.46";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -186,6 +186,7 @@ export function WebPlayerApp() {
   const [acknowledgedVersion, setAcknowledgedVersion] = useState(0);
   const [status, setStatus] = useState<PlaybackStatus>(idleStatus);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const requestedCueRef = useRef<string | null>(new URLSearchParams(location.search).get("cue"));
   const statusRef = useRef(status);
   const activeRef = useRef(active);
   const manifestRef = useRef(manifest);
@@ -198,7 +199,7 @@ export function WebPlayerApp() {
     const query = new URLSearchParams(location.search);
     if (!query.get("screenId") || !query.get("token") || !identity) return;
     localStorage.setItem(IDENTITY_KEY, JSON.stringify(identity));
-    query.delete("screenId"); query.delete("token"); query.delete("name");
+    query.delete("screenId"); query.delete("token"); query.delete("name"); query.delete("screen"); query.delete("cue");
     history.replaceState(null, "", `${location.pathname}${query.size ? `?${query}` : ""}`);
   }, [identity]);
   const repeatProgressRef = useRef<{ itemId: string; completed: number }>({ itemId: "", completed: 0 });
@@ -230,6 +231,22 @@ export function WebPlayerApp() {
     if (!response.ok) throw new Error(`Manifest request failed (${response.status}).`);
     const next = await response.json() as Manifest;
     setManifest(next);
+    const requestedCue = requestedCueRef.current;
+    if (requestedCue) {
+      const match = next.playlists.map(playlist => {
+        const items = [
+          ...(playlist.preRoll?.items || []),
+          ...(playlist.countdown ? [playlist.countdown.item] : []),
+          ...playlist.items,
+          ...(playlist.postLesson?.items || []),
+        ];
+        return { playlist, items, index: items.findIndex(item => item.itemId === requestedCue) };
+      }).find(candidate => candidate.index >= 0);
+      if (match) {
+        requestedCueRef.current = null;
+        startPlayback(match.playlist, match.items, match.index);
+      }
+    }
     setConnection("online");
     setConnectionMessage("");
     return next;
@@ -1638,6 +1655,9 @@ function networkQuality(latency?: number, online = true) {
 }
 
 function needsPlaybackGesture(item: CueItem) {
+  // Activities render their own interactive display and do not use the
+  // browser media element. Do not cover the game with a first-play prompt.
+  if (item.type === "activity" || item.activity || item.activityDefinitionId) return false;
   if (item.playbackUrl) return true;
   if (item.volumePercent <= 0) return false;
   return item.type === "video" || item.type === "audio" ||
