@@ -953,7 +953,7 @@ export const ActivityLibrary: React.FC = () => {
                       value={editingTheme?.preset || 'stage'}
                       onChange={event => setEditingTheme({ ...ACTIVITY_THEME_PRESETS[event.target.value as ActivityThemePreset] })}
                     >
-                      {Object.entries(ACTIVITY_THEME_PRESETS).map(([value, theme]) => <option key={value} value={value}>{value === 'stage' ? 'LessonCue Stage' : value.replace(/^./, character => character.toUpperCase())}</option>)}
+                      {Object.keys(ACTIVITY_THEME_PRESETS).map(value => <option key={value} value={value}>{value === 'stage' ? 'LessonCue Stage' : value.replace(/^./, character => character.toUpperCase())}</option>)}
                     </select>
                   </label>
                   <div className="two-fields">
