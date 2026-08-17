@@ -173,6 +173,23 @@ test("Wheel and utility presets use the existing live run and controller paths",
   expect((await runState(page, utilityRun.runId)).result).toBeTruthy();
 });
 
+test("Named presets carry a TV theme and the editor can change it", async ({ page }) => {
+  await authenticate(page);
+  const definitionId = await createActivity(page, "Safari Spin", "Browser Themed Safari Spin");
+  await expect(page.getByText("TV presentation", { exact: true })).toBeVisible();
+  await page.locator(".activity-theme-editor select").first().selectOption("neon");
+  const saveResponse = page.waitForResponse(response => response.request().method() === "PUT" && response.url().includes(`/api/v1/activities/${definitionId}`) && response.ok());
+  await page.getByRole("button", { name: "Save activity" }).click();
+  await saveResponse;
+  const definition = await page.evaluate(async id => {
+    const response = await fetch(`/api/v1/activities/${id}`);
+    return response.json() as Promise<{ theme?: { preset?: string; soundPack?: string; backgroundMotion?: boolean } }>;
+  }, definitionId);
+  expect(definition.theme?.preset).toBe("neon");
+  expect(definition.theme?.soundPack).toBe("arcade");
+  expect(definition.theme?.backgroundMotion).toBe(true);
+});
+
 test("Trivia runs from teacher launch through two phone answers and scored reveal", async ({ page, browser }) => {
   await authenticate(page);
   const definitionId = await createActivity(page, "Trivia Quiz", "Browser Trivia Vertical Slice");

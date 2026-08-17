@@ -1,8 +1,32 @@
+import type { ActivityTheme } from './types';
+
+export type ActivityThemePreset = NonNullable<ActivityTheme['preset']>;
+
+export const ACTIVITY_THEME_PRESETS: Record<ActivityThemePreset, ActivityTheme> = {
+  stage: { preset: 'stage', primaryColor: '#2a6e4a', secondaryColor: '#2563eb', accentColor: '#f59e0b', backgroundColor: '#091c1d', textColor: '#ffffff', soundPack: 'gameshow', backgroundMotion: true },
+  neon: { preset: 'neon', primaryColor: '#7c3aed', secondaryColor: '#ec4899', accentColor: '#22d3ee', backgroundColor: '#100724', textColor: '#ffffff', soundPack: 'arcade', backgroundMotion: true },
+  retro: { preset: 'retro', primaryColor: '#c2410c', secondaryColor: '#eab308', accentColor: '#14b8a6', backgroundColor: '#21130d', textColor: '#fff7ed', soundPack: 'gameshow', backgroundMotion: true },
+  arcade: { preset: 'arcade', primaryColor: '#0f766e', secondaryColor: '#22c55e', accentColor: '#f97316', backgroundColor: '#041c1a', textColor: '#f0fdf4', soundPack: 'arcade', backgroundMotion: true },
+  cyberpunk: { preset: 'cyberpunk', primaryColor: '#0e7490', secondaryColor: '#a855f7', accentColor: '#f43f5e', backgroundColor: '#080c1f', textColor: '#f8fafc', soundPack: 'arcade', backgroundMotion: true },
+  clean: { preset: 'clean', primaryColor: '#2563eb', secondaryColor: '#0f766e', accentColor: '#f59e0b', backgroundColor: '#0f172a', textColor: '#f8fafc', soundPack: 'minimal', backgroundMotion: false }
+};
+
+const themeForCatalog = (category: string, type: string): ActivityTheme => {
+  const preset: ActivityThemePreset = type === 'imageReveal' ? 'cyberpunk'
+    : category === 'creative' || category === 'drawing' ? 'neon'
+      : category === 'sorting' || category === 'word' || category === 'match' ? 'arcade'
+        : category === 'utilities' ? 'retro'
+          : category === 'physical' || category === 'stage' ? 'stage'
+            : 'stage';
+  return { ...ACTIVITY_THEME_PRESETS[preset] };
+};
+
 export interface ActivityPresetTemplate {
   id: string;
   label: string;
   description: string;
   config: Record<string, unknown>;
+  theme?: ActivityTheme;
 }
 
 export const QUIZ_PRESETS: ActivityPresetTemplate[] = [
@@ -460,6 +484,7 @@ export interface ActivityPresetCatalogEntry extends ActivityPresetTemplate {
 
 const catalogFrom = (templates: ActivityPresetTemplate[], type: string, category: string, icon: string, requiresPhones: boolean, supportsTeams: boolean): ActivityPresetCatalogEntry[] => templates.map(template => ({
   ...template,
+  theme: template.theme || themeForCatalog(category, type),
   type,
   category,
   icon,

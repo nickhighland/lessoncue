@@ -372,7 +372,7 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Build shared TV components for animated intro, round title, prompt reveal, countdown, answer lock, buzzer winner, correctness reveal, point animation, vote result, leaderboard, podium, final score reveal, team bars, participant cards, response cards, strikes, lives, and progress; representative engine coverage is live and the remaining displays reuse the same primitives incrementally.
 - [x] Ensure the shared animation system has a reduced-motion path and host-controlled/skippable progression; full per-engine coverage remains a follow-up.
 - [x] Tune current TV layouts for readability across classroom distances: large type, high contrast, limited information per screen, and no tiny admin controls.
-- [ ] Add theme/presentation variants that are recognizably LessonCue and do not copy commercial game-show artwork, sound, or trade dress.
+- [x] Add theme/presentation variants that are recognizably LessonCue and do not copy commercial game-show artwork, sound, or trade dress. Named catalog presets now seed stage, neon, retro, arcade, cyberpunk, or clean treatments; teachers can change the TV theme, sound pack, and ambient-motion preference in the existing editor.
 - [ ] Add suspense/reveal pacing without making the host wait unnecessarily; every transition must be manually advanceable or skippable.
 - [ ] Add audio/image asset licensing notes and original asset attribution where required.
 

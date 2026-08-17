@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import type { ActivityDefinition, ActivityStateEnvelope } from './types';
+import type { ActivityDefinition, ActivityStateEnvelope, ActivityTheme } from './types';
 import { getActivityDescriptor } from './activityRegistry';
 import './activity.css';
 
@@ -13,6 +13,34 @@ const textOf = (value: unknown, fallback = '') => typeof value === 'string' ? va
 const numberOf = (value: unknown, fallback = 0) => typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 
 const recordAt = (value: unknown, index = 0) => listOf(value)[index];
+
+const activityThemeVariables = (theme?: ActivityTheme | null): React.CSSProperties => {
+  const primary = theme?.primaryColor || '#2a6e4a';
+  const secondary = theme?.secondaryColor || '#2563eb';
+  const accent = theme?.accentColor || '#f59e0b';
+  const background = theme?.backgroundColor || '#091c1d';
+  const colorWithAlpha = (value: string, alpha: number) => {
+    const match = /^#([0-9a-f]{6})$/i.exec(value.trim());
+    if (!match) return value;
+    const number = Number.parseInt(match[1], 16);
+    return `rgba(${number >> 16}, ${(number >> 8) & 255}, ${number & 255}, ${alpha})`;
+  };
+  return {
+    '--act-gold': accent,
+    '--act-gold-start': accent,
+    '--act-gold-end': primary,
+    '--act-green': primary,
+    '--act-green-bright': secondary,
+    '--act-stage-bg': background,
+    '--act-stage-primary': primary,
+    '--act-stage-secondary': secondary,
+    '--act-stage-accent': accent,
+    '--act-stage-primary-soft': colorWithAlpha(primary, 0.26),
+    '--act-stage-secondary-soft': colorWithAlpha(secondary, 0.22),
+    '--act-stage-accent-soft': colorWithAlpha(accent, 0.18),
+    '--act-stage-text': theme?.textColor || '#ffffff'
+  } as React.CSSProperties;
+};
 
 const firstRoundOrQuestion = (config: JsonRecord): JsonRecord => {
   return recordAt(config.questions) || recordAt(config.rounds) || recordAt(config.prompts) || recordAt(config.challenges) || {};
@@ -238,10 +266,12 @@ const PodiumPreview: React.FC<{ envelope: ActivityStateEnvelope }> = ({ envelope
 
 export const ActivityPreview: React.FC<{ definition: ActivityDefinition; mode: ActivityPreviewMode }> = ({ definition, mode }) => {
   const envelope = useMemo(() => createActivityPreviewEnvelope(definition, mode), [definition, mode]);
-  if (mode === 'participant') return <ParticipantPreview envelope={envelope} />;
-  if (mode === 'leaderboard') return <LeaderboardPreview envelope={envelope} />;
-  if (mode === 'podium') return <PodiumPreview envelope={envelope} />;
+  const previewClass = `activity-preview-themed activity-theme-${envelope.theme?.preset || 'stage'}`;
+  const previewStyle = activityThemeVariables(envelope.theme);
+  if (mode === 'participant') return <div className={previewClass} style={previewStyle}><ParticipantPreview envelope={envelope} /></div>;
+  if (mode === 'leaderboard') return <div className={previewClass} style={previewStyle}><LeaderboardPreview envelope={envelope} /></div>;
+  if (mode === 'podium') return <div className={previewClass} style={previewStyle}><PodiumPreview envelope={envelope} /></div>;
 
   const DisplayComponent = getActivityDescriptor(definition.type).displayComponent;
-  return <div className={`activity-preview-display activity-preview-${mode}`}><DisplayComponent envelope={envelope} /></div>;
+  return <div className={`${previewClass} activity-preview-display activity-preview-${mode}`} style={previewStyle}><DisplayComponent envelope={envelope} /></div>;
 };

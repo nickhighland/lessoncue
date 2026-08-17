@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ActivityDefinition, ActivityTypeDescriptor } from './types';
+import type { ActivityDefinition, ActivityTheme, ActivityTypeDescriptor } from './types';
 import { ActivityApi } from './api';
 import { ACTIVITY_REGISTRY, getActivityDescriptor } from './activityRegistry';
-import { ACTIVITY_PRESET_CATALOG, type ActivityPresetCatalogEntry } from './activityPresetRegistry';
+import { ACTIVITY_PRESET_CATALOG, ACTIVITY_THEME_PRESETS, type ActivityPresetCatalogEntry, type ActivityThemePreset } from './activityPresetRegistry';
 import { ActivityPreview, type ActivityPreviewMode } from './ActivityPreview';
 import { PageHead, Modal, Field, Empty } from '../admin/ui';
 import './activity.css';
@@ -15,7 +15,7 @@ const stableDraftValue = (value: unknown): unknown => {
     .map(([key, item]) => [key, stableDraftValue(item)]));
 };
 
-const activityDraftSnapshot = (name: string, description: string, config: Record<string, unknown>) => JSON.stringify(stableDraftValue({ name, description, config }));
+const activityDraftSnapshot = (name: string, description: string, config: Record<string, unknown>, theme?: ActivityTheme | null) => JSON.stringify(stableDraftValue({ name, description, config, theme: theme || null }));
 
 const activityUsageLabel = (activity: ActivityDefinition): string => {
   const usage = activity.usage;
@@ -66,6 +66,7 @@ export const ActivityLibrary: React.FC = () => {
   const [editingConfig, setEditingConfig] = useState<Record<string, unknown>>({});
   const [editingName, setEditingName] = useState('');
   const [editingDescription, setEditingDescription] = useState('');
+  const [editingTheme, setEditingTheme] = useState<ActivityTheme | null>(null);
   const [savedDraftSnapshot, setSavedDraftSnapshot] = useState('');
   const [pendingEditorClose, setPendingEditorClose] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -74,13 +75,15 @@ export const ActivityLibrary: React.FC = () => {
     ...selectedActivity,
     name: editingName.trim() || selectedActivity.name,
     description: editingDescription,
-    config: editingConfig
-  } : null, [editingConfig, editingDescription, editingName, selectedActivity]);
+    config: editingConfig,
+    theme: editingTheme || undefined
+  } : null, [editingConfig, editingDescription, editingName, editingTheme, selectedActivity]);
 
   const isEditorDirty = Boolean(draftDefinition && activityDraftSnapshot(
     draftDefinition.name,
     draftDefinition.description,
-    draftDefinition.config
+    draftDefinition.config,
+    draftDefinition.theme
   ) !== savedDraftSnapshot);
 
   const fetchActivities = useCallback(async () => {
@@ -240,7 +243,8 @@ export const ActivityLibrary: React.FC = () => {
     setEditingName(item.name);
     setEditingDescription(item.description || '');
     setEditingConfig(item.config || {});
-    setSavedDraftSnapshot(activityDraftSnapshot(item.name, item.description || '', item.config || {}));
+    setEditingTheme(item.theme || null);
+    setSavedDraftSnapshot(activityDraftSnapshot(item.name, item.description || '', item.config || {}, item.theme));
     setPendingEditorClose(false);
     setPreviewTab('display');
   };
@@ -275,7 +279,8 @@ export const ActivityLibrary: React.FC = () => {
         type: preset.type,
         presetType: preset.id,
         description: preset.description,
-        config: JSON.parse(JSON.stringify(preset.config)) as Record<string, unknown>
+        config: JSON.parse(JSON.stringify(preset.config)) as Record<string, unknown>,
+        theme: preset.theme
       });
       await fetchActivities();
       handleSelectActivity(created);
@@ -304,13 +309,15 @@ export const ActivityLibrary: React.FC = () => {
         type: selectedActivity.type,
         presetType: typeof editingConfig.preset === 'string' ? editingConfig.preset : selectedActivity.presetType || getActivityDescriptor(selectedActivity.type).presetType,
         description: editingDescription.trim(),
-        config: editingConfig
+        config: editingConfig,
+        theme: editingTheme || undefined
       });
       setSelectedActivity(updated);
       setEditingName(updated.name);
       setEditingDescription(updated.description || '');
       setEditingConfig(updated.config || {});
-      setSavedDraftSnapshot(activityDraftSnapshot(updated.name, updated.description || '', updated.config || {}));
+      setEditingTheme(updated.theme || null);
+      setSavedDraftSnapshot(activityDraftSnapshot(updated.name, updated.description || '', updated.config || {}, updated.theme));
       await fetchActivities();
       setStatusMessage('Activity saved.');
       if (closeAfterSave) {
@@ -339,7 +346,8 @@ export const ActivityLibrary: React.FC = () => {
       setEditingName(selectedActivity.name);
       setEditingDescription(selectedActivity.description || '');
       setEditingConfig(selectedActivity.config || {});
-      setSavedDraftSnapshot(activityDraftSnapshot(selectedActivity.name, selectedActivity.description || '', selectedActivity.config || {}));
+      setEditingTheme(selectedActivity.theme || null);
+      setSavedDraftSnapshot(activityDraftSnapshot(selectedActivity.name, selectedActivity.description || '', selectedActivity.config || {}, selectedActivity.theme));
     }
     setPendingEditorClose(false);
     setSelectedActivity(null);
@@ -467,7 +475,8 @@ export const ActivityLibrary: React.FC = () => {
           name: data.name,
           type: data.type,
           description: data.description || '',
-          config: data.config || {}
+          config: data.config || {},
+          theme: data.theme || undefined
         });
         await fetchActivities();
         handleSelectActivity(created);
@@ -930,6 +939,46 @@ export const ActivityLibrary: React.FC = () => {
                     />
                   </Field>
                 </div>
+
+                <section className="activity-theme-editor activity-editor-card" aria-labelledby="activity-theme-heading">
+                  <div className="activity-editor-card-heading">
+                    <div>
+                      <strong id="activity-theme-heading">TV presentation</strong>
+                      <small>Choose an original LessonCue color and sound treatment for the room display.</small>
+                    </div>
+                    <button type="button" className="button" onClick={() => setEditingTheme({ ...ACTIVITY_THEME_PRESETS.stage })}>Reset</button>
+                  </div>
+                  <label>Theme
+                    <select
+                      value={editingTheme?.preset || 'stage'}
+                      onChange={event => setEditingTheme({ ...ACTIVITY_THEME_PRESETS[event.target.value as ActivityThemePreset] })}
+                    >
+                      {Object.entries(ACTIVITY_THEME_PRESETS).map(([value, theme]) => <option key={value} value={value}>{value === 'stage' ? 'LessonCue Stage' : value.replace(/^./, character => character.toUpperCase())}</option>)}
+                    </select>
+                  </label>
+                  <div className="two-fields">
+                    <label>Sound
+                      <select
+                        value={editingTheme?.soundPack || 'gameshow'}
+                        onChange={event => setEditingTheme({ ...(editingTheme || ACTIVITY_THEME_PRESETS.stage), soundPack: event.target.value as ActivityTheme['soundPack'] })}
+                      >
+                        <option value="gameshow">Game show</option>
+                        <option value="arcade">Arcade</option>
+                        <option value="minimal">Minimal</option>
+                        <option value="muted">Muted</option>
+                      </select>
+                    </label>
+                    <label className="checkbox-row" style={{ alignSelf: 'end' }}>
+                      <input
+                        type="checkbox"
+                        checked={editingTheme?.backgroundMotion !== false}
+                        onChange={event => setEditingTheme({ ...(editingTheme || ACTIVITY_THEME_PRESETS.stage), backgroundMotion: event.target.checked })}
+                      />
+                      Ambient motion
+                    </label>
+                  </div>
+                  <small className="muted">Motion respects reduced-motion settings. Game audio stays separate from lesson media volume.</small>
+                </section>
 
                 {(() => {
                   const desc = getActivityDescriptor(selectedActivity.type);
