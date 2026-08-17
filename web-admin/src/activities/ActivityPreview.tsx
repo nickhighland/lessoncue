@@ -268,10 +268,11 @@ export const ActivityPreview: React.FC<{ definition: ActivityDefinition; mode: A
   const envelope = useMemo(() => createActivityPreviewEnvelope(definition, mode), [definition, mode]);
   const previewClass = `activity-preview-themed activity-theme-${envelope.theme?.preset || 'stage'}`;
   const previewStyle = activityThemeVariables(envelope.theme);
-  if (mode === 'participant') return <div className={previewClass} style={previewStyle}><ParticipantPreview envelope={envelope} /></div>;
-  if (mode === 'leaderboard') return <div className={previewClass} style={previewStyle}><LeaderboardPreview envelope={envelope} /></div>;
-  if (mode === 'podium') return <div className={previewClass} style={previewStyle}><PodiumPreview envelope={envelope} /></div>;
+  const motion = envelope.theme?.backgroundMotion === false ? 'off' : 'on';
+  if (mode === 'participant') return <div className={previewClass} data-activity-motion={motion} style={previewStyle}><ParticipantPreview envelope={envelope} /></div>;
+  if (mode === 'leaderboard') return <div className={previewClass} data-activity-motion={motion} style={previewStyle}><LeaderboardPreview envelope={envelope} /></div>;
+  if (mode === 'podium') return <div className={previewClass} data-activity-motion={motion} style={previewStyle}><PodiumPreview envelope={envelope} /></div>;
 
   const DisplayComponent = getActivityDescriptor(definition.type).displayComponent;
-  return <div className={`${previewClass} activity-preview-display activity-preview-${mode}`} style={previewStyle}><DisplayComponent envelope={envelope} /></div>;
+  return <div className={`${previewClass} activity-preview-display activity-preview-${mode}`} data-activity-motion={motion} style={previewStyle}><DisplayComponent envelope={envelope} /></div>;
 };

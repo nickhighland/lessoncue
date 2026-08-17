@@ -1231,6 +1231,8 @@ test("Activities Studio supports grid/list views, filters, arranging, and bulk d
   await expect(page.getByRole("heading", { name: "Activities Studio" })).toBeVisible();
   await expect(page.locator(".activity-library-grid")).toBeVisible();
 
+  const librarySearch = page.getByPlaceholder("Name, description, or game type");
+  await librarySearch.fill(activityTag);
   await page.getByRole("button", { name: "List view" }).click();
   await expect(page.getByText(triviaName, { exact: true })).toBeVisible();
   await expect(page.getByText(bracketName, { exact: true })).toBeVisible();
@@ -1241,18 +1243,26 @@ test("Activities Studio supports grid/list views, filters, arranging, and bulk d
   await expect(page.getByText(bracketName, { exact: true })).toHaveCount(0);
   await page.getByLabel("Game family").selectOption("all");
 
+  await librarySearch.fill("");
   await page.getByRole("button", { name: "Arrange", exact: true }).click();
-  await expect(page.getByRole("button", { name: new RegExp(`Move ${triviaName} later`) })).toBeVisible();
-  await page.getByRole("button", { name: new RegExp(`Move ${triviaName} later`) }).click();
-  await expect(page.getByRole("status")).toContainText("Activity order saved.");
-  await page.getByRole("button", { name: "Done arranging" }).click();
+  const libraryCountText = await page.locator(".activity-library-count").innerText();
+  if (/Page 1 of 1/.test(libraryCountText)) {
+    await expect(page.getByRole("button", { name: new RegExp(`Move ${triviaName} later`) })).toBeVisible();
+    await page.getByRole("button", { name: new RegExp(`Move ${triviaName} later`) }).click();
+    await expect(page.getByRole("status")).toContainText("Activity order saved.");
+    await page.getByRole("button", { name: "Done arranging" }).click();
+  } else {
+    await expect(page.getByRole("status")).toContainText("Arrange is available when the full library fits on one page");
+  }
 
   await page.getByRole("button", { name: "Grid view" }).click();
+  await librarySearch.fill(activityTag);
   await expect(page.getByText("Not used in lessons").first()).toBeVisible();
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)\./ })).toBeVisible();
   await page.getByRole("button", { name: /Activities$/ }).click();
   await expect(page.locator(".activity-library-grid")).toBeVisible();
+  await page.getByPlaceholder("Name, description, or game type").fill(activityTag);
 
   await page.getByRole("checkbox", { name: `Select ${triviaName}`, exact: true }).check();
   await page.getByRole("checkbox", { name: `Select ${bracketName}`, exact: true }).check();

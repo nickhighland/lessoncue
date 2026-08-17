@@ -999,6 +999,8 @@
   mix-blend-mode: screen;
   animation: stageLightSweep 18s ease-in-out infinite alternate;
 }
+.activity-display-root[data-activity-motion="off"] .activity-stage::after,
+.activity-preview-themed[data-activity-motion="off"] .activity-stage::after { animation: none; opacity: .55; }
 
 @keyframes stageLightSweep {
   from { transform: translateX(-3%) rotate(-1deg); opacity: 0.55; }
