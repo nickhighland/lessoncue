@@ -692,3 +692,130 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
 }
 
 .activity-motion-countdown.stage .activity-motion-countdown-track { height: 8px; }
+
+/* -------------------------------------------------------- score race ---- */
+
+.activity-score-race {
+  width: min(100%, 1100px);
+  margin: 0 auto;
+  text-align: left;
+}
+
+.activity-race-kicker {
+  display: block;
+  margin-bottom: .8rem;
+  color: var(--act-stage-accent, #f6c531);
+  font-size: clamp(.68rem, 1.1vw, .9rem);
+  font-weight: 900;
+  letter-spacing: .2em;
+  text-align: center;
+}
+
+.activity-race-lanes {
+  display: grid;
+  gap: clamp(.35rem, 1.1vh, .7rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-race-lane {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr) minmax(6rem, auto);
+  align-items: center;
+  gap: .7rem;
+  padding: .3rem .6rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .26);
+}
+
+.activity-race-lane.leading {
+  background: color-mix(in srgb, var(--lc-racer-color, #f6c531) 18%, rgba(0, 0, 0, .3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lc-racer-color, #f6c531) 55%, transparent);
+}
+
+.activity-race-rank {
+  color: rgba(255, 255, 255, .55);
+  font-size: clamp(.85rem, 1.4vw, 1.15rem);
+  font-weight: 900;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-race-track {
+  position: relative;
+  height: clamp(2.4rem, 4.6vh, 3.4rem);
+  border-radius: 999px;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .07) 0 2px, transparent 2px 52px),
+    rgba(255, 255, 255, .05);
+}
+
+.activity-race-runner {
+  position: absolute;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  /* Translating in proportion to progress keeps the token inside its lane at
+     both ends: at the start line its left edge sits at 0, at the finish its
+     right edge sits at 100%. A flat -50% would overhang into the rank and
+     name columns. */
+  left: calc(var(--lc-progress, 0) * 100%);
+  transform: translate(calc(var(--lc-progress, 0) * -100%), -50%);
+  transition: left 900ms cubic-bezier(.22, 1, .36, 1),
+              transform 900ms cubic-bezier(.22, 1, .36, 1);
+  white-space: nowrap;
+}
+
+.activity-race-lane:first-child .activity-race-runner { z-index: 2; }
+
+.activity-race-avatar {
+  display: grid;
+  place-items: center;
+  width: clamp(2.1rem, 3.6vh, 2.9rem);
+  height: clamp(2.1rem, 3.6vh, 2.9rem);
+  border-radius: 50%;
+  font-size: clamp(1rem, 2vh, 1.4rem);
+  line-height: 1;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, .3);
+}
+
+.activity-race-score {
+  padding: .1rem .5rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .55);
+  color: var(--act-stage-text, #fff);
+  font-size: clamp(.75rem, 1.3vw, 1rem);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-race-name {
+  color: var(--act-stage-text, #fff);
+  font-size: clamp(.8rem, 1.4vw, 1.15rem);
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Scoring should feel like a surge, not a number quietly changing. */
+@keyframes lc-race-surge {
+  0%   { transform: translate(calc(var(--lc-progress, 0) * -100%), -50%) scale(1); }
+  35%  { transform: translate(calc(var(--lc-progress, 0) * -100%), -50%) scale(1.22); }
+  100% { transform: translate(calc(var(--lc-progress, 0) * -100%), -50%) scale(1); }
+}
+
+@keyframes lc-race-lane-flash {
+  0%, 100% { box-shadow: inset 0 0 0 1px transparent; }
+  40%      { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--lc-racer-color, #f6c531) 85%, transparent); }
+}
+
+.activity-race-lane.gained .activity-race-runner { animation: lc-race-surge 720ms cubic-bezier(.34, 1.56, .64, 1); }
+.activity-race-lane.gained { animation: lc-race-lane-flash 900ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-race-runner { transition: none; }
+  .activity-race-lane.gained,
+  .activity-race-lane.gained .activity-race-runner { animation: none; }
+}

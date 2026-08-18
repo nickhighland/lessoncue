@@ -16,6 +16,9 @@ const listOf = (value: unknown): JsonRecord[] => Array.isArray(value) ? value.fi
 const textOf = (value: unknown, fallback = '') => typeof value === 'string' ? value : fallback;
 const numberOf = (value: unknown, fallback = 0) => typeof value === 'number' ? value : fallback;
 const participantTokenKey = (code: string) => `lessoncue:activity-participant:${code.toUpperCase()}`;
+const randomFrom = <T,>(options: readonly T[], fallback: T): T => options.length
+  ? options[Math.floor(Math.random() * options.length)]
+  : fallback;
 
 export const ActivityParticipantApp: React.FC = () => {
   const code = location.pathname.split('/')[2]?.trim().toUpperCase() || '';
@@ -26,8 +29,10 @@ export const ActivityParticipantApp: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [avatar, setAvatar] = useState<string>(DEFAULT_ACTIVITY_AVATAR);
-  const [color, setColor] = useState<string>(DEFAULT_ACTIVITY_COLOR);
+  // Seed a look per device rather than sending the same default from every
+  // phone, which made a whole room join in the same colour.
+  const [avatar, setAvatar] = useState<string>(() => randomFrom(ACTIVITY_AVATARS, DEFAULT_ACTIVITY_AVATAR));
+  const [color, setColor] = useState<string>(() => randomFrom(ACTIVITY_COLORS, DEFAULT_ACTIVITY_COLOR));
 
   // Warm this game's sound pack as soon as the lobby resolves, so the first
   // tap of the first round plays with no load latency. A game with no asset

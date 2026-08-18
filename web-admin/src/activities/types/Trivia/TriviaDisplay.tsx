@@ -5,6 +5,8 @@ import { ActivityJoinBanner } from '../../ActivityJoin';
 import { ActivityLobbyStage } from '../../ActivityLobbyStage';
 import { isLobbyPhase } from '../../activityPhase';
 import { ActivityStageClock } from '../../ActivityStageClock';
+import { ActivityLeaderboard } from '../../ActivityLeaderboard';
+import { ActivityScoreRace } from '../../ActivityScoreRace';
 
 interface TriviaQuestion {
   id: string;
@@ -78,6 +80,24 @@ export const TriviaDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ e
     return (
       <div className="activity-stage">
         <h1 className="activity-title">Trivia Complete!</h1>
+      </div>
+    );
+  }
+
+  // Standings between rounds and at the end. Trivia never showed them, so a
+  // scored quiz gave the room no sense of who was ahead.
+  if (state.phase === 'leaderboard' || state.phase === 'finalResults' || state.phase === 'complete') {
+    return (
+      <div ref={containerRef} className="activity-stage">
+        <div className="activity-stage-content">
+          <div className="activity-header">
+            <div className="stage-kicker">❓ {config.presetLabel || 'TRIVIA SHOWDOWN'} · STANDINGS</div>
+            <h1 className="activity-title">{config.title || envelope.name || 'Trivia Showdown'}</h1>
+          </div>
+          {state.phase === 'leaderboard'
+            ? <ActivityScoreRace state={state as unknown as Record<string, unknown>} />
+            : <ActivityLeaderboard state={state as unknown as Record<string, unknown>} showPodium />}
+        </div>
       </div>
     );
   }
