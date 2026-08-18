@@ -5,6 +5,7 @@ import { ActivityCountdown, useActivityCountdown } from './ActivityMotion';
 import { GameAudioProvider, GameButton, idleWobbleStyle, useGamePanic } from './ActivityJuice';
 import { activityThemeVariables, resolveActivityTheme } from './activityPalettes';
 import { ACTIVITY_AVATARS, ACTIVITY_COLORS, DEFAULT_ACTIVITY_AVATAR, DEFAULT_ACTIVITY_COLOR, inkOnPlayerColor } from './activityIdentity';
+import { ActivityPlayerResult, readPersonalResult } from './ActivityPlayerResult';
 import { primeGameAudio, resolveGameAudioChain } from './audio/gameAudio';
 import { useAudioPreloader } from './audio/useAudioPreloader';
 import './activity.css';
@@ -181,6 +182,8 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
   // The phone wears the same colours as the stage, so a player glancing down
   // stays inside the same game rather than a generic form.
   const themeVariables = activityThemeVariables(resolveActivityTheme(envelope.type, config.preset, envelope.theme));
+  // Only ever this player's own standing; the server keeps other scores out.
+  const personalResult = readPersonalResult(state.you);
   // The server owns the clock. This only mirrors it into the shared
   // last-five-seconds presentation and its tick/alarm cues.
   const secondsRemaining = Math.max(0, Math.ceil(responseTimerRemainingMs / 1000));
@@ -245,6 +248,7 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
       phase === 'voting' && envelope.type === 'punchline' ? <VoteInput items={creativeVoteOptions} selected={selected} disabled={busy || view.hasSubmitted || creativeVoteOptions.length < 2} onSelect={id => { setSelected(id); submitVote(id); }} /> :
       phase === 'voting' && envelope.type === 'fakeOut' ? <VoteInput items={bluffOptions} selected={selected} disabled={busy || view.hasSubmitted} onSelect={id => { setSelected(id); submitVote(id); }} /> :
       phase === 'judging' || phase === 'responsesLocked' ? <section className="participant-waiting"><span className="waiting-orb" style={idleWobbleStyle('waiting', 2)}>⏳</span><h2>Locked in.</h2><p>The host is reviewing the room.</p></section> :
+      (phase === 'reveal' || phase === 'leaderboard' || phase === 'finalResults') && personalResult ? <ActivityPlayerResult result={personalResult} color={textOf(view.color, '#f6c531')} chain={audioChain} /> :
       phase === 'reveal' || phase === 'leaderboard' || phase === 'finalResults' ? <section className="participant-waiting"><span className="waiting-orb" style={idleWobbleStyle('reveal', 3)}>✨</span><h2>Reveal time.</h2><p>Look up at the main display.</p></section> : <section className="participant-waiting"><h2>Watch the stage.</h2><p>Your next input will appear here.</p></section>}
     <GameButton className="participant-leave-button" onClick={onLeave}>Not {view.displayName}? Switch player</GameButton></div></main></GameAudioProvider>;
 };

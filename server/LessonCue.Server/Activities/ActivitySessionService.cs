@@ -3591,6 +3591,71 @@ public sealed class ActivitySessionService(
         return new ActivityStateEnvelope(run.Id, run.ActivityDefinitionId, run.ActivityDefinition!.Type, run.Revision, run.Status, ParseUntyped(Serialize(state))!, DateTimeOffset.UtcNow, run.ActivityDefinition.Name, ParseUntyped(run.ActivityDefinition.ThemeJson), ParseUntyped(Serialize(projectedConfig)));
     }
 
+
+    /// <summary>
+    /// Engines where a round has a right answer, so "incorrect" is meaningful.
+    /// Everything else reports points earned without implying a verdict.
+    /// </summary>
+    private static readonly HashSet<string> GradedTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ActivityTypes.Trivia, ActivityTypes.RapidFire, ActivityTypes.Prediction,
+        ActivityTypes.Ordering, ActivityTypes.MatchPlayer, ActivityTypes.Buzzer,
+    };
+
+    /// <summary>
+    /// How this player is doing, for their own phone.
+    ///
+    /// Correctness is not persisted per submission, so it is derived: points
+    /// scored this round mean they got it, submitting without scoring means
+    /// they did not, and no submission at all means they missed it. Engines
+    /// without a right answer only report the points.
+    /// </summary>
+    private async Task<JsonObject> BuildPersonalResultAsync(
+        ActivityRun run,
+        JsonObject config,
+        JsonObject state,
+        Guid participantId,
+        CancellationToken ct)
+    {
+        var roundId = CurrentRoundId(run, config);
+        var live = run.Participants.Where(x => x.Status != "removed").ToArray();
+
+        var totals = live.ToDictionary(
+            participant => participant.Id,
+            participant => run.ScoreEvents
+                .Where(score => !score.IsUndone && score.ParticipantId == participant.Id)
+                .Sum(score => score.Amount));
+
+        var score = totals.GetValueOrDefault(participantId);
+        // Ties share a rank rather than being ordered arbitrarily.
+        var rank = 1 + totals.Values.Count(other => other > score);
+
+        var roundPoints = run.ScoreEvents
+            .Where(item => !item.IsUndone && item.ParticipantId == participantId && item.RoundId == roundId)
+            .Sum(item => item.Amount);
+
+        var answered = await db.ActivitySubmissions
+            .AnyAsync(x => x.ActivityRunId == run.Id && x.ParticipantId == participantId && x.RoundId == roundId, ct)
+            || run.Votes.Any(x => x.VoterParticipantId == participantId && x.RoundId == roundId);
+
+        var graded = GradedTypes.Contains(run.ActivityDefinition!.Type);
+        var outcome = !answered ? "missed"
+            : roundPoints > 0 ? "correct"
+            : graded ? "incorrect"
+            : "scored";
+
+        return new JsonObject
+        {
+            ["score"] = score,
+            ["rank"] = rank,
+            ["playerCount"] = live.Length,
+            ["roundPoints"] = roundPoints,
+            ["outcome"] = outcome,
+            ["answered"] = answered,
+            ["graded"] = graded,
+        };
+    }
+
     private async Task<JsonObject> ProjectDisplayStateAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct, Guid? participantId = null)
     {
         var projected = ParseObject(Serialize(state));
@@ -3604,6 +3669,14 @@ public sealed class ActivitySessionService(
         // what until the host reveals, so once play starts a name list in the
         // display projection would give the room something to correlate
         // against. Standings carry names again at reveal/leaderboard time.
+        // Personal result for the phone. Only ever the asking player's own
+        // standing: their score, their rank, and how this round went. Other
+        // players' scores stay out of the participant projection.
+        if (participantId.HasValue)
+        {
+            projected["you"] = await BuildPersonalResultAsync(run, config, state, participantId.Value, ct);
+        }
+
         var rosterPhase = StringValue(state, "phase");
         if (rosterPhase is ActivityPhases.Setup or ActivityPhases.Lobby)
         {

@@ -486,3 +486,103 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
 @media (max-width: 380px) {
   .participant-identity-preview { width: 60px; height: 60px; font-size: 1.9rem; }
 }
+
+/* ------------------------------------------------------ player result --- */
+
+.participant-result {
+  margin-top: 1.5rem;
+  padding: 1.6rem 1.25rem;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, .18);
+  background: rgba(255, 255, 255, .1);
+  text-align: center;
+  animation: lc-card-enter 320ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.participant-result-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  font-size: 2.8rem;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 10px 0 rgba(0, 0, 0, .22);
+}
+
+.participant-result-correct .participant-result-mark { animation: lc-result-pop 520ms cubic-bezier(.34, 1.56, .64, 1); }
+.participant-result-incorrect .participant-result-mark,
+.participant-result-missed .participant-result-mark {
+  background: rgba(255, 255, 255, .16) !important;
+  color: rgba(255, 255, 255, .8) !important;
+}
+
+@keyframes lc-result-pop {
+  0%   { transform: scale(.4) rotate(-12deg); }
+  60%  { transform: scale(1.14) rotate(4deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+.participant-result h2 {
+  margin: .9rem 0 .2rem;
+  color: var(--act-stage-text, #fff);
+  font-size: 1.6rem;
+}
+
+.participant-result > p { margin: .35rem 0 0; color: rgba(255, 255, 255, .72); }
+
+.participant-result-points {
+  margin: .3rem 0 .1rem;
+  color: var(--act-stage-accent, #f6c531);
+  font-size: 2.6rem;
+  font-weight: 950;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.participant-result-points small {
+  display: block;
+  margin-top: .2rem;
+  color: rgba(255, 255, 255, .6);
+  font-size: .7rem;
+  font-weight: 800;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.participant-result-standing {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .6rem;
+  margin: 1.2rem 0 0;
+}
+
+.participant-result-standing div {
+  padding: .6rem .4rem;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, .24);
+}
+
+.participant-result-standing dt {
+  color: rgba(255, 255, 255, .6);
+  font-size: .64rem;
+  font-weight: 900;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.participant-result-standing dd {
+  margin: .2rem 0 0;
+  color: var(--act-stage-text, #fff);
+  font-size: 1.5rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.participant-result-standing dd span { color: rgba(255, 255, 255, .55); font-size: .85rem; font-weight: 700; }
+
+@media (prefers-reduced-motion: reduce) {
+  .participant-result,
+  .participant-result-correct .participant-result-mark { animation: none; }
+}
