@@ -6,6 +6,9 @@ import { activityThemeVariables, resolveActivityTheme } from './activityPalettes
 import { playGameTheme, resolveGameAudioChain, stopGameTheme } from './audio/gameAudio';
 import { useAudioPreloader } from './audio/useAudioPreloader';
 import './activity.css';
+// The shared tactile/lobby layer must load on the stage too, not only on the
+// participant bundle, and after activity.css so equal-specificity rules win.
+import './activity-juice.css';
 
 export interface ActivityDisplayProps {
   runId?: string;

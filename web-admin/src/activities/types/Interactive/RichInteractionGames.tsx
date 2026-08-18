@@ -7,6 +7,8 @@ import { ActivityLeaderboard } from '../../ActivityLeaderboard';
 import { ActivityPresetPicker } from '../../ActivityPresetPicker';
 import { DRAWING_PRESETS, MATCH_PRESETS, ORDERING_PRESETS, STAGE_PRESETS, WORD_PRESETS } from '../../activityPresetRegistry';
 import { ActivityJoinBanner } from '../../ActivityJoin';
+import { ActivityLobbyStage } from '../../ActivityLobbyStage';
+import { isLobbyPhase } from '../../activityPhase';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -18,15 +20,17 @@ const stringOf = (value: unknown, fallback = '') => typeof value === 'string' ? 
 const numberOf = (value: unknown, fallback = 0) => typeof value === 'number' ? value : fallback;
 const phaseLabel = (phase: unknown) => stringOf(phase, 'lobby').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
 
-const RichStage: React.FC<{ children: React.ReactNode; title: string; kicker: string; phase?: unknown; joinCode?: unknown; joinUrl?: unknown; participantCount?: unknown }> = ({ children, title, kicker, phase, joinCode, joinUrl, participantCount }) => (
+const RichStage: React.FC<{ children: React.ReactNode; title: string; kicker: string; phase?: unknown; joinCode?: unknown; joinUrl?: unknown; participantCount?: unknown; roster?: unknown }> = ({ children, title, kicker, phase, joinCode, joinUrl, participantCount, roster }) => (
   <div className="activity-stage interactive-game-stage">
     <div className="activity-stage-content">
-      <div className="activity-header">
-        <div className="stage-kicker">{kicker} · {phaseLabel(phase)}</div>
-        <h1 className="activity-title">{title}</h1>
-      </div>
-      <ActivityJoinBanner joinCode={joinCode} joinUrl={joinUrl} participantCount={participantCount} />
-      {children}
+      {isLobbyPhase(phase) ? <ActivityLobbyStage title={title} kicker={kicker} joinCode={joinCode} joinUrl={joinUrl} participantCount={participantCount} roster={roster} /> : <>
+        <div className="activity-header">
+          <div className="stage-kicker">{kicker} · {phaseLabel(phase)}</div>
+          <h1 className="activity-title">{title}</h1>
+        </div>
+        <ActivityJoinBanner joinCode={joinCode} joinUrl={joinUrl} participantCount={participantCount} />
+        {children}
+      </>}
     </div>
   </div>
 );
@@ -53,7 +57,7 @@ export const DrawingDisplay: React.FC<ActivityComponentProps> = ({ envelope }) =
   const telephone = config.telephoneChain === true;
   const telephoneChain = listOf(state.telephoneChain);
   const telephoneKind = stringOf(state.telephoneStepKind, 'drawing');
-  return <RichStage title={stringOf(config.title, envelope.name || 'Doodle & Guess')} kicker={`🎨 ${stringOf(config.presetLabel, 'DRAWING ROUND')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount}>
+  return <RichStage title={stringOf(config.title, envelope.name || 'Doodle & Guess')} kicker={`🎨 ${stringOf(config.presetLabel, 'DRAWING ROUND')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount} roster={state.roster}>
     <div className={`interactive-prompt-card ${telephone ? 'telephone-prompt-card' : ''}`}><span className="interactive-round-label">{telephone ? `${stringOf(state.telephoneStepLabel, 'CHAIN STEP')} · ${telephoneKind === 'description' ? 'DESCRIBE IT' : 'DRAW IT'}` : 'DRAW THIS'}</span><p>{telephone ? stringOf(state.telephoneStepPrompt, 'Continue the chain.') : stringOf(prompt.prompt, 'Draw something surprising.')}</p>{telephone && stringOf(state.telephoneStepPhrase) && <small className="telephone-source-phrase">STARTING PHRASE · {stringOf(state.telephoneStepPhrase)}</small>}{telephone && telephoneKind === 'description' && Boolean(state.telephoneSourceStrokes) && <div className="telephone-source-drawing"><DrawingSvg strokes={state.telephoneSourceStrokes} /></div>}</div>
     {state.phase === 'voting' && <ActivityCountdown remainingMs={votingRemaining} durationMs={numberOf(state.votingDurationMs)} label="VOTE FOR A FAVORITE" compact />}
     {telephone && showGallery ? <div className="telephone-chain-replay" aria-label="Telephone Draw chain replay">{telephoneChain.map((step, index) => <article className="telephone-chain-step" key={stringOf(step.id, String(index))}><span>STEP {numberOf(step.stepIndex) + 1} · {stringOf(step.kind, 'drawing').toUpperCase()}</span>{stringOf(step.kind, 'drawing') === 'description' ? <strong>{stringOf(step.text, 'No description submitted')}</strong> : <DrawingSvg strokes={step.strokes} />}</article>)}{!telephoneChain.length && <div className="interactive-empty-card">The chain will replay after the first reveal.</div>}</div> : telephone ? <div className="interactive-help">Each player passes the idea to the next step. The full chain appears after the host reveals it.</div> : showGallery ? <div className="drawing-response-grid">{drawings.map((drawing, index) => <div className={`drawing-card ${stringOf(state.winningSubmissionId) === stringOf(drawing.id) ? 'winner' : ''}`} key={stringOf(drawing.id, String(index))}><span className="drawing-card-number">{String(index + 1).padStart(2, '0')}</span><DrawingSvg strokes={drawing.strokes} /><small>{stringOf(state.winningSubmissionId) === stringOf(drawing.id) ? `ROOM FAVORITE · ${numberOf(state.winningVoteCount)} VOTES` : `${voteCounts.get(stringOf(drawing.id)) || 0} VOTES`}</small></div>)}{!drawings.length && <div className="interactive-empty-card">Waiting for approved drawings…</div>}</div> : <div className="interactive-help">Use your phone as a sketchpad. The host will reveal the gallery when the drawing window closes.</div>}
@@ -91,7 +95,7 @@ export const OrderingDisplay: React.FC<ActivityComponentProps> = ({ envelope }) 
   const matchingRight = listOf(state.matchingRight);
   const groupingItems = listOf(state.groupingItems);
   const groupingGroups = listOf(state.groupingGroups);
-  return <RichStage title={stringOf(config.title, envelope.name || 'Order Up')} kicker={`↕ ${stringOf(config.presetLabel, 'ORDERING CHALLENGE')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount}>
+  return <RichStage title={stringOf(config.title, envelope.name || 'Order Up')} kicker={`↕ ${stringOf(config.presetLabel, 'ORDERING CHALLENGE')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount} roster={state.roster}>
     <div className="interactive-prompt-card"><span className="interactive-round-label">{interactionMode === 'matching' ? 'MATCH THE PAIRS' : interactionMode === 'grouping' ? 'FIND THE CONNECTIONS' : 'PUT THESE IN ORDER'}</span><p>{stringOf(round.prompt, interactionMode === 'matching' ? 'Connect each clue to its match.' : interactionMode === 'grouping' ? 'Sort every item into the group where it belongs.' : 'Arrange the items in the best order.')}</p></div>
     {interactionMode === 'matching' ? <MatchingStage leftItems={matchingLeft} rightItems={matchingRight} correctPairs={listOf(state.correctPairs)} reveal={reveal} /> : interactionMode === 'grouping' ? <GroupingStage items={groupingItems} groups={groupingGroups} correctGroups={listOf(state.correctGroups)} reveal={reveal} /> : <OrderingItems items={listOf(round.items)} correctOrder={stringList(state.correctOrder)} reveal={reveal} />}
     {!reveal && <div className="interactive-help">Use your phone to {interactionMode === 'matching' ? 'connect each clue to one option.' : interactionMode === 'grouping' ? 'place every item into one group.' : `move the cards. ${stringOf(config.scoringMode, 'partial') === 'exact' ? 'Only a perfect order scores.' : 'Exact positions earn partial credit, so every good move matters.'}`}</div>}
@@ -107,7 +111,7 @@ export const WordDisplay: React.FC<ActivityComponentProps> = ({ envelope }) => {
   const round = rounds[numberOf(state.currentRoundIndex)] || rounds[0] || {};
   const words = listOf(state.wordCloud);
   const timerRemaining = useActivityCountdown({ durationMs: numberOf(state.timerDurationMs), startedAt: state.timerStartedAt, pausedAt: state.timerPausedAt, running: state.timerRunning === true });
-  return <RichStage title={stringOf(config.title, envelope.name || 'Word Storm')} kicker={`☁ ${stringOf(config.presetLabel, 'WORD STORM')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount}>
+  return <RichStage title={stringOf(config.title, envelope.name || 'Word Storm')} kicker={`☁ ${stringOf(config.presetLabel, 'WORD STORM')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount} roster={state.roster}>
     <div className="interactive-prompt-card"><span className="interactive-round-label">CATEGORY · {stringOf(round.category, 'OPEN CATEGORY')}</span><p>{stringOf(round.prompt, 'Add words to the storm.')}</p></div>
     {config.turnBased === true && <div className="interactive-help">{stringOf(state.lastTurnMessage) || `TURN · ${stringOf(state.turnParticipantName, 'the next player')}`}</div>}
     {state.timerRunning === true && <ActivityCountdown remainingMs={timerRemaining} durationMs={numberOf(state.timerDurationMs)} label="WORD STORM CLOCK" compact />}
@@ -125,7 +129,7 @@ export const MatchPlayerDisplay: React.FC<ActivityComponentProps> = ({ envelope 
   const options = Array.isArray(round.options) ? round.options.map(item => stringOf(item)) : [];
   const revealedIndex = numberOf(state.revealedOptionIndex, -1);
   const isRevealed = state.phase === 'reveal' || state.phase === 'leaderboard' || state.phase === 'finalResults' || state.phase === 'complete';
-  return <RichStage title={stringOf(config.title, envelope.name || 'Match Minds')} kicker={`🧠 ${stringOf(config.presetLabel, 'MATCH MINDS')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount}>
+  return <RichStage title={stringOf(config.title, envelope.name || 'Match Minds')} kicker={`🧠 ${stringOf(config.presetLabel, 'MATCH MINDS')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount} roster={state.roster}>
     <div className="interactive-prompt-card"><span className="interactive-round-label">{stringOf(state.targetName, 'A mystery player')} ANSWERS PRIVATELY</span><p>{stringOf(round.prompt, 'Which answer will they choose?')}</p></div>
     {answerMode === 'text' ? <div className={`match-text-reveal ${isRevealed ? 'revealed' : ''}`}><span>{isRevealed ? 'THE TARGET ANSWERED' : 'PRIVATE ANSWER'}</span><strong>{isRevealed ? stringOf(state.revealedAnswer, 'No answer recorded') : '???'}</strong></div> : <div className="match-option-grid">{options.map((option, index) => <div className={`match-option-card ${isRevealed && index === revealedIndex ? 'matched' : ''}`} key={`${option}-${index}`}><b>{String.fromCharCode(65 + index)}</b><span>{option}</span>{isRevealed && index === revealedIndex && <em>MATCHED ANSWER</em>}</div>)}</div>}
     {isRevealed && <div className="interactive-winner-card"><span>ROOM MATCHES</span><strong>{numberOf(state.matchCount)} {numberOf(state.matchCount) === 1 ? 'player' : 'players'} thought alike</strong></div>}

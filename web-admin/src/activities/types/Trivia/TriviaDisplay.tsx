@@ -2,6 +2,8 @@ import React, { useEffect, useRef } from 'react';
 import type { ActivityStateEnvelope } from '../../types';
 import { playChimeSound, playFanfareSound, launchConfetti } from '../../effects';
 import { ActivityJoinBanner } from '../../ActivityJoin';
+import { ActivityLobbyStage } from '../../ActivityLobbyStage';
+import { isLobbyPhase } from '../../activityPhase';
 
 interface TriviaQuestion {
   id: string;
@@ -25,6 +27,8 @@ interface TriviaState {
   joinCode?: string;
   /** Absolute, teacher-selected address a phone can open. */
   joinUrl?: string;
+  /** Lobby-only public roster. */
+  roster?: Array<{ id: string; name: string; avatar: string; color: string }>;
   participantCount?: number;
   responsesOpen?: boolean;
   answerRevealed?: boolean;
@@ -73,6 +77,23 @@ export const TriviaDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ e
     return (
       <div className="activity-stage">
         <h1 className="activity-title">Trivia Complete!</h1>
+      </div>
+    );
+  }
+
+  if (isLobbyPhase(state.phase)) {
+    return (
+      <div ref={containerRef} className="activity-stage">
+        <div className="activity-stage-content">
+          <ActivityLobbyStage
+            title={config.title || envelope.name || 'Trivia Showdown'}
+            kicker={`❓ ${config.presetLabel || 'TRIVIA SHOWDOWN'}`}
+            joinCode={state.joinCode}
+            joinUrl={state.joinUrl}
+            participantCount={state.participantCount}
+            roster={state.roster}
+          />
+        </div>
       </div>
     );
   }

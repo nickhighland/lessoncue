@@ -6,6 +6,8 @@ import { ActivityRevealCurtain, ActivityWinnerBanner } from '../../ActivityMotio
 import { ActivityLeaderboard } from '../../ActivityLeaderboard';
 import { EmbeddedUtilityEditor } from './InteractiveGames';
 import { ActivityJoinBanner } from '../../ActivityJoin';
+import { ActivityLobbyStage } from '../../ActivityLobbyStage';
+import { isLobbyPhase } from '../../activityPhase';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -67,15 +69,17 @@ const BRACKET_PRESET_LABELS: Record<string, string> = {
   headsOrTails: 'Heads or Tails'
 };
 
-const BracketShell: React.FC<{ children: React.ReactNode; title: string; kicker?: string; phase?: unknown; joinCode?: unknown; joinUrl?: unknown; participantCount?: unknown }> = ({ children, title, kicker = '🏆 BRACKET BATTLE', phase, joinCode, joinUrl, participantCount }) => (
+const BracketShell: React.FC<{ children: React.ReactNode; title: string; kicker?: string; phase?: unknown; joinCode?: unknown; joinUrl?: unknown; participantCount?: unknown; roster?: unknown }> = ({ children, title, kicker = '🏆 BRACKET BATTLE', phase, joinCode, joinUrl, participantCount, roster }) => (
   <div className="activity-stage interactive-game-stage bracket-stage">
     <div className="activity-stage-content">
-      <div className="activity-header">
-        <div className="stage-kicker">{kicker} · {phaseLabel(phase)}</div>
-        <h1 className="activity-title">{title}</h1>
-      </div>
-      <ActivityJoinBanner joinCode={joinCode} joinUrl={joinUrl} participantCount={participantCount} />
-      {children}
+      {isLobbyPhase(phase) ? <ActivityLobbyStage title={title} kicker={kicker} joinCode={joinCode} joinUrl={joinUrl} participantCount={participantCount} roster={roster} /> : <>
+        <div className="activity-header">
+          <div className="stage-kicker">{kicker} · {phaseLabel(phase)}</div>
+          <h1 className="activity-title">{title}</h1>
+        </div>
+        <ActivityJoinBanner joinCode={joinCode} joinUrl={joinUrl} participantCount={participantCount} />
+        {children}
+      </>}
     </div>
   </div>
 );
@@ -105,7 +109,7 @@ export const BracketDisplay: React.FC<ActivityComponentProps> = ({ envelope }) =
   const current = state.currentMatch && typeof state.currentMatch === 'object' ? state.currentMatch as JsonRecord : null;
   const matches = listOf(state.bracketMatches);
   const rounds = [...new Set(matches.map(match => numberOf(match.round, 1)))].sort((a, b) => a - b);
-  return <BracketShell title={stringOf(config.title, envelope.name || 'Bracket Battle')} kicker={`🏆 ${stringOf(config.presetLabel, 'BRACKET BATTLE')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount}>
+  return <BracketShell title={stringOf(config.title, envelope.name || 'Bracket Battle')} kicker={`🏆 ${stringOf(config.presetLabel, 'BRACKET BATTLE')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount} roster={state.roster}>
     {current ? <CurrentMatch match={current} phase={state.phase} /> : <ActivityWinnerBanner visible={true} winner={stringOf(state.bracketChampion, 'The final winner will appear here.')} subtitle="CHAMPION" />}
     <div className="bracket-board" aria-label="Tournament bracket">
       {rounds.map(round => <section className="bracket-round" key={round}><span className="interactive-round-label">ROUND {round}</span>{matches.filter(match => numberOf(match.round, 1) === round).map((match, index) => <div className={`bracket-mini-match ${stringOf(match.status) === 'complete' ? 'complete' : ''}`} key={stringOf(match.id, `${round}-${index}`)}><span>{stringOf(match.entrantA, 'Bye')}</span><b>{stringOf(match.winnerId) ? '✓' : '·'}</b><span>{stringOf(match.entrantB, 'Bye')}</span></div>)}</section>)}
