@@ -1,9 +1,9 @@
-import { CSSProperties, FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import { DownloadDiagnostic, Lesson, LessonClass, Screen, TemporaryControllerSession } from "../models";
-import { BrandMark, Empty, Field, PageHead } from "../ui";
-import { classControllerUrl, controllerRouteSlug, controllerSessionToken, controllerSlug, cuePlannedDurationMs, cuePoints, errorText, formatDate, formatDuration, formatFriendlyDuration, friendlyPlaybackState, isOnline, lessonPlannedDurationMs, parseDiagnosticJson, roleName, youtubeEmbedUrl } from "../utils";
-import { ActivityController } from "../../activities/ActivityController";
+import { BrandMark, Field, PageHead } from "../ui";
+import { controllerRouteSlug, controllerSessionToken, controllerSlug, errorText, isOnline, parseDiagnosticJson } from "../utils";
+import { CompactRemoteShell } from "./CompactRemoteShell";
 
 export function ControllerView({
   screens,
@@ -207,37 +207,6 @@ export function ControllerView({
       ? selectedItem
       : undefined;
   const timingLesson = reportedLesson || lesson;
-  const timingItems = [...(timingLesson?.items || [])]
-    .filter((item) => item.role === "lesson")
-    .sort((a, b) => a.position - b.position);
-  const reportedIndex = reportedItem
-    ? timingItems.findIndex((item) => item.id === reportedItem.id)
-    : -1;
-  const currentRemainingMs =
-    reportedIndex >= 0
-      ? Math.max(
-          0,
-          cuePlannedDurationMs(timingItems[reportedIndex]) -
-            (selectedScreen?.playbackPositionMs || 0),
-        ) +
-        timingItems
-          .slice(reportedIndex + 1)
-          .reduce((sum, item) => sum + cuePlannedDurationMs(item), 0)
-      : timingItems.reduce((sum, item) => sum + cuePlannedDurationMs(item), 0);
-  const estimatedFinish =
-    timingLesson && currentRemainingMs
-      ? new Date(Date.now() + currentRemainingMs)
-      : undefined;
-  const scheduledFinish = timingLesson?.designatedStartAt
-    ? new Date(
-        new Date(timingLesson.designatedStartAt).getTime() +
-          lessonPlannedDurationMs(timingLesson),
-      )
-    : undefined;
-  const isOverrun =
-    !!estimatedFinish &&
-    !!scheduledFinish &&
-    estimatedFinish.getTime() > scheduledFinish.getTime() + 60_000;
   const preRollNow =
     !!timingLesson?.preRollStartsAt &&
     !!timingLesson?.designatedStartAt &&
@@ -297,21 +266,17 @@ export function ControllerView({
     ? recentlySeen
       ? "reconnecting"
       : "offline"
-    : selectedScreen.playbackError || selectedScreen.failedDownloads > 0
-      ? "error"
-      : downloading
-        ? "downloading"
-        : "ready";
+    : downloading
+      ? "downloading"
+      : "ready";
   const controllerStateLabel =
-    controllerState === "ready"
-      ? "Ready"
-      : controllerState === "downloading"
-        ? "Downloading media"
-        : controllerState === "reconnecting"
-          ? "Reconnecting"
-          : controllerState === "error"
-            ? "Needs attention"
-            : "Offline";
+    controllerState === "offline"
+      ? "Offline"
+      : controllerState === "downloading" || controllerState === "reconnecting"
+        ? "Connecting"
+        : selectedScreen?.playbackState === "playing"
+          ? "Playing"
+          : "Ready";
   const isAdministrator =
     userRole === "Service Admin" ||
     userRole === "App Admin" ||
@@ -330,6 +295,21 @@ export function ControllerView({
           100,
       )
     : 0;
+  const playbackTitle = reportedItem?.title || "Nothing Playing";
+  const playbackDurationMs = selectedScreen?.playbackDurationMs || 0;
+  const playbackPositionMs = Math.min(
+    Math.max(selectedScreen?.playbackPositionMs || 0, 0),
+    playbackDurationMs || Number.MAX_SAFE_INTEGER,
+  );
+  const commandStatus = !selectedScreenOnline
+    ? "Offline · commands disabled"
+    : commandReceipt?.error
+      ? "Command failed · retry"
+      : commandPending
+        ? "Sending…"
+        : commandReceipt?.version
+          ? "Received"
+          : "";
   if (sessionToken && temporarySession === undefined)
     return (
       <div className="controller-page">
@@ -414,468 +394,51 @@ export function ControllerView({
         </section>
       </div>
     );
-  const controllerStyle = room
-    ? ({ "--room-color": room.controllerColor } as CSSProperties)
-    : undefined;
-  const commandAcknowledgement = !selectedScreenOnline
-    ? `${selectedScreen?.name || "Screen"} is offline. Commands are disabled and are not queued.`
-    : commandReceipt?.error
-    ? `Command failed: ${commandReceipt.error}`
-    : commandPending
-      ? `Sending ${commandReceipt?.action} to ${selectedScreen?.name || "screen"}…`
-      : commandReceipt?.version
-        ? `✓ ${commandReceipt.action} received by ${selectedScreen?.name || "screen"}`
-        : selectedScreen?.controlVersion
-          ? `✓ Command ${selectedScreen.acknowledgedControlVersion} received`
-          : "Ready for a command";
   return (
-    <div
-      className={`controller-page ${room ? "room-themed" : ""}`}
-      style={controllerStyle}
-    >
-      <PageHead
-        eyebrow={
-          temporarySession?.permanent
-            ? "PERMANENT CLASSROOM CONTROL"
-            : temporarySession
-              ? "TEMPORARY CONTROL"
-            : room
-              ? "CLASSROOM CONTROL"
-              : "LIVE CONTROL"
-        }
-        title={room ? room.name : "Universal controller"}
-        detail={
-          temporarySession?.permanent
-            ? "This revocable controller remains active until an administrator refreshes or revokes its QR code."
-            : temporarySession?.expiresAt
-              ? `Restricted link · expires ${new Date(temporarySession.expiresAt).toLocaleString()}`
-            : room
-              ? `This controller is restricted to ${room.name} screens and lessons.`
-              : "Choose any paired screen, then run its assigned lesson from this phone."
-        }
-        action={
-          <div className="controller-head-actions">
-            <span className={`controller-connection ${controllerState}`}>
-              <i />
-              {controllerStateLabel}
-            </span>
-            <button
-              className={`button controller-lock-toggle ${controlsLocked ? "locked" : ""}`}
-              aria-pressed={controlsLocked}
-              onClick={() => setControlsLocked((value) => !value)}
-            >
-              {controlsLocked
-                ? "🔒 Controls locked — unlock"
-                : "🔓 Lock controls"}
-            </button>
-            <button
-              className={`button ${focusMode ? "primary" : ""}`}
-              aria-pressed={focusMode}
-              onClick={() => setFocusMode((value) => !value)}
-            >
-              {focusMode ? "Exit display focus" : "Display focus mode"}
-            </button>
-          </div>
-        }
-      />
-      {controlsLocked && (
-        <div className="controller-locked-banner" role="status">
-          Controls are locked. Nothing on this remote can change the screen
-          until you unlock it.
-        </div>
-      )}
-      {focusMode && (
-        <section className="panel controller-focus-mode" aria-label="Display focus mode">
-          <div>
-            <span className="section-label">DISPLAY FOCUS</span>
-            <strong>{selectedScreen?.name || "Choose a screen"}</strong>
-            <small>{selectedScreenOnline ? "Connected and ready for commands" : "Offline — commands are disabled"}</small>
-          </div>
-          <div className="controller-focus-now">
-            <span>NOW</span><strong>{reportedItem?.title || "Nothing playing"}</strong>
-          </div>
-          {((liveActivityItem?.activityDefinitionId) && (
-            <div style={{ width: "100%", margin: "0.5rem 0" }}>
-              <ActivityController
-                definitionId={liveActivityItem.activityDefinitionId}
-                lessonId={timingLesson?.id}
-                lessonItemId={liveActivityItem.id}
-                showSessionSetup={showOnTheFlySetup}
-              />
-            </div>
-          ))}
-          <div className="controller-focus-next">
-            <span>NEXT</span><strong>{reportedIndex >= 0 ? timingItems[reportedIndex + 1]?.title || "End of sequence" : orderedItems[0]?.title || "Choose a lesson"}</strong>
-          </div>
-          <div className="controller-shortcuts" aria-label="Keyboard shortcuts">
-            <kbd>←</kbd><span>Previous</span><kbd>→</kbd><span>Next</span><kbd>Enter</kbd><span>Play selected</span><kbd>Esc</kbd><span>Stop / Back</span>
-          </div>
-        </section>
-      )}
-      <section className={`controller-mode-bar ${showOnTheFlySetup ? "setup-open" : "control-only"}`} aria-label="Remote mode">
-        <div>
-          <span className="controller-eyebrow">REMOTE MODE</span>
-          <strong>{showOnTheFlySetup ? "Setup & control" : "Control only"}</strong>
-          <small>
-            {showOnTheFlySetup
-              ? "Choose a lesson or cue, manage the phone lobby, and prepare a game on the fly."
-              : liveActivityItem
-                ? "Playback and live game controls are ready."
-                : "Playback controls are ready. Setup tools are tucked away."}
-          </small>
-        </div>
-        <button
-          type="button"
-          className={`button ${showOnTheFlySetup ? "primary" : ""} controller-setup-toggle`}
-          aria-expanded={showOnTheFlySetup}
-          aria-controls={showOnTheFlySetup ? "controller-setup-panel" : undefined}
-          onClick={() => setShowOnTheFlySetup((value) => !value)}
-        >
-          {showOnTheFlySetup ? "Hide setup" : "Open setup"}
-        </button>
-      </section>
-      <fieldset
-        className="controller-controls"
-        disabled={controlsLocked}
-        aria-label="Room playback controls"
-      >
-        <div className={`controller-grid ${showOnTheFlySetup ? "setup-open" : "control-only"}`}>
-          <section className="panel controller-target">
-            <Field label="Control this screen">
-              <select
-                value={screenId}
-                onChange={(e) => {
-                  setScreenId(e.target.value);
-                  setLessonId("");
-                  setSelectedItemId("");
-                  setCommandReceipt(undefined);
-                }}
-              >
-                {liveScreens.map((screen) => (
-                  <option value={screen.id} key={screen.id}>
-                    {screen.name} · {isOnline(screen) ? "online" : "offline"}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <div className="now-playing">
-              <span>ACTUAL SCREEN STATE</span>
-              <strong>
-                {selectedScreenOnline
-                  ? friendlyPlaybackState(selectedScreen?.playbackState)
-                  : `Last reported ${friendlyPlaybackState(selectedScreen?.playbackState).toLowerCase()}`}
-              </strong>
-              <small>
-                {reportedItem?.title ||
-                  reportedLesson?.title ||
-                  (selectedScreen?.playbackState === "idle"
-                    ? "Nothing playing"
-                    : "Waiting for item details")}
-              </small>
-              {selectedScreenOnline && selectedScreen?.playbackDurationMs ? (
-                <>
-                  <div className="playback-progress">
-                    <i style={{ width: `${progress}%` }} />
-                  </div>
-                  <small>
-                    {formatDuration(selectedScreen.playbackPositionMs)} /{" "}
-                    {formatDuration(selectedScreen.playbackDurationMs)}
-                  </small>
-                </>
-              ) : null}
-              <span
-                className={`command-ack ${commandPending ? "pending" : commandReceipt?.error ? "error" : commandReceipt?.version ? "received" : ""}`}
-                role="status"
-                aria-live="polite"
-              >
-                {commandAcknowledgement}
-              </span>
-              {selectedScreen?.playbackError && (
-                <div className="playback-error">
-                  {selectedScreen.playbackError}
-                </div>
-              )}
-            </div>
-            {!selectedScreenOnline && (
-              <div className="alert warning controller-offline-warning" role="status">
-                Reconnect this screen before starting, stopping, seeking, or changing cues. LessonCue will not silently queue live commands.
-              </div>
-            )}
-            {selectedScreenOnline && timingLesson && (
-              <div
-                className={`controller-run-summary ${isOverrun ? "overrun" : ""}`}
-              >
-                <div>
-                  <span>REMAINING</span>
-                  <strong>{formatFriendlyDuration(currentRemainingMs)}</strong>
-                </div>
-                <div>
-                  <span>EST. FINISH</span>
-                  <strong>
-                    {estimatedFinish
-                      ? estimatedFinish.toLocaleTimeString([], {
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })
-                      : "—"}
-                  </strong>
-                </div>
-                {isOverrun && (
-                  <p role="alert">
-                    Running past the planned finish. Flexible cues can be
-                    shortened if appropriate.
-                  </p>
-                )}
-              </div>
-            )}
-            {reportedItem?.notes && (
-              <aside className="controller-note">
-                <strong>Current cue notes</strong>
-                <p>{reportedItem.notes}</p>
-              </aside>
-            )}
-            <div className="transport" aria-label="Playback controls">
-              <button
-                onClick={() => command("previous")}
-                aria-label="Previous media"
-                disabled={!selectedScreenOnline}
-              >
-                ‹‹
-              </button>
-              <button
-                className="transport-main"
-                onClick={() =>
-                  command(
-                    selectedScreen?.playbackState === "paused"
-                      ? "resume"
-                      : "pause",
-                  )
-                }
-                aria-label={
-                  selectedScreen?.playbackState === "paused"
-                    ? "Resume"
-                    : "Pause"
-                }
-                disabled={!selectedScreenOnline}
-              >
-                {selectedScreen?.playbackState === "paused" ? "▶" : "Ⅱ"}
-              </button>
-              <button onClick={() => command("next")} aria-label="Next media" disabled={!selectedScreenOnline}>
-                ››
-              </button>
-            </div>
-            <button
-              className="button stop-button"
-              onClick={() => command("stop")}
-              disabled={!selectedScreenOnline}
-            >
-              ■ Stop playback
-            </button>
-            {liveActivityItem?.activityDefinitionId && (
-              <div style={{ marginTop: "1rem" }}>
-                <ActivityController
-                  definitionId={liveActivityItem.activityDefinitionId}
-                  lessonId={timingLesson?.id}
-                  lessonItemId={liveActivityItem.id}
-                  showSessionSetup={showOnTheFlySetup}
-                />
-              </div>
-            )}
-            {!liveActivityItem && showOnTheFlySetup && setupActivityItem?.activityDefinitionId && (
-              <div style={{ marginTop: "1rem" }}>
-                <ActivityController
-                  definitionId={setupActivityItem.activityDefinitionId}
-                  lessonId={lesson?.id}
-                  lessonItemId={setupActivityItem.id}
-                  showSessionSetup
-                />
-              </div>
-            )}
-          </section>
-          {showOnTheFlySetup && <section id="controller-setup-panel" className="panel controller-media">
-            <Field label="Lesson">
-              <select
-                value={lesson?.id || ""}
-                onChange={(e) => {
-                  setLessonId(e.target.value);
-                  setSelectedItemId("");
-                  setMonitorOpen(false);
-                }}
-              >
-                <option value="">Choose a lesson</option>
-                {availableLessons.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {formatDate(item.date)} — {item.title}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            {lesson ? (
-              <>
-                {lesson.substituteNotes && (
-                  <aside className="controller-note substitute">
-                    <strong>Substitute / teacher instructions</strong>
-                    <p>{lesson.substituteNotes}</p>
-                  </aside>
-                )}
-                <button
-                  className="button primary wide controller-play-all"
-                  onClick={() => play()}
-                  disabled={!selectedScreenOnline}
-                >
-                  ▶ Play lesson from the beginning
-                </button>
-                <div className="controller-list">
-                  <span>SELECT MEDIA</span>
-                  {orderedItems.map((item, index) => (
-                    <button
-                      key={item.id}
-                      className={selectedItemId === item.id ? "selected" : ""}
-                      disabled={!selectedScreenOnline}
-                      onClick={() => {
-                        setSelectedItemId(item.id);
-                        setSeekSeconds(0);
-                        play(item.id);
-                      }}
-                    >
-                      <b>{index + 1}</b>
-                      <span>
-                        <strong>
-                          {item.title}
-                          {item.flexibleTime ? " · Flexible" : ""}
-                        </strong>
-                        <small>
-                          {roleName(item.role)} ·{" "}
-                          {formatDuration(cuePlannedDurationMs(item))}
-                        </small>
-                        {item.notes && <em>{item.notes}</em>}
-                      </span>
-                      <i>▶</i>
-                    </button>
-                  ))}
-                </div>
-                {selectedItem && (
-                  <div className="controller-seek">
-                    <label>
-                      <span>Seek within {selectedItem.title}</span>
-                      <strong>{formatDuration(seekSeconds * 1000)}</strong>
-                    </label>
-                    <input
-                      type="range"
-                      min="0"
-                      max={durationSeconds}
-                      value={seekSeconds}
-                      onChange={(e) => setSeekSeconds(Number(e.target.value))}
-                      disabled={!selectedScreenOnline}
-                    />
-                    {cuePoints(selectedItem).length > 0 && (
-                      <div
-                        className="controller-markers"
-                        aria-label="Jump to named cue"
-                      >
-                        <span>JUMP TO CUE</span>
-                        {cuePoints(selectedItem).map((marker, index) => {
-                          const relativeMs = Math.max(
-                            0,
-                            marker.positionMs - selectedItem.startMs,
-                          );
-                          return (
-                            <button
-                              type="button"
-                              key={`${marker.positionMs}-${index}`}
-                              disabled={!selectedScreenOnline}
-                              onClick={() => {
-                                setSeekSeconds(Math.round(relativeMs / 1000));
-                                void command("seek", {
-                                  positionMs: relativeMs,
-                                });
-                              }}
-                            >
-                              <strong>{marker.name}</strong>
-                              <small>{formatDuration(relativeMs)}</small>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                    <button
-                      className="button"
-                      onClick={() =>
-                        command("seek", { positionMs: seekSeconds * 1000 })
-                      }
-                      disabled={!selectedScreenOnline}
-                    >
-                      Go to position
-                    </button>
-                  </div>
-                )}
-                {lesson.preRollMonitorUrl && (
-                  <section className="pre-roll-monitor">
-                    <div>
-                      <span>PRIVATE PRE-ROLL MONITOR</span>
-                      <button
-                        type="button"
-                        className="button"
-                        onClick={() => setMonitorOpen((value) => !value)}
-                      >
-                        {showMonitor ? "Hide monitor" : "Open monitor"}
-                      </button>
-                    </div>
-                    {showMonitor && (
-                      <>
-                        <iframe
-                          title="Pre-roll livestream monitor"
-                          src={
-                            youtubeEmbedUrl(lesson.preRollMonitorUrl) ||
-                            lesson.preRollMonitorUrl
-                          }
-                          allow="autoplay; encrypted-media; picture-in-picture"
-                          referrerPolicy="no-referrer"
-                        />
-                        <a
-                          href={lesson.preRollMonitorUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open monitor in a new tab ↗
-                        </a>
-                      </>
-                    )}
-                  </section>
-                )}
-              </>
-            ) : (
-              <Empty
-                title="No lesson selected"
-                body="Assign a class to this screen or choose a lesson to begin."
-              />
-            )}
-          </section>}
-        </div>
-      </fieldset>
-      <section className="controller-install">
-        <BrandMark />
-        <div>
-          <strong>Save this controller as an app</strong>
-          <p>
-            On iPhone or iPad, use Share → Add to Home Screen. On Android, open
-            the browser menu and choose Install app or Add to Home screen.
-          </p>
-          <small>
-            {temporarySession
-              ? `${requireLocalRoomControllers ? localAddress : location.origin}/session/${sessionToken}`
-              : room
-                ? classControllerUrl(
-                    room,
-                    "",
-                    requireLocalRoomControllers
-                      ? localAddress
-                      : location.origin,
-                  )
-                : `${location.origin}/universalremote`}
-          </small>
-        </div>
-      </section>
-    </div>
+    <CompactRemoteShell
+      room={room || undefined}
+      liveScreens={liveScreens}
+      screenId={screenId}
+      onScreenChange={(value) => {
+        setScreenId(value);
+        setLessonId("");
+        setSelectedItemId("");
+        setCommandReceipt(undefined);
+      }}
+      selectedScreen={selectedScreen}
+      selectedScreenOnline={selectedScreenOnline}
+      controllerState={controllerState}
+      controllerStateLabel={controllerStateLabel}
+      playbackTitle={playbackTitle}
+      playbackDurationMs={playbackDurationMs}
+      playbackPositionMs={playbackPositionMs}
+      progress={progress}
+      reportedItem={reportedItem}
+      timingLesson={timingLesson}
+      lesson={lesson}
+      availableLessons={availableLessons}
+      lessonId={lessonId}
+      setLessonId={setLessonId}
+      orderedItems={orderedItems}
+      selectedItemId={selectedItemId}
+      setSelectedItemId={setSelectedItemId}
+      selectedItem={selectedItem}
+      seekSeconds={seekSeconds}
+      setSeekSeconds={setSeekSeconds}
+      durationSeconds={durationSeconds}
+      play={play}
+      command={command}
+      commandStatus={commandStatus}
+      controlsLocked={controlsLocked}
+      setControlsLocked={setControlsLocked}
+      focusMode={focusMode}
+      setFocusMode={setFocusMode}
+      showOnTheFlySetup={showOnTheFlySetup}
+      setShowOnTheFlySetup={setShowOnTheFlySetup}
+      liveActivityItem={liveActivityItem}
+      setupActivityItem={setupActivityItem}
+      setMonitorOpen={setMonitorOpen}
+      showMonitor={showMonitor}
+    />
   );
 }
