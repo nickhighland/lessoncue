@@ -1,4 +1,5 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { signInAsAdmin } from "./support/adminSession";
 
 // The participant "game juice" layer: tactile button feedback, idle motion,
 // the shared last-five-seconds panic state, and the sampled-audio path with
@@ -7,34 +8,7 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
 test.use({ serviceWorkers: "block" });
 
-const password = "LessonCueTest42";
-let adminCookies: Parameters<BrowserContext["addCookies"]>[0] = [];
-
-async function authenticate(page: Page) {
-  if (adminCookies.length > 0) {
-    await page.context().addCookies(adminCookies);
-    await page.goto("/");
-    await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)\./ })).toBeVisible();
-    return;
-  }
-  await page.goto("/");
-  const setup = page.getByRole("heading", { name: "Create your Service Admin" });
-  const signIn = page.getByRole("heading", { name: "Sign in to LessonCue" });
-  await expect(setup.or(signIn)).toBeVisible();
-  if (await setup.isVisible()) {
-    await page.getByLabel("Organization name").fill("Activity Juice Test");
-    await page.getByLabel("Your name").fill("Activity Administrator");
-    await page.getByLabel("Username").fill("browser-admin");
-    await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: "Finish setup" }).click();
-  } else {
-    await page.getByLabel("Username").fill("browser-admin");
-    await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: "Sign in" }).click();
-  }
-  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)\./ })).toBeVisible();
-  adminCookies = await page.context().cookies();
-}
+const authenticate = (page: Page) => signInAsAdmin(page, "Activity Juice Test");
 
 /**
  * Word Storm round. A 20s timer leaves a comfortable window on both sides of
@@ -121,7 +95,7 @@ function wavBytes(seconds: number, sampleRate = 8000) {
   return buffer;
 }
 
-test("the lobby preloads the documented audio paths and still plays with an empty sound pack", async ({ page, context }) => {
+test("the lobby preloads exactly the documented cue paths for an installed pack", async ({ page, context }) => {
   await authenticate(page);
   const definitionId = await createWordActivity(page, "Juice Preload Check", 45);
   const run = await launch(page, definitionId);
@@ -134,19 +108,37 @@ test("the lobby preloads the documented audio paths and still plays with an empt
   });
 
   try {
+    // Declare a full pack for the Word engine. The client must then request
+    // precisely the documented filenames — this is the contract a sound
+    // designer authors against.
+    await participant.route("**/assets/games/manifest.json", route => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ version: 1, packs: { word: [
+        "sfx/ui-btn-hover.mp3", "sfx/ui-btn-select.mp3", "sfx/ui-btn-lock-in.mp3",
+        "sfx/game-timer-tick.mp3", "sfx/game-timer-alarm.mp3", "sfx/fx-confetti-pop.mp3",
+        "themes/intro-theme.mp3", "themes/game-intro.mp3",
+        "themes/round-transition.mp3", "themes/game-outro.mp3",
+      ] } }),
+    }));
+
     await participant.goto(`/play/${run.joinCode}`);
     // Preload starts as soon as the lobby resolves, before the player joins.
-    await expect.poll(() => requested.length, { timeout: 15_000 }).toBeGreaterThan(0);
-    await expect.poll(() => [...requested].sort()).toEqual(expect.arrayContaining([
+    await expect.poll(() => [...requested].sort(), { timeout: 15_000 }).toEqual(expect.arrayContaining([
       "/assets/games/word/audio/sfx/fx-confetti-pop.mp3",
       "/assets/games/word/audio/sfx/game-timer-alarm.mp3",
       "/assets/games/word/audio/sfx/game-timer-tick.mp3",
       "/assets/games/word/audio/sfx/ui-btn-hover.mp3",
       "/assets/games/word/audio/sfx/ui-btn-lock-in.mp3",
       "/assets/games/word/audio/sfx/ui-btn-select.mp3",
+      "/assets/games/word/audio/themes/game-intro.mp3",
+      "/assets/games/word/audio/themes/game-outro.mp3",
+      "/assets/games/word/audio/themes/intro-theme.mp3",
+      "/assets/games/word/audio/themes/round-transition.mp3",
     ]));
 
-    // Every one of those 404s in a stock install. The game must be unaffected.
+    // Every one of those 404s here — the pack is declared but not installed.
+    // The game must be completely unaffected.
     await joinAs(participant, run.joinCode, "Preloader");
     await expect(participant.locator(".participant-waiting")).toBeVisible();
   } finally {
@@ -271,6 +263,11 @@ test("repeated taps vary the sampled pitch instead of sounding identical", async
     // Serve a real sample so the decoded-buffer path — not the synthesized
     // fallback — is the one under test. 0.25s is distinct from every
     // synthesized buffer, so the spy can isolate it.
+    await participant.route("**/assets/games/manifest.json", route => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ version: 1, packs: { word: ["sfx/ui-btn-select.mp3"] } }),
+    }));
     await participant.route("**/assets/games/**/sfx/ui-btn-select.mp3", route => route.fulfill({
       status: 200,
       contentType: "audio/wav",
@@ -374,6 +371,11 @@ test("the display owns the music bed so phones stay effects-only", async ({ page
   });
 
   try {
+    await display.route("**/assets/games/manifest.json", route => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ version: 1, packs: { ordering: ["themes/intro-theme.mp3"] } }),
+    }));
     await display.route("**/api/v1/activity-runs/juice-theme-test", route => route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -401,6 +403,14 @@ test("the stage plays a lobby bed, an opening sting, and a closing sting", async
     // Serve real audio so the theme cues actually resolve. Preload probes every
     // theme URL up front, so fetches prove nothing about ordering — playback
     // attempts do, which is what this spy records.
+    await display.route("**/assets/games/manifest.json", route => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ version: 1, packs: { word: [
+        "themes/intro-theme.mp3", "themes/game-intro.mp3",
+        "themes/round-transition.mp3", "themes/game-outro.mp3",
+      ] } }),
+    }));
     await display.route("**/assets/games/**/themes/*.mp3", route => route.fulfill({
       status: 200,
       contentType: "audio/wav",
@@ -449,6 +459,33 @@ test("the stage plays a lobby bed, an opening sting, and a closing sting", async
   }
 });
 
+test("a stock install requests no audio at all", async ({ page, context }) => {
+  await authenticate(page);
+  const definitionId = await createWordActivity(page, "Juice Silence Check", 45);
+  const run = await launch(page, definitionId);
+
+  const participant = await context.newPage();
+  const requested: string[] = [];
+  participant.on("request", request => {
+    const path = new URL(request.url()).pathname;
+    if (path.startsWith("/assets/games/")) requested.push(path);
+  });
+
+  try {
+    await joinAs(participant, run.joinCode, "Quiet");
+    await participant.waitForTimeout(1500);
+
+    // The manifest ships empty, so the client must not probe any cue. Probing
+    // logs a console 404 per cue per folder and buries real errors.
+    const manifest = requested.filter(path => path.endsWith("manifest.json"));
+    const cues = requested.filter(path => path.endsWith(".mp3"));
+    expect(manifest.length, "manifest should be fetched once").toBeGreaterThan(0);
+    expect(cues, "no cue should be requested when no pack is installed").toEqual([]);
+  } finally {
+    await participant.close();
+  }
+});
+
 test("a missing preset pack falls through to its engine and then to shared", async ({ page, context }) => {
   await authenticate(page);
   const definitionId = await createWordActivity(page, "Juice Cascade Check", 45);
@@ -462,16 +499,26 @@ test("a missing preset pack falls through to its engine and then to shared", asy
   });
 
   try {
+    // Pretend both the engine and shared packs ship this cue. The engine entry
+    // must win; shared is only the fallback.
+    await participant.route("**/assets/games/manifest.json", route => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ version: 1, packs: {
+        word: ["sfx/ui-btn-select.mp3"],
+        shared: ["sfx/ui-btn-select.mp3"],
+      } }),
+    }));
+    await participant.route("**/assets/games/word/audio/sfx/ui-btn-select.mp3", route =>
+      route.fulfill({ status: 200, contentType: "audio/wav", body: wavBytes(0.25) }));
+
     await participant.goto(`/play/${run.joinCode}`);
     // The definition carries no preset, so the cascade is engine then shared.
     await expect.poll(() => requested, { timeout: 15_000 })
       .toContain("/assets/games/word/audio/sfx/ui-btn-select.mp3");
-    await expect.poll(() => requested, { timeout: 15_000 })
-      .toContain("/assets/games/shared/audio/sfx/ui-btn-select.mp3");
 
-    // Engine is tried before shared, never the other way round.
-    expect(requested.indexOf("/assets/games/word/audio/sfx/ui-btn-select.mp3"))
-      .toBeLessThan(requested.indexOf("/assets/games/shared/audio/sfx/ui-btn-select.mp3"));
+    // The engine pack satisfied the cue, so shared is never reached.
+    expect(requested).not.toContain("/assets/games/shared/audio/sfx/ui-btn-select.mp3");
 
     await joinAs(participant, run.joinCode, "Cascader");
     await expect(participant.locator(".participant-waiting")).toBeVisible();

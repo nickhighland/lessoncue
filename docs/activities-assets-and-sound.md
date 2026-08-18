@@ -69,6 +69,13 @@ Rules for this tree:
   mute and volume controls stay authoritative over sampled and synthesized
   cues alike.
 
+`web-admin/public/assets/games/manifest.json` records which cue files exist.
+Regenerate it with `npm run audio:manifest` after adding or removing any
+`.mp3`. Without it the client must discover packs by requesting each cue and
+treating 404 as absent, which logs 20-30 console errors per game load; with it,
+a stock install requests nothing. A missing manifest falls back to probing, so
+forgetting the step degrades noise rather than function.
+
 `web-admin/public/assets/games/README.txt` repeats this next to the files.
 
 ## Teacher-provided media

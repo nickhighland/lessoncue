@@ -12,6 +12,7 @@
     "build:admin": "vite build --config web-admin/vite.config.ts",
     "typecheck:admin": "tsc -p web-admin/tsconfig.json",
     "test": "npm run typecheck:admin && npm run build:admin",
+    "audio:manifest": "node scripts/build-audio-manifest.mjs",
     "test:protocol": "node scripts/validate-protocol-contract.mjs",
     "test:e2e": "playwright test",
     "test:a11y": "playwright test tests/browser/zz-accessibility.spec.ts",

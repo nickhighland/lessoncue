@@ -66,6 +66,22 @@ sfx/ — played on participant phones and host controls.
   fx-confetti-pop.mp3   celebration burst
 
 
+MANIFEST
+--------
+
+manifest.json records which cue files actually exist. Without it the client can
+only discover packs by requesting every cue and treating 404 as "absent" —
+correct, but it logs 20-30 console errors on every game load and buries real
+ones. With it, a stock install requests nothing.
+
+After adding or removing any .mp3 here, regenerate it:
+
+  npm run audio:manifest
+
+If manifest.json is missing entirely, the client falls back to probing, so a
+deployment that forgets this step still works — it is just noisier.
+
+
 LOADING
 -------
 

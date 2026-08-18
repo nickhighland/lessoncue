@@ -18,7 +18,8 @@ namespace LessonCue.Server.Activities;
 public sealed class ActivitySessionService(
     LessonCueDb db,
     IHubContext<ActivityHub> hub,
-    IActivityRandomSource random)
+    IActivityRandomSource random,
+    ActivityJoinAddressService joinAddress)
 {
     private const string CodeAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> Locks = new();
@@ -3586,6 +3587,10 @@ public sealed class ActivitySessionService(
     {
         var projected = ParseObject(Serialize(state));
         projected["joinCode"] = run.JoinCode;
+        // A phone cannot use a relative path, and the display's own origin is
+        // whatever the TV connected to. The teacher-selected address is the one
+        // the room should see and scan.
+        projected["joinUrl"] = joinAddress.ResolveJoinUrl(run.JoinCode);
         projected["participantCount"] = await db.ActivityParticipants.CountAsync(x => x.ActivityRunId == run.Id && x.Status != "removed", ct);
         var phase = StringValue(state, "phase");
         if (phase is ActivityPhases.Leaderboard or ActivityPhases.FinalResults or ActivityPhases.Complete)

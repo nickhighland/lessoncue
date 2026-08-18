@@ -4,6 +4,7 @@ using LessonCue.Server.Activities;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace LessonCue.Server.Tests;
@@ -41,6 +42,21 @@ public sealed class ActivitySessionServiceTests
         public Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
+    /// <summary>Join-address resolution with no tunnel and no mDNS name configured.</summary>
+    private static ActivityJoinAddressService CreateJoinAddress(string dataPath)
+    {
+        var httpPort = new HttpPortService(dataPath, 80, NullLogger<HttpPortService>.Instance);
+        var localAddress = new LocalAddressService(dataPath, 80, NullLogger<LocalAddressService>.Instance);
+        var tunnel = new CloudflareTunnelService(dataPath, httpPort, new TestHttpClientFactory(),
+            NullLogger<CloudflareTunnelService>.Instance);
+        return new ActivityJoinAddressService(dataPath, localAddress, tunnel);
+    }
+
+    private sealed class TestHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new();
+    }
+
     private static async Task<(LessonCueDb Db, ActivityService Activities, ActivitySessionService Sessions, SqliteConnection Connection)> CreateAsync()
     {
         var connection = new SqliteConnection("Data Source=:memory:");
@@ -49,7 +65,10 @@ public sealed class ActivitySessionServiceTests
         var db = new LessonCueDb(options);
         await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var activities = new ActivityService(db, new DeterministicRandomSource(12), new NullHubContext());
-        var sessions = new ActivitySessionService(db, new NullHubContext(), new DeterministicRandomSource(12));
+        var dataPath = Path.Combine(Path.GetTempPath(), $"lessoncue-session-tests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dataPath);
+        var sessions = new ActivitySessionService(db, new NullHubContext(), new DeterministicRandomSource(12),
+            CreateJoinAddress(dataPath));
         return (db, activities, sessions, connection);
     }
 

@@ -331,3 +331,88 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
     background: radial-gradient(circle at 50% 0, var(--lc-panic-edge), var(--lc-panic-core) 55%, var(--lc-panic-deep));
   }
 }
+
+/* ------------------------------------------------------- join + QR ------ */
+
+.activity-qr {
+  display: block;
+  border-radius: 10px;
+  background: #fff;
+  /* A projected code is scanned at an angle and often glared out, so keep a
+     white quiet zone around it rather than bleeding into the stage. */
+  padding: 4px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+  image-rendering: pixelated;
+}
+
+.activity-qr-pending {
+  background: rgba(255, 255, 255, .14);
+  box-shadow: none;
+}
+
+.interactive-join-banner .activity-qr { padding: 3px; border-radius: 7px; }
+
+.activity-join-prominent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 1.4rem 2.4rem;
+  margin: 0 auto;
+  padding: 1.4rem 2rem;
+  border: 1px solid var(--act-stage-accent-soft, rgba(255, 255, 255, .2));
+  border-radius: 26px;
+  background: rgba(0, 0, 0, .3);
+}
+
+.activity-join-prominent-copy { text-align: left; }
+
+.activity-join-prominent-copy > span {
+  display: block;
+  color: var(--act-stage-accent, #f7bf4e);
+  font-size: clamp(.7rem, 1.1vw, .9rem);
+  font-weight: 900;
+  letter-spacing: .18em;
+}
+
+.activity-join-address {
+  display: block;
+  margin: .35rem 0 .1rem;
+  color: var(--act-stage-text, #fff);
+  font-size: clamp(1.1rem, 2.2vw, 2rem);
+  font-weight: 800;
+  letter-spacing: -.01em;
+  overflow-wrap: anywhere;
+}
+
+.activity-join-code {
+  /* The code is read aloud and typed by hand, so it is the largest thing on
+     the lobby screen after the game title. */
+  margin-top: .2rem;
+  color: var(--act-stage-accent, #f7bf4e);
+  font-size: clamp(2.6rem, 7vw, 5.5rem);
+  font-weight: 950;
+  line-height: 1;
+  letter-spacing: .12em;
+}
+
+.activity-join-prominent-copy > small {
+  display: block;
+  margin-top: .5rem;
+  color: rgba(255, 255, 255, .66);
+  font-size: clamp(.8rem, 1.2vw, 1rem);
+}
+
+.activity-join-prominent-qr { display: grid; justify-items: center; gap: .5rem; }
+
+.activity-join-prominent-qr > span {
+  color: rgba(255, 255, 255, .7);
+  font-size: .68rem;
+  font-weight: 900;
+  letter-spacing: .16em;
+}
+
+@media (max-width: 640px) {
+  .activity-join-prominent { gap: 1rem; padding: 1rem; }
+  .activity-join-prominent-copy { text-align: center; }
+}

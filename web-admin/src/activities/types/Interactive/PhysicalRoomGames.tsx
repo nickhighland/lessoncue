@@ -4,6 +4,7 @@ import type { ActivityStateEnvelope } from '../../types';
 import { ActivityApi } from '../../api';
 import { ActivityCountdown, ActivityRevealCurtain, useActivityCountdown } from '../../ActivityMotion';
 import { ActivityLeaderboard } from '../../ActivityLeaderboard';
+import { ActivityJoinBanner } from '../../ActivityJoin';
 
 type JsonRecord = Record<string, unknown>;
 const stateOf = (envelope: ActivityStateEnvelope) => (envelope.state || {}) as JsonRecord;
@@ -45,7 +46,7 @@ const PHYSICAL_PRESETS: Record<string, { label: string; title: string; instructi
   adventure: { label: 'Adventure', title: 'Animal Adventure', instructions: 'Your animal team reaches a fork in the trail. Choose the next move.', choices: ['Follow the pawprints', 'Climb the lookout'], seconds: 30, revealText: 'The trail opens…', adventure: true, rounds: [{ id: 'node-1', title: 'The Moonlit Trail', instructions: 'Your animal team reaches a fork in the trail. Choose the next move.', choices: ['Follow the pawprints', 'Climb the lookout'], seconds: 30, revealText: 'The trail opens…', branches: { '0': 1, '1': 2 } }, { id: 'node-2', title: 'The Hidden Waterfall', instructions: 'The pawprints lead to a waterfall. What will the team do?', choices: ['Search behind the falls', 'Build a bridge'], seconds: 30, revealText: 'You discover a glowing animal badge.', branches: { '0': 3, '1': 3 } }, { id: 'node-3', title: 'The High Lookout', instructions: 'From the lookout, the team spots two routes across the valley.', choices: ['Call the flock', 'Take the sunny path'], seconds: 30, revealText: 'A friendly guide appears.', branches: { '0': 3, '1': 3 } }, { id: 'node-4', title: 'The Safari Celebration', instructions: 'You made it! Tell the room which animal helped your team most.', choices: [], seconds: 15, revealText: 'The adventure is complete. Give the winning team a roar!' }] }
 };
 
-const PhysicalShell: React.FC<{ title: string; kicker?: string; phase: unknown; children: React.ReactNode; joinCode?: unknown; participantCount?: unknown }> = ({ title, kicker = '🧭 PHYSICAL ROOM', phase, children, joinCode, participantCount }) => (
+const PhysicalShell: React.FC<{ title: string; kicker?: string; phase: unknown; children: React.ReactNode; joinCode?: unknown; joinUrl?: unknown; participantCount?: unknown }> = ({ title, kicker = '🧭 PHYSICAL ROOM', phase, children, joinCode, joinUrl, participantCount }) => (
   <div className="activity-stage interactive-game-stage physical-room-stage">
     <div className="activity-stage-content">
       <div className="activity-header">
@@ -53,6 +54,8 @@ const PhysicalShell: React.FC<{ title: string; kicker?: string; phase: unknown; 
         <h1 className="activity-title">{title}</h1>
       </div>
       <div className="physical-room-badge"><strong>NO PHONES REQUIRED</strong><span>{joinCode ? `${participantCount ?? 0} optional phone participants` : 'The host leads this round from the controller.'}</span></div>
+      {/* Phones are optional here, so the join details stay secondary. */}
+      <ActivityJoinBanner joinCode={joinCode} joinUrl={joinUrl} participantCount={participantCount} />
       {children}
     </div>
   </div>
@@ -75,7 +78,7 @@ export const PhysicalRoomDisplay: React.FC<ActivityComponentProps> = ({ envelope
   const revealPacing = stringOf(config.revealPacing, stringOf(presentation.revealPacing, 'dramatic'));
   const mediaUrl = stringOf(round?.mediaUrl, stringOf(round?.mediaId));
   const mediaIsVideo = /\.(mp4|webm|mov)(\?|$)/i.test(mediaUrl);
-  return <PhysicalShell title={stringOf(config.title, envelope.name || 'Physical Room')} kicker={`🧭 ${stringOf(config.presetLabel, 'PHYSICAL ROOM')}`} phase={state.phase} joinCode={state.joinCode} participantCount={state.participantCount}>
+  return <PhysicalShell title={stringOf(config.title, envelope.name || 'Physical Room')} kicker={`🧭 ${stringOf(config.presetLabel, 'PHYSICAL ROOM')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount}>
     <section className={`physical-room-prompt ${isAdventure ? 'adventure-prompt' : ''} adventure-node-${nodeType}`}>
       <span className="interactive-round-label">{isAdventure ? `CHAPTER ${numberOf(state.currentRoundIndex, 0) + 1} OF ${numberOf(state.roundCount, 1)}` : `ROUND ${numberOf(state.currentRoundIndex, 0) + 1} OF ${numberOf(state.roundCount, 1)}`}</span>
       {isAdventure && <span className="adventure-node-type">{nodeTypeLabel}</span>}

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import type { ActivityStateEnvelope } from '../../types';
 import { playChimeSound, playFanfareSound, launchConfetti } from '../../effects';
+import { ActivityJoinBanner } from '../../ActivityJoin';
 
 interface TriviaQuestion {
   id: string;
@@ -22,6 +23,8 @@ interface TriviaState {
   phase?: string;
   currentQuestionIndex?: number;
   joinCode?: string;
+  /** Absolute, teacher-selected address a phone can open. */
+  joinUrl?: string;
   participantCount?: number;
   responsesOpen?: boolean;
   answerRevealed?: boolean;
@@ -83,12 +86,7 @@ export const TriviaDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ e
           <div className="activity-subtitle">Choose your answer · the host controls the reveal</div>
         </div>
 
-        {state.joinCode && <div className="interactive-join-banner" aria-label="Join this activity on a phone">
-          <span>JOIN THE GAME</span>
-          <strong>/play/{state.joinCode}</strong>
-          <b>CODE {state.joinCode}</b>
-          <small>{state.participantCount || 0} joined</small>
-        </div>}
+        <ActivityJoinBanner joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount} />
 
         {/* Question Prompt Card */}
         <div className="trivia-question-card">

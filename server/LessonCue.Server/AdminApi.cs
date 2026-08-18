@@ -3243,6 +3243,14 @@ public static class AdminApi
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
+        settings.MapGet("/activity-join-address",
+            (ActivityJoinAddressService joinAddress) => Results.Ok(joinAddress.Status));
+
+        settings.MapPut("/activity-join-address", async (
+            JoinAddressInput input,
+            ActivityJoinAddressService joinAddress,
+            CancellationToken ct) => Results.Ok(await joinAddress.SetAsync(input.Mode, ct)));
+
         settings.MapGet("/cloudflare-tunnel", (CloudflareTunnelService tunnel) => Results.Ok(tunnel.Status));
 
         settings.MapPut("/cloudflare-tunnel", async (CloudflareTunnelInput input, CloudflareTunnelService tunnel,
