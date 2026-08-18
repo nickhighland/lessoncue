@@ -37,6 +37,9 @@ export const useActivityCountdown = ({ durationMs = 0, startedAt, pausedAt, runn
   return Math.max(0, durationMs - (endMs - startedMs));
 };
 
+/** Seconds at or below which the clock enters the shared panic treatment. */
+export const ACTIVITY_PANIC_SECONDS = 5;
+
 export const ActivityCountdown: React.FC<{
   remainingMs: number;
   durationMs?: number;
@@ -48,7 +51,14 @@ export const ActivityCountdown: React.FC<{
   const minutes = Math.floor(seconds / 60);
   const progress = durationMs > 0 ? Math.min(100, Math.max(0, remainingMs / durationMs * 100)) : 0;
   const urgent = seconds <= urgentAtSeconds;
-  return <section className={`activity-motion-countdown ${urgent ? 'urgent' : ''} ${compact ? 'compact' : ''}`} aria-live="polite">
+  // `urgent` is caller-tunable; panic is the fixed last-five-seconds state the
+  // shared presentation layer keys its colour and pulse off.
+  const panic = seconds > 0 && seconds <= ACTIVITY_PANIC_SECONDS;
+  return <section
+    className={`activity-motion-countdown ${urgent ? 'urgent' : ''} ${panic ? 'panic' : ''} ${compact ? 'compact' : ''}`}
+    data-panic={panic ? 'true' : 'false'}
+    aria-live="polite"
+  >
     <span>{urgent && seconds > 0 ? 'HURRY' : label}</span>
     <strong>{minutes}:{String(seconds % 60).padStart(2, '0')}</strong>
     {durationMs > 0 && <div className="activity-motion-countdown-track" aria-hidden="true"><i style={{ width: `${progress}%` }} /></div>}

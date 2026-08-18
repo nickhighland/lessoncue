@@ -4,6 +4,32 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.48 — Activity game audio and visual polish
+
+### User changes
+
+- Gave Activity stages and participant phones distinct, coordinated colour
+  identities for each game family and named preset.
+- Added tactile phone feedback, gently animated waiting states, stronger
+  countdown urgency, and large touch targets while preserving reduced-motion
+  accessibility behavior.
+- Added shared Activity sound effects with synthesized fallbacks, optional
+  licensed sound-pack support, and display-only lobby/round/start/end themes.
+  Phones never create a room-wide music chorus.
+- Preserved teacher-customized themes instead of replacing them with generated
+  game palettes.
+
+### Developer changes
+
+- Added shared palette resolution, contrast-aware accent text, Activity juice,
+  audio preloading, preset-to-engine-to-shared sound lookup, and TV-only theme
+  playback without changing server authority or participant projections.
+- Added browser regression coverage for palettes, touch feedback, timer panic
+  state, audio fallback/cascade, display ownership, theme transitions, and
+  reduced motion.
+- Added the documented optional sound-pack asset tree without bundling
+  third-party audio.
+
 ## v0.40.47 — Google TV Activity display polish and reliability
 
 ### User changes

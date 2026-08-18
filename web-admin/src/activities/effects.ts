@@ -28,6 +28,24 @@ function getMasterGain(ctx: AudioContext): GainNode {
   return masterGain;
 }
 
+/**
+ * Shared game AudioContext. Mobile browsers cap how many contexts a page may
+ * open, so every Activity sound path — synthesized cues here and decoded
+ * sample playback in `audio/gameAudio.ts` — must route through this one.
+ */
+export function getSharedAudioContext(): AudioContext | null {
+  return getAudioContext();
+}
+
+/**
+ * Master gain for the shared context. Routing sample playback here keeps the
+ * existing host mute/volume controls authoritative over every game sound.
+ */
+export function getSharedAudioDestination(): GainNode | null {
+  const ctx = getAudioContext();
+  return ctx ? getMasterGain(ctx) : null;
+}
+
 export function isAudioMuted(): boolean {
   return soundMuted;
 }
@@ -196,6 +214,49 @@ export function playPopSound(up = true): void {
 
     osc.start();
     osc.stop(ctx.currentTime + 0.09);
+  } catch (err) { void err; }
+}
+
+// 5b. Thud / Heavy Lock-In (for final submissions)
+export function playThudSound(): void {
+  if (soundMuted) return;
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    // Low sine drop gives the weight; a short filtered noise burst gives the
+    // mechanical "click" edge so the cue reads as a physical switch throw.
+    const osc = ctx.createOscillator();
+    const oscGain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(180, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(48, ctx.currentTime + 0.14);
+    oscGain.gain.setValueAtTime(0.32, ctx.currentTime);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+    osc.connect(oscGain);
+    oscGain.connect(getMasterGain(ctx));
+    osc.start();
+    osc.stop(ctx.currentTime + 0.2);
+
+    const clickLength = Math.floor(ctx.sampleRate * 0.03);
+    const buffer = ctx.createBuffer(1, clickLength, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < clickLength; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / clickLength);
+    }
+    const click = ctx.createBufferSource();
+    click.buffer = buffer;
+    const clickFilter = ctx.createBiquadFilter();
+    clickFilter.type = 'lowpass';
+    clickFilter.frequency.setValueAtTime(2200, ctx.currentTime);
+    const clickGain = ctx.createGain();
+    clickGain.gain.setValueAtTime(0.18, ctx.currentTime);
+    clickGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+    click.connect(clickFilter);
+    clickFilter.connect(clickGain);
+    clickGain.connect(getMasterGain(ctx));
+    click.start();
+    click.stop(ctx.currentTime + 0.06);
   } catch (err) { void err; }
 }
 

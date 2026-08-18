@@ -1,0 +1,35 @@
+game-timer-tick.mp3 — Creative Response (Punchline)
+===================================================
+
+ROLE
+  Countdown tick.
+
+REPLACE THIS FILE
+  Delete this .txt and drop in "game-timer-tick.mp3" in the same folder. The name must
+  match exactly. Nothing else needs to change — no code, no config.
+
+WHEN IT PLAYS
+  Plays once per second on the participant phone during the last five seconds
+  of an open response window, alongside the panic colour shift.
+
+  Not pitch-randomized: the steady pulse is the point.
+
+SUGGESTED CHARACTER
+  comedy-club warmth: loose, playful, a little cabaret.
+
+SPEC
+  ≤100 ms, dry, consistent — it will be heard five times in a row.
+
+PITCH
+  Played at its authored pitch.
+
+IF THIS FILE IS ABSENT
+  Lookup cascades preset → engine → shared. If this file is absent,
+  LessonCue tries assets/games/shared/audio/sfx/game-timer-tick.mp3, and if that is
+  also absent, LessonCue plays its original synthesized cue from
+  web-admin/src/activities/effects.ts. That is the shipped default.
+
+LICENSING
+  Any audio committed here is a bundled asset and needs a source note, a
+  licence/permission record, and an attribution entry before release. See
+  docs/activities-assets-and-sound.md.

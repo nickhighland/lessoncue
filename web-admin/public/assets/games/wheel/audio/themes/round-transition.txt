@@ -1,0 +1,31 @@
+round-transition.mp3 — Wheel
+============================
+
+ROLE
+  One-shot round change.
+
+REPLACE THIS FILE
+  Delete this .txt and drop in "round-transition.mp3" in the same folder. The name must
+  match exactly. Nothing else needs to change — no code, no config.
+
+WHEN IT PLAYS
+  Fires once, on the TV/projector, when the game enters a round-intro phase.
+  Marks the seam between rounds so the room knows to look up again.
+
+SUGGESTED CHARACTER
+  carnival midway: ratchets, bells, spinning weight.
+
+SPEC
+  1–3 s, one-shot, should not upstage the opening sting.
+
+IF THIS FILE IS ABSENT
+  Lookup cascades preset → engine → shared. If this file is absent,
+  LessonCue tries assets/games/shared/audio/themes/round-transition.mp3, and if that is
+  also absent, no music plays for this cue. LessonCue synthesizes effects but not
+  music, so an absent bed or sting simply means silence. That is the shipped
+  default and is not an error.
+
+LICENSING
+  Any audio committed here is a bundled asset and needs a source note, a
+  licence/permission record, and an attribution entry before release. See
+  docs/activities-assets-and-sound.md.

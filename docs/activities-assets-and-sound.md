@@ -18,6 +18,59 @@ music, logos, or exact visual trade dress from another product.
   as seed content. Presets should contain small, generic examples that teachers
   can replace or delete.
 
+## Optional sampled sound packs
+
+Bundled cues stay synthesized. A deployment may *additionally* supply licensed
+samples under `web-admin/public/assets/games/`, which is scaffolded with `.txt`
+placeholders documenting every filename. To use a cue, delete the `.txt` and
+drop in an `.mp3` of the same base name; no code or configuration changes.
+
+```
+assets/games/{gameId}/audio/themes/intro-theme.mp3        looping lobby bed
+assets/games/{gameId}/audio/themes/game-intro.mp3         one-shot, game starts
+assets/games/{gameId}/audio/themes/round-transition.mp3   one-shot, round intro
+assets/games/{gameId}/audio/themes/game-outro.mp3         one-shot, game ends
+assets/games/{gameId}/audio/sfx/ui-btn-hover.mp3          pointer hover
+assets/games/{gameId}/audio/sfx/ui-btn-select.mp3         every tap
+assets/games/{gameId}/audio/sfx/ui-btn-lock-in.mp3        committing a response
+assets/games/{gameId}/audio/sfx/game-timer-tick.mp3       final five seconds
+assets/games/{gameId}/audio/sfx/game-timer-alarm.mp3      window closes
+assets/games/{gameId}/audio/sfx/fx-confetti-pop.mp3       celebration
+```
+
+Lookup cascades **preset → engine → shared**, per cue:
+
+1. the named preset, for example `assets/games/wagerTrivia/`
+2. the engine behind it, for example `assets/games/trivia/`
+3. `assets/games/shared/`
+4. otherwise the synthesized effect — or, for a theme, silence
+
+Only the 28 engine folders and `shared` are scaffolded, because that covers all
+164 named games in the catalog. A single preset can override one cue by adding
+its own folder with just that file; everything omitted keeps falling through.
+
+Theme cues play on the TV/projector only. Player phones stay effects-only —
+thirty phones playing the same music bed is a bad room.
+
+Rules for this tree:
+
+- **It contains no audio in the shipped repository, and that is the supported
+  default.** Every effect has an original synthesized fallback in `effects.ts`,
+  so a missing file changes the sound and nothing else — never a silent
+  control, an error, or a blocked interaction. A missing *theme* means that bed
+  or sting does not play.
+- Adding any audio file here is adding a bundled asset, so it needs the source
+  note, license/permission record, and attribution entry required above before
+  release.
+- `ui-btn-select.mp3` is pitch-randomized 0.85x–1.15x on every press, so author
+  one dry take and let the randomizer supply the variation. Effects are decoded
+  into memory when a player reaches the lobby; keep them short.
+- Playback routes through the one shared `AudioContext`, so the existing host
+  mute and volume controls stay authoritative over sampled and synthesized
+  cues alike.
+
+`web-admin/public/assets/games/README.txt` repeats this next to the files.
+
 ## Teacher-provided media
 
 Teachers remain responsible for having permission to use media they upload or

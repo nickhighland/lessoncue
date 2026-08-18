@@ -1,7 +1,10 @@
-import React, { CSSProperties, useEffect, useState } from 'react';
-import type { ActivityStateEnvelope, ActivityTheme } from './types';
+import React, { useEffect, useRef, useState } from 'react';
+import type { ActivityStateEnvelope } from './types';
 import { ActivityApi, activityHub } from './api';
 import { getActivityDescriptor } from './activityRegistry';
+import { activityThemeVariables, resolveActivityTheme } from './activityPalettes';
+import { playGameTheme, resolveGameAudioChain, stopGameTheme } from './audio/gameAudio';
+import { useAudioPreloader } from './audio/useAudioPreloader';
 import './activity.css';
 
 export interface ActivityDisplayProps {
@@ -23,6 +26,40 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
   const [envelope, setEnvelope] = useState<ActivityStateEnvelope | null>(initialEnvelope || null);
   const [loading, setLoading] = useState(!initialEnvelope);
   const [error, setError] = useState<string | null>(null);
+
+  // Music beds belong on the room's shared speaker, not on every phone, so the
+  // display owns theme playback while phones stay effects-only. Both surfaces
+  // preload the same pack.
+  const audioChain = resolveGameAudioChain(envelope);
+  const audioChainKey = audioChain.join('>');
+  useAudioPreloader(audioChain, Boolean(envelope));
+  const phase = typeof envelope?.state?.phase === 'string' ? envelope.state.phase : '';
+  const inLobby = phase === 'lobby' || phase === 'setup';
+  const finished = phase === 'finalResults' || phase === 'complete'
+    || envelope?.status === 'ended' || envelope?.status === 'completed';
+  const previousPhase = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!envelope) return;
+    const chain = audioChainKey.split('>');
+    const previous = previousPhase.current;
+    previousPhase.current = phase;
+
+    // Leaving the lobby for any phase is the start of play. Engines that skip
+    // the optional `intro` phase still get their opening sting this way.
+    const starting = previous !== null && (previous === 'lobby' || previous === 'setup') && !inLobby;
+
+    if (inLobby) playGameTheme('lobby', { chain });
+    else if (finished) playGameTheme('gameOutro', { chain });
+    else if (starting) playGameTheme('gameIntro', { chain });
+    else if (phase === 'roundIntro') playGameTheme('roundTransition', { chain });
+    else if (previous === phase) return; // ordinary in-round update: leave audio alone
+    else stopGameTheme();
+    // Keyed on phase, not the envelope: state updates arrive constantly during
+    // a round and must not restart the music each time.
+  }, [audioChainKey, envelope, finished, inLobby, phase]);
+
+  useEffect(() => stopGameTheme, []);
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -104,6 +141,9 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
 
   const descriptor = getActivityDescriptor(envelope.type);
   const DisplayComponent = descriptor.displayComponent;
+  // Each engine and named preset carries its own colour identity. A theme the
+  // teacher actually customised always wins over the generated palette.
+  const theme = resolveActivityTheme(envelope.type, envelope.config?.preset, envelope.theme);
 
   return <div
     className={`activity-display-root activity-theme-${envelope.theme?.preset || 'stage'}`}
@@ -112,7 +152,7 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
     data-activity-preset={typeof envelope.config?.preset === 'string' ? envelope.config.preset : undefined}
     data-activity-motion={envelope.theme?.backgroundMotion === false ? 'off' : 'on'}
     data-activity-run-id={envelope.runId}
-    style={activityThemeVariables(envelope.theme)}
+    style={activityThemeVariables(theme)}
   >
     <DisplayComponent
       envelope={envelope}
@@ -123,32 +163,3 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
     />
   </div>;
 };
-
-function activityThemeVariables(theme?: ActivityTheme | null): CSSProperties {
-  const primary = theme?.primaryColor || '#2a6e4a';
-  const secondary = theme?.secondaryColor || '#2563eb';
-  const accent = theme?.accentColor || '#f59e0b';
-  const background = theme?.backgroundColor || '#091c1d';
-  return {
-    '--act-gold': accent,
-    '--act-gold-start': accent,
-    '--act-gold-end': primary,
-    '--act-green': primary,
-    '--act-green-bright': secondary,
-    '--act-stage-bg': background,
-    '--act-stage-primary': primary,
-    '--act-stage-secondary': secondary,
-    '--act-stage-accent': accent,
-    '--act-stage-primary-soft': colorWithAlpha(primary, 0.26),
-    '--act-stage-secondary-soft': colorWithAlpha(secondary, 0.22),
-    '--act-stage-accent-soft': colorWithAlpha(accent, 0.18),
-    '--act-stage-text': theme?.textColor || '#ffffff',
-  } as CSSProperties;
-}
-
-function colorWithAlpha(value: string, alpha: number) {
-  const match = /^#([0-9a-f]{6})$/i.exec(value.trim());
-  if (!match) return value;
-  const number = Number.parseInt(match[1], 16);
-  return `rgba(${number >> 16}, ${(number >> 8) & 255}, ${number & 255}, ${alpha})`;
-}

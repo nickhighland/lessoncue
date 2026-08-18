@@ -1,0 +1,34 @@
+ui-btn-hover.mp3 — Survey Board
+===============================
+
+ROLE
+  Pointer hover tick.
+
+REPLACE THIS FILE
+  Delete this .txt and drop in "ui-btn-hover.mp3" in the same folder. The name must
+  match exactly. Nothing else needs to change — no code, no config.
+
+WHEN IT PLAYS
+  Plays on the participant phone and host controls when a pointer moves onto a
+  control. Suppressed on touch devices, which have no hover state, so most
+  players in a classroom will never hear it.
+
+SUGGESTED CHARACTER
+  board-game brass and a satisfying mechanical clack.
+
+SPEC
+  ≤80 ms, very quiet (played at 0.5 gain), no pitch.
+
+PITCH
+  Played at its authored pitch.
+
+IF THIS FILE IS ABSENT
+  Lookup cascades preset → engine → shared. If this file is absent,
+  LessonCue tries assets/games/shared/audio/sfx/ui-btn-hover.mp3, and if that is
+  also absent, LessonCue plays its original synthesized cue from
+  web-admin/src/activities/effects.ts. That is the shipped default.
+
+LICENSING
+  Any audio committed here is a bundled asset and needs a source note, a
+  licence/permission record, and an attribution entry before release. See
+  docs/activities-assets-and-sound.md.

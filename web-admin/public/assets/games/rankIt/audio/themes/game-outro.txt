@@ -1,0 +1,32 @@
+game-outro.mp3 — Rank It
+========================
+
+ROLE
+  One-shot closing sting.
+
+REPLACE THIS FILE
+  Delete this .txt and drop in "game-outro.mp3" in the same folder. The name must
+  match exactly. Nothing else needs to change — no code, no config.
+
+WHEN IT PLAYS
+  Fires once, on the TV/projector, when the game reaches its final results or
+  the run ends. The counterpart to game-intro: it closes the show before the
+  lesson resumes.
+
+SUGGESTED CHARACTER
+  ordered, ascending, resolving upward.
+
+SPEC
+  2–6 s, one-shot, resolves — the room should feel the game is over.
+
+IF THIS FILE IS ABSENT
+  Lookup cascades preset → engine → shared. If this file is absent,
+  LessonCue tries assets/games/shared/audio/themes/game-outro.mp3, and if that is
+  also absent, no music plays for this cue. LessonCue synthesizes effects but not
+  music, so an absent bed or sting simply means silence. That is the shipped
+  default and is not an error.
+
+LICENSING
+  Any audio committed here is a bundled asset and needs a source note, a
+  licence/permission record, and an attribution entry before release. See
+  docs/activities-assets-and-sound.md.

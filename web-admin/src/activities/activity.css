@@ -3236,7 +3236,7 @@
 .participant-card { margin-top: 10vh; padding: clamp(1.4rem, 6vw, 3rem); border-radius: 28px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); box-shadow: 0 22px 70px rgba(0,0,0,.3); text-align: center; }
 .participant-mark { display: inline-grid; place-items: center; width: 56px; height: 56px; border-radius: 18px; background: #f2b943; color: #1b2b25; font-size: 1.7rem; }
 .participant-kicker { display: block; margin-top: .9rem; color: #f2c35a; font-size: .68rem; font-weight: 900; letter-spacing: .16em; }
-.participant-card h1, .participant-game-header h1 { margin: .4rem 0; font-size: clamp(1.7rem, 6vw, 2.5rem); letter-spacing: -.04em; }
+.participant-card h1, .participant-game-header h1 { margin: .4rem 0; color: var(--act-stage-text, #fff); font-size: clamp(1.7rem, 6vw, 2.5rem); letter-spacing: -.04em; }
 .participant-card p { color: rgba(255,255,255,.75); line-height: 1.5; }
 .participant-code { margin: 1.1rem 0; font-size: clamp(2.1rem, 12vw, 4.2rem); font-weight: 950; letter-spacing: .18em; color: #f4c454; }
 .participant-card form { display: grid; gap: .8rem; text-align: left; }
@@ -3254,7 +3254,7 @@
 .participant-identity small { margin-top: .2rem; color: rgba(255,255,255,.58); font-size: .72rem; }
 .participant-waiting, .participant-input-card { margin-top: 1.5rem; padding: 1.25rem; border-radius: 22px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.17); text-align: center; }
 .waiting-orb { display: inline-grid; place-items: center; width: 68px; height: 68px; border-radius: 50%; background: #f2b943; color: #1b2b25; font-size: 1.8rem; }
-.participant-waiting h2, .participant-input-card h2 { margin: .8rem 0 .25rem; font-size: 1.35rem; }
+.participant-waiting h2, .participant-input-card h2 { margin: .8rem 0 .25rem; color: var(--act-stage-text, #fff); font-size: 1.35rem; }
 .participant-waiting p { margin: .25rem 0; color: rgba(255,255,255,.7); }
 .participant-count { margin-top: 1rem; color: #f2c35a; font-weight: 900; }
 .participant-choice-list { display: grid; gap: .7rem; margin-top: 1rem; }

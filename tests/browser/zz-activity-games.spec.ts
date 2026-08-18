@@ -1136,7 +1136,7 @@ test("Activity controller shows live recovery state and command acknowledgements
     const bootstrap = await fetch("/api/v1/admin/bootstrap").then(response => response.json()) as { pairingPin: string };
     const pairing = await fetch("/api/v1/pairing/request", {
       method: "POST", headers,
-      body: JSON.stringify({ deviceName: "Browser Activity Controller TV", platform: "android-tv", appVersion: "0.40.47" }),
+      body: JSON.stringify({ deviceName: "Browser Activity Controller TV", platform: "android-tv", appVersion: "0.40.48" }),
     }).then(response => response.json()) as { requestId: string };
     const identity = await fetch("/api/v1/pairing/confirm", {
       method: "POST", headers,
@@ -1152,7 +1152,7 @@ test("Activity controller shows live recovery state and command acknowledgements
       headers: { ...headers, Authorization: `Bearer ${identity.deviceToken}` },
       body: JSON.stringify({
         screenId: identity.screenId,
-        appVersion: "0.40.47",
+        appVersion: "0.40.48",
         online: true,
         freeBytes: 4_000_000_000,
         manifestVersion: 1,

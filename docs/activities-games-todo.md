@@ -375,6 +375,13 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Add theme/presentation variants that are recognizably LessonCue and do not copy commercial game-show artwork, sound, or trade dress. Named catalog presets now seed stage, neon, retro, arcade, cyberpunk, or clean treatments; teachers can change the TV theme, sound pack, and ambient-motion preference in the existing editor.
 - [x] Add renderer-only suspense/reveal pacing without making the host wait unnecessarily; every transition remains manually advanceable and reduced-motion safe.
 - [x] Add audio/image asset licensing notes and original asset attribution guidance in [Activities assets and sound policy](activities-assets-and-sound.md); new bundled assets still require an entry before release.
+- [x] Give every engine and named preset its own planned palette instead of four shared looks, apply it to the participant phone as well as the TV stage, and keep any theme a teacher customised. Contrast is checked for white-on-background and label-on-accent.
+- [x] Fix participant headings inheriting the admin's dark `--ink`, which made phone titles and prompts dark-on-dark.
+- [x] Add the shared tactile layer for phone play: squash-and-stretch press feedback, seeded idle drift on waiting states, chunky touch targets, and a last-five-seconds panic treatment driven by the authoritative clock. Reduced motion drops the animation and keeps the colour.
+- [x] Add the optional sampled sound-pack path (`/assets/games/{gameId}/audio/...`) with lobby preloading, per-tap pitch variation, and a synthesized fallback for every absent file. The shipped repository still bundles no third-party audio.
+- [x] Add per-game opening and closing stings alongside the looping lobby bed and round transition, fired from real phase transitions on the display.
+- [x] Resolve sound packs through a preset → engine → shared cascade and scaffold the 29 engine folders with documented `.txt` placeholders for every cue.
+- [ ] Extend the same tactile layer to the host controller and the remaining TV stage renderers; participant coverage is complete.
 
 ## 6. Controller and operational follow-through
 
@@ -383,7 +390,7 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [ ] Preserve physical remote scrolling/navigation as a display/control-navigation feature; do not make physical remotes responsible for participant activity input.
 - [x] Add controller recovery after refresh, SignalR reconnect, stale revision, display disconnect, and participant disconnect. The shared ActivityController now refreshes the authoritative run while SignalR is reconnecting/offline and refreshes again after reconnection; display and participant projections continue to recover through the existing hub/run subscription path.
 - [x] Add a visible connection/acknowledgement state for important controller commands. Host controls now expose connection status, manual refresh, success revisions, and server/API errors without creating a second control system.
-- [ ] Test mobile controller touch targets, keyboard use, and D-pad/remote navigation.
+- [ ] Test mobile controller touch targets, keyboard use, and D-pad/remote navigation. Participant phone targets and keyboard activation are covered by `tests/browser/activity-participant-juice.spec.ts`; the host controller and remote navigation remain.
 
 ## 7. Library, editor, and teacher workflow
 

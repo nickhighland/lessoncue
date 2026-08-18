@@ -1,0 +1,33 @@
+game-timer-alarm.mp3 — Physical Room
+====================================
+
+ROLE
+  Time's up.
+
+REPLACE THIS FILE
+  Delete this .txt and drop in "game-timer-alarm.mp3" in the same folder. The name must
+  match exactly. Nothing else needs to change — no code, no config.
+
+WHEN IT PLAYS
+  Plays once on the participant phone when the response window reaches zero.
+  The window closing is decided by the server, not by this sound.
+
+SUGGESTED CHARACTER
+  big and carrying — this plays to a whole moving room, not a phone at arm's length.
+
+SPEC
+  0.5–1.5 s, unmistakable, but not punishing — players lose rounds to this.
+
+PITCH
+  Played at its authored pitch.
+
+IF THIS FILE IS ABSENT
+  Lookup cascades preset → engine → shared. If this file is absent,
+  LessonCue tries assets/games/shared/audio/sfx/game-timer-alarm.mp3, and if that is
+  also absent, LessonCue plays its original synthesized cue from
+  web-admin/src/activities/effects.ts. That is the shipped default.
+
+LICENSING
+  Any audio committed here is a bundled asset and needs a source note, a
+  licence/permission record, and an attribution entry before release. See
+  docs/activities-assets-and-sound.md.
