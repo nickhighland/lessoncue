@@ -74,11 +74,11 @@ test("the stage shows a scannable QR and the full address, not /play/CODE", asyn
     await tv.goto(`/activity-display?runId=${run.runId}`);
     await expect(tv.locator('.activity-display-root[data-activity-status="ready"]')).toBeVisible({ timeout: 20_000 });
 
-    const banner = tv.locator(".interactive-join-banner");
+    // A freshly launched run sits in the lobby, which leads with the prominent
+    // banner; the compact one rides above live play.
+    const banner = tv.locator(".activity-join-prominent, .interactive-join-banner").first();
     await expect(banner).toBeVisible();
     await expect(banner).toContainText(run.joinCode);
-    // The old markup printed a bare path that no phone could use.
-    await expect(banner).not.toContainText(`/play/${run.joinCode}`.replace(/^/, "^"));
     await expect(banner).toContainText(run.joinUrl!.replace(/^https?:\/\//, "").split("/")[0]);
 
     const qr = banner.locator("img.activity-qr");

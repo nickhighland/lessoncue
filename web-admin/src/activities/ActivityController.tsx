@@ -5,6 +5,7 @@ import { getActivityDescriptor } from './activityRegistry';
 import { QrCode } from '../admin/ui';
 import { getAudioVolume, isAudioMuted, setAudioMuted, setAudioVolume } from './effects';
 import './activity.css';
+import { ActivityLiveHostPanel } from './ActivityLiveHostPanel';
 
 type ActivityControllerNotice = {
   id: number;
@@ -265,6 +266,9 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
 
       {commandNotice && <div className={`activity-command-notice ${commandNotice.tone}`} role={commandNotice.tone === 'error' ? 'alert' : 'status'} aria-live="polite"><span>{commandNotice.message}</span><button type="button" onClick={() => setCommandNotice(null)} aria-label="Dismiss controller message">×</button></div>}
 
+      {/* Live controls stay visible whether or not setup is open: the host needs
+          the join code and the answer count during the round, not only before it. */}
+      {isInteractive && hostView && <ActivityLiveHostPanel hostView={hostView} onRefresh={() => fetchHostView(envelope.runId, currentActivityType)} />}
       {isInteractive && hostView && showSessionSetup && <ActivityHostSessionPanel hostView={hostView} onRefresh={() => fetchHostView(envelope.runId, currentActivityType)} />}
 
       <ControllerComponent

@@ -375,6 +375,8 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Add theme/presentation variants that are recognizably LessonCue and do not copy commercial game-show artwork, sound, or trade dress. Named catalog presets now seed stage, neon, retro, arcade, cyberpunk, or clean treatments; teachers can change the TV theme, sound pack, and ambient-motion preference in the existing editor.
 - [x] Add renderer-only suspense/reveal pacing without making the host wait unnecessarily; every transition remains manually advanceable and reduced-motion safe.
 - [x] Add audio/image asset licensing notes and original asset attribution guidance in [Activities assets and sound policy](activities-assets-and-sound.md); new bundled assets still require an entry before release.
+- [x] Give the host live controls: the join code and QR stay visible during a round, a roster shows who has answered with an "answers in" count, and a standings button is available. The Universal Remote tabs are named for what they do.
+- [x] Put the response clock on the stage so the room can see it, not only the phones.
 - [x] Show between-round standings as a race: each player runs their own avatar and colour along a lane, position encodes score, and a lane surges when it gains points. Trivia previously rendered no standings at all.
 - [x] Replace the small join pill with a real lobby stage: the room code and QR dominate, and players appear one at a time with their avatar and colour as they join.
 - [x] Tell each player how they did at reveal: outcome, points counting up, rank and total on their own phone, instead of "look up at the main display". The projection carries only that player's own standing.

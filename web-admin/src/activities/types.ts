@@ -146,6 +146,8 @@ export interface ActivityParticipantView {
 export interface ActivityHostView {
   state: ActivityStateEnvelope;
   joinCode?: string | null;
+  /** Absolute, teacher-selected address players can open. */
+  joinUrl?: string | null;
   participants: Array<{ id: string; displayName: string; avatar?: string; color?: string; status: string; teamId?: string | null; lives: number; joinedAt: string; lastSeenAt: string }>;
   teams: Array<{ id: string; name: string; color: string; icon: string; score: number; active: boolean }>;
   submissions: Array<{ id: string; participantId: string; participantName?: string | null; roundId: string; kind: string; payload: Record<string, unknown>; moderationStatus: string; hidden: boolean; submittedAt: string; updatedAt: string }>;

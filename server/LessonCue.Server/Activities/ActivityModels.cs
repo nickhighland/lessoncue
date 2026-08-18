@@ -472,6 +472,7 @@ public sealed record ActivityParticipantView(
 public sealed record ActivityHostView(
     ActivityStateEnvelope State,
     string? JoinCode,
+    string? JoinUrl,
     IReadOnlyList<object> Participants,
     IReadOnlyList<object> Teams,
     IReadOnlyList<object> Submissions,

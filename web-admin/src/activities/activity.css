@@ -3911,3 +3911,19 @@
     animation: none;
   }
 }
+
+/* ------------------------------------------------- live host controls --- */
+.activity-live-host { display: grid; gap: .7rem; margin-bottom: .75rem; padding: .7rem .8rem; border: 1px solid var(--line, #d9e2de); border-radius: 14px; background: var(--surface, #fff); }
+.activity-live-host-join { display: flex; align-items: center; gap: .8rem; }
+.activity-live-host-join strong { display: block; font-size: 1.5rem; font-weight: 950; letter-spacing: .14em; }
+.activity-live-host-join small { display: block; color: var(--muted, #64756f); font-size: .74rem; overflow-wrap: anywhere; }
+.activity-live-host-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
+.activity-live-host-progress-head strong { font-size: 1.15rem; font-weight: 900; font-variant-numeric: tabular-nums; }
+.activity-live-host-meter { height: 8px; margin: .35rem 0 .5rem; border-radius: 999px; background: rgba(0,0,0,.1); overflow: hidden; }
+.activity-live-host-meter i { display: block; height: 100%; border-radius: 999px; background: var(--gold, #d88c1e); transition: width 320ms ease; }
+.activity-live-host-roster { display: flex; flex-wrap: wrap; gap: .35rem; margin: .35rem 0 0; padding: 0; list-style: none; }
+.activity-live-host-roster li { display: flex; align-items: center; gap: .35rem; padding: .2rem .5rem .2rem .2rem; border: 1px solid var(--line, #d9e2de); border-radius: 999px; font-size: .78rem; font-weight: 700; opacity: .62; }
+.activity-live-host-roster li.answered { opacity: 1; border-color: var(--gold, #d88c1e); }
+.activity-live-host-avatar { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-size: .8rem; line-height: 1; }
+.activity-live-host-tick { font-weight: 900; }
+.activity-live-host-actions { display: flex; flex-wrap: wrap; gap: .4rem; }

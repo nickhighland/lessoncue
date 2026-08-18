@@ -22,16 +22,29 @@ const greeting = (page: Page) =>
 
 async function reuseCached(page: Page): Promise<boolean> {
   if (!existsSync(CACHE)) return false;
+  let cookies: Cookies;
   try {
-    const cookies = JSON.parse(readFileSync(CACHE, "utf8")) as Cookies;
+    cookies = JSON.parse(readFileSync(CACHE, "utf8")) as Cookies;
     if (!Array.isArray(cookies) || !cookies.length) return false;
-    await page.context().addCookies(cookies);
-    await page.goto("/");
-    await expect(greeting(page)).toBeVisible({ timeout: 10_000 });
-    return true;
   } catch {
     return false;
   }
+
+  // Retry rather than falling straight through to the sign-in form: a slow
+  // load under suite load would otherwise spend one of the ten sign-ins the
+  // server allows per five minutes, and enough of those exhaust the budget for
+  // every later spec.
+  await page.context().addCookies(cookies);
+  for (const timeout of [15_000, 30_000]) {
+    try {
+      await page.goto("/");
+      await expect(greeting(page)).toBeVisible({ timeout });
+      return true;
+    } catch {
+      // Fall through to the next attempt, then to a real sign-in.
+    }
+  }
+  return false;
 }
 
 export async function signInAsAdmin(page: Page, organization: string): Promise<void> {

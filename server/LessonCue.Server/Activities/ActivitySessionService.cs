@@ -241,7 +241,7 @@ public sealed class ActivitySessionService(
         var scoreEvents = run.ScoreEvents.OrderByDescending(x => x.CreatedAt)
             .Select(x => (object)new { id = x.Id, participantId = x.ParticipantId, teamId = x.TeamId, roundId = x.RoundId, amount = x.Amount, reason = x.Reason, createdAt = x.CreatedAt, isUndone = x.IsUndone, undoneAt = x.UndoneAt })
             .ToArray();
-        return new ActivityHostView(envelope, run.JoinCode, participants, teams, submissions, votes, scoreEvents);
+        return new ActivityHostView(envelope, run.JoinCode, joinAddress.ResolveJoinUrl(run.JoinCode), participants, teams, submissions, votes, scoreEvents);
     }
 
     public async Task<ActivityCommandResult> ExecuteParticipantActionAsync(

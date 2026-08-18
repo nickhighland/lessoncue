@@ -1,40 +1,9 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { signInAsAdmin } from "./support/adminSession";
 
-const password = "LessonCueTest42";
-let adminCookies: Parameters<BrowserContext["addCookies"]>[0] = [];
-
-async function authenticate(page: Page) {
-  if (adminCookies.length > 0) {
-    await page.context().addCookies(adminCookies);
-    await page.goto("/");
-    await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)\./ })).toBeVisible();
-    return;
-  }
-  await page.goto("/");
-  const setup = page.getByRole("heading", { name: "Create your Service Admin" });
-  const signIn = page.getByRole("heading", { name: "Sign in to LessonCue" });
-  await expect(setup.or(signIn)).toBeVisible();
-  if (await setup.isVisible()) {
-    await page.getByLabel("Organization name").fill("Activity Games Test");
-    await page.getByLabel("Your name").fill("Activity Administrator");
-    await page.getByLabel("Username").fill("browser-admin");
-    await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: "Finish setup" }).click();
-  } else {
-    await page.getByLabel("Username").fill("browser-admin");
-    await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: "Sign in" }).click();
-  }
-  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)\./ })).toBeVisible();
-}
-
-test.beforeAll(async ({ browser }) => {
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  await authenticate(page);
-  adminCookies = await context.cookies();
-  await context.close();
-});
+// One shared sign-in for the whole suite: the server allows 10 attempts per
+// five minutes per IP, and every spec signing in separately exhausted it.
+const authenticate = (page: Page) => signInAsAdmin(page, "Activity Games Test");
 
 async function createActivity(page: Page, presetName: string, activityName: string) {
   await page.getByRole("button", { name: /Activities$/ }).click();
@@ -217,7 +186,7 @@ test("Trivia runs from teacher launch through two phone answers and scored revea
     }
     await hostAction(page, run.runId, "lock");
     await hostAction(page, run.runId, "reveal");
-    await expect(first.getByText("Reveal time.")).toBeVisible();
+    await expect(first.locator(".participant-result, .participant-waiting")).toBeVisible();
     const state = await hostState(page, run.runId);
     expect(state.scoreEvents.filter(event => event.amount === 100)).toHaveLength(2);
   } finally {
@@ -450,7 +419,7 @@ test("Punchline keeps anonymous responses moderated before voting", async ({ pag
     await hostAction(page, run.runId, "reveal");
     state = await hostState(page, run.runId);
     expect(state.scoreEvents.length).toBeGreaterThan(0);
-    await expect(first.getByText("Reveal time.")).toBeVisible();
+    await expect(first.locator(".participant-result, .participant-waiting")).toBeVisible();
   } finally {
     await firstContext.close();
     await secondContext.close();
@@ -512,7 +481,7 @@ test("Punchline can resolve a moderated head-to-head matchup through the phone c
     const scores = (await hostState(page, run.runId)).scoreEvents.map(event => event.amount);
     expect(scores).toContain(25);
     expect(scores).toContain(100);
-    await expect(first.getByText("Reveal time.")).toBeVisible();
+    await expect(first.locator(".participant-result, .participant-waiting")).toBeVisible();
   } finally {
     await firstContext.close();
     await secondContext.close();
@@ -760,7 +729,7 @@ test("Order Up supports accessible phone sorting and partial credit", async ({ p
 
     await hostAction(page, run.runId, "lock");
     await hostAction(page, run.runId, "reveal");
-    await expect(participant.getByText("Reveal time.")).toBeVisible();
+    await expect(participant.locator(".participant-result, .participant-waiting")).toBeVisible();
     const state = await hostState(page, run.runId);
     expect(state.scoreEvents.some(event => event.amount === 33)).toBe(true);
   } finally {
@@ -796,7 +765,7 @@ test("Match Minds gives the target a private answer and scores matching predicti
     await predictor.locator(".participant-choice-list button").nth(2).click();
     await hostAction(page, run.runId, "lock");
     await hostAction(page, run.runId, "reveal");
-    await expect(predictor.getByText("Reveal time.")).toBeVisible();
+    await expect(predictor.locator(".participant-result, .participant-waiting")).toBeVisible();
     const state = await hostState(page, run.runId);
     expect(state.scoreEvents.some(event => event.amount === 100)).toBe(true);
   } finally {
@@ -851,7 +820,7 @@ test("Match Minds supports private text answers on phone controllers", async ({ 
     await predictor.getByRole("button", { name: "Lock in answer" }).click();
     await hostAction(page, run.runId, "lock");
     await hostAction(page, run.runId, "reveal");
-    await expect(predictor.getByText("Reveal time.")).toBeVisible();
+    await expect(predictor.locator(".participant-result, .participant-waiting")).toBeVisible();
     expect((await hostState(page, run.runId)).scoreEvents.some(event => event.amount === 100)).toBe(true);
   } finally {
     await targetContext.close();
@@ -931,7 +900,7 @@ test("Stage Challenge can take an audience call before the host reveals", async 
     await voter.getByRole("button", { name: "Success" }).click();
     await hostAction(page, run.runId, "closeaudiencevote");
     await hostAction(page, run.runId, "useaudiencevote");
-    await expect(voter.getByText("Reveal time.")).toBeVisible();
+    await expect(voter.locator(".participant-result, .participant-waiting")).toBeVisible();
     const state = await hostState(page, run.runId);
     expect(state.scoreEvents.some(event => event.amount === 125)).toBe(true);
     expect(state.scoreEvents.some(event => event.amount === 15)).toBe(true);
@@ -988,7 +957,7 @@ test("Bracket Battle carries phone votes through semifinals and a final", async 
       await secondVoter.locator(".participant-choice-list button").first().click();
       await hostAction(page, run.runId, "close");
       await hostAction(page, run.runId, "reveal", { winnerId });
-      await expect(firstVoter.getByText("Reveal time.")).toBeVisible();
+      await expect(firstVoter.locator(".participant-result, .participant-waiting")).toBeVisible();
       const revealed = await runState(page, run.runId);
       expect(revealed.phase).toBe("reveal");
       expect(revealed.currentRound).toBe(expectRound);
@@ -1178,6 +1147,8 @@ test("Activity controller shows live recovery state and command acknowledgements
   await page.getByLabel("Six-digit controller PIN").fill("482731");
   await page.getByRole("button", { name: "Open universal remote" }).click();
   await page.getByLabel("Control this screen").selectOption(prepared.screenId);
+  // The remote groups its controls into tabs; the Activity controls live in one.
+  await page.getByRole("tab", { name: "Activity" }).click();
   const activityController = page.locator(".activity-controller-shell");
   await expect(activityController.getByText("Browser Controller Recovery Activity", { exact: true })).toBeVisible();
   await expect(activityController.getByRole("button", { name: "Refresh activity controller" })).toBeVisible();
