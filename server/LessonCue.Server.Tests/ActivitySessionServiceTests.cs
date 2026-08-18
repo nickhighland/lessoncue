@@ -73,6 +73,76 @@ public sealed class ActivitySessionServiceTests
     }
 
     [Fact]
+    public async Task AutoAdvanceClosesTheWindowOnlyWhenEveryPlayerIsInAndOnlyWhenEnabled()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput(
+                "Auto Quiz", ActivityTypes.Trivia, Config: JsonDocument.Parse("""
+                    {"title":"Auto Quiz","questions":[{"id":"q1","prompt":"Pick one","options":["A","B"],"correctIndex":1},{"id":"q2","prompt":"Pick again","options":["A","B"],"correctIndex":0}]}
+                    """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken);
+            run = await sessions.EnsureInteractiveRunAsync(run, TestContext.Current.CancellationToken);
+
+            var alex = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Alex"), TestContext.Current.CancellationToken);
+            var jordan = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Jordan"), TestContext.Current.CancellationToken);
+
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken);
+
+            // Off by default: both answer and the window stays open for the host.
+            await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(alex.Token, "answer", JsonDocument.Parse("{\"optionIndex\":1}").RootElement), TestContext.Current.CancellationToken);
+            var both = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(jordan.Token, "answer", JsonDocument.Parse("{\"optionIndex\":0}").RootElement), TestContext.Current.CancellationToken);
+            Assert.Equal(ActivityPhases.AcceptingResponses, PhaseOf(both));
+
+            // Re-open, arm auto-advance, and add a third player who has not answered.
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "next"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "autoadvance",
+                JsonDocument.Parse("{\"enabled\":true}").RootElement), TestContext.Current.CancellationToken);
+            var sam = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Sam"), TestContext.Current.CancellationToken);
+
+            await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(alex.Token, "answer", JsonDocument.Parse("{\"optionIndex\":1}").RootElement), TestContext.Current.CancellationToken);
+            var partial = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(jordan.Token, "answer", JsonDocument.Parse("{\"optionIndex\":1}").RootElement), TestContext.Current.CancellationToken);
+            Assert.Equal(ActivityPhases.AcceptingResponses, PhaseOf(partial));
+
+            // The last player in closes it.
+            var last = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(sam.Token, "answer", JsonDocument.Parse("{\"optionIndex\":0}").RootElement), TestContext.Current.CancellationToken);
+            Assert.Equal(ActivityPhases.ResponsesLocked, PhaseOf(last));
+        }
+    }
+
+    [Fact]
+    public async Task AutoAdvanceIsRefusedForEnginesWhereAHeadCountIsMeaningless()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            // Only one player answers a buzzer clue by design.
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput(
+                "Buzz", ActivityTypes.Buzzer, Config: JsonDocument.Parse("""
+                    {"title":"Buzz","rounds":[{"id":"r1","prompt":"Name it","answer":"Pacific","clues":[{"id":"c1","text":"Big","points":30}]}]}
+                    """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken);
+            run = await sessions.EnsureInteractiveRunAsync(run, TestContext.Current.CancellationToken);
+
+            var refused = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "autoadvance",
+                JsonDocument.Parse("{\"enabled\":true}").RootElement), TestContext.Current.CancellationToken);
+            Assert.False(refused.Success);
+        }
+    }
+
+    private static string PhaseOf(ActivityCommandResult result)
+    {
+        var json = JsonSerializer.Serialize(result.State);
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.TryGetProperty("phase", out var phase) ? phase.GetString() ?? "" : "";
+    }
+
+    [Fact]
     public async Task QuizSessionJoinsReconnectsAndKeepsCorrectAnswerOutOfDisplayProjection()
     {
         var (db, activities, sessions, connection) = await CreateAsync();

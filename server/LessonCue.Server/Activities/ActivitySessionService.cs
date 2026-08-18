@@ -264,6 +264,7 @@ public sealed class ActivitySessionService(
             var action = input.Action.Trim().ToLowerInvariant();
             var result = await HandleParticipantActionAsync(run, participant, config, state, action, input.Payload, ct);
             if (!result.Success) return new ActivityCommandResult(false, result.Error, run.Revision, run.Status, ParseUntyped(run.StateJson), DateTimeOffset.UtcNow);
+            await ApplyAutoAdvanceAsync(run, config, state, ct);
             await CommitAsync(run, state, ct);
             var display = await BuildEnvelopeAsync(run, ProjectionRole.Display, ct);
             return new ActivityCommandResult(true, null, run.Revision, run.Status, display.State, DateTimeOffset.UtcNow);
@@ -495,6 +496,14 @@ public sealed class ActivitySessionService(
         }
         if (action is "awardpoints" or "score" or "award") return await AwardFromPayloadAsync(run, state, payload, ct);
         if (action is "undoscore" or "undoscoreevent") return await UndoScoreAsync(run, payload, ct);
+        if (action is "autoadvance" or "setautoadvance")
+        {
+            if (!SupportsAutoAdvance(run)) return (false, "This game does not close its window on a head count.");
+            state["autoAdvanceEnabled"] = payload.HasValue && payload.Value.TryGetProperty("enabled", out var toggle)
+                ? toggle.ValueKind == System.Text.Json.JsonValueKind.True
+                : !BoolValue(state, "autoAdvanceEnabled");
+            return (true, null);
+        }
         if (action is "removeparticipant") return RemoveParticipant(run, payload);
         if (action is "renameparticipant") return RenameParticipant(run, payload);
         if (action is "moderate" or "moderateresponse") return await ModerateAsync(run, payload, ct);
@@ -3596,6 +3605,72 @@ public sealed class ActivitySessionService(
     /// Engines where a round has a right answer, so "incorrect" is meaningful.
     /// Everything else reports points earned without implying a verdict.
     /// </summary>
+
+    /// <summary>
+    /// Engines where "everyone has answered" is a meaningful head count.
+    ///
+    /// Excluded: buzzer (one player answers by design), survey board and
+    /// turn-based word (team or player turns), stage challenge and physical
+    /// room (host-judged, phones optional).
+    /// </summary>
+    private static bool SupportsAutoAdvance(ActivityRun run) =>
+        run.ActivityDefinition!.Type is ActivityTypes.Trivia or ActivityTypes.RapidFire
+            or ActivityTypes.Poll or ActivityTypes.Prediction
+            or ActivityTypes.Punchline or ActivityTypes.FakeOut
+            or ActivityTypes.Drawing or ActivityTypes.Ordering or ActivityTypes.MatchPlayer;
+
+    /// <summary>
+    /// Close the response window once every active player is in.
+    ///
+    /// Opt-in per run, and only ever closes the window early — the host keeps
+    /// the manual close and every later transition. Runs inside the per-run
+    /// lock on the participant path, so the last submission and the close are
+    /// one atomic step rather than a race between phones.
+    /// </summary>
+    private async Task ApplyAutoAdvanceAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct)
+    {
+        if (!SupportsAutoAdvance(run)) return;
+        // The run-level toggle wins; a definition may pre-arm it.
+        var enabled = state.ContainsKey("autoAdvanceEnabled")
+            ? BoolValue(state, "autoAdvanceEnabled")
+            : BoolValue(config, "autoAdvance");
+        if (!enabled) return;
+        if (StringValue(state, "phase") != ActivityPhases.AcceptingResponses) return;
+        if (!BoolValue(state, "responsesOpen")) return;
+
+        var eligible = run.Participants
+            .Where(x => x.Status is not ("removed" or "eliminated"))
+            .Select(x => x.Id)
+            .ToHashSet();
+        if (eligible.Count == 0) return;
+
+        var roundId = CurrentRoundId(run, config);
+        // This runs before CommitAsync, so the submission that just arrived is
+        // still only in the change tracker. Counting the database alone would
+        // always be one player short and the window would never close.
+        var answeredSet = db.ActivitySubmissions.Local
+            .Where(x => x.ActivityRunId == run.Id && x.RoundId == roundId)
+            .Select(x => x.ParticipantId)
+            .ToHashSet();
+        answeredSet.UnionWith(await db.ActivitySubmissions
+            .Where(x => x.ActivityRunId == run.Id && x.RoundId == roundId)
+            .Select(x => x.ParticipantId)
+            .ToListAsync(ct));
+        answeredSet.UnionWith(db.ActivityVotes.Local
+            .Where(x => x.ActivityRunId == run.Id && x.RoundId == roundId)
+            .Select(x => x.VoterParticipantId));
+        answeredSet.UnionWith(run.Votes.Where(x => x.RoundId == roundId).Select(x => x.VoterParticipantId));
+
+        if (!eligible.IsSubsetOf(answeredSet)) return;
+
+        state["phase"] = ActivityPhases.ResponsesLocked;
+        state["responsesOpen"] = false;
+        state["responsesLocked"] = true;
+        state["timerRunning"] = false;
+        // Lets the stage say why the window shut rather than looking arbitrary.
+        state["autoAdvanced"] = true;
+    }
+
     private static readonly HashSet<string> GradedTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         ActivityTypes.Trivia, ActivityTypes.RapidFire, ActivityTypes.Prediction,

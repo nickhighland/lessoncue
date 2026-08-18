@@ -3927,3 +3927,5 @@
 .activity-live-host-avatar { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-size: .8rem; line-height: 1; }
 .activity-live-host-tick { font-weight: 900; }
 .activity-live-host-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+.activity-live-host-auto { display: flex; align-items: flex-start; gap: .45rem; width: 100%; color: var(--muted, #64756f); font-size: .76rem; line-height: 1.35; }
+.activity-live-host-auto input { margin-top: .15rem; }

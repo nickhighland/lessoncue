@@ -37,6 +37,11 @@ export const ActivityLiveHostPanel: React.FC<{
   const joinUrl = hostView.joinUrl || '';
   const address = joinUrl ? readableJoinAddress(joinUrl, joinCode) : '';
 
+  // Engines where a head count is meaningful; mirrors SupportsAutoAdvance.
+  const autoAdvanceEngines = ['trivia', 'rapidFire', 'poll', 'prediction', 'punchline', 'fakeOut', 'drawing', 'ordering', 'matchPlayer'];
+  const supportsAutoAdvance = autoAdvanceEngines.includes(hostView.state.type);
+  const autoAdvance = state.autoAdvanceEnabled === true;
+
   const send = async (action: string, label: string) => {
     setBusy(label);
     try {
@@ -95,6 +100,23 @@ export const ActivityLiveHostPanel: React.FC<{
         disabled={busy !== '' || !players.length}
         onClick={() => void send('showleaderboard', 'standings')}
       >{busy === 'standings' ? 'Showing…' : '🏁 Show standings'}</button>
+
+      {supportsAutoAdvance && <label className="activity-live-host-auto">
+        <input
+          type="checkbox"
+          checked={autoAdvance}
+          disabled={busy !== ''}
+          onChange={async event => {
+            const enabled = event.target.checked;
+            setBusy('auto');
+            try {
+              await ActivityApi.executeCommand(hostView.state.runId, { action: 'autoadvance', payload: { enabled } });
+              onRefresh();
+            } finally { setBusy(''); }
+          }}
+        />
+        <span>Close the window automatically once everyone has answered</span>
+      </label>}
     </div>
   </section>;
 };
