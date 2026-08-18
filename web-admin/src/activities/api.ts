@@ -146,10 +146,16 @@ export class ActivityApi {
     return api<ActivitySessionPublicView>(`/api/v1/activity-sessions/join/${encodeURIComponent(code)}`);
   }
 
-  static async joinSession(code: string, participantToken?: string, displayName?: string): Promise<{ token: string; participant: ActivityParticipantView }> {
+  static async joinSession(code: string, participantToken?: string, displayName?: string, identity?: { avatar?: string; color?: string }): Promise<{ token: string; participant: ActivityParticipantView }> {
     return api<{ token: string; participant: ActivityParticipantView }>(`/api/v1/activity-sessions/join/${encodeURIComponent(code)}`, {
       method: 'POST',
-      body: JSON.stringify({ participantToken: participantToken || null, displayName: displayName || null })
+      body: JSON.stringify({
+        participantToken: participantToken || null,
+        displayName: displayName || null,
+        // The server pins these to its own allowed list.
+        avatar: identity?.avatar || null,
+        color: identity?.color || null
+      })
     });
   }
 

@@ -4,6 +4,7 @@ import { ActivityApi, activityHub } from './api';
 import { ActivityCountdown, useActivityCountdown } from './ActivityMotion';
 import { GameAudioProvider, GameButton, idleWobbleStyle, useGamePanic } from './ActivityJuice';
 import { activityThemeVariables, resolveActivityTheme } from './activityPalettes';
+import { ACTIVITY_AVATARS, ACTIVITY_COLORS, DEFAULT_ACTIVITY_AVATAR, DEFAULT_ACTIVITY_COLOR, inkOnPlayerColor } from './activityIdentity';
 import { primeGameAudio, resolveGameAudioChain } from './audio/gameAudio';
 import { useAudioPreloader } from './audio/useAudioPreloader';
 import './activity.css';
@@ -24,6 +25,8 @@ export const ActivityParticipantApp: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [avatar, setAvatar] = useState<string>(DEFAULT_ACTIVITY_AVATAR);
+  const [color, setColor] = useState<string>(DEFAULT_ACTIVITY_COLOR);
 
   // Warm this game's sound pack as soon as the lobby resolves, so the first
   // tap of the first round plays with no load latency. A game with no asset
@@ -78,7 +81,7 @@ export const ActivityParticipantApp: React.FC = () => {
     primeGameAudio();
     setBusy(true); setError('');
     try {
-      const result = await ActivityApi.joinSession(code, token || undefined, name.trim() || undefined);
+      const result = await ActivityApi.joinSession(code, token || undefined, name.trim() || undefined, { avatar, color });
       setToken(result.token); setParticipant(result.participant); setName(result.participant.displayName);
       try { localStorage.setItem(participantTokenKey(code), result.token); } catch { /* private browsing */ }
       await refresh(result.participant.state.runId);
@@ -97,12 +100,21 @@ export const ActivityParticipantApp: React.FC = () => {
   if (loading) return <main className="activity-participant-page"><div className="participant-card"><span className="participant-mark lc-idle-wobble" style={idleWobbleStyle('joining')}>⚡</span><h1>Joining the game…</h1></div></main>;
   if (error && !publicSession) return <main className="activity-participant-page"><div className="participant-card"><span className="participant-mark">⚠</span><h1>Game unavailable</h1><p>{error}</p></div></main>;
   if (!publicSession) return null;
-  if (!participant) return <JoinCard title={textOf(publicSession.state.name, 'LessonCue Game')} code={code} name={name} setName={setName} onSubmit={join} busy={busy} error={error} envelope={publicSession.state} />;
+  if (!participant) return <JoinCard title={textOf(publicSession.state.name, 'LessonCue Game')} code={code} name={name} setName={setName} onSubmit={join} busy={busy} error={error} envelope={publicSession.state} avatar={avatar} setAvatar={setAvatar} color={color} setColor={setColor} />;
   return <ParticipantGame view={participant} token={token} busy={busy} error={error} onAction={action} onLeave={() => { setParticipant(null); setToken(''); try { localStorage.removeItem(participantTokenKey(code)); } catch { /* ignore */ } }} />;
 };
 
-const JoinCard: React.FC<{ title: string; code: string; name: string; setName: (value: string) => void; onSubmit: (event: FormEvent) => void; busy: boolean; error: string; envelope: ActivityStateEnvelope }> = ({ title, code, name, setName, onSubmit, busy, error, envelope }) => (
-  <main className="activity-participant-page" data-activity-type={envelope.type} style={activityThemeVariables(resolveActivityTheme(envelope.type, envelope.config?.preset, envelope.theme))}><div className="participant-card participant-join-card"><span className="participant-mark lc-idle-wobble" style={idleWobbleStyle(code || 'join')}>⚡</span><span className="participant-kicker">JOIN A LIVE ACTIVITY</span><h1>{title}</h1><div className="participant-code">{code}</div><p>Choose a display name if this game uses a scoreboard. You can play anonymously when the host allows it.</p><form onSubmit={onSubmit}><label>Display name <input autoFocus maxLength={40} value={name} onChange={event => setName(event.target.value)} placeholder="Optional name" /></label>{error && <div className="participant-error" role="alert">{error}</div>}<GameButton className="participant-primary-button" lockIn disabled={busy}>{busy ? 'Joining…' : 'Join game'}</GameButton></form><small>No LessonCue account required.</small></div></main>
+const JoinCard: React.FC<{ title: string; code: string; name: string; setName: (value: string) => void; onSubmit: (event: FormEvent) => void; busy: boolean; error: string; envelope: ActivityStateEnvelope; avatar: string; setAvatar: (value: string) => void; color: string; setColor: (value: string) => void }> = ({ title, code, name, setName, onSubmit, busy, error, envelope, avatar, setAvatar, color, setColor }) => (
+  <main className="activity-participant-page" data-activity-type={envelope.type} style={activityThemeVariables(resolveActivityTheme(envelope.type, envelope.config?.preset, envelope.theme))}><div className="participant-card participant-join-card"><span className="participant-mark lc-idle-wobble" style={idleWobbleStyle(code || 'join')}>⚡</span><span className="participant-kicker">JOIN A LIVE ACTIVITY</span><h1>{title}</h1><div className="participant-code">{code}</div><p>Choose a display name if this game uses a scoreboard. You can play anonymously when the host allows it.</p><form onSubmit={onSubmit}><label>Display name <input autoFocus maxLength={40} value={name} onChange={event => setName(event.target.value)} placeholder="Optional name" /></label>
+    <div className="participant-identity-picker">
+      <span className="participant-identity-preview" style={{ background: color, color: inkOnPlayerColor(color) }} aria-hidden="true">{avatar}</span>
+      <div className="participant-identity-choices" role="radiogroup" aria-label="Choose your character">
+        {ACTIVITY_AVATARS.map(option => <GameButton key={option} type="button" className={`participant-avatar-swatch ${avatar === option ? 'selected' : ''}`} role="radio" aria-checked={avatar === option} aria-label={`Character ${option}`} onClick={() => setAvatar(option)}>{option}</GameButton>)}
+      </div>
+      <div className="participant-identity-choices" role="radiogroup" aria-label="Choose your colour">
+        {ACTIVITY_COLORS.map(option => <GameButton key={option} type="button" className={`participant-color-swatch ${color === option ? 'selected' : ''}`} role="radio" aria-checked={color === option} aria-label={`Colour ${option}`} style={{ background: option }} onClick={() => setColor(option)} />)}
+      </div>
+    </div>{error && <div className="participant-error" role="alert">{error}</div>}<GameButton className="participant-primary-button" lockIn disabled={busy}>{busy ? 'Joining…' : 'Join game'}</GameButton></form><small>No LessonCue account required.</small></div></main>
 );
 
 const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; busy: boolean; error: string; onAction: (action: string, payload?: JsonRecord) => void; onLeave: () => void }> = ({ view, busy, error, onAction, onLeave }) => {
@@ -211,7 +223,7 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
   const sendGroups = (groups: Array<{ groupId: string; itemIds: string[] }>) => onAction('group', { groups });
   const sendAdventureChoice = (index: number) => { setSelected(String(index)); onAction('choose', { choiceIndex: index }); };
 
-  return <GameAudioProvider chain={audioChain}><main className="activity-participant-page" data-activity-type={envelope.type} data-activity-preset={textOf(config.preset) || undefined} data-activity-panic={panicking ? 'true' : 'false'} style={themeVariables}><div className="participant-game-shell"><header className="participant-game-header"><div><span className="participant-kicker">{textOf(envelope.name, 'LIVE ACTIVITY')}</span><h1>{title}</h1></div><div className="participant-identity"><strong>{view.displayName}</strong><small>{view.hasSubmitted ? 'Response saved' : phase.replace(/([a-z])([A-Z])/g, '$1 $2')}</small></div></header>{error && <div className="participant-error" role="alert">{error}</div>}
+  return <GameAudioProvider chain={audioChain}><main className="activity-participant-page" data-activity-type={envelope.type} data-activity-preset={textOf(config.preset) || undefined} data-activity-panic={panicking ? 'true' : 'false'} style={themeVariables}><div className="participant-game-shell"><header className="participant-game-header"><div><span className="participant-kicker">{textOf(envelope.name, 'LIVE ACTIVITY')}</span><h1>{title}</h1></div><div className="participant-identity"><span className="participant-identity-badge" style={{ background: textOf(view.color, '#f6c531'), color: inkOnPlayerColor(textOf(view.color, '#f6c531')) }} aria-hidden="true">{textOf(view.avatar, '🙂')}</span><div><strong>{view.displayName}</strong><small>{view.hasSubmitted ? 'Response saved' : phase.replace(/([a-z])([A-Z])/g, '$1 $2')}</small></div></div></header>{error && <div className="participant-error" role="alert">{error}</div>}
     {timerRunning && phase === 'acceptingResponses' && envelope.type !== 'word' && <ActivityCountdown remainingMs={responseTimerRemainingMs} durationMs={timerDurationMs} label="TIME LEFT" compact />}
     {phase === 'lobby' || phase === 'setup' ? <section className="participant-waiting"><span className="waiting-orb" style={idleWobbleStyle(view.participantId, 1)}>✦</span><h2>You’re in.</h2><p>Waiting for the host to start the game.</p><div className="participant-count">{numberOf(state.participantCount)} players joined</div></section> :
       phase === 'acceptingResponses' && isChoice ? <ChoiceInput kicker={choiceKicker} prompt={prompt} options={options} selected={selected === null ? null : Number(selected)} disabled={busy || view.hasSubmitted} onSelect={sendChoice} modifierControls={quizModifierControls} /> :
@@ -234,7 +246,7 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
       phase === 'voting' && envelope.type === 'fakeOut' ? <VoteInput items={bluffOptions} selected={selected} disabled={busy || view.hasSubmitted} onSelect={id => { setSelected(id); submitVote(id); }} /> :
       phase === 'judging' || phase === 'responsesLocked' ? <section className="participant-waiting"><span className="waiting-orb" style={idleWobbleStyle('waiting', 2)}>⏳</span><h2>Locked in.</h2><p>The host is reviewing the room.</p></section> :
       phase === 'reveal' || phase === 'leaderboard' || phase === 'finalResults' ? <section className="participant-waiting"><span className="waiting-orb" style={idleWobbleStyle('reveal', 3)}>✨</span><h2>Reveal time.</h2><p>Look up at the main display.</p></section> : <section className="participant-waiting"><h2>Watch the stage.</h2><p>Your next input will appear here.</p></section>}
-    <GameButton className="participant-leave-button" onClick={onLeave}>Leave this device</GameButton></div></main></GameAudioProvider>;
+    <GameButton className="participant-leave-button" onClick={onLeave}>Not {view.displayName}? Switch player</GameButton></div></main></GameAudioProvider>;
 };
 
 const ChoiceInput: React.FC<{ kicker?: string; prompt: string; options: JsonRecord[]; selected: number | null; disabled: boolean; onSelect: (index: number) => void; modifierControls?: React.ReactNode }> = ({ kicker = 'CHOOSE ONE', prompt, options, selected, disabled, onSelect, modifierControls }) => <section className="participant-input-card"><span className="participant-kicker">{kicker}</span><h2>{prompt}</h2>{modifierControls}<div className="participant-choice-list">{options.map((option, index) => <GameButton key={index} className={selected === index ? 'selected' : ''} lockIn disabled={disabled} onClick={() => onSelect(index)}><span>{String.fromCharCode(65 + index)}</span>{textOf(option.value, textOf(option.label, textOf(option)))}</GameButton>)}</div>{disabled && <small className="participant-saved-note">Your answer is locked in.</small>}</section>;

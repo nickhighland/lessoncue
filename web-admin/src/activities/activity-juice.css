@@ -416,3 +416,73 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   .activity-join-prominent { gap: 1rem; padding: 1rem; }
   .activity-join-prominent-copy { text-align: center; }
 }
+
+/* --------------------------------------------------- player identity ---- */
+
+.participant-identity-picker {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: .7rem 1rem;
+  margin: 1rem 0 .3rem;
+}
+
+.participant-identity-preview {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 22px;
+  font-size: 2.4rem;
+  line-height: 1;
+  box-shadow: 0 8px 0 rgba(0, 0, 0, .25);
+}
+
+.participant-identity-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+}
+
+.activity-participant-page .participant-avatar-swatch {
+  min-width: 46px;
+  min-height: 46px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, .1);
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.activity-participant-page .participant-color-swatch {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+}
+
+.activity-participant-page .participant-avatar-swatch.selected,
+.activity-participant-page .participant-color-swatch.selected {
+  border-color: var(--act-stage-text, #fff);
+  box-shadow: 0 0 0 3px var(--act-stage-accent-soft, rgba(255, 255, 255, .35));
+}
+
+.participant-identity { display: flex; align-items: center; gap: .55rem; }
+
+.participant-identity-badge {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+@media (max-width: 380px) {
+  .participant-identity-preview { width: 60px; height: 60px; font-size: 1.9rem; }
+}

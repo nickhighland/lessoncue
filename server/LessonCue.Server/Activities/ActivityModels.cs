@@ -236,6 +236,10 @@ public sealed class ActivityParticipant
     public ActivityRun? ActivityRun { get; set; }
     [MaxLength(128)] public required string ParticipantTokenHash { get; set; }
     [MaxLength(80)] public string DisplayName { get; set; } = "Guest";
+    /// <summary>Emoji chosen at join. Constrained to <see cref="ActivityIdentity"/>.</summary>
+    [MaxLength(16)] public string Avatar { get; set; } = ActivityIdentity.DefaultAvatar;
+    /// <summary>Colour chosen at join. Constrained to <see cref="ActivityIdentity"/>.</summary>
+    [MaxLength(16)] public string Color { get; set; } = ActivityIdentity.DefaultColor;
     [MaxLength(16)] public string Status { get; set; } = "active";
     public Guid? TeamId { get; set; }
     public ActivityTeam? Team { get; set; }
@@ -390,7 +394,54 @@ public sealed record ActivityStateEnvelope(
     object? Theme,
     object? Config = null);
 
-public sealed record ActivityParticipantJoinInput(string? ParticipantToken, string? DisplayName = null);
+public sealed record ActivityParticipantJoinInput(
+    string? ParticipantToken,
+    string? DisplayName = null,
+    string? Avatar = null,
+    string? Color = null);
+
+/// <summary>
+/// The fixed set of player avatars and colours.
+///
+/// Players supply these from an untrusted phone, so the server pins them to a
+/// known list rather than storing arbitrary strings: it keeps the roster
+/// readable on a projector and stops a player writing whatever they like into
+/// a field the whole room sees.
+/// </summary>
+public static class ActivityIdentity
+{
+    public const string DefaultAvatar = "\U0001F600";
+    public const string DefaultColor = "#f6c531";
+
+    public static readonly string[] Avatars =
+    [
+        "\U0001F600", "\U0001F60E", "\U0001F929", "\U0001F921", "\U0001F984", "\U0001F436",
+        "\U0001F431", "\U0001F98A", "\U0001F438", "\U0001F427", "\U0001F419", "\U0001F41D",
+        "\U0001F680", "\U0001F355", "\U0001F3B8", "\U0001F3AF"
+    ];
+
+    public static readonly string[] Colors =
+    [
+        "#f6c531", "#ff6b6b", "#4ecdc4", "#8f7bff", "#ff9f43",
+        "#2dd4bf", "#f472b6", "#60a5fa", "#a3e635", "#fb7185"
+    ];
+
+    public static string NormalizeAvatar(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && Avatars.Contains(value.Trim()) ? value.Trim() : DefaultAvatar;
+
+    public static string NormalizeColor(string? value)
+    {
+        var color = value?.Trim().ToLowerInvariant();
+        return !string.IsNullOrWhiteSpace(color) && Colors.Contains(color) ? color! : DefaultColor;
+    }
+
+    /// <summary>Spread unclaimed identities so a silent room still looks varied.</summary>
+    public static (string Avatar, string Color) ForIndex(int index)
+    {
+        var safe = Math.Max(0, index);
+        return (Avatars[safe % Avatars.Length], Colors[safe % Colors.Length]);
+    }
+}
 
 public sealed record ActivityParticipantActionInput(
     string ParticipantToken,
@@ -414,7 +465,9 @@ public sealed record ActivityParticipantView(
     string DisplayName,
     string? TeamId,
     bool HasSubmitted,
-    bool CanRespond);
+    bool CanRespond,
+    string Avatar = ActivityIdentity.DefaultAvatar,
+    string Color = ActivityIdentity.DefaultColor);
 
 public sealed record ActivityHostView(
     ActivityStateEnvelope State,

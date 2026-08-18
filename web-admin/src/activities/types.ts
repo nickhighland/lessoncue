@@ -128,7 +128,7 @@ export interface ActivitySessionPublicView {
   state: ActivityStateEnvelope;
   joinCode: string;
   participantCount: number;
-  participants: Array<{ id: string; displayName: string; teamId?: string | null }>;
+  participants: Array<{ id: string; displayName: string; avatar?: string; color?: string; teamId?: string | null }>;
   teams: Array<{ id: string; name: string; color: string; icon: string; score: number }>;
 }
 
@@ -136,6 +136,8 @@ export interface ActivityParticipantView {
   state: ActivityStateEnvelope;
   participantId: string;
   displayName: string;
+  avatar?: string;
+  color?: string;
   teamId?: string | null;
   hasSubmitted: boolean;
   canRespond: boolean;
@@ -144,7 +146,7 @@ export interface ActivityParticipantView {
 export interface ActivityHostView {
   state: ActivityStateEnvelope;
   joinCode?: string | null;
-  participants: Array<{ id: string; displayName: string; status: string; teamId?: string | null; lives: number; joinedAt: string; lastSeenAt: string }>;
+  participants: Array<{ id: string; displayName: string; avatar?: string; color?: string; status: string; teamId?: string | null; lives: number; joinedAt: string; lastSeenAt: string }>;
   teams: Array<{ id: string; name: string; color: string; icon: string; score: number; active: boolean }>;
   submissions: Array<{ id: string; participantId: string; participantName?: string | null; roundId: string; kind: string; payload: Record<string, unknown>; moderationStatus: string; hidden: boolean; submittedAt: string; updatedAt: string }>;
   votes: Array<{ id: string; voterParticipantId: string; voterName?: string | null; roundId: string; targetId: string; payload: Record<string, unknown>; createdAt: string }>;

@@ -107,12 +107,17 @@ public sealed class ActivitySessionService(
         if (participant is null)
         {
             var count = await db.ActivityParticipants.CountAsync(x => x.ActivityRunId == run.Id && x.Status != "removed", ct);
+            // Unclaimed identities are spread by join order so a room that
+            // never touches the picker still looks varied on the stage.
+            var (defaultAvatar, defaultColor) = ActivityIdentity.ForIndex(count);
             participant = new ActivityParticipant
             {
                 Id = Guid.NewGuid(),
                 ActivityRunId = run.Id,
                 ParticipantTokenHash = hash,
                 DisplayName = string.IsNullOrWhiteSpace(displayName) ? $"Player {count + 1}" : displayName,
+                Avatar = string.IsNullOrWhiteSpace(input.Avatar) ? defaultAvatar : ActivityIdentity.NormalizeAvatar(input.Avatar),
+                Color = string.IsNullOrWhiteSpace(input.Color) ? defaultColor : ActivityIdentity.NormalizeColor(input.Color),
                 IsAnonymous = string.IsNullOrWhiteSpace(displayName),
                 JoinedAt = DateTimeOffset.UtcNow,
                 LastSeenAt = DateTimeOffset.UtcNow
@@ -127,6 +132,9 @@ public sealed class ActivitySessionService(
                 participant.DisplayName = displayName;
                 participant.IsAnonymous = false;
             }
+            // A reconnecting player may also be changing their look.
+            if (!string.IsNullOrWhiteSpace(input.Avatar)) participant.Avatar = ActivityIdentity.NormalizeAvatar(input.Avatar);
+            if (!string.IsNullOrWhiteSpace(input.Color)) participant.Color = ActivityIdentity.NormalizeColor(input.Color);
             participant.LastSeenAt = DateTimeOffset.UtcNow;
         }
 
@@ -151,7 +159,7 @@ public sealed class ActivitySessionService(
         var envelope = await BuildEnvelopeAsync(run, ProjectionRole.Display, ct);
         var participants = (await db.ActivityParticipants.AsNoTracking()
             .Where(x => x.ActivityRunId == run.Id && x.Status != "removed")
-            .Select(x => new { id = x.Id, displayName = x.DisplayName, teamId = x.TeamId, joinedAt = x.JoinedAt })
+            .Select(x => new { id = x.Id, displayName = x.DisplayName, avatar = x.Avatar, color = x.Color, teamId = x.TeamId, joinedAt = x.JoinedAt })
             .ToListAsync(ct))
             .OrderBy(x => x.joinedAt)
             .Select(x => (object)new { id = x.id, displayName = x.displayName, teamId = x.teamId })
@@ -208,7 +216,7 @@ public sealed class ActivitySessionService(
         var hasSubmitted = isTurnBasedWord ? false : phase == ActivityPhases.Voting ? hasVote : hasSubmission || hasVote;
         var canRespond = phase is ActivityPhases.AcceptingResponses or ActivityPhases.Voting or ActivityPhases.Prompt;
         if (isTurnBasedWord) canRespond = canRespond && isCurrentTurn && !isEliminated;
-        return new ActivityParticipantView(envelope, participant.Id, participant.DisplayName, participant.TeamId?.ToString(), hasSubmitted, canRespond);
+        return new ActivityParticipantView(envelope, participant.Id, participant.DisplayName, participant.TeamId?.ToString(), hasSubmitted, canRespond, participant.Avatar, participant.Color);
     }
 
     public async Task<ActivityHostView?> GetHostViewAsync(Guid runId, CancellationToken ct = default)
@@ -219,7 +227,7 @@ public sealed class ActivitySessionService(
         run = await LoadRunAsync(run.Id, ct) ?? run;
         var envelope = await BuildEnvelopeAsync(run, ProjectionRole.Host, ct);
         var participants = run.Participants.Where(x => x.Status != "removed").OrderBy(x => x.JoinedAt)
-            .Select(x => (object)new { id = x.Id, displayName = x.DisplayName, status = x.Status, teamId = x.TeamId, lives = x.Lives, joinedAt = x.JoinedAt, lastSeenAt = x.LastSeenAt })
+            .Select(x => (object)new { id = x.Id, displayName = x.DisplayName, avatar = x.Avatar, color = x.Color, status = x.Status, teamId = x.TeamId, lives = x.Lives, joinedAt = x.JoinedAt, lastSeenAt = x.LastSeenAt })
             .ToArray();
         var teams = run.Teams.OrderBy(x => x.Position)
             .Select(x => (object)new { id = x.Id, name = x.Name, color = x.Color, icon = x.Icon, score = x.Score, active = x.Active })
@@ -3592,6 +3600,24 @@ public sealed class ActivitySessionService(
         // the room should see and scan.
         projected["joinUrl"] = joinAddress.ResolveJoinUrl(run.JoinCode);
         projected["participantCount"] = await db.ActivityParticipants.CountAsync(x => x.ActivityRunId == run.Id && x.Status != "removed", ct);
+        // Public roster, lobby only. Bluffing and creative games hide who wrote
+        // what until the host reveals, so once play starts a name list in the
+        // display projection would give the room something to correlate
+        // against. Standings carry names again at reveal/leaderboard time.
+        var rosterPhase = StringValue(state, "phase");
+        if (rosterPhase is ActivityPhases.Setup or ActivityPhases.Lobby)
+        {
+            projected["roster"] = new JsonArray(run.Participants
+                .Where(x => x.Status != "removed")
+                .OrderBy(x => x.JoinedAt)
+                .Select(x => (JsonNode)new JsonObject
+                {
+                    ["id"] = x.Id.ToString(),
+                    ["name"] = x.DisplayName,
+                    ["avatar"] = x.Avatar,
+                    ["color"] = x.Color,
+                }).ToArray());
+        }
         var phase = StringValue(state, "phase");
         if (phase is ActivityPhases.Leaderboard or ActivityPhases.FinalResults or ActivityPhases.Complete)
         {
@@ -3599,9 +3625,11 @@ public sealed class ActivitySessionService(
             {
                 participant.Id,
                 participant.DisplayName,
+                participant.Avatar,
+                participant.Color,
                 Score = run.ScoreEvents.Where(score => !score.IsUndone && score.ParticipantId == participant.Id).Sum(score => score.Amount)
             }).OrderByDescending(item => item.Score).ThenBy(item => item.DisplayName, StringComparer.Ordinal).ToArray();
-            projected["leaderboard"] = new JsonArray(individualScores.Select((item, index) => (JsonNode)new JsonObject { ["rank"] = index + 1, ["id"] = item.Id.ToString(), ["name"] = item.DisplayName, ["score"] = item.Score }).ToArray());
+            projected["leaderboard"] = new JsonArray(individualScores.Select((item, index) => (JsonNode)new JsonObject { ["rank"] = index + 1, ["id"] = item.Id.ToString(), ["name"] = item.DisplayName, ["avatar"] = item.Avatar, ["color"] = item.Color, ["score"] = item.Score }).ToArray());
             projected["teamLeaderboard"] = new JsonArray(run.Teams.Where(team => team.Active).OrderByDescending(team => team.Score).Select((team, index) => (JsonNode)new JsonObject { ["rank"] = index + 1, ["id"] = team.Id.ToString(), ["name"] = team.Name, ["icon"] = team.Icon, ["score"] = team.Score }).ToArray());
         }
         if (run.ActivityDefinition!.Type is ActivityTypes.Trivia or ActivityTypes.RapidFire)

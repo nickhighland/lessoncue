@@ -154,7 +154,7 @@ test("tapping a control squashes and springs back", async ({ page, context }) =>
   const participant = await context.newPage();
   try {
     await joinAs(participant, run.joinCode, "Squasher");
-    const leave = participant.getByRole("button", { name: "Leave this device" });
+    const leave = participant.locator(".participant-leave-button");
     await expect(leave).toHaveAttribute("data-juice", "idle");
 
     await leave.dispatchEvent("pointerdown");
@@ -192,7 +192,7 @@ test("phone controls keep chunky touch targets", async ({ page, context }) => {
     await expect(send).toBeVisible();
     expect((await send.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(60);
 
-    const leave = participant.getByRole("button", { name: "Leave this device" });
+    const leave = participant.locator(".participant-leave-button");
     expect((await leave.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
   } finally {
     await participant.close();
@@ -292,7 +292,7 @@ test("repeated taps vary the sampled pitch instead of sounding identical", async
     });
 
     await joinAs(participant, run.joinCode, "Tapper");
-    const leave = participant.getByRole("button", { name: "Leave this device" });
+    const leave = participant.locator(".participant-leave-button");
 
     // Pointer-down only: this fires the tap cue without activating the button.
     const sampled = () => participant.evaluate(() =>
@@ -543,7 +543,7 @@ test.describe("reduced motion", () => {
       const orb = participant.locator(".participant-waiting .waiting-orb").first();
       expect(await orb.evaluate(node => getComputedStyle(node).animationName)).toBe("none");
 
-      const leave = participant.getByRole("button", { name: "Leave this device" });
+      const leave = participant.locator(".participant-leave-button");
       await leave.dispatchEvent("pointerdown");
       await expect(leave).toHaveAttribute("data-juice", "pressed");
       // No transform, but the press is still visibly acknowledged.
