@@ -26,6 +26,7 @@ export interface RacerEntry {
   rank: number;
   avatar: string;
   color: string;
+  streak: number;
 }
 
 export function readRacers(value: unknown): RacerEntry[] {
@@ -36,6 +37,7 @@ export function readRacers(value: unknown): RacerEntry[] {
     rank: numberOf(entry.rank, index + 1),
     avatar: textOf(entry.avatar, '🙂'),
     color: textOf(entry.color, '#f6c531'),
+    streak: numberOf(entry.streak),
   }));
 }
 
@@ -78,7 +80,10 @@ const Lane: React.FC<{ racer: RacerEntry; topScore: number; gained: boolean }> =
         <b className="activity-race-score">{score.toLocaleString()}</b>
       </div>
     </div>
-    <span className="activity-race-name">{racer.name}</span>
+    <span className="activity-race-name">
+      {racer.name}
+      {racer.streak >= 2 && <b className="activity-race-streak" title={`${racer.streak} in a row`}>🔥{racer.streak}</b>}
+    </span>
   </li>;
 };
 

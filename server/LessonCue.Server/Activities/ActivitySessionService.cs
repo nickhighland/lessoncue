@@ -3671,6 +3671,56 @@ public sealed class ActivitySessionService(
         state["autoAdvanced"] = true;
     }
 
+
+    /// <summary>
+    /// Consecutive scoring rounds, counting back from the latest.
+    ///
+    /// Correctness is not persisted per submission, so the run's own history is
+    /// the source: the rounds this player answered, in order, and whether each
+    /// one scored.
+    /// </summary>
+    private static int CountStreak(ActivityRun run, Guid participantId)
+    {
+        var rounds = run.Submissions
+            .Where(x => x.ParticipantId == participantId && !string.IsNullOrEmpty(x.RoundId))
+            .OrderBy(x => x.SubmittedAt)
+            .Select(x => x.RoundId)
+            .Distinct()
+            .ToArray();
+
+        var streak = 0;
+        for (var index = rounds.Length - 1; index >= 0; index--)
+        {
+            var scored = run.ScoreEvents.Any(item => !item.IsUndone
+                && item.ParticipantId == participantId
+                && item.RoundId == rounds[index]
+                && item.Amount > 0);
+            if (!scored) break;
+            streak++;
+        }
+        return streak;
+    }
+
+    /// <summary>
+    /// Whether this player was the first to answer the round correctly. Uses
+    /// the server-recorded submission time, never a client claim.
+    /// </summary>
+    private static bool IsFirstCorrect(ActivityRun run, string roundId, Guid participantId)
+    {
+        var scorers = run.ScoreEvents
+            .Where(item => !item.IsUndone && item.RoundId == roundId && item.Amount > 0 && item.ParticipantId.HasValue)
+            .Select(item => item.ParticipantId!.Value)
+            .ToHashSet();
+        if (!scorers.Contains(participantId)) return false;
+
+        var earliest = run.Submissions
+            .Where(x => x.RoundId == roundId && x.ParticipantId != Guid.Empty && scorers.Contains(x.ParticipantId))
+            .OrderBy(x => x.SubmittedAt)
+            .Select(x => (Guid?)x.ParticipantId)
+            .FirstOrDefault();
+        return earliest == participantId;
+    }
+
     private static readonly HashSet<string> GradedTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         ActivityTypes.Trivia, ActivityTypes.RapidFire, ActivityTypes.Prediction,
@@ -3728,6 +3778,8 @@ public sealed class ActivitySessionService(
             ["outcome"] = outcome,
             ["answered"] = answered,
             ["graded"] = graded,
+            ["streak"] = graded ? CountStreak(run, participantId) : 0,
+            ["first"] = outcome == "correct" && IsFirstCorrect(run, roundId, participantId),
         };
     }
 
@@ -3775,9 +3827,10 @@ public sealed class ActivitySessionService(
                 participant.DisplayName,
                 participant.Avatar,
                 participant.Color,
+                Streak = GradedTypes.Contains(run.ActivityDefinition!.Type) ? CountStreak(run, participant.Id) : 0,
                 Score = run.ScoreEvents.Where(score => !score.IsUndone && score.ParticipantId == participant.Id).Sum(score => score.Amount)
             }).OrderByDescending(item => item.Score).ThenBy(item => item.DisplayName, StringComparer.Ordinal).ToArray();
-            projected["leaderboard"] = new JsonArray(individualScores.Select((item, index) => (JsonNode)new JsonObject { ["rank"] = index + 1, ["id"] = item.Id.ToString(), ["name"] = item.DisplayName, ["avatar"] = item.Avatar, ["color"] = item.Color, ["score"] = item.Score }).ToArray());
+            projected["leaderboard"] = new JsonArray(individualScores.Select((item, index) => (JsonNode)new JsonObject { ["rank"] = index + 1, ["id"] = item.Id.ToString(), ["name"] = item.DisplayName, ["avatar"] = item.Avatar, ["color"] = item.Color, ["streak"] = item.Streak, ["score"] = item.Score }).ToArray());
             projected["teamLeaderboard"] = new JsonArray(run.Teams.Where(team => team.Active).OrderByDescending(team => team.Score).Select((team, index) => (JsonNode)new JsonObject { ["rank"] = index + 1, ["id"] = team.Id.ToString(), ["name"] = team.Name, ["icon"] = team.Icon, ["score"] = team.Score }).ToArray());
         }
         if (run.ActivityDefinition!.Type is ActivityTypes.Trivia or ActivityTypes.RapidFire)

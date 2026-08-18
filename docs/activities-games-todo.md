@@ -375,6 +375,7 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Add theme/presentation variants that are recognizably LessonCue and do not copy commercial game-show artwork, sound, or trade dress. Named catalog presets now seed stage, neon, retro, arcade, cyberpunk, or clean treatments; teachers can change the TV theme, sound pack, and ambient-motion preference in the existing editor.
 - [x] Add renderer-only suspense/reveal pacing without making the host wait unnecessarily; every transition remains manually advanceable and reduced-motion safe.
 - [x] Add audio/image asset licensing notes and original asset attribution guidance in [Activities assets and sound policy](activities-assets-and-sound.md); new bundled assets still require an entry before release.
+- [x] Add streak and speed callouts: "First in!" for the earliest correct answer of a round and a run counter on both the phone result card and the standings race, derived from the server's own submission times and score events.
 - [x] Add opt-in auto-advance: once every active player has answered, the server closes the response window itself. Off by default, host-togglable per run, and only offered for engines where a head count is meaningful.
 - [x] Give the host live controls: the join code and QR stay visible during a round, a roster shows who has answered with an "answers in" count, and a standings button is available. The Universal Remote tabs are named for what they do.
 - [x] Put the response clock on the stage so the room can see it, not only the phones.

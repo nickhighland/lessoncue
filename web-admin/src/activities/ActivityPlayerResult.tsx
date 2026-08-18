@@ -19,6 +19,10 @@ export interface PersonalResult {
   outcome: 'correct' | 'incorrect' | 'missed' | 'scored';
   answered: boolean;
   graded: boolean;
+  /** Consecutive scoring rounds, counting back from this one. */
+  streak: number;
+  /** First player to answer this round correctly. */
+  first: boolean;
 }
 
 export function readPersonalResult(value: unknown): PersonalResult | null {
@@ -35,6 +39,8 @@ export function readPersonalResult(value: unknown): PersonalResult | null {
     outcome,
     answered: raw.answered === true,
     graded: raw.graded === true,
+    streak: number(raw.streak),
+    first: raw.first === true,
   };
 }
 
@@ -67,6 +73,10 @@ export const ActivityPlayerResult: React.FC<{
     {result.roundPoints !== 0 && <div className="participant-result-points">
       {result.roundPoints > 0 ? '+' : ''}{points.toLocaleString()}
       <small>this round</small>
+    </div>}
+    {(result.first || result.streak >= 2) && <div className="participant-result-callouts">
+      {result.first && <span className="participant-callout first">⚡ First in!</span>}
+      {result.streak >= 2 && <span className="participant-callout streak">🔥 {result.streak} in a row</span>}
     </div>}
     <p>{copy.detail}</p>
     <dl className="participant-result-standing">

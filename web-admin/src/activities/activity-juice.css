@@ -819,3 +819,46 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   .activity-race-lane.gained,
   .activity-race-lane.gained .activity-race-runner { animation: none; }
 }
+
+/* ---------------------------------------------------------- callouts ---- */
+
+.participant-result-callouts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: .4rem;
+  margin: .55rem 0 .2rem;
+}
+
+.participant-callout {
+  padding: .22rem .7rem;
+  border-radius: 999px;
+  font-size: .78rem;
+  font-weight: 900;
+  letter-spacing: .02em;
+  /* Land after the score so they read as a bonus, not part of the total. */
+  animation: lc-callout-pop 480ms cubic-bezier(.34, 1.56, .64, 1) 420ms both;
+}
+
+.participant-callout.first { background: rgba(96, 165, 250, .22); color: #bfdbfe; }
+.participant-callout.streak { background: rgba(251, 146, 60, .22); color: #fed7aa; }
+
+@keyframes lc-callout-pop {
+  0%   { opacity: 0; transform: scale(.6) translateY(6px); }
+  60%  { opacity: 1; transform: scale(1.1) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .participant-callout { animation: none; }
+}
+
+.activity-race-streak {
+  margin-left: .4rem;
+  padding: .05rem .4rem;
+  border-radius: 999px;
+  background: rgba(251, 146, 60, .22);
+  color: #fed7aa;
+  font-size: .78em;
+  font-weight: 900;
+}
