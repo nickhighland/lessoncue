@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Text.Json;
 
 namespace LessonCue.Server;
@@ -30,13 +33,15 @@ public sealed record JoinAddressInput(string Mode);
 public sealed class ActivityJoinAddressService(
     string dataPath,
     LocalAddressService localAddress,
-    CloudflareTunnelService tunnel)
+    CloudflareTunnelService tunnel,
+    HttpPortService httpPort)
 {
     public const string ModeAuto = "auto";
     public const string ModeCloudflare = "cloudflare";
     public const string ModeLocal = "local";
+    public const string ModeLan = "lan";
 
-    private static readonly string[] Modes = [ModeAuto, ModeCloudflare, ModeLocal];
+    private static readonly string[] Modes = [ModeAuto, ModeCloudflare, ModeLocal, ModeLan];
     private readonly string configPath = Path.Combine(dataPath, "activity-join-address.json");
     private readonly SemaphoreSlim gate = new(1, 1);
 
@@ -93,7 +98,9 @@ public sealed class ActivityJoinAddressService(
         string? url = mode == ModeAuto ? null : byId.GetValueOrDefault(mode)?.Url;
         if (string.IsNullOrWhiteSpace(url))
         {
-            foreach (var candidate in new[] { ModeCloudflare, ModeLocal })
+            // .local before the numeric address: it is easier to read aloud, and
+            // the IP is the fallback for networks where mDNS does not work.
+            foreach (var candidate in new[] { ModeCloudflare, ModeLocal, ModeLan })
             {
                 var option = byId.GetValueOrDefault(candidate);
                 if (string.IsNullOrWhiteSpace(option?.Url)) continue;
@@ -116,11 +123,12 @@ public sealed class ActivityJoinAddressService(
         // LocalAddressStatus.Address is already an absolute URL including the
         // scheme and any non-default port.
         var localUrl = string.IsNullOrWhiteSpace(local.Address) ? null : local.Address;
+        var lanUrl = BuildLanUrl(httpPort.Status.Port);
 
         return
         [
             new JoinAddressOption(ModeAuto, "Automatic", null, true,
-                "Use the internet address when a tunnel is published, otherwise the local name."),
+                "Use the internet address when a tunnel is published, then the local name, then the network address."),
             new JoinAddressOption(ModeCloudflare, "Internet address", cloudflareUrl, cloudflareUrl is not null,
                 cloudflareUrl is not null
                     ? "Works on any network, including phones on mobile data."
@@ -129,7 +137,50 @@ public sealed class ActivityJoinAddressService(
                 local.Supported
                     ? "Works for phones on the same Wi-Fi. Easiest to read aloud."
                     : "This machine cannot publish a .local name."),
+            new JoinAddressOption(ModeLan, "Network address", lanUrl, lanUrl is not null,
+                lanUrl is not null
+                    ? "Numbers rather than a name. Use this when the local name does not resolve on your Wi-Fi."
+                    : "No network address was detected on this machine."),
         ];
+    }
+
+    /// <summary>
+    /// Primary non-loopback IPv4 for this machine.
+    ///
+    /// The .local name depends on mDNS, which plenty of school networks block
+    /// or filter between client isolation groups. A numeric address is the
+    /// fallback a teacher can read out when the name does not resolve.
+    /// </summary>
+    private static string? BuildLanUrl(int port)
+    {
+        try
+        {
+            var candidates = NetworkInterface.GetAllNetworkInterfaces()
+                .Where(nic => nic.OperationalStatus == OperationalStatus.Up
+                    && nic.NetworkInterfaceType != NetworkInterfaceType.Loopback
+                    && nic.NetworkInterfaceType != NetworkInterfaceType.Tunnel)
+                .SelectMany(nic => nic.GetIPProperties().UnicastAddresses
+                    .Where(address => address.Address.AddressFamily == AddressFamily.InterNetwork)
+                    .Select(address => (Nic: nic, address.Address)))
+                .Where(entry => !IPAddress.IsLoopback(entry.Address))
+                // Link-local 169.254.x.x means no DHCP lease; nothing will reach it.
+                .Where(entry => !entry.Address.ToString().StartsWith("169.254.", StringComparison.Ordinal))
+                .ToArray();
+
+            // Prefer wired, then wireless, so a machine with a virtual adapter
+            // does not advertise an address the room cannot reach.
+            var chosen = candidates.FirstOrDefault(entry => entry.Nic.NetworkInterfaceType == NetworkInterfaceType.Ethernet)
+                .Address
+                ?? candidates.FirstOrDefault(entry => entry.Nic.NetworkInterfaceType == NetworkInterfaceType.Wireless80211).Address
+                ?? candidates.FirstOrDefault().Address;
+
+            if (chosen is null) return null;
+            return port == 80 ? $"http://{chosen}" : $"http://{chosen}:{port}";
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private sealed record StoredMode(string Mode);

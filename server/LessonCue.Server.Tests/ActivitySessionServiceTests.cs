@@ -49,7 +49,7 @@ public sealed class ActivitySessionServiceTests
         var localAddress = new LocalAddressService(dataPath, 80, NullLogger<LocalAddressService>.Instance);
         var tunnel = new CloudflareTunnelService(dataPath, httpPort, new TestHttpClientFactory(),
             NullLogger<CloudflareTunnelService>.Instance);
-        return new ActivityJoinAddressService(dataPath, localAddress, tunnel);
+        return new ActivityJoinAddressService(dataPath, localAddress, tunnel, httpPort);
     }
 
     private sealed class TestHttpClientFactory : IHttpClientFactory

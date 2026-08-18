@@ -18,7 +18,7 @@ public sealed class ActivityJoinAddressTests
         var localAddress = new LocalAddressService(dataPath, 80, NullLogger<LocalAddressService>.Instance);
         var tunnel = new CloudflareTunnelService(dataPath, httpPort, new TestHttpClientFactory(),
             NullLogger<CloudflareTunnelService>.Instance);
-        return (new ActivityJoinAddressService(dataPath, localAddress, tunnel), dataPath);
+        return (new ActivityJoinAddressService(dataPath, localAddress, tunnel, httpPort), dataPath);
     }
 
     [Theory]
@@ -28,6 +28,7 @@ public sealed class ActivityJoinAddressTests
     [InlineData("nonsense", "auto")]
     [InlineData("CLOUDFLARE", "cloudflare")]
     [InlineData(" local ", "local")]
+    [InlineData("lan", "lan")]
     public void ModeNormalizationRejectsUnknownValues(string? input, string expected)
     {
         Assert.Equal(expected, ActivityJoinAddressService.NormalizeMode(input));
@@ -58,7 +59,7 @@ public sealed class ActivityJoinAddressTests
         try
         {
             var status = service.Status;
-            Assert.Equal(["auto", "cloudflare", "local"], status.Options.Select(option => option.Id).ToArray());
+            Assert.Equal(["auto", "cloudflare", "local", "lan"], status.Options.Select(option => option.Id).ToArray());
             // Unreachable options stay listed so the teacher can see why.
             Assert.All(status.Options, option => Assert.False(string.IsNullOrWhiteSpace(option.Label)));
             Assert.All(status.Options, option => Assert.False(string.IsNullOrWhiteSpace(option.Detail)));
@@ -79,6 +80,31 @@ public sealed class ActivityJoinAddressTests
             Assert.Equal("cloudflare", status.Mode);
             Assert.NotEqual("cloudflare", status.ResolvedFrom);
             if (status.Url is not null) Assert.Single(System.Text.RegularExpressions.Regex.Matches(status.Url, "://"));
+        }
+        finally { Directory.Delete(dataPath, true); }
+    }
+
+    [Fact]
+    public void TheNetworkAddressIsANumericFallbackForWhenMdnsFails()
+    {
+        var (service, dataPath) = Create();
+        try
+        {
+            var lan = service.Status.Options.Single(option => option.Id == "lan");
+            if (lan.Url is null)
+            {
+                // A machine with no usable interface still offers the choice
+                // with an explanation rather than hiding it.
+                Assert.False(lan.Available);
+                Assert.Contains("No network address", lan.Detail);
+                return;
+            }
+
+            Assert.True(lan.Available);
+            Assert.Matches(@"^http://\d{1,3}(\.\d{1,3}){3}(:\d+)?$", lan.Url);
+            // Loopback and link-local addresses reach nobody in the room.
+            Assert.DoesNotContain("127.0.0.1", lan.Url);
+            Assert.DoesNotContain("169.254.", lan.Url);
         }
         finally { Directory.Delete(dataPath, true); }
     }

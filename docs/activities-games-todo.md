@@ -375,6 +375,11 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [x] Add theme/presentation variants that are recognizably LessonCue and do not copy commercial game-show artwork, sound, or trade dress. Named catalog presets now seed stage, neon, retro, arcade, cyberpunk, or clean treatments; teachers can change the TV theme, sound pack, and ambient-motion preference in the existing editor.
 - [x] Add renderer-only suspense/reveal pacing without making the host wait unnecessarily; every transition remains manually advanceable and reduced-motion safe.
 - [x] Add audio/image asset licensing notes and original asset attribution guidance in [Activities assets and sound policy](activities-assets-and-sound.md); new bundled assets still require an entry before release.
+- [x] Offer a numeric network address alongside the `.local` name, so a room can still join when mDNS does not resolve on the Wi-Fi.
+- [x] Let a teacher pre-arm auto-advance in the editor rather than only from the host console mid-run.
+- [x] Give each phone its own sound switch, remembered per device.
+- [x] Replace the inherited Georgia serif on game surfaces with a heavy system display treatment; no bundled font, so no new licence obligation.
+- [x] Build streaks once per projection instead of walking the run per player.
 - [x] Add streak and speed callouts: "First in!" for the earliest correct answer of a round and a run counter on both the phone result card and the standings race, derived from the server's own submission times and score events.
 - [x] Add opt-in auto-advance: once every active player has answered, the server closes the response window itself. Off by default, host-togglable per run, and only offered for engines where a head count is meaningful.
 - [x] Give the host live controls: the join code and QR stay visible during a round, a roster shows who has answered with an "answers in" count, and a standings button is available. The Universal Remote tabs are named for what they do.

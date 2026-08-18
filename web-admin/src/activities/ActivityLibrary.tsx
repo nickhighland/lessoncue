@@ -6,6 +6,7 @@ import { ACTIVITY_PRESET_CATALOG, ACTIVITY_THEME_PRESETS, type ActivityPresetCat
 import { ActivityPreview, type ActivityPreviewMode } from './ActivityPreview';
 import { PageHead, Modal, Field, Empty } from '../admin/ui';
 import './activity.css';
+import { ActivityAutoAdvanceEditor } from './ActivityAutoAdvanceEditor';
 
 const stableDraftValue = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(stableDraftValue);
@@ -995,10 +996,19 @@ export const ActivityLibrary: React.FC = () => {
                   const desc = getActivityDescriptor(selectedActivity.type);
                   const EditorComponent = desc.editorComponent;
                   return (
-                    <EditorComponent
-                      config={editingConfig}
-                      onChange={setEditingConfig}
-                    />
+                    <>
+                      <EditorComponent
+                        config={editingConfig}
+                        onChange={setEditingConfig}
+                      />
+                      {/* Shared across engines rather than repeated in each
+                          editor, so every supporting engine gets it. */}
+                      <ActivityAutoAdvanceEditor
+                        type={selectedActivity.type}
+                        config={editingConfig}
+                        onChange={setEditingConfig}
+                      />
+                    </>
                   );
                 })()}
               </div>

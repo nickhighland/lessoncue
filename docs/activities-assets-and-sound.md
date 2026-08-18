@@ -85,6 +85,14 @@ select from the existing LessonCue media library. Activities reuse the existing
 media storage and playback URLs; reveal transformations are temporary client
 presentation state and do not create modified copies of source media.
 
+## Typography
+
+Game surfaces use a system display stack (`--act-display-font`) at heavy weight
+with tight tracking, not a bundled typeface. A licensed display font would be a
+bundled asset and would need the source note, licence record, and attribution
+entry required above; the system stack avoids that obligation and keeps the
+offline-first build free of font downloads.
+
 ## Review checklist for new presets
 
 1. Is the prompt/content freely authored and easy for a teacher to replace?

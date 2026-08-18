@@ -6,6 +6,7 @@ import { GameAudioProvider, GameButton, idleWobbleStyle, useGamePanic } from './
 import { activityThemeVariables, resolveActivityTheme } from './activityPalettes';
 import { ACTIVITY_AVATARS, ACTIVITY_COLORS, DEFAULT_ACTIVITY_AVATAR, DEFAULT_ACTIVITY_COLOR, inkOnPlayerColor } from './activityIdentity';
 import { ActivityPlayerResult, readPersonalResult } from './ActivityPlayerResult';
+import { isAudioMuted, setAudioMuted } from './effects';
 import { primeGameAudio, resolveGameAudioChain } from './audio/gameAudio';
 import { useAudioPreloader } from './audio/useAudioPreloader';
 import './activity.css';
@@ -19,6 +20,38 @@ const participantTokenKey = (code: string) => `lessoncue:activity-participant:${
 const randomFrom = <T,>(options: readonly T[], fallback: T): T => options.length
   ? options[Math.floor(Math.random() * options.length)]
   : fallback;
+const muteKey = 'lessoncue:activity-participant-muted';
+
+/**
+ * Per-device sound switch.
+ *
+ * A phone plays a cue on every tap, and a classroom full of them is the
+ * loudest part of the room. Hardware volume works but is a blunt instrument
+ * mid-lesson, so the choice is remembered here per device.
+ */
+const MuteToggle: React.FC = () => {
+  const [muted, setMuted] = useState(() => {
+    try {
+      const stored = localStorage.getItem(muteKey);
+      if (stored !== null) return stored === 'true';
+    } catch { /* private browsing */ }
+    return isAudioMuted();
+  });
+
+  useEffect(() => {
+    setAudioMuted(muted);
+    try { localStorage.setItem(muteKey, String(muted)); } catch { /* private browsing */ }
+  }, [muted]);
+
+  return <GameButton
+    type="button"
+    className="participant-mute-button"
+    silent
+    aria-pressed={muted}
+    aria-label={muted ? 'Turn game sound on' : 'Turn game sound off'}
+    onClick={() => setMuted(current => !current)}
+  >{muted ? '🔇' : '🔊'}</GameButton>;
+};
 
 export const ActivityParticipantApp: React.FC = () => {
   const code = location.pathname.split('/')[2]?.trim().toUpperCase() || '';
@@ -120,7 +153,7 @@ const JoinCard: React.FC<{ title: string; code: string; name: string; setName: (
       <div className="participant-identity-choices" role="radiogroup" aria-label="Choose your colour">
         {ACTIVITY_COLORS.map(option => <GameButton key={option} type="button" className={`participant-color-swatch ${color === option ? 'selected' : ''}`} role="radio" aria-checked={color === option} aria-label={`Colour ${option}`} style={{ background: option }} onClick={() => setColor(option)} />)}
       </div>
-    </div>{error && <div className="participant-error" role="alert">{error}</div>}<GameButton className="participant-primary-button" lockIn disabled={busy}>{busy ? 'Joining…' : 'Join game'}</GameButton></form><small>No LessonCue account required.</small></div></main>
+    </div>{error && <div className="participant-error" role="alert">{error}</div>}<GameButton className="participant-primary-button" lockIn disabled={busy}>{busy ? 'Joining…' : 'Join game'}</GameButton></form><small>No LessonCue account required.</small><div className="participant-join-sound"><MuteToggle /></div></div></main>
 );
 
 const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; busy: boolean; error: string; onAction: (action: string, payload?: JsonRecord) => void; onLeave: () => void }> = ({ view, busy, error, onAction, onLeave }) => {
@@ -231,7 +264,7 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
   const sendGroups = (groups: Array<{ groupId: string; itemIds: string[] }>) => onAction('group', { groups });
   const sendAdventureChoice = (index: number) => { setSelected(String(index)); onAction('choose', { choiceIndex: index }); };
 
-  return <GameAudioProvider chain={audioChain}><main className="activity-participant-page" data-activity-type={envelope.type} data-activity-preset={textOf(config.preset) || undefined} data-activity-panic={panicking ? 'true' : 'false'} style={themeVariables}><div className="participant-game-shell"><header className="participant-game-header"><div><span className="participant-kicker">{textOf(envelope.name, 'LIVE ACTIVITY')}</span><h1>{title}</h1></div><div className="participant-identity"><span className="participant-identity-badge" style={{ background: textOf(view.color, '#f6c531'), color: inkOnPlayerColor(textOf(view.color, '#f6c531')) }} aria-hidden="true">{textOf(view.avatar, '🙂')}</span><div><strong>{view.displayName}</strong><small>{view.hasSubmitted ? 'Response saved' : phase.replace(/([a-z])([A-Z])/g, '$1 $2')}</small></div></div></header>{error && <div className="participant-error" role="alert">{error}</div>}
+  return <GameAudioProvider chain={audioChain}><main className="activity-participant-page" data-activity-type={envelope.type} data-activity-preset={textOf(config.preset) || undefined} data-activity-panic={panicking ? 'true' : 'false'} style={themeVariables}><div className="participant-game-shell"><header className="participant-game-header"><div><span className="participant-kicker">{textOf(envelope.name, 'LIVE ACTIVITY')}</span><h1>{title}</h1></div><div className="participant-identity"><MuteToggle /><span className="participant-identity-badge" style={{ background: textOf(view.color, '#f6c531'), color: inkOnPlayerColor(textOf(view.color, '#f6c531')) }} aria-hidden="true">{textOf(view.avatar, '🙂')}</span><div><strong>{view.displayName}</strong><small>{view.hasSubmitted ? 'Response saved' : phase.replace(/([a-z])([A-Z])/g, '$1 $2')}</small></div></div></header>{error && <div className="participant-error" role="alert">{error}</div>}
     {timerRunning && phase === 'acceptingResponses' && envelope.type !== 'word' && <ActivityCountdown remainingMs={responseTimerRemainingMs} durationMs={timerDurationMs} label="TIME LEFT" compact />}
     {phase === 'lobby' || phase === 'setup' ? <section className="participant-waiting"><span className="waiting-orb" style={idleWobbleStyle(view.participantId, 1)}>✦</span><h2>You’re in.</h2><p>Waiting for the host to start the game.</p><div className="participant-count">{numberOf(state.participantCount)} players joined</div></section> :
       phase === 'acceptingResponses' && isChoice ? <ChoiceInput kicker={choiceKicker} prompt={prompt} options={options} selected={selected === null ? null : Number(selected)} disabled={busy || view.hasSubmitted} onSelect={sendChoice} modifierControls={quizModifierControls} /> :

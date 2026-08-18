@@ -3673,32 +3673,52 @@ public sealed class ActivitySessionService(
 
 
     /// <summary>
-    /// Consecutive scoring rounds, counting back from the latest.
+    /// Consecutive scoring rounds per player, counting back from their latest.
+    ///
+    /// Built in one pass for the whole run rather than per player: the
+    /// leaderboard asks for every participant at once, and walking the
+    /// submission and score-event lists separately for each of them is
+    /// players x rounds x events work on every projection.
     ///
     /// Correctness is not persisted per submission, so the run's own history is
-    /// the source: the rounds this player answered, in order, and whether each
-    /// one scored.
+    /// the source: the rounds a player answered, in order, and whether each
+    /// scored.
     /// </summary>
-    private static int CountStreak(ActivityRun run, Guid participantId)
+    private static Dictionary<Guid, int> BuildStreaks(ActivityRun run)
     {
-        var rounds = run.Submissions
-            .Where(x => x.ParticipantId == participantId && !string.IsNullOrEmpty(x.RoundId))
-            .OrderBy(x => x.SubmittedAt)
-            .Select(x => x.RoundId)
-            .Distinct()
-            .ToArray();
-
-        var streak = 0;
-        for (var index = rounds.Length - 1; index >= 0; index--)
+        var scoredRounds = new HashSet<(Guid Participant, string Round)>();
+        foreach (var item in run.ScoreEvents)
         {
-            var scored = run.ScoreEvents.Any(item => !item.IsUndone
-                && item.ParticipantId == participantId
-                && item.RoundId == rounds[index]
-                && item.Amount > 0);
-            if (!scored) break;
-            streak++;
+            if (item.IsUndone || item.Amount <= 0 || !item.ParticipantId.HasValue || string.IsNullOrEmpty(item.RoundId)) continue;
+            scoredRounds.Add((item.ParticipantId.Value, item.RoundId!));
         }
-        return streak;
+
+        var roundsByParticipant = new Dictionary<Guid, List<string>>();
+        var seen = new HashSet<(Guid, string)>();
+        foreach (var submission in run.Submissions.OrderBy(x => x.SubmittedAt))
+        {
+            if (string.IsNullOrEmpty(submission.RoundId)) continue;
+            if (!seen.Add((submission.ParticipantId, submission.RoundId))) continue;
+            if (!roundsByParticipant.TryGetValue(submission.ParticipantId, out var rounds))
+            {
+                rounds = [];
+                roundsByParticipant[submission.ParticipantId] = rounds;
+            }
+            rounds.Add(submission.RoundId);
+        }
+
+        var streaks = new Dictionary<Guid, int>();
+        foreach (var (participantId, rounds) in roundsByParticipant)
+        {
+            var streak = 0;
+            for (var index = rounds.Count - 1; index >= 0; index--)
+            {
+                if (!scoredRounds.Contains((participantId, rounds[index]))) break;
+                streak++;
+            }
+            streaks[participantId] = streak;
+        }
+        return streaks;
     }
 
     /// <summary>
@@ -3778,7 +3798,7 @@ public sealed class ActivitySessionService(
             ["outcome"] = outcome,
             ["answered"] = answered,
             ["graded"] = graded,
-            ["streak"] = graded ? CountStreak(run, participantId) : 0,
+            ["streak"] = graded ? BuildStreaks(run).GetValueOrDefault(participantId) : 0,
             ["first"] = outcome == "correct" && IsFirstCorrect(run, roundId, participantId),
         };
     }
@@ -3821,13 +3841,15 @@ public sealed class ActivitySessionService(
         var phase = StringValue(state, "phase");
         if (phase is ActivityPhases.Leaderboard or ActivityPhases.FinalResults or ActivityPhases.Complete)
         {
+            var graded = GradedTypes.Contains(run.ActivityDefinition!.Type);
+            var streaks = graded ? BuildStreaks(run) : [];
             var individualScores = run.Participants.Where(x => x.Status != "removed").Select(participant => new
             {
                 participant.Id,
                 participant.DisplayName,
                 participant.Avatar,
                 participant.Color,
-                Streak = GradedTypes.Contains(run.ActivityDefinition!.Type) ? CountStreak(run, participant.Id) : 0,
+                Streak = streaks.GetValueOrDefault(participant.Id),
                 Score = run.ScoreEvents.Where(score => !score.IsUndone && score.ParticipantId == participant.Id).Sum(score => score.Amount)
             }).OrderByDescending(item => item.Score).ThenBy(item => item.DisplayName, StringComparer.Ordinal).ToArray();
             projected["leaderboard"] = new JsonArray(individualScores.Select((item, index) => (JsonNode)new JsonObject { ["rank"] = index + 1, ["id"] = item.Id.ToString(), ["name"] = item.DisplayName, ["avatar"] = item.Avatar, ["color"] = item.Color, ["streak"] = item.Streak, ["score"] = item.Score }).ToArray());

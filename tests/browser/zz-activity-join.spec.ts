@@ -101,7 +101,7 @@ test("the admin chooses which address the room is shown", async ({ page }) => {
       mode: string; url: string | null; resolvedFrom: string;
       options: Array<{ id: string; label: string; url: string | null; available: boolean }>;
     });
-  expect(options.options.map(option => option.id)).toEqual(["auto", "cloudflare", "local"]);
+  expect(options.options.map(option => option.id)).toEqual(["auto", "cloudflare", "local", "lan"]);
 
   // An explicit choice is stored even when it is not currently reachable, and
   // the room is shown a working address rather than a dead one.
@@ -115,6 +115,15 @@ test("the admin chooses which address the room is shown", async ({ page }) => {
   expect(local.mode).toBe("local");
   // Regression: the base URL already carries a scheme, so this must not double it.
   if (local.url) expect(local.url.match(/:\/\//g)).toHaveLength(1);
+
+  // The numeric address is the fallback when mDNS does not resolve.
+  const lan = await setMode(page, "lan");
+  expect(lan.mode).toBe("lan");
+  const lanOption = options.options.find(option => option.id === "lan");
+  if (lanOption?.available) {
+    expect(lan.resolvedFrom).toBe("lan");
+    expect(lan.url).toMatch(/^http:\/\/\d{1,3}(\.\d{1,3}){3}(:\d+)?$/);
+  }
 
   await setMode(page, "auto");
 });
