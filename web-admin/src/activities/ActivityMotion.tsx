@@ -46,7 +46,9 @@ export const ActivityCountdown: React.FC<{
   label?: string;
   urgentAtSeconds?: number;
   compact?: boolean;
-}> = ({ remainingMs, durationMs = 0, label = 'TIME LEFT', urgentAtSeconds = 5, compact = false }) => {
+  /** TV sizing: readable from across a room rather than at arm's length. */
+  stage?: boolean;
+}> = ({ remainingMs, durationMs = 0, label = 'TIME LEFT', urgentAtSeconds = 5, compact = false, stage = false }) => {
   const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
   const minutes = Math.floor(seconds / 60);
   const progress = durationMs > 0 ? Math.min(100, Math.max(0, remainingMs / durationMs * 100)) : 0;
@@ -55,7 +57,7 @@ export const ActivityCountdown: React.FC<{
   // shared presentation layer keys its colour and pulse off.
   const panic = seconds > 0 && seconds <= ACTIVITY_PANIC_SECONDS;
   return <section
-    className={`activity-motion-countdown ${urgent ? 'urgent' : ''} ${panic ? 'panic' : ''} ${compact ? 'compact' : ''}`}
+    className={`activity-motion-countdown ${urgent ? 'urgent' : ''} ${panic ? 'panic' : ''} ${compact ? 'compact' : ''} ${stage ? 'stage' : ''}`}
     data-panic={panic ? 'true' : 'false'}
     aria-live="polite"
   >

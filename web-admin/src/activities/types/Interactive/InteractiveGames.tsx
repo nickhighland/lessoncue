@@ -9,6 +9,7 @@ import { BUZZER_PRESETS, FAKE_OUT_PRESETS, PUNCHLINE_PRESETS } from '../../activ
 import { ActivityJoinBanner } from '../../ActivityJoin';
 import { ActivityLobbyStage } from '../../ActivityLobbyStage';
 import { isLobbyPhase } from '../../activityPhase';
+import { ActivityStageClock } from '../../ActivityStageClock';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -18,7 +19,7 @@ const listOf = (value: unknown): JsonRecord[] => Array.isArray(value) ? value.fi
 const stringOf = (value: unknown, fallback = '') => typeof value === 'string' ? value : fallback;
 const numberOf = (value: unknown, fallback = 0) => typeof value === 'number' ? value : fallback;
 const phaseLabel = (phase: unknown) => stringOf(phase, 'lobby').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
-const StageShell: React.FC<{ children: React.ReactNode; title: string; kicker: string; phase?: unknown; joinCode?: unknown; joinUrl?: unknown; participantCount?: unknown; roster?: unknown }> = ({ children, title, kicker, phase, joinCode, joinUrl, participantCount, roster }) => (
+const StageShell: React.FC<{ children: React.ReactNode; title: string; kicker: string; phase?: unknown; joinCode?: unknown; joinUrl?: unknown; participantCount?: unknown; roster?: unknown; clock?: React.ReactNode }> = ({ children, title, kicker, phase, joinCode, joinUrl, participantCount, roster, clock }) => (
   <div className="activity-stage interactive-game-stage">
     <div className="activity-stage-content">
       {isLobbyPhase(phase) ? <ActivityLobbyStage title={title} kicker={kicker} joinCode={joinCode} joinUrl={joinUrl} participantCount={participantCount} roster={roster} /> : <>
@@ -27,6 +28,7 @@ const StageShell: React.FC<{ children: React.ReactNode; title: string; kicker: s
           <h1 className="activity-title">{title}</h1>
         </div>
         <ActivityJoinBanner joinCode={joinCode} joinUrl={joinUrl} participantCount={participantCount} />
+        {clock}
         {children}
       </>}
     </div>
@@ -40,7 +42,7 @@ export const BuzzerDisplay: React.FC<ActivityComponentProps> = ({ envelope }) =>
   const cluesRevealed = Math.min(numberOf(state.cluesRevealed), clues.length);
   const visibleClues = clues.slice(0, cluesRevealed);
   return (
-    <StageShell title={stringOf(config.title, envelope.name || 'Buzzer Battle')} kicker={`⚡ ${stringOf(config.presetLabel, 'BUZZER BATTLE')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount} roster={state.roster}>
+    <StageShell title={stringOf(config.title, envelope.name || 'Buzzer Battle')} kicker={`⚡ ${stringOf(config.presetLabel, 'BUZZER BATTLE')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount} roster={state.roster} clock={<ActivityStageClock state={state as Record<string, unknown>} />}>
       <div className="interactive-clue-ladder" aria-label="Progressive clues">
         {!visibleClues.length && <div className="interactive-prompt-card"><span className="interactive-round-label">CLUE LADDER</span><p>The host will reveal clues one at a time.</p></div>}
         {visibleClues.map((clue, index) => <div className={`interactive-prompt-card ${index === visibleClues.length - 1 ? 'current' : 'past'}`} key={stringOf(clue.id, String(index))}><span className="interactive-round-label">CLUE {index + 1} OF {clues.length || 1}</span><p>{stringOf(clue.prompt, 'Clue')}</p><small className="interactive-clue-value">{numberOf(clue.points, 100)} POINTS</small></div>)}
@@ -66,7 +68,7 @@ export const PunchlineDisplay: React.FC<ActivityComponentProps> = ({ envelope })
     ? [{ id: stringOf(currentMatch.entrantAId), text: stringOf(currentMatch.entrantA, 'Response A') }, { id: stringOf(currentMatch.entrantBId), text: stringOf(currentMatch.entrantB, 'Response B') }].filter(item => item.id)
     : submissions;
   return (
-    <StageShell title={stringOf(config.title, envelope.name || 'Punchline')} kicker={`✍ ${stringOf(config.presetLabel, headToHead ? 'HEAD-TO-HEAD CREATIVE' : 'CREATIVE ROUND')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount} roster={state.roster}>
+    <StageShell title={stringOf(config.title, envelope.name || 'Punchline')} kicker={`✍ ${stringOf(config.presetLabel, headToHead ? 'HEAD-TO-HEAD CREATIVE' : 'CREATIVE ROUND')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount} roster={state.roster} clock={<ActivityStageClock state={state as Record<string, unknown>} />}>
       <div className="interactive-prompt-card"><span className="interactive-round-label">FINISH THIS</span><p>{stringOf(prompt.prompt, 'Write the funniest answer you can.')}</p></div>
       {(Boolean(state.votingOpen) || Boolean(state.resultsVisible) || state.phase === 'reveal') && (
         <div className="creative-response-grid">
@@ -89,7 +91,7 @@ export const FakeOutDisplay: React.FC<ActivityComponentProps> = ({ envelope }) =
   const round = rounds[numberOf(state.currentRoundIndex)] || rounds[0] || {};
   const options = listOf(state.options);
   return (
-    <StageShell title={stringOf(config.title, envelope.name || 'Fake Out')} kicker={`🎭 ${stringOf(config.presetLabel, 'TRUTH OR TRAP')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount} roster={state.roster}>
+    <StageShell title={stringOf(config.title, envelope.name || 'Fake Out')} kicker={`🎭 ${stringOf(config.presetLabel, 'TRUTH OR TRAP')}`} phase={state.phase} joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount} roster={state.roster} clock={<ActivityStageClock state={state as Record<string, unknown>} />}>
       <div className="interactive-prompt-card"><span className="interactive-round-label">FIND THE TRUTH</span><p>{stringOf(round.prompt, 'Which answer is real?')}</p></div>
       {(Boolean(state.votingOpen) || Boolean(state.resultsVisible) || Boolean(state.answerRevealed)) && (
         <div className="fakeout-option-grid">

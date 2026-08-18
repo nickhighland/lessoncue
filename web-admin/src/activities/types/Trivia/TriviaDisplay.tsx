@@ -4,6 +4,7 @@ import { playChimeSound, playFanfareSound, launchConfetti } from '../../effects'
 import { ActivityJoinBanner } from '../../ActivityJoin';
 import { ActivityLobbyStage } from '../../ActivityLobbyStage';
 import { isLobbyPhase } from '../../activityPhase';
+import { ActivityStageClock } from '../../ActivityStageClock';
 
 interface TriviaQuestion {
   id: string;
@@ -108,6 +109,8 @@ export const TriviaDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ e
         </div>
 
         <ActivityJoinBanner joinCode={state.joinCode} joinUrl={state.joinUrl} participantCount={state.participantCount} />
+
+        <ActivityStageClock state={state as unknown as Record<string, unknown>} />
 
         {/* Question Prompt Card */}
         <div className="trivia-question-card">

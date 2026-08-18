@@ -662,3 +662,33 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
 @media (prefers-reduced-motion: reduce) {
   .activity-lobby-roster li.arriving { animation: none; }
 }
+
+/* ------------------------------------------------------- stage clock ---- */
+
+.activity-stage-clock {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin: 0 auto .6rem;
+}
+
+.activity-stage-clock.paused { opacity: .72; }
+
+.activity-motion-countdown.stage {
+  min-width: min(320px, 42vw);
+  padding: .55rem 1.4rem .7rem;
+}
+
+.activity-motion-countdown.stage > span {
+  font-size: clamp(.6rem, 1vw, .8rem);
+  letter-spacing: .2em;
+}
+
+.activity-motion-countdown.stage strong {
+  /* Readable from the back of a room. */
+  font-size: clamp(2.4rem, 6vw, 4.6rem);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-motion-countdown.stage .activity-motion-countdown-track { height: 8px; }
