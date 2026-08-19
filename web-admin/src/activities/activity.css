@@ -174,7 +174,7 @@
   color: #fff;
   font-family: var(--act-display-font);
   font-size: clamp(1.8rem, 4vw, 3.5rem);
-  font-weight: 400;
+  font-weight: 800;
   line-height: 1.1;
 }
 
@@ -3968,8 +3968,8 @@
 .activity-participant-page .participant-game-header h1,
 .activity-participant-page .participant-result h2 {
   font-family: var(--act-display-font);
-  font-weight: 400;
-  letter-spacing: .01em;
+  font-weight: 800;
+  letter-spacing: -.02em;
 }
 
 .activity-stage .stage-kicker,
@@ -3985,7 +3985,7 @@
 .activity-stage .countdown-time-up,
 .activity-controller-shell .interactive-round-label {
   font-family: var(--act-display-font);
-  font-weight: 400;
+  font-weight: 800;
   letter-spacing: .08em;
 }
 
@@ -4021,7 +4021,7 @@
 .activity-preview-themed .activity-preview-podium-place > span,
 .activity-preview-themed .activity-preview-podium-place small {
   font-family: var(--act-display-font);
-  font-weight: 400;
+  font-weight: 800;
 }
 
 .activity-participant-page .participant-result-standing dd span {

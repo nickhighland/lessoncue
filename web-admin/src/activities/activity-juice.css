@@ -898,8 +898,8 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
 .activity-participant-page .participant-game-header h1,
 .activity-participant-page .participant-result h2 {
   font-family: var(--act-display-font);
-  font-weight: 400;
-  letter-spacing: .01em;
+  font-weight: 800;
+  letter-spacing: -.02em;
 }
 
 .activity-participant-page .participant-waiting h2,
@@ -916,7 +916,7 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
 .activity-display-root .activity-motion-winner > span,
 .activity-display-root .countdown-time-up {
   font-family: var(--act-display-font);
-  font-weight: 400;
+  font-weight: 800;
   letter-spacing: .08em;
 }
 
