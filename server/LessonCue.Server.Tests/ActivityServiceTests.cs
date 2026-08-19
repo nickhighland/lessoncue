@@ -103,6 +103,33 @@ public sealed class ActivityServiceTests
     }
 
     [Fact]
+    public async Task UpdateUsesConfigPresetWhenTopLevelPresetIsStale()
+    {
+        var (db, service, conn) = await CreateTestServiceAsync();
+        await using (conn)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var created = await service.CreateDefinitionAsync(new ActivityDefinitionInput(
+                Name: "Preset race",
+                Type: ActivityTypes.Trivia,
+                PresetType: "trivia",
+                Config: JsonDocument.Parse("{\"preset\":\"trivia\"}").RootElement
+            ), "test-user", ct);
+
+            var updated = await service.UpdateDefinitionAsync(created.Id, new ActivityDefinitionInput(
+                Name: created.Name,
+                Type: created.Type,
+                PresetType: "trivia",
+                Config: JsonDocument.Parse("{\"preset\":\"factOrFiction\"}").RootElement
+            ), ct);
+
+            Assert.NotNull(updated);
+            Assert.Equal("factOrFiction", updated.PresetType);
+        }
+    }
+
+    [Fact]
     public async Task ActivityLibraryCanReorderBulkDeleteAndRestoreReferencedDefinitions()
     {
         var (db, service, conn) = await CreateTestServiceAsync();
