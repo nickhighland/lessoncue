@@ -38,7 +38,7 @@ async function prepareHostedTrivia(page: Page, name: string) {
     const bootstrap = await fetch("/api/v1/admin/bootstrap").then(r => r.json()) as { pairingPin: string };
     const pairing = await fetch("/api/v1/pairing/request", {
       method: "POST", headers,
-      body: JSON.stringify({ deviceName: `TV ${activityName}`, platform: "android-tv", appVersion: "0.40.49" }),
+      body: JSON.stringify({ deviceName: `TV ${activityName}`, platform: "android-tv", appVersion: "0.40.50" }),
     }).then(r => r.json()) as { requestId: string };
     const identity = await fetch("/api/v1/pairing/confirm", {
       method: "POST", headers,
@@ -51,7 +51,7 @@ async function prepareHostedTrivia(page: Page, name: string) {
     await fetch("/api/v1/tv/status", {
       method: "POST", headers: { ...headers, Authorization: `Bearer ${identity.deviceToken}` },
       body: JSON.stringify({
-        screenId: identity.screenId, appVersion: "0.40.49", online: true, freeBytes: 4e9,
+        screenId: identity.screenId, appVersion: "0.40.50", online: true, freeBytes: 4e9,
         manifestVersion: 1, failedDownloads: 0, playbackState: "playing",
         lessonId: lesson.id, itemId: item.id, positionMs: 0, durationMs: 60_000,
       }),
@@ -104,11 +104,16 @@ test("the remote tabs are named for what they do", async ({ page }) => {
 
   // Placeholder labels shipped as "Tab 1/2/3".
   await expect(page.getByRole("tab", { name: /Tab \d/ })).toHaveCount(0);
-  await expect(page.getByRole("tab", { name: /Playback/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /Lesson/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /Playlist/ })).toBeVisible();
   await expect(page.getByRole("tab", { name: /Activity/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /Quick tools/ })).toHaveCount(0);
+  await expect(page.locator(".remote-header")).toHaveCount(0);
+  await expect(page.locator(".remote-transport button")).toHaveCount(4);
+  await expect(page.getByText("Save this controller as an app", { exact: true })).toHaveCount(0);
+  await page.getByRole("tab", { name: /Playlist/ }).click();
   await expect(page.locator(".remote-run-summary")).toContainText("REMAINING");
   await expect(page.locator(".remote-run-summary")).toContainText("EST. FINISH");
-  await expect(page.getByRole("region", { name: "Save this controller as an app" })).toContainText("Add to Home Screen");
 });
 
 test("the compact remote keeps playback failures visible instead of saying Ready", async ({ page }) => {
@@ -123,7 +128,7 @@ test("the compact remote keeps playback failures visible instead of saying Ready
       },
       body: JSON.stringify({
         screenId: input.screenId,
-        appVersion: "0.40.49",
+        appVersion: "0.40.50",
         online: true,
         freeBytes: 4e9,
         manifestVersion: 1,
@@ -141,8 +146,8 @@ test("the compact remote keeps playback failures visible instead of saying Ready
   expect(status).toBe(202);
 
   await openRemote(page, prepared.screenId);
-  await expect(page.locator(".remote-shell .controller-connection.error")).toContainText("Needs attention");
   await expect(page.getByRole("alert")).toContainText("Decoder stopped while opening the activity.");
+  await page.getByRole("tab", { name: /Playlist/ }).click();
   await expect(page.locator(".remote-run-summary")).toContainText("REMAINING");
 });
 
