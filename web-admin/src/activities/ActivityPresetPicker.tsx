@@ -11,15 +11,17 @@ export const ActivityPresetPicker: React.FC<{
   const selected = templates.find(template => template.id === value) || templates[0];
   const selectedId = selected?.id || '';
   const presetSelectRef = useRef<HTMLSelectElement>(null);
+  const livePresetIdRef = useRef(selectedId);
   const lastPropPresetRef = useRef(selectedId);
   useEffect(() => {
     if (lastPropPresetRef.current === selectedId) return;
     lastPropPresetRef.current = selectedId;
+    livePresetIdRef.current = selectedId;
     if (presetSelectRef.current) presetSelectRef.current.value = selectedId;
   }, [selectedId]);
   if (!selected) return null;
   const applySelectedPreset = () => {
-    const liveSelectedId = presetSelectRef.current?.value || selected.id;
+    const liveSelectedId = livePresetIdRef.current || presetSelectRef.current?.value || selected.id;
     onApply(templates.find(template => template.id === liveSelectedId) || selected);
   };
   return <section className="activity-preset-picker" aria-label={`${label} templates`}>
@@ -29,6 +31,7 @@ export const ActivityPresetPicker: React.FC<{
     </div>
     <div className="activity-preset-picker-row">
       <select ref={presetSelectRef} aria-label={`${label} preset`} defaultValue={selected.id} onChange={event => {
+        livePresetIdRef.current = event.target.value;
         const next = templates.find(template => template.id === event.target.value);
         if (next) onPresetChange(next);
       }}>
