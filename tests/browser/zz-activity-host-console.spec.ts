@@ -38,7 +38,7 @@ async function prepareHostedTrivia(page: Page, name: string) {
     const bootstrap = await fetch("/api/v1/admin/bootstrap").then(r => r.json()) as { pairingPin: string };
     const pairing = await fetch("/api/v1/pairing/request", {
       method: "POST", headers,
-      body: JSON.stringify({ deviceName: `TV ${activityName}`, platform: "android-tv", appVersion: "0.40.51" }),
+      body: JSON.stringify({ deviceName: `TV ${activityName}`, platform: "android-tv", appVersion: "0.40.53" }),
     }).then(r => r.json()) as { requestId: string };
     const identity = await fetch("/api/v1/pairing/confirm", {
       method: "POST", headers,
@@ -51,7 +51,7 @@ async function prepareHostedTrivia(page: Page, name: string) {
     await fetch("/api/v1/tv/status", {
       method: "POST", headers: { ...headers, Authorization: `Bearer ${identity.deviceToken}` },
       body: JSON.stringify({
-        screenId: identity.screenId, appVersion: "0.40.51", online: true, freeBytes: 4e9,
+        screenId: identity.screenId, appVersion: "0.40.53", online: true, freeBytes: 4e9,
         manifestVersion: 1, failedDownloads: 0, playbackState: "playing",
         lessonId: lesson.id, itemId: item.id, positionMs: 0, durationMs: 60_000,
       }),
@@ -128,7 +128,7 @@ test("the compact remote keeps playback failures visible instead of saying Ready
       },
       body: JSON.stringify({
         screenId: input.screenId,
-        appVersion: "0.40.51",
+        appVersion: "0.40.53",
         online: true,
         freeBytes: 4e9,
         manifestVersion: 1,
