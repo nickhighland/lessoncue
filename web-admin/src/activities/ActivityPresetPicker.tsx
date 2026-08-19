@@ -5,8 +5,8 @@ export const ActivityPresetPicker: React.FC<{
   label: string;
   value?: string;
   templates: ActivityPresetTemplate[];
-  /** Kept for editor compatibility; a selection is committed when Apply is pressed. */
-  onPresetChange: (preset: ActivityPresetTemplate) => void;
+  /** @deprecated Selection is committed when Apply is pressed. */
+  onPresetChange?: (preset: ActivityPresetTemplate) => void;
   onApply: (preset: ActivityPresetTemplate) => void;
 }> = ({ label, value, templates, onApply }) => {
   const selected = templates.find(template => template.id === value) || templates[0];
