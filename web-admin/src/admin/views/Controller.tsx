@@ -1,9 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
-import { DownloadDiagnostic, Lesson, LessonClass, Screen, TemporaryControllerSession } from "../models";
+import { Lesson, LessonClass, Screen, TemporaryControllerSession } from "../models";
 import { BrandMark, Field, PageHead } from "../ui";
 import {
-  classControllerUrl,
   controllerRouteSlug,
   controllerSessionToken,
   controllerSlug,
@@ -11,7 +10,6 @@ import {
   errorText,
   isOnline,
   lessonPlannedDurationMs,
-  parseDiagnosticJson,
 } from "../utils";
 import { CompactRemoteShell } from "./CompactRemoteShell";
 
@@ -116,8 +114,8 @@ export function ControllerView({
   const [unlocking, setUnlocking] = useState(false);
   const [controlsLocked, setControlsLocked] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
-  // The remote is control-first. Selecting lessons, cues, lobby details, and
-  // team setup stays available, but only after the host explicitly opens it.
+  // The remote keeps the weekly lesson choice immediate; cue-level setup,
+  // notes, and activity configuration stay behind the Playlist tab.
   const [showOnTheFlySetup, setShowOnTheFlySetup] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [commandReceipt, setCommandReceipt] = useState<{
@@ -292,38 +290,6 @@ export function ControllerView({
     }, 15_000);
     return () => window.clearTimeout(timer);
   }, [commandPending, commandReceipt?.version, selectedScreen?.name]);
-  const downloads = parseDiagnosticJson<DownloadDiagnostic>(
-    selectedScreen?.downloadQueueJson,
-  );
-  const downloading = downloads.some((item) =>
-    ["queued", "pending", "downloading", "running"].includes(
-      (item.state || "").toLowerCase(),
-    ),
-  );
-  const recentlySeen = selectedScreen?.lastSeenAt
-    ? Date.now() - new Date(selectedScreen.lastSeenAt).getTime() < 120_000
-    : false;
-  const controllerState = !selectedScreenOnline
-    ? recentlySeen
-      ? "reconnecting"
-      : "offline"
-    : selectedScreen?.playbackError || selectedScreen?.failedDownloads > 0
-      ? "error"
-    : downloading
-      ? "downloading"
-      : "ready";
-  const controllerStateLabel =
-    controllerState === "offline"
-      ? "Offline"
-    : controllerState === "downloading"
-      ? "Downloading media"
-      : controllerState === "reconnecting"
-        ? "Reconnecting"
-        : controllerState === "error"
-          ? "Needs attention"
-          : selectedScreen?.playbackState === "playing"
-            ? "Playing"
-            : "Ready";
   const isAdministrator =
     userRole === "Service Admin" ||
     userRole === "App Admin" ||
@@ -334,20 +300,6 @@ export function ControllerView({
     requireLocalRoomControllers &&
     !isAdministrator &&
     !location.hostname.toLowerCase().endsWith(".local");
-  const progress = selectedScreen?.playbackDurationMs
-    ? Math.min(
-        100,
-        (selectedScreen.playbackPositionMs /
-          selectedScreen.playbackDurationMs) *
-          100,
-      )
-    : 0;
-  const playbackTitle = reportedItem?.title || "Nothing Playing";
-  const playbackDurationMs = selectedScreen?.playbackDurationMs || 0;
-  const playbackPositionMs = Math.min(
-    Math.max(selectedScreen?.playbackPositionMs || 0, 0),
-    playbackDurationMs || Number.MAX_SAFE_INTEGER,
-  );
   const commandStatus = !selectedScreenOnline
     ? "Offline · commands disabled"
     : commandReceipt?.error
@@ -357,15 +309,6 @@ export function ControllerView({
         : commandReceipt?.version
           ? "Received"
           : "";
-  const controllerUrl = temporarySession
-    ? `${requireLocalRoomControllers ? localAddress : location.origin}/session/${sessionToken}`
-    : room
-      ? classControllerUrl(
-          room,
-          "",
-          requireLocalRoomControllers ? localAddress : location.origin,
-        )
-      : `${location.origin}/universalremote`;
   if (sessionToken && temporarySession === undefined)
     return (
       <div className="controller-page">
@@ -463,12 +406,6 @@ export function ControllerView({
       }}
       selectedScreen={selectedScreen}
       selectedScreenOnline={selectedScreenOnline}
-      controllerState={controllerState}
-      controllerStateLabel={controllerStateLabel}
-      playbackTitle={playbackTitle}
-      playbackDurationMs={playbackDurationMs}
-      playbackPositionMs={playbackPositionMs}
-      progress={progress}
       reportedItem={reportedItem}
       timingLesson={timingLesson}
       currentRemainingMs={currentRemainingMs}
@@ -488,7 +425,6 @@ export function ControllerView({
       play={play}
       command={command}
       commandStatus={commandStatus}
-      controllerUrl={controllerUrl}
       controlsLocked={controlsLocked}
       setControlsLocked={setControlsLocked}
       focusMode={focusMode}

@@ -691,21 +691,19 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByLabel("Six-digit controller PIN").fill("482731");
   await page.getByRole("button", { name: "Open universal remote" }).click();
   await expect(page.getByRole("region", { name: "Playback controller" })).toBeVisible();
-  await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Previous cue" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Pause playback" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Stop playback" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Next cue" })).toBeVisible();
   await expect(page.locator(".app-shell.controller-mode > .mobile-shell-header")).toHaveCSS("display", "none");
-  await expect(page.getByRole("tab", { name: "Playback" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("tab", { name: "Quick tools" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Lesson" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Playlist" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Activity" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Quick tools" })).toHaveCount(0);
+  await expect(page.locator(".remote-header")).toHaveCount(0);
+  await expect(page.locator(".remote-lesson-list")).toContainText("Sample Lesson");
   await expect(page.locator(".controller-list")).toHaveCount(0);
-  await page.getByRole("tab", { name: "Quick tools" }).click();
-  for (const tile of ["Timer", "Poll", "Randomizer", "Groups", "Draw", "More"]) {
-    await expect(page.getByRole("button", { name: tile, exact: true })).toBeVisible();
-  }
-  await page.getByRole("tab", { name: "Playback" }).click();
+  await page.getByRole("tab", { name: "Playlist" }).click();
   await page.getByRole("button", { name: "Open setup" }).click();
   await expect(page.getByRole("button", { name: "Close setup" })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByText("Check the room display before participants arrive.", { exact: true })).toBeVisible();
@@ -714,15 +712,11 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: "Open monitor" }).click();
   await expect(page.locator(".pre-roll-monitor iframe")).toHaveAttribute("src", "https://example.org/private-monitor");
   await page.getByRole("button", { name: "Pause playback" }).click();
-  await expect(page.getByText(/Sending pause to Browser Test TV/)).toBeVisible();
+  await expect(page.locator(".remote-command-status")).toContainText("Sending…");
   await page.getByRole("button", { name: "Lock controls" }).click();
   await expect(page.getByRole("button", { name: "Unlock controls" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Pause playback" })).toBeDisabled();
-  await page.getByRole("tab", { name: "Quick tools" }).click();
-  await expect(page.getByRole("tab", { name: "Quick tools" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("button", { name: "Timer", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Unlock controls" }).click();
-  await expect(page.getByRole("button", { name: "Timer", exact: true })).toBeEnabled();
   await page.setViewportSize({ width: 1280, height: 900 });
 
   await page.goto("/");
@@ -1247,7 +1241,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.49" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.50" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();

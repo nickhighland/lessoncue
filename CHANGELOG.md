@@ -4,6 +4,25 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.50 — Classroom remote navigation
+
+### User changes
+
+- Reworked classroom and universal remotes around three clear tabs: Lesson,
+  Playlist, and Activity.
+- Made Lesson the weekly lesson picker and Playlist the place for individual
+  cue selection, setup, notes, and timing details.
+- Reduced the transport controls to compact icon buttons, moved locking to a
+  small inline lock icon, and removed the remote header and save-as-app panel.
+
+### Developer changes
+
+- Removed the unused Quick tools launcher and kept screen selection in the
+  Lesson surface so universal remote control remains available without a top
+  bar.
+- Added regression coverage for both remote tab semantics, compact controls,
+  header removal, and activity-console continuity.
+
 ## v0.40.49 — Jackbox-style Activity rooms and host control polish
 
 ### User changes
