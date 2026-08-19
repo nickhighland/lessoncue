@@ -6,6 +6,7 @@ import {
   cuePoints,
   formatDate,
   formatDuration,
+  formatFriendlyDuration,
   roleName,
   youtubeEmbedUrl,
 } from "../utils";
@@ -47,6 +48,9 @@ type CompactRemoteShellProps = {
   progress: number;
   reportedItem?: PlaylistItem;
   timingLesson?: Lesson;
+  currentRemainingMs: number;
+  estimatedFinish?: Date;
+  isOverrun: boolean;
   lesson?: Lesson;
   availableLessons: Lesson[];
   lessonId: string;
@@ -61,6 +65,7 @@ type CompactRemoteShellProps = {
   play: (itemId?: string) => void;
   command: (action: string, extras?: Record<string, unknown>) => void | Promise<void>;
   commandStatus: string;
+  controllerUrl: string;
   controlsLocked: boolean;
   setControlsLocked: Dispatch<SetStateAction<boolean>>;
   focusMode: boolean;
@@ -88,6 +93,9 @@ export function CompactRemoteShell({
   progress,
   reportedItem,
   timingLesson,
+  currentRemainingMs,
+  estimatedFinish,
+  isOverrun,
   lesson,
   availableLessons,
   lessonId,
@@ -102,6 +110,7 @@ export function CompactRemoteShell({
   play,
   command,
   commandStatus,
+  controllerUrl,
   controlsLocked,
   setControlsLocked,
   focusMode,
@@ -120,6 +129,7 @@ export function CompactRemoteShell({
     : undefined;
   const isPaused = selectedScreen?.playbackState === "paused";
   const remotePosition = playbackDurationMs ? playbackPositionMs : 0;
+  const failedDownloads = selectedScreen?.failedDownloads || 0;
 
   function openSetup() {
     setActiveTab("tab1");
@@ -254,6 +264,50 @@ export function CompactRemoteShell({
           <div className="remote-command-status" role="status" aria-live="polite">
             {commandStatus}
           </div>
+          {selectedScreen?.playbackError && (
+            <div className="remote-playback-error" role="alert">
+              {selectedScreen.playbackError}
+            </div>
+          )}
+          {!selectedScreen?.playbackError && failedDownloads > 0 && (
+            <div className="remote-playback-error" role="alert">
+              {failedDownloads} media download{failedDownloads === 1 ? "" : "s"} failed. Open screen diagnostics before retrying.
+            </div>
+          )}
+          {!selectedScreenOnline ? (
+            <div className="remote-offline-warning" role="status">
+              Reconnect this screen before sending a live command. LessonCue will not silently queue it.
+            </div>
+          ) : timingLesson ? (
+            <div className={`remote-run-summary ${isOverrun ? "overrun" : ""}`}>
+              <div>
+                <span>REMAINING</span>
+                <strong>{formatFriendlyDuration(currentRemainingMs)}</strong>
+              </div>
+              <div>
+                <span>EST. FINISH</span>
+                <strong>
+                  {estimatedFinish
+                    ? estimatedFinish.toLocaleTimeString([], {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })
+                    : "—"}
+                </strong>
+              </div>
+              {isOverrun && (
+                <p role="alert">
+                  Running past the planned finish. Flexible cues can be shortened if appropriate.
+                </p>
+              )}
+            </div>
+          ) : null}
+          {reportedItem?.notes && (
+            <aside className="controller-note remote-current-note">
+              <strong>Current cue notes</strong>
+              <p>{reportedItem.notes}</p>
+            </aside>
+          )}
         </section>
       </fieldset>
 
@@ -564,6 +618,17 @@ export function CompactRemoteShell({
           </section>
         </div>
       </fieldset>
+
+      <section className="remote-install" aria-label="Save this controller as an app">
+        <BrandMark />
+        <div>
+          <strong>Save this controller as an app</strong>
+          <p>
+            On iPhone or iPad, use Share → Add to Home Screen. On Android, open the browser menu and choose Install app or Add to Home screen.
+          </p>
+          <small>{controllerUrl}</small>
+        </div>
+      </section>
 
       <footer className="remote-footer">
         <span className="remote-footer-status">{commandStatus || (controlsLocked ? "Controls locked" : "Ready")}</span>

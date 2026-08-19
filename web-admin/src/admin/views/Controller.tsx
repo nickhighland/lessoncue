@@ -2,7 +2,17 @@ import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import { DownloadDiagnostic, Lesson, LessonClass, Screen, TemporaryControllerSession } from "../models";
 import { BrandMark, Field, PageHead } from "../ui";
-import { controllerRouteSlug, controllerSessionToken, controllerSlug, errorText, isOnline, parseDiagnosticJson } from "../utils";
+import {
+  classControllerUrl,
+  controllerRouteSlug,
+  controllerSessionToken,
+  controllerSlug,
+  cuePlannedDurationMs,
+  errorText,
+  isOnline,
+  lessonPlannedDurationMs,
+  parseDiagnosticJson,
+} from "../utils";
 import { CompactRemoteShell } from "./CompactRemoteShell";
 
 export function ControllerView({
@@ -207,6 +217,37 @@ export function ControllerView({
       ? selectedItem
       : undefined;
   const timingLesson = reportedLesson || lesson;
+  const timingItems = [...(timingLesson?.items || [])]
+    .filter((item) => item.role === "lesson")
+    .sort((a, b) => a.position - b.position);
+  const reportedIndex = reportedItem
+    ? timingItems.findIndex((item) => item.id === reportedItem.id)
+    : -1;
+  const currentRemainingMs =
+    reportedIndex >= 0
+      ? Math.max(
+          0,
+          cuePlannedDurationMs(timingItems[reportedIndex]) -
+            (selectedScreen?.playbackPositionMs || 0),
+        ) +
+        timingItems
+          .slice(reportedIndex + 1)
+          .reduce((sum, item) => sum + cuePlannedDurationMs(item), 0)
+      : timingItems.reduce((sum, item) => sum + cuePlannedDurationMs(item), 0);
+  const estimatedFinish =
+    timingLesson && currentRemainingMs
+      ? new Date(Date.now() + currentRemainingMs)
+      : undefined;
+  const scheduledFinish = timingLesson?.designatedStartAt
+    ? new Date(
+        new Date(timingLesson.designatedStartAt).getTime() +
+          lessonPlannedDurationMs(timingLesson),
+      )
+    : undefined;
+  const isOverrun =
+    !!estimatedFinish &&
+    !!scheduledFinish &&
+    estimatedFinish.getTime() > scheduledFinish.getTime() + 60_000;
   const preRollNow =
     !!timingLesson?.preRollStartsAt &&
     !!timingLesson?.designatedStartAt &&
@@ -266,17 +307,23 @@ export function ControllerView({
     ? recentlySeen
       ? "reconnecting"
       : "offline"
+    : selectedScreen?.playbackError || selectedScreen?.failedDownloads > 0
+      ? "error"
     : downloading
       ? "downloading"
       : "ready";
   const controllerStateLabel =
     controllerState === "offline"
       ? "Offline"
-      : controllerState === "downloading" || controllerState === "reconnecting"
-        ? "Connecting"
-        : selectedScreen?.playbackState === "playing"
-          ? "Playing"
-          : "Ready";
+    : controllerState === "downloading"
+      ? "Downloading media"
+      : controllerState === "reconnecting"
+        ? "Reconnecting"
+        : controllerState === "error"
+          ? "Needs attention"
+          : selectedScreen?.playbackState === "playing"
+            ? "Playing"
+            : "Ready";
   const isAdministrator =
     userRole === "Service Admin" ||
     userRole === "App Admin" ||
@@ -310,6 +357,15 @@ export function ControllerView({
         : commandReceipt?.version
           ? "Received"
           : "";
+  const controllerUrl = temporarySession
+    ? `${requireLocalRoomControllers ? localAddress : location.origin}/session/${sessionToken}`
+    : room
+      ? classControllerUrl(
+          room,
+          "",
+          requireLocalRoomControllers ? localAddress : location.origin,
+        )
+      : `${location.origin}/universalremote`;
   if (sessionToken && temporarySession === undefined)
     return (
       <div className="controller-page">
@@ -415,6 +471,9 @@ export function ControllerView({
       progress={progress}
       reportedItem={reportedItem}
       timingLesson={timingLesson}
+      currentRemainingMs={currentRemainingMs}
+      estimatedFinish={estimatedFinish}
+      isOverrun={isOverrun}
       lesson={lesson}
       availableLessons={availableLessons}
       lessonId={lessonId}
@@ -429,6 +488,7 @@ export function ControllerView({
       play={play}
       command={command}
       commandStatus={commandStatus}
+      controllerUrl={controllerUrl}
       controlsLocked={controlsLocked}
       setControlsLocked={setControlsLocked}
       focusMode={focusMode}

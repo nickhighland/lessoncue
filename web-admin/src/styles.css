@@ -1610,6 +1610,16 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .remote-transport .transport-main { min-height: 76px; border: 1px solid var(--gold); color: #20180d; background: var(--gold); box-shadow: 0 5px 14px #d88c1e4a; }
 .remote-transport .stop-transport { color: #9c3e3e; }
 .remote-command-status { min-height: 13px; margin-top: 7px; color: var(--remote-muted); font-size: 9px; text-align: center; }
+.remote-playback-error, .remote-offline-warning { margin-top: 8px; border-radius: 9px; padding: 9px 11px; font-size: 9px; line-height: 1.4; }
+.remote-playback-error { color: #ffd7d1; background: #9e403c66; }
+.remote-offline-warning { color: #ffe9b7; background: #9d762f38; }
+.remote-run-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 9px; border: 1px solid #65c89b66; border-radius: 10px; padding: 9px 10px; background: #ffffff0c; }
+.remote-run-summary > div { display: grid; gap: 2px; }
+.remote-run-summary span { color: var(--remote-muted); font-size: 8px; font-weight: 900; letter-spacing: .1em; }
+.remote-run-summary strong { color: #fff; font-size: 16px; }
+.remote-run-summary.overrun { border-color: #e4ad8f99; background: #9e4d2a33; }
+.remote-run-summary p { grid-column: 1 / -1; margin: 2px 0 0; color: #ffd0ac; font-size: 9px; font-weight: 800; }
+.remote-current-note { margin-top: 9px !important; }
 .remote-tab-commands { display: flex; flex: 1 1 auto; min-height: 0; overflow: hidden; }
 .remote-tab-commands:disabled { opacity: .68; }
 .remote-tab-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px 0 4px; }
@@ -1673,6 +1683,12 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .remote-lock-button { min-height: 40px; border: 1px solid #ffffff2d; border-radius: 99px; padding: 8px 17px; color: #c7ddd4; background: #ffffff0d; font-size: 11px; font-weight: 700; }
 .remote-lock-button:hover, .remote-lock-button.locked { border-color: #d9b461; color: #fff2cf; background: #d88c1e22; }
 .remote-lock-button span { margin-right: 6px; }
+.remote-install { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; margin-top: 10px; border: 1px solid #ffffff1f; border-radius: 12px; padding: 9px 11px; color: #d8e9e2; background: #ffffff08; }
+.remote-install .brand-mark { width: 30px; height: 30px; flex: 0 0 auto; border-radius: 8px; }
+.remote-install strong, .remote-install small { display: block; }
+.remote-install strong { font-size: 10px; }
+.remote-install p { margin: 3px 0; color: var(--remote-muted); font-size: 8px; line-height: 1.35; }
+.remote-install small { overflow-wrap: anywhere; color: #9fd5bd; font-size: 8px; }
 .remote-shell .controller-note { margin: 0; border-color: var(--gold); border-radius: 9px; padding: 10px 12px; color: var(--remote-ink); background: #fff9ea; }
 .remote-shell .pre-roll-monitor { margin-top: 0; border-top-color: #dfe2d9; }
 .remote-shell .controller-list button { border-color: #dfe2d9; }

@@ -38,7 +38,7 @@ async function prepareHostedTrivia(page: Page, name: string) {
     const bootstrap = await fetch("/api/v1/admin/bootstrap").then(r => r.json()) as { pairingPin: string };
     const pairing = await fetch("/api/v1/pairing/request", {
       method: "POST", headers,
-      body: JSON.stringify({ deviceName: `TV ${activityName}`, platform: "android-tv", appVersion: "0.40.48" }),
+      body: JSON.stringify({ deviceName: `TV ${activityName}`, platform: "android-tv", appVersion: "0.40.49" }),
     }).then(r => r.json()) as { requestId: string };
     const identity = await fetch("/api/v1/pairing/confirm", {
       method: "POST", headers,
@@ -51,7 +51,7 @@ async function prepareHostedTrivia(page: Page, name: string) {
     await fetch("/api/v1/tv/status", {
       method: "POST", headers: { ...headers, Authorization: `Bearer ${identity.deviceToken}` },
       body: JSON.stringify({
-        screenId: identity.screenId, appVersion: "0.40.48", online: true, freeBytes: 4e9,
+        screenId: identity.screenId, appVersion: "0.40.49", online: true, freeBytes: 4e9,
         manifestVersion: 1, failedDownloads: 0, playbackState: "playing",
         lessonId: lesson.id, itemId: item.id, positionMs: 0, durationMs: 60_000,
       }),
@@ -62,20 +62,38 @@ async function prepareHostedTrivia(page: Page, name: string) {
       body: JSON.stringify({ activityDefinitionId: created.id, lessonId: lesson.id, lessonItemId: item.id }),
     }).then(r => r.json()) as { runId: string; state?: { joinCode?: string } };
 
-    return { screenId: identity.screenId, runId: run.runId, joinCode: run.state!.joinCode! };
+    return {
+      screenId: identity.screenId,
+      deviceToken: identity.deviceToken,
+      lessonId: lesson.id,
+      itemId: item.id,
+      runId: run.runId,
+      joinCode: run.state!.joinCode!,
+    };
   }, name);
 }
 
+let cachedUniversalGrant = "";
+
 async function openRemote(page: Page, screenId: string) {
-  await page.evaluate(async () => {
-    await fetch("/api/v1/controller-pin", {
+  if (!cachedUniversalGrant) {
+    const pinStatus = await page.evaluate(async () => (await fetch("/api/v1/controller-pin", {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pin: "482731" }),
-    });
-  });
+    })).status);
+    expect(pinStatus).toBe(204);
+  }
   await page.goto("/universalremote");
-  await page.getByLabel("Six-digit controller PIN").fill("482731");
-  await page.getByRole("button", { name: "Open universal remote" }).click();
+  if (cachedUniversalGrant) {
+    await page.evaluate(grant => sessionStorage.setItem("lessoncue.universalGrant", grant), cachedUniversalGrant);
+    await page.reload();
+  } else {
+    await page.getByLabel("Six-digit controller PIN").fill("482731");
+    await page.getByRole("button", { name: "Open universal remote" }).click();
+    await expect(page.getByLabel("Control this screen")).toBeVisible();
+    cachedUniversalGrant = await page.evaluate(() => sessionStorage.getItem("lessoncue.universalGrant") || "");
+    expect(cachedUniversalGrant).toMatch(/^[0-9a-f]{64}$/);
+  }
   await page.getByLabel("Control this screen").selectOption(screenId);
 }
 
@@ -88,6 +106,44 @@ test("the remote tabs are named for what they do", async ({ page }) => {
   await expect(page.getByRole("tab", { name: /Tab \d/ })).toHaveCount(0);
   await expect(page.getByRole("tab", { name: /Playback/ })).toBeVisible();
   await expect(page.getByRole("tab", { name: /Activity/ })).toBeVisible();
+  await expect(page.locator(".remote-run-summary")).toContainText("REMAINING");
+  await expect(page.locator(".remote-run-summary")).toContainText("EST. FINISH");
+  await expect(page.getByRole("region", { name: "Save this controller as an app" })).toContainText("Add to Home Screen");
+});
+
+test("the compact remote keeps playback failures visible instead of saying Ready", async ({ page }) => {
+  await authenticate(page);
+  const prepared = await prepareHostedTrivia(page, "Host Playback Error");
+  const status = await page.evaluate(async input => {
+    const response = await fetch("/api/v1/tv/status", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${input.deviceToken}`,
+      },
+      body: JSON.stringify({
+        screenId: input.screenId,
+        appVersion: "0.40.49",
+        online: true,
+        freeBytes: 4e9,
+        manifestVersion: 1,
+        failedDownloads: 0,
+        playbackState: "error",
+        lessonId: input.lessonId,
+        itemId: input.itemId,
+        positionMs: 0,
+        durationMs: 60_000,
+        playbackError: "Decoder stopped while opening the activity.",
+      }),
+    });
+    return response.status;
+  }, prepared);
+  expect(status).toBe(202);
+
+  await openRemote(page, prepared.screenId);
+  await expect(page.locator(".remote-shell .controller-connection.error")).toContainText("Needs attention");
+  await expect(page.getByRole("alert")).toContainText("Decoder stopped while opening the activity.");
+  await expect(page.locator(".remote-run-summary")).toContainText("REMAINING");
 });
 
 test("the live console shows the join code, roster, and answers-in count", async ({ page }) => {

@@ -4,6 +4,21 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.49 — Jackbox-style Activity rooms and host control polish
+
+### User changes
+
+- Added a full-screen classroom lobby with a persistent room code, scannable QR, absolute phone join address, and one-by-one player arrivals.
+- Let players choose a fixed emoji and colour identity, switch players on shared phones, and see their own outcome, points, rank, and total after each reveal.
+- Added TV response clocks, between-round standings races, first-in and streak callouts, optional automatic response-window advance, and a live host roster with answer counts.
+- Made the host remote retain run timing, estimated finish, overrun guidance, playback errors, and save-as-app instructions alongside the compact controls.
+
+### Developer changes
+
+- Added server-resolved join addresses with reachable-mode fallback, per-participant projections, atomic auto-advance locking, server-derived callouts, and shared presentation components.
+- Added lobby, join, identity, participant-result, host-console, standings, stage-clock, palette, sound fallback, reduced-motion, and full catalog smoke coverage.
+- Added a manifest-driven optional sound-pack lookup with synthesized fallback cues and restored compact-remote diagnostics and run-of-show information.
+
 ## v0.40.48 — Activity game audio and visual polish
 
 ### User changes
