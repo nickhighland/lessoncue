@@ -87,11 +87,18 @@ presentation state and do not create modified copies of source media.
 
 ## Typography
 
-Game surfaces use a system display stack (`--act-display-font`) at heavy weight
-with tight tracking, not a bundled typeface. A licensed display font would be a
-bundled asset and would need the source note, licence record, and attribution
-entry required above; the system stack avoids that obligation and keeps the
-offline-first build free of font downloads.
+Activity surfaces bundle two local, licensed faces under
+`web-admin/public/assets/fonts/activities/`. Fredoka (`Fredoka-Variable.ttf`)
+is the UI face for questions, answers, instructions, buttons, and player names.
+Luckiest Guy (`LuckiestGuy-Regular.ttf`) is reserved for the game-show moments:
+game names, round/status callouts, scores, reveals, and winner emphasis. This
+keeps the Jackbox energy focused instead of turning every control into a novelty
+font.
+
+The supplied Fredoka notice is the SIL Open Font License 1.1 and is recorded in
+`Fredoka-OFL.txt`; the supplied Luckiest Guy notice is Apache License 2.0 and is
+recorded in `LuckiestGuy-Apache-2.0.txt`. The asset directory README repeats the
+role mapping and license sources.
 
 ## Review checklist for new presets
 

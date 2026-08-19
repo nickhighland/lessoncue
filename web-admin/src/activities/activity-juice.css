@@ -885,40 +885,42 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
 
 /* --------------------------------------------------- display type ------ */
 
-/*
- * Game headings previously inherited the admin's Georgia serif, which reads
- * editorial rather than game-show.
- *
- * This is a system stack, not a bundled face: LessonCue is offline-first and a
- * licensed display font would need a source note and attribution entry per
- * docs/activities-assets-and-sound.md. Heavy weight plus tight tracking does
- * most of the work, and every platform in scope resolves to something with a
- * real 800/900.
- */
 .activity-display-root,
-.activity-participant-page {
-  --act-display-font: system-ui, -apple-system, "Segoe UI Variable Display", "Segoe UI",
-    Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif;
+.activity-participant-page,
+.activity-preview-themed,
+.activity-controller-shell {
+  font-family: var(--act-ui-font);
 }
 
 .activity-display-root .activity-title,
 .activity-display-root .activity-lobby-heading .activity-title,
 .activity-participant-page .participant-card h1,
 .activity-participant-page .participant-game-header h1,
-.activity-participant-page .participant-waiting h2,
-.activity-participant-page .participant-input-card h2,
 .activity-participant-page .participant-result h2 {
   font-family: var(--act-display-font);
-  font-weight: 900;
-  /* Tight tracking is what makes a heavy sans read as a title rather than a
-     paragraph in bold. */
-  letter-spacing: -.025em;
+  font-weight: 400;
+  letter-spacing: .01em;
 }
 
-/* Prompts are read, not scanned, so they keep normal tracking. */
-.activity-participant-page .participant-input-card h2 { letter-spacing: -.01em; }
+.activity-participant-page .participant-waiting h2,
+.activity-participant-page .participant-input-card h2 {
+  font-family: var(--act-ui-font);
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
 
 .activity-display-root .stage-kicker,
-.activity-participant-page .participant-kicker {
+.activity-display-root .interactive-round-label,
+.activity-display-root .activity-motion-reveal > span,
+.activity-display-root .activity-motion-score-burst span,
+.activity-display-root .activity-motion-winner > span,
+.activity-display-root .countdown-time-up {
   font-family: var(--act-display-font);
+  font-weight: 400;
+  letter-spacing: .08em;
+}
+
+.activity-participant-page .participant-kicker {
+  font-family: var(--act-ui-font);
+  font-weight: 600;
 }

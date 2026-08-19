@@ -2,7 +2,25 @@
    LessonCue Game Show & Interactive Activities - Stage & Controller Styles
    ═══════════════════════════════════════════════════════════════════════════ */
 
+@font-face {
+  font-family: "Fredoka";
+  src: url("/assets/fonts/activities/Fredoka-Variable.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Luckiest Guy";
+  src: url("/assets/fonts/activities/LuckiestGuy-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
 :root {
+  --act-ui-font: "Fredoka", ui-rounded, "Segoe UI", system-ui, sans-serif;
+  --act-display-font: "Luckiest Guy", "Arial Black", Impact, sans-serif;
   --act-gold: #d88c1e;
   --act-gold-hover: #b87515;
   --act-gold-start: #f59e0b;
@@ -111,7 +129,7 @@
     radial-gradient(circle at 82% 16%, var(--act-stage-secondary-soft) 0%, transparent 42%),
     linear-gradient(145deg, var(--act-stage-bg) 0%, #061514 100%);
   color: var(--act-stage-text);
-  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--act-ui-font);
   overflow: hidden;
   user-select: none;
   box-sizing: border-box;
@@ -154,7 +172,10 @@
 
 .activity-stage-message-card strong {
   color: #fff;
-  font: 800 clamp(1.8rem, 4vw, 3.5rem)/1.1 Georgia, serif;
+  font-family: var(--act-display-font);
+  font-size: clamp(1.8rem, 4vw, 3.5rem);
+  font-weight: 400;
+  line-height: 1.1;
 }
 
 .activity-stage-message-card small {
@@ -234,7 +255,7 @@
 }
 
 .activity-title {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--act-display-font);
   font-size: clamp(2rem, 5vw, 3.5rem);
   font-weight: 800;
   letter-spacing: -0.02em;
@@ -789,7 +810,7 @@
 }
 
 .qa-question-text {
-  font-family: Georgia, serif;
+  font-family: var(--act-ui-font);
   font-size: clamp(1.6rem, 3.5vw, 2.6rem);
   font-weight: 800;
   color: #ffffff;
@@ -3113,7 +3134,7 @@
 .activity-preview-physical-card p { max-width: 34rem; margin: .5rem auto 0; }
 .activity-preview-participant-footer { display: flex; justify-content: space-between; gap: .75rem; margin-top: .8rem; padding: .65rem .8rem; border-top: 1px solid rgba(255,255,255,.12); color: rgba(255,255,255,.55); font-size: .68rem; }
 .activity-preview-utility-screen { display: flex; min-height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: .7rem; padding: clamp(1.25rem, 4vw, 3rem); box-sizing: border-box; background: radial-gradient(circle at 50% 15%, #244d42, #0d2522 62%, #071412); color: #fff; text-align: center; }
-.activity-preview-utility-screen h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(2rem, 5vw, 3.5rem); text-shadow: var(--act-glow-gold); }
+.activity-preview-utility-screen h2 { margin: 0; font-family: var(--act-display-font); font-size: clamp(2rem, 5vw, 3.5rem); text-shadow: var(--act-glow-gold); }
 .activity-preview-utility-screen p { max-width: 38rem; margin: 0; color: #c0d1cb; }
 .activity-preview-screen-kicker { color: #f2c35a; font-size: .7rem; font-weight: 900; letter-spacing: .15em; }
 .activity-preview-leaderboard-list { display: grid; width: min(720px, 100%); gap: .55rem; margin-top: .8rem; }
@@ -3231,7 +3252,7 @@
 .checkbox-row input { width: auto; }
 
 /* Anonymous participant mobile surface */
-.activity-participant-page { min-height: 100vh; padding: 1rem; box-sizing: border-box; background: radial-gradient(circle at 50% 0, #264d43, #0d2522 55%, #071412); color: #fff; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+.activity-participant-page { min-height: 100vh; padding: 1rem; box-sizing: border-box; background: radial-gradient(circle at 50% 0, #264d43, #0d2522 55%, #071412); color: #fff; font-family: var(--act-ui-font); }
 .participant-card, .participant-game-shell { width: min(620px, 100%); margin: 0 auto; }
 .participant-card { margin-top: 10vh; padding: clamp(1.4rem, 6vw, 3rem); border-radius: 28px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); box-shadow: 0 22px 70px rgba(0,0,0,.3); text-align: center; }
 .participant-mark { display: inline-grid; place-items: center; width: 56px; height: 56px; border-radius: 18px; background: #f2b943; color: #1b2b25; font-size: 1.7rem; }
@@ -3929,3 +3950,124 @@
 .activity-live-host-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
 .activity-live-host-auto { display: flex; align-items: flex-start; gap: .45rem; width: 100%; color: var(--muted, #64756f); font-size: .76rem; line-height: 1.35; }
 .activity-live-host-auto input { margin-top: .15rem; }
+
+/* ----------------------------------------------------- bundled type -------
+   Fredoka keeps the activity readable; Luckiest Guy is reserved for the
+   moments that should feel like a game show. */
+.activity-display-root,
+.activity-participant-page,
+.activity-preview-themed,
+.activity-controller-shell {
+  font-family: var(--act-ui-font);
+}
+
+.activity-stage .activity-title,
+.activity-stage-message-card strong,
+.activity-preview-themed .activity-preview-utility-screen h2,
+.activity-participant-page .participant-card h1,
+.activity-participant-page .participant-game-header h1,
+.activity-participant-page .participant-result h2 {
+  font-family: var(--act-display-font);
+  font-weight: 400;
+  letter-spacing: .01em;
+}
+
+.activity-stage .stage-kicker,
+.activity-stage .interactive-round-label,
+.activity-stage .activity-motion-countdown span,
+.activity-stage .activity-motion-reveal > span,
+.activity-stage .activity-motion-score-burst span,
+.activity-stage .activity-motion-winner > span,
+.activity-stage .new-game-category,
+.activity-stage .new-game-points-chip,
+.activity-stage .trivia-answer-reveal-card span,
+.activity-stage .new-game-answer-card span,
+.activity-stage .countdown-time-up,
+.activity-controller-shell .interactive-round-label {
+  font-family: var(--act-display-font);
+  font-weight: 400;
+  letter-spacing: .08em;
+}
+
+.activity-stage .countdown-time-up {
+  margin-top: .5rem;
+  color: #ef4444;
+  font-size: 1.4rem;
+  text-transform: uppercase;
+  animation: comicPop .4s;
+}
+
+.activity-stage .activity-motion-reveal h2,
+.activity-stage .activity-motion-reveal > div,
+.activity-stage .activity-motion-score-burst strong,
+.activity-stage .team-score,
+.activity-stage .activity-race-score,
+.activity-stage .activity-race-rank,
+.activity-stage .prize-back-points,
+.activity-stage .prize-grid-scoreline,
+.activity-stage .survey-score-banner strong,
+.activity-stage .survey-answer-points,
+.activity-stage .interactive-leaderboard > div > b,
+.activity-stage .activity-shared-leaderboard-row > strong,
+.activity-stage .activity-live-podium-place > span,
+.activity-stage .trivia-answer-reveal-card strong,
+.activity-stage .new-game-answer-card strong,
+.activity-stage .floating-point-pill,
+.activity-participant-page .participant-result-points,
+.activity-participant-page .participant-result-standing dd,
+.activity-controller-shell .controller-score,
+.activity-preview-themed .activity-preview-rank,
+.activity-preview-themed .activity-preview-leaderboard-row b,
+.activity-preview-themed .activity-preview-podium-place > span,
+.activity-preview-themed .activity-preview-podium-place small {
+  font-family: var(--act-display-font);
+  font-weight: 400;
+}
+
+.activity-participant-page .participant-result-standing dd span {
+  font-family: var(--act-ui-font);
+}
+
+.activity-stage .trivia-question-text,
+.activity-stage .qa-question-text,
+.activity-stage .new-game-prompt-card h2,
+.activity-stage .interactive-prompt-card p,
+.activity-stage .stage-challenge-card h2,
+.activity-stage .stage-challenge-card p,
+.activity-stage .trivia-option-btn,
+.activity-stage .new-game-choice,
+.activity-stage .creative-response-card p,
+.activity-stage .fakeout-option-card p,
+.activity-preview-themed button,
+.activity-participant-page button,
+.activity-controller-shell button {
+  font-family: var(--act-ui-font);
+}
+
+.activity-stage .trivia-question-text,
+.activity-stage .qa-question-text,
+.activity-stage .new-game-prompt-card h2 {
+  font-weight: 600;
+}
+
+.activity-participant-page .participant-waiting h2,
+.activity-participant-page .participant-input-card h2,
+.activity-participant-page .participant-buzzer-card h2 {
+  font-family: var(--act-ui-font);
+  font-weight: 600;
+}
+
+.activity-stage .team-name,
+.activity-stage .activity-race-name,
+.activity-stage .activity-lobby-roster b,
+.activity-stage .wheel-winner-name,
+.activity-stage .picker-text,
+.activity-stage .activity-motion-winner strong,
+.activity-participant-page .participant-identity strong,
+.activity-preview-themed .activity-preview-leaderboard-row strong,
+.activity-preview-themed .activity-preview-podium-place strong,
+.activity-preview-themed .activity-preview-phone-header strong,
+.activity-controller-shell .activity-live-host-roster strong {
+  font-family: var(--act-ui-font);
+  font-weight: 600;
+}
