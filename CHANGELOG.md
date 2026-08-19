@@ -22,10 +22,6 @@ administrator installs an update.
 - Kept the event-selected preset in a dedicated live ref so Apply cannot fall
   back to the previous template while React reconciles the editor.
 
-## v0.40.52 — Classroom remote preset reliability
-
-## v0.40.51 — Classroom remote preset reliability
-
 ## v0.40.50 — Classroom remote navigation
 
 ### User changes
