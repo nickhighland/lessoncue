@@ -4,6 +4,22 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.56 — Activity game typography
+
+### User changes
+
+- Added Fredoka for activity questions, answers, instructions, controls, and
+  player names.
+- Added Luckiest Guy for game names, round/status callouts, scores, reveals,
+  and the “TIME'S UP!” moment.
+
+### Developer changes
+
+- Bundled the supplied font files locally with their license notices and kept
+  the display face scoped to Activity/game surfaces.
+- Corrected participant-preview typography so global admin heading styles cannot
+  leak into phone questions and prompts.
+
 ## v0.40.55 — Classroom remote preset reliability
 
 ### User changes

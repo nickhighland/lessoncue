@@ -371,7 +371,7 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   display: block;
   color: var(--act-stage-accent, #f7bf4e);
   font-size: clamp(.7rem, 1.1vw, .9rem);
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: .18em;
 }
 
@@ -380,7 +380,7 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   margin: .35rem 0 .1rem;
   color: var(--act-stage-text, #fff);
   font-size: clamp(1.1rem, 2.2vw, 2rem);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -.01em;
   overflow-wrap: anywhere;
 }
@@ -391,7 +391,7 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   margin-top: .2rem;
   color: var(--act-stage-accent, #f7bf4e);
   font-size: clamp(2.6rem, 7vw, 5.5rem);
-  font-weight: 950;
+  font-weight: 700;
   line-height: 1;
   letter-spacing: .12em;
 }
@@ -408,7 +408,7 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
 .activity-join-prominent-qr > span {
   color: rgba(255, 255, 255, .7);
   font-size: .68rem;
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: .16em;
 }
 
@@ -506,7 +506,7 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   height: 88px;
   border-radius: 50%;
   font-size: 2.8rem;
-  font-weight: 900;
+  font-weight: 700;
   line-height: 1;
   box-shadow: 0 10px 0 rgba(0, 0, 0, .22);
 }
@@ -536,7 +536,7 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   margin: .3rem 0 .1rem;
   color: var(--act-stage-accent, #f6c531);
   font-size: 2.6rem;
-  font-weight: 950;
+  font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -546,7 +546,7 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   margin-top: .2rem;
   color: rgba(255, 255, 255, .6);
   font-size: .7rem;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: .16em;
   text-transform: uppercase;
 }
@@ -567,7 +567,7 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
 .participant-result-standing dt {
   color: rgba(255, 255, 255, .6);
   font-size: .64rem;
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: .16em;
   text-transform: uppercase;
 }
@@ -576,7 +576,7 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   margin: .2rem 0 0;
   color: var(--act-stage-text, #fff);
   font-size: 1.5rem;
-  font-weight: 900;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
@@ -633,7 +633,7 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   background: rgba(0, 0, 0, .3);
   color: var(--act-stage-text, #fff);
   font-size: clamp(.85rem, 1.4vw, 1.15rem);
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .activity-lobby-avatar {
@@ -706,7 +706,7 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   margin-bottom: .8rem;
   color: var(--act-stage-accent, #f6c531);
   font-size: clamp(.68rem, 1.1vw, .9rem);
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: .2em;
   text-align: center;
 }
@@ -737,7 +737,7 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
 .activity-race-rank {
   color: rgba(255, 255, 255, .55);
   font-size: clamp(.85rem, 1.4vw, 1.15rem);
-  font-weight: 900;
+  font-weight: 700;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
@@ -787,14 +787,14 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   background: rgba(0, 0, 0, .55);
   color: var(--act-stage-text, #fff);
   font-size: clamp(.75rem, 1.3vw, 1rem);
-  font-weight: 900;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
 .activity-race-name {
   color: var(--act-stage-text, #fff);
   font-size: clamp(.8rem, 1.4vw, 1.15rem);
-  font-weight: 800;
+  font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -834,7 +834,7 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   padding: .22rem .7rem;
   border-radius: 999px;
   font-size: .78rem;
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: .02em;
   /* Land after the score so they read as a bonus, not part of the total. */
   animation: lc-callout-pop 480ms cubic-bezier(.34, 1.56, .64, 1) 420ms both;
@@ -860,7 +860,7 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   background: rgba(251, 146, 60, .22);
   color: #fed7aa;
   font-size: .78em;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 /* --------------------------------------------------------- sound ------- */
@@ -885,40 +885,42 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
 
 /* --------------------------------------------------- display type ------ */
 
-/*
- * Game headings previously inherited the admin's Georgia serif, which reads
- * editorial rather than game-show.
- *
- * This is a system stack, not a bundled face: LessonCue is offline-first and a
- * licensed display font would need a source note and attribution entry per
- * docs/activities-assets-and-sound.md. Heavy weight plus tight tracking does
- * most of the work, and every platform in scope resolves to something with a
- * real 800/900.
- */
 .activity-display-root,
-.activity-participant-page {
-  --act-display-font: system-ui, -apple-system, "Segoe UI Variable Display", "Segoe UI",
-    Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif;
+.activity-participant-page,
+.activity-preview-themed,
+.activity-controller-shell {
+  font-family: var(--act-ui-font);
 }
 
 .activity-display-root .activity-title,
 .activity-display-root .activity-lobby-heading .activity-title,
 .activity-participant-page .participant-card h1,
 .activity-participant-page .participant-game-header h1,
-.activity-participant-page .participant-waiting h2,
-.activity-participant-page .participant-input-card h2,
 .activity-participant-page .participant-result h2 {
   font-family: var(--act-display-font);
-  font-weight: 900;
-  /* Tight tracking is what makes a heavy sans read as a title rather than a
-     paragraph in bold. */
-  letter-spacing: -.025em;
+  font-weight: 800;
+  letter-spacing: -.02em;
 }
 
-/* Prompts are read, not scanned, so they keep normal tracking. */
-.activity-participant-page .participant-input-card h2 { letter-spacing: -.01em; }
+.activity-participant-page .participant-waiting h2,
+.activity-participant-page .participant-input-card h2 {
+  font-family: var(--act-ui-font);
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
 
 .activity-display-root .stage-kicker,
-.activity-participant-page .participant-kicker {
+.activity-display-root .interactive-round-label,
+.activity-display-root .activity-motion-reveal > span,
+.activity-display-root .activity-motion-score-burst span,
+.activity-display-root .activity-motion-winner > span,
+.activity-display-root .countdown-time-up {
   font-family: var(--act-display-font);
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+.activity-participant-page .participant-kicker {
+  font-family: var(--act-ui-font);
+  font-weight: 600;
 }
