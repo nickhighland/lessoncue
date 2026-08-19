@@ -239,12 +239,20 @@ public sealed class ActivityService(
 
         definition.Name = input.Name.Trim();
         definition.Description = input.Description?.Trim() ?? "";
+        string? configuredPreset = null;
         if (input.Config.HasValue)
         {
             definition.ConfigJson = input.Config.Value.GetRawText();
+            if (input.Config.Value.ValueKind == JsonValueKind.Object
+                && input.Config.Value.TryGetProperty("preset", out var presetProperty)
+                && presetProperty.ValueKind == JsonValueKind.String)
+            {
+                configuredPreset = presetProperty.GetString();
+            }
         }
         if (!string.IsNullOrWhiteSpace(input.EngineType)) definition.EngineType = input.EngineType.Trim();
-        if (!string.IsNullOrWhiteSpace(input.PresetType)) definition.PresetType = input.PresetType.Trim();
+        if (!string.IsNullOrWhiteSpace(configuredPreset)) definition.PresetType = configuredPreset.Trim();
+        else if (!string.IsNullOrWhiteSpace(input.PresetType)) definition.PresetType = input.PresetType.Trim();
         if (input.SchemaVersion.HasValue) definition.SchemaVersion = Math.Max(1, input.SchemaVersion.Value);
         if (input.Settings.HasValue) definition.SettingsJson = input.Settings.Value.GetRawText();
         if (input.Modifiers.HasValue) definition.ModifiersJson = input.Modifiers.Value.GetRawText();
