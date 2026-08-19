@@ -1,7 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, Page, test } from "@playwright/test";
+import { expect, type BrowserContext, Page, test } from "@playwright/test";
 
 const password = "LessonCueTest42";
+// The server rate-limits sign-in to 10 attempts per 5 minutes per IP, shared
+// across the whole suite. Sign in once and reuse the session for later tests;
+// the first pass still scans the sign-in page itself.
+let adminCookies: Parameters<BrowserContext["addCookies"]>[0] = [];
 
 async function scan(page: Page, label: string) {
   const result = await new AxeBuilder({ page })
@@ -21,6 +25,14 @@ async function scan(page: Page, label: string) {
 }
 
 async function authenticate(page: Page) {
+  if (adminCookies.length > 0) {
+    await page.context().addCookies(adminCookies);
+    await page.goto("/");
+    await expect(
+      page.getByRole("heading", { name: /Good (morning|afternoon|evening)\./ }),
+    ).toBeVisible();
+    return;
+  }
   await page.goto("/");
   const setupHeading = page.getByRole("heading", {
     name: "Create your Service Admin",
@@ -49,6 +61,7 @@ async function authenticate(page: Page) {
   await expect(
     page.getByRole("heading", { name: /Good (morning|afternoon|evening)\./ }),
   ).toBeVisible();
+  adminCookies = await page.context().cookies();
 }
 
 test("primary administration paths meet the automated WCAG 2.2 AA baseline", async ({
@@ -93,6 +106,9 @@ test("confirmation dialogs trap focus, close with Escape, and restore focus", as
   await expect(dialog).toBeVisible();
   await expect(dialog).toHaveAttribute("aria-modal", "true");
   await expect(dialog.getByRole("button", { name: "Move to recycling bin" })).toBeFocused();
+  // The dialog fades in from opacity 0. Scanning mid-animation makes axe read
+  // blended colours and report contrast failures that do not exist at rest.
+  await dialog.evaluate(node => Promise.all(node.getAnimations({ subtree: true }).map(animation => animation.finished)));
   await scan(page, "confirmation dialog");
 
   await page.keyboard.press("Escape");

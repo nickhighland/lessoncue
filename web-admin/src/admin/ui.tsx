@@ -295,17 +295,19 @@ export function Modal({
   title,
   onClose,
   children,
+  className,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  className?: string;
 }) {
   const heading = `dialog-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   const { dialogRef, onDialogKeyDown } =
     useDialogFocus<HTMLDivElement>(onClose);
   return (
     <div
-      className="modal-backdrop"
+      className={`modal-backdrop${className ? ` ${className}` : ""}`}
       onMouseDown={(e) => e.currentTarget === e.target && onClose()}
     >
       <div

@@ -43,7 +43,7 @@ public static class SignageStudioApi
         {
             if (input.Type is not ("calendar" or "weather"))
                 return Results.BadRequest(new { error = "Live data preview is available for calendar and weather elements." });
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             var error = SignageLayout.Validate([input],
                 SignageLayout.ParseAllowlist(organization.SignageSourceAllowlistJson));
             if (error is not null) return Results.BadRequest(new { error });
@@ -57,7 +57,7 @@ public static class SignageStudioApi
 
         planning.MapPost("/layouts", async (SignageLayoutResourceInput input, LessonCueDb db, CancellationToken ct) =>
         {
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             var error = SignageStudio.ValidateLayout(input, SignageLayout.ParseAllowlist(organization.SignageSourceAllowlistJson));
             if (error is not null) return Results.BadRequest(new { error });
             error = await ValidateLayoutReferencesAsync(input, db, ct);
@@ -77,7 +77,7 @@ public static class SignageStudioApi
         {
             var item = await db.SignageLayouts.FindAsync([id], ct);
             if (item is null) return Results.NotFound();
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             var error = SignageStudio.ValidateLayout(input, SignageLayout.ParseAllowlist(organization.SignageSourceAllowlistJson));
             if (error is not null) return Results.BadRequest(new { error });
             error = await ValidateLayoutReferencesAsync(input, db, ct);
@@ -103,7 +103,7 @@ public static class SignageStudioApi
         planning.MapPost("/layouts/save-publish", async (SignageLayoutSavePublishInput input, LessonCueDb db,
             IHubContext<SyncHub> hub, CancellationToken ct) =>
         {
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             var error = SignageStudio.ValidateLayout(input.Layout,
                 SignageLayout.ParseAllowlist(organization.SignageSourceAllowlistJson));
             if (error is not null) return Results.BadRequest(new { error });
@@ -418,7 +418,7 @@ public static class SignageStudioApi
                 return Results.Ok(new { scheduleId = schedule.Id, scope });
             }
 
-            var timeZone = await db.Organizations.AsNoTracking().Select(x => x.TimeZone).FirstOrDefaultAsync(ct) ?? "UTC";
+            var timeZone = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).Select(x => x.TimeZone).FirstOrDefaultAsync(ct) ?? "UTC";
             SignageInput derived;
             if (scope == "event")
             {

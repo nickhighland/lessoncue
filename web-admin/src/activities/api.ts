@@ -8,7 +8,8 @@ import type {
   ActivityRunCreateInput,
   ActivitySessionPublicView,
   ActivityParticipantView,
-  ActivityHostView
+  ActivityHostView,
+  ActivityDefinitionPage
 } from './types';
 
 export class ActivityApi {
@@ -18,6 +19,14 @@ export class ActivityApi {
     if (search) params.set('search', search);
     if (includeArchived) params.set('includeArchived', 'true');
     return api<ActivityDefinition[]>(`/api/v1/activities?${params.toString()}`);
+  }
+
+  static async listActivityPage(type?: string, search?: string, includeArchived?: boolean, page = 1, pageSize = 100): Promise<ActivityDefinitionPage> {
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+    if (type) params.set('type', type);
+    if (search) params.set('search', search);
+    if (includeArchived) params.set('includeArchived', 'true');
+    return api<ActivityDefinitionPage>(`/api/v1/activities/library?${params.toString()}`);
   }
 
   static async getActivity(id: string): Promise<ActivityDefinition> {
@@ -46,6 +55,27 @@ export class ActivityApi {
     return api<{ deletedIds: string[]; archivedIds: string[]; missingIds: string[] }>('/api/v1/activities/bulk-delete', {
       method: 'POST',
       body: JSON.stringify({ ids })
+    });
+  }
+
+  static async bulkArchiveActivities(ids: string[]): Promise<{ deletedIds: string[]; archivedIds: string[]; missingIds: string[] }> {
+    return api<{ deletedIds: string[]; archivedIds: string[]; missingIds: string[] }>('/api/v1/activities/bulk-archive', {
+      method: 'POST',
+      body: JSON.stringify({ ids })
+    });
+  }
+
+  static async bulkRestoreActivities(ids: string[]): Promise<{ restoredIds: string[]; missingIds: string[] }> {
+    return api<{ restoredIds: string[]; missingIds: string[] }>('/api/v1/activities/bulk-restore', {
+      method: 'POST',
+      body: JSON.stringify({ ids })
+    });
+  }
+
+  static async bulkDuplicateActivities(ids: string[], nameSuffix = ' (Copy)'): Promise<ActivityDefinition[]> {
+    return api<ActivityDefinition[]>('/api/v1/activities/bulk-duplicate', {
+      method: 'POST',
+      body: JSON.stringify({ ids, nameSuffix })
     });
   }
 
@@ -79,10 +109,29 @@ export class ActivityApi {
   }
 
   static async executeCommand(runId: string, command: ActivityCommandEnvelope): Promise<ActivityCommandResult> {
-    return api<ActivityCommandResult>(`/api/v1/activity-runs/${runId}/command`, {
-      method: 'POST',
-      body: JSON.stringify(command)
-    });
+    const action = command.action.trim();
+    try {
+      const result = await api<ActivityCommandResult>(`/api/v1/activity-runs/${runId}/command`, {
+        method: 'POST',
+        body: JSON.stringify(command)
+      });
+      notifyActivityCommandLifecycle({
+        runId,
+        action,
+        outcome: result.success === false ? 'failed' : 'succeeded',
+        revision: result.revision,
+        message: result.error || undefined
+      });
+      return result;
+    } catch (error) {
+      notifyActivityCommandLifecycle({
+        runId,
+        action,
+        outcome: 'failed',
+        message: error instanceof Error ? error.message : 'The command could not be completed.'
+      });
+      throw error;
+    }
   }
 
   static async resetRun(runId: string): Promise<ActivityStateEnvelope> {
@@ -97,10 +146,16 @@ export class ActivityApi {
     return api<ActivitySessionPublicView>(`/api/v1/activity-sessions/join/${encodeURIComponent(code)}`);
   }
 
-  static async joinSession(code: string, participantToken?: string, displayName?: string): Promise<{ token: string; participant: ActivityParticipantView }> {
+  static async joinSession(code: string, participantToken?: string, displayName?: string, identity?: { avatar?: string; color?: string }): Promise<{ token: string; participant: ActivityParticipantView }> {
     return api<{ token: string; participant: ActivityParticipantView }>(`/api/v1/activity-sessions/join/${encodeURIComponent(code)}`, {
       method: 'POST',
-      body: JSON.stringify({ participantToken: participantToken || null, displayName: displayName || null })
+      body: JSON.stringify({
+        participantToken: participantToken || null,
+        displayName: displayName || null,
+        // The server pins these to its own allowed list.
+        avatar: identity?.avatar || null,
+        color: identity?.color || null
+      })
     });
   }
 
@@ -130,15 +185,49 @@ export class ActivityApi {
   static async assignParticipantTeam(runId: string, participantId: string, teamId?: string | null): Promise<void> {
     return api<void>(`/api/v1/activity-sessions/${runId}/participants/team`, { method: 'POST', body: JSON.stringify({ participantId, teamId: teamId || null }) });
   }
+
+  static async importBracketFinalists(runId: string, sourceRunId: string, limit?: number): Promise<{ imported: number; sourceRunId: string }> {
+    return api<{ imported: number; sourceRunId: string }>(`/api/v1/activity-sessions/${runId}/bracket-finalists`, {
+      method: 'POST',
+      body: JSON.stringify({ sourceRunId, limit: limit || null })
+    });
+  }
 }
 
+export type ActivityCommandLifecycle = {
+  runId: string;
+  action: string;
+  outcome: 'succeeded' | 'failed';
+  revision?: number;
+  message?: string;
+};
+
+type ActivityCommandLifecycleCallback = (event: ActivityCommandLifecycle) => void;
+const activityCommandLifecycleSubscribers = new Set<ActivityCommandLifecycleCallback>();
+
+export const subscribeActivityCommandLifecycle = (callback: ActivityCommandLifecycleCallback): (() => void) => {
+  activityCommandLifecycleSubscribers.add(callback);
+  return () => activityCommandLifecycleSubscribers.delete(callback);
+};
+
+const notifyActivityCommandLifecycle = (event: ActivityCommandLifecycle) => {
+  activityCommandLifecycleSubscribers.forEach(callback => {
+    try { callback(event); } catch (error) { void error; }
+  });
+};
+
 export type StateUpdateCallback = (envelope: ActivityStateEnvelope) => void;
+
+export type ActivityConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
+type ActivityConnectionCallback = (state: ActivityConnectionState) => void;
 
 export class ActivityHubClient {
   private connection: signalR.HubConnection | null = null;
   private currentRunId: string | null = null;
   private subscribers = new Set<StateUpdateCallback>();
+  private connectionSubscribers = new Set<ActivityConnectionCallback>();
   private isConnecting = false;
+  private connectionState: ActivityConnectionState = 'disconnected';
 
   constructor() {
     this.initConnection();
@@ -160,11 +249,33 @@ export class ActivityHubClient {
     this.connection.on('ReceiveState', handleStateUpdate);
     this.connection.on('ActivityStateUpdated', handleStateUpdate);
 
+    this.connection.onreconnecting(() => {
+      this.setConnectionState('reconnecting');
+    });
+
     this.connection.onreconnected(() => {
+      this.setConnectionState('connected');
       if (this.currentRunId && this.connection?.state === signalR.HubConnectionState.Connected) {
         this.connection.invoke('JoinRun', this.currentRunId).catch(() => {});
       }
     });
+
+    this.connection.onclose(() => {
+      this.setConnectionState('disconnected');
+    });
+  }
+
+  private setConnectionState(state: ActivityConnectionState) {
+    this.connectionState = state;
+    this.connectionSubscribers.forEach(callback => {
+      try { callback(state); } catch (error) { void error; }
+    });
+  }
+
+  subscribeConnectionStatus(callback: ActivityConnectionCallback): () => void {
+    this.connectionSubscribers.add(callback);
+    callback(this.connectionState);
+    return () => this.connectionSubscribers.delete(callback);
   }
 
   private notifySubscribers(envelope: ActivityStateEnvelope) {
@@ -185,13 +296,16 @@ export class ActivityHubClient {
 
     if (this.connection?.state === signalR.HubConnectionState.Disconnected && !this.isConnecting) {
       this.isConnecting = true;
+      this.setConnectionState('connecting');
       try {
         await this.connection.start();
+        this.setConnectionState('connected');
         if (this.currentRunId) {
           await this.connection.invoke('JoinRun', this.currentRunId);
         }
       } catch (err) {
         console.warn('SignalR activity connection failed, fallback to polling:', err);
+        this.setConnectionState('disconnected');
       } finally {
         this.isConnecting = false;
       }

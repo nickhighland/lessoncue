@@ -23,7 +23,7 @@ public sealed class StorageService(string dataPath)
 
     public async Task<StorageSnapshot> GetSnapshotAsync(LessonCueDb db, CancellationToken ct = default)
     {
-        var configured = await db.Organizations.AsNoTracking().Select(x => x.StorageLimitBytes).FirstAsync(ct);
+        var configured = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).Select(x => x.StorageLimitBytes).FirstAsync(ct);
         var reserved = await ReservedRemainingAsync(db, DateTimeOffset.UtcNow, ct);
         return await GetSnapshotAsync(configured, reserved, ct);
     }
@@ -40,7 +40,7 @@ public sealed class StorageService(string dataPath)
         try
         {
             var configured = await db.Organizations.AsNoTracking()
-                .Select(x => x.StorageLimitBytes).FirstAsync(ct);
+                .OrderBy(item => item.Id).Select(x => x.StorageLimitBytes).FirstAsync(ct);
             var reserved = await ReservedRemainingAsync(db, DateTimeOffset.UtcNow, ct);
             var snapshot = ComputeSnapshot(configured, reserved);
             if (session.ExpectedLength > snapshot.RemainingBytes)

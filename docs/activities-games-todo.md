@@ -4,6 +4,28 @@ This is the working backlog for the existing Activities/Games system. It extends
 
 The list is intentionally ordered by product value and architectural dependency. Keep game-specific behavior in reusable engines and presets; do not create a new runtime when an existing engine plus configuration or modifiers can express the experience.
 
+## How the implementation phases are determined
+
+The phase labels are an implementation roadmap, not a runtime setting, database
+field, or teacher-visible game mode. They follow the dependency order in the
+Activities expansion brief:
+
+1. Shared foundation: definitions, live sessions, lobby/reconnect, projections,
+   teams, timers, scoring, transport, and lesson integration.
+2. Highest-value engines: Quiz, Poll, Buzzer, Creative Response, Bluffing, and
+   Survey Board.
+3. Rich interaction engines: Drawing, Ordering, Match-the-Player, Word/Category,
+   and Media Reveal.
+4. Group and stage systems: Bracket/Tournament, Host-Judged Stage Challenge,
+   Physical Room, and shared Utilities.
+5. Advanced composition: Branching Adventure, Telephone Draw chains, and richer
+   power/tournament modifiers.
+
+This ordering favors reusable infrastructure and real vertical slices over a
+large list of disconnected presets. The separate player-facing plan in
+`activities-fun-plan.md` also uses five phases, but those describe visual and
+participation polish; they are not the same implementation sequence.
+
 ## Next build program — 2026-08-15
 
 This is the active implementation sequence. It covers the next product-value layer without creating a second selector or a separate runtime for every named game.
@@ -11,17 +33,17 @@ This is the active implementation sequence. It covers the next product-value lay
 ### 1. Finish the tournament slice
 
 - [x] Initial teacher-entered Bracket Battle with seeded pairings, byes, voting, host winner selection, and role-safe display state.
-- [x] Add live participant/team entrants from the session roster; keep generic drawing/creative/image/finalist adapters as the next composition step.
+- [x] Add live participant/team entrants from the session roster plus a server-side random roster draw; keep generic drawing/creative/image/finalist adapters as the next composition step.
 - [x] Complete the first host recovery controls: close voting, skip a broken matchup, remove an entrant, reset, score, and end; shared score undo remains available.
-- [x] Connect tournament wins to shared score events when `pointsPerWin` is configured; leaderboard/podium presentation remains next.
-- [ ] Add Sudden Death, Survivor Trivia, Rock Paper Scissors Royale, and Heads or Tails as registry presets.
+- [x] Connect tournament wins to shared score events when `pointsPerWin` is configured and show the shared live leaderboard/podium presentation.
+- [x] Add reusable tournament templates for Sudden Death, Survivor Trivia, Rock Paper Scissors Royale, and Heads or Tails; keep them on the Bracket engine and allow the teacher to apply/edit the template.
 
 ### 2. Build the no-phone Physical Room slice
 
 - [x] Add one reusable physical-room runtime with prompts, instructions, round navigation, countdown metadata, pause/resume, randomize, reveal, and team awards.
 - [x] Prove the runtime with Four Corners; Stand/Sit remains a configuration/preset follow-up, and phones remain optional rather than required.
 - [x] Add large-TV display and a compact host controller with Previous, Next, Timer, Pause, Reset, Randomize, Reveal, Award Team, and End.
-- [ ] Add Move If…, Human Spectrum, Line Up, Find Someone Who, Simon Says Controller, Freeze Dance Controller, Challenge Wheel, Relay Board, Scavenger Hunt, Heads or Tails, and Rock Paper Scissors Royale over the same runtime.
+- [x] Add editable room templates for Move If…, Human Spectrum, Line Up, Find Someone Who, Simon Says Controller, Freeze Dance Controller, Challenge Wheel, Relay Board, Scavenger Hunt, Heads or Tails, and Rock Paper Scissors Royale over the same runtime.
 
 ### 3. Make utilities composable
 
@@ -30,25 +52,32 @@ This is the active implementation sequence. It covers the next product-value lay
 - [x] Ship one reusable `utility` Activity runtime with Coin Flip, Dice, Random Number, Mystery Boxes, Challenge Picker, Random Person, Random Team, Countdown, and live-roster Team Generator presets.
 - [x] Add server-authoritative randomness/timer metadata, secret-safe mystery-box projections, utility editor/controller/display surfaces, and deterministic outcome tests.
 - [x] Add host retry, skip, clear, reset, pause, resume, and time-adjust controls to the utility surface.
-- [ ] Embed the utilities inside other engines where that improves a game without creating another selector.
+- [x] Let the Bracket engine consume the shared utility randomness path for a configured random participant/team/teacher roster.
+- [x] Embed utility displays/actions directly inside Buzzer, Punchline, and Fake Out through the shared host/display utility surface; extend the same hook to other engines as their editors gain optional bonus rounds.
 
 ### 4. Improve library and teacher workflow
 
 - [x] Grid/list views, filters, multi-select, safe bulk deletion, archive recovery, and manual arranging.
 - [x] Add favorites/pinning, thumbnails, and clearer setup/participation metadata.
-- [ ] Add editor dirty-state protection, lesson-dependency impact messaging, and preview snapshots.
-- [ ] Add bulk archive/restore/duplicate where the action is unambiguous.
+- [x] Add editor dirty-state protection and client-only preview snapshots for TV, participant, reveal, leaderboard, and podium modes.
+- [x] Add lesson/template/live-run dependency metadata and explain safe archive-versus-delete behavior before destructive actions.
+- [x] Add atomic bulk archive, restore, and duplicate operations alongside existing bulk delete.
 
 ### 5. Raise the game-show presentation floor
 
 - [x] Existing original Web Audio effects and reduced-motion CSS foundation.
 - [x] Add a shared host sound control with volume and mute, independent of lesson media volume.
-- [ ] Add reusable reveal, scoreboard movement, podium, countdown, timer-warning, and winner presentation primitives.
-- [ ] Ensure every new engine has a reduced-motion and manually skippable path.
+- [x] Add reusable reveal, score-burst, countdown, and winner presentation primitives; integrate them into representative buzzer, creative, bracket, stage, and physical-room displays.
+- [x] Add reduced-motion CSS for the shared motion primitives; host progression remains manual and skippable.
+- [x] Add leaderboard rank-movement animation and wire the shared podium treatment into final live-session results.
 
 ### 6. Expand presets only after the engines prove stable
 
-- [ ] Add the named poll, quiz, buzzer, bluffing, creative, drawing, survey, ordering, word, match, media, stage, physical, and adventure presets listed below through registry configuration.
+- [x] Add the first registry-backed Quiz, Poll, Buzzer, Creative, Bluffing, Drawing, and Survey templates; teachers can apply named formats and edit the starter content without switching engines.
+- [x] Extend the existing Quiz engine beyond choice boards with teacher-configurable short-answer and number lock-in rounds, accepted-answer matching, numeric tolerance, closest-answer scoring, and closest-without-going-over scoring.
+- [x] Add shared Quiz modifiers for Wager, server-timestamp speed bonus, Lives/Elimination, and Double or Nothing; expose Wager Trivia and Survivor Trivia as registry presets and reuse the same rules in Rapid Fire.
+- [x] Add Rapid Fire server-authoritative start/pause/resume timing and reject participant answers after the response window expires.
+- [ ] Add the remaining named poll, quiz, buzzer, bluffing, creative, drawing, survey, ordering, word, match, media, stage, physical, and adventure presets listed below through registry configuration.
 - [ ] Prefer an existing engine plus modifiers over another bespoke runtime.
 - [ ] Add one deterministic server test and one representative browser path for each new engine family before broad preset expansion.
 
@@ -73,12 +102,12 @@ Completed in this evaluation pass:
 
 Still needed for a large or heavily curated library:
 
-- [ ] Add pagination or server-side search/filtering for very large libraries.
+- [x] Add bounded server-side library pages and search while keeping the existing full-list endpoint backward-compatible; manual arranging is disabled when the page does not contain the full unfiltered library.
 - [x] Add thumbnails, favorites/pinning, and richer card metadata without making the selector harder to scan.
-- [ ] Add bulk archive/restore/duplicate operations where the action is unambiguous.
-- [ ] Add an editor dirty-state warning, preview snapshots, and lesson-dependency details before destructive actions.
+- [x] Add bulk archive/restore/duplicate operations where the action is unambiguous.
+- [x] Add an editor dirty-state warning, preview snapshots, and lesson-dependency details before destructive actions.
 - [x] Add browser coverage for list/grid persistence, arranging, filtering, and bulk deletion.
-- [ ] Add browser coverage for archived-item recovery and lesson-dependency messaging.
+- [x] Add browser coverage for the paged library endpoint; server coverage already exercises lesson-linked usage, archive, restore, and dependency messaging data. A full UI lesson-linked fixture remains a follow-up for the lesson workflow suite.
 
 ## Completed foundation — reference only
 
@@ -86,9 +115,14 @@ Still needed for a large or heavily curated library:
 - [x] Role-safe host, participant, and display projections.
 - [x] QR/join-code lobby with anonymous browser participants and reconnect handling.
 - [x] Shared participants, teams, score events, moderation, timers, and SignalR updates.
+- [x] Config-driven poll scoring for Majority Rules, Minority Report, and Prediction Machine, with the live distribution hidden until reveal.
 - [x] End-to-end vertical slices for Trivia, Read the Room, Buzzer Battle/Clue Ladder, Punchline, Fake Out, Survey Showdown, Doodle & Guess, Order Up, Word Storm, Match Minds, Mystery Image, and Beat the Clock.
 - [x] Initial shared Utility engine slice: Coin Flip, Dice, Random Number, Mystery Boxes, Challenge Picker, Random Person, Random Team, Countdown, and live-roster Team Generator.
 - [x] Flexible multiple-choice answers; choices are no longer fixed at four.
+- [x] Flexible Quiz answer formats: choice boards (2–8), short answers, exact/tolerant numbers, closest answer, and closest without going over.
+- [x] Shared Quiz modifiers: wagers, server-timestamp speed bonuses, lives/elimination, and Double or Nothing, with Wager Trivia and Survivor Trivia presets.
+- [x] Creative Gallery Vote and Head-to-Head matchup voting over the existing moderated response engine.
+- [x] Conservative Survey Board match suggestions with manual host override.
 - [x] Signage is always live; the obsolete admin test checkbox is removed.
 
 ## 1. Bracket & Tournament engine — in progress
@@ -103,11 +137,12 @@ The first Bracket Battle vertical slice now supports teacher-entered entrants pl
 - [x] Add role-specific participant and display projections; never expose hidden matchup answers or unrevealed results early.
 - [x] Reuse live participant/team entrants and shared score events; leaderboard, timers, moderation, and richer reveal presentation remain follow-up work.
 - [x] Register Bracket Battle with a guided entrant editor, TV display, host controller, and phone voting input.
-- [ ] Add presets over the engine: Rock Paper Scissors Royale, Sudden Death, Survivor Trivia, and Heads or Tails.
-- [ ] Compose the engine with Trivia, Creative Response, Drawing, Poll/Vote, and Team modes without duplicating their runtimes.
+- [x] Add editable presets over the engine: Rock Paper Scissors Royale, Sudden Death, Survivor Trivia, and Heads or Tails.
+- [x] Add the first composition path through the shared participant/team roster and utility-randomized entrant draw without duplicating a runtime.
+- [x] Add a generic finalist handoff adapter from completed interactive runs into a bracket, mapping names to the target roster and preserving unmatched finalists as label-only entrants.
 - [x] Add a deterministic server test covering multiple rounds and the final champion.
-- [ ] Add complete invalid-action, reconnection, and browser end-to-end matchup-to-final coverage.
-- [ ] Document how another engine can hand its finalists to the bracket engine.
+- [x] Add a host controller import flow, results-screen guard, deterministic service coverage for finalist handoff, and browser matchup-to-final coverage.
+- [x] Document how another engine hands its ranked participant/team results to the bracket engine.
 
 ## 2. Physical Room engine — no-phone group play
 
@@ -116,14 +151,15 @@ The first Bracket Battle vertical slice now supports teacher-entered entrants pl
 - [x] Provide the host controls: Previous, Next, Start Timer, Pause, Reset, Randomize, Reveal, Award Team, and End.
 - [x] Make phone participation optional; the activity remains usable when no participants are connected.
 - [x] Add reusable physical prompts, team assignment, timer, scoreboard, and display-state primitives through the shared session panel and public projection.
-- [ ] Add presets: Four Corners, Stand/Sit, Move If…, Human Spectrum, Line Up, Find Someone Who, Simon Says Controller, Freeze Dance Controller, Challenge Wheel, Relay Board, Scavenger Hunt, Heads or Tails, and Rock Paper Scissors Royale.
+- [x] Add editable presets: Four Corners, Stand/Sit, Move If…, Human Spectrum, Line Up, Find Someone Who, Simon Says Controller, Freeze Dance Controller, Challenge Wheel, Relay Board, Scavenger Hunt, Heads or Tails, and Rock Paper Scissors Royale.
 - [x] Add large-TV presentation, keyboard-operable controls, and reduced-motion support; reconnect diagnostics and richer paused/reconnect states remain cross-cutting follow-up work.
 - [x] Add server and browser coverage for no-phone operation, timer control, randomization, reveal, and round navigation; richer team-score interaction remains follow-up work.
+- [x] Make the Physical Room controller phase-aware and enforce the same timer, randomize, reveal, leaderboard, and navigation lifecycle on the server.
 
 ## 3. Game-show utilities and composition
 
 - [x] Establish the shared utility registry metadata contract so utilities can run standalone from Activities and be embedded by future engines without another selector.
-- [ ] Add Wheel with teacher-provided choices and safe random selection.
+- [x] Add Wheel with teacher-provided choices and safe random selection; the existing server-authoritative Wheel reducer is now exposed as named Safari Spin and Spin Challenge Wheel presets in the primary Activities catalog.
 - [x] Add Random Person Picker and Random Team Picker using the live participant/team roster.
 - [x] Add Mystery Boxes with hidden values, server-side reveal, and optional score/action payloads.
 - [x] Add Countdown with pause, resume, reset, adjustment, and server timer metadata.
@@ -131,10 +167,10 @@ The first Bracket Battle vertical slice now supports teacher-entered entrants pl
 - [x] Add live-roster random Team Generator with shared team records and participant assignments.
 - [x] Add manual, balanced-random, and fully-random Team Generator assignment options through the existing shared team records.
 - [x] Add richer team-management recovery controls such as renaming a live team without recreating assignments.
-- [ ] Reuse the existing Buzzer, Leaderboard, and Audience Meter capabilities as embeddable utilities rather than creating duplicate systems.
+- [x] Reuse the existing utility command path for embedded bonus actions in representative engines; Leaderboard/Audience Meter embedding remains a separate presentation follow-up.
 - [x] Add the first shared utility presentation, sound hooks, accessibility labels, and reduced-motion path.
 - [x] Add utility host skip/retry/clear/reset controls and richer timer recovery behavior.
-- [ ] Add richer standalone composition hooks and embed utilities inside other engines.
+- [x] Add richer standalone composition hooks and embed optional utility actions/displays inside other engines without creating another selector.
 - [x] Register the current utility/physical entries in the existing Activities library with clear “phones required,” “phones optional,” and “no phones” metadata.
 - [x] Add deterministic tests for randomization with an injectable server source and tests proving that client input cannot control outcomes or reveal hidden box values early.
 
@@ -144,203 +180,231 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 
 ### Poll & Prediction
 
-- [ ] Majority Rules
-- [ ] Minority Report
-- [ ] Split Decision
-- [ ] Would You Rather
-- [ ] This or That Gauntlet
-- [ ] Hot Take
-- [ ] Consensus as a ranking/prediction configuration
-- [ ] One of Us
-- [ ] Most Likely To
-- [ ] Know Your Group
-- [ ] Yearbook Awards
-- [ ] Prediction Machine
-- [ ] Tiny Hill to Die On
-- [ ] Unpopular Opinion
-- [ ] Worst Choice Possible
+- [x] Majority Rules
+- [x] Minority Report
+- [x] Split Decision
+- [x] Would You Rather
+- [x] This or That Gauntlet starter poll template
+- [x] Hot Take
+- [x] Consensus starter poll template
+- [x] One of Us
+- [x] Most Likely To
+- [x] Know Your Group
+- [x] Yearbook Awards
+- [x] Prediction Machine starter poll template
+- [x] Tiny Hill to Die On
+- [x] Unpopular Opinion
+- [x] Worst Choice Possible
 
 ### Quiz & Answer
 
-- [ ] Fact or Fiction
-- [ ] Two Truths & a Lie
-- [ ] Spot the Fake
-- [ ] Who Said It?
-- [ ] Finish the Quote
-- [ ] Fill the Blank
-- [ ] Which Lesson?
-- [ ] Recap Race
-- [ ] Key Word
-- [ ] Before or After
-- [ ] Which Came First?
-- [ ] Higher or Lower
-- [ ] Over / Under
-- [ ] Guess the Number
-- [ ] Closest Without Going Over
-- [ ] The Price Is Wrong
-- [ ] Definitely Real
-- [ ] That Can’t Be Right
-- [ ] Is It a Horse? as a generic configurable binary-classification preset, not a hard-coded horse game
+- [x] Fact or Fiction
+- [x] Two Truths & a Lie
+- [x] Spot the Fake
+- [x] Who Said It?
+- [x] Finish the Quote
+- [x] Fill the Blank
+- [x] Which Lesson?
+- [x] Recap Race
+- [x] Key Word
+- [x] Before or After
+- [x] Which Came First?
+- [x] Higher or Lower
+- [x] Over / Under
+- [x] Guess the Number
+- [x] Closest Without Going Over
+- [x] The Price Is Wrong
+- [x] Definitely Real
+- [x] That Can’t Be Right
+- [x] Is It a Horse? as a generic configurable binary-classification preset, not a hard-coded horse game
+- [x] Wager Trivia over the shared Quiz modifier layer
+- [x] Survivor Trivia over the shared Lives/Elimination modifier layer
+- [x] Rapid Fire uses the same Quiz scoring/modifier contract with a server-authoritative response timer
 
 ### Buzzer & Progressive Clue
 
-- [ ] Mystery Person
-- [ ] Mystery Place
-- [ ] Mystery Object
-- [ ] Common Thread
-- [ ] Secret Category
-- [ ] Concept Pyramid
-- [ ] Password
-- [ ] Verify declining clue values and optional lockout/steal behavior in the editor and host flow
+- [x] Mystery Person
+- [x] Mystery Place
+- [x] Mystery Object
+- [x] Common Thread
+- [x] Secret Category
+- [x] Concept Pyramid
+- [x] Password
+- [x] Verify declining clue values and optional lockout/steal behavior in the editor and host flow
 
 ### Bluffing & Deception
 
-- [ ] Who Wrote That?
-- [ ] Confessions
-- [ ] Secret Talent
-- [ ] Why Is This Here?
-- [ ] Support correct-answer points, successful-bluff points, optional host-favorite points, and anonymous reveal
+- [x] Who Wrote That?
+- [x] Confessions
+- [x] Secret Talent
+- [x] Why Is This Here?
+- [x] Support correct-answer points, successful-bluff points, optional host-favorite points, and anonymous reveal
 
 ### Creative Response & Voting
 
-- [ ] Caption This
-- [ ] Autocomplete
-- [ ] Bad Advice
-- [ ] Explain It Badly
-- [ ] Wrong Answers Only
-- [ ] Rename It
-- [ ] New Product
-- [ ] Slogan Factory
-- [ ] Movie Pitch
-- [ ] Headline
-- [ ] Deleted Scene
-- [ ] Alternate Ending
-- [ ] Plot Twist
-- [ ] Excuse Generator
-- [ ] Superpower / Catch
-- [ ] Make It Worse
-- [ ] Explain This Photo
-- [ ] Who Approved This?
-- [ ] Worst Ranking
-- [ ] Reuse mandatory moderation and support Gallery Vote plus Head-to-Head voting
+- [x] Caption This
+- [x] Autocomplete
+- [x] Bad Advice
+- [x] Explain It Badly
+- [x] Wrong Answers Only
+- [x] Rename It
+- [x] New Product
+- [x] Slogan Factory
+- [x] Movie Pitch
+- [x] Headline
+- [x] Deleted Scene
+- [x] Alternate Ending
+- [x] Plot Twist
+- [x] Excuse Generator
+- [x] Superpower / Catch
+- [x] Make It Worse
+- [x] Explain This Photo
+- [x] Who Approved This?
+- [x] Worst Ranking
+- [x] Reuse mandatory moderation and support Gallery Vote plus Head-to-Head voting
 
 ### Drawing
 
-- [ ] Doodle as a simple drawing-only preset
-- [ ] Draw & Vote
-- [ ] Mascot Maker
-- [ ] Logo Disaster
-- [ ] Invention Lab
-- [ ] Draw the Description
-- [ ] Telephone Draw chain: phrase → drawing → description → drawing → description
-- [ ] Add chain replay and animated reveal once the base drawing flow is stable
+- [x] Doodle as a simple drawing-only preset
+- [x] Draw & Vote
+- [x] Mascot Maker
+- [x] Logo Disaster
+- [x] Invention Lab
+- [x] Draw the Description
+- [x] Add a touch-safe mobile drawing toolbar with pen, eraser, undo, clear, brush sizes, and a small color palette.
+- [x] Telephone Draw chain: phrase → drawing → description → drawing → description
+- [x] Add chain replay and animated reveal once the base drawing flow is stable
 
 ### Survey Board
 
-- [ ] Top Five
-- [ ] Top Answer
-- [ ] Bottom of the Barrel
-- [ ] Add conservative fuzzy matching with a host override that always wins
-- [ ] Add strikes, steals, and team-turn flow as configurable modifiers
+- [x] Top Five
+- [x] Top Answer
+- [x] Bottom of the Barrel
+- [x] Add conservative alias/word matching suggestions with a host override that always wins
+- [x] Add strikes, steals, and team-turn flow as configurable modifiers
 
 ### Ordering, Ranking, Matching & Sorting
 
-- [ ] Timeline
-- [ ] Rank It
-- [ ] Verse Scramble
-- [ ] Missing Step
-- [ ] Cause & Effect
-- [ ] Match-Up
-- [ ] Sorting Hat
-- [ ] Connections
-- [ ] Odd One Out
-- [ ] Add accessible non-drag input for every ordering/sorting preset
+- [x] Timeline
+- [x] Rank It
+- [x] Verse Scramble
+- [x] Missing Step
+- [x] Cause & Effect
+- [x] Order Up as the shared editable ordering template
+- [x] Match-Up
+- [x] Sorting Hat
+- [x] Connections
+- [x] Odd One Out
+- [x] Add accessible non-drag input for Match-Up, Connections, and the shared ordering editor
 
 ### Word & Category
 
-- [ ] Category Blitz
-- [ ] Name Five
-- [ ] Alphabet Challenge
-- [ ] Last One Standing with turn order, timeout, elimination, and duplicate detection
-- [ ] Chain Reaction
-- [ ] Word Association
-- [ ] Word Storm variants with repeated-word aggregation
-- [ ] One Word Too Far
+- [x] Category Blitz
+- [x] Name Five
+- [x] Alphabet Challenge
+- [x] Last One Standing turn order, duplicate detection, and elimination; timeout remains a follow-up
+- [x] Chain Reaction starter template
+- [x] Word Association
+- [x] Word Storm variants with repeated-word aggregation
+- [x] One Word Too Far starter template
 
 ### Match-the-Player
 
-- [ ] Same Brain
-- [ ] Know Your Leader
-- [ ] Friend Match
-- [ ] Newlywed Game
-- [ ] How Well Do You Know Me?
-- [ ] Guess My Answer
-- [ ] Support A/B, multiple-choice, and host-judged short-text matching
+- [x] Same Brain
+- [x] Know Your Leader
+- [x] Friend Match
+- [x] Newlywed Game
+- [x] How Well Do You Know Me?
+- [x] Guess My Answer
+- [x] Support A/B, multiple-choice, and host-judged short-text matching
 
 ### Media Reveal & Observation
 
-- [ ] Zoomed In
-- [ ] Blur Reveal
-- [ ] Silhouette
-- [ ] Missing Piece
-- [ ] What’s Different?
-- [ ] Memory Grid
-- [ ] Flash Frame
-- [ ] Emoji Decode
-- [ ] Picture Puzzler
-- [ ] Rebus Rush
-- [ ] Sound Check
-- [ ] Sound Bite
-- [ ] Backwards Audio
-- [ ] One Second Challenge
-- [ ] Freeze Frame
-- [ ] What Happens Next?
-- [ ] Add client-side transformations: pixelate, blur, zoom, crop, silhouette, timed flash, progressive exposure, audio duration/reverse, and video pause
-- [ ] Reuse the existing media library and playback URLs; never modify source media or create an unnecessary upload system
+- [x] Zoomed In
+- [x] Blur Reveal
+- [x] Silhouette
+- [x] Missing Piece
+- [x] What’s Different? with a dedicated two-scene comparison display and teacher-authored change answer
+- [x] Memory Grid
+- [x] Flash Frame
+- [x] Emoji Decode with a purpose-built clue/answer reveal layout
+- [x] Picture Puzzler
+- [x] Rebus Rush with a purpose-built symbol/phrase reveal layout
+- [x] Sound Check
+- [x] Sound Bite
+- [x] Backwards Audio
+- [x] One Second Challenge
+- [x] Freeze Frame
+- [x] What Happens Next?
+- [x] Add client-side transformations: pixelate, blur, zoom, crop, silhouette, timed flash/progressive exposure, and bounded audio duration/reverse playback
+- [x] Reuse the existing media library and playback URLs; never modify source media or create an unnecessary upload system
 
 ### Host-Judged Stage Challenge
 
-- [ ] Teach It Back
-- [ ] Best Explanation
-- [ ] Scenario Judge
-- [ ] Example / Non-Example
-- [ ] Unnecessary Debate
-- [ ] Courtroom
-- [ ] Sell Me This
-- [ ] Pose Match
-- [ ] Photo Hunt
-- [ ] Add optional audience voting and configurable success/failure scoring
+- [x] Teach It Back
+- [x] Best Explanation
+- [x] Scenario Judge
+- [x] Example / Non-Example
+- [x] Unnecessary Debate
+- [x] Courtroom
+- [x] Sell Me This
+- [x] Pose Match
+- [x] Photo Hunt
+- [x] Beat the Clock and Minute to Win It starter templates
+- [x] Add optional audience voting and configurable success/failure scoring; audience callers can earn a configurable bonus while the host keeps the final ruling
 
 ### Physical Room
 
-- [ ] Add the remaining physical presets after the Physical Room engine is stable
-- [ ] Support classroom, youth-group, church, and training-friendly prompt templates without requiring a built-in content marketplace
+- [x] Add the remaining physical presets after the Physical Room engine is stable, including Animal Relay and Silent Line-Up
+- [x] Support classroom, youth-group, church, and training-friendly prompt templates without requiring a built-in content marketplace
 
 ### Branching Adventure
 
-- [ ] Define a small ordered/node editor for scene, choice, poll, quiz, media, random, score, inventory, condition, and end nodes
-- [ ] Build the runtime only after the shared session contract is stable
-- [ ] Add Adventure as the first preset
+- [x] Define the full node vocabulary and editor for scene, choice, poll, quiz, media, random, score, inventory, condition, and end nodes
+- [x] Build the first server-authoritative ordered choice/branch runtime over the shared Physical Room session contract
+- [x] Add Adventure as the first preset, with editable animal story nodes, phone voting, host resolution, and branch history
+- [x] Add a simple ordered node editor with stable node IDs, branch destination selectors, explicit finish targets, and server validation
 
 ## 5. Game-show presentation and sound polish
 
 - [x] Create the initial shared original Web Audio primitives and route them through a common game-sound gain node; the remaining cue catalog is still expanding.
 - [x] Add a global host sound-effects volume control and mute control; keep game audio separate from lesson media volume.
-- [ ] Build shared TV components for animated intro, round title, prompt reveal, countdown, answer lock, buzzer winner, correctness reveal, point animation, vote result, leaderboard, podium, final score reveal, team bars, participant cards, response cards, strikes, lives, and progress.
-- [ ] Ensure every animation has a reduced-motion path and a host skip path.
-- [ ] Tune TV layouts for readability across classroom distances: large type, high contrast, limited information per screen, and no tiny admin controls.
-- [ ] Add theme/presentation variants that are recognizably LessonCue and do not copy commercial game-show artwork, sound, or trade dress.
-- [ ] Add suspense/reveal pacing without making the host wait unnecessarily; every transition must be manually advanceable or skippable.
-- [ ] Add audio/image asset licensing notes and original asset attribution where required.
+- [x] Build shared TV components for animated intro, round title, prompt reveal, countdown, answer lock, buzzer winner, correctness reveal, point animation, vote result, leaderboard, podium, final score reveal, team bars, participant cards, response cards, strikes, lives, and progress; representative engine coverage is live and the remaining displays reuse the same primitives incrementally.
+- [x] Ensure the shared animation system has a reduced-motion path and host-controlled/skippable progression; full per-engine coverage remains a follow-up.
+- [x] Tune current TV layouts for readability across classroom distances: large type, high contrast, limited information per screen, and no tiny admin controls.
+- [x] Add theme/presentation variants that are recognizably LessonCue and do not copy commercial game-show artwork, sound, or trade dress. Named catalog presets now seed stage, neon, retro, arcade, cyberpunk, or clean treatments; teachers can change the TV theme, sound pack, and ambient-motion preference in the existing editor.
+- [x] Add renderer-only suspense/reveal pacing without making the host wait unnecessarily; every transition remains manually advanceable and reduced-motion safe.
+- [x] Add audio/image asset licensing notes and original asset attribution guidance in [Activities assets and sound policy](activities-assets-and-sound.md); new bundled assets still require an entry before release.
+- [x] Offer a numeric network address alongside the `.local` name, so a room can still join when mDNS does not resolve on the Wi-Fi.
+- [x] Let a teacher pre-arm auto-advance in the editor rather than only from the host console mid-run.
+- [x] Give each phone its own sound switch, remembered per device.
+- [x] Replace the inherited Georgia serif on game surfaces with a heavy system display treatment; no bundled font, so no new licence obligation.
+- [x] Build streaks once per projection instead of walking the run per player.
+- [x] Add streak and speed callouts: "First in!" for the earliest correct answer of a round and a run counter on both the phone result card and the standings race, derived from the server's own submission times and score events.
+- [x] Add opt-in auto-advance: once every active player has answered, the server closes the response window itself. Off by default, host-togglable per run, and only offered for engines where a head count is meaningful.
+- [x] Give the host live controls: the join code and QR stay visible during a round, a roster shows who has answered with an "answers in" count, and a standings button is available. The Universal Remote tabs are named for what they do.
+- [x] Put the response clock on the stage so the room can see it, not only the phones.
+- [x] Show between-round standings as a race: each player runs their own avatar and colour along a lane, position encodes score, and a lane surges when it gains points. Trivia previously rendered no standings at all.
+- [x] Replace the small join pill with a real lobby stage: the room code and QR dominate, and players appear one at a time with their avatar and colour as they join.
+- [x] Tell each player how they did at reveal: outcome, points counting up, rank and total on their own phone, instead of "look up at the main display". The projection carries only that player's own standing.
+- [x] Add player identity: an avatar/colour picker at join, shown on the phone header and carried into the roster and standings, plus a "Not <name>? Switch player" handover so a shared device no longer silently resumes as the previous player.
+- [x] Publish a scannable join address: server-resolved absolute `joinUrl` (Cloudflare tunnel or `.local`), a teacher-selectable preference in Settings, and one shared join banner with a QR code replacing five duplicated copies.
+- [x] Give every engine and named preset its own planned palette instead of four shared looks, apply it to the participant phone as well as the TV stage, and keep any theme a teacher customised. Contrast is checked for white-on-background and label-on-accent.
+- [x] Fix participant headings inheriting the admin's dark `--ink`, which made phone titles and prompts dark-on-dark.
+- [x] Add the shared tactile layer for phone play: squash-and-stretch press feedback, seeded idle drift on waiting states, chunky touch targets, and a last-five-seconds panic treatment driven by the authoritative clock. Reduced motion drops the animation and keeps the colour.
+- [x] Add the optional sampled sound-pack path (`/assets/games/{gameId}/audio/...`) with lobby preloading, per-tap pitch variation, and a synthesized fallback for every absent file. The shipped repository still bundles no third-party audio.
+- [x] Add per-game opening and closing stings alongside the looping lobby bed and round transition, fired from real phase transitions on the display.
+- [x] Resolve sound packs through a preset → engine → shared cascade and scaffold the 29 engine folders with documented `.txt` placeholders for every cue.
+- [ ] Extend the same tactile layer to the host controller and the remaining TV stage renderers; participant coverage is complete.
 
 ## 6. Controller and operational follow-through
 
 - [ ] Verify every new engine has a working web-controller path, not merely a display or participant UI.
 - [ ] Make host actions contextual to the current phase: start, open/lock, reveal, vote, judge, score, undo, next, pause, reset, skip, remove, and end as applicable.
 - [ ] Preserve physical remote scrolling/navigation as a display/control-navigation feature; do not make physical remotes responsible for participant activity input.
-- [ ] Add controller recovery after refresh, SignalR reconnect, stale revision, display disconnect, and participant disconnect.
-- [ ] Add a visible connection/acknowledgement state for important controller commands.
-- [ ] Test mobile controller touch targets, keyboard use, and D-pad/remote navigation.
+- [x] Add controller recovery after refresh, SignalR reconnect, stale revision, display disconnect, and participant disconnect. The shared ActivityController now refreshes the authoritative run while SignalR is reconnecting/offline and refreshes again after reconnection; display and participant projections continue to recover through the existing hub/run subscription path.
+- [x] Add a visible connection/acknowledgement state for important controller commands. Host controls now expose connection status, manual refresh, success revisions, and server/API errors without creating a second control system.
+- [ ] Test mobile controller touch targets, keyboard use, and D-pad/remote navigation. Participant phone targets and keyboard activation are covered by `tests/browser/activity-participant-juice.spec.ts`; the host controller and remote navigation remain.
 
 ## 7. Library, editor, and teacher workflow
 
@@ -360,7 +424,7 @@ Add these as registry-backed presets and guided editors. Each preset should reus
 - [ ] Add definition validation and schema-version migration coverage.
 - [ ] Add server-authority tests for permissions, phase restrictions, duplicate submissions, lock/reveal behavior, scoring, and invalid participant actions.
 - [ ] Add role-projection tests proving secrets never reach participant or display clients early.
-- [ ] Add reconnect and refresh tests for host, display, and participant clients.
+- [ ] Add reconnect and refresh tests for host, display, and participant clients. Host recovery behavior is implemented; browser coverage for forced disconnects and refresh remains a quality-gate follow-up.
 - [ ] Add moderation and payload-size tests for text, drawings, media references, and other user-generated content.
 - [ ] Add OpenAPI/protocol fixtures whenever routes or public state shapes change.
 - [ ] Add mobile participant, accessibility, and reduced-motion coverage for each input type.

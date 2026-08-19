@@ -24,7 +24,7 @@ public static class AdminApi
         auth.MapGet("/session", async (HttpContext context, LessonCueDb db, AccountEmailService email,
             CancellationToken ct) =>
         {
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             var authenticated = context.User.Identity?.IsAuthenticated == true;
             var hasAccountId = Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var accountId);
             var mustChangePassword = authenticated && hasAccountId &&
@@ -61,7 +61,7 @@ public static class AdminApi
                 Role = "Service Admin" };
             account.PasswordHash = hasher.HashPassword(account, input.Password);
             db.AdminAccounts.Add(account);
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             if (!string.IsNullOrWhiteSpace(input.OrganizationName)) organization.Name = input.OrganizationName.Trim();
             if (!string.IsNullOrWhiteSpace(input.TimeZone)) organization.TimeZone = input.TimeZone.Trim();
             if (!string.IsNullOrWhiteSpace(input.SiteName)) organization.SiteName = input.SiteName.Trim();
@@ -122,7 +122,7 @@ public static class AdminApi
         auth.MapPost("/register", async (RegistrationInput input, HttpRequest request, LessonCueDb db,
             AccountEmailService email, IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
         {
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             if (organization.RegistrationMode is not ("open" or "code" or "approval"))
                 return Results.Json(new { error = "Registration is closed. Ask an administrator to create your account." }, statusCode: 403);
             if (!email.Status(organization.EmailProvider).Configured)
@@ -209,7 +209,7 @@ public static class AdminApi
         {
             var address = input.Email.Trim().ToLowerInvariant();
             var account = await db.AdminAccounts.SingleOrDefaultAsync(x => x.Email == address && !x.EmailVerified && !x.Disabled, ct);
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             if (account is not null && email.Status(organization.EmailProvider).Configured)
             {
                 await InvalidateTokensAsync(db, account.Id, "verify", ct);
@@ -235,7 +235,7 @@ public static class AdminApi
         {
             var address = input.Email.Trim().ToLowerInvariant();
             var account = await db.AdminAccounts.SingleOrDefaultAsync(x => x.Email == address && x.EmailVerified && !x.Disabled, ct);
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             if (account is not null && email.Status(organization.EmailProvider).Configured)
             {
                 await InvalidateTokensAsync(db, account.Id, "reset", ct);
@@ -381,7 +381,7 @@ public static class AdminApi
                 if (!IsEmail(address)) return Results.BadRequest(new { error = "Enter a valid email address." });
                 if (await db.AdminAccounts.AnyAsync(x => x.Id != account.Id && x.Email == address, ct))
                     return Results.Conflict(new { error = "That email address is already registered." });
-                var organization = await db.Organizations.FirstAsync(ct);
+                var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
                 if (!email.Status(organization.EmailProvider).Configured)
                     return Results.Conflict(new { error = "An administrator must configure email before changing your address." });
                 await InvalidateTokensAsync(db, account.Id, "email", ct);
@@ -432,7 +432,7 @@ public static class AdminApi
             if (hasher.VerifyHashedPassword(account, account.PasswordHash, input.CurrentPassword) ==
                 PasswordVerificationResult.Failed)
                 return Results.BadRequest(new { error = "The current password was not accepted." });
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             var secret = mfa.CreateSecret();
             account.TotpSecretProtected = secret.ProtectedSecret;
             account.TotpEnabled = false;
@@ -526,7 +526,7 @@ public static class AdminApi
         admin.MapGet("/support/bundle", async (LessonCueDb db, StorageService storage,
             BackupPolicyService backupPolicy, UpdateService updates, CancellationToken ct) =>
         {
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             var storageStatus = await storage.GetSnapshotAsync(db, ct);
             var converter = MediaConverterCapabilities.Snapshot();
             var media = await db.MediaAssets.AsNoTracking().Where(x => x.DeletedAt == null)
@@ -610,7 +610,7 @@ public static class AdminApi
             HttpContext context,
             CancellationToken ct) =>
         {
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             var storageStatus = await storage.GetSnapshotAsync(db, ct);
             var canPair = LessonCuePermissions.Has(context.User, LessonCuePermissions.Screens) ||
                 LessonCuePermissions.Has(context.User, LessonCuePermissions.AppSettings) ||
@@ -895,6 +895,7 @@ public static class AdminApi
                     item.Type,
                     item.Role,
                     item.Position,
+                    item.ActivityDefinitionId,
                     item.MediaAssetId,
                     mediaFileName = item.MediaAsset != null ? item.MediaAsset.FileName : null,
                     item.DurationMs,
@@ -1188,7 +1189,7 @@ public static class AdminApi
                 scheduleCount = x.Schedules.Count,
                 items = x.Items.OrderBy(item => item.Position).Select(item => new
                 {
-                    item.Id, item.Title, item.Type, item.Role, item.Position, item.MediaAssetId,
+                    item.Id, item.Title, item.Type, item.Role, item.Position, item.ActivityDefinitionId, item.MediaAssetId,
                     mediaFileName = item.MediaAsset != null ? item.MediaAsset.FileName : null,
                     item.DurationMs, item.StartMs, item.EndMs, item.VolumePercent, item.ImageDurationSeconds, item.EstimatedDurationSeconds,
                     item.EndBehavior, item.AllowSkip, item.Notes, item.FadeInMs, item.FadeOutMs,
@@ -1719,7 +1720,7 @@ public static class AdminApi
         {
             var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
             if (media is null) return Results.NotFound();
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             var selection = MediaTaxonomy.Validate(organization, input.Folder ?? media.Folder, input.TagsCsv ?? media.TagsCsv);
             if (selection.Error is not null) return Results.BadRequest(new { error = selection.Error });
             if (input.FileName is not null)
@@ -2014,7 +2015,7 @@ public static class AdminApi
                     }
                     break;
                 case "organize":
-                    var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+                    var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
                     var selection = MediaTaxonomy.Validate(organization, input.Folder, input.TagsCsv);
                     if (selection.Error is not null) return Results.BadRequest(new { error = selection.Error });
                     var folder = selection.Folder;
@@ -2103,7 +2104,7 @@ public static class AdminApi
         {
             if (!Uri.TryCreate(input.Url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
                 return Results.BadRequest(new { error = "Enter a complete http or https URL." });
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             var selection = MediaTaxonomy.Validate(organization, input.Folder, input.TagsCsv);
             if (selection.Error is not null) return Results.BadRequest(new { error = selection.Error });
             Lesson? retentionLesson = null;
@@ -2266,7 +2267,7 @@ public static class AdminApi
                 _ => true
             };
             var storageStatus = await storage.GetSnapshotAsync(db, ct);
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             var policy = UploadQuotaPolicy.Read(organization);
             var activeUploadStates = new[]
             {
@@ -2402,9 +2403,9 @@ public static class AdminApi
                 x.Name,
                 x.Platform,
                 x.AssignedClassId,
-                assignedClassName = db.Classes.Where(c => c.Id == x.AssignedClassId).Select(c => c.Name).FirstOrDefault(),
+                assignedClassName = db.Classes.Where(c => c.Id == x.AssignedClassId).OrderBy(c => c.Name).Select(c => c.Name).FirstOrDefault(),
                 assignedSignageName = db.SignagePlaylists.Where(sign => sign.Id == x.AssignedSignageId)
-                    .Select(sign => sign.Name).FirstOrDefault(),
+                    .OrderBy(sign => sign.Name).Select(sign => sign.Name).FirstOrDefault(),
                 x.VolunteerMode,
                 x.SignageOnly,
                 x.PermanentPairing,
@@ -2520,7 +2521,7 @@ public static class AdminApi
                 controllerContext.StartsWith("session:", StringComparison.OrdinalIgnoreCase))
             {
                 var requireLocal = await db.Organizations.AsNoTracking()
-                    .Select(x => x.RequireLocalRoomControllers).FirstAsync(ct);
+                    .OrderBy(item => item.Id).Select(x => x.RequireLocalRoomControllers).FirstAsync(ct);
                 if (!ControllerAccessPolicy.CanUseRoomController(requireLocal, context.User, context.Request.Host.Host,
                     context.Connection.RemoteIpAddress))
                     return Results.Json(new
@@ -2726,7 +2727,7 @@ public static class AdminApi
         var updatesAdmin = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Updates);
 
         settings.MapGet("/organization", async (LessonCueDb db, CancellationToken ct) =>
-            await db.Organizations.AsNoTracking().FirstAsync(ct));
+            await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct));
 
         settings.MapGet("/troubleshooting-log", async (int? limit, bool? failuresOnly, LessonCueDb db, TroubleshootingLog log,
             CancellationToken ct) =>
@@ -2762,7 +2763,7 @@ public static class AdminApi
         settings.MapGet("/registration/settings", async (LessonCueDb db, AccountEmailService email,
             CancellationToken ct) =>
         {
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             return Results.Ok(new
             {
                 mode = organization.RegistrationMode,
@@ -2777,7 +2778,7 @@ public static class AdminApi
         appSettings.MapGet("/registration/mode", async (LessonCueDb db, AccountEmailService email,
             CancellationToken ct) =>
         {
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             return Results.Ok(new
             {
                 mode = organization.RegistrationMode,
@@ -2791,7 +2792,7 @@ public static class AdminApi
             var mode = input.Mode.Trim().ToLowerInvariant();
             if (mode is not ("closed" or "open" or "code" or "approval"))
                 return Results.BadRequest(new { error = "Registration mode must be closed, approval, open, or code." });
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             if (mode != "closed" && !email.Status(organization.EmailProvider).Configured)
                 return Results.BadRequest(new { error = "A Service Admin must configure account email before self-service registration can be enabled." });
             organization.RegistrationMode = mode;
@@ -2813,7 +2814,7 @@ public static class AdminApi
                 (!Uri.TryCreate(publicBaseUrl, UriKind.Absolute, out var publicUrl) ||
                  publicUrl.Scheme != Uri.UriSchemeHttps && !publicUrl.IsLoopback))
                 return Results.BadRequest(new { error = "Public account URL must use HTTPS, except for a loopback development address." });
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             if (mode != "closed" && !email.Status(organization.EmailProvider).Configured)
                 return Results.BadRequest(new { error = "Configure account email before enabling self-service registration." });
             organization.RegistrationMode = mode;
@@ -2834,7 +2835,7 @@ public static class AdminApi
                 return Results.BadRequest(new { error = "A valid sender address and name are required." });
             if (input.ApiKey?.Length > 2048)
                 return Results.BadRequest(new { error = "The provider key is too long." });
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             if (organization.RegistrationMode != "closed" && provider == "none")
                 return Results.BadRequest(new { error = "Self-service registration requires Resend or Brevo email delivery." });
             try { await email.ConfigureAsync(provider, input.ApiKey, ct); }
@@ -2873,7 +2874,7 @@ public static class AdminApi
             catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
             if (mode != "closed" && !email.Status(provider).Configured)
                 return Results.BadRequest(new { error = "Configure the email provider API key before enabling registration." });
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             organization.RegistrationMode = mode;
             organization.PublicBaseUrl = input.PublicBaseUrl.Trim().TrimEnd('/');
             organization.EmailProvider = provider;
@@ -2890,7 +2891,7 @@ public static class AdminApi
             var recipient = input.Recipient?.Trim().ToLowerInvariant() ?? "";
             if (recipient.Length > 200 || !IsEmail(recipient))
                 return Results.BadRequest(new { error = "Enter a valid recipient email address." });
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             if (!email.Status(organization.EmailProvider).Configured)
                 return Results.Conflict(new { error = "Save a configured Resend or Brevo provider before sending a test." });
             try
@@ -3007,7 +3008,7 @@ public static class AdminApi
             if (input.SignageSourceAllowlist is not null &&
                 !SignageLayout.TryNormalizeAllowlist(input.SignageSourceAllowlist, out _, out var allowlistError))
                 return Results.BadRequest(new { error = allowlistError });
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             organization.Name = input.Name.Trim(); organization.SiteName = input.SiteName.Trim();
             organization.TimeZone = input.TimeZone.Trim(); organization.WeekStartsOn = input.WeekStartsOn == "Monday" ? "Monday" : "Sunday";
             organization.DefaultLessonDurationMinutes = Math.Clamp(input.DefaultLessonDurationMinutes, 5, 480);
@@ -3035,7 +3036,7 @@ public static class AdminApi
         settings.MapPut("/organization/signage-availability", async (SignageAvailabilityInput input,
             LessonCueDb db, CancellationToken ct) =>
         {
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             organization.SignageEnabled = true;
             Audit(db, "organization.signage-availability", organization.Id, "always-live");
             await db.SaveChangesAsync(ct);
@@ -3069,7 +3070,7 @@ public static class AdminApi
                 return Results.Conflict(new { error = $"Reassign existing media before removing approved {details}." });
             }
 
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             MediaTaxonomy.Store(organization, taxonomy);
             db.AuditEvents.Add(new AuditEvent
             {
@@ -3168,7 +3169,7 @@ public static class AdminApi
         settings.MapPut("/storage", async (StorageLimitInput input, LessonCueDb db, StorageService storage,
             CancellationToken ct) =>
         {
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             var snapshot = await storage.GetSnapshotAsync(db, ct);
             if (input.LimitBytes < 0) return Results.BadRequest(new { error = "Storage allocation cannot be negative." });
             var committed = snapshot.UsedBytes + snapshot.ReservedBytes;
@@ -3187,7 +3188,7 @@ public static class AdminApi
 
         settings.MapGet("/upload-policy", async (LessonCueDb db, CancellationToken ct) =>
         {
-            var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             return Results.Ok(UploadQuotaPolicy.Read(organization));
         });
 
@@ -3204,7 +3205,7 @@ public static class AdminApi
                 input.RoleDailyBytes?.Values.Any(value => value <= 0) == true ||
                 input.ClassDailyBytes?.Values.Any(value => value <= 0) == true)
                 return Results.BadRequest(new { error = "Per-user, role, and class limits must be greater than zero." });
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             UploadQuotaPolicy.Store(organization, input);
             Audit(db, "storage.upload-policy.update", organization.Id,
                 $"file:{input.MaxFileBytes};day:{input.MaxDailyBytes};active:{input.MaxActiveSessionsPerUser}");
@@ -3241,6 +3242,14 @@ public static class AdminApi
             }
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
+
+        settings.MapGet("/activity-join-address",
+            (ActivityJoinAddressService joinAddress) => Results.Ok(joinAddress.Status));
+
+        settings.MapPut("/activity-join-address", async (
+            JoinAddressInput input,
+            ActivityJoinAddressService joinAddress,
+            CancellationToken ct) => Results.Ok(await joinAddress.SetAsync(input.Mode, ct)));
 
         settings.MapGet("/cloudflare-tunnel", (CloudflareTunnelService tunnel) => Results.Ok(tunnel.Status));
 
@@ -3412,7 +3421,7 @@ public static class AdminApi
             if (!IsEmail(address)) return Results.BadRequest(new { error = "Enter a valid email address." });
             if (await db.AdminAccounts.AnyAsync(x => x.Email == address, ct))
                 return Results.Conflict(new { error = "That email address already belongs to an account." });
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             if (!email.Status(organization.EmailProvider).Configured)
                 return Results.Conflict(new { error = "Configure account email before sending invitations." });
             var role = NormalizeAdminRole(input.Role);
@@ -3465,7 +3474,7 @@ public static class AdminApi
             if (!account.PendingSetup || string.IsNullOrWhiteSpace(account.Email))
                 return Results.Conflict(new { error = "This account is not waiting for setup." });
             if (LessonCuePermissions.IsServiceAdmin(account.Role) && !IsServiceAdmin(context.User)) return Results.Forbid();
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             if (!email.Status(organization.EmailProvider).Configured)
                 return Results.Conflict(new { error = "Configure account email before resending invitations." });
             await InvalidateTokensAsync(db, account.Id, "setup", ct);
@@ -3497,7 +3506,7 @@ public static class AdminApi
             account.SessionVersion++;
             Audit(db, "user.approve", account.Id, account.Username);
             await db.SaveChangesAsync(ct);
-            var organization = await db.Organizations.FirstAsync(ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             var delivered = false;
             if (!string.IsNullOrWhiteSpace(account.Email) && email.Status(organization.EmailProvider).Configured)
             {
@@ -3628,7 +3637,7 @@ public static class AdminApi
         signage.MapGet("", async (LessonCueDb db, CancellationToken ct) =>
         {
             var now = DateTimeOffset.UtcNow;
-            var timeZone = await db.Organizations.AsNoTracking().Select(x => x.TimeZone).FirstOrDefaultAsync(ct) ?? "UTC";
+            var timeZone = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).Select(x => x.TimeZone).FirstOrDefaultAsync(ct) ?? "UTC";
             var screens = await db.Screens.AsNoTracking().Where(x => !x.Revoked).ToListAsync(ct);
             var screenNames = screens.ToDictionary(x => x.Id, x => x.Name);
             var items = await db.SignagePlaylists.AsNoTracking().Include(x => x.MediaAsset)
@@ -3746,7 +3755,7 @@ public static class AdminApi
             CancellationToken ct) =>
         {
             var timeZone = await db.Organizations.AsNoTracking()
-                .Select(x => x.TimeZone)
+                .OrderBy(item => item.Id).Select(x => x.TimeZone)
                 .FirstOrDefaultAsync(ct) ?? "UTC";
             return Results.Ok(policy.GetStatus(timeZone));
         });
@@ -3757,7 +3766,7 @@ public static class AdminApi
             CancellationToken ct) =>
         {
             var timeZone = await db.Organizations.AsNoTracking()
-                .Select(x => x.TimeZone)
+                .OrderBy(item => item.Id).Select(x => x.TimeZone)
                 .FirstOrDefaultAsync(ct) ?? "UTC";
             try
             {
@@ -3778,7 +3787,7 @@ public static class AdminApi
             CancellationToken ct) =>
         {
             var timeZone = await db.Organizations.AsNoTracking()
-                .Select(x => x.TimeZone)
+                .OrderBy(item => item.Id).Select(x => x.TimeZone)
                 .FirstOrDefaultAsync(ct) ?? "UTC";
             try
             {
@@ -4036,7 +4045,7 @@ public static class AdminApi
             (!Uri.TryCreate(input.KioskInteractionUrl.Trim(), UriKind.Absolute, out var kioskUri) ||
              kioskUri.Scheme is not ("http" or "https") || !string.IsNullOrWhiteSpace(kioskUri.UserInfo)))
             return "Kiosk interaction content must use an absolute HTTP or HTTPS address without embedded credentials.";
-        var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+        var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
         var layoutError = SignageLayout.Validate(input.Zones, SignageLayout.ParseAllowlist(organization.SignageSourceAllowlistJson));
         if (layoutError is not null) return layoutError;
         var zoneMediaIds = (input.Zones ?? []).Where(zone => zone.MediaAssetId is not null)

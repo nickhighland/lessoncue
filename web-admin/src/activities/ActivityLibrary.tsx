@@ -1,15 +1,44 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ActivityDefinition, ActivityTypeDescriptor } from './types';
+import type { ActivityDefinition, ActivityTheme, ActivityTypeDescriptor } from './types';
 import { ActivityApi } from './api';
 import { ACTIVITY_REGISTRY, getActivityDescriptor } from './activityRegistry';
-import { ActivityDisplay } from './ActivityDisplay';
-import { ActivityController } from './ActivityController';
+import { ACTIVITY_PRESET_CATALOG, ACTIVITY_THEME_PRESETS, type ActivityPresetCatalogEntry, type ActivityThemePreset } from './activityPresetRegistry';
+import { ActivityPreview, type ActivityPreviewMode } from './ActivityPreview';
 import { PageHead, Modal, Field, Empty } from '../admin/ui';
 import './activity.css';
+import { ActivityAutoAdvanceEditor } from './ActivityAutoAdvanceEditor';
+
+const stableDraftValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(stableDraftValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, item]) => [key, stableDraftValue(item)]));
+};
+
+const activityDraftSnapshot = (name: string, description: string, config: Record<string, unknown>, theme?: ActivityTheme | null) => JSON.stringify(stableDraftValue({ name, description, config, theme: theme || null }));
+
+const activityUsageLabel = (activity: ActivityDefinition): string => {
+  const usage = activity.usage;
+  if (!usage?.isInUse) return 'Not used in lessons';
+  const lessonText = usage.lessonCount === 1 ? '1 lesson' : `${usage.lessonCount} lessons`;
+  const templateText = usage.templateCount === 1 ? '1 template' : `${usage.templateCount} templates`;
+  const references = [usage.lessonCount ? lessonText : '', usage.templateCount ? templateText : ''].filter(Boolean);
+  const runText = usage.activeRunCount > 0 ? ` · ${usage.activeRunCount} live run${usage.activeRunCount === 1 ? '' : 's'}` : '';
+  return `Used in ${references.join(' and ')}${runText}`;
+};
+
+const activityUsageNames = (activity: ActivityDefinition): string[] => [
+  ...(activity.usage?.lessonNames || []).map(name => `Lesson: ${name}`),
+  ...(activity.usage?.templateNames || []).map(name => `Template: ${name}`)
+];
 
 export const ActivityLibrary: React.FC = () => {
   const [activities, setActivities] = useState<ActivityDefinition[]>([]);
   const [loading, setLoading] = useState(true);
+  const [libraryPage, setLibraryPage] = useState(1);
+  const [libraryTotalCount, setLibraryTotalCount] = useState(0);
+  const libraryPageSize = 100;
   const [categoryFilter, setCategoryFilter] = useState<'all' | ActivityTypeDescriptor['category']>('all');
   const [engineFilter, setEngineFilter] = useState('all');
   const [capabilityFilter, setCapabilityFilter] = useState<'all' | 'phones' | 'noPhones' | 'teams' | 'media' | 'favorites'>('all');
@@ -33,32 +62,66 @@ export const ActivityLibrary: React.FC = () => {
   const [statusMessage, setStatusMessage] = useState('');
   const [selectedActivity, setSelectedActivity] = useState<ActivityDefinition | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [previewTab, setPreviewTab] = useState<'display' | 'controller'>('display');
+  const [chooserSearch, setChooserSearch] = useState('');
+  const [previewTab, setPreviewTab] = useState<ActivityPreviewMode>('display');
   const [editingConfig, setEditingConfig] = useState<Record<string, unknown>>({});
   const [editingName, setEditingName] = useState('');
   const [editingDescription, setEditingDescription] = useState('');
+  const [editingTheme, setEditingTheme] = useState<ActivityTheme | null>(null);
+  const [savedDraftSnapshot, setSavedDraftSnapshot] = useState('');
+  const [pendingEditorClose, setPendingEditorClose] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  const draftDefinition = useMemo<ActivityDefinition | null>(() => selectedActivity ? {
+    ...selectedActivity,
+    name: editingName.trim() || selectedActivity.name,
+    description: editingDescription,
+    config: editingConfig,
+    theme: editingTheme || undefined
+  } : null, [editingConfig, editingDescription, editingName, editingTheme, selectedActivity]);
+
+  const isEditorDirty = Boolean(draftDefinition && activityDraftSnapshot(
+    draftDefinition.name,
+    draftDefinition.description,
+    draftDefinition.config,
+    draftDefinition.theme
+  ) !== savedDraftSnapshot);
 
   const fetchActivities = useCallback(async () => {
     try {
       setLoading(true);
-      const list = await ActivityApi.listActivities(undefined, undefined, showArchived);
-      setActivities(list);
+      const result = await ActivityApi.listActivityPage(undefined, searchQuery.trim() || undefined, showArchived, libraryPage, libraryPageSize);
+      setActivities(result.items);
+      setLibraryTotalCount(result.totalCount);
     } catch (err) {
       console.error('Failed to load activities:', err);
       setStatusMessage(`Could not load activities: ${(err as Error).message}`);
     } finally {
       setLoading(false);
     }
-  }, [showArchived]);
+  }, [libraryPage, searchQuery, showArchived]);
 
   useEffect(() => {
     void fetchActivities();
   }, [fetchActivities]);
 
   useEffect(() => {
+    setLibraryPage(1);
+  }, [searchQuery, showArchived]);
+
+  useEffect(() => {
     try { localStorage.setItem('lessoncue.activityView', viewMode); } catch { /* private browsing */ }
   }, [viewMode]);
+
+  useEffect(() => {
+    if (!isEditorDirty) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [isEditorDirty]);
 
   useEffect(() => {
     try { localStorage.setItem('lessoncue.activityFavorites', JSON.stringify([...favoriteIds])); } catch { /* private browsing */ }
@@ -87,6 +150,7 @@ export const ActivityLibrary: React.FC = () => {
   }, [activities]);
 
   const hasActiveFilters = Boolean(searchQuery.trim()) || categoryFilter !== 'all' || engineFilter !== 'all' || capabilityFilter !== 'all' || showArchived;
+  const totalPages = Math.max(1, Math.ceil(libraryTotalCount / libraryPageSize));
 
   const filtered = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -116,6 +180,7 @@ export const ActivityLibrary: React.FC = () => {
   const selectedActivities = activities.filter(activity => selectedIds.has(activity.id));
   const activeSelected = selectedActivities.filter(activity => !activity.archivedAt);
   const archivedSelected = selectedActivities.filter(activity => Boolean(activity.archivedAt));
+  const activeSelectedInUse = activeSelected.filter(activity => activity.usage?.isInUse);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
 
   const setSelection = (id: string, selected: boolean) => {
@@ -144,7 +209,7 @@ export const ActivityLibrary: React.FC = () => {
   };
 
   const reorderActivities = async (sourceId: string, targetId: string) => {
-    if (sourceId === targetId || hasActiveFilters) return;
+    if (sourceId === targetId || hasActiveFilters || totalPages > 1) return;
     const sourceIndex = activities.findIndex(activity => activity.id === sourceId);
     const targetIndex = activities.findIndex(activity => activity.id === targetId);
     if (sourceIndex < 0 || targetIndex < 0) return;
@@ -167,7 +232,7 @@ export const ActivityLibrary: React.FC = () => {
   };
 
   const moveActivity = (id: string, delta: -1 | 1) => {
-    if (hasActiveFilters) return;
+    if (hasActiveFilters || totalPages > 1) return;
     const index = activities.findIndex(activity => activity.id === id);
     const target = index + delta;
     if (index < 0 || target < 0 || target >= activities.length) return;
@@ -179,6 +244,9 @@ export const ActivityLibrary: React.FC = () => {
     setEditingName(item.name);
     setEditingDescription(item.description || '');
     setEditingConfig(item.config || {});
+    setEditingTheme(item.theme || null);
+    setSavedDraftSnapshot(activityDraftSnapshot(item.name, item.description || '', item.config || {}, item.theme));
+    setPendingEditorClose(false);
     setPreviewTab('display');
   };
 
@@ -189,6 +257,7 @@ export const ActivityLibrary: React.FC = () => {
       const created = await ActivityApi.createActivity({
         name: `New ${desc.name}`,
         type,
+        presetType: desc.presetType,
         description: desc.description,
         config: desc.createDefaultConfig()
       });
@@ -203,24 +272,86 @@ export const ActivityLibrary: React.FC = () => {
     }
   };
 
-  const handleSaveEdit = async () => {
-    if (!selectedActivity) return;
+  const handleCreatePreset = async (preset: ActivityPresetCatalogEntry) => {
+    setIsSaving(true);
+    try {
+      const created = await ActivityApi.createActivity({
+        name: preset.label,
+        type: preset.type,
+        presetType: preset.id,
+        description: preset.description,
+        config: JSON.parse(JSON.stringify(preset.config)) as Record<string, unknown>,
+        theme: preset.theme
+      });
+      await fetchActivities();
+      handleSelectActivity(created);
+      setIsCreating(false);
+      setChooserSearch('');
+      setStatusMessage(`Created ${created.name}.`);
+    } catch (err) {
+      setStatusMessage(`Could not create ${preset.label}: ${(err as Error).message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const visibleChooserPresets = useMemo(() => {
+    const query = chooserSearch.trim().toLowerCase();
+    if (!query) return ACTIVITY_PRESET_CATALOG;
+    return ACTIVITY_PRESET_CATALOG.filter(preset => `${preset.label} ${preset.description} ${preset.category} ${preset.type}`.toLowerCase().includes(query));
+  }, [chooserSearch]);
+
+  const handleSaveEdit = async (closeAfterSave = false): Promise<boolean> => {
+    if (!selectedActivity) return false;
     setIsSaving(true);
     try {
       const updated = await ActivityApi.updateActivity(selectedActivity.id, {
         name: editingName.trim() || selectedActivity.name,
         type: selectedActivity.type,
+        presetType: typeof editingConfig.preset === 'string' ? editingConfig.preset : selectedActivity.presetType || getActivityDescriptor(selectedActivity.type).presetType,
         description: editingDescription.trim(),
-        config: editingConfig
+        config: editingConfig,
+        theme: editingTheme || undefined
       });
       setSelectedActivity(updated);
+      setEditingName(updated.name);
+      setEditingDescription(updated.description || '');
+      setEditingConfig(updated.config || {});
+      setEditingTheme(updated.theme || null);
+      setSavedDraftSnapshot(activityDraftSnapshot(updated.name, updated.description || '', updated.config || {}, updated.theme));
       await fetchActivities();
       setStatusMessage('Activity saved.');
+      if (closeAfterSave) {
+        setPendingEditorClose(false);
+        setSelectedActivity(null);
+      }
+      return true;
     } catch (err) {
       setStatusMessage(`Save failed: ${(err as Error).message}`);
+      return false;
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const closeEditor = () => {
+    if (isEditorDirty) {
+      setPendingEditorClose(true);
+      return;
+    }
+    setSelectedActivity(null);
+  };
+
+  const discardEditorChanges = () => {
+    if (selectedActivity) {
+      setEditingName(selectedActivity.name);
+      setEditingDescription(selectedActivity.description || '');
+      setEditingConfig(selectedActivity.config || {});
+      setEditingTheme(selectedActivity.theme || null);
+      setSavedDraftSnapshot(activityDraftSnapshot(selectedActivity.name, selectedActivity.description || '', selectedActivity.config || {}, selectedActivity.theme));
+    }
+    setPendingEditorClose(false);
+    setSelectedActivity(null);
   };
 
   const handleDuplicate = async () => {
@@ -266,18 +397,39 @@ export const ActivityLibrary: React.FC = () => {
     }
   };
 
+  const handleArchiveSelected = async () => {
+    if (!activeSelected.length) return;
+    setBulkBusy(true);
+    try {
+      const ids = activeSelected.map(activity => activity.id);
+      const result = await ActivityApi.bulkArchiveActivities(ids);
+      if (selectedActivity && ids.includes(selectedActivity.id)) setSelectedActivity(null);
+      setSelectedIds(current => {
+        const next = new Set(current);
+        ids.forEach(id => next.delete(id));
+        return next;
+      });
+      await fetchActivities();
+      setStatusMessage(`${result.archivedIds.length} ${result.archivedIds.length === 1 ? 'activity' : 'activities'} archived. Lesson links were preserved.`);
+    } catch (err) {
+      setStatusMessage(`Archive failed: ${(err as Error).message}`);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const handleRestoreSelected = async () => {
     if (!archivedSelected.length) return;
     setBulkBusy(true);
     try {
-      await Promise.all(archivedSelected.map(activity => ActivityApi.restoreActivity(activity.id)));
+      const result = await ActivityApi.bulkRestoreActivities(archivedSelected.map(activity => activity.id));
       setSelectedIds(current => {
         const next = new Set(current);
-        archivedSelected.forEach(activity => next.delete(activity.id));
+        result.restoredIds.forEach(id => next.delete(id));
         return next;
       });
       await fetchActivities();
-      setStatusMessage(`${archivedSelected.length} ${archivedSelected.length === 1 ? 'activity' : 'activities'} restored.`);
+      setStatusMessage(`${result.restoredIds.length} ${result.restoredIds.length === 1 ? 'activity' : 'activities'} restored.`);
     } catch (err) {
       setStatusMessage(`Restore failed: ${(err as Error).message}`);
     } finally {
@@ -285,13 +437,28 @@ export const ActivityLibrary: React.FC = () => {
     }
   };
 
+  const handleDuplicateSelected = async () => {
+    if (!selectedActivities.length) return;
+    setBulkBusy(true);
+    try {
+      const copies = await ActivityApi.bulkDuplicateActivities(selectedActivities.map(activity => activity.id));
+      setSelectedIds(new Set());
+      await fetchActivities();
+      setStatusMessage(`${copies.length} ${copies.length === 1 ? 'activity' : 'activities'} duplicated.`);
+    } catch (err) {
+      setStatusMessage(`Duplicate failed: ${(err as Error).message}`);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const handleExport = () => {
-    if (!selectedActivity) return;
-    const blob = new Blob([JSON.stringify(selectedActivity, null, 2)], { type: 'application/json' });
+    if (!draftDefinition) return;
+    const blob = new Blob([JSON.stringify(draftDefinition, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${selectedActivity.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.lcactivity`;
+    a.download = `${draftDefinition.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.lcactivity`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -309,7 +476,8 @@ export const ActivityLibrary: React.FC = () => {
           name: data.name,
           type: data.type,
           description: data.description || '',
-          config: data.config || {}
+          config: data.config || {},
+          theme: data.theme || undefined
         });
         await fetchActivities();
         handleSelectActivity(created);
@@ -384,7 +552,7 @@ export const ActivityLibrary: React.FC = () => {
         </div>
         <div className="activity-library-toolbar-row activity-library-toolbar-secondary">
           <div className="activity-library-count" aria-live="polite">
-            Showing <strong>{filtered.length}</strong> of <strong>{activities.length}</strong> activities
+            Showing <strong>{filtered.length}</strong> of <strong>{libraryTotalCount}</strong> activities · Page {libraryPage} of {totalPages}
             {showArchived && <span className="activity-library-chip">Including archived</span>}
           </div>
           <label className="activity-library-check-row">
@@ -413,6 +581,10 @@ export const ActivityLibrary: React.FC = () => {
                 setStatusMessage('Clear search and filters before arranging the full library.');
                 return;
               }
+              if (!arrangeMode && totalPages > 1) {
+                setStatusMessage('Arrange is available when the full library fits on one page. Use search or filters to narrow it first.');
+                return;
+              }
               setSortBy('manual');
               setArrangeMode(current => !current);
             }}
@@ -431,10 +603,16 @@ export const ActivityLibrary: React.FC = () => {
             <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select all visible activities" />
             <strong>{selectedActivities.length} selected</strong>
           </label>
-          <span>{activeSelected.length ? 'Delete removes unused activities or archives activities still used by lessons.' : 'Archived activities can be restored.'}</span>
+          <span>
+            {activeSelected.length
+              ? `${activeSelectedInUse.length} in-use · Archive preserves every lesson link; delete removes unused activities.`
+              : 'Archived activities can be restored.'}
+          </span>
           <div>
             {archivedSelected.length > 0 && <button type="button" className="button" onClick={() => void handleRestoreSelected()} disabled={bulkBusy}>Restore selected</button>}
+            {activeSelected.length > 0 && <button type="button" className="button" onClick={() => void handleArchiveSelected()} disabled={bulkBusy}>Archive selected</button>}
             {activeSelected.length > 0 && <button type="button" className="button danger" onClick={() => setPendingDeleteIds(activeSelected.map(activity => activity.id))} disabled={bulkBusy}>Delete selected</button>}
+            <button type="button" className="button" onClick={() => void handleDuplicateSelected()} disabled={bulkBusy}>Duplicate selected</button>
             <button type="button" className="button" onClick={() => setSelectedIds(new Set())} disabled={bulkBusy}>Clear selection</button>
           </div>
         </section>
@@ -466,9 +644,9 @@ export const ActivityLibrary: React.FC = () => {
               <article
                 key={act.id}
                 className={`activity-library-card panel ${selected ? 'selected' : ''} ${archived ? 'archived' : ''} ${draggedId === act.id ? 'dragging' : ''}`}
-                draggable={arrangeMode && !archived && !hasActiveFilters}
+                draggable={arrangeMode && !archived && !hasActiveFilters && totalPages === 1}
                 onDragStart={() => setDraggedId(act.id)}
-                onDragOver={event => { if (arrangeMode && !hasActiveFilters) event.preventDefault(); }}
+                onDragOver={event => { if (arrangeMode && !hasActiveFilters && totalPages === 1) event.preventDefault(); }}
                 onDrop={event => { event.preventDefault(); if (draggedId) void reorderActivities(draggedId, act.id); }}
                 onDragEnd={() => setDraggedId(null)}
               >
@@ -494,6 +672,7 @@ export const ActivityLibrary: React.FC = () => {
                   {!desc.requiresPhones && <span className="activity-library-chip">📺 No phones needed</span>}
                   {desc.supportsTeams && <span className="activity-library-chip">👥 Teams</span>}
                   {desc.engineType && <span className="activity-library-chip">{desc.engineType}</span>}
+                  <span className={`activity-library-chip ${act.usage?.isInUse ? 'activity-library-usage-chip' : ''}`}>{activityUsageLabel(act)}</span>
                 </div>
                 <div className="activity-library-card-footer">
                   <span>{desc.name}</span>
@@ -505,9 +684,9 @@ export const ActivityLibrary: React.FC = () => {
               <article
                 key={act.id}
                 className={`activity-library-list-row ${selected ? 'selected' : ''} ${archived ? 'archived' : ''} ${draggedId === act.id ? 'dragging' : ''}`}
-                draggable={arrangeMode && !archived && !hasActiveFilters}
+                draggable={arrangeMode && !archived && !hasActiveFilters && totalPages === 1}
                 onDragStart={() => setDraggedId(act.id)}
-                onDragOver={event => { if (arrangeMode && !hasActiveFilters) event.preventDefault(); }}
+                onDragOver={event => { if (arrangeMode && !hasActiveFilters && totalPages === 1) event.preventDefault(); }}
                 onDrop={event => { event.preventDefault(); if (draggedId) void reorderActivities(draggedId, act.id); }}
                 onDragEnd={() => setDraggedId(null)}
               >
@@ -520,7 +699,7 @@ export const ActivityLibrary: React.FC = () => {
                 <button type="button" className={`activity-library-favorite ${favoriteIds.has(act.id) ? 'active' : ''}`} onClick={event => { event.stopPropagation(); toggleFavorite(act.id); }} aria-label={`${favoriteIds.has(act.id) ? 'Remove' : 'Add'} ${act.name} ${favoriteIds.has(act.id) ? 'from' : 'to'} favorites`} aria-pressed={favoriteIds.has(act.id)}>★</button>
                 <button type="button" className="activity-library-list-name" onClick={() => handleSelectActivity(act)}><strong>{act.name}</strong><small>{act.description || desc.description}</small></button>
                 <span className="activity-library-list-type">{desc.name}</span>
-                <span className="activity-library-list-tags">{desc.requiresPhones ? '📱 Phones' : '📺 No phones'}{desc.supportsTeams ? ' · 👥 Teams' : ''}</span>
+                <span className="activity-library-list-tags">{desc.requiresPhones ? '📱 Phones' : '📺 No phones'}{desc.supportsTeams ? ' · 👥 Teams' : ''} · {activityUsageLabel(act)}</span>
                 <span className="activity-library-list-date">{archived ? 'Archived' : `Updated ${new Date(act.updatedAt).toLocaleDateString()}`}</span>
                 {arrangeMode && !archived && <span className="activity-library-arrow-actions"><button type="button" onClick={() => moveActivity(act.id, -1)} disabled={index === 0} aria-label={`Move ${act.name} earlier`}>↑</button><button type="button" onClick={() => moveActivity(act.id, 1)} disabled={index === filtered.length - 1} aria-label={`Move ${act.name} later`}>↓</button></span>}
                 <button type="button" className="button" onClick={() => handleSelectActivity(act)}>Open</button>
@@ -530,14 +709,58 @@ export const ActivityLibrary: React.FC = () => {
         </div>
       )}
 
+      {!loading && totalPages > 1 && <nav className="activity-library-pagination" aria-label="Activity library pages">
+        <button type="button" className="button" disabled={libraryPage <= 1} onClick={() => { setLibraryPage(page => Math.max(1, page - 1)); setSelectedIds(new Set()); setArrangeMode(false); }}>Previous</button>
+        <span>Page {libraryPage} of {totalPages}</span>
+        <button type="button" className="button" disabled={libraryPage >= totalPages} onClick={() => { setLibraryPage(page => Math.min(totalPages, page + 1)); setSelectedIds(new Set()); setArrangeMode(false); }}>Next</button>
+      </nav>}
+
       {/* Create Activity Modal */}
       {isCreating && (
         <Modal
           title="Choose an Activity Type"
-          onClose={() => setIsCreating(false)}
+          onClose={() => { if (!isSaving) { setIsCreating(false); setChooserSearch(''); } }}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
-            {Object.values(ACTIVITY_REGISTRY).map(entry => (
+          <div className="activity-chooser">
+            <div className="activity-chooser-intro">
+              <div>
+                <strong>Start with a named game format</strong>
+                <p>These are ready-to-edit templates built on the same Activities engines. You can still create a blank activity below.</p>
+              </div>
+              <input
+                type="search"
+                aria-label="Search game formats"
+                placeholder="Search games…"
+                value={chooserSearch}
+                onChange={event => setChooserSearch(event.target.value)}
+              />
+            </div>
+            <div className="activity-chooser-section">
+              <div className="activity-chooser-section-heading"><h3>Named game formats</h3><span>{visibleChooserPresets.length} available</span></div>
+              <div className="activity-chooser-grid">
+                {visibleChooserPresets.map(entry => (
+                  <button
+                    type="button"
+                    key={`preset:${entry.type}:${entry.id}`}
+                    onClick={() => void handleCreatePreset(entry)}
+                    className="activity-chooser-card"
+                    disabled={isSaving}
+                  >
+                    <span className="activity-chooser-icon" aria-hidden="true">{entry.icon}</span>
+                    <span className="activity-chooser-card-copy"><strong>{entry.label}</strong><small>{entry.description}</small></span>
+                    <span className="activity-chooser-meta">{entry.category.replace(/([a-z])([A-Z])/g, '$1 $2')} · {entry.requiresPhones ? 'phones' : 'no phones required'}</span>
+                  </button>
+                ))}
+              </div>
+              {!visibleChooserPresets.length && <p className="muted">No named formats match “{chooserSearch}”. Try another search.</p>}
+            </div>
+            <div className="activity-chooser-section activity-chooser-building-blocks">
+              <div className="activity-chooser-section-heading"><h3>Blank activity building blocks</h3><span>Use these for a custom setup</span></div>
+              <div className="activity-chooser-grid">
+            {Object.values(ACTIVITY_REGISTRY).filter(entry => {
+              const query = chooserSearch.trim().toLowerCase();
+              return !query || `${entry.name} ${entry.description} ${entry.type}`.toLowerCase().includes(query);
+            }).map(entry => (
               <div
                 key={entry.type}
                 onClick={() => handleCreateNew(entry.type)}
@@ -564,6 +787,8 @@ export const ActivityLibrary: React.FC = () => {
                 <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--muted)' }}>{entry.description}</p>
               </div>
             ))}
+              </div>
+            </div>
           </div>
         </Modal>
       )}
@@ -580,6 +805,14 @@ export const ActivityLibrary: React.FC = () => {
                 : `Remove these ${pendingDeleteIds.length} activities from the library?`}
             </p>
             <p className="muted">Activities still used by a lesson or live run will be archived so existing lessons keep working. Unused activities will be permanently deleted.</p>
+            <div className="activity-library-dependency-list">
+              {pendingDeleteIds.map(id => {
+                const activity = activities.find(item => item.id === id);
+                if (!activity) return null;
+                const names = activityUsageNames(activity);
+                return <div key={id}><strong>{activity.name}</strong><span>{activityUsageLabel(activity)}{names.length ? ` · ${names.slice(0, 3).join(', ')}` : ''}</span></div>;
+              })}
+            </div>
             <div className="activity-library-confirmation-actions">
               <button type="button" className="button" onClick={() => setPendingDeleteIds(null)} disabled={bulkBusy}>Cancel</button>
               <button type="button" className="button danger" onClick={() => void confirmDelete()} disabled={bulkBusy}>{bulkBusy ? 'Deleting…' : 'Delete selected'}</button>
@@ -593,7 +826,7 @@ export const ActivityLibrary: React.FC = () => {
         <div
           className="modal-backdrop"
           style={{ zIndex: 9999 }}
-          onMouseDown={e => e.currentTarget === e.target && setSelectedActivity(null)}
+          onMouseDown={e => e.currentTarget === e.target && closeEditor()}
         >
           <div
             className="modal"
@@ -641,7 +874,14 @@ export const ActivityLibrary: React.FC = () => {
                   <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: '2px' }}>
                     Type: {getActivityDescriptor(selectedActivity.type).name}
                   </div>
+                  <div className="activity-editor-usage-note">
+                    {activityUsageLabel(selectedActivity)}
+                    {selectedActivity.usage?.isInUse && <span> · Lesson links stay attached when archived.</span>}
+                  </div>
                 </div>
+                <span className={`activity-editor-draft-status ${isEditorDirty ? 'dirty' : 'saved'}`} role="status">
+                  {isEditorDirty ? 'Unsaved changes' : 'Saved'}
+                </span>
               </div>
 
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -670,15 +910,15 @@ export const ActivityLibrary: React.FC = () => {
                 <button
                   type="button"
                   className="button primary"
-                  onClick={handleSaveEdit}
-                  disabled={isSaving}
+                  onClick={() => void handleSaveEdit()}
+                  disabled={isSaving || !isEditorDirty}
                 >
-                  {isSaving ? 'Saving...' : 'Save activity'}
+                  {isSaving ? 'Saving...' : isEditorDirty ? 'Save activity' : 'Saved'}
                 </button>
                 <button
                   type="button"
                   className="button"
-                  onClick={() => setSelectedActivity(null)}
+                  onClick={closeEditor}
                   style={{ marginLeft: '0.5rem' }}
                 >
                   Close
@@ -686,7 +926,7 @@ export const ActivityLibrary: React.FC = () => {
               </div>
             </div>
 
-            {/* Modal Body: Split Editor on Left, Live Stage Simulator on Right */}
+            {/* Modal Body: Split Editor on Left, client-only snapshot preview on Right */}
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(360px, 420px) 1fr', flex: 1, overflow: 'hidden' }}>
               {/* Left Config Editor Panel */}
               <div style={{ padding: '1.5rem', overflowY: 'auto', borderRight: '1px solid var(--line)', background: '#f9f8f5' }}>
@@ -701,70 +941,124 @@ export const ActivityLibrary: React.FC = () => {
                   </Field>
                 </div>
 
+                <section className="activity-theme-editor activity-editor-card" aria-labelledby="activity-theme-heading">
+                  <div className="activity-editor-card-heading">
+                    <div>
+                      <strong id="activity-theme-heading">TV presentation</strong>
+                      <small>Choose an original LessonCue color and sound treatment for the room display.</small>
+                    </div>
+                    <button type="button" className="button" onClick={() => setEditingTheme({ ...ACTIVITY_THEME_PRESETS.stage })}>Reset</button>
+                  </div>
+                  <label>Theme
+                    <select
+                      value={editingTheme?.preset || 'stage'}
+                      onChange={event => setEditingTheme({ ...ACTIVITY_THEME_PRESETS[event.target.value as ActivityThemePreset] })}
+                    >
+                      {Object.keys(ACTIVITY_THEME_PRESETS).map(value => <option key={value} value={value}>{value === 'stage' ? 'LessonCue Stage' : value.replace(/^./, character => character.toUpperCase())}</option>)}
+                    </select>
+                  </label>
+                  <div className="two-fields">
+                    <label>Sound
+                      <select
+                        value={editingTheme?.soundPack || 'gameshow'}
+                        onChange={event => setEditingTheme({ ...(editingTheme || ACTIVITY_THEME_PRESETS.stage), soundPack: event.target.value as ActivityTheme['soundPack'] })}
+                      >
+                        <option value="gameshow">Game show</option>
+                        <option value="arcade">Arcade</option>
+                        <option value="minimal">Minimal</option>
+                        <option value="muted">Muted</option>
+                      </select>
+                    </label>
+                    <label className="checkbox-row" style={{ alignSelf: 'end' }}>
+                      <input
+                        type="checkbox"
+                        checked={editingTheme?.backgroundMotion !== false}
+                        onChange={event => setEditingTheme({ ...(editingTheme || ACTIVITY_THEME_PRESETS.stage), backgroundMotion: event.target.checked })}
+                      />
+                      Ambient motion
+                    </label>
+                  </div>
+                  <label>Reveal pacing
+                    <select
+                      aria-label="Reveal pacing"
+                      value={typeof editingConfig.revealPacing === 'string' ? editingConfig.revealPacing : 'dramatic'}
+                      onChange={event => setEditingConfig({ ...editingConfig, revealPacing: event.target.value })}
+                    >
+                      <option value="quick">Quick</option>
+                      <option value="dramatic">Dramatic</option>
+                      <option value="epic">Epic</option>
+                    </select>
+                  </label>
+                  <small className="muted">Motion respects reduced-motion settings. Game audio stays separate from lesson media volume.</small>
+                </section>
+
                 {(() => {
                   const desc = getActivityDescriptor(selectedActivity.type);
                   const EditorComponent = desc.editorComponent;
                   return (
-                    <EditorComponent
-                      config={editingConfig}
-                      onChange={setEditingConfig}
-                    />
+                    <>
+                      <EditorComponent
+                        config={editingConfig}
+                        onChange={setEditingConfig}
+                      />
+                      {/* Shared across engines rather than repeated in each
+                          editor, so every supporting engine gets it. */}
+                      <ActivityAutoAdvanceEditor
+                        type={selectedActivity.type}
+                        config={editingConfig}
+                        onChange={setEditingConfig}
+                      />
+                    </>
                   );
                 })()}
               </div>
 
-              {/* Right Live Stage & Controller Simulator */}
-              <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#091c1d' }}>
-                {/* Simulator Mode Tabs */}
-                <div style={{ display: 'flex', gap: '0.5rem', padding: '0.6rem 1.25rem', background: '#1c2b27', borderBottom: '1px solid #2e3d38' }}>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewTab('display')}
-                    style={{
-                      background: previewTab === 'display' ? 'var(--gold)' : 'transparent',
-                      color: previewTab === 'display' ? '#000000' : '#c0d1cb',
-                      fontWeight: 700,
-                      border: 'none',
-                      padding: '0.35rem 0.9rem',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontSize: '0.88rem'
-                    }}
-                  >
-                    TV Stage Display
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewTab('controller')}
-                    style={{
-                      background: previewTab === 'controller' ? 'var(--gold)' : 'transparent',
-                      color: previewTab === 'controller' ? '#000000' : '#c0d1cb',
-                      fontWeight: 700,
-                      border: 'none',
-                      padding: '0.35rem 0.9rem',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontSize: '0.88rem'
-                    }}
-                  >
-                    Remote Controller
-                  </button>
+              {/* Right client-only snapshot preview */}
+              <div className="activity-editor-preview-panel">
+                <div className="activity-editor-preview-heading">
+                  <div>
+                    <span className="activity-preview-screen-kicker">PREVIEW SNAPSHOT</span>
+                    <strong>{isEditorDirty ? 'Showing your unsaved draft' : 'Showing the saved activity'}</strong>
+                  </div>
+                  <span className="activity-editor-preview-note">No live session is started</span>
                 </div>
-
-                {/* Simulator Canvas View */}
-                <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-                  {previewTab === 'display' ? (
-                    <ActivityDisplay definitionId={selectedActivity.id} interactive />
-                  ) : (
-                    <div style={{ padding: '1.5rem', maxWidth: '500px', margin: '0 auto', overflowY: 'auto', height: '100%', background: '#f9f8f5' }}>
-                      <ActivityController definitionId={selectedActivity.id} />
-                    </div>
-                  )}
+                <div className="activity-editor-preview-tabs" role="tablist" aria-label="Activity preview modes">
+                  {([
+                    ['display', 'TV / display'],
+                    ['participant', 'Participant'],
+                    ['reveal', 'Reveal'],
+                    ['leaderboard', 'Leaderboard'],
+                    ['podium', 'Podium']
+                  ] as Array<[ActivityPreviewMode, string]>).map(([mode, label]) => <button
+                    type="button"
+                    role="tab"
+                    aria-selected={previewTab === mode}
+                    className={previewTab === mode ? 'active' : ''}
+                    key={mode}
+                    onClick={() => setPreviewTab(mode)}
+                  >{label}</button>)}
+                </div>
+                <div className="activity-editor-preview-canvas" data-preview-mode={previewTab}>
+                  {draftDefinition && <ActivityPreview definition={draftDefinition} mode={previewTab} />}
                 </div>
               </div>
             </div>
           </div>
         </div>
+      )}
+
+      {pendingEditorClose && selectedActivity && (
+        <Modal title="Unsaved changes" className="activity-editor-unsaved-modal" onClose={() => setPendingEditorClose(false)}>
+          <div className="activity-editor-close-confirmation">
+            <p>You have draft changes to <strong>{editingName.trim() || selectedActivity.name}</strong>.</p>
+            <p className="muted">Save them before closing, keep editing, or discard this draft. The preview above is based on the same unsaved snapshot.</p>
+            <div className="activity-library-confirmation-actions">
+              <button type="button" className="button" onClick={() => setPendingEditorClose(false)} disabled={isSaving}>Keep editing</button>
+              <button type="button" className="button danger" onClick={discardEditorChanges} disabled={isSaving}>Discard changes</button>
+              <button type="button" className="button primary" onClick={() => void handleSaveEdit(true)} disabled={isSaving}>{isSaving ? 'Saving…' : 'Save and close'}</button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

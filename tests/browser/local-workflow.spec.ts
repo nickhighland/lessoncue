@@ -686,23 +686,47 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.locator(".codec-list > span")).toContainText("H.264 / AVC");
   await expect(page.getByAltText("Diagnostic screenshot from Browser Test TV")).toBeVisible();
 
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/universalremote");
   await page.getByLabel("Six-digit controller PIN").fill("482731");
   await page.getByRole("button", { name: "Open universal remote" }).click();
-  await expect(page.getByText("Needs attention", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Playback controller" })).toBeVisible();
+  await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Previous cue" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Pause playback" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop playback" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Next cue" })).toBeVisible();
+  await expect(page.locator(".app-shell.controller-mode > .mobile-shell-header")).toHaveCSS("display", "none");
+  await expect(page.getByRole("tab", { name: "Playback" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Quick tools" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Activity" })).toBeVisible();
+  await expect(page.locator(".controller-list")).toHaveCount(0);
+  await page.getByRole("tab", { name: "Quick tools" }).click();
+  for (const tile of ["Timer", "Poll", "Randomizer", "Groups", "Draw", "More"]) {
+    await expect(page.getByRole("button", { name: tile, exact: true })).toBeVisible();
+  }
+  await page.getByRole("tab", { name: "Playback" }).click();
+  await page.getByRole("button", { name: "Open setup" }).click();
+  await expect(page.getByRole("button", { name: "Close setup" })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByText("Check the room display before participants arrive.", { exact: true })).toBeVisible();
   await expect(page.locator(".controller-list")).toContainText("Pause for questions before continuing.");
   await expect(page.locator(".controller-list")).toContainText("Flexible");
   await page.getByRole("button", { name: "Open monitor" }).click();
   await expect(page.locator(".pre-roll-monitor iframe")).toHaveAttribute("src", "https://example.org/private-monitor");
-  await expect(page.locator(".controller-run-summary")).toContainText("REMAINING");
-  await page.getByRole("button", { name: "Pause", exact: true }).click();
-  await expect(page.getByText("Sending pause to Browser Test TV…", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "🔓 Lock controls" }).click();
-  await expect(page.getByText("Controls are locked. Nothing on this remote can change the screen until you unlock it.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("group", { name: "Room playback controls" }).getByRole("button", { name: "Pause", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Pause playback" }).click();
+  await expect(page.getByText(/Sending pause to Browser Test TV/)).toBeVisible();
+  await page.getByRole("button", { name: "Lock controls" }).click();
+  await expect(page.getByRole("button", { name: "Unlock controls" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Pause playback" })).toBeDisabled();
+  await page.getByRole("tab", { name: "Quick tools" }).click();
+  await expect(page.getByRole("tab", { name: "Quick tools" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("button", { name: "Timer", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Unlock controls" }).click();
+  await expect(page.getByRole("button", { name: "Timer", exact: true })).toBeEnabled();
+  await page.setViewportSize({ width: 1280, height: 900 });
 
-  await page.getByRole("button", { name: /Lessons$/ }).click();
+  await page.goto("/");
+  await page.getByRole("button", { name: /Lessons Plan lessons/ }).click();
   await page.getByRole("button", { name: "Controller link" }).click();
   const controllerDialog = page.getByRole("dialog", { name: /controller$/ });
   await expect(controllerDialog.getByAltText(/QR code for/)).toBeVisible();
@@ -1223,7 +1247,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.22" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.40.49" });
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();

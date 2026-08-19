@@ -1,0 +1,33 @@
+ui-btn-hover.mp3 — Shared fallback pack
+=======================================
+
+ROLE
+  Pointer hover tick.
+
+REPLACE THIS FILE
+  Delete this .txt and drop in "ui-btn-hover.mp3" in the same folder. The name must
+  match exactly. Nothing else needs to change — no code, no config.
+
+WHEN IT PLAYS
+  Plays on the participant phone and host controls when a pointer moves onto a
+  control. Suppressed on touch devices, which have no hover state, so most
+  players in a classroom will never hear it.
+
+SUGGESTED CHARACTER
+  neutral house style — this pack is the safety net every game falls back to, so keep it characterful but not tied to any one format.
+
+SPEC
+  ≤80 ms, very quiet (played at 0.5 gain), no pitch.
+
+PITCH
+  Played at its authored pitch.
+
+IF THIS FILE IS ABSENT
+  This is the last folder searched. If the file is missing here too,
+  LessonCue plays its original synthesized cue from
+  web-admin/src/activities/effects.ts. That is the shipped default.
+
+LICENSING
+  Any audio committed here is a bundled asset and needs a source note, a
+  licence/permission record, and an attribution entry before release. See
+  docs/activities-assets-and-sound.md.

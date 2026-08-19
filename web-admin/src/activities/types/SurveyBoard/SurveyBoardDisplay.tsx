@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { ActivityStateEnvelope } from '../../types';
 import { playBuzzerSound, playChimeSound } from '../../effects';
+import { ActivityLeaderboard } from '../../ActivityLeaderboard';
 
 interface SurveyAnswer {
   id?: string;
@@ -20,6 +21,7 @@ interface SurveyQuestion {
 
 interface SurveyConfig {
   title?: string;
+  presetLabel?: string;
   question?: string;
   answers?: SurveyAnswer[];
   questions?: SurveyQuestion[];
@@ -37,6 +39,11 @@ interface SurveyState {
   revealedAnswers?: SurveyAnswer[];
   revealedAnswer?: string;
   revealedPoints?: number;
+  strikeLimit?: number;
+  currentTeamName?: string;
+  stealOpen?: boolean;
+  stealTeamName?: string;
+  lastBoardEvent?: string;
 }
 
 function questionsFor(config: SurveyConfig): SurveyQuestion[] {
@@ -69,7 +76,8 @@ export const SurveyBoardDisplay: React.FC<{ envelope: ActivityStateEnvelope }> =
   const revealed = new Set((state.answers || []).filter(answer => answer.revealed).map(answer => answer.rank));
   (state.revealedRanks || []).forEach(rank => revealed.add(rank));
   const revealedAnswers = new Map((state.revealedAnswers || []).map(answer => [answer.rank, answer]));
-  const strikes = Math.min(3, Math.max(0, state.strikes || 0));
+  const strikeLimit = Math.max(1, Math.min(5, state.strikeLimit || 3));
+  const strikes = Math.min(strikeLimit, Math.max(0, state.strikes || 0));
 
   useEffect(() => {
     if (state.actionNonce !== undefined && state.actionNonce !== lastActionRef.current) {
@@ -95,10 +103,24 @@ export const SurveyBoardDisplay: React.FC<{ envelope: ActivityStateEnvelope }> =
     <div ref={containerRef} className="activity-stage survey-board-stage">
       <div className="activity-stage-content">
         <div className="activity-header">
-          <div className="stage-kicker">📋 LIVE SURVEY BOARD · {currentIndex + 1}/{questions.length}</div>
+          <div className="stage-kicker">📋 {config.presetLabel || 'LIVE SURVEY BOARD'} · {currentIndex + 1}/{questions.length}</div>
           <h1 className="activity-title">{currentQuestion.prompt}</h1>
           <div className="activity-subtitle">{envelope.name || config.title || 'Survey Board'}</div>
         </div>
+
+        {state.stealOpen ? (
+          <div className="survey-board-turn-banner steal">
+            <span>STEAL CHANCE</span>
+            <strong>{state.stealTeamName || 'The steal team'} is up</strong>
+            <small>{state.lastBoardEvent || 'Submit one answer to take the board.'}</small>
+          </div>
+        ) : state.currentTeamName ? (
+          <div className="survey-board-turn-banner">
+            <span>CURRENT TEAM</span>
+            <strong>{state.currentTeamName}</strong>
+            <small>Submit one answer to claim the board.</small>
+          </div>
+        ) : null}
 
         <div className="survey-score-banner">
           <span>ROUND SCORE</span>
@@ -119,9 +141,11 @@ export const SurveyBoardDisplay: React.FC<{ envelope: ActivityStateEnvelope }> =
           })}
         </div>
 
-        <div className="survey-strikes" aria-label={`${strikes} strikes`}>
-          {[0, 1, 2].map(index => <span key={index} className={index < strikes ? 'active' : ''}>✕</span>)}
+        <div className="survey-strikes" aria-label={`${strikes} of ${strikeLimit} strikes`}>
+          {Array.from({ length: strikeLimit }, (_, index) => <span key={index} className={index < strikes ? 'active' : ''}>✕</span>)}
         </div>
+
+        <ActivityLeaderboard state={state as Record<string, unknown>} showPodium={state.phase === 'finalResults' || state.phase === 'complete'} />
 
         {showStrikeOverlay && (
           <div className="survey-strike-overlay" aria-hidden="true">

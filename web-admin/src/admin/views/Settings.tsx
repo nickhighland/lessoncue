@@ -1,7 +1,7 @@
 import { confirmAction } from "../../AccessibleDialogs";
 import { FormEvent, useEffect, useState } from "react";
 import { api, waitForVersion } from "../api";
-import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
+import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, JoinAddressStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
 import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead, StorageMeter } from "../ui";
 import { RegistrationSettingsPanel, ServiceAdminMfaPanel, TroubleshootingLogPanel } from "./Users";
 import { cleanReleaseNotes, errorText, formatBytes, parseStringArray, quotaLimitsFromText, quotaLimitsToText, timeAgo } from "../utils";
@@ -1902,6 +1902,7 @@ export function Settings({
               className="settings-panel settings-connections"
             >
               <h2>Server connection</h2>
+              <GameJoinAddressPanel notify={notify} />
               <Definition
                 label="Browser address"
                 value={`${location.protocol}//${location.host}`}
@@ -2942,5 +2943,82 @@ export function Settings({
         </div>
       </div>
     </>
+  );
+}
+
+
+/**
+ * Which address the game lobby advertises and encodes in its QR code.
+ *
+ * The display's own origin is whatever the TV happened to connect to, which is
+ * often a bare LAN IP nobody can type. The teacher picks what the room sees.
+ */
+function GameJoinAddressPanel({ notify }: { notify: (message: string) => void }) {
+  const [status, setStatus] = useState<JoinAddressStatus | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    api<JoinAddressStatus>("/api/v1/activity-join-address")
+      .then((value) => { if (active) setStatus(value); })
+      .catch(() => { if (active) setStatus(null); });
+    return () => { active = false; };
+  }, []);
+
+  async function choose(mode: string) {
+    setSaving(true);
+    try {
+      const updated = await api<JoinAddressStatus>("/api/v1/activity-join-address", {
+        method: "PUT",
+        body: JSON.stringify({ mode }),
+      });
+      setStatus(updated);
+      notify(
+        updated.url
+          ? `Games will show ${updated.url.replace(/^https?:\/\//, "")}`
+          : "No reachable address yet. Games will show the code only.",
+      );
+    } catch (e) {
+      notify(errorText(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!status) return null;
+  const selected = status.options.find((option) => option.id === status.mode);
+  const fellBack = status.mode !== "auto" && status.resolvedFrom !== status.mode;
+
+  return (
+    <div className="stack">
+      <Field
+        label="Game join address"
+        hint="Shown on the lobby screen and encoded in the QR code players scan."
+      >
+        <select
+          value={status.mode}
+          disabled={saving}
+          onChange={(event) => void choose(event.target.value)}
+        >
+          {status.options.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+              {option.url ? ` — ${option.url.replace(/^https?:\/\//, "")}` : ""}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {selected?.detail && <p className="settings-copy">{selected.detail}</p>}
+      <Definition
+        label="Players will see"
+        value={status.url ? `${status.url}/play/CODE` : "Code only — no reachable address yet"}
+      />
+      {fellBack && (
+        <div className="alert">
+          That address is not reachable right now, so games are showing the{" "}
+          {status.resolvedFrom === "none" ? "code only" : status.resolvedFrom} address instead.
+        </div>
+      )}
+    </div>
   );
 }

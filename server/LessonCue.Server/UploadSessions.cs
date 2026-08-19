@@ -194,7 +194,7 @@ public sealed class UploadSessionService(
         if (!ValidSha256(input.ExpectedSha256))
             return Failure(StatusCodes.Status400BadRequest, "The expected SHA-256 must contain exactly 64 hexadecimal characters.");
 
-        var organization = await db.Organizations.FirstAsync(ct);
+        var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
         var selection = MediaTaxonomy.Validate(organization, input.Folder, input.TagsCsv);
         if (selection.Error is not null) return Failure(StatusCodes.Status400BadRequest, selection.Error);
 

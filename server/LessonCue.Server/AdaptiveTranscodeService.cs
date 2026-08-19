@@ -105,7 +105,7 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
         CancellationToken ct = default)
     {
         var adaptiveEnabled = await db.Organizations.AsNoTracking()
-            .Select(x => x.AdaptiveTranscodingEnabled).FirstAsync(ct);
+            .OrderBy(item => item.Id).Select(x => x.AdaptiveTranscodingEnabled).FirstAsync(ct);
         if (!adaptiveEnabled || await db.MediaTranscodeVariants
                 .AnyAsync(x => x.Status == "pending" || x.Status == "converting", ct))
             return null;
@@ -135,7 +135,7 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
 
     private async Task EnqueueScheduledAsync(LessonCueDb db, CancellationToken ct)
     {
-        var organization = await db.Organizations.AsNoTracking().FirstAsync(ct);
+        var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
         if (!organization.AdaptiveTranscodingEnabled) return;
         var screens = await db.Screens.AsNoTracking().Where(x => !x.Revoked && x.AssignedClassId != null).ToListAsync(ct);
         if (screens.Count == 0) return;
@@ -192,7 +192,7 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
                 $"-maxrate {profile.VideoBitrateKbps}k -bufsize {profile.VideoBitrateKbps * 2}k " +
                 $"-profile:v high -level:v 4.1 -pix_fmt yuv420p -tag:v avc1{output}";
             var accelerationEnabled = await db.Organizations.AsNoTracking()
-                .Select(x => x.HardwareAccelerationEnabled).FirstAsync(ct);
+                .OrderBy(item => item.Id).Select(x => x.HardwareAccelerationEnabled).FirstAsync(ct);
             var result = await hardware.RunTranscodeAsync(accelerationEnabled, hardwareArgs, softwareArgs, work, ct);
             var size = new FileInfo(work).Length;
             if (size <= 0) throw new InvalidOperationException("FFmpeg created an empty adaptive transcode.");

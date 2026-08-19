@@ -4,6 +4,104 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.49 — Jackbox-style Activity rooms and host control polish
+
+### User changes
+
+- Added a full-screen classroom lobby with a persistent room code, scannable QR, absolute phone join address, and one-by-one player arrivals.
+- Let players choose a fixed emoji and colour identity, switch players on shared phones, and see their own outcome, points, rank, and total after each reveal.
+- Added TV response clocks, between-round standings races, first-in and streak callouts, optional automatic response-window advance, and a live host roster with answer counts.
+- Made the host remote retain run timing, estimated finish, overrun guidance, playback errors, and save-as-app instructions alongside the compact controls.
+
+### Developer changes
+
+- Added server-resolved join addresses with reachable-mode fallback, per-participant projections, atomic auto-advance locking, server-derived callouts, and shared presentation components.
+- Added lobby, join, identity, participant-result, host-console, standings, stage-clock, palette, sound fallback, reduced-motion, and full catalog smoke coverage.
+- Added a manifest-driven optional sound-pack lookup with synthesized fallback cues and restored compact-remote diagnostics and run-of-show information.
+
+## v0.40.48 — Activity game audio and visual polish
+
+### User changes
+
+- Gave Activity stages and participant phones distinct, coordinated colour
+  identities for each game family and named preset.
+- Added tactile phone feedback, gently animated waiting states, stronger
+  countdown urgency, and large touch targets while preserving reduced-motion
+  accessibility behavior.
+- Added shared Activity sound effects with synthesized fallbacks, optional
+  licensed sound-pack support, and display-only lobby/round/start/end themes.
+  Phones never create a room-wide music chorus.
+- Preserved teacher-customized themes instead of replacing them with generated
+  game palettes.
+
+### Developer changes
+
+- Added shared palette resolution, contrast-aware accent text, Activity juice,
+  audio preloading, preset-to-engine-to-shared sound lookup, and TV-only theme
+  playback without changing server authority or participant projections.
+- Added browser regression coverage for palettes, touch feedback, timer panic
+  state, audio fallback/cascade, display ownership, theme transitions, and
+  reduced motion.
+- Added the documented optional sound-pack asset tree without bundling
+  third-party audio.
+
+## v0.40.47 — Google TV Activity display polish and reliability
+
+### User changes
+
+- Fixed the Google TV Activity display so every game in a lesson continues
+  rendering when moving from one cue to the next.
+- Made the wheel, scoreboards, countdowns, survey boards, ordering games, and
+  other content-heavy Activities fit short TV WebView screens without
+  clipping.
+- Replaced the oversized native playback controls with a thin, translucent
+  fading transport and clear web-controller guidance for Activities.
+- Added visible loading, reconnect, and recovery states when a TV display
+  cannot reach the Activity server.
+
+### Developer changes
+
+- Added a dedicated `/activity-display` projection route for native TV clients
+  and keyed native WebViews to cue identity so destroyed views are never
+  reused for later Activities.
+- Added constrained-viewport browser coverage and a live 27-cue Google TV
+  walk covering every seeded Activity type.
+
+## v0.40.46 — Google TV Activity playback fix
+
+### User changes
+
+- Fixed Activity lesson cues on Google TV so they open the shared LessonCue
+  web player instead of incorrectly showing “Media unavailable” or its pairing
+  screen.
+- Fixed Activity cues to open the requested round immediately, pass the paired
+  TV identity securely to the shared player, and avoid the unnecessary first-
+  play media prompt over the game.
+
+### Developer changes
+
+- Added TV playback-routing regression coverage for Activity cues that use a
+  web-player URL without a downloadable media asset, including paired identity
+  and web-player cache-busting coverage.
+
+## v0.40.45 — Animal activity test pack and game-show polish
+
+### User changes
+
+- Added a ready-to-play animal-themed test catalog covering every current
+  teacher-facing Activity Studio type, all collected in one lesson.
+- Added a player-focused fun plan and richer game-show presentation guidance,
+  including join prompts, reveal moments, scoring feedback, and celebration.
+- Improved the phone-controller path so lesson activities expose their live
+  definition, join code, QR link, and participant state to the host.
+
+### Developer changes
+
+- Added an idempotent `--seed-animal-activity-pack` command and regression
+  coverage for the 27 current Studio activity types.
+- Added live TV trivia join/reveal verification coverage and documented the
+  player-facing engagement plan.
+
 ## v0.40.44 — Activities and game-show platform
 
 ### User changes

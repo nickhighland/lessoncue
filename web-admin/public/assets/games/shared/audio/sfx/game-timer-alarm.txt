@@ -1,0 +1,32 @@
+game-timer-alarm.mp3 — Shared fallback pack
+===========================================
+
+ROLE
+  Time's up.
+
+REPLACE THIS FILE
+  Delete this .txt and drop in "game-timer-alarm.mp3" in the same folder. The name must
+  match exactly. Nothing else needs to change — no code, no config.
+
+WHEN IT PLAYS
+  Plays once on the participant phone when the response window reaches zero.
+  The window closing is decided by the server, not by this sound.
+
+SUGGESTED CHARACTER
+  neutral house style — this pack is the safety net every game falls back to, so keep it characterful but not tied to any one format.
+
+SPEC
+  0.5–1.5 s, unmistakable, but not punishing — players lose rounds to this.
+
+PITCH
+  Played at its authored pitch.
+
+IF THIS FILE IS ABSENT
+  This is the last folder searched. If the file is missing here too,
+  LessonCue plays its original synthesized cue from
+  web-admin/src/activities/effects.ts. That is the shipped default.
+
+LICENSING
+  Any audio committed here is a bundled asset and needs a source note, a
+  licence/permission record, and an attribution entry before release. See
+  docs/activities-assets-and-sound.md.

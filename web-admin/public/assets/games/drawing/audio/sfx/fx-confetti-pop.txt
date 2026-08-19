@@ -1,0 +1,32 @@
+fx-confetti-pop.mp3 — Drawing
+=============================
+
+ROLE
+  Celebration burst.
+
+REPLACE THIS FILE
+  Delete this .txt and drop in "fx-confetti-pop.mp3" in the same folder. The name must
+  match exactly. Nothing else needs to change — no code, no config.
+
+WHEN IT PLAYS
+  Accompanies a win, a correct reveal, or a podium celebration.
+
+SUGGESTED CHARACTER
+  studio and craft: pencil, paper, squeaky marker, nothing electronic.
+
+SPEC
+  0.3–1 s, bright, upward.
+
+PITCH
+  Randomized 0.85x–1.15x on every play. Author one dry take.
+
+IF THIS FILE IS ABSENT
+  Lookup cascades preset → engine → shared. If this file is absent,
+  LessonCue tries assets/games/shared/audio/sfx/fx-confetti-pop.mp3, and if that is
+  also absent, LessonCue plays its original synthesized cue from
+  web-admin/src/activities/effects.ts. That is the shipped default.
+
+LICENSING
+  Any audio committed here is a bundled asset and needs a source note, a
+  licence/permission record, and an attribution entry before release. See
+  docs/activities-assets-and-sound.md.

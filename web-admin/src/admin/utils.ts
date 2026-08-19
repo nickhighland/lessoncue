@@ -4,6 +4,10 @@ export function isWebPlayerPath(path: string) {
   return path === "/player" || path === "/display";
 }
 
+export function isActivityDisplayPath(path: string) {
+  return path === "/activity-display";
+}
+
 export function isAudiencePath(path: string) {
   return path === "/respond" || path.startsWith("/respond/");
 }

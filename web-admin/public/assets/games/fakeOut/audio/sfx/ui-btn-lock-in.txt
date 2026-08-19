@@ -1,0 +1,36 @@
+ui-btn-lock-in.mp3 — Bluffing & Deception
+=========================================
+
+ROLE
+  Final submission.
+
+REPLACE THIS FILE
+  Delete this .txt and drop in "ui-btn-lock-in.mp3" in the same folder. The name must
+  match exactly. Nothing else needs to change — no code, no config.
+
+WHEN IT PLAYS
+  Plays on top of the tap sound when a press actually commits something: an
+  answer, a vote, a drawing, a buzz, joining the game. Deliberately heavier
+  than ui-btn-select so committing feels different from browsing.
+
+  Not pitch-randomized — a submission should sound the same every time.
+
+SUGGESTED CHARACTER
+  sly and low-lit; a raised eyebrow rather than a fanfare.
+
+SPEC
+  150–400 ms, weighty, with a low-end thud under the click.
+
+PITCH
+  Played at its authored pitch.
+
+IF THIS FILE IS ABSENT
+  Lookup cascades preset → engine → shared. If this file is absent,
+  LessonCue tries assets/games/shared/audio/sfx/ui-btn-lock-in.mp3, and if that is
+  also absent, LessonCue plays its original synthesized cue from
+  web-admin/src/activities/effects.ts. That is the shipped default.
+
+LICENSING
+  Any audio committed here is a bundled asset and needs a source note, a
+  licence/permission record, and an attribution entry before release. See
+  docs/activities-assets-and-sound.md.

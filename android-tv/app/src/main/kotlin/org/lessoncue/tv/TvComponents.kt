@@ -80,6 +80,7 @@ internal fun LessonCueWordmark(modifier: Modifier = Modifier, compact: Boolean =
 internal fun TvHeader(
     screenName: String,
     connectionMode: ConnectionMode,
+    onCheckForUpdates: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var now by remember { mutableStateOf(ZonedDateTime.now()) }
@@ -101,7 +102,10 @@ internal fun TvHeader(
                     letterSpacing = 1.sp
                 )
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
                 Box(Modifier.size(14.dp).clip(RoundedCornerShape(50)).background(
                     if (connectionMode == ConnectionMode.Online) LessonCueTvColors.Success
                     else LessonCueTvColors.Coral
@@ -115,7 +119,6 @@ internal fun TvHeader(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.sp
                 )
-                Spacer(Modifier.width(24.dp))
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
                         now.format(DateTimeFormatter.ofPattern("h:mm a")),
@@ -129,6 +132,14 @@ internal fun TvHeader(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold
                     )
+                }
+                onCheckForUpdates?.let { checkForUpdates ->
+                    LessonCueButton(
+                        onClick = checkForUpdates,
+                        modifier = Modifier.height(54.dp)
+                    ) {
+                        Text("⇩  Updates", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -253,6 +264,65 @@ internal fun CuePreview(
             ) {
                 Text("▶", color = LessonCueTvColors.Cream, fontSize = 30.sp)
             }
+        }
+    }
+}
+
+@Composable
+internal fun CueThumbnail(
+    item: CueItem,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier
+            .clip(shape)
+            .background(LessonCueTvColors.ElevatedPanel)
+            .semantics { contentDescription = "Thumbnail for ${item.title}" },
+        contentAlignment = Alignment.Center
+    ) {
+        val source = item.takeIf {
+            it.type.equals("image", true) || it.contentType?.startsWith("image/") == true
+        }?.url
+        if (source != null) {
+            AsyncImage(
+                model = source,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                Modifier.fillMaxSize().background(
+                    if (item.type.equals("activity", true)) LessonCueTvColors.Orange.copy(alpha = .82f)
+                    else LessonCueTvColors.Border.copy(alpha = .72f)
+                )
+            )
+            Text(
+                when {
+                    item.type.equals("activity", true) -> "GAME"
+                    item.type.equals("video", true) -> "VIDEO"
+                    else -> item.type.uppercase().take(8)
+                },
+                color = LessonCueTvColors.Cream,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp
+            )
+        }
+        Box(
+            Modifier.fillMaxWidth().align(Alignment.BottomCenter)
+                .background(Color.Black.copy(alpha = .62f))
+                .padding(horizontal = 8.dp, vertical = 5.dp)
+        ) {
+            Text(
+                item.type.replaceFirstChar { it.uppercase() },
+                color = LessonCueTvColors.Cream,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

@@ -1,10 +1,26 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { ActivityHostView, ActivityStateEnvelope } from './types';
-import { ActivityApi, activityHub } from './api';
+import { ActivityApi, activityHub, subscribeActivityCommandLifecycle, type ActivityConnectionState } from './api';
 import { getActivityDescriptor } from './activityRegistry';
 import { QrCode } from '../admin/ui';
 import { getAudioVolume, isAudioMuted, setAudioMuted, setAudioVolume } from './effects';
 import './activity.css';
+import { ActivityLiveHostPanel } from './ActivityLiveHostPanel';
+
+type ActivityControllerNotice = {
+  id: number;
+  tone: 'success' | 'error' | 'info';
+  message: string;
+};
+
+const commandLabel = (action: string) => action.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[._-]+/g, ' ').trim();
+const connectionLabel = (state: ActivityConnectionState) => ({
+  connecting: 'Connecting',
+  connected: 'Live connection',
+  reconnecting: 'Reconnecting',
+  disconnected: 'Offline · retrying'
+}[state]);
+const INTERACTIVE_ACTIVITY_TYPES = ['trivia', 'rapidFire', 'poll', 'prediction', 'surveyBoard', 'buzzer', 'punchline', 'fakeOut', 'drawing', 'ordering', 'word', 'matchPlayer', 'imageReveal', 'stageChallenge', 'bracket', 'physicalRoom', 'utility'];
 
 export interface ActivityControllerProps {
   runId?: string;
@@ -12,6 +28,13 @@ export interface ActivityControllerProps {
   initialEnvelope?: ActivityStateEnvelope;
   lessonId?: string;
   lessonItemId?: string;
+  /**
+   * Lobby, participant, team, and moderation tools are useful when a host is
+   * setting up an activity, but they make a phone remote noisy during play.
+   * Keep them opt-in for remotes while preserving the full controller for
+   * other callers.
+   */
+  showSessionSetup?: boolean;
 }
 
 export const ActivityController: React.FC<ActivityControllerProps> = ({
@@ -19,15 +42,22 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
   definitionId,
   initialEnvelope,
   lessonId,
-  lessonItemId
+  lessonItemId,
+  showSessionSetup = false
 }) => {
   const [envelope, setEnvelope] = useState<ActivityStateEnvelope | null>(initialEnvelope || null);
   const [loading, setLoading] = useState(!initialEnvelope);
   const [error, setError] = useState<string | null>(null);
   const [hostView, setHostView] = useState<ActivityHostView | null>(null);
+  const [connectionState, setConnectionState] = useState<ActivityConnectionState>('connecting');
+  const [commandNotice, setCommandNotice] = useState<ActivityControllerNotice | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const initialEnvelopeRef = useRef(initialEnvelope);
 
-  const interactiveTypes = ['trivia', 'rapidFire', 'poll', 'prediction', 'surveyBoard', 'buzzer', 'punchline', 'fakeOut', 'drawing', 'ordering', 'word', 'matchPlayer', 'imageReveal', 'stageChallenge', 'bracket', 'physicalRoom', 'utility'];
-  const isInteractive = Boolean(envelope && interactiveTypes.includes(envelope.type));
+  const currentActivityType = envelope?.type;
+  const isInteractive = Boolean(envelope && INTERACTIVE_ACTIVITY_TYPES.includes(currentActivityType || ''));
+  const currentRunId = propRunId || envelope?.runId;
+  const hasEnvelope = Boolean(envelope);
 
   const fetchRun = async () => {
     try {
@@ -53,15 +83,61 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
     }
   };
 
-  const fetchHostView = async (runId: string) => {
-    if (!interactiveTypes.includes(envelope?.type || '')) return;
+  const fetchHostView = useCallback(async (runId: string, activityType: string | undefined) => {
+    if (!INTERACTIVE_ACTIVITY_TYPES.includes(activityType || '')) return;
     try {
       setHostView(await ActivityApi.getHostState(runId));
     } catch (err) {
       // Legacy activities and a just-created run may not have a session row yet.
       console.debug('Activity host state is not available yet', err);
     }
-  };
+  }, []);
+
+  const refreshControllerState = useCallback(async (runId: string | undefined, hasLoadedEnvelope: boolean) => {
+    if (!runId) return;
+    setRefreshing(true);
+    try {
+      const activeRun = await ActivityApi.getRun(runId);
+      setEnvelope(activeRun);
+      setError(null);
+      setLoading(false);
+      if (INTERACTIVE_ACTIVITY_TYPES.includes(activeRun.type)) {
+        try { setHostView(await ActivityApi.getHostState(activeRun.runId)); } catch (err) { console.debug('Host state refresh is not available yet', err); }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'The controller could not refresh.';
+      if (!hasLoadedEnvelope) {
+        setError(message);
+        setLoading(false);
+      } else {
+        setCommandNotice({ id: Date.now(), tone: 'error', message: `Refresh failed: ${message}` });
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => activityHub.subscribeConnectionStatus(setConnectionState), []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeActivityCommandLifecycle(event => {
+      const currentRunId = propRunId || envelope?.runId;
+      if (!currentRunId || event.runId !== currentRunId) return;
+      if (event.outcome === 'succeeded') {
+        const revision = event.revision ? ` · revision ${event.revision}` : '';
+        setCommandNotice({ id: Date.now(), tone: 'success', message: `${commandLabel(event.action)} sent${revision}` });
+      } else {
+        setCommandNotice({ id: Date.now(), tone: 'error', message: event.message || `${commandLabel(event.action)} could not be completed.` });
+      }
+    });
+    return unsubscribe;
+  }, [propRunId, envelope?.runId]);
+
+  useEffect(() => {
+    if (!commandNotice || commandNotice.tone !== 'success') return;
+    const timer = window.setTimeout(() => setCommandNotice(current => current?.id === commandNotice.id ? null : current), 3500);
+    return () => window.clearTimeout(timer);
+  }, [commandNotice]);
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -69,7 +145,7 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
 
     const connect = async () => {
       try {
-        let activeRun = envelope;
+        let activeRun = initialEnvelopeRef.current;
         if (!activeRun) {
           if (propRunId) {
             activeRun = await ActivityApi.getRun(propRunId);
@@ -85,7 +161,7 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
         if (isCancelled || !activeRun) return;
         setEnvelope(activeRun);
         setLoading(false);
-        if (interactiveTypes.includes(activeRun.type)) {
+        if (INTERACTIVE_ACTIVITY_TYPES.includes(activeRun.type)) {
           try { setHostView(await ActivityApi.getHostState(activeRun.runId)); } catch (err) { console.debug('Host state pending', err); }
         }
 
@@ -111,10 +187,20 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
   }, [propRunId, definitionId, lessonId, lessonItemId]);
 
   useEffect(() => {
-    if (!envelope || !isInteractive) return;
-    const timer = window.setInterval(() => { void fetchHostView(envelope.runId); }, 2000);
+    if (!hasEnvelope || !isInteractive || !currentRunId) return;
+    const timer = window.setInterval(() => { void fetchHostView(currentRunId, currentActivityType); }, 2000);
     return () => window.clearInterval(timer);
-  }, [envelope?.runId, envelope?.type, isInteractive]);
+  }, [currentActivityType, currentRunId, fetchHostView, hasEnvelope, isInteractive]);
+
+  useEffect(() => {
+    if (!hasEnvelope || connectionState === 'connected') return;
+    const timer = window.setInterval(() => { void refreshControllerState(currentRunId, hasEnvelope); }, connectionState === 'reconnecting' ? 1500 : 3000);
+    return () => window.clearInterval(timer);
+  }, [connectionState, currentRunId, hasEnvelope, refreshControllerState]);
+
+  useEffect(() => {
+    if (hasEnvelope && connectionState === 'connected') void refreshControllerState(currentRunId, hasEnvelope);
+  }, [connectionState, currentRunId, hasEnvelope, refreshControllerState]);
 
   if (loading) {
     return (
@@ -137,8 +223,9 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
   const controllerEnvelope = hostView?.state || envelope;
 
   return (
-    <div style={{ background: 'var(--mint)', border: '1px solid var(--line)', borderRadius: '16px', padding: '0.75rem', width: '100%', boxSizing: 'border-box' }}>
+    <div className="activity-controller-shell" style={{ background: 'var(--mint)', border: '1px solid var(--line)', borderRadius: '16px', padding: '0.75rem', width: '100%', boxSizing: 'border-box' }}>
       <div
+        className="activity-controller-header"
         style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -155,6 +242,9 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
           </span>
         </div>
         <div className="activity-controller-header-tools">
+          <span className={`activity-connection-status ${connectionState}`} role="status" aria-label={`Activity connection: ${connectionLabel(connectionState)}`}>
+            <i />{connectionLabel(connectionState)}
+          </span>
           <span
             style={{
               fontSize: '0.75rem',
@@ -167,16 +257,24 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
           >
             {envelope.status.toUpperCase()}
           </span>
+          <button type="button" className="button activity-controller-refresh" onClick={() => void refreshControllerState(currentRunId, hasEnvelope)} disabled={refreshing} aria-label="Refresh activity controller">
+            {refreshing ? 'Refreshing…' : '↻ Refresh'}
+          </button>
           <ActivitySoundControls />
         </div>
       </div>
 
-      {isInteractive && hostView && <ActivityHostSessionPanel hostView={hostView} onRefresh={() => fetchHostView(envelope.runId)} />}
+      {commandNotice && <div className={`activity-command-notice ${commandNotice.tone}`} role={commandNotice.tone === 'error' ? 'alert' : 'status'} aria-live="polite"><span>{commandNotice.message}</span><button type="button" onClick={() => setCommandNotice(null)} aria-label="Dismiss controller message">×</button></div>}
+
+      {/* Live controls stay visible whether or not setup is open: the host needs
+          the join code and the answer count during the round, not only before it. */}
+      {isInteractive && hostView && <ActivityLiveHostPanel hostView={hostView} onRefresh={() => fetchHostView(envelope.runId, currentActivityType)} />}
+      {isInteractive && hostView && showSessionSetup && <ActivityHostSessionPanel hostView={hostView} onRefresh={() => fetchHostView(envelope.runId, currentActivityType)} />}
 
       <ControllerComponent
         envelope={controllerEnvelope}
         hostView={hostView}
-        onCommandSent={async () => { await fetchRun(); await fetchHostView(envelope.runId); }}
+        onCommandSent={async () => { await fetchRun(); await fetchHostView(envelope.runId, currentActivityType); }}
       />
     </div>
   );

@@ -18,6 +18,46 @@ public sealed class ActivityValidationTests
     }
 
     [Fact]
+    public void PollAcceptsEditableRoundSequencesAndRejectsInvalidRoundChoices()
+    {
+        var sequence = """{"title":"Gauntlet","rounds":[{"id":"r1","question":"Pick one","options":["A","B"]},{"id":"r2","question":"Pick another","options":["A","B","C","D","E","F"]}]}""";
+        var invalid = """{"title":"Gauntlet","rounds":[{"id":"r1","question":"Pick one","options":["A"]}]}""";
+
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Poll, "This or That Gauntlet", sequence));
+        Assert.Contains("between 2 and 8", ActivityValidation.ValidateDefinition(ActivityTypes.Poll, "Invalid Gauntlet", invalid));
+    }
+
+    [Fact]
+    public void TriviaAcceptsShortTextAndNumberQuestionsAndRejectsMissingAnswers()
+    {
+        var flexible = """{"title":"Flexible quiz","questions":[{"id":"text","prompt":"Finish it","answerMode":"text","acceptedAnswers":["never","not ever"]},{"id":"number","prompt":"Guess it","answerMode":"number","targetNumber":42,"tolerance":1,"scoringMode":"closest"}]}""";
+        var missingText = """{"title":"Missing answer","questions":[{"id":"text","prompt":"Finish it","answerMode":"text","acceptedAnswers":[]}]}""";
+        var missingNumber = """{"title":"Missing number","questions":[{"id":"number","prompt":"Guess it","answerMode":"number"}]}""";
+
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Trivia, "Flexible quiz", flexible));
+        Assert.Contains("accepted answer", ActivityValidation.ValidateDefinition(ActivityTypes.Trivia, "Missing answer", missingText));
+        Assert.Contains("target number", ActivityValidation.ValidateDefinition(ActivityTypes.Trivia, "Missing number", missingNumber));
+    }
+
+    [Fact]
+    public void QuizModifiersAndCreativeVotingModesAreValidated()
+    {
+        var validQuiz = """{"title":"Wager quiz","questions":[{"id":"q1","prompt":"Pick one","options":["A","B"],"correctIndex":0}],"modifiers":{"wager":{"enabled":true,"maxPoints":100,"defaultPoints":25},"lives":{"enabled":true,"startingLives":3}}}""";
+        var invalidWager = """{"title":"Invalid wager","questions":[{"id":"q1","prompt":"Pick one","options":["A","B"],"correctIndex":0}],"modifiers":{"wager":{"enabled":true,"maxPoints":10,"defaultPoints":20}}}""";
+        var validCreative = """{"title":"Matchup","prompts":[{"id":"p1","prompt":"Finish it"}],"votingStyle":"headToHead","headToHeadMatchPoints":50}""";
+        var invalidCreative = """{"title":"Unknown voting","prompts":[{"id":"p1","prompt":"Finish it"}],"votingStyle":"bracket"}""";
+        var validBracket = """{"title":"Random bracket","entrantSource":"participants","entrantSelection":"random","randomEntrantCount":4}""";
+        var invalidBracket = """{"title":"Invalid bracket","entrantSource":"participants","entrantSelection":"random","randomEntrantCount":1}""";
+
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Trivia, "Valid modifiers", validQuiz));
+        Assert.Contains("wager points", ActivityValidation.ValidateDefinition(ActivityTypes.Trivia, "Invalid wager", invalidWager));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Punchline, "Valid creative", validCreative));
+        Assert.Contains("gallery or head-to-head", ActivityValidation.ValidateDefinition(ActivityTypes.Punchline, "Invalid creative", invalidCreative));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Bracket, "Valid bracket", validBracket));
+        Assert.Contains("between 2 and 32", ActivityValidation.ValidateDefinition(ActivityTypes.Bracket, "Invalid bracket", invalidBracket));
+    }
+
+    [Fact]
     public void StructuredActivitiesRejectEmptyRequiredCollections()
     {
         var emptyBuzzer = """{"title":"Empty buzzer","clues":[]}""";
@@ -32,9 +72,115 @@ public sealed class ActivityValidationTests
     }
 
     [Fact]
+    public void RichEngineSettingsValidateTheirNewRuntimeLimits()
+    {
+        var validDrawing = """{"title":"Doodle","maxStrokes":120,"maxPointsPerStroke":180,"votingSeconds":30,"prompts":[{"id":"p1","prompt":"Draw a fox"}]}""";
+        var invalidDrawing = """{"title":"Doodle","maxStrokes":0,"prompts":[{"id":"p1","prompt":"Draw a fox"}]}""";
+        var validOrdering = """{"title":"Timeline","scoringMode":"exact","rounds":[{"id":"r1","prompt":"Order it","items":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"correctOrder":["a","b"],"points":100}]}""";
+        var invalidOrdering = """{"title":"Timeline","scoringMode":"lenient","rounds":[{"id":"r1","prompt":"Order it","items":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"correctOrder":["a","b"]}]}""";
+        var validMatchText = """{"title":"Match Minds","rounds":[{"id":"r1","prompt":"Explain it","answerMode":"text","points":100}]}""";
+        var invalidMatch = """{"title":"Match Minds","rounds":[{"id":"r1","prompt":"Pick it","answerMode":"choice","options":["Only one"]}]}""";
+        var validWord = """{"title":"Name Five","maxWords":5,"rounds":[{"id":"r1","prompt":"Name animals","seconds":30}]}""";
+        var invalidWord = """{"title":"Name Five","maxWords":31,"rounds":[{"id":"r1","prompt":"Name animals","seconds":30}]}""";
+        var validReveal = """{"title":"Mystery Image","totalStages":8,"autoIntervalSeconds":4,"style":"pixel"}""";
+        var invalidReveal = """{"title":"Mystery Image","totalStages":25,"style":"spiral"}""";
+
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Drawing, "Valid drawing", validDrawing));
+        Assert.Contains("Drawing limits", ActivityValidation.ValidateDefinition(ActivityTypes.Drawing, "Invalid drawing", invalidDrawing));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Ordering, "Valid ordering", validOrdering));
+        Assert.Contains("partial or exact", ActivityValidation.ValidateDefinition(ActivityTypes.Ordering, "Invalid ordering", invalidOrdering));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.MatchPlayer, "Text match", validMatchText));
+        Assert.Contains("between 2 and 8 options", ActivityValidation.ValidateDefinition(ActivityTypes.MatchPlayer, "Invalid match", invalidMatch));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Word, "Valid word", validWord));
+        Assert.Contains("between 1 and 30", ActivityValidation.ValidateDefinition(ActivityTypes.Word, "Invalid word", invalidWord));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.ImageReveal, "Valid reveal", validReveal));
+        Assert.Contains("reveal stages", ActivityValidation.ValidateDefinition(ActivityTypes.ImageReveal, "Invalid reveal", invalidReveal));
+    }
+
+    [Fact]
+    public void BuzzerAndBluffingScoringValuesAreBounded()
+    {
+        var validBuzzer = """{"title":"Clues","clues":[{"id":"c1","prompt":"Clue","answer":"Answer","points":300}],"lockOutOnMiss":true,"stealOnMiss":true}""";
+        var invalidBuzzer = """{"title":"Clues","clues":[{"id":"c1","prompt":"Clue","answer":"Answer","points":20000}]}""";
+        var validBluff = """{"title":"Bluff","rounds":[{"id":"r1","prompt":"Prompt","truth":"Truth"}],"truthPoints":100,"bluffPoints":50,"hostFavoritePoints":25}""";
+        var invalidBluff = """{"title":"Bluff","rounds":[{"id":"r1","prompt":"Prompt","truth":"Truth"}],"hostFavoritePoints":20000}""";
+
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Buzzer, "Clues", validBuzzer));
+        Assert.Contains("clue points", ActivityValidation.ValidateDefinition(ActivityTypes.Buzzer, "Clues", invalidBuzzer));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.FakeOut, "Bluff", validBluff));
+        Assert.Contains("scoring values", ActivityValidation.ValidateDefinition(ActivityTypes.FakeOut, "Bluff", invalidBluff));
+    }
+
+    [Fact]
     public void ExistingDefinitionsWithoutOptionalCollectionsRemainCompatible()
     {
         Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Trivia, "Legacy trivia", "{\"title\":\"Legacy trivia\"}"));
         Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.ImageShuffle, "Media to add later", "{\"title\":\"Media to add later\",\"images\":[]}"));
+    }
+
+    [Fact]
+    public void PlannedPresetConfigurationsValidateWithoutAFixedFourChoiceAssumption()
+    {
+        var matchUp = """{"title":"Match-Up","interactionMode":"matching","rounds":[{"id":"r1","prompt":"Match the animals","pairs":[{"id":"penguin","left":"Penguin","right":"Antarctica"},{"id":"camel","left":"Camel","right":"Desert"}]}]}""";
+        var connections = """{"title":"Connections","interactionMode":"grouping","rounds":[{"id":"r1","prompt":"Group the animals","items":[{"id":"cat","label":"Cat"},{"id":"dog","label":"Dog"},{"id":"eagle","label":"Eagle"},{"id":"hawk","label":"Hawk"}],"groups":[{"id":"pets","label":"Pets","itemIds":["cat","dog"]},{"id":"birds","label":"Birds","itemIds":["eagle","hawk"]}]}]}""";
+        var memoryGrid = """{"title":"Memory Grid","mediaMode":"memoryGrid","memorySeconds":6,"memoryCards":[{"id":"card-1","label":"Lion","match":"savanna"},{"id":"card-2","label":"Savanna","match":"savanna"}]}""";
+        var audioRound = """{"title":"Sound Check","mediaMode":"audio","audioDurationSeconds":1,"audioUrl":"/media/roar.mp3","prompt":"Name the animal."}""";
+        var telephoneDraw = """{"title":"Telephone Draw","telephoneChain":true,"chainSteps":[{"kind":"drawing","label":"Draw it","prompt":"Draw the animal.","phrase":"A dancing penguin"},{"kind":"description","label":"Describe it","prompt":"Describe what you see."},{"kind":"drawing","label":"Redraw it","prompt":"Draw the description."}]}""";
+
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Ordering, "Match-Up", matchUp));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Ordering, "Connections", connections));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.ImageReveal, "Memory Grid", memoryGrid));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.ImageReveal, "Sound Check", audioRound));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.Drawing, "Telephone Draw", telephoneDraw));
+    }
+
+    [Fact]
+    public void AdventureValidatesNodeIdsAndBranchTargets()
+    {
+        var valid = """{"title":"Animal Adventure","adventure":true,"rounds":[{"id":"start","choices":["Follow","Climb"],"branches":{"0":"waterfall","1":"__end__"}},{"id":"waterfall","choices":["Search"],"branches":{"0":"finish"}},{"id":"finish","choices":[]}] }""";
+        var duplicateId = """{"title":"Animal Adventure","adventure":true,"rounds":[{"id":"start","choices":[]},{"id":"start","choices":[]}] }""";
+        var invalidTarget = """{"title":"Animal Adventure","adventure":true,"rounds":[{"id":"start","choices":["Follow"],"branches":{"0":"missing"}}] }""";
+        var invalidChoice = """{"title":"Animal Adventure","adventure":true,"rounds":[{"id":"start","choices":["Follow"],"branches":{"1":"__end__"}}] }""";
+
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Valid adventure", valid));
+        Assert.Contains("ids must be unique", ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Duplicate nodes", duplicateId));
+        Assert.Contains("existing node", ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Missing target", invalidTarget));
+        Assert.Contains("visible choice", ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Invalid choice", invalidChoice));
+    }
+
+    [Fact]
+    public void AdventureNodeTypesValidateTheirOwnConfiguration()
+    {
+        var valid = """
+            {"title":"Graph","adventure":true,"rounds":[
+            {"id":"scene","nodeType":"scene","nextTarget":"poll"},
+            {"id":"poll","nodeType":"poll","choices":["River","Ridge"],"branches":{"0":"quiz","1":"random"}},
+            {"id":"quiz","nodeType":"quiz","choices":["Fox","Owl"],"correctIndex":0,"branches":{"0":"score","1":"score"}},
+            {"id":"random","nodeType":"random","randomTargets":["score","inventory"]},
+            {"id":"score","nodeType":"score","scoreDelta":100,"scoreTarget":"team","nextTarget":"inventory"},
+            {"id":"inventory","nodeType":"inventory","inventoryKey":"badge","inventoryValue":"moon badge","nextTarget":"condition"},
+            {"id":"condition","nodeType":"condition","conditionKey":"badge","conditionEquals":"moon badge","trueTarget":"end","falseTarget":"scene"},
+            {"id":"end","nodeType":"end"}] }
+            """;
+        var unknown = """{"title":"Graph","adventure":true,"rounds":[{"id":"n1","nodeType":"teleport"}]}""";
+        var badQuiz = """{"title":"Graph","adventure":true,"rounds":[{"id":"n1","nodeType":"quiz","choices":["A","B"],"correctIndex":3}]}""";
+        var badCondition = """{"title":"Graph","adventure":true,"rounds":[{"id":"n1","nodeType":"condition","conditionKey":"badge","trueTarget":"missing"}]}""";
+
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Typed graph", valid));
+        Assert.Contains("not supported", ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Unknown node", unknown));
+        Assert.Contains("correctIndex", ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Bad quiz", badQuiz));
+        Assert.Contains("existing node", ActivityValidation.ValidateDefinition(ActivityTypes.PhysicalRoom, "Bad condition", badCondition));
+    }
+
+    [Fact]
+    public void ImageRevealAcceptsDifferentiatedObservationFormats()
+    {
+        var difference = """{"title":"What's Different?","mediaMode":"difference","imageUrl":"/one.png","comparisonImageUrl":"/two.png","answer":"The zebra has one extra stripe."}""";
+        var emoji = """{"title":"Emoji Decode","mediaMode":"emoji","emojiClue":"🦁👑","answer":"The Lion King"}""";
+        var rebus = """{"title":"Rebus Rush","mediaMode":"rebus","rebusClue":"🐝 + 🏠","answer":"Bee home"}""";
+
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.ImageReveal, "What's Different?", difference));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.ImageReveal, "Emoji Decode", emoji));
+        Assert.Null(ActivityValidation.ValidateDefinition(ActivityTypes.ImageReveal, "Rebus Rush", rebus));
     }
 }

@@ -1,0 +1,38 @@
+ui-btn-select.mp3 — Match-the-Player
+====================================
+
+ROLE
+  Tap / press.
+
+REPLACE THIS FILE
+  Delete this .txt and drop in "ui-btn-select.mp3" in the same folder. The name must
+  match exactly. Nothing else needs to change — no code, no config.
+
+WHEN IT PLAYS
+  The workhorse. Plays on pointer-down for every control on the participant
+  phone — choice buttons, tool buttons, palette swatches, everything. Also
+  plays on keyboard activation.
+
+  Played many times in quick succession, so it is pitch-randomized between
+  0.85x and 1.15x on every press to stop rapid taps sounding machine-gunned.
+  Author it dry and neutral; the randomizer supplies the variation.
+
+SUGGESTED CHARACTER
+  warm and social, built around a two-part call and answer.
+
+SPEC
+  ≤120 ms, dry, minimal tail — a long tail will smear under fast tapping.
+
+PITCH
+  Randomized 0.85x–1.15x on every play. Author one dry take.
+
+IF THIS FILE IS ABSENT
+  Lookup cascades preset → engine → shared. If this file is absent,
+  LessonCue tries assets/games/shared/audio/sfx/ui-btn-select.mp3, and if that is
+  also absent, LessonCue plays its original synthesized cue from
+  web-admin/src/activities/effects.ts. That is the shipped default.
+
+LICENSING
+  Any audio committed here is a bundled asset and needs a source note, a
+  licence/permission record, and an attribution entry before release. See
+  docs/activities-assets-and-sound.md.

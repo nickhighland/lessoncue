@@ -1,0 +1,924 @@
+/*
+ * Activity "game juice" layer.
+ *
+ * Loaded alongside activity.css and deliberately additive: it only adds
+ * motion, tactile feedback, and state colour on top of the existing Activity
+ * styling. Every rule degrades to the static presentation under
+ * prefers-reduced-motion, and none of it is a security or state boundary —
+ * the server still owns phase, timing, and scoring.
+ */
+
+/* ---------------------------------------------------------------- palette */
+
+.activity-participant-page,
+.activity-display-root {
+  /* Relaxed "thinking" phase. Falls back to the original green when a surface
+     has not been given a per-game palette. */
+  --lc-calm-edge: var(--act-stage-primary, #264d43);
+  --lc-calm-core: var(--act-stage-bg, #0d2522);
+  --lc-calm-deep: #05090c;
+  --lc-calm-glow: var(--act-stage-secondary-soft, rgba(96, 214, 168, .34));
+
+  /* Final seconds: warm, harsh, high-energy. Deliberately NOT palette-derived —
+     panic must read the same in every game, and a warm-palette game must not
+     lose the signal. */
+  --lc-panic-edge: #a3341f;
+  --lc-panic-core: #5b1410;
+  --lc-panic-deep: #24060a;
+  --lc-panic-glow: rgba(255, 138, 92, .5);
+
+  --lc-accent: var(--act-stage-accent, #f2b943);
+  --lc-ink-on-accent: var(--act-stage-accent-contrast, #1b2b25);
+  --lc-press-scale: .95;
+  --lc-press-stretch: 1.045;
+}
+
+/* ------------------------------------------------- per-game phone colouring
+
+   The phone wears the same palette as the stage. These selectors carry an
+   attribute so they win over the base participant styling regardless of which
+   stylesheet the bundler emits first. */
+
+.activity-participant-page[data-activity-type] {
+  /* The game's own base colour carries all the way down, with two soft washes
+     for depth. A shared near-black floor would drain the palette out of the
+     lower half of a phone screen. */
+  background:
+    radial-gradient(130% 62% at 50% -8%, var(--act-stage-primary-wash, rgba(38, 77, 67, .55)), transparent 72%),
+    radial-gradient(105% 55% at 105% 108%, var(--act-stage-secondary-soft, transparent), transparent 72%),
+    var(--act-stage-bg, #0d2522);
+  color: var(--act-stage-text, #fff);
+}
+
+.activity-participant-page[data-activity-type] .participant-mark,
+.activity-participant-page[data-activity-type] .waiting-orb {
+  background: linear-gradient(150deg, var(--lc-accent), var(--act-stage-secondary, var(--lc-accent)));
+  color: var(--lc-ink-on-accent);
+}
+
+.activity-participant-page[data-activity-type] .participant-kicker,
+.activity-participant-page[data-activity-type] .participant-code,
+.activity-participant-page[data-activity-type] .participant-count { color: var(--lc-accent); }
+
+.activity-participant-page[data-activity-type] .participant-primary-button {
+  background: linear-gradient(165deg, var(--lc-accent), var(--act-stage-secondary, var(--lc-accent)));
+  color: var(--lc-ink-on-accent);
+}
+
+.activity-participant-page[data-activity-type] .participant-choice-list button span {
+  background: var(--lc-accent);
+  color: var(--lc-ink-on-accent);
+}
+
+.activity-participant-page[data-activity-type] .participant-choice-list button.selected {
+  border-color: var(--lc-accent);
+  background: var(--act-stage-accent-soft, rgba(242, 185, 67, .25));
+}
+
+.activity-participant-page[data-activity-type] .participant-buzzer {
+  border-color: var(--act-stage-secondary, #ff776b);
+  background: radial-gradient(circle at 50% 28%, var(--act-stage-secondary, #ff8e82), var(--act-stage-primary, #be3b43));
+}
+
+/* ------------------------------------------------- squash and stretch */
+
+@keyframes lc-squash-release {
+  0%   { transform: scale(var(--lc-press-scale)) scaleX(var(--lc-press-stretch)); }
+  38%  { transform: scale(1.035) scaleX(.975) scaleY(1.05); }
+  68%  { transform: scale(.988) scaleX(1.012) scaleY(.986); }
+  100% { transform: scale(1); }
+}
+
+.lc-juicy {
+  transform-origin: center;
+  /* Overshoot on the way back gives the control physical weight. */
+  transition: transform 260ms cubic-bezier(.34, 1.56, .64, 1),
+              box-shadow 180ms ease,
+              background-color 180ms ease,
+              border-color 180ms ease;
+  will-change: transform;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lc-juicy[data-juice="pressed"] {
+  /* Squash: shorter, wider, and driven straight down. */
+  transform: scale(var(--lc-press-scale)) scaleX(var(--lc-press-stretch)) scaleY(.94);
+  transition-duration: 70ms;
+  transition-timing-function: ease-out;
+}
+
+.lc-juicy[data-juice="released"] {
+  animation: lc-squash-release 420ms cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.lc-juicy:disabled {
+  transform: none;
+  animation: none;
+}
+
+.lc-juicy:focus-visible {
+  outline: 3px solid var(--lc-accent);
+  outline-offset: 3px;
+}
+
+/* --------------------------------------------- chunky mobile targets */
+
+.activity-participant-page .participant-primary-button {
+  min-height: 68px;
+  font-size: 1.12rem;
+  letter-spacing: .01em;
+  box-shadow: 0 8px 0 rgba(0, 0, 0, .28), 0 14px 26px rgba(0, 0, 0, .3);
+}
+
+.activity-participant-page .participant-primary-button[data-juice="pressed"] {
+  box-shadow: 0 2px 0 rgba(0, 0, 0, .28), 0 6px 14px rgba(0, 0, 0, .28);
+}
+
+.activity-participant-page .participant-choice-list { gap: .85rem; }
+
+.activity-participant-page .participant-choice-list button {
+  min-height: 76px;
+  padding: .9rem 1rem;
+  font-size: 1.06rem;
+  line-height: 1.25;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, .22);
+}
+
+.activity-participant-page .participant-choice-list button[data-juice="pressed"] {
+  box-shadow: 0 1px 0 rgba(0, 0, 0, .22);
+}
+
+.activity-participant-page .participant-choice-list button span {
+  width: 42px;
+  height: 42px;
+  font-size: 1.05rem;
+}
+
+.activity-participant-page .participant-choice-list button.selected {
+  box-shadow: 0 6px 0 rgba(0, 0, 0, .22), 0 0 0 3px var(--act-stage-accent-soft, rgba(242, 195, 90, .55));
+}
+
+.activity-participant-page .participant-secondary-button { min-height: 52px; }
+
+/* Keep a disabled submit legible: dim the fill, not the label. */
+.activity-participant-page[data-activity-type] .participant-primary-button:disabled {
+  opacity: 1;
+  background: rgba(255, 255, 255, .13);
+  color: rgba(255, 255, 255, .62);
+  box-shadow: 0 4px 0 rgba(0, 0, 0, .2);
+}
+
+.activity-participant-page .participant-leave-button {
+  min-height: 48px;
+  padding: 0 1rem;
+}
+
+/* Selecting a choice gives a single confirming pop. */
+@keyframes lc-choice-confirm {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.03) scaleY(.97); }
+  100% { transform: scale(1); }
+}
+
+.activity-participant-page .participant-choice-list button.selected:not([data-juice="pressed"]) {
+  animation: lc-choice-confirm 340ms cubic-bezier(.34, 1.56, .64, 1);
+}
+
+/* --------------------------------------------------------- idle wobble */
+
+@keyframes lc-idle-wobble {
+  0%   { transform: translate3d(0, 0, 0) rotate(0deg); }
+  25%  { transform: translate3d(calc(2px * var(--lc-wobble-drift, 1)), calc(-3px * var(--lc-wobble-drift, 1)), 0) rotate(calc(1.1deg * var(--lc-wobble-drift, 1))); }
+  50%  { transform: translate3d(calc(-1px * var(--lc-wobble-drift, 1)), calc(-5px * var(--lc-wobble-drift, 1)), 0) rotate(calc(-.7deg * var(--lc-wobble-drift, 1))); }
+  75%  { transform: translate3d(calc(-3px * var(--lc-wobble-drift, 1)), calc(-2px * var(--lc-wobble-drift, 1)), 0) rotate(calc(.9deg * var(--lc-wobble-drift, 1))); }
+  100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+}
+
+.lc-idle-wobble {
+  animation: lc-idle-wobble var(--lc-wobble-duration, 6.5s) ease-in-out var(--lc-wobble-delay, 0s) infinite;
+  will-change: transform;
+}
+
+/* Waiting states breathe so a held phase never looks frozen or crashed. */
+@keyframes lc-waiting-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 var(--lc-calm-glow); }
+  50%      { box-shadow: 0 0 0 14px rgba(96, 214, 168, 0); }
+}
+
+.activity-participant-page .participant-waiting .waiting-orb {
+  animation: lc-idle-wobble var(--lc-wobble-duration, 6.5s) ease-in-out var(--lc-wobble-delay, 0s) infinite,
+             lc-waiting-breathe 3.4s ease-in-out infinite;
+}
+
+/* ------------------------------------------------------- panic state */
+
+@keyframes lc-panic-heartbeat {
+  0%, 100% { transform: scale(1); }
+  14%      { transform: scale(1.09); }
+  28%      { transform: scale(1); }
+  42%      { transform: scale(1.05); }
+  56%      { transform: scale(1); }
+}
+
+@keyframes lc-panic-wash {
+  0%, 100% { opacity: .82; }
+  50%      { opacity: 1; }
+}
+
+body.lc-panic .activity-participant-page,
+body.lc-panic .activity-participant-page[data-activity-type] {
+  background: radial-gradient(circle at 50% 0, var(--lc-panic-edge), var(--lc-panic-core) 55%, var(--lc-panic-deep));
+  animation: lc-panic-wash 900ms ease-in-out infinite;
+}
+
+body.lc-panic .activity-participant-page .participant-kicker,
+body.lc-panic .activity-participant-page .participant-count { color: #ffd0b5; }
+
+body.lc-panic .activity-motion-countdown strong,
+.activity-motion-countdown.panic strong {
+  color: #ffd9c6;
+  animation: lc-panic-heartbeat 900ms ease-in-out infinite;
+}
+
+.activity-motion-countdown.panic {
+  border-color: rgba(255, 138, 92, .65);
+  box-shadow: 0 0 0 2px rgba(255, 138, 92, .3), 0 0 34px var(--lc-panic-glow);
+}
+
+.activity-motion-countdown.panic > span { color: #ffb99a; letter-spacing: .2em; }
+
+/* A restrained shake: enough to raise the stakes, never enough to mis-tap. */
+@keyframes lc-panic-shake {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  20%      { transform: translate3d(-1.5px, .5px, 0); }
+  40%      { transform: translate3d(1.5px, -.5px, 0); }
+  60%      { transform: translate3d(-1px, -1px, 0); }
+  80%      { transform: translate3d(1px, 1px, 0); }
+}
+
+body.lc-panic .participant-input-card,
+body.lc-panic .participant-buzzer-card {
+  animation: lc-panic-shake 420ms ease-in-out infinite;
+}
+
+/* Panic outranks the calm idle drift. */
+body.lc-panic .lc-idle-wobble,
+body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { animation: none; }
+
+/* ----------------------------------------------------- entry motion */
+
+@keyframes lc-card-enter {
+  0%   { opacity: 0; transform: translate3d(0, 14px, 0) scale(.97); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+.activity-participant-page .participant-input-card,
+.activity-participant-page .participant-waiting,
+.activity-participant-page .participant-buzzer-card {
+  animation: lc-card-enter 320ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+/* Buzzer keeps its own weightier press than the shared control. */
+.activity-participant-page .participant-buzzer[data-juice="pressed"] {
+  transform: translateY(6px) scale(.97) scaleX(1.02);
+  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, .18), 0 6px 16px rgba(170, 43, 49, .35);
+}
+
+@keyframes lc-buzzer-ready {
+  0%, 100% { box-shadow: inset 0 -12px 0 rgba(0, 0, 0, .18), 0 18px 40px rgba(0, 0, 0, .4), 0 0 0 0 var(--act-stage-secondary-soft, rgba(255, 119, 107, .45)); }
+  50%      { box-shadow: inset 0 -12px 0 rgba(0, 0, 0, .18), 0 18px 40px rgba(0, 0, 0, .4), 0 0 0 18px rgba(255, 119, 107, 0); }
+}
+
+.activity-participant-page .participant-buzzer:not(:disabled) {
+  animation: lc-buzzer-ready 1.9s ease-out infinite;
+}
+
+/* -------------------------------------------------- reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-juicy,
+  .lc-juicy[data-juice="pressed"],
+  .lc-juicy[data-juice="released"] {
+    transition: none;
+    animation: none;
+    transform: none;
+  }
+
+  /* Keep a non-animated affordance so a press is still visibly acknowledged. */
+  .lc-juicy[data-juice="pressed"] { filter: brightness(1.18); }
+
+  .lc-idle-wobble,
+  .activity-participant-page .participant-waiting .waiting-orb,
+  .activity-participant-page .participant-buzzer:not(:disabled),
+  .activity-participant-page .participant-input-card,
+  .activity-participant-page .participant-waiting,
+  .activity-participant-page .participant-buzzer-card,
+  .activity-participant-page .participant-choice-list button.selected:not([data-juice="pressed"]),
+  body.lc-panic .activity-participant-page,
+  /* Must match the specificity of the per-game panic rule, or its pulse wins. */
+  body.lc-panic .activity-participant-page[data-activity-type],
+  body.lc-panic .participant-input-card,
+  body.lc-panic .participant-buzzer-card,
+  body.lc-panic .activity-motion-countdown strong,
+  .activity-motion-countdown.panic strong {
+    animation: none;
+  }
+
+  /* The panic colour shift stays — it is information, not decoration. */
+  body.lc-panic .activity-participant-page,
+  body.lc-panic .activity-participant-page[data-activity-type] {
+    background: radial-gradient(circle at 50% 0, var(--lc-panic-edge), var(--lc-panic-core) 55%, var(--lc-panic-deep));
+  }
+}
+
+/* ------------------------------------------------------- join + QR ------ */
+
+.activity-qr {
+  display: block;
+  border-radius: 10px;
+  background: #fff;
+  /* A projected code is scanned at an angle and often glared out, so keep a
+     white quiet zone around it rather than bleeding into the stage. */
+  padding: 4px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+  image-rendering: pixelated;
+}
+
+.activity-qr-pending {
+  background: rgba(255, 255, 255, .14);
+  box-shadow: none;
+}
+
+.interactive-join-banner .activity-qr { padding: 3px; border-radius: 7px; }
+
+.activity-join-prominent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 1.4rem 2.4rem;
+  margin: 0 auto;
+  padding: 1.4rem 2rem;
+  border: 1px solid var(--act-stage-accent-soft, rgba(255, 255, 255, .2));
+  border-radius: 26px;
+  background: rgba(0, 0, 0, .3);
+}
+
+.activity-join-prominent-copy { text-align: left; }
+
+.activity-join-prominent-copy > span {
+  display: block;
+  color: var(--act-stage-accent, #f7bf4e);
+  font-size: clamp(.7rem, 1.1vw, .9rem);
+  font-weight: 900;
+  letter-spacing: .18em;
+}
+
+.activity-join-address {
+  display: block;
+  margin: .35rem 0 .1rem;
+  color: var(--act-stage-text, #fff);
+  font-size: clamp(1.1rem, 2.2vw, 2rem);
+  font-weight: 800;
+  letter-spacing: -.01em;
+  overflow-wrap: anywhere;
+}
+
+.activity-join-code {
+  /* The code is read aloud and typed by hand, so it is the largest thing on
+     the lobby screen after the game title. */
+  margin-top: .2rem;
+  color: var(--act-stage-accent, #f7bf4e);
+  font-size: clamp(2.6rem, 7vw, 5.5rem);
+  font-weight: 950;
+  line-height: 1;
+  letter-spacing: .12em;
+}
+
+.activity-join-prominent-copy > small {
+  display: block;
+  margin-top: .5rem;
+  color: rgba(255, 255, 255, .66);
+  font-size: clamp(.8rem, 1.2vw, 1rem);
+}
+
+.activity-join-prominent-qr { display: grid; justify-items: center; gap: .5rem; }
+
+.activity-join-prominent-qr > span {
+  color: rgba(255, 255, 255, .7);
+  font-size: .68rem;
+  font-weight: 900;
+  letter-spacing: .16em;
+}
+
+@media (max-width: 640px) {
+  .activity-join-prominent { gap: 1rem; padding: 1rem; }
+  .activity-join-prominent-copy { text-align: center; }
+}
+
+/* --------------------------------------------------- player identity ---- */
+
+.participant-identity-picker {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: .7rem 1rem;
+  margin: 1rem 0 .3rem;
+}
+
+.participant-identity-preview {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 22px;
+  font-size: 2.4rem;
+  line-height: 1;
+  box-shadow: 0 8px 0 rgba(0, 0, 0, .25);
+}
+
+.participant-identity-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+}
+
+.activity-participant-page .participant-avatar-swatch {
+  min-width: 46px;
+  min-height: 46px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, .1);
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.activity-participant-page .participant-color-swatch {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+}
+
+.activity-participant-page .participant-avatar-swatch.selected,
+.activity-participant-page .participant-color-swatch.selected {
+  border-color: var(--act-stage-text, #fff);
+  box-shadow: 0 0 0 3px var(--act-stage-accent-soft, rgba(255, 255, 255, .35));
+}
+
+.participant-identity { display: flex; align-items: center; gap: .55rem; }
+
+.participant-identity-badge {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+@media (max-width: 380px) {
+  .participant-identity-preview { width: 60px; height: 60px; font-size: 1.9rem; }
+}
+
+/* ------------------------------------------------------ player result --- */
+
+.participant-result {
+  margin-top: 1.5rem;
+  padding: 1.6rem 1.25rem;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, .18);
+  background: rgba(255, 255, 255, .1);
+  text-align: center;
+  animation: lc-card-enter 320ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.participant-result-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  font-size: 2.8rem;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 10px 0 rgba(0, 0, 0, .22);
+}
+
+.participant-result-correct .participant-result-mark { animation: lc-result-pop 520ms cubic-bezier(.34, 1.56, .64, 1); }
+.participant-result-incorrect .participant-result-mark,
+.participant-result-missed .participant-result-mark {
+  background: rgba(255, 255, 255, .16) !important;
+  color: rgba(255, 255, 255, .8) !important;
+}
+
+@keyframes lc-result-pop {
+  0%   { transform: scale(.4) rotate(-12deg); }
+  60%  { transform: scale(1.14) rotate(4deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+.participant-result h2 {
+  margin: .9rem 0 .2rem;
+  color: var(--act-stage-text, #fff);
+  font-size: 1.6rem;
+}
+
+.participant-result > p { margin: .35rem 0 0; color: rgba(255, 255, 255, .72); }
+
+.participant-result-points {
+  margin: .3rem 0 .1rem;
+  color: var(--act-stage-accent, #f6c531);
+  font-size: 2.6rem;
+  font-weight: 950;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.participant-result-points small {
+  display: block;
+  margin-top: .2rem;
+  color: rgba(255, 255, 255, .6);
+  font-size: .7rem;
+  font-weight: 800;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.participant-result-standing {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .6rem;
+  margin: 1.2rem 0 0;
+}
+
+.participant-result-standing div {
+  padding: .6rem .4rem;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, .24);
+}
+
+.participant-result-standing dt {
+  color: rgba(255, 255, 255, .6);
+  font-size: .64rem;
+  font-weight: 900;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.participant-result-standing dd {
+  margin: .2rem 0 0;
+  color: var(--act-stage-text, #fff);
+  font-size: 1.5rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.participant-result-standing dd span { color: rgba(255, 255, 255, .55); font-size: .85rem; font-weight: 700; }
+
+@media (prefers-reduced-motion: reduce) {
+  .participant-result,
+  .participant-result-correct .participant-result-mark { animation: none; }
+}
+
+/* ------------------------------------------------------------- lobby ---- */
+
+.activity-lobby-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(1rem, 2.5vh, 2rem);
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  text-align: center;
+}
+
+.activity-lobby-heading .activity-title { margin: .2rem 0 0; }
+
+.activity-lobby-empty {
+  margin: 0;
+  color: rgba(255, 255, 255, .6);
+  font-size: clamp(.9rem, 1.6vw, 1.2rem);
+}
+
+.activity-lobby-roster {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  justify-content: center;
+  gap: .55rem .7rem;
+  width: min(100%, 1100px);
+  max-height: 26vh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+
+.activity-lobby-roster li {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .35rem .8rem .35rem .35rem;
+  border: 1px solid color-mix(in srgb, var(--lc-player-color, #f6c531) 55%, transparent);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .3);
+  color: var(--act-stage-text, #fff);
+  font-size: clamp(.85rem, 1.4vw, 1.15rem);
+  font-weight: 800;
+}
+
+.activity-lobby-avatar {
+  display: grid;
+  place-items: center;
+  width: 2em;
+  height: 2em;
+  border-radius: 50%;
+  font-size: 1em;
+  line-height: 1;
+}
+
+/* A player arriving should be unmissable — it is their confirmation that the
+   room can see them. */
+@keyframes lc-player-arrive {
+  0%   { transform: scale(.4) translateY(14px); opacity: 0; }
+  55%  { transform: scale(1.12) translateY(0); opacity: 1; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+.activity-lobby-roster li.arriving {
+  animation: lc-player-arrive 620ms cubic-bezier(.34, 1.56, .64, 1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lc-player-color, #f6c531) 45%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-lobby-roster li.arriving { animation: none; }
+}
+
+/* ------------------------------------------------------- stage clock ---- */
+
+.activity-stage-clock {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin: 0 auto .6rem;
+}
+
+.activity-stage-clock.paused { opacity: .72; }
+
+.activity-motion-countdown.stage {
+  min-width: min(320px, 42vw);
+  padding: .55rem 1.4rem .7rem;
+}
+
+.activity-motion-countdown.stage > span {
+  font-size: clamp(.6rem, 1vw, .8rem);
+  letter-spacing: .2em;
+}
+
+.activity-motion-countdown.stage strong {
+  /* Readable from the back of a room. */
+  font-size: clamp(2.4rem, 6vw, 4.6rem);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-motion-countdown.stage .activity-motion-countdown-track { height: 8px; }
+
+/* -------------------------------------------------------- score race ---- */
+
+.activity-score-race {
+  width: min(100%, 1100px);
+  margin: 0 auto;
+  text-align: left;
+}
+
+.activity-race-kicker {
+  display: block;
+  margin-bottom: .8rem;
+  color: var(--act-stage-accent, #f6c531);
+  font-size: clamp(.68rem, 1.1vw, .9rem);
+  font-weight: 900;
+  letter-spacing: .2em;
+  text-align: center;
+}
+
+.activity-race-lanes {
+  display: grid;
+  gap: clamp(.35rem, 1.1vh, .7rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-race-lane {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr) minmax(6rem, auto);
+  align-items: center;
+  gap: .7rem;
+  padding: .3rem .6rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .26);
+}
+
+.activity-race-lane.leading {
+  background: color-mix(in srgb, var(--lc-racer-color, #f6c531) 18%, rgba(0, 0, 0, .3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lc-racer-color, #f6c531) 55%, transparent);
+}
+
+.activity-race-rank {
+  color: rgba(255, 255, 255, .55);
+  font-size: clamp(.85rem, 1.4vw, 1.15rem);
+  font-weight: 900;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-race-track {
+  position: relative;
+  height: clamp(2.4rem, 4.6vh, 3.4rem);
+  border-radius: 999px;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .07) 0 2px, transparent 2px 52px),
+    rgba(255, 255, 255, .05);
+}
+
+.activity-race-runner {
+  position: absolute;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  /* Translating in proportion to progress keeps the token inside its lane at
+     both ends: at the start line its left edge sits at 0, at the finish its
+     right edge sits at 100%. A flat -50% would overhang into the rank and
+     name columns. */
+  left: calc(var(--lc-progress, 0) * 100%);
+  transform: translate(calc(var(--lc-progress, 0) * -100%), -50%);
+  transition: left 900ms cubic-bezier(.22, 1, .36, 1),
+              transform 900ms cubic-bezier(.22, 1, .36, 1);
+  white-space: nowrap;
+}
+
+.activity-race-lane:first-child .activity-race-runner { z-index: 2; }
+
+.activity-race-avatar {
+  display: grid;
+  place-items: center;
+  width: clamp(2.1rem, 3.6vh, 2.9rem);
+  height: clamp(2.1rem, 3.6vh, 2.9rem);
+  border-radius: 50%;
+  font-size: clamp(1rem, 2vh, 1.4rem);
+  line-height: 1;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, .3);
+}
+
+.activity-race-score {
+  padding: .1rem .5rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .55);
+  color: var(--act-stage-text, #fff);
+  font-size: clamp(.75rem, 1.3vw, 1rem);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-race-name {
+  color: var(--act-stage-text, #fff);
+  font-size: clamp(.8rem, 1.4vw, 1.15rem);
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Scoring should feel like a surge, not a number quietly changing. */
+@keyframes lc-race-surge {
+  0%   { transform: translate(calc(var(--lc-progress, 0) * -100%), -50%) scale(1); }
+  35%  { transform: translate(calc(var(--lc-progress, 0) * -100%), -50%) scale(1.22); }
+  100% { transform: translate(calc(var(--lc-progress, 0) * -100%), -50%) scale(1); }
+}
+
+@keyframes lc-race-lane-flash {
+  0%, 100% { box-shadow: inset 0 0 0 1px transparent; }
+  40%      { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--lc-racer-color, #f6c531) 85%, transparent); }
+}
+
+.activity-race-lane.gained .activity-race-runner { animation: lc-race-surge 720ms cubic-bezier(.34, 1.56, .64, 1); }
+.activity-race-lane.gained { animation: lc-race-lane-flash 900ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-race-runner { transition: none; }
+  .activity-race-lane.gained,
+  .activity-race-lane.gained .activity-race-runner { animation: none; }
+}
+
+/* ---------------------------------------------------------- callouts ---- */
+
+.participant-result-callouts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: .4rem;
+  margin: .55rem 0 .2rem;
+}
+
+.participant-callout {
+  padding: .22rem .7rem;
+  border-radius: 999px;
+  font-size: .78rem;
+  font-weight: 900;
+  letter-spacing: .02em;
+  /* Land after the score so they read as a bonus, not part of the total. */
+  animation: lc-callout-pop 480ms cubic-bezier(.34, 1.56, .64, 1) 420ms both;
+}
+
+.participant-callout.first { background: rgba(96, 165, 250, .22); color: #bfdbfe; }
+.participant-callout.streak { background: rgba(251, 146, 60, .22); color: #fed7aa; }
+
+@keyframes lc-callout-pop {
+  0%   { opacity: 0; transform: scale(.6) translateY(6px); }
+  60%  { opacity: 1; transform: scale(1.1) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .participant-callout { animation: none; }
+}
+
+.activity-race-streak {
+  margin-left: .4rem;
+  padding: .05rem .4rem;
+  border-radius: 999px;
+  background: rgba(251, 146, 60, .22);
+  color: #fed7aa;
+  font-size: .78em;
+  font-weight: 900;
+}
+
+/* --------------------------------------------------------- sound ------- */
+
+.activity-participant-page .participant-mute-button {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, .2);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .1);
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.activity-participant-page .participant-mute-button[aria-pressed="true"] {
+  border-color: rgba(255, 255, 255, .38);
+  opacity: .75;
+}
+
+.participant-join-sound { display: flex; justify-content: center; margin-top: .9rem; }
+
+/* --------------------------------------------------- display type ------ */
+
+/*
+ * Game headings previously inherited the admin's Georgia serif, which reads
+ * editorial rather than game-show.
+ *
+ * This is a system stack, not a bundled face: LessonCue is offline-first and a
+ * licensed display font would need a source note and attribution entry per
+ * docs/activities-assets-and-sound.md. Heavy weight plus tight tracking does
+ * most of the work, and every platform in scope resolves to something with a
+ * real 800/900.
+ */
+.activity-display-root,
+.activity-participant-page {
+  --act-display-font: system-ui, -apple-system, "Segoe UI Variable Display", "Segoe UI",
+    Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif;
+}
+
+.activity-display-root .activity-title,
+.activity-display-root .activity-lobby-heading .activity-title,
+.activity-participant-page .participant-card h1,
+.activity-participant-page .participant-game-header h1,
+.activity-participant-page .participant-waiting h2,
+.activity-participant-page .participant-input-card h2,
+.activity-participant-page .participant-result h2 {
+  font-family: var(--act-display-font);
+  font-weight: 900;
+  /* Tight tracking is what makes a heavy sans read as a title rather than a
+     paragraph in bold. */
+  letter-spacing: -.025em;
+}
+
+/* Prompts are read, not scanned, so they keep normal tracking. */
+.activity-participant-page .participant-input-card h2 { letter-spacing: -.01em; }
+
+.activity-display-root .stage-kicker,
+.activity-participant-page .participant-kicker {
+  font-family: var(--act-display-font);
+}

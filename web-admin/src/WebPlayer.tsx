@@ -2,8 +2,9 @@ import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode,
 import QRCode from "qrcode";
 import { WeatherConditionArtwork, WeatherDropArtwork, WeatherWindArtwork } from "./WeatherArtwork";
 import { ActivityDisplay } from "./activities/ActivityDisplay";
+import "./signage-studio.css";
 
-const APP_VERSION = "0.40.22";
+const APP_VERSION = "0.40.49";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -185,6 +186,7 @@ export function WebPlayerApp() {
   const [acknowledgedVersion, setAcknowledgedVersion] = useState(0);
   const [status, setStatus] = useState<PlaybackStatus>(idleStatus);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const requestedCueRef = useRef<string | null>(new URLSearchParams(location.search).get("cue"));
   const statusRef = useRef(status);
   const activeRef = useRef(active);
   const manifestRef = useRef(manifest);
@@ -197,7 +199,7 @@ export function WebPlayerApp() {
     const query = new URLSearchParams(location.search);
     if (!query.get("screenId") || !query.get("token") || !identity) return;
     localStorage.setItem(IDENTITY_KEY, JSON.stringify(identity));
-    query.delete("screenId"); query.delete("token"); query.delete("name");
+    query.delete("screenId"); query.delete("token"); query.delete("name"); query.delete("screen"); query.delete("cue");
     history.replaceState(null, "", `${location.pathname}${query.size ? `?${query}` : ""}`);
   }, [identity]);
   const repeatProgressRef = useRef<{ itemId: string; completed: number }>({ itemId: "", completed: 0 });
@@ -229,6 +231,22 @@ export function WebPlayerApp() {
     if (!response.ok) throw new Error(`Manifest request failed (${response.status}).`);
     const next = await response.json() as Manifest;
     setManifest(next);
+    const requestedCue = requestedCueRef.current;
+    if (requestedCue) {
+      const match = next.playlists.map(playlist => {
+        const items = [
+          ...(playlist.preRoll?.items || []),
+          ...(playlist.countdown ? [playlist.countdown.item] : []),
+          ...playlist.items,
+          ...(playlist.postLesson?.items || []),
+        ];
+        return { playlist, items, index: items.findIndex(item => item.itemId === requestedCue) };
+      }).find(candidate => candidate.index >= 0);
+      if (match) {
+        requestedCueRef.current = null;
+        startPlayback(match.playlist, match.items, match.index);
+      }
+    }
     setConnection("online");
     setConnectionMessage("");
     return next;
@@ -295,6 +313,18 @@ export function WebPlayerApp() {
     setPaused(false);
     setAutoplayBlocked(false);
     setActive({ ...current, index, seekMs: 0 });
+  }
+
+  function seekRelative(deltaMs: number) {
+    const current = activeRef.current;
+    if (!current) return;
+    const item = current.items[current.index];
+    if (item.type === "activity" || item.activity || item.activityDefinitionId) return;
+    const observed = statusRef.current.itemId === item.itemId ? statusRef.current.positionMs : current.seekMs;
+    const duration = statusRef.current.durationMs ?? effectiveDuration(item);
+    const next = Math.max(0, Math.min(duration ?? Number.MAX_SAFE_INTEGER, observed + deltaMs));
+    setActive({ ...current, seekMs: next });
+    setUnlockNonce(value => value + 1);
   }
 
   function finishItem() {
@@ -565,6 +595,13 @@ export function WebPlayerApp() {
   const currentItem = active?.items[active.index];
   const nextItem = active && active.items[active.index + 1];
   const permanentSign = Boolean(manifest?.screen.signageOnly && manifest.screen.permanentPairing);
+  const currentDuration = currentItem && status.itemId === currentItem.itemId
+    ? status.durationMs ?? effectiveDuration(currentItem)
+    : currentItem ? effectiveDuration(currentItem) : undefined;
+  const currentPosition = currentItem && status.itemId === currentItem.itemId ? status.positionMs : active?.seekMs || 0;
+  const currentProgress = currentDuration && currentDuration > 0
+    ? Math.max(0, Math.min(100, currentPosition / currentDuration * 100))
+    : 0;
   usePreload(nextItem);
 
   function report(next: PlaybackStatus) {
@@ -595,15 +632,25 @@ export function WebPlayerApp() {
     /> : <PlayerLibrary manifest={manifest} connection={connection} permanentSign={permanentSign}
       onPlay={playlist => startPlayback(playlist, playlist.items)} />}
 
-    {active && controlsVisible && <div className="web-player-overlay">
-      <div><span>{active.mode === "preroll" ? "PRE-ROLL" : active.mode === "countdown" ? "COUNTDOWN" : active.mode === "postLesson" ? "POST-LESSON" : "NOW PLAYING"}</span><strong>{currentItem?.title}</strong><small>{active.playlist.title} · {active.index + 1} of {active.items.length}</small></div>
-      <div className="web-player-transport">
-        <button aria-label="Previous media" onClick={() => moveTo(Math.max(0, active.index - 1))}>‹‹</button>
-        <button aria-label={paused ? "Resume" : "Pause"} onClick={() => { setPaused(value => !value); setUnlockNonce(value => value + 1); }}>{paused ? "▶" : "Ⅱ"}</button>
-        <button aria-label="Next media" onClick={() => moveTo(active.index + 1)}>››</button>
-        <button aria-label="Stop playback" onClick={() => { setActive(undefined); setStatus(idleStatus); }}>■</button>
+    {active && controlsVisible && <>
+      <div className="web-player-metadata">
+        <span>{active.mode === "preroll" ? "PRE-ROLL" : active.mode === "countdown" ? "COUNTDOWN" : active.mode === "postLesson" ? "POST-LESSON" : "NOW PLAYING"}</span>
+        <strong>{currentItem?.title}</strong>
+        <small>{active.playlist.title} · Cue {active.index + 1} of {active.items.length}</small>
       </div>
-    </div>}
+      <div className="web-player-overlay">
+        <div className="web-player-progress" aria-hidden="true"><i style={{ width: `${currentProgress}%` }} /></div>
+        <div className="web-player-transport">
+          <button aria-label="Exit playback" onClick={() => { setActive(undefined); setStatus(idleStatus); }}><b>‹</b><span>Back</span></button>
+          <button aria-label="Previous media" onClick={() => moveTo(Math.max(0, active.index - 1))}><b>↶</b><span>Previous</span></button>
+          <button aria-label="Rewind 5 seconds" disabled={currentItem?.type === "activity"} onClick={() => seekRelative(-5_000)}><b>−5</b><span>Rewind</span></button>
+          <button className="primary" aria-label={paused ? "Resume" : "Pause"} disabled={currentItem?.type === "activity"} onClick={() => { setPaused(value => !value); setUnlockNonce(value => value + 1); }}><b>{paused ? "▶" : "Ⅱ"}</b><span>{paused ? "Play" : "Pause"}</span></button>
+          <button aria-label="Forward 5 seconds" disabled={currentItem?.type === "activity"} onClick={() => seekRelative(5_000)}><b>+5</b><span>Forward</span></button>
+          <button aria-label="Next media" onClick={() => moveTo(active.index + 1)}><b>↷</b><span>Next</span></button>
+        </div>
+        <time>{formatPlayerTime(currentPosition)} / {formatPlayerTime(currentDuration)}</time>
+      </div>
+    </>}
 
     {(autoplayBlocked || Boolean(active && currentItem && needsPlaybackGesture(currentItem) && !interactionUnlocked)) && <button className="autoplay-unlock" onClick={() => {
       setInteractionUnlocked(true);
@@ -1563,6 +1610,17 @@ function effectiveDuration(item: CueItem): number | undefined {
   return undefined;
 }
 
+function formatPlayerTime(value?: number) {
+  if (value == null || !Number.isFinite(value)) return '--:--';
+  const totalSeconds = Math.max(0, Math.floor(value / 1_000));
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    : `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
 function fadeOpacity(item: CueItem, position: number, duration: number) {
   const fadeIn = item.fadeInMs > 0 ? Math.min(1, Math.max(0, position / item.fadeInMs)) : 1;
   const fadeOut = item.fadeOutMs > 0 ? Math.min(1, Math.max(0, (duration - position) / item.fadeOutMs)) : 1;
@@ -1637,6 +1695,9 @@ function networkQuality(latency?: number, online = true) {
 }
 
 function needsPlaybackGesture(item: CueItem) {
+  // Activities render their own interactive display and do not use the
+  // browser media element. Do not cover the game with a first-play prompt.
+  if (item.type === "activity" || item.activity || item.activityDefinitionId) return false;
   if (item.playbackUrl) return true;
   if (item.volumePercent <= 0) return false;
   return item.type === "video" || item.type === "audio" ||

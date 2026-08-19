@@ -371,6 +371,8 @@ public static class DatabaseUpgrade
 
         var additions = new Dictionary<string, (string Table, string Sql)>
         {
+            ["ActivityParticipants.Avatar"] = ("ActivityParticipants", "ALTER TABLE \"ActivityParticipants\" ADD COLUMN \"Avatar\" TEXT NOT NULL DEFAULT '\U0001F600'"),
+            ["ActivityParticipants.Color"] = ("ActivityParticipants", "ALTER TABLE \"ActivityParticipants\" ADD COLUMN \"Color\" TEXT NOT NULL DEFAULT '#f6c531'"),
             ["Organizations.SiteName"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"SiteName\" TEXT NOT NULL DEFAULT 'Main Site'"),
             ["Organizations.WeekStartsOn"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"WeekStartsOn\" TEXT NOT NULL DEFAULT 'Sunday'"),
             ["Organizations.DefaultLessonDurationMinutes"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"DefaultLessonDurationMinutes\" INTEGER NOT NULL DEFAULT 60"),
@@ -641,7 +643,7 @@ public static class DatabaseUpgrade
             "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_Lessons_GeneratedByScheduleId_Date\" ON \"Lessons\" (\"GeneratedByScheduleId\", \"Date\");",
             cancellationToken);
 
-        var organization = await db.Organizations.FirstOrDefaultAsync(cancellationToken);
+        var organization = await db.Organizations.OrderBy(item => item.Id).FirstOrDefaultAsync(cancellationToken);
         if (organization is not null)
         {
             var current = MediaTaxonomy.Read(organization);

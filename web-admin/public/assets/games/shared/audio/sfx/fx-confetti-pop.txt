@@ -1,0 +1,31 @@
+fx-confetti-pop.mp3 — Shared fallback pack
+==========================================
+
+ROLE
+  Celebration burst.
+
+REPLACE THIS FILE
+  Delete this .txt and drop in "fx-confetti-pop.mp3" in the same folder. The name must
+  match exactly. Nothing else needs to change — no code, no config.
+
+WHEN IT PLAYS
+  Accompanies a win, a correct reveal, or a podium celebration.
+
+SUGGESTED CHARACTER
+  neutral house style — this pack is the safety net every game falls back to, so keep it characterful but not tied to any one format.
+
+SPEC
+  0.3–1 s, bright, upward.
+
+PITCH
+  Randomized 0.85x–1.15x on every play. Author one dry take.
+
+IF THIS FILE IS ABSENT
+  This is the last folder searched. If the file is missing here too,
+  LessonCue plays its original synthesized cue from
+  web-admin/src/activities/effects.ts. That is the shipped default.
+
+LICENSING
+  Any audio committed here is a bundled asset and needs a source note, a
+  licence/permission record, and an attribution entry before release. See
+  docs/activities-assets-and-sound.md.

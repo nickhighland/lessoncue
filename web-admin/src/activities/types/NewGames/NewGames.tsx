@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { ActivityStateEnvelope } from '../../types';
 import { ActivityApi } from '../../api';
 import { launchConfetti, playChimeSound, playCountdownTickSound, playFanfareSound } from '../../effects';
+import { QuizModifierEditor } from '../Trivia/QuizModifierEditor';
 
 type ActivityProps = {
   envelope: ActivityStateEnvelope;
@@ -23,6 +24,7 @@ interface RapidFireConfig {
   title?: string;
   questions?: RapidFireQuestion[];
   defaultTimerSeconds?: number;
+  modifiers?: Record<string, unknown>;
 }
 
 interface RapidFireState {
@@ -34,6 +36,7 @@ interface RapidFireState {
   explanationRevealed?: boolean;
   revealedCorrectIndex?: number | null;
   revealedExplanation?: string;
+  quizLives?: Array<{ id: string; name: string; lives: number; active: boolean }>;
 }
 
 interface EmojiRound {
@@ -342,6 +345,10 @@ export const RapidFireDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = (
           <h2>{question.prompt}</h2>
         </div>
 
+        {state.quizLives && state.quizLives.length > 0 && <div className="quiz-lives-strip" aria-label="Player lives">
+          {state.quizLives.map(player => <span className={player.active ? '' : 'eliminated'} key={player.id}><strong>{player.name}</strong><em>{'♥'.repeat(Math.max(0, Math.min(9, player.lives))) || 'OUT'}</em></span>)}
+        </div>}
+
         <div className="new-game-choice-grid" style={{ gridTemplateColumns: `repeat(${question.options.length <= 2 ? 1 : question.options.length <= 4 ? 2 : 4}, minmax(0, 1fr))` }}>
           {question.options.map((option, optionIndex) => {
             const isCorrect = optionIndex === (state.revealedCorrectIndex ?? question.correctIndex);
@@ -454,6 +461,7 @@ export const RapidFireEditor: React.FC<{ config: Record<string, unknown>; onChan
         </div>
         <TextField label="Host note / explanation" value={question.explanation} onChange={explanation => updateQuestion({ explanation })} placeholder="Optional explanation after the reveal" />
       </div>
+      <QuizModifierEditor config={config} onChange={onChange} />
     </ActivityEditorShell>
   );
 };

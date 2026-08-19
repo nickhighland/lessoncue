@@ -905,3 +905,18 @@ export type View =
   | "audience"
   | "users"
   | "settings";
+
+export interface JoinAddressOption {
+  id: string;
+  label: string;
+  url: string | null;
+  available: boolean;
+  detail: string | null;
+}
+
+export interface JoinAddressStatus {
+  mode: string;
+  url: string | null;
+  resolvedFrom: string;
+  options: JoinAddressOption[];
+}

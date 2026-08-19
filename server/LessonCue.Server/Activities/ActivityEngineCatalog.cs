@@ -80,6 +80,7 @@ public static class InteractiveActivityDefaults
                 new { id = "clue-3", prompt = "It controls the tides.", answer = "The moon", points = 50 }
             },
             lockOutOnMiss = true,
+            stealOnMiss = true,
             wrongPenalty = 0
         },
         ActivityTypes.Punchline => new
@@ -90,7 +91,9 @@ public static class InteractiveActivityDefaults
                 new { id = "prompt-1", prompt = "The worst possible school mascot would be ______.", points = 100 }
             },
             requireModeration = true,
-            votingSeconds = 30
+            votingSeconds = 30,
+            votingStyle = "gallery",
+            headToHeadMatchPoints = 0
         },
         ActivityTypes.FakeOut => new
         {
@@ -102,7 +105,9 @@ public static class InteractiveActivityDefaults
             requireModeration = true,
             votingSeconds = 30,
             bluffPoints = 50,
-            truthPoints = 100
+            truthPoints = 100,
+            hostFavoritePoints = 25,
+            revealAuthors = true
         },
         ActivityTypes.Drawing => new
         {
@@ -113,7 +118,8 @@ public static class InteractiveActivityDefaults
             },
             requireModeration = true,
             votingSeconds = 30,
-            maxStrokePoints = 80
+            maxStrokes = 80,
+            maxPointsPerStroke = 120
         },
         ActivityTypes.Ordering => new
         {
@@ -138,7 +144,10 @@ public static class InteractiveActivityDefaults
                 new { id = "round-1", prompt = "Name something that helps a team work well.", category = "Teamwork", points = 10, seconds = 45 }
             },
             requireModeration = true,
-            allowDuplicates = false
+            allowDuplicates = false,
+            maxWords = 30,
+            turnBased = false,
+            eliminateOnDuplicate = false
         },
         ActivityTypes.MatchPlayer => new
         {
@@ -151,6 +160,8 @@ public static class InteractiveActivityDefaults
         ActivityTypes.StageChallenge => new
         {
             title = "Beat the Clock",
+            audienceVoting = false,
+            audienceVotePoints = 25,
             challenges = new[]
             {
                 new { id = "challenge-1", title = "Build a paper tower", instructions = "Build the tallest free-standing tower you can before the clock stops.", seconds = 60, points = 100, failPoints = 0 }
@@ -159,7 +170,10 @@ public static class InteractiveActivityDefaults
         ActivityTypes.Bracket => new
         {
             title = "Bracket Battle",
+            preset = "bracketBattle",
+            presetLabel = "BRACKET BATTLE",
             entrantSource = "teacher",
+            entrantSelection = "all",
             pointsPerWin = 0,
             entrants = new[]
             {
@@ -173,6 +187,8 @@ public static class InteractiveActivityDefaults
         ActivityTypes.PhysicalRoom => new
         {
             title = "Four Corners",
+            preset = "fourCorners",
+            presetLabel = "FOUR CORNERS",
             rounds = new[]
             {
                 new
@@ -225,6 +241,11 @@ public static class InteractiveActivityDefaults
                 currentStage = 0,
                 isAutoPlaying = false,
                 revealed = false,
+                revealedCardIds = Array.Empty<string>(),
+                memoryCardsVisible = false,
+                memoryTimerRunning = false,
+                memoryDurationMs = 0L,
+                audioNonce = 0L,
                 actionNonce = 0L
             },
             ActivityTypes.Trivia or ActivityTypes.RapidFire => new
@@ -259,7 +280,9 @@ public static class InteractiveActivityDefaults
                 buzzWinnerParticipantId = (string?)null,
                 buzzWinnerName = (string?)null,
                 buzzLocked = false,
+                responsesOpen = false,
                 answerRevealed = false,
+                stealOpen = false,
                 actionNonce = 0L
             },
             ActivityTypes.Punchline => new
@@ -270,6 +293,9 @@ public static class InteractiveActivityDefaults
                 responsesLocked = false,
                 votingOpen = false,
                 resultsVisible = false,
+                telephoneStepIndex = 0,
+                telephoneStepKind = "drawing",
+                telephoneChainStarted = false,
                 actionNonce = 0L
             },
             ActivityTypes.FakeOut => new
@@ -281,6 +307,8 @@ public static class InteractiveActivityDefaults
                 votingOpen = false,
                 resultsVisible = false,
                 answerRevealed = false,
+                scoresApplied = false,
+                hostFavoriteScoreApplied = false,
                 actionNonce = 0L
             },
             ActivityTypes.SurveyBoard => new
@@ -288,9 +316,17 @@ public static class InteractiveActivityDefaults
                 phase = ActivityPhases.Lobby,
                 currentQuestionIndex = 0,
                 strikes = 0,
+                strikeLimit = 3,
                 revealedScore = 0,
+                responsesOpen = false,
                 buzzWinnerParticipantId = (string?)null,
                 buzzWinnerName = (string?)null,
+                buzzWinnerTeamId = (string?)null,
+                currentTeamId = (string?)null,
+                currentTeamName = (string?)null,
+                stealOpen = false,
+                stealTeamId = (string?)null,
+                stealTeamName = (string?)null,
                 buzzLocked = false,
                 actionNonce = 0L
             },
@@ -334,6 +370,9 @@ public static class InteractiveActivityDefaults
                 timerDurationMs = 0L,
                 timerStartedAt = (DateTimeOffset?)null,
                 timerPausedAt = (DateTimeOffset?)null,
+                audienceVotingOpen = false,
+                audienceVoteCounts = new JsonObject(),
+                audienceVoteScoreApplied = false,
                 actionNonce = 0L
             },
             ActivityTypes.Bracket => new

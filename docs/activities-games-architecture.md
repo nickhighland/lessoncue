@@ -30,7 +30,7 @@ For anonymous creative games, responses are held for host approval by default. T
 
 | Area | Current implementation | Decision |
 | --- | --- | --- |
-| Activity library | `web-admin/src/activities/ActivityLibrary.tsx` and `activityRegistry.ts` | Keep as the single selector. It now provides persistent grid/list views, search and capability filters, favorites, thumbnails, multi-select/bulk actions, archived recovery, and manual ordering backed by `LibraryPosition`; registry metadata will continue to grow for categories, modes, requirements, and presets. |
+| Activity library | `web-admin/src/activities/ActivityLibrary.tsx`, `activityRegistry.ts`, and `activityPresetRegistry.ts` | Keep as the single selector. It now provides persistent grid/list views, search and capability filters, favorites, thumbnails, multi-select, bulk delete/archive/restore/duplicate actions, dependency-aware destructive messaging, archived recovery, manual ordering backed by `LibraryPosition`, and client-only draft previews. Named templates are registry configuration layered over an existing engine; applying one never creates a second runtime. |
 | Definitions | `ActivityDefinition` with `Type`, `ConfigJson`, `ThemeJson`, assets, version, archive state | Keep for backward compatibility. New definitions add engine/preset metadata without requiring old definitions to be rewritten. |
 | Live state | `ActivityRun.StateJson`, revision, status, lesson/lesson-item scope | Keep as the live session store. Add session snapshot and participant/team lifecycle around it. |
 | Activity runtime | `ActivityService` reducer dispatch and per-run lock | Keep existing reducers working. New engines use an explicit shared engine contract and the same run command/broadcast path. |
@@ -43,7 +43,40 @@ For anonymous creative games, responses are held for host approval by default. T
 | Scoring | Existing activity-specific score fields/reducers | Add shared event-based score records, retaining old reducer behavior where needed. |
 | Media | Existing `MediaAsset` and activity assets/playback URLs | Reuse media storage and playback. Reveal transformations are presentation state, not new derivative files. |
 | Tests | Activity reducer/service tests, Audience tests, protocol tests, browser workflow/accessibility tests | Extend these suites with engine, projection, reconnect, concurrency, and end-to-end activity coverage. |
-| Rich interaction slices | `RichInteractionGames.tsx`, `ActivityParticipant.tsx`, and the shared session reducers | Drawing uses bounded normalized vector strokes; Ordering uses an accessible move-list and partial position scoring; Word Storm uses moderated normalized words and a reusable cloud projection. |
+| Rich interaction slices | `RichInteractionGames.tsx`, `ActivityParticipant.tsx`, and the shared session reducers | Drawing uses bounded normalized vector strokes; Ordering uses an accessible move-list and partial position scoring; Word Storm uses moderated normalized words and a reusable cloud projection; Last One Standing adds server-authoritative turn order, exact duplicate detection, and participant elimination over the same Word engine. |
+| Shared presentation motion | `ActivityMotion.tsx`, `ActivityLeaderboard.tsx`, and `activity.css` | Engines reuse server-timestamp countdowns plus common reveal, score-burst, winner, rank-movement, podium, theme, and reduced-motion treatments. Reveal pacing (`quick`, `dramatic`, or `epic`) changes renderer animation only; host transitions remain immediate, manual, and skippable. Presentation remains a renderer concern; the server still owns timing and state transitions. |
+| Round pacing and callouts | `ActivitySessionService` | Opt-in auto-advance closes the response window once every active player is in, inside the per-run lock so the last submission and the close are atomic. It is offered only where a head count is meaningful, and the host keeps the manual close. Streak and first-correct callouts derive from the server's recorded submission times and score events, never from a client claim about speed. |
+| Live host controls | `ActivityLiveHostPanel.tsx` | The host console keeps the join code, QR, and address visible for the whole run rather than only during setup, and shows a roster with per-player answered ticks plus an "answers in" count so closing the window is not guesswork. The panel is a self-contained component so it survives the Universal Remote's own layout changes. |
+| Player identity | `ActivityIdentity` and `activityIdentity.ts` | Players pick an emoji and colour at join. The server pins both to a fixed list rather than storing free text, because the value comes from an untrusted phone and is shown to the whole room. Unclaimed identities are spread by join order so a silent room still looks varied. The public roster is projected **during lobby phases only** — bluffing and creative engines hide who wrote what, so a name list during play would give the room something to correlate against. |
+| Join address | `ActivityJoinAddressService` and `ActivityJoin.tsx` | The stage cannot advertise a relative `/play/CODE`, and the display's own origin is whatever the TV happened to connect to. The server resolves an absolute base URL — the published Cloudflare tunnel or the `.local` name — and projects `joinUrl` beside `joinCode`. The teacher chooses which in Settings; an explicit choice that is not currently reachable falls back rather than showing the room a dead address. One `ActivityJoinBanner` renders the QR and address for every engine. |
+| Per-game colour | `activityPalettes.ts` | Every engine has a planned palette — hues spread across the wheel, accent held well away from its own secondary, background a deep tint of the primary — and each named preset is shifted deterministically off its engine's base, so sibling presets differ without leaving the family. All combinations clear WCAG AA for white-on-background and label-on-accent. A definition whose stored theme is an untouched shared preset is rendered with its game's palette; a theme the teacher actually customised is always used verbatim. The TV stage and the participant phone read the same tokens, so a phone matches its stage. |
+| Shared tactile layer | `ActivityJuice.tsx` and `activity-juice.css` | `GameButton` adds squash-and-stretch press feedback and tap audio to any control while still rendering a plain `<button>`, so existing classes, disabled semantics, and selectors are unchanged. `idleWobbleStyle` seeds per-element idle drift deterministically. `useGamePanic` mirrors the authoritative clock into the shared last-five-seconds treatment. Every effect has a reduced-motion path; the panic colour survives it because it carries information. |
+| Game audio | `effects.ts` and `audio/gameAudio.ts` | One shared `AudioContext` and master gain, so the existing host mute/volume stays authoritative. Bundled cues are synthesized. An optional sampled pack may be dropped at `/assets/games/{gameId}/audio/...`, resolved per cue through a preset → engine → shared cascade so one engine pack covers every named game built on it. `useAudioPreloader` warms the cascade when a participant reaches the lobby; samples play with per-tap pitch variation, and any absent file falls back to its synthesized cue. Theme cues — looping lobby bed, opening sting, round transition, closing sting — play on the display only, never on player phones. |
+
+## Named format catalog
+
+`web-admin/src/activities/activityPresetRegistry.ts` is the single teacher-facing catalog for named formats. `ActivityLibrary` renders that catalog inside the existing **Choose an Activity Type** dialog, alongside the original blank activity building blocks. Search, filtering, and selection all stay in that one library; choosing a named format creates an ordinary `ActivityDefinition` with its existing engine `Type`, `PresetType`, and starter `ConfigJson`. There is no second game selector or alternate runtime.
+
+The catalog now includes the planned Match-Up and Connections ordering variants, Telephone Draw, Memory Grid, audio rounds (Sound Check, Sound Bite, Backwards Audio, One Second Challenge), observation formats (What’s Different?, Emoji Decode, and Rebus Rush), Adventure, and the additional physical-room formats. A starter configuration is deliberately editable teacher content; it is not a claim that every label requires a new engine. When a format needs a distinct rule, it is expressed through the shared engine state and projection contract.
+
+### Adventure node graph
+
+Adventure is still a `physicalRoom` definition with `adventure: true`; it does not introduce another selector or session runtime. Each ordered round may declare a `nodeType` (legacy nodes default to `choice`) from this vocabulary:
+
+| Node | Runtime behavior | Main authoring fields |
+| --- | --- | --- |
+| `scene` | Host resolves a story scene and follows `nextTarget`. | title, instructions, next target |
+| `choice` | Phones choose; the host resolves one branch. | choices, branches |
+| `poll` | Phones choose from a room poll; the host resolves the selected route. | choices, branches |
+| `quiz` | Phones choose; the host resolves and the server records whether the selected choice matches `correctIndex`. | choices, correctIndex, branches |
+| `media` | TV presents a safe media URL/caption, optionally followed by a choice or `nextTarget`. | mediaUrl/mediaId, mediaCaption |
+| `random` | The server chooses a destination using the injected activity random source. | randomTargets or branch destinations |
+| `score` | Applies a bounded score effect through normal `ActivityScoreEvent` records, then follows `nextTarget`. | scoreDelta, scoreTarget |
+| `inventory` | Adds a teacher-authored key/value to the session story inventory. | inventoryKey, inventoryValue |
+| `condition` | Checks the story inventory and follows the true/false destination. | conditionKey, conditionEquals, trueTarget, falseTarget |
+| `end` | Shows the ending reveal and completes on the next host advance. | title, revealText |
+
+Routing is validated against stable node IDs on the server. Public projections remove branch targets, quiz answers, score effect configuration, inventory keys, condition details, and random destination lists; the display receives only the current node, safe choices/media, and resolved story effects. The editor keeps the graph intentionally ordered rather than adding a visual graph canvas: teachers can add/remove nodes, rename IDs, choose the node type, and select destinations without programming.
 
 ## Definition versus session
 
@@ -84,6 +117,23 @@ The shared lifecycle uses these phases where an engine needs them:
 
 An engine can omit phases. The existing `prepared/live/paused/ended` run status remains for compatibility and transport-level lifecycle; the engine phase lives in the state/session projection.
 
+Response-window timers are server-owned. Renderers derive a remaining time from the server timestamps and, at five seconds or fewer, enter the shared panic presentation (`ACTIVITY_PANIC_SECONDS`). That state is display-only: it never rejects input, and the server still decides whether a late submission is accepted.
+
+## Shared Quiz modifiers
+
+Trivia and Rapid Fire use one small modifier contract instead of separate Wager Trivia or Survivor Trivia runtimes. Definitions may place these rules under `config.modifiers`:
+
+```json
+{
+  "wager": { "enabled": true, "maxPoints": 100, "defaultPoints": 25 },
+  "speedBonus": { "enabled": true, "maxPoints": 50, "windowSeconds": 20 },
+  "lives": { "enabled": true, "startingLives": 3, "eliminateAtZero": true },
+  "doubleOrNothing": { "enabled": false }
+}
+```
+
+The server validates wagers, calculates speed from the server-recorded response-window timestamp and submission timestamp, applies lives/elimination, and records each score adjustment as a normal reversible score event. Double or Nothing risks the base round value; a wrong wager still applies its wager penalty. Participant phones receive only the controls and their own permitted life count, while host/display projections may show the complete lives board after the round. Rapid Fire uses the same scorer and additionally owns a server-authoritative `targetAt`/`remainingMs` timer; an answer arriving after the window is rejected even if a client is stale.
+
 ## Role-safe projections
 
 There are three projections:
@@ -110,21 +160,22 @@ The server never stores IP addresses, browser fingerprints, or unnecessary devic
 
 The first vertical slices share these engines rather than creating one runtime per named game:
 
-1. Quiz & Answer: Trivia, Fact or Fiction, rapid review, numeric and host-judged variants.
-2. Poll & Prediction: Read the Room, Majority Rules, Hot Take, predictions, and opinion scales.
-3. Buzzer & Progressive Clue: Buzzer Battle, Clue Ladder, Mystery Person/Place/Object.
-4. Creative Response & Voting: Punchline, Caption This, Bad Advice, and similar moderated response games.
-5. Bluffing & Deception: Fake Out and related truth/false-answer voting.
-6. Survey Board: ranked answers, strikes, buzzers, steals, and host matching.
-7. Drawing: Doodle & Guess now has bounded mobile vector strokes, moderation, gallery voting, and a room-favorite reveal.
-8. Ordering/Ranking: Order Up now has teacher-authored item lists, accessible phone controls, public answer projection, and partial position scoring.
-9. Word/Category: Word Storm now has moderated multi-word submissions, exact normalized duplicate aggregation, and a scalable word-cloud reveal.
-10. Match-the-Player: Match Minds uses a role-specific participant projection so the selected player answers privately while others predict.
-11. Media Reveal: the existing Image Reveal/Mystery Image activity now uses the shared session snapshot and public projection, while reusing its existing media URL and reveal presentation.
-12. Host-Judged Stage Challenge: Beat the Clock uses server timer metadata, a host success/fail ruling, and the shared scoring/leaderboard path. It can run without phones.
-13. Bracket/Tournament: Bracket Battle uses teacher-entered or live participant/team entrants, server-authoritative pairings/byes/advancement, audience voting, host recovery controls, optional shared score events, and role-safe bracket projections. Generic entrants and composition with other engines are the next step.
-14. Physical Room: Four Corners uses a no-phone host/display runtime with server timer metadata, pause/resume, randomization, reveal, round navigation, and optional quick team awards. Stand/Sit and the remaining physical presets remain configurations over this runtime.
-15. Utility engine: one `utility` Activity type now supports Coin Flip, Dice, Random Number, Mystery Boxes, Challenge Picker, Random Person, Random Team, Countdown, and live-roster Team Generator presets. Team generation supports manual assignment, balanced random assignment, and fully random assignment over the shared team records. Outcomes use an injected server-side random source, countdowns expose server timer metadata, mystery-box values are removed from public config/display projections until reveal, and the editor/controller/display share one game-show surface. The existing Wheel, Random Picker, Prize Grid, Buzzer, Leaderboard, and Audience Meter remain compatible utility entries and future embedding targets.
+1. Quiz & Answer: Trivia, Fact or Fiction, rapid review, short-answer recall, numeric lock-ins, closest-answer scoring, closest-without-going-over scoring, and future host-judged variants. Choice questions remain backward compatible, while each question may now declare `answerMode: choice`, `text`, or `number`.
+2. Poll & Prediction: Read the Room, Majority Rules, Minority Report, Prediction Machine, Hot Take, predictions, and opinion scales. Poll presets can opt into server-side majority, minority, or room-prediction scoring while live vote distributions remain hidden until reveal.
+3. Buzzer & Progressive Clue: Buzzer Battle, Clue Ladder, Mystery Person/Place/Object. Clue values are teacher-controlled per clue; lockout, steal-on-miss, manual steal reopen, and answer reveal are server-authoritative.
+4. Creative Response & Voting: Punchline, Caption This, Bad Advice, and similar moderated response games. Punchline supports Gallery Vote and a server-paired Head-to-Head bracket over the same submissions and moderation records.
+5. Bluffing & Deception: Fake Out and related truth/false-answer voting. Truth-finder, successful-bluff, and host-favorite points are shared score events; bluff authors remain hidden until the configured reveal.
+6. Survey Board: ranked answers, server-owned strikes, team turns, steals, buzzers, conservative alias/word matching suggestions, and host matching. Suggestions are advisory; the host's selected board item is always authoritative.
+7. Drawing: Doodle & Guess now has bounded mobile vector strokes, a touch-safe pen/eraser toolbar with undo, clear, brush sizes, and a small color palette, moderation, gallery voting, and a room-favorite reveal.
+8. Ordering/Ranking: Order Up now has teacher-authored item lists, accessible phone controls, public answer projection, and partial position scoring. Match-Up uses the same engine with server-validated left/right pairs and per-pair scoring; Connections uses grouped items, partial/exact scoring, and role-safe answer reveals.
+9. Word/Category: Word Storm now has moderated multi-word submissions, exact normalized duplicate aggregation, and a scalable word-cloud reveal. Last One Standing reuses that engine with server-authoritative turns, one-word-per-turn limits, exact duplicate detection, and elimination without creating a second runtime.
+10. Match-the-Player: Match Minds uses a role-specific participant projection so the selected player answers privately while others predict. The same participant/host flow supports A/B, multiple-choice, and short-text rounds.
+11. Media Reveal: the existing Image Reveal/Mystery Image activity now uses the shared session snapshot and public projection, while reusing its existing media URL and reveal presentation. `MEDIA_REVEAL_PRESETS` supplies editable Mystery Image, Zoomed In, Blur Reveal, Silhouette, Missing Piece, What’s Different?, Flash Frame, Picture Puzzler, Freeze Frame, What Happens Next?, Emoji Decode, Rebus Rush, Memory Grid, Sound Check, Sound Bite, Backwards Audio, and One Second Challenge templates. Difference, emoji, and rebus formats use dedicated TV clue layouts but the same host-controlled reveal action. Memory Grid hides card labels from participant projections until the host shows or reveals them. Audio rounds use host-triggered playback, bounded duration, and a browser-side reversed WAV fallback for Backwards Audio without modifying source media.
+12. Host-Judged Stage Challenge: Beat the Clock uses server timer metadata, a host success/fail ruling, and the shared scoring/leaderboard path. It can run without phones, or optionally open a server-authoritative audience success/fail vote; the host still owns the final ruling and matching callers can receive a configurable bonus. `STAGE_PRESETS` supplies editable Beat the Clock, Minute to Win It, Teach It Back, Best Explanation, Scenario Judge, Example / Non-Example, Unnecessary Debate, Courtroom, Sell Me This, Pose Match, and Photo Hunt starters over the same runtime.
+13. Bracket/Tournament: Bracket Battle uses teacher-entered or live participant/team entrants, server-authoritative pairings/byes/advancement, audience voting, host recovery controls, optional shared score events, and role-safe bracket projections. A definition can ask the shared random source to draw a configured entrant subset at start; the chosen roster is snapshotted into the run so reconnects and later utility actions cannot change it. A host can import ranked finalists from a completed interactive run before the bracket starts; matching target-roster names become scoreable live entrants and unmatched finalists remain safe label-only entrants.
+14. Physical Room: Four Corners uses a no-phone host/display runtime with server timer metadata, pause/resume, randomization, reveal, round navigation, and optional quick team awards. Stand/Sit, Move If…, Human Spectrum, Line Up, Find Someone Who, Simon Says, Freeze Dance, Challenge Wheel, Relay Board, Scavenger Hunt, Heads or Tails, Rock Paper Scissors Royale, Animal Relay, Silent Line-Up, and Adventure are editable templates over this runtime. Adventure adds server-controlled story choices, stable node-ID branch transitions, explicit finish targets, history, optional phone voting, and the full typed node reducer while remaining a Physical Room definition. Its ordered node map is intentionally simpler than a visual graph canvas and composes scene, poll, quiz, media, random, score, inventory, condition, and end behavior over the same contract.
+15. Utility engine: one `utility` Activity type now supports Coin Flip, Dice, Random Number, Mystery Boxes, Challenge Picker, Random Person, Random Team, Countdown, and live-roster Team Generator presets. The existing `wheel` Activity reducer remains the compatibility path for teacher-authored spinning choices and is discoverable beside the shared utility presets as Safari Spin and Spin Challenge Wheel. Team generation supports manual assignment, balanced random assignment, and fully random assignment over the shared team records. Outcomes use an injected server-side random source, countdowns expose server timer metadata, mystery-box values are removed from public config/display projections until reveal, and the editor/controller/display share one game-show surface. Brackets can consume that same randomness through `entrantSelection: "random"`; the chosen roster is stored in the bracket session. Buzzer, Punchline, and Fake Out can opt into an `embeddedUtility` configuration that uses namespaced `utility.*` host actions and a role-safe nested display projection without creating a second selector or runtime.
+16. Preset authoring: `activityPresetRegistry.ts` supplies editable starter templates for the Quiz, Poll, Buzzer, Creative, Bluffing, Drawing, Survey, Ordering, Word/Category, Match-the-Player, Media Reveal, Stage Challenge, Physical Room, Wheel, and Utility engines. Named entries carry an optional presentation theme into the existing definition `ThemeJson`; the editor exposes that theme without creating a second selector. The selected template is saved as `config.preset` plus the definition `PresetType`, while the server continues to run the existing engine/type and keeps preset metadata out of runtime branching. Fully implemented formats own server state/actions/projections; simpler labels remain honest teacher-authored starters until their rule modifiers are implemented.
 
 Later presets should be expressed through configuration/modifiers over these proven engines and the remaining Stage Challenge, Physical Room, Adventure, and Utility capabilities. Do not add a new engine when an existing engine plus configuration and modifiers can express the game cleanly.
 
@@ -135,7 +186,7 @@ Later presets should be expressed through configuration/modifiers over these pro
 3. The run opens a reusable lobby with a short code and QR URL.
 4. A participant joins without a LessonCue account, receives a token, and can reconnect after refresh.
 5. The host starts the game, and participant browsers switch input according to the authoritative phase.
-6. Host, participant, and display clients receive SignalR state updates and can recover by fetching the current projection after reconnect.
+6. Host, participant, and display clients receive SignalR state updates and can recover by fetching the current projection after reconnect. The host `ActivityController` also shows a live/reconnecting/offline status, exposes a manual authoritative refresh, reports command acknowledgements and server errors, and temporarily falls back to run-state refreshes while SignalR reconnects.
 7. The host can pause, advance, skip, moderate, adjust/undo scores, remove participants, reset a safe round, or end the run.
 
 The existing Audience Interaction feature remains available for persistent standalone polls. It is a reusable primitive and privacy reference, not a competing activity selector or live game runtime.
@@ -154,11 +205,11 @@ The existing Audience Interaction feature remains available for persistent stand
 The implementation is staged so each step is usable:
 
 1. Shared session foundation, role projections, lobby/reconnect, teams, score events, timers, and documentation.
-2. Six high-value vertical slices listed above, with deterministic server tests and at least one complete browser path.
-3. Rich interaction engines: drawing, ordering/ranking, word/category, match-the-player, media reveal, and the host-led Stage Challenge slice are now proven vertical slices. Bracket Battle and the initial Physical Room slice are also in place; next add generic tournament composition, richer matching variants, and media transformations on the same contract.
-4. Complete tournament composition, then expand the Physical Room presets and utility composition. The initial Utility engine slice is in place; remaining work is richer team-management recovery, embedding hooks, and composition with other engines. Existing Wheel/Picker/Countdown entries remain backward-compatible while their future embedding path is consolidated.
-5. Branching adventure, chained Telephone Draw, and richer power modifiers.
+2. Six high-value vertical slices listed above, with deterministic server tests and at least one complete browser path. Shared Quiz modifiers, creative Head-to-Head voting, conservative Survey matching, and randomized Bracket rosters now extend those slices without new runtimes.
+3. Rich interaction engines: drawing, ordering/ranking, word/category, match-the-player, media reveal, and the host-led Stage Challenge slice are proven vertical slices. Match-Up, Connections, Memory Grid, audio rounds, chained Telephone Draw, and the initial Adventure runtime now exercise distinct state/projection paths without adding new selectors.
+4. Continue tournament composition, Physical Room differentiation, and utility composition. The named formats are discoverable in the existing library; the remaining work is richer finalist adapters, Leaderboard/Audience Meter embedding, browser recovery coverage, and replacing any remaining starter-only labels with rule-backed modifiers.
+5. Continue richer Telephone Draw chain composition, advanced power modifiers, and composition of typed Adventure nodes into other engines only when the shared contracts need them.
 
-The detailed remaining work, including preset expansion and presentation/controller polish, is tracked in [Activities & Games TODO](activities-games-todo.md).
+The detailed remaining work, including preset expansion and presentation/controller polish, is tracked in [Activities & Games TODO](activities-games-todo.md). Bundled visual/audio work follows the [Activities assets and sound policy](activities-assets-and-sound.md).
 
 The user-facing experience remains `Activities → choose a game → add content → save → add to lesson or launch`; engine names are implementation detail.
