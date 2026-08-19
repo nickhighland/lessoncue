@@ -4,7 +4,7 @@ import { WeatherConditionArtwork, WeatherDropArtwork, WeatherWindArtwork } from 
 import { ActivityDisplay } from "./activities/ActivityDisplay";
 import "./signage-studio.css";
 
-const APP_VERSION = "0.40.53";
+const APP_VERSION = "0.40.54";
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };

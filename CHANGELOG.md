@@ -4,6 +4,18 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.54 — Classroom remote preset reliability
+
+### User changes
+
+- Fixed preset selection so choosing a template and applying it immediately
+  always saves the selected format, including its engine and preset identity.
+
+### Developer changes
+
+- Kept preset selection local until Apply commits the template, removing the
+  competing parent update that caused occasional release-suite races.
+
 ## v0.40.53 — Classroom remote preset reliability
 
 ### User changes

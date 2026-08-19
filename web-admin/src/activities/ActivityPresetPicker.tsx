@@ -5,9 +5,10 @@ export const ActivityPresetPicker: React.FC<{
   label: string;
   value?: string;
   templates: ActivityPresetTemplate[];
-  onPresetChange: (preset: ActivityPresetTemplate) => void;
+  /** @deprecated Selection is committed when Apply is pressed. */
+  onPresetChange?: (preset: ActivityPresetTemplate) => void;
   onApply: (preset: ActivityPresetTemplate) => void;
-}> = ({ label, value, templates, onPresetChange, onApply }) => {
+}> = ({ label, value, templates, onApply }) => {
   const selected = templates.find(template => template.id === value) || templates[0];
   const selectedId = selected?.id || '';
   const [livePresetId, setLivePresetId] = useState(selectedId);
@@ -38,7 +39,6 @@ export const ActivityPresetPicker: React.FC<{
         const next = templates.find(template => template.id === event.target.value);
         if (next) {
           setLivePresetId(next.id);
-          onPresetChange(next);
         }
       }}>
         {templates.map(template => <option value={template.id} key={template.id}>{template.label}</option>)}
