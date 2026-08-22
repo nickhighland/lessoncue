@@ -387,7 +387,7 @@ jobs:
           # generic mobile track rejects android.software.leanback artifacts.
           # Production publishes the TV-only app to all eligible Google TV /
           # Android TV users after Play's normal review and rollout checks.
-          tracks: tv:production
+          tracks: "tv:production"
           releaseName: ${{ github.ref_name }}
           status: completed
       - uses: softprops/action-gh-release@v2
