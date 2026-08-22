@@ -4,6 +4,18 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.57 — Google Play internal distribution
+
+### User changes
+
+- Published the signed LessonCue TV bundle to Google Play internal testing from
+  tagged GitHub releases.
+
+### Developer changes
+
+- Connected the existing production release workflow to the Google Play
+  Developer API for the `org.lessoncue.tv` internal track.
+
 ## v0.40.56 — Activity game typography
 
 ### User changes
