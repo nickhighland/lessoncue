@@ -284,6 +284,26 @@ export class ActivityHubClient {
     });
   }
 
+  /**
+   * Joining a SignalR group is asynchronous. A command can legitimately land
+   * between the display's initial GET and the completed JoinRun invocation,
+   * which means the display would otherwise miss that broadcast forever. Read
+   * the authoritative state once after subscribing so the live surface starts
+   * from the same revision as the server, even when the first command wins the
+   * race.
+   */
+  private async refreshRun(runId: string, callback: StateUpdateCallback): Promise<void> {
+    try {
+      const latest = await ActivityApi.getRun(runId);
+      if (this.currentRunId === runId && this.subscribers.has(callback)) callback(latest);
+    } catch (err) {
+      // SignalR remains the live transport; a failed refresh is recoverable on
+      // the next reconnect and should not turn a working display into an error
+      // screen.
+      console.debug('Could not refresh activity state after subscribing.', err);
+    }
+  }
+
   async subscribeRun(runId: string, callback: StateUpdateCallback): Promise<() => void> {
     this.subscribers.add(callback);
 
@@ -314,6 +334,10 @@ export class ActivityHubClient {
         await this.connection.invoke('JoinRun', this.currentRunId);
       } catch (err) { void err; }
     }
+
+    // The initial GET may have completed before a command or before the hub
+    // group was joined. Reconcile once after either path above.
+    await this.refreshRun(runId, callback);
 
     return () => {
       this.subscribers.delete(callback);
