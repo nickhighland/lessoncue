@@ -4,6 +4,19 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.58 — Google TV form-factor release
+
+### User changes
+
+- Published the LessonCue TV-only bundle to the dedicated Google TV internal
+  testing track.
+
+### Developer changes
+
+- Routed the Play release workflow to the Android TV `tv:qa` track instead of
+  the generic mobile internal track, which rejects the required Leanback TV
+  feature.
+
 ## v0.40.57 — Google Play internal distribution
 
 ### User changes

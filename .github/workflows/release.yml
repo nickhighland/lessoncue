@@ -383,7 +383,9 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: org.lessoncue.tv
           releaseFiles: release/LessonCue-TV-Google-Play.aab
-          tracks: internal
+          # TV-only bundles must use the Android TV form-factor track. The
+          # generic internal track rejects android.software.leanback artifacts.
+          tracks: tv:qa
           releaseName: ${{ github.ref_name }}
           status: completed
       - uses: softprops/action-gh-release@v2
