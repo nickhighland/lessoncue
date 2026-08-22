@@ -384,8 +384,10 @@ jobs:
           packageName: org.lessoncue.tv
           releaseFiles: release/LessonCue-TV-Google-Play.aab
           # TV-only bundles must use the Android TV form-factor track. The
-          # generic internal track rejects android.software.leanback artifacts.
-          tracks: tv:qa
+          # generic mobile track rejects android.software.leanback artifacts.
+          # Production publishes the TV-only app to all eligible Google TV /
+          # Android TV users after Play's normal review and rollout checks.
+          tracks: tv:production
           releaseName: ${{ github.ref_name }}
           status: completed
       - uses: softprops/action-gh-release@v2
