@@ -188,34 +188,44 @@ Depends on the lesson session above.
 3. **Host visibility.** Move the moderation queue out of setup so pending
    drawings and answers are always visible during play, with a count, the
    submitting player, and approve/hide per item.
-4. **Round flow and host instructions.** Every phase carries a plain-language
-   instruction telling the host both *when* to act and *what will happen*:
+4. **Games run themselves.** *(server side done; host surface pending)* The host
+   presses Start and then watches the room, not the screen. Once a game starts
+   the server drives it:
 
-   | Phase | Instruction on the primary control |
+   | Phase | Leaves when |
    | --- | --- |
-   | Lobby | "Click when all players are logged in" |
-   | Round intro | "Click to show the question" |
-   | Accepting responses | "Click to close answers and reveal" |
-   | Voting | "Click to close voting and show the result" |
-   | Reveal | "Click to show the standings" |
-   | Leaderboard | "Click to start the next round" |
-   | Final results | "Click to finish this game" |
+   | Round intro | a short beat, so the room can read the question |
+   | Accepting responses | the timer runs out, or everyone has answered |
+   | Awaiting moderation | the host approves or hides what is pending |
+   | Reveal | a short beat |
+   | Standings | a short beat, then the next round starts |
 
-   Exact wording is per engine, but the shape is fixed: one obvious primary
-   action per phase, labelled with its consequence, with everything else
-   demoted to secondary controls. A host should never need to know an engine's
-   internal lifecycle to run it, and should never have to guess whether a
-   control is safe to press.
+   **Host interaction is moderation, and nothing else.** Where a game holds
+   anonymous work for approval, autonomy stops and waits for a decision —
+   that judgement is the host's and cannot be timed out. Everywhere else a
+   timer replaces the button press.
 
-5. **Auto-progress.** The round should move on by itself once the room is done:
-   every answer submitted, every vote cast. This extends the existing
-   auto-advance, which currently only closes the answer window on quiz-shaped
-   engines, to cover voting and the other collection phases. The pacing choice
-   is visible in the host surface rather than buried, the host keeps a manual
-   override at every step, and auto-progress only ever performs the action the
-   host would have taken next — never a step further.
+   The host keeps a manual override on every step: skip ahead, hold, reopen,
+   go back. Autonomy only ever performs the action the host would have taken
+   next, and pausing must actually pause — not queue up a burst of catch-up
+   transitions.
 
-6. **Player self-service.** Change name and character from the phone without
+   Progression is server-driven. A client-side timer would stall the moment a
+   TV sleeps or a browser is closed, and the server is already the authority
+   for phase, scoring and timing.
+
+5. **Default response timers.** *(server side done)* 30 seconds for multiple
+   choice, 60 seconds for drawing, text entry and other compose-an-answer
+   inputs. Whichever comes
+   first — the clock or the last answer — ends the round. Teacher-editable per
+   activity; these are defaults, not limits, and a teacher can still turn the
+   clock off for a round that needs to breathe.
+
+6. **Standings after every round.** *(done)* Not only at the end and not only
+   when the host remembers to ask for them. The race screen already exists; autonomy
+   shows it between rounds as a matter of course.
+
+7. **Player self-service.** Change name and character from the phone without
    losing the session or the score.
 
 ## Phase 4 — Exercise every game
@@ -254,6 +264,10 @@ Recorded here so nothing is lost between sessions.
   compose-an-answer inputs. The round advances on whichever comes first — the
   timer running out, or everyone having submitted. Teacher-editable per
   activity; these are defaults, not limits.
+- **Games run autonomously with host moderation.** The host presses Start; the
+  game handles the rest. Where host interaction was previously required, a
+  timer takes its place — except moderation, which stays a human decision.
+- **Show scores after every round**, not just at the end.
 - **Players signed in but were not added to the game** — see root cause A.
 - **A player renaming themselves became a second player** — see root cause A.
 

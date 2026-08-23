@@ -385,6 +385,68 @@ public sealed class ActivitySessionService(
         }
     }
 
+    /// <summary>
+    /// Make one autonomous move, if the game still wants it.
+    ///
+    /// Everything is re-checked here rather than trusted from when the due time
+    /// was stamped: players answer, hosts moderate, and hosts press buttons in
+    /// the gap between. If the step that comes back now differs from what was
+    /// expected, the new one wins.
+    /// </summary>
+    public async Task AdvanceAutomaticallyAsync(Guid runId, CancellationToken ct = default)
+    {
+        var run = await LoadRunAsync(runId, ct);
+        if (run?.ActivityDefinition is null) return;
+        if (run.Status is ActivityRunStatuses.Ended or ActivityRunStatuses.Paused) return;
+
+        var config = ParseConfig(run);
+        var state = ParseObject(run.StateJson);
+        var roundId = CurrentRoundId(run, config);
+
+        var eligible = run.Participants
+            .Where(x => x.Status is not ("removed" or "eliminated"))
+            .Select(x => x.Id)
+            .ToHashSet();
+        var answered = run.Submissions.Where(x => x.RoundId == roundId).Select(x => x.ParticipantId).ToHashSet();
+        answered.UnionWith(run.Votes.Where(x => x.RoundId == roundId).Select(x => x.VoterParticipantId));
+        // An empty room has not "all answered" — that would race the lobby.
+        var everyoneAnswered = eligible.Count > 0 && eligible.IsSubsetOf(answered);
+
+        var moderationPending = run.Submissions.Any(x =>
+            x.RoundId == roundId && x.ModerationStatus == "pending" && !x.Hidden);
+
+        var step = ActivityAutoPilot.Next(
+            run.ActivityDefinition.Type, config, state, DateTimeOffset.UtcNow, everyoneAnswered, moderationPending);
+        if (step is null)
+        {
+            // Parked — most often waiting on the host to moderate.
+            if (run.AutoAdvanceAt is not null)
+            {
+                run.AutoAdvanceAt = null;
+                await db.SaveChangesAsync(ct);
+            }
+            return;
+        }
+
+        // The stored due time is the anchor for "is it time yet". Next() always
+        // measures its dwell from the current instant, so re-deriving the
+        // deadline here would push it forward on every tick and the game would
+        // never move. Only an unconditional step — everyone answered, so the
+        // deadline is now — may act ahead of the stored time.
+        var now = DateTimeOffset.UtcNow;
+        var dueByStamp = run.AutoAdvanceAt is not null && run.AutoAdvanceAt <= now;
+        if (!dueByStamp && step.DueAt > now)
+        {
+            run.AutoAdvanceAt = step.DueAt;
+            await db.SaveChangesAsync(ct);
+            return;
+        }
+
+        // Goes through the same command path a host would use, so autonomy can
+        // never reach a transition the host could not have made themselves.
+        await ExecuteHostActionAsync(runId, new ActivityCommandEnvelope(null, null, step.Action), ct);
+    }
+
     public async Task<ActivityCommandResult> ExecuteHostActionAsync(
         Guid runId,
         ActivityCommandEnvelope command,
@@ -3418,8 +3480,40 @@ public sealed class ActivitySessionService(
             run.Status = ActivityRunStatuses.Live;
             run.StartedAt ??= DateTimeOffset.UtcNow;
         }
+        await StampAutoAdvanceAsync(run, state, ct);
         await db.SaveChangesAsync(ct);
         await BroadcastDisplayAsync(run.Id, ct);
+    }
+
+    /// <summary>
+    /// Record when autonomy should make this run's next move, so the background
+    /// service can find it without inspecting every live game.
+    ///
+    /// Deliberately conservative: it asks only what the phase implies. Whether
+    /// everyone has answered, and whether moderation is outstanding, are
+    /// re-checked at the moment of acting, because both change between now and
+    /// then.
+    /// </summary>
+    private async Task StampAutoAdvanceAsync(ActivityRun run, JsonObject state, CancellationToken ct)
+    {
+        var config = ParseConfig(run);
+        var step = ActivityAutoPilot.Next(
+            run.ActivityDefinition?.Type, config, state, DateTimeOffset.UtcNow,
+            everyoneAnswered: false, moderationPending: false);
+
+        // Moderation parks the game with no due time; the host's decision is
+        // what restarts it.
+        if (step is null || run.Status == ActivityRunStatuses.Ended)
+        {
+            run.AutoAdvanceAt = null;
+            state.Remove("autoAdvanceAt");
+            return;
+        }
+
+        run.AutoAdvanceAt = step.DueAt;
+        // Mirrored into the projection so the stage can show the clock.
+        state["autoAdvanceAt"] = step.DueAt.ToString("O");
+        await Task.CompletedTask;
     }
 
     private async Task BroadcastDisplayAsync(Guid runId, CancellationToken ct)
@@ -3744,10 +3838,12 @@ public sealed class ActivitySessionService(
     private async Task ApplyAutoAdvanceAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct)
     {
         if (!SupportsAutoAdvance(run)) return;
-        // The run-level toggle wins; a definition may pre-arm it.
+        // The run-level toggle wins; a definition may pre-arm it; and a game
+        // running itself closes on a full head count as a matter of course.
         var enabled = state.ContainsKey("autoAdvanceEnabled")
             ? BoolValue(state, "autoAdvanceEnabled")
-            : BoolValue(config, "autoAdvance");
+            : BoolValue(config, "autoAdvance")
+                || ActivityAutoPilot.IsEnabled(run.ActivityDefinition?.Type, config, state);
         if (!enabled) return;
         if (StringValue(state, "phase") != ActivityPhases.AcceptingResponses) return;
         if (!BoolValue(state, "responsesOpen")) return;

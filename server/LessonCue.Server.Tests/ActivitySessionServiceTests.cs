@@ -73,7 +73,7 @@ public sealed class ActivitySessionServiceTests
     }
 
     [Fact]
-    public async Task AutoAdvanceClosesTheWindowOnlyWhenEveryPlayerIsInAndOnlyWhenEnabled()
+    public async Task TheWindowClosesOnceEveryPlayerIsIn()
     {
         var (db, activities, sessions, connection) = await CreateAsync();
         await using (connection)
@@ -92,25 +92,40 @@ public sealed class ActivitySessionServiceTests
             await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken);
             await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken);
 
-            // Off by default: both answer and the window stays open for the host.
-            await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(alex.Token, "answer", JsonDocument.Parse("{\"optionIndex\":1}").RootElement), TestContext.Current.CancellationToken);
-            var both = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(jordan.Token, "answer", JsonDocument.Parse("{\"optionIndex\":0}").RootElement), TestContext.Current.CancellationToken);
-            Assert.Equal(ActivityPhases.AcceptingResponses, PhaseOf(both));
-
-            // Re-open, arm auto-advance, and add a third player who has not answered.
-            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "next"), TestContext.Current.CancellationToken);
-            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken);
-            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "autoadvance",
-                JsonDocument.Parse("{\"enabled\":true}").RootElement), TestContext.Current.CancellationToken);
-            var sam = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Sam"), TestContext.Current.CancellationToken);
-
-            await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(alex.Token, "answer", JsonDocument.Parse("{\"optionIndex\":1}").RootElement), TestContext.Current.CancellationToken);
-            var partial = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(jordan.Token, "answer", JsonDocument.Parse("{\"optionIndex\":1}").RootElement), TestContext.Current.CancellationToken);
+            // One of two in: still open, because someone is still thinking.
+            var partial = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(alex.Token, "answer", JsonDocument.Parse("{\"optionIndex\":1}").RootElement), TestContext.Current.CancellationToken);
             Assert.Equal(ActivityPhases.AcceptingResponses, PhaseOf(partial));
 
-            // The last player in closes it.
-            var last = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(sam.Token, "answer", JsonDocument.Parse("{\"optionIndex\":0}").RootElement), TestContext.Current.CancellationToken);
+            // The last answer ends the round without the host doing anything.
+            var last = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(jordan.Token, "answer", JsonDocument.Parse("{\"optionIndex\":0}").RootElement), TestContext.Current.CancellationToken);
             Assert.Equal(ActivityPhases.ResponsesLocked, PhaseOf(last));
+        }
+    }
+
+    [Fact]
+    public async Task AHostCanTurnTheHeadCountCloseOff()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput(
+                "Manual Quiz", ActivityTypes.Trivia, Config: JsonDocument.Parse("""
+                    {"title":"Manual Quiz","questions":[{"id":"q1","prompt":"Pick one","options":["A","B"],"correctIndex":1}]}
+                    """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken);
+            run = await sessions.EnsureInteractiveRunAsync(run, TestContext.Current.CancellationToken);
+
+            var alex = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Alex"), TestContext.Current.CancellationToken);
+
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "autoadvance",
+                JsonDocument.Parse("{\"enabled\":false}").RootElement), TestContext.Current.CancellationToken);
+
+            // Everyone is in, but the host asked to hold the window open.
+            var answered = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(alex.Token, "answer", JsonDocument.Parse("{\"optionIndex\":1}").RootElement), TestContext.Current.CancellationToken);
+            Assert.Equal(ActivityPhases.AcceptingResponses, PhaseOf(answered));
         }
     }
 

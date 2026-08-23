@@ -220,6 +220,12 @@ public sealed class ActivityRun
     [MaxLength(12)] public string? JoinCode { get; set; }
     [MaxLength(32)] public string CurrentPhase { get; set; } = ActivityPhases.Lobby;
     [MaxLength(32)] public string Mode { get; set; } = ActivityModes.Everyone;
+    /// <summary>
+    /// When autonomy should make this run's next move. A real column rather
+    /// than a field in the state JSON so the background service can find due
+    /// runs with a query instead of deserialising every live game each tick.
+    /// </summary>
+    public DateTimeOffset? AutoAdvanceAt { get; set; }
     public DateTimeOffset? TimerStartedAt { get; set; }
     public long? TimerDurationMs { get; set; }
     public DateTimeOffset? TimerPausedAt { get; set; }

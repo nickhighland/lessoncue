@@ -692,6 +692,11 @@ test("Survey Showdown supports team turns, strikes, conservative matching, and a
     await south.locator("textarea").fill("Banana");
     await south.getByRole("button", { name: "Send response" }).click();
     await hostAction(page, run.runId, "suggestmatch");
+    // Poll rather than assume the suggestion is visible the instant the command
+    // returns; the rest of this file reads host state the same way.
+    await expect.poll(async () =>
+      ((await hostState(page, run.runId)).state.state.surveyMatchSuggestions as Array<unknown> | undefined)?.length ?? 0)
+      .toBeGreaterThan(0);
     session = await hostState(page, run.runId);
     const suggestions = session.state.state.surveyMatchSuggestions as Array<{ rank: number; confidence: number }>;
     expect(suggestions[0]?.rank).toBe(2);

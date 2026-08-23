@@ -833,6 +833,7 @@ public static class DatabaseUpgrade
             ("TimerPausedAt", "TEXT NULL"),
             ("RetentionDays", "INTEGER NOT NULL DEFAULT 7"),
             ("SessionGroupId", "TEXT NULL"),
+            ("AutoAdvanceAt", "TEXT NULL"),
         };
         foreach (var column in activityRunColumns)
         {

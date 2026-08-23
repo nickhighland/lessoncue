@@ -154,6 +154,7 @@ builder.Services.AddSingleton<ControllerSessionService>();
 builder.Services.AddSingleton<LessonCue.Server.Activities.IActivityRandomSource, LessonCue.Server.Activities.CryptoRandomSource>();
 builder.Services.AddScoped<LessonCue.Server.Activities.ActivityService>();
 builder.Services.AddScoped<LessonCue.Server.Activities.ActivitySessionService>();
+builder.Services.AddHostedService<LessonCue.Server.Activities.ActivityAutoPilotService>();
 builder.Services.AddSignalR();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(options =>
 {
