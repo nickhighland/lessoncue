@@ -37,6 +37,28 @@ export const useActivityCountdown = ({ durationMs = 0, startedAt, pausedAt, runn
   return Math.max(0, durationMs - (endMs - startedMs));
 };
 
+/**
+ * Milliseconds until an absolute deadline, or null when there is not one.
+ *
+ * Engines that run their own timer publish a start plus a duration. Autonomy
+ * instead publishes the instant it will act, so it needs its own hook — and
+ * without one its answer windows ran with no clock on any screen.
+ */
+export const useDeadlineCountdown = (deadline: unknown): number | null => {
+  const target = typeof deadline === 'string' ? Date.parse(deadline) : Number.NaN;
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!Number.isFinite(target)) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [target]);
+
+  if (!Number.isFinite(target)) return null;
+  return Math.max(0, target - now);
+};
+
 /** Seconds at or below which the clock enters the shared panic treatment. */
 export const ACTIVITY_PANIC_SECONDS = 5;
 

@@ -55,6 +55,17 @@ function useArrivalCue(players: LobbyPlayer[], chain?: string[]): Set<string> {
   return arriving;
 }
 
+/**
+ * How tightly to pack the lobby roster.
+ *
+ * The pills were a fixed size inside a clipped box, so past roughly two dozen
+ * players the room simply stopped seeing the newest names -- and a student who
+ * cannot find their name on the screen concludes they failed to join. Shrink
+ * with the crowd instead of hiding it.
+ */
+const rosterSize = (count: number): 'roomy' | 'medium' | 'tight' | 'packed' =>
+  count <= 12 ? 'roomy' : count <= 24 ? 'medium' : count <= 40 ? 'tight' : 'packed';
+
 export const ActivityLobbyStage: React.FC<{
   title: string;
   kicker?: string;
@@ -84,7 +95,7 @@ export const ActivityLobbyStage: React.FC<{
 
     {players.length === 0
       ? <p className="activity-lobby-empty">{hint || 'Waiting for the first player…'}</p>
-      : <ul className="activity-lobby-roster">
+      : <ul className="activity-lobby-roster" data-size={rosterSize(players.length)}>
           {players.map(player => <li
             key={player.id}
             className={arriving.has(player.id) ? 'arriving' : ''}

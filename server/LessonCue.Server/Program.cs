@@ -141,6 +141,7 @@ builder.Services.AddSingleton(services => new CloudflareTunnelService(dataPath,
     services.GetRequiredService<HttpPortService>(), services.GetRequiredService<IHttpClientFactory>(),
     services.GetRequiredService<ILogger<CloudflareTunnelService>>()));
 builder.Services.AddHostedService(services => services.GetRequiredService<CloudflareTunnelService>());
+builder.Services.AddSingleton(new ActivityAvailabilityService(dataPath));
 builder.Services.AddSingleton(services => new ActivityJoinAddressService(dataPath,
     services.GetRequiredService<LocalAddressService>(),
     services.GetRequiredService<CloudflareTunnelService>(),
@@ -153,6 +154,7 @@ builder.Services.AddSingleton<ControllerSessionService>();
 builder.Services.AddSingleton<LessonCue.Server.Activities.IActivityRandomSource, LessonCue.Server.Activities.CryptoRandomSource>();
 builder.Services.AddScoped<LessonCue.Server.Activities.ActivityService>();
 builder.Services.AddScoped<LessonCue.Server.Activities.ActivitySessionService>();
+builder.Services.AddHostedService<LessonCue.Server.Activities.ActivityAutoPilotService>();
 builder.Services.AddSignalR();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(options =>
 {

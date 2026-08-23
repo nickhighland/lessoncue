@@ -616,10 +616,9 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   justify-content: center;
   gap: .55rem .7rem;
   width: min(100%, 1100px);
-  max-height: 26vh;
+  max-height: 44vh;
   margin: 0;
   padding: 0;
-  overflow: hidden;
   list-style: none;
 }
 
@@ -924,3 +923,43 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
   font-family: var(--act-ui-font);
   font-weight: 600;
 }
+
+.activity-participant-page .participant-identity-edit {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .2rem .35rem .2rem .2rem;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  text-align: right;
+}
+
+.activity-participant-page .participant-identity-edit:hover,
+.activity-participant-page .participant-identity-edit:focus-visible {
+  border-color: rgba(255, 255, 255, .22);
+  background: rgba(255, 255, 255, .07);
+}
+
+.activity-participant-page .participant-identity-edit strong,
+.activity-participant-page .participant-identity-edit small { display: block; }
+
+.participant-identity-editor .participant-identity-choices { margin-top: .6rem; }
+
+/* A whole class has to fit on the wall. Names shrink as the room fills rather
+   than being clipped out of sight, because a student who cannot find their own
+   name assumes the join did not work. */
+.activity-lobby-roster[data-size="medium"] li { padding: .3rem .65rem .3rem .3rem; font-size: clamp(.78rem, 1.15vw, .98rem); }
+.activity-lobby-roster[data-size="medium"] .activity-lobby-avatar { width: 1.5em; height: 1.5em; }
+.activity-lobby-roster[data-size="tight"] { gap: .4rem .5rem; }
+.activity-lobby-roster[data-size="tight"] li { padding: .24rem .55rem .24rem .24rem; font-size: clamp(.7rem, .95vw, .86rem); }
+.activity-lobby-roster[data-size="tight"] .activity-lobby-avatar { width: 1.4em; height: 1.4em; }
+.activity-lobby-roster[data-size="packed"] { gap: .3rem .38rem; max-height: 52vh; }
+.activity-lobby-roster[data-size="packed"] li { padding: .18rem .45rem .18rem .18rem; font-size: clamp(.62rem, .8vw, .76rem); }
+.activity-lobby-roster[data-size="packed"] .activity-lobby-avatar { width: 1.3em; height: 1.3em; }
+
+/* Lanes tighten as the field grows so a dozen still fit on the wall. */
+.activity-score-race[data-lanes="11"] .activity-race-lane,
+.activity-score-race[data-lanes="12"] .activity-race-lane { --lc-lane-height: .82em; font-size: .9em; }
+.activity-race-rest { margin: .5rem 0 0; color: var(--act-stage-text, #fff); font-size: clamp(.7rem, 1vw, .92rem); font-weight: 700; opacity: .72; text-align: center; }

@@ -1,7 +1,7 @@
 import React, { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import type { ActivityParticipantView, ActivitySessionPublicView, ActivityStateEnvelope } from './types';
 import { ActivityApi, activityHub } from './api';
-import { ActivityCountdown, useActivityCountdown } from './ActivityMotion';
+import { ActivityCountdown, useActivityCountdown, useDeadlineCountdown } from './ActivityMotion';
 import { GameAudioProvider, GameButton, idleWobbleStyle, useGamePanic } from './ActivityJuice';
 import { activityThemeVariables, resolveActivityTheme } from './activityPalettes';
 import { ACTIVITY_AVATARS, ACTIVITY_COLORS, DEFAULT_ACTIVITY_AVATAR, DEFAULT_ACTIVITY_COLOR, inkOnPlayerColor } from './activityIdentity';
@@ -128,6 +128,31 @@ export const ActivityParticipantApp: React.FC = () => {
     finally { setBusy(false); }
   };
 
+  /**
+   * Change name or character without losing the session.
+   *
+   * Joining again with the same token updates that player rather than creating
+   * one: identity is keyed to the lobby, so this keeps their score and their
+   * place in the standings.
+   */
+  const updateIdentity = async (next: { displayName?: string; avatar?: string; color?: string }) => {
+    if (!participant || busy) return;
+    setBusy(true); setError('');
+    try {
+      const result = await ActivityApi.joinSession(
+        code, token || undefined,
+        next.displayName ?? participant.displayName,
+        { avatar: next.avatar ?? avatar, color: next.color ?? color },
+      );
+      if (next.avatar) setAvatar(next.avatar);
+      if (next.color) setColor(next.color);
+      setParticipant(result.participant);
+      setName(result.participant.displayName);
+      await refresh(result.participant.state.runId);
+    } catch (cause) { setError((cause as Error).message || 'That change could not be saved.'); }
+    finally { setBusy(false); }
+  };
+
   const action = async (name: string, payload?: JsonRecord) => {
     if (!participant || busy) return;
     setBusy(true); setError('');
@@ -140,7 +165,7 @@ export const ActivityParticipantApp: React.FC = () => {
   if (error && !publicSession) return <main className="activity-participant-page"><div className="participant-card"><span className="participant-mark">⚠</span><h1>Game unavailable</h1><p>{error}</p></div></main>;
   if (!publicSession) return null;
   if (!participant) return <JoinCard title={textOf(publicSession.state.name, 'LessonCue Game')} code={code} name={name} setName={setName} onSubmit={join} busy={busy} error={error} envelope={publicSession.state} avatar={avatar} setAvatar={setAvatar} color={color} setColor={setColor} />;
-  return <ParticipantGame view={participant} token={token} busy={busy} error={error} onAction={action} onLeave={() => { setParticipant(null); setToken(''); try { localStorage.removeItem(participantTokenKey(code)); } catch { /* ignore */ } }} />;
+  return <ParticipantGame view={participant} token={token} busy={busy} error={error} onAction={action} onUpdateIdentity={updateIdentity} onLeave={() => { setParticipant(null); setToken(''); try { localStorage.removeItem(participantTokenKey(code)); } catch { /* ignore */ } }} />;
 };
 
 const JoinCard: React.FC<{ title: string; code: string; name: string; setName: (value: string) => void; onSubmit: (event: FormEvent) => void; busy: boolean; error: string; envelope: ActivityStateEnvelope; avatar: string; setAvatar: (value: string) => void; color: string; setColor: (value: string) => void }> = ({ title, code, name, setName, onSubmit, busy, error, envelope, avatar, setAvatar, color, setColor }) => (
@@ -156,7 +181,7 @@ const JoinCard: React.FC<{ title: string; code: string; name: string; setName: (
     </div>{error && <div className="participant-error" role="alert">{error}</div>}<GameButton className="participant-primary-button" lockIn disabled={busy}>{busy ? 'Joining…' : 'Join game'}</GameButton></form><small>No LessonCue account required.</small><div className="participant-join-sound"><MuteToggle /></div></div></main>
 );
 
-const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; busy: boolean; error: string; onAction: (action: string, payload?: JsonRecord) => void; onLeave: () => void }> = ({ view, busy, error, onAction, onLeave }) => {
+const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; busy: boolean; error: string; onAction: (action: string, payload?: JsonRecord) => void; onUpdateIdentity: (next: { displayName?: string; avatar?: string; color?: string }) => void; onLeave: () => void }> = ({ view, busy, error, onAction, onUpdateIdentity, onLeave }) => {
   const envelope = view.state;
   const state = objectOf(envelope.state);
   const config = objectOf(envelope.config);
@@ -213,15 +238,32 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
   const telephoneChain = envelope.type === 'drawing' && config.telephoneChain === true;
   const telephoneDescription = telephoneChain && textOf(state.telephoneStepKind, 'drawing') === 'description';
   const isTurnBasedWord = envelope.type === 'word' && config.turnBased === true;
-  const timerDurationMs = numberOf(state.timerDurationMs);
-  const responseTimerRemainingMs = useActivityCountdown({ durationMs: timerDurationMs, startedAt: state.timerStartedAt, pausedAt: state.timerPausedAt, running: state.timerRunning === true });
-  const timerRunning = state.timerRunning === true && timerDurationMs > 0;
+  const engineTimerDurationMs = numberOf(state.timerDurationMs);
+  const engineTimerRemainingMs = useActivityCountdown({ durationMs: engineTimerDurationMs, startedAt: state.timerStartedAt, pausedAt: state.timerPausedAt, running: state.timerRunning === true });
+  const engineTimerRunning = state.timerRunning === true && engineTimerDurationMs > 0;
+  // Most engines run no timer of their own; autonomy times them, publishing a
+  // deadline instead. Without this the answer window the server is counting
+  // down is invisible on the phone, and the last five seconds never land.
+  const autoRemainingMs = useDeadlineCountdown(state.autoAdvanceAt);
+  const autoTimerRunning = !engineTimerRunning && autoRemainingMs !== null;
+  const timerRunning = engineTimerRunning || autoTimerRunning;
+  const timerDurationMs = engineTimerRunning ? engineTimerDurationMs : numberOf(state.autoAdvanceMs);
+  const responseTimerRemainingMs = engineTimerRunning ? engineTimerRemainingMs : (autoRemainingMs ?? 0);
   const audioChain = resolveGameAudioChain(envelope);
   // The phone wears the same colours as the stage, so a player glancing down
   // stays inside the same game rather than a generic form.
   const themeVariables = activityThemeVariables(resolveActivityTheme(envelope.type, config.preset, envelope.theme));
+  // The activity name and its title are usually the same string, which printed
+  // the heading twice — small, then large. Only label it when the label says
+  // something the title does not.
+  const activityName = textOf(envelope.name).trim();
+  const headerKicker = activityName && activityName.toLowerCase() !== title.trim().toLowerCase()
+    ? activityName
+    : '';
   // Only ever this player's own standing; the server keeps other scores out.
   const personalResult = readPersonalResult(state.you);
+  const [editingIdentity, setEditingIdentity] = useState(false);
+  const [draftName, setDraftName] = useState(view.displayName);
   // The server owns the clock. This only mirrors it into the shared
   // last-five-seconds presentation and its tick/alarm cues.
   const secondsRemaining = Math.max(0, Math.ceil(responseTimerRemainingMs / 1000));
@@ -264,7 +306,19 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
   const sendGroups = (groups: Array<{ groupId: string; itemIds: string[] }>) => onAction('group', { groups });
   const sendAdventureChoice = (index: number) => { setSelected(String(index)); onAction('choose', { choiceIndex: index }); };
 
-  return <GameAudioProvider chain={audioChain}><main className="activity-participant-page" data-activity-type={envelope.type} data-activity-preset={textOf(config.preset) || undefined} data-activity-panic={panicking ? 'true' : 'false'} style={themeVariables}><div className="participant-game-shell"><header className="participant-game-header"><div><span className="participant-kicker">{textOf(envelope.name, 'LIVE ACTIVITY')}</span><h1>{title}</h1></div><div className="participant-identity"><MuteToggle /><span className="participant-identity-badge" style={{ background: textOf(view.color, '#f6c531'), color: inkOnPlayerColor(textOf(view.color, '#f6c531')) }} aria-hidden="true">{textOf(view.avatar, '🙂')}</span><div><strong>{view.displayName}</strong><small>{view.hasSubmitted ? 'Response saved' : phase.replace(/([a-z])([A-Z])/g, '$1 $2')}</small></div></div></header>{error && <div className="participant-error" role="alert">{error}</div>}
+  return <GameAudioProvider chain={audioChain}><main className="activity-participant-page" data-activity-type={envelope.type} data-activity-preset={textOf(config.preset) || undefined} data-activity-panic={panicking ? 'true' : 'false'} style={themeVariables}><div className="participant-game-shell"><header className="participant-game-header"><div>{headerKicker && <span className="participant-kicker">{headerKicker}</span>}<h1>{title}</h1></div><div className="participant-identity"><MuteToggle /><GameButton type="button" className="participant-identity-edit" silent aria-label="Change your name and character" onClick={() => setEditingIdentity(current => !current)}><span className="participant-identity-badge" style={{ background: textOf(view.color, '#f6c531'), color: inkOnPlayerColor(textOf(view.color, '#f6c531')) }} aria-hidden="true">{textOf(view.avatar, '🙂')}</span><div><strong>{view.displayName}</strong><small>{view.hasSubmitted ? 'Response saved' : phase.replace(/([a-z])([A-Z])/g, '$1 $2')}</small></div></GameButton></div></header>{error && <div className="participant-error" role="alert">{error}</div>}
+    {editingIdentity && <section className="participant-input-card participant-identity-editor">
+      <span className="participant-kicker">YOUR PLAYER</span>
+      <label>Name <input maxLength={40} value={draftName} onChange={event => setDraftName(event.target.value)} /></label>
+      <div className="participant-identity-choices" role="radiogroup" aria-label="Choose your character">
+        {ACTIVITY_AVATARS.map(option => <GameButton key={option} type="button" className={`participant-avatar-swatch ${textOf(view.avatar) === option ? 'selected' : ''}`} role="radio" aria-checked={textOf(view.avatar) === option} aria-label={`Character ${option}`} disabled={busy} onClick={() => onUpdateIdentity({ avatar: option })}>{option}</GameButton>)}
+      </div>
+      <div className="participant-identity-choices" role="radiogroup" aria-label="Choose your colour">
+        {ACTIVITY_COLORS.map(option => <GameButton key={option} type="button" className={`participant-color-swatch ${textOf(view.color) === option ? 'selected' : ''}`} role="radio" aria-checked={textOf(view.color) === option} aria-label={`Colour ${option}`} style={{ background: option }} disabled={busy} onClick={() => onUpdateIdentity({ color: option })} />)}
+      </div>
+      <GameButton className="participant-primary-button" lockIn disabled={busy || !draftName.trim()} onClick={() => { onUpdateIdentity({ displayName: draftName.trim() }); setEditingIdentity(false); }}>Save</GameButton>
+      <small className="participant-saved-note">Your score and place in the standings stay with you.</small>
+    </section>}
     {timerRunning && phase === 'acceptingResponses' && envelope.type !== 'word' && <ActivityCountdown remainingMs={responseTimerRemainingMs} durationMs={timerDurationMs} label="TIME LEFT" compact />}
     {phase === 'lobby' || phase === 'setup' ? <section className="participant-waiting"><span className="waiting-orb" style={idleWobbleStyle(view.participantId, 1)}>✦</span><h2>You’re in.</h2><p>Waiting for the host to start the game.</p><div className="participant-count">{numberOf(state.participantCount)} players joined</div></section> :
       phase === 'acceptingResponses' && isChoice ? <ChoiceInput kicker={choiceKicker} prompt={prompt} options={options} selected={selected === null ? null : Number(selected)} disabled={busy || view.hasSubmitted} onSelect={sendChoice} modifierControls={quizModifierControls} /> :
@@ -278,7 +332,7 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
       phase === 'acceptingResponses' && envelope.type === 'matchPlayer' && matchAnswerMode === 'text' ? <TextResponse prompt={prompt} text={text} setText={setText} submit={sendMatchText} disabled={busy || view.hasSubmitted} kicker={state.isTarget === true ? 'ANSWER PRIVATELY' : 'PREDICT THE TARGET'} placeholder={state.isTarget === true ? 'Type your answer…' : 'Predict their answer…'} submitLabel="Lock in answer" /> :
       phase === 'acceptingResponses' && envelope.type === 'matchPlayer' ? <ChoiceInput kicker={state.isTarget === true ? 'ANSWER PRIVATELY' : 'PREDICT THE TARGET'} prompt={prompt} options={options} selected={selected === null ? null : Number(selected)} disabled={busy || view.hasSubmitted} onSelect={sendMatchChoice} /> :
       phase === 'acceptingResponses' && envelope.type === 'physicalRoom' && config.adventure === true ? <ChoiceInput kicker="CHOOSE THE NEXT PATH" prompt={textOf(physicalRound.instructions, 'Which path should the story take?')} options={physicalChoices} selected={selected === null ? null : Number(selected)} disabled={busy || view.hasSubmitted} onSelect={sendAdventureChoice} /> :
-      phase === 'acceptingResponses' && envelope.type === 'word' ? <WordInput prompt={prompt} text={text} setText={setText} submit={submitText} disabled={busy || view.hasSubmitted} waitingForTurn={isTurnBasedWord && state.isCurrentTurn !== true && state.isEliminated !== true} eliminated={isTurnBasedWord && state.isEliminated === true} turnParticipantName={textOf(state.turnParticipantName, 'another player')} timerRemainingMs={responseTimerRemainingMs} timerDurationMs={numberOf(state.timerDurationMs)} timerRunning={state.timerRunning === true} /> :
+      phase === 'acceptingResponses' && envelope.type === 'word' ? <WordInput prompt={prompt} text={text} setText={setText} submit={submitText} disabled={busy || view.hasSubmitted} waitingForTurn={isTurnBasedWord && state.isCurrentTurn !== true && state.isEliminated !== true} eliminated={isTurnBasedWord && state.isEliminated === true} turnParticipantName={textOf(state.turnParticipantName, 'another player')} timerRemainingMs={engineTimerRemainingMs} timerDurationMs={engineTimerDurationMs} timerRunning={engineTimerRunning} /> :
       phase === 'acceptingResponses' && waitingForSurveyTeam ? <section className="participant-waiting"><span className="waiting-orb" style={idleWobbleStyle('waiting', 2)}>⏳</span><h2>{state.stealOpen === true ? `${textOf(state.stealTeamName, 'The steal team')} is up` : `${textOf(state.currentTeamName, 'Another team')} is up`}</h2><p>Watch the board. Your team will get the next chance.</p></section> :
       phase === 'acceptingResponses' && (envelope.type === 'punchline' || envelope.type === 'fakeOut' || envelope.type === 'surveyBoard') ? <TextResponse prompt={prompt} text={text} setText={setText} submit={submitText} disabled={busy || view.hasSubmitted} /> :
       phase === 'voting' && envelope.type === 'bracket' ? <ChoiceInput kicker="VOTE TO ADVANCE" prompt="Which entrant should move forward?" options={bracketOptions} selected={bracketOptions.findIndex(option => option.entrantId === selected)} disabled={busy || view.hasSubmitted || bracketOptions.length < 2} onSelect={sendBracketChoice} /> :
@@ -375,9 +429,22 @@ const DrawingInput: React.FC<{ prompt: string; disabled: boolean; onSubmit: (str
   return <section className="participant-input-card drawing-input-card"><span className="participant-kicker">SKETCH IT</span><h2>{prompt}</h2><canvas ref={canvasRef} className="drawing-canvas" aria-label="Draw your answer" style={{ touchAction: 'none' }} onPointerDown={begin} onPointerMove={move} onPointerUp={end} onPointerCancel={end} /><div className="drawing-tool-controls" role="toolbar" aria-label="Drawing tools"><GameButton type="button" className={`participant-secondary-button ${tool === 'pen' ? 'selected' : ''}`} aria-pressed={tool === 'pen'} disabled={disabled} onClick={() => setTool('pen')}>✎ Pen</GameButton><GameButton type="button" className={`participant-secondary-button ${tool === 'eraser' ? 'selected' : ''}`} aria-pressed={tool === 'eraser'} disabled={disabled} onClick={() => setTool('eraser')}>⌫ Eraser</GameButton><label>Size<select aria-label="Brush size" value={String(width)} disabled={disabled} onChange={event => setWidth(Number(event.target.value))}><option value="0.008">Fine</option><option value="0.012">Medium</option><option value="0.022">Bold</option><option value="0.04">Marker</option></select></label></div><div className="drawing-palette" role="toolbar" aria-label="Ink color">{palette.map(swatch => <GameButton key={swatch} type="button" className={color === swatch && tool === 'pen' ? 'selected' : ''} aria-label={`Use ${swatch} ink`} aria-pressed={color === swatch && tool === 'pen'} disabled={disabled} onClick={() => { setColor(swatch); setTool('pen'); }} style={{ background: swatch }} />)}</div><div className="drawing-tool-row"><GameButton type="button" className="participant-secondary-button" disabled={disabled || !strokes.length} onClick={() => setStrokes(current => current.slice(0, -1))}>Undo</GameButton><GameButton type="button" className="participant-secondary-button" disabled={disabled || !strokes.length} onClick={() => setStrokes([])}>Clear</GameButton><GameButton type="button" className="participant-primary-button" lockIn disabled={disabled || !strokes.length} onClick={() => onSubmit(strokes)}>{disabled ? 'Drawing saved' : 'Submit drawing'}</GameButton></div>{disabled && <small className="participant-saved-note">Your drawing is locked in.</small>}</section>;
 };
 
+/**
+ * A stable key for a round's cards.
+ *
+ * These inputs used to re-seed their local state from an array prop, which is
+ * rebuilt on every render, so every re-render silently threw away whatever the
+ * player had arranged so far. It went unnoticed while these rounds had no
+ * clock; once one ticked four times a second the work never survived at all.
+ * Keying on the ids means the reset happens when the round actually changes.
+ */
+const cardKey = (...groups: JsonRecord[][]): string =>
+  groups.map(items => items.map(item => textOf(item.id)).join('\u0000')).join('\u0001');
+
 const OrderingInput: React.FC<{ prompt: string; items: JsonRecord[]; disabled: boolean; onSubmit: (order: string[]) => void }> = ({ prompt, items, disabled, onSubmit }) => {
   const [order, setOrder] = useState<string[]>(() => items.map(item => textOf(item.id)));
-  useEffect(() => setOrder(items.map(item => textOf(item.id))), [items]);
+  const itemsKey = cardKey(items);
+  useEffect(() => setOrder(itemsKey ? itemsKey.split('\u0000') : []), [itemsKey]);
   const move = (index: number, direction: -1 | 1) => setOrder(current => { const target = index + direction; if (target < 0 || target >= current.length) return current; const next = [...current]; [next[index], next[target]] = [next[target], next[index]]; return next; });
   const labels = new Map(items.map(item => [textOf(item.id), textOf(item.label, 'Item')]));
   return <section className="participant-input-card"><span className="participant-kicker">ORDER THE CARDS</span><h2>{prompt}</h2><div className="ordering-participant-list">{order.map((id, index) => <div className="ordering-participant-row" key={id}><b>{index + 1}</b><span>{labels.get(id) || id}</span><GameButton type="button" className="ordering-move-button" aria-label={`Move ${labels.get(id) || 'item'} up`} disabled={disabled || index === 0} onClick={() => move(index, -1)}>↑</GameButton><GameButton type="button" className="ordering-move-button" aria-label={`Move ${labels.get(id) || 'item'} down`} disabled={disabled || index === order.length - 1} onClick={() => move(index, 1)}>↓</GameButton></div>)}</div><GameButton type="button" className="participant-primary-button" lockIn disabled={disabled || !order.length} onClick={() => onSubmit(order)}>{disabled ? 'Order saved' : 'Lock in order'}</GameButton>{disabled && <small className="participant-saved-note">Your answer is locked in.</small>}</section>;
@@ -385,14 +452,19 @@ const OrderingInput: React.FC<{ prompt: string; items: JsonRecord[]; disabled: b
 
 const MatchingInput: React.FC<{ prompt: string; leftItems: JsonRecord[]; rightItems: JsonRecord[]; disabled: boolean; onSubmit: (matches: Array<{ leftId: string; rightId: string }>) => void }> = ({ prompt, leftItems, rightItems, disabled, onSubmit }) => {
   const [matches, setMatches] = useState<Record<string, string>>({});
-  useEffect(() => setMatches({}), [leftItems, rightItems]);
+  const pairsKey = cardKey(leftItems, rightItems);
+  useEffect(() => setMatches({}), [pairsKey]);
   const complete = leftItems.length > 0 && leftItems.every(item => textOf(matches[textOf(item.id)]));
   return <section className="participant-input-card matching-input-card"><span className="participant-kicker">MATCH THE PAIRS</span><h2>{prompt}</h2><div className="matching-participant-list">{leftItems.map((left, index) => <label className="matching-participant-row" key={textOf(left.id, String(index))}><span>{textOf(left.label, 'Left item')}</span><select value={matches[textOf(left.id)] || ''} disabled={disabled} onChange={event => setMatches(current => ({ ...current, [textOf(left.id)]: event.target.value }))}><option value="">Choose a match…</option>{rightItems.map((right, rightIndex) => <option key={textOf(right.id, String(rightIndex))} value={textOf(right.id, textOf(right.label))}>{textOf(right.label, 'Right item')}</option>)}</select></label>)}</div><GameButton type="button" className="participant-primary-button" lockIn disabled={disabled || !complete} onClick={() => onSubmit(leftItems.map(item => ({ leftId: textOf(item.id), rightId: matches[textOf(item.id)] })))}>{disabled ? 'Matches saved' : 'Lock in matches'}</GameButton>{disabled && <small className="participant-saved-note">Your matches are locked in.</small>}</section>;
 };
 
 const GroupingInput: React.FC<{ prompt: string; items: JsonRecord[]; groups: JsonRecord[]; disabled: boolean; onSubmit: (groups: Array<{ groupId: string; itemIds: string[] }>) => void }> = ({ prompt, items, groups, disabled, onSubmit }) => {
   const [assignments, setAssignments] = useState<Record<string, string>>({});
-  useEffect(() => setAssignments(Object.fromEntries(items.map((item, index) => [textOf(item.id, String(index)), textOf(groups[0]?.id)]))), [groups, items]);
+  const seatsKey = cardKey(items, groups);
+  const firstGroupId = textOf(groups[0]?.id);
+  useEffect(() => setAssignments(Object.fromEntries(items.map((item, index) => [textOf(item.id, String(index)), firstGroupId]))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the cards, not the array identity
+    [seatsKey, firstGroupId]);
   const complete = items.length > 0 && groups.length > 0 && items.every(item => textOf(assignments[textOf(item.id)]));
   return <section className="participant-input-card grouping-input-card"><span className="participant-kicker">FIND THE CONNECTIONS</span><h2>{prompt}</h2><div className="grouping-participant-list">{items.map((item, index) => <label className="grouping-participant-row" key={textOf(item.id, String(index))}><span>{textOf(item.label, 'Item')}</span><select value={assignments[textOf(item.id)] || ''} disabled={disabled} onChange={event => setAssignments(current => ({ ...current, [textOf(item.id)]: event.target.value }))}>{groups.map((group, groupIndex) => <option key={textOf(group.id, String(groupIndex))} value={textOf(group.id)}>{textOf(group.label, `Group ${groupIndex + 1}`)}</option>)}</select></label>)}</div><GameButton type="button" className="participant-primary-button" lockIn disabled={disabled || !complete} onClick={() => onSubmit(groups.map(group => ({ groupId: textOf(group.id), itemIds: items.filter(item => assignments[textOf(item.id)] === textOf(group.id)).map(item => textOf(item.id)) })))}>{disabled ? 'Groups saved' : 'Lock in groups'}</GameButton>{disabled && <small className="participant-saved-note">Your groups are locked in.</small>}</section>;
 };

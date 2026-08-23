@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openUniversalRemote } from "./support/controllerSession";
 import { signInAsAdmin } from "./support/adminSession";
 
 // One shared sign-in for the whole suite: the server allows 10 attempts per
@@ -692,6 +693,11 @@ test("Survey Showdown supports team turns, strikes, conservative matching, and a
     await south.locator("textarea").fill("Banana");
     await south.getByRole("button", { name: "Send response" }).click();
     await hostAction(page, run.runId, "suggestmatch");
+    // Poll rather than assume the suggestion is visible the instant the command
+    // returns; the rest of this file reads host state the same way.
+    await expect.poll(async () =>
+      ((await hostState(page, run.runId)).state.state.surveyMatchSuggestions as Array<unknown> | undefined)?.length ?? 0)
+      .toBeGreaterThan(0);
     session = await hostState(page, run.runId);
     const suggestions = session.state.state.surveyMatchSuggestions as Array<{ rank: number; confidence: number }>;
     expect(suggestions[0]?.rank).toBe(2);
@@ -1137,16 +1143,7 @@ test("Activity controller shows live recovery state and command acknowledgements
     return { screenId: identity.screenId };
   }, definitionId);
 
-  const pinResponse = await page.evaluate(async () => (await fetch("/api/v1/controller-pin", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pin: "482731" }),
-  })).ok);
-  expect(pinResponse).toBe(true);
-  await page.goto("/universalremote");
-  await page.getByLabel("Six-digit controller PIN").fill("482731");
-  await page.getByRole("button", { name: "Open universal remote" }).click();
-  await page.getByLabel("Control this screen").selectOption(prepared.screenId);
+  await openUniversalRemote(page, prepared.screenId);
   // The remote groups its controls into tabs; the Activity controls live in one.
   await page.getByRole("tab", { name: "Activity" }).click();
   const activityController = page.locator(".activity-controller-shell");
@@ -1220,10 +1217,10 @@ test("Activities Studio supports grid/list views, filters, arranging, and bulk d
   if (/Page 1 of 1/.test(libraryCountText)) {
     await expect(page.getByRole("button", { name: new RegExp(`Move ${triviaName} later`) })).toBeVisible();
     await page.getByRole("button", { name: new RegExp(`Move ${triviaName} later`) }).click();
-    await expect(page.getByRole("status")).toContainText("Activity order saved.");
+    await expect(page.locator(".activity-library-status")).toContainText("Activity order saved.");
     await page.getByRole("button", { name: "Done arranging" }).click();
   } else {
-    await expect(page.getByRole("status")).toContainText("Arrange is available when the full library fits on one page");
+    await expect(page.locator(".activity-library-status")).toContainText("Arrange is available when the full library fits on one page");
   }
 
   await page.getByRole("button", { name: "Grid view" }).click();
@@ -1238,17 +1235,17 @@ test("Activities Studio supports grid/list views, filters, arranging, and bulk d
   await page.getByRole("checkbox", { name: `Select ${triviaName}`, exact: true }).check();
   await page.getByRole("checkbox", { name: `Select ${bracketName}`, exact: true }).check();
   await page.getByRole("button", { name: "Duplicate selected" }).click();
-  await expect(page.getByRole("status")).toContainText("2 activities duplicated.");
+  await expect(page.locator(".activity-library-status")).toContainText("2 activities duplicated.");
 
   await page.getByRole("checkbox", { name: `Select ${triviaName}`, exact: true }).check();
   await page.getByRole("checkbox", { name: `Select ${bracketName}`, exact: true }).check();
   await page.getByRole("button", { name: "Archive selected" }).click();
-  await expect(page.getByRole("status")).toContainText("2 activities archived.");
+  await expect(page.locator(".activity-library-status")).toContainText("2 activities archived.");
   await page.getByRole("checkbox", { name: "Show archived" }).check();
   await page.getByRole("checkbox", { name: `Select ${triviaName}`, exact: true }).check();
   await page.getByRole("checkbox", { name: `Select ${bracketName}`, exact: true }).check();
   await page.getByRole("button", { name: "Restore selected" }).click();
-  await expect(page.getByRole("status")).toContainText("2 activities restored.");
+  await expect(page.locator(".activity-library-status")).toContainText("2 activities restored.");
 
   await page.getByRole("checkbox", { name: `Select ${triviaName}`, exact: true }).check();
   await page.getByRole("checkbox", { name: `Select ${bracketName}`, exact: true }).check();
@@ -1256,7 +1253,7 @@ test("Activities Studio supports grid/list views, filters, arranging, and bulk d
   const confirmation = page.getByRole("dialog", { name: "Delete 2 activities?" });
   await expect(confirmation).toBeVisible();
   await confirmation.getByRole("button", { name: "Delete selected" }).click();
-  await expect(page.getByRole("status")).toContainText("2 deleted");
+  await expect(page.locator(".activity-library-status")).toContainText("2 deleted");
   await expect(page.getByText(triviaName, { exact: true })).toHaveCount(0);
   await expect(page.getByText(bracketName, { exact: true })).toHaveCount(0);
 });

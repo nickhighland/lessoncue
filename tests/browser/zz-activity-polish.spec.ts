@@ -53,6 +53,31 @@ test("a player can silence their own phone and it sticks across reloads", async 
   }
 });
 
+test("the phone shows the game title once, not twice", async ({ page, context }) => {
+  await authenticate(page);
+  const run = await launchTrivia(page, "Title Once");
+
+  const phone = await context.newPage();
+  await phone.setViewportSize({ width: 390, height: 844 });
+  try {
+    await phone.goto(`/play/${run.joinCode}`);
+    await phone.getByLabel("Display name").fill("Reader");
+    await phone.getByRole("button", { name: "Join game" }).click();
+    await expect(phone.getByText("You’re in.")).toBeVisible();
+
+    // The activity name and its title are the same string here, so the small
+    // label above the heading was printing it a second time.
+    const header = phone.locator(".participant-game-header");
+    await expect(header.locator("h1")).toHaveText("Title Once");
+    await expect(header.locator(".participant-kicker")).toHaveCount(0);
+
+    const occurrences = (await header.innerText()).match(/Title Once/g) ?? [];
+    expect(occurrences).toHaveLength(1);
+  } finally {
+    await phone.close();
+  }
+});
+
 test("game headings use a display face rather than the admin serif", async ({ page, context }) => {
   await authenticate(page);
   const run = await launchTrivia(page, "Type Check");

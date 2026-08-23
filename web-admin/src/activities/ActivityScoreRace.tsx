@@ -91,16 +91,26 @@ export const ActivityScoreRace: React.FC<{
   state: JsonRecord;
   limit?: number;
   title?: string;
-}> = ({ state, limit = 8, title = 'STANDINGS' }) => {
-  const racers = readRacers(state.leaderboard).slice(0, Math.max(1, limit));
+}> = ({ state, limit, title = 'STANDINGS' }) => {
+  const everyone = readRacers(state.leaderboard);
+  // Lanes have to stay readable from the back of a room, so a full class cannot
+  // all race at once. Show as many as still read at a glance, and say plainly
+  // how many are not on screen -- every player sees their own rank on their
+  // phone, but the wall should never imply it is showing the whole room.
+  const shown = Math.max(1, limit ?? (everyone.length <= 10 ? everyone.length : everyone.length <= 16 ? 12 : 10));
+  const racers = everyone.slice(0, shown);
+  const remaining = everyone.length - racers.length;
   const gainers = useGainers(racers);
   if (!racers.length) return null;
   const topScore = Math.max(...racers.map(racer => racer.score), 0);
 
-  return <section className="activity-score-race" aria-label="Standings">
+  return <section className="activity-score-race" aria-label="Standings" data-lanes={racers.length}>
     <span className="activity-race-kicker">{title}</span>
     <ol className="activity-race-lanes">
       {racers.map(racer => <Lane key={racer.id} racer={racer} topScore={topScore} gained={gainers.has(racer.id)} />)}
     </ol>
+    {remaining > 0 && <p className="activity-race-rest">
+      +{remaining} more {remaining === 1 ? 'player' : 'players'} · everyone can see their own place on their phone
+    </p>}
   </section>;
 };

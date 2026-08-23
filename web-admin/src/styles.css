@@ -1563,7 +1563,10 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 }
 .remote-transport button > span { font-size: clamp(23px, 6vw, 31px); font-weight: 900; line-height: .9; }
 .remote-transport button:hover { transform: translateY(-1px); background: #fff; }
-.remote-transport .transport-main { min-height: 52px; color: var(--remote-ink); background: var(--remote-cream); box-shadow: 0 3px 8px #061c1426; }
+/* Same footprint as its siblings: it is one transport control among four, not
+   the primary action of the whole remote. Colour alone carries the emphasis,
+   and the size comes from the shared button rule above. */
+.remote-transport .transport-main { border: 1px solid var(--gold); color: #20180d; background: var(--gold); box-shadow: 0 3px 8px #d88c1e3a; }
 .remote-transport .stop-transport { color: #9c3e3e; }
 .remote-lock-button { grid-column: 3; justify-self: end; display: grid; place-items: center; width: 34px; height: 34px; min-height: 34px; border: 1px solid #ffffff2d; border-radius: 10px; padding: 0; color: #c7ddd4; background: #ffffff0d; }
 .remote-lock-button:hover, .remote-lock-button.locked { border-color: #d9b461; color: #fff2cf; background: #d88c1e22; }
@@ -1649,11 +1652,12 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   .remote-playback { padding-top: 1px; }
   .remote-transport { gap: 6px; }
   .remote-transport button { min-height: 48px; border-radius: 11px; }
-  .remote-transport .transport-main { min-height: 48px; }
   .remote-transport button > span { font-size: 25px; }
+  .remote-transport button small { font-size: 8px; }
   .remote-lock-button { width: 32px; height: 32px; min-height: 32px; }
   .remote-tabs { margin-top: 4px; border-radius: 11px 11px 0 0; }
   .remote-tabs button { min-height: 48px; font-size: 10px; }
+  .remote-tab-icon { font-size: 20px; }
   .remote-tab-panel { padding: 12px; border-radius: 13px; }
   .remote-focus-panel { grid-template-columns: 1fr 1fr; }
   .remote-focus-panel > div:first-child { grid-column: 1 / -1; }

@@ -3,6 +3,7 @@ import type { ActivityHostView } from './types';
 import { ActivityApi } from './api';
 import { ActivityQr, readableJoinAddress } from './ActivityJoin';
 import { inkOnPlayerColor } from './activityIdentity';
+import { hostStepFor, useAutoAdvanceCountdown } from './ActivityHostFlow';
 
 /**
  * What the host needs while a round is actually live.
@@ -25,6 +26,15 @@ export const ActivityLiveHostPanel: React.FC<{
   const roundId = textOf(state.currentRoundId) || undefined;
 
   const players = hostView.participants.filter(player => player.status !== 'removed');
+  // A class can be forty phones. Past a couple of dozen, picking one person out
+  // of the roster by eye stops working, which matters most when the reason you
+  // are looking is that they need removing.
+  const [rosterFilter, setRosterFilter] = useState('');
+  const FILTER_FROM = 12;
+  const needle = rosterFilter.trim().toLowerCase();
+  const shownPlayers = needle
+    ? players.filter(player => player.displayName.toLowerCase().includes(needle))
+    : players;
   // A player counts as in once they have submitted or voted this round.
   const answeredIds = new Set<string>([
     ...hostView.submissions.filter(item => !roundId || item.roundId === roundId).map(item => item.participantId),
@@ -42,10 +52,39 @@ export const ActivityLiveHostPanel: React.FC<{
   const supportsAutoAdvance = autoAdvanceEngines.includes(hostView.state.type);
   const autoAdvance = state.autoAdvanceEnabled === true;
 
+  // Anonymous work waiting on a decision. This is the only thing the host must
+  // act on, so it belongs in the live panel rather than behind setup — that
+  // gating is why drawings and answers appeared never to reach the host.
+  const pending = hostView.submissions.filter(item => item.moderationStatus === 'pending' && !item.hidden);
+  const autoPaused = state.autoPaused === true;
+  const blockedReason = textOf(state.autoBlockedReason) || undefined;
+  const step = hostStepFor(phase, pending.length, autoPaused, blockedReason);
+  const countdown = useAutoAdvanceCountdown(state.autoAdvanceAt, autoPaused || pending.length > 0);
+
+  // Removing someone was only ever reachable from setup, which is closed while
+  // a game is running -- the same gating that hid the moderation queue. Bad
+  // behaviour happens mid-round, so the control belongs beside the roster.
+  const remove = async (participantId: string, displayName: string) => {
+    if (!window.confirm(`Remove ${displayName} from the game?\n\nTheir phone cannot rejoin, and anything of theirs still waiting for you is withdrawn.`)) return;
+    setBusy(`remove:${participantId}`);
+    try {
+      await ActivityApi.executeCommand(hostView.state.runId, { action: 'removeparticipant', payload: { participantId } });
+      onRefresh();
+    } finally { setBusy(''); }
+  };
+
   const send = async (action: string, label: string) => {
     setBusy(label);
     try {
       await ActivityApi.executeCommand(hostView.state.runId, { action });
+      onRefresh();
+    } finally { setBusy(''); }
+  };
+
+  const moderate = async (submissionId: string, status: 'approved' | 'rejected') => {
+    setBusy(submissionId);
+    try {
+      await ActivityApi.executeCommand(hostView.state.runId, { action: 'moderate', payload: { submissionId, status } });
       onRefresh();
     } finally { setBusy(''); }
   };
@@ -77,8 +116,18 @@ export const ActivityLiveHostPanel: React.FC<{
       </div>}
       {players.length === 0
         ? <p className="muted">No phones have joined yet.</p>
-        : <ul className="activity-live-host-roster">
-            {players.map(player => {
+        : <>
+          {players.length >= FILTER_FROM && <input
+            type="search"
+            className="activity-live-host-filter"
+            value={rosterFilter}
+            placeholder={`Find someone in ${players.length}…`}
+            aria-label="Find a player in the roster"
+            onChange={event => setRosterFilter(event.target.value)}
+          />}
+          {needle && shownPlayers.length === 0 && <p className="activity-live-host-empty">Nobody here matches “{rosterFilter.trim()}”.</p>}
+          <ul className="activity-live-host-roster">
+            {shownPlayers.map(player => {
               const isIn = answeredIds.has(player.id);
               return <li key={player.id} className={isIn ? 'answered' : ''}>
                 <span
@@ -88,10 +137,54 @@ export const ActivityLiveHostPanel: React.FC<{
                 >{player.avatar || '🙂'}</span>
                 <b>{player.displayName}</b>
                 {collecting && <span className="activity-live-host-tick" aria-label={isIn ? 'Answered' : 'Still answering'}>{isIn ? '✓' : '…'}</span>}
+                <button
+                  type="button"
+                  className="activity-live-host-remove"
+                  aria-label={`Remove ${player.displayName} from the game`}
+                  title="Remove from the game"
+                  disabled={busy !== ''}
+                  onClick={() => void remove(player.id, player.displayName)}
+                >✕</button>
               </li>;
             })}
-          </ul>}
+          </ul>
+        </>}
     </div>
+
+    <div className="activity-live-host-step">
+      <div>
+        <span className="controller-eyebrow">{step.needsHost ? 'YOUR MOVE' : 'RUNNING ITSELF'}</span>
+        <strong>{step.label}</strong>
+        <small>{step.detail}</small>
+      </div>
+      {step.action
+        ? <button
+            type="button"
+            className="button primary"
+            disabled={busy !== ''}
+            onClick={() => void send(step.action!, 'step')}
+          >{busy === 'step' ? 'Working…' : step.label}</button>
+        : countdown !== null
+          ? <span className="activity-live-host-countdown" role="status" aria-live="off">
+              Next in {countdown}s
+            </span>
+          : null}
+    </div>
+
+    {pending.length > 0 && <div className="activity-live-host-moderation">
+      {pending.map(item => {
+        const payload = item.payload as Record<string, unknown>;
+        const preview = typeof payload.text === 'string' ? payload.text
+          : Array.isArray(payload.words) ? (payload.words as string[]).join(', ')
+          : Array.isArray(payload.strokes) ? 'Drawing'
+          : 'Response';
+        return <div key={item.id} className="activity-live-host-moderation-item">
+          <span>{preview}</span>
+          <button type="button" className="button" disabled={busy !== ''} onClick={() => void moderate(item.id, 'approved')}>Approve</button>
+          <button type="button" className="button danger" disabled={busy !== ''} onClick={() => void moderate(item.id, 'rejected')}>Hide</button>
+        </div>;
+      })}
+    </div>}
 
     <div className="activity-live-host-actions">
       <button
@@ -100,6 +193,21 @@ export const ActivityLiveHostPanel: React.FC<{
         disabled={busy !== '' || !players.length}
         onClick={() => void send('showleaderboard', 'standings')}
       >{busy === 'standings' ? 'Showing…' : '🏁 Show standings'}</button>
+
+      {phase !== 'lobby' && phase !== 'setup' && <button
+        type="button"
+        className="button"
+        disabled={busy !== ''}
+        aria-pressed={autoPaused}
+        onClick={() => void send(autoPaused ? 'resume' : 'hold', 'hold')}
+      >{autoPaused ? '▶ Resume' : '⏸ Hold'}</button>}
+
+      <button
+        type="button"
+        className="button danger"
+        disabled={busy !== ''}
+        onClick={() => void send('resetscores', 'reset')}
+      >{busy === 'reset' ? 'Clearing…' : 'Clear scores'}</button>
 
       {supportsAutoAdvance && <label className="activity-live-host-auto">
         <input

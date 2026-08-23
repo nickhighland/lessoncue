@@ -88,10 +88,45 @@ test("starting the game replaces the lobby with play", async ({ page, context })
       });
     }, run.runId);
 
-    await expect(tv.locator(".activity-lobby-stage")).toHaveCount(0, { timeout: 15_000 });
+    // Waits on a live SignalR push rather than a poll, so it needs headroom
+    // when the whole suite is competing for the same server.
+    await expect(tv.locator(".activity-lobby-stage")).toHaveCount(0, { timeout: 40_000 });
     // Play keeps a compact join banner so latecomers can still get in.
     await expect(tv.locator(".interactive-join-banner")).toBeVisible();
     await expect(tv.getByText("Red planet?")).toBeVisible();
+  } finally {
+    await tv.close();
+  }
+});
+
+test("a full class all appear on the lobby wall, not just the first two dozen", async ({ page, context }) => {
+  test.setTimeout(120_000);
+  await authenticate(page);
+  const run = await launchTrivia(page, "Packed Lobby");
+
+  await page.evaluate(async code => {
+    for (let index = 0; index < 34; index += 1) {
+      await fetch(`/api/v1/activity-sessions/join/${code}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantToken: null, displayName: `Player ${index + 1}`, avatar: "🐙", color: "#f6c531" }),
+      });
+    }
+  }, run.joinCode);
+
+  const tv = await context.newPage();
+  await tv.setViewportSize({ width: 1280, height: 720 });
+  try {
+    await tv.goto(`/activity-display?runId=${run.runId}`);
+    const roster = tv.locator(".activity-lobby-roster");
+    await expect(roster).toBeVisible({ timeout: 20_000 });
+    await expect(roster.locator("li")).toHaveCount(34, { timeout: 20_000 });
+
+    // Clipped names read as "I did not join", which is the complaint this
+    // whole roster exists to answer -- so the last to arrive must be visible.
+    const last = roster.locator("li").last();
+    await expect(last).toBeInViewport();
+    const clipped = await roster.evaluate(node => node.scrollHeight > node.clientHeight + 1);
+    expect(clipped, "the lobby roster must not hide players").toBe(false);
   } finally {
     await tv.close();
   }

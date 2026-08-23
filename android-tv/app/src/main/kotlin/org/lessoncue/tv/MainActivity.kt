@@ -126,6 +126,8 @@ import kotlin.coroutines.resume
 import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -180,29 +182,53 @@ fun LessonCueApp() {
         if (BuildConfig.UPDATE_ENABLED) updateManager.startAutomaticCheck()
     }
 
+    // Launch must not wait on the network.
+    //
+    // This used to call reconnectSavedServer first and only fall back to the
+    // cache when that failed — up to 8s connect plus 15s read, then mDNS
+    // discovery, all on a "Loading" screen, while a perfectly good manifest sat
+    // on disk. On a slow or absent server the TV showed nothing for over twenty
+    // seconds. Paint from the cache, then reconnect behind it.
     LaunchedEffect(Unit) {
         val identity = store.load()
-        screen = if (identity == null) AppScreen.Connect() else {
-            runCatching {
-                val (resolvedIdentity, manifest) = reconnectSavedServer(
-                    context, identity, context.filesDir.resolve("manifest.json")
-                )
+        if (identity == null) {
+            screen = AppScreen.Connect()
+            return@LaunchedEffect
+        }
+
+        val manifestCache = context.filesDir.resolve("manifest.json")
+        val cached = withContext(Dispatchers.IO) {
+            LessonCueApi(identity.serverUrl, manifestCache).cachedManifest()
+        }
+        if (cached != null) {
+            connectionMode = ConnectionMode.Cached
+            activeIdentity = identity
+            activeManifestVersion = cached.version
+            totalManifestItems = cached.itemCount()
+            screen = AppScreen.Library(identity, cached)
+        }
+
+        runCatching { reconnectSavedServer(context, identity, manifestCache) }
+            .onSuccess { (resolvedIdentity, manifest) ->
                 if (resolvedIdentity.serverUrl != identity.serverUrl) store.save(resolvedIdentity)
                 connectionMode = ConnectionMode.Online
                 activeIdentity = resolvedIdentity
                 activeManifestVersion = manifest.version
                 totalManifestItems = manifest.itemCount()
-                AppScreen.Library(resolvedIdentity, manifest)
-            }
-                .getOrElse {
-                    LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json")).cachedManifest()?.let { cached ->
-                        connectionMode = ConnectionMode.Cached
-                        activeIdentity = identity
-                        activeManifestVersion = cached.version
-                        AppScreen.Library(identity, cached)
-                    } ?: AppScreen.Connect("Saved server unavailable. Automatic discovery could not reconnect. Enter the server's numeric IP address.")
+                // Refresh the library underneath them, but never yank someone
+                // out of a lesson they opened while the reconnect was in flight.
+                if (screen is AppScreen.Library || screen is AppScreen.Loading) {
+                    screen = AppScreen.Library(resolvedIdentity, manifest)
                 }
-        }
+            }
+            .onFailure {
+                // Only strand the user when there was nothing to show anyway.
+                if (cached == null) {
+                    screen = AppScreen.Connect(
+                        "Saved server unavailable. Automatic discovery could not reconnect. Enter the server's numeric IP address."
+                    )
+                }
+            }
     }
 
     LaunchedEffect(activeIdentity?.screenId) {

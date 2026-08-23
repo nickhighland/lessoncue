@@ -832,13 +832,39 @@ public static class DatabaseUpgrade
             ("TimerDurationMs", "INTEGER NULL"),
             ("TimerPausedAt", "TEXT NULL"),
             ("RetentionDays", "INTEGER NOT NULL DEFAULT 7"),
+            ("SessionGroupId", "TEXT NULL"),
+            ("AutoAdvanceAt", "TEXT NULL"),
         };
         foreach (var column in activityRunColumns)
         {
             if (!await ColumnExistsAsync(connection, "ActivityRuns", column.Name, cancellationToken))
                 await ExecuteAsync(connection, $"ALTER TABLE \"ActivityRuns\" ADD COLUMN \"{column.Name}\" {column.Definition};", cancellationToken);
         }
-        await ExecuteAsync(connection, "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_ActivityRuns_JoinCode\" ON \"ActivityRuns\" (\"JoinCode\"); CREATE INDEX IF NOT EXISTS \"IX_ActivityDefinitions_EngineType\" ON \"ActivityDefinitions\" (\"EngineType\"); CREATE INDEX IF NOT EXISTS \"IX_ActivityDefinitions_LibraryPosition\" ON \"ActivityDefinitions\" (\"LibraryPosition\");", cancellationToken);
+        // The lobby that spans a lesson's games. Runs, people, teams and points
+        // attach to it so a room joins once and keeps its identity and score.
+        await ExecuteAsync(connection, """
+            CREATE TABLE IF NOT EXISTS "ActivitySessionGroups" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_ActivitySessionGroups" PRIMARY KEY,
+                "LessonId" TEXT NULL,
+                "JoinCode" TEXT NOT NULL,
+                "CurrentRunId" TEXT NULL,
+                "CreatedAt" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL,
+                "ScoresResetAt" TEXT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_ActivitySessionGroups_JoinCode" ON "ActivitySessionGroups" ("JoinCode");
+            CREATE INDEX IF NOT EXISTS "IX_ActivitySessionGroups_LessonId" ON "ActivitySessionGroups" ("LessonId");
+            """, cancellationToken);
+
+        foreach (var table in new[] { "ActivityParticipants", "ActivityTeams", "ActivityScoreEvents" })
+        {
+            if (!await ColumnExistsAsync(connection, table, "SessionGroupId", cancellationToken))
+                await ExecuteAsync(connection, $"ALTER TABLE \"{table}\" ADD COLUMN \"SessionGroupId\" TEXT NULL;", cancellationToken);
+            await ExecuteAsync(connection, $"CREATE INDEX IF NOT EXISTS \"IX_{table}_SessionGroupId\" ON \"{table}\" (\"SessionGroupId\");", cancellationToken);
+        }
+        await ExecuteAsync(connection, "CREATE INDEX IF NOT EXISTS \"IX_ActivityRuns_SessionGroupId\" ON \"ActivityRuns\" (\"SessionGroupId\");", cancellationToken);
+
+        await ExecuteAsync(connection, "DROP INDEX IF EXISTS \"IX_ActivityRuns_JoinCode\"; CREATE INDEX IF NOT EXISTS \"IX_ActivityRuns_JoinCode\" ON \"ActivityRuns\" (\"JoinCode\"); CREATE INDEX IF NOT EXISTS \"IX_ActivityDefinitions_EngineType\" ON \"ActivityDefinitions\" (\"EngineType\"); CREATE INDEX IF NOT EXISTS \"IX_ActivityDefinitions_LibraryPosition\" ON \"ActivityDefinitions\" (\"LibraryPosition\");", cancellationToken);
 
         if (!await ColumnExistsAsync(connection, "PlaylistItems", "ActivityDefinitionId", cancellationToken))
         {

@@ -219,8 +219,19 @@ public static class ActivityApi
             ActivityRunCreateInput input,
             ActivityService service,
             ActivitySessionService sessions,
+            ActivityAvailabilityService availability,
             CancellationToken ct) =>
         {
+            // Hiding Activities stops new ones starting. Commands against a run
+            // that is already live keep working, because cutting off a class
+            // mid-game is worse than the thing being hidden.
+            if (!availability.Enabled)
+            {
+                return Results.Problem(
+                    "Activities are turned off for this server.",
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
             var run = await service.GetOrCreateRunAsync(
                 input.ActivityDefinitionId,
                 input.LessonId,

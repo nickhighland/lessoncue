@@ -45,6 +45,8 @@ export type Bootstrap = {
   mediaConverters: MediaConverterStatus;
   accountEmail: { configured: boolean; provider: string };
   counts: { classes: number; lessons: number; media: number; screens: number };
+  /** Service Admin switch: hides Activities from teacher-facing surfaces. */
+  activitiesEnabled: boolean;
   permissionDefinitions: Permission[];
   permissionPresets: Record<string, Permission[]>;
 };
