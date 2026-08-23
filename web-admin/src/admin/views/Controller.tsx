@@ -1,8 +1,16 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
-import { DownloadDiagnostic, Lesson, LessonClass, Screen, TemporaryControllerSession } from "../models";
+import { Lesson, LessonClass, Screen, TemporaryControllerSession } from "../models";
 import { BrandMark, Field, PageHead } from "../ui";
-import { controllerRouteSlug, controllerSessionToken, controllerSlug, errorText, isOnline, parseDiagnosticJson } from "../utils";
+import {
+  controllerRouteSlug,
+  controllerSessionToken,
+  controllerSlug,
+  cuePlannedDurationMs,
+  errorText,
+  isOnline,
+  lessonPlannedDurationMs,
+} from "../utils";
 import { CompactRemoteShell } from "./CompactRemoteShell";
 
 export function ControllerView({
@@ -106,8 +114,8 @@ export function ControllerView({
   const [unlocking, setUnlocking] = useState(false);
   const [controlsLocked, setControlsLocked] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
-  // The remote is control-first. Selecting lessons, cues, lobby details, and
-  // team setup stays available, but only after the host explicitly opens it.
+  // The remote keeps the weekly lesson choice immediate; cue-level setup,
+  // notes, and activity configuration stay behind the Playlist tab.
   const [showOnTheFlySetup, setShowOnTheFlySetup] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [commandReceipt, setCommandReceipt] = useState<{
@@ -207,6 +215,37 @@ export function ControllerView({
       ? selectedItem
       : undefined;
   const timingLesson = reportedLesson || lesson;
+  const timingItems = [...(timingLesson?.items || [])]
+    .filter((item) => item.role === "lesson")
+    .sort((a, b) => a.position - b.position);
+  const reportedIndex = reportedItem
+    ? timingItems.findIndex((item) => item.id === reportedItem.id)
+    : -1;
+  const currentRemainingMs =
+    reportedIndex >= 0
+      ? Math.max(
+          0,
+          cuePlannedDurationMs(timingItems[reportedIndex]) -
+            (selectedScreen?.playbackPositionMs || 0),
+        ) +
+        timingItems
+          .slice(reportedIndex + 1)
+          .reduce((sum, item) => sum + cuePlannedDurationMs(item), 0)
+      : timingItems.reduce((sum, item) => sum + cuePlannedDurationMs(item), 0);
+  const estimatedFinish =
+    timingLesson && currentRemainingMs
+      ? new Date(Date.now() + currentRemainingMs)
+      : undefined;
+  const scheduledFinish = timingLesson?.designatedStartAt
+    ? new Date(
+        new Date(timingLesson.designatedStartAt).getTime() +
+          lessonPlannedDurationMs(timingLesson),
+      )
+    : undefined;
+  const isOverrun =
+    !!estimatedFinish &&
+    !!scheduledFinish &&
+    estimatedFinish.getTime() > scheduledFinish.getTime() + 60_000;
   const preRollNow =
     !!timingLesson?.preRollStartsAt &&
     !!timingLesson?.designatedStartAt &&
@@ -251,32 +290,6 @@ export function ControllerView({
     }, 15_000);
     return () => window.clearTimeout(timer);
   }, [commandPending, commandReceipt?.version, selectedScreen?.name]);
-  const downloads = parseDiagnosticJson<DownloadDiagnostic>(
-    selectedScreen?.downloadQueueJson,
-  );
-  const downloading = downloads.some((item) =>
-    ["queued", "pending", "downloading", "running"].includes(
-      (item.state || "").toLowerCase(),
-    ),
-  );
-  const recentlySeen = selectedScreen?.lastSeenAt
-    ? Date.now() - new Date(selectedScreen.lastSeenAt).getTime() < 120_000
-    : false;
-  const controllerState = !selectedScreenOnline
-    ? recentlySeen
-      ? "reconnecting"
-      : "offline"
-    : downloading
-      ? "downloading"
-      : "ready";
-  const controllerStateLabel =
-    controllerState === "offline"
-      ? "Offline"
-      : controllerState === "downloading" || controllerState === "reconnecting"
-        ? "Connecting"
-        : selectedScreen?.playbackState === "playing"
-          ? "Playing"
-          : "Ready";
   const isAdministrator =
     userRole === "Service Admin" ||
     userRole === "App Admin" ||
@@ -287,20 +300,6 @@ export function ControllerView({
     requireLocalRoomControllers &&
     !isAdministrator &&
     !location.hostname.toLowerCase().endsWith(".local");
-  const progress = selectedScreen?.playbackDurationMs
-    ? Math.min(
-        100,
-        (selectedScreen.playbackPositionMs /
-          selectedScreen.playbackDurationMs) *
-          100,
-      )
-    : 0;
-  const playbackTitle = reportedItem?.title || "Nothing Playing";
-  const playbackDurationMs = selectedScreen?.playbackDurationMs || 0;
-  const playbackPositionMs = Math.min(
-    Math.max(selectedScreen?.playbackPositionMs || 0, 0),
-    playbackDurationMs || Number.MAX_SAFE_INTEGER,
-  );
   const commandStatus = !selectedScreenOnline
     ? "Offline · commands disabled"
     : commandReceipt?.error
@@ -407,14 +406,11 @@ export function ControllerView({
       }}
       selectedScreen={selectedScreen}
       selectedScreenOnline={selectedScreenOnline}
-      controllerState={controllerState}
-      controllerStateLabel={controllerStateLabel}
-      playbackTitle={playbackTitle}
-      playbackDurationMs={playbackDurationMs}
-      playbackPositionMs={playbackPositionMs}
-      progress={progress}
       reportedItem={reportedItem}
       timingLesson={timingLesson}
+      currentRemainingMs={currentRemainingMs}
+      estimatedFinish={estimatedFinish}
+      isOverrun={isOverrun}
       lesson={lesson}
       availableLessons={availableLessons}
       lessonId={lessonId}

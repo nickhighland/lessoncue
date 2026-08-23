@@ -21,11 +21,12 @@ let granted: string | null = null;
 
 /** Open the universal remote, spending an unlock only when this worker has no grant. */
 export async function openUniversalRemote(page: Page, screenId: string) {
-  await page.evaluate(async pin => {
-    await fetch("/api/v1/controller-pin", {
+  if (!granted) {
+    const status = await page.evaluate(async pin => (await fetch("/api/v1/controller-pin", {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }),
-    });
-  }, PIN);
+    })).status, PIN);
+    expect(status).toBe(204);
+  }
 
   await page.goto("/universalremote");
 
@@ -40,7 +41,10 @@ export async function openUniversalRemote(page: Page, screenId: string) {
   // Wait for the shell itself: selecting straight away raced its mount, which
   // under a loaded machine read as "the screen selector does not exist".
   await expect(page.locator(".remote-shell")).toBeVisible({ timeout: 30_000 });
-  granted ??= await page.evaluate(key => sessionStorage.getItem(key), KEY);
+  if (!granted) {
+    granted = await page.evaluate(key => sessionStorage.getItem(key), KEY);
+    expect(granted).toMatch(/^[0-9a-f]{64}$/);
+  }
 
   const selector = page.getByLabel("Control this screen");
   await expect(selector.locator(`option[value="${screenId}"]`)).toHaveCount(1, { timeout: 30_000 });

@@ -1,35 +1,22 @@
 import { CSSProperties, Dispatch, SetStateAction, useState } from "react";
 import { ActivityController } from "../../activities/ActivityController";
 import { Lesson, LessonClass, PlaylistItem, Screen } from "../models";
-import { BrandMark, Field } from "../ui";
+import { Field } from "../ui";
 import {
   cuePoints,
   formatDate,
   formatDuration,
+  formatFriendlyDuration,
   roleName,
   youtubeEmbedUrl,
 } from "../utils";
 
 type RemoteTabId = "tab1" | "tab2" | "tab3";
-type RemoteFeatureId = "timer" | "poll" | "randomizer" | "groups" | "draw";
 
-const remoteTabs: Array<{ id: RemoteTabId; label: string; icon: string }> = [
-  { id: "tab1", label: "Playback", icon: "▣" },
-  { id: "tab2", label: "Quick tools", icon: "♣" },
-  { id: "tab3", label: "Activity", icon: "⌁" },
-];
-
-const remoteFeatures: Array<{
-  id: RemoteFeatureId;
-  label: string;
-  icon: string;
-  description: string;
-}> = [
-  { id: "timer", label: "Timer", icon: "◷", description: "Run a visible countdown for a room challenge." },
-  { id: "poll", label: "Poll", icon: "▥", description: "Open and reveal a teacher-authored poll." },
-  { id: "randomizer", label: "Randomizer", icon: "⤨", description: "Use an existing wheel or random picker activity." },
-  { id: "groups", label: "Groups", icon: "♟", description: "Manage teams and group-based activities." },
-  { id: "draw", label: "Draw", icon: "✎", description: "Open a drawing activity for the room." },
+const remoteTabs: Array<{ id: RemoteTabId; label: string }> = [
+  { id: "tab1", label: "Lesson" },
+  { id: "tab2", label: "Playlist" },
+  { id: "tab3", label: "Activity" },
 ];
 
 type CompactRemoteShellProps = {
@@ -39,14 +26,11 @@ type CompactRemoteShellProps = {
   onScreenChange: (value: string) => void;
   selectedScreen?: Screen;
   selectedScreenOnline: boolean;
-  controllerState: string;
-  controllerStateLabel: string;
-  playbackTitle: string;
-  playbackDurationMs: number;
-  playbackPositionMs: number;
-  progress: number;
   reportedItem?: PlaylistItem;
   timingLesson?: Lesson;
+  currentRemainingMs: number;
+  estimatedFinish?: Date;
+  isOverrun: boolean;
   lesson?: Lesson;
   availableLessons: Lesson[];
   lessonId: string;
@@ -80,14 +64,11 @@ export function CompactRemoteShell({
   onScreenChange,
   selectedScreen,
   selectedScreenOnline,
-  controllerState,
-  controllerStateLabel,
-  playbackTitle,
-  playbackDurationMs,
-  playbackPositionMs,
-  progress,
   reportedItem,
   timingLesson,
+  currentRemainingMs,
+  estimatedFinish,
+  isOverrun,
   lesson,
   availableLessons,
   lessonId,
@@ -114,148 +95,89 @@ export function CompactRemoteShell({
   showMonitor,
 }: CompactRemoteShellProps) {
   const [activeTab, setActiveTab] = useState<RemoteTabId>("tab1");
-  const [activeFeature, setActiveFeature] = useState<RemoteFeatureId>();
   const controllerStyle = room
     ? ({ "--room-color": room.controllerColor } as CSSProperties)
     : undefined;
   const isPaused = selectedScreen?.playbackState === "paused";
-  const remotePosition = playbackDurationMs ? playbackPositionMs : 0;
+  const failedDownloads = selectedScreen?.failedDownloads || 0;
 
   function openSetup() {
-    setActiveTab("tab1");
+    setActiveTab("tab2");
     setShowOnTheFlySetup(true);
-  }
-
-  function handleFeature(feature: RemoteFeatureId) {
-    setActiveFeature(feature);
   }
 
   return (
     <div className={`controller-page remote-shell ${room ? "room-themed" : ""}`} style={controllerStyle}>
-      <header className="remote-header">
-        <div className="remote-brand">
-          <BrandMark />
-          <div className="remote-brand-copy">
-            <strong>LessonCue</strong>
-            <label className="remote-screen-selector">
-              <span className="sr-only">Control this screen</span>
-              <select
-                aria-label="Control this screen"
-                value={screenId}
-                onChange={(event) => onScreenChange(event.target.value)}
+      <section className="remote-playback" aria-label="Playback controller">
+        <div className="remote-control-row">
+          <fieldset className="remote-playback-fieldset" disabled={controlsLocked}>
+            <div className="transport remote-transport" aria-label="Playback controls">
+              <button
+                type="button"
+                onClick={() => void command("previous")}
+                aria-label="Previous cue"
+                disabled={!selectedScreenOnline}
               >
-                {liveScreens.length ? (
-                  liveScreens.map((screen) => (
-                    <option value={screen.id} key={screen.id}>
-                      {screen.name} · {screen.online ? "online" : "offline"}
-                    </option>
-                  ))
-                ) : (
-                  <option value="">No paired screen</option>
-                )}
-              </select>
-            </label>
-          </div>
-        </div>
-        <div className="remote-header-actions">
-          <span
-            className={`controller-connection ${controllerState}`}
-            title={selectedScreen?.playbackError || undefined}
-          >
-            <i />
-            {controllerStateLabel}
-          </span>
+                <span aria-hidden="true">‹‹</span>
+              </button>
+              <button
+                type="button"
+                className="transport-main"
+                onClick={() => void command(isPaused ? "resume" : "pause")}
+                aria-label={isPaused ? "Resume playback" : "Pause playback"}
+                disabled={!selectedScreenOnline}
+              >
+                <span aria-hidden="true">{isPaused ? "▶" : "Ⅱ"}</span>
+              </button>
+              <button
+                type="button"
+                className="stop-transport"
+                onClick={() => void command("stop")}
+                aria-label="Stop playback"
+                disabled={!selectedScreenOnline}
+              >
+                <span aria-hidden="true">■</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void command("next")}
+                aria-label="Next cue"
+                disabled={!selectedScreenOnline}
+              >
+                <span aria-hidden="true">››</span>
+              </button>
+            </div>
+          </fieldset>
           <button
             type="button"
-            className={`remote-icon-button ${showOnTheFlySetup ? "active" : ""}`}
-            aria-label={showOnTheFlySetup ? "Close remote setup" : "Open remote setup"}
-            aria-pressed={showOnTheFlySetup}
-            title={showOnTheFlySetup ? "Close remote setup" : "Open remote setup"}
-            onClick={() => {
-              setActiveTab("tab1");
-              setShowOnTheFlySetup((current) => !current);
-            }}
+            className={`remote-lock-button ${controlsLocked ? "locked" : ""}`}
+            aria-pressed={controlsLocked}
+            aria-label={controlsLocked ? "Unlock controls" : "Lock controls"}
+            title={controlsLocked ? "Unlock controls" : "Lock controls"}
+            onClick={() => setControlsLocked((current) => !current)}
           >
-            <span aria-hidden="true">⚙</span>
+            <span className="remote-lock-glyph" aria-hidden="true" />
           </button>
         </div>
-      </header>
-
-      <fieldset className="remote-playback-fieldset" disabled={controlsLocked}>
-        <section className="remote-playback" aria-label="Playback controller">
-          <div className="remote-playback-title">
-            <div>
-              <span className="remote-playback-icon" aria-hidden="true">▣</span>
-              <strong>{playbackTitle}</strong>
-            </div>
-            <small>{controllerStateLabel}</small>
+        <div className="remote-command-status sr-only" role="status" aria-live="polite">
+          {commandStatus}
+        </div>
+        {selectedScreen?.playbackError && (
+          <div className="remote-playback-error" role="alert">
+            {selectedScreen.playbackError}
           </div>
-          <div className="remote-progress-row">
-            <span>{formatDuration(remotePosition)}</span>
-            {playbackDurationMs > 0 ? (
-              <input
-                type="range"
-                min={0}
-                max={playbackDurationMs}
-                step={1000}
-                value={remotePosition}
-                aria-label="Playback position"
-                onChange={(event) =>
-                  void command("seek", { positionMs: Number(event.target.value) })
-                }
-              />
-            ) : (
-              <div className="remote-progress-track" aria-hidden="true">
-                <i style={{ width: `${progress}%` }} />
-              </div>
-            )}
-            <span>{playbackDurationMs ? formatDuration(playbackDurationMs) : "00:00"}</span>
+        )}
+        {!selectedScreen?.playbackError && failedDownloads > 0 && (
+          <div className="remote-playback-error" role="alert">
+            {failedDownloads} media download{failedDownloads === 1 ? "" : "s"} failed. Open screen diagnostics before retrying.
           </div>
-          <div className="transport remote-transport" aria-label="Playback controls">
-            <button
-              type="button"
-              onClick={() => void command("previous")}
-              aria-label="Previous cue"
-              disabled={!selectedScreenOnline}
-            >
-              <span aria-hidden="true">‹‹</span>
-              <small>Previous</small>
-            </button>
-            <button
-              type="button"
-              className="transport-main"
-              onClick={() => void command(isPaused ? "resume" : "pause")}
-              aria-label={isPaused ? "Resume playback" : "Pause playback"}
-              disabled={!selectedScreenOnline}
-            >
-              <span aria-hidden="true">{isPaused ? "▶" : "Ⅱ"}</span>
-              <small>{isPaused ? "Play" : "Pause"}</small>
-            </button>
-            <button
-              type="button"
-              className="stop-transport"
-              onClick={() => void command("stop")}
-              aria-label="Stop playback"
-              disabled={!selectedScreenOnline}
-            >
-              <span aria-hidden="true">■</span>
-              <small>Stop</small>
-            </button>
-            <button
-              type="button"
-              onClick={() => void command("next")}
-              aria-label="Next cue"
-              disabled={!selectedScreenOnline}
-            >
-              <span aria-hidden="true">››</span>
-              <small>Next</small>
-            </button>
+        )}
+        {!selectedScreenOnline && (
+          <div className="remote-offline-warning" role="status">
+            Reconnect this screen before sending a live command. LessonCue will not silently queue it.
           </div>
-          <div className="remote-command-status" role="status" aria-live="polite">
-            {commandStatus}
-          </div>
-        </section>
-      </fieldset>
+        )}
+      </section>
 
       <nav className="remote-tabs" aria-label="Remote control tabs">
         {remoteTabs.map((tab) => (
@@ -267,7 +189,6 @@ export function CompactRemoteShell({
             role="tab"
             onClick={() => setActiveTab(tab.id)}
           >
-            <span className="remote-tab-icon" aria-hidden="true">{tab.icon}</span>
             <span>{tab.label}</span>
             {tab.id === "tab3" && liveActivityItem && <b aria-label="Active activity">●</b>}
           </button>
@@ -278,13 +199,75 @@ export function CompactRemoteShell({
         <div className="remote-tab-content">
           <section
             className="remote-tab-panel"
-            aria-label="Tab 1 controls"
+            aria-label="Lesson controls"
             role="tabpanel"
             hidden={activeTab !== "tab1"}
           >
+            <div className="remote-tab-heading remote-lesson-heading">
+              <div>
+                <span className="remote-kicker">LESSON</span>
+                <strong>{lesson?.title || "Choose a lesson"}</strong>
+                <small>{availableLessons.length} lesson{availableLessons.length === 1 ? "" : "s"} available</small>
+              </div>
+              <label className="remote-screen-picker">
+                <span>SCREEN</span>
+                <select
+                  aria-label="Control this screen"
+                  value={screenId}
+                  onChange={(event) => onScreenChange(event.target.value)}
+                >
+                  {liveScreens.length ? (
+                    liveScreens.map((screen) => (
+                      <option value={screen.id} key={screen.id}>
+                        {screen.name} · {screen.online ? "online" : "offline"}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">No paired screen</option>
+                  )}
+                </select>
+              </label>
+            </div>
+
+            <div className="remote-lesson-list" aria-label="Available lessons">
+              {availableLessons.length ? (
+                availableLessons.map((item) => (
+                  <button
+                    type="button"
+                    key={item.id}
+                    className={lesson?.id === item.id ? "selected" : ""}
+                    onClick={() => {
+                      setLessonId(item.id);
+                      setSelectedItemId("");
+                      setShowOnTheFlySetup(false);
+                      setMonitorOpen(false);
+                    }}
+                  >
+                    <span>
+                      <strong>{item.title}</strong>
+                      <small>{formatDate(item.date)} · {item.items.length} cues</small>
+                    </span>
+                    <i aria-hidden="true">›</i>
+                  </button>
+                ))
+              ) : (
+                <div className="remote-empty-state compact">
+                  <strong>No lessons available</strong>
+                  <small>Pair a screen with a class to choose its weekly lesson.</small>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section
+            className="remote-tab-panel"
+            aria-label="Playlist controls"
+            role="tabpanel"
+            hidden={activeTab !== "tab2"}
+          >
             <div className="remote-tab-heading">
               <div>
-                <span className="remote-kicker">MEDIA</span>
+                <span className="remote-kicker">PLAYLIST</span>
                 <strong>{lesson?.title || "Choose a lesson"}</strong>
                 <small>{orderedItems.length} cues available</small>
               </div>
@@ -297,6 +280,37 @@ export function CompactRemoteShell({
                 {showOnTheFlySetup ? "Close setup" : "Open setup"}
               </button>
             </div>
+
+            {timingLesson && (
+              <div className={`remote-run-summary remote-run-summary-light ${isOverrun ? "overrun" : ""}`}>
+                <div>
+                  <span>REMAINING</span>
+                  <strong>{formatFriendlyDuration(currentRemainingMs)}</strong>
+                </div>
+                <div>
+                  <span>EST. FINISH</span>
+                  <strong>
+                    {estimatedFinish
+                      ? estimatedFinish.toLocaleTimeString([], {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })
+                      : "—"}
+                  </strong>
+                </div>
+                {isOverrun && (
+                  <p role="alert">
+                    Running past the planned finish. Flexible cues can be shortened if appropriate.
+                  </p>
+                )}
+              </div>
+            )}
+            {reportedItem?.notes && (
+              <aside className="controller-note remote-current-note">
+                <strong>Current cue notes</strong>
+                <p>{reportedItem.notes}</p>
+              </aside>
+            )}
 
             {!showOnTheFlySetup && (
               <div className="remote-cue-list" aria-label="Lesson cues">
@@ -477,43 +491,8 @@ export function CompactRemoteShell({
           </section>
 
           <section
-            className="remote-tab-panel"
-            aria-label="Tab 2 controls"
-            role="tabpanel"
-            hidden={activeTab !== "tab2"}
-          >
-            {activeFeature ? (
-              <RemoteFeaturePanel
-                feature={activeFeature}
-                liveActivity={liveActivityItem}
-                onBack={() => setActiveFeature(undefined)}
-                onOpenSetup={openSetup}
-                onOpenActivity={() => setActiveTab("tab3")}
-              />
-            ) : (
-              <div className="remote-launcher-grid">
-                {remoteFeatures.map((feature) => (
-                  <button
-                    type="button"
-                    key={feature.id}
-                    className="remote-launcher-tile"
-                    onClick={() => handleFeature(feature.id)}
-                  >
-                    <span className="remote-launcher-icon" aria-hidden="true">{feature.icon}</span>
-                    <strong>{feature.label}</strong>
-                  </button>
-                ))}
-                <button type="button" className="remote-launcher-tile" onClick={openSetup}>
-                  <span className="remote-launcher-icon" aria-hidden="true">•••</span>
-                  <strong>More</strong>
-                </button>
-              </div>
-            )}
-          </section>
-
-          <section
             className="remote-tab-panel remote-activity-panel"
-            aria-label="Tab 3 controls"
+            aria-label="Activity controls"
             role="tabpanel"
             hidden={activeTab !== "tab3"}
           >
@@ -564,20 +543,6 @@ export function CompactRemoteShell({
           </section>
         </div>
       </fieldset>
-
-      <footer className="remote-footer">
-        <span className="remote-footer-status">{commandStatus || (controlsLocked ? "Controls locked" : "Ready")}</span>
-        <button
-          type="button"
-          className={`remote-lock-button ${controlsLocked ? "locked" : ""}`}
-          aria-pressed={controlsLocked}
-          aria-label={controlsLocked ? "Unlock controls" : "Lock controls"}
-          onClick={() => setControlsLocked((current) => !current)}
-        >
-          <span aria-hidden="true">{controlsLocked ? "🔒" : "🔓"}</span>
-          {controlsLocked ? "Unlock" : "Lock Controls"}
-        </button>
-      </footer>
     </div>
   );
 }
@@ -589,40 +554,4 @@ function cuePlannedDuration(item: PlaylistItem) {
 function nextCueTitle(items: PlaylistItem[], current?: PlaylistItem) {
   const index = current ? items.findIndex((item) => item.id === current.id) : -1;
   return items[index + 1]?.title;
-}
-
-function RemoteFeaturePanel({
-  feature,
-  liveActivity,
-  onBack,
-  onOpenSetup,
-  onOpenActivity,
-}: {
-  feature: RemoteFeatureId;
-  liveActivity?: PlaylistItem;
-  onBack: () => void;
-  onOpenSetup: () => void;
-  onOpenActivity: () => void;
-}) {
-  const definition = remoteFeatures.find((item) => item.id === feature) || remoteFeatures[0];
-  return (
-    <div className="remote-feature-panel">
-      <button type="button" className="remote-back-button" onClick={onBack}>
-        ← All controls
-      </button>
-      <div className="remote-feature-icon" aria-hidden="true">{definition.icon}</div>
-      <span className="remote-kicker">{definition.label.toUpperCase()}</span>
-      <h2>{definition.label}</h2>
-      <p>{definition.description}</p>
-      <div className="remote-feature-actions">
-        <button type="button" className="button primary" onClick={onOpenActivity} disabled={!liveActivity}>
-          {liveActivity ? "Open active controller" : "No active controller"}
-        </button>
-        <button type="button" className="button" onClick={onOpenSetup}>
-          Open setup
-        </button>
-      </div>
-      {!liveActivity && <small className="remote-feature-note">Choose a configured activity in setup to enable this control.</small>}
-    </div>
-  );
 }

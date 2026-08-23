@@ -103,8 +103,8 @@ export const CountdownDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = (
                 {formatted}
               </div>
               {isFinished && (
-                <div style={{ color: '#ef4444', fontWeight: 900, fontSize: '1.4rem', textTransform: 'uppercase', letterSpacing: '0.15em', marginTop: '0.5rem', animation: 'comicPop 0.4s' }}>
-                  TIME UP!
+                <div className="countdown-time-up">
+                  TIME'S UP!
                 </div>
               )}
             </div>

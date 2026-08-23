@@ -4,6 +4,111 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.40.58 — Google TV production release
+
+### User changes
+
+- Submitted the LessonCue TV-only bundle to the dedicated Google TV production
+  track.
+
+### Developer changes
+
+- Routed the Play release workflow to the Android TV `tv:production` track instead of
+  the generic mobile internal track, which rejects the required Leanback TV
+  feature.
+
+## v0.40.57 — Google Play internal distribution
+
+### User changes
+
+- Published the signed LessonCue TV bundle to Google Play internal testing from
+  tagged GitHub releases.
+
+### Developer changes
+
+- Connected the existing production release workflow to the Google Play
+  Developer API for the `org.lessoncue.tv` internal track.
+
+## v0.40.56 — Activity game typography
+
+### User changes
+
+- Added Fredoka for activity questions, answers, instructions, controls, and
+  player names.
+- Added Luckiest Guy for game names, round/status callouts, scores, reveals,
+  and the “TIME'S UP!” moment.
+
+### Developer changes
+
+- Bundled the supplied font files locally with their license notices and kept
+  the display face scoped to Activity/game surfaces.
+- Corrected participant-preview typography so global admin heading styles cannot
+  leak into phone questions and prompts.
+
+## v0.40.55 — Classroom remote preset reliability
+
+### User changes
+
+- Fixed preset selection so choosing a template and applying it immediately
+  always saves the selected format, including its engine and preset identity.
+
+### Developer changes
+
+- Kept preset selection local until Apply commits the template, and made the
+  server trust the config preset when the top-level identity is stale.
+
+## v0.40.53 — Classroom remote preset reliability
+
+### User changes
+
+- Fixed Activity preset templates so the selected template is always the one
+  applied, even when it is chosen and applied immediately.
+
+### Developer changes
+
+- Made the shared preset picker read the live select value when applying a
+  template and keep it stable across parent re-renders, removing the
+  render-timing race exposed by the release browser suite.
+
+### Reliability fix
+
+- Kept the event-selected preset in a dedicated live ref so Apply cannot fall
+  back to the previous template while React reconciles the editor.
+
+## v0.40.50 — Classroom remote navigation
+
+### User changes
+
+- Reworked classroom and universal remotes around three clear tabs: Lesson,
+  Playlist, and Activity.
+- Made Lesson the weekly lesson picker and Playlist the place for individual
+  cue selection, setup, notes, and timing details.
+- Reduced the transport controls to compact icon buttons, moved locking to a
+  small inline lock icon, and removed the remote header and save-as-app panel.
+
+### Developer changes
+
+- Removed the unused Quick tools launcher and kept screen selection in the
+  Lesson surface so universal remote control remains available without a top
+  bar.
+- Added regression coverage for both remote tab semantics, compact controls,
+  header removal, and activity-console continuity.
+
+## v0.40.49 — Jackbox-style Activity rooms and host control polish
+
+### User changes
+
+- Added a full-screen classroom lobby with a persistent room code, scannable QR, absolute phone join address, and one-by-one player arrivals.
+- Let players choose a fixed emoji and colour identity, switch players on shared phones, and see their own outcome, points, rank, and total after each reveal.
+- Added TV response clocks, between-round standings races, first-in and streak callouts, optional automatic response-window advance, and a live host roster with answer counts.
+- Made the host remote retain run timing, estimated finish, overrun guidance, playback errors, and save-as-app instructions alongside the compact controls.
+
+### Developer changes
+
+- Added server-resolved join addresses with reachable-mode fallback, per-participant projections, atomic auto-advance locking, server-derived callouts, and shared presentation components.
+- Added lobby, join, identity, participant-result, host-console, standings, stage-clock, palette, sound fallback, reduced-motion, and full catalog smoke coverage.
+- Added a manifest-driven optional sound-pack lookup with synthesized fallback cues and restored compact-remote diagnostics and run-of-show information.
+
 ## v0.40.48 — Activity game audio and visual polish
 
 ### User changes
