@@ -3517,3 +3517,14 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   .lesson-timeline-track { overflow-x: auto; }
   .lesson-timeline-segment { flex: 0 0 130px !important; }
 }
+
+/* ------------------------------------------------- short domain settings --- */
+.settings-subhead { margin: .9rem 0 .1rem; font-size: .95rem; font-weight: 800; }
+.settings-fieldset { margin: .4rem 0 0; padding: .6rem .8rem; border: 1px solid var(--line); border-radius: 12px; }
+.settings-fieldset legend { padding-inline: .3rem; font-size: .8rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.settings-warning { color: #8a5a10; }
+.settings-check-list { display: grid; gap: .4rem; margin: .7rem 0 0; padding: 0; list-style: none; }
+.settings-check-list li { display: grid; gap: .1rem; padding: .5rem .7rem; border: 1px solid var(--line); border-radius: 12px; }
+.settings-check-list li.passed { border-color: #3f8f5f; background: #f2faf5; }
+.settings-check-list li.failed { border-color: #b4453f; background: #fdf2f1; }
+.settings-check-list small { color: var(--muted); font-size: .78rem; }

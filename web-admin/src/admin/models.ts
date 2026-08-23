@@ -922,3 +922,19 @@ export interface JoinAddressStatus {
   resolvedFrom: string;
   options: JoinAddressOption[];
 }
+
+export type ShortDomainSettings = {
+  domain: string;
+  upstream: string;
+  rootRedirectUrl: string;
+  rootRedirectEnabled: boolean;
+  rootFallback: "lessoncue" | "shortener" | "notfound";
+  permanent: boolean;
+  preserveQuery: boolean;
+  configured: boolean;
+  rootRedirectConfigured: boolean;
+  warnings: string[];
+};
+
+export type ShortDomainCheck = { name: string; passed: boolean; detail: string };
+export type ShortDomainTestResult = { passed: boolean; checks: ShortDomainCheck[] };

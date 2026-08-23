@@ -1,7 +1,7 @@
 import { confirmAction } from "../../AccessibleDialogs";
 import { FormEvent, useEffect, useState } from "react";
 import { api, waitForVersion } from "../api";
-import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, JoinAddressStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
+import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, JoinAddressStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, ShortDomainSettings, ShortDomainTestResult, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
 import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead, StorageMeter } from "../ui";
 import { RegistrationSettingsPanel, ServiceAdminMfaPanel, TroubleshootingLogPanel } from "./Users";
 import { cleanReleaseNotes, errorText, formatBytes, parseStringArray, quotaLimitsFromText, quotaLimitsToText, timeAgo } from "../utils";
@@ -680,6 +680,54 @@ export function Settings({
       notify(errorText(e));
     }
   }
+  const [shortDomain, setShortDomain] = useState<ShortDomainSettings | null>(null);
+  const [shortDomainTest, setShortDomainTest] = useState<ShortDomainTestResult | null>(null);
+  const [shortDomainBusy, setShortDomainBusy] = useState(false);
+
+  useEffect(() => {
+    if (!canManageApp) return;
+    void api<ShortDomainSettings>("/api/v1/short-domain").then(setShortDomain).catch(() => setShortDomain(null));
+  }, [canManageApp]);
+
+  async function saveShortDomain(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!shortDomain) return;
+    setShortDomainBusy(true);
+    try {
+      const saved = await api<{ warnings: string[] }>("/api/v1/short-domain", {
+        method: "PUT",
+        body: JSON.stringify({
+          domain: shortDomain.domain,
+          upstream: shortDomain.upstream,
+          rootRedirectUrl: shortDomain.rootRedirectUrl,
+          rootRedirectEnabled: shortDomain.rootRedirectEnabled,
+          rootFallback: shortDomain.rootFallback,
+          permanent: shortDomain.permanent,
+          preserveQuery: shortDomain.preserveQuery,
+        }),
+      });
+      setShortDomain(await api<ShortDomainSettings>("/api/v1/short-domain"));
+      setShortDomainTest(null);
+      notify(saved.warnings.length ? saved.warnings.join(" ") : "Short domain saved.");
+    } catch (e) {
+      notify(errorText(e));
+    } finally {
+      setShortDomainBusy(false);
+    }
+  }
+
+  async function testShortDomain() {
+    setShortDomainBusy(true);
+    setShortDomainTest(null);
+    try {
+      setShortDomainTest(await api<ShortDomainTestResult>("/api/v1/short-domain/test", { method: "POST", body: JSON.stringify({}) }));
+    } catch (e) {
+      notify(errorText(e));
+    } finally {
+      setShortDomainBusy(false);
+    }
+  }
+
   async function saveControllerPin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
@@ -2090,6 +2138,137 @@ export function Settings({
                 </Field>
                 <button className="button primary">Save pairing mode</button>
               </form>
+            </CollapsibleSettingsSection>
+          )}
+          {canManageApp && shortDomain && (
+            <CollapsibleSettingsSection
+              label="Integrations · URL shortener"
+              className="settings-panel settings-connections"
+            >
+              <h2>URL shortener</h2>
+              <p className="settings-copy">
+                Short links live on their own domain, served by the shortener.
+                LessonCue answers only the bare root of that domain, so every
+                short link and every game code underneath it is untouched.
+              </p>
+              <form className="stack" onSubmit={saveShortDomain}>
+                <Field label="Short domain">
+                  <input
+                    value={shortDomain.domain}
+                    onChange={(event) => setShortDomain((prev) => (prev ? { ...prev, domain: event.target.value } : prev))}
+                    placeholder="go.example.org"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </Field>
+                <Field label="Where the shortener is reachable">
+                  <input
+                    value={shortDomain.upstream}
+                    onChange={(event) => setShortDomain((prev) => (prev ? { ...prev, upstream: event.target.value } : prev))}
+                    placeholder="http://shlink:8080"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </Field>
+
+                <h3 className="settings-subhead">Root domain destination</h3>
+                <div className="check-row">
+                  <input
+                    id="short-domain-root-enabled"
+                    type="checkbox"
+                    checked={shortDomain.rootRedirectEnabled}
+                    onChange={(event) => setShortDomain((prev) => (prev ? { ...prev, rootRedirectEnabled: event.target.checked } : prev))}
+                  />
+                  <label htmlFor="short-domain-root-enabled">Redirect the root short domain</label>
+                </div>
+
+                {shortDomain.rootRedirectEnabled ? (
+                  <>
+                    <p className="settings-copy">
+                      When someone visits <strong>https://{shortDomain.domain || "your-short-domain"}</strong>, redirect them to:
+                    </p>
+                    <Field label="Destination">
+                      <input
+                        value={shortDomain.rootRedirectUrl}
+                        onChange={(event) => setShortDomain((prev) => (prev ? { ...prev, rootRedirectUrl: event.target.value } : prev))}
+                        placeholder="https://www.example.org"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                    </Field>
+                    <div className="check-row">
+                      <input
+                        id="short-domain-preserve-query"
+                        type="checkbox"
+                        checked={shortDomain.preserveQuery}
+                        onChange={(event) => setShortDomain((prev) => (prev ? { ...prev, preserveQuery: event.target.checked } : prev))}
+                      />
+                      <label htmlFor="short-domain-preserve-query">Carry the query string across, so ?source=poster is not lost</label>
+                    </div>
+                    <div className="check-row">
+                      <input
+                        id="short-domain-permanent"
+                        type="checkbox"
+                        checked={shortDomain.permanent}
+                        onChange={(event) => setShortDomain((prev) => (prev ? { ...prev, permanent: event.target.checked } : prev))}
+                      />
+                      <label htmlFor="short-domain-permanent">
+                        Permanent redirect (301). Leave this off while the destination is new — browsers
+                        cache a 301 hard and will keep using it after you change it.
+                      </label>
+                    </div>
+                  </>
+                ) : (
+                  <Field label="Root-domain behavior">
+                    <select
+                      value={shortDomain.rootFallback}
+                      onChange={(event) => setShortDomain((prev) => (prev
+                        ? { ...prev, rootFallback: event.target.value as ShortDomainSettings["rootFallback"] }
+                        : prev))}
+                    >
+                      <option value="shortener">Show the shortener's own page</option>
+                      <option value="lessoncue">Show LessonCue on the short domain</option>
+                      <option value="notfound">Return 404</option>
+                    </select>
+                  </Field>
+                )}
+
+                <div className="row gap">
+                  <button className="button primary" disabled={shortDomainBusy}>Save</button>
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={shortDomainBusy || !shortDomain.configured}
+                    onClick={() => void testShortDomain()}
+                  >Test</button>
+                </div>
+              </form>
+
+              <Definition
+                label="Root-domain redirect"
+                value={
+                  !shortDomain.configured
+                    ? "Not configured"
+                    : shortDomain.rootRedirectConfigured
+                      ? `${shortDomain.domain} → ${shortDomain.rootRedirectUrl}`
+                      : `${shortDomain.domain} → ${shortDomain.rootFallback === "notfound" ? "404" : shortDomain.rootFallback === "lessoncue" ? "LessonCue" : "the shortener"}`
+                }
+              />
+
+              {shortDomain.warnings.map((warning) => (
+                <p className="settings-copy settings-warning" key={warning}>{warning}</p>
+              ))}
+
+              {shortDomainTest && (
+                <ul className="settings-check-list">
+                  {shortDomainTest.checks.map((check) => (
+                    <li key={check.name} className={check.passed ? "passed" : "failed"}>
+                      <strong>{check.passed ? "✓" : "✕"} {check.name}</strong>
+                      <small>{check.detail}</small>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </CollapsibleSettingsSection>
           )}
           {canManageApp && (

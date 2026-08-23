@@ -35,6 +35,20 @@ public sealed class Organization
     [MaxLength(120)] public string EmailFromName { get; set; } = "LessonCue";
     [MaxLength(16)] public string EmailProvider { get; set; } = "none";
     [MaxLength(24000)] public string UploadQuotaPolicyJson { get; set; } = "{}";
+
+    // The public short domain, and what the bare root of it should do. Kept on
+    // the organization rather than in environment variables so an administrator
+    // can repoint it without a redeploy.
+    [MaxLength(253)] public string ShortDomain { get; set; } = "";
+    [MaxLength(2048)] public string ShortDomainRootRedirectUrl { get; set; } = "";
+    public bool ShortDomainRootRedirectEnabled { get; set; } = true;
+    /// <summary>What the bare root does when the redirect is switched off: lessoncue, shortener, or notfound.</summary>
+    [MaxLength(16)] public string ShortDomainRootFallback { get; set; } = "shortener";
+    /// <summary>302 by default: intermediaries cache a 301 aggressively and a new destination is rarely final.</summary>
+    public bool ShortDomainRootRedirectPermanent { get; set; }
+    public bool ShortDomainRootPreserveQuery { get; set; } = true;
+    /// <summary>Where the shortener itself is reachable from the server, for example http://shlink:8080.</summary>
+    [MaxLength(253)] public string ShortDomainUpstream { get; set; } = "";
 }
 
 public sealed class AdminAccount
@@ -681,6 +695,17 @@ public sealed record PairingRequestInput(string DeviceName, string Platform, str
 public sealed record PairingConfirmInput(Guid RequestId, string Pin);
 public sealed record PairingPinInput(string? Pin, bool Automatic = false);
 public sealed record ControllerPinInput(string Pin);
+
+public sealed record ShortDomainTestInput(string? SampleSlug = null, string? GameCode = null);
+
+public sealed record ShortDomainInput(
+    string? Domain,
+    string? Upstream,
+    string? RootRedirectUrl,
+    bool RootRedirectEnabled = true,
+    string? RootFallback = null,
+    bool Permanent = false,
+    bool PreserveQuery = true);
 public sealed record TemporaryControllerSessionInput(Guid ClassId, Guid? LessonId, int ExpiresInMinutes = 60);
 public sealed record PermanentControllerSessionInput(Guid ClassId, Guid? LessonId);
 public sealed record RecycleBinItem(string Kind, Guid Id, string Title, string Detail,

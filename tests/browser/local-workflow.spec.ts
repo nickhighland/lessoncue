@@ -507,8 +507,11 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
 
   await page.getByRole("button", { name: /Settings$/ }).click();
   await page.getByRole("button", { name: /Connections/ }).click();
-  await expect(page.getByRole("heading", { name: "Optional remote access" })).toBeVisible();
-  await expect(page.getByText("Not configured", { exact: true })).toBeVisible();
+  const remoteAccess = page.locator(".settings-panel").filter({ hasText: "Optional remote access" });
+  await expect(remoteAccess.getByRole("heading", { name: "Optional remote access" })).toBeVisible();
+  // Scoped to its own panel: "Not configured" is an honest label for more than
+  // one integration, so an unscoped match breaks whenever another is added.
+  await expect(remoteAccess.getByText("Not configured", { exact: true })).toBeVisible();
   const unsupportedTunnel = await page.evaluate(async () => {
     const response = await fetch("/api/v1/cloudflare-tunnel", { method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: true, publicHostname: "lesson.example.org", token: `eyJ${"a".repeat(77)}`, acknowledgedRemoteExposure: true }) });
