@@ -88,7 +88,9 @@ test("starting the game replaces the lobby with play", async ({ page, context })
       });
     }, run.runId);
 
-    await expect(tv.locator(".activity-lobby-stage")).toHaveCount(0, { timeout: 15_000 });
+    // Waits on a live SignalR push rather than a poll, so it needs headroom
+    // when the whole suite is competing for the same server.
+    await expect(tv.locator(".activity-lobby-stage")).toHaveCount(0, { timeout: 40_000 });
     // Play keeps a compact join banner so latecomers can still get in.
     await expect(tv.locator(".interactive-join-banner")).toBeVisible();
     await expect(tv.getByText("Red planet?")).toBeVisible();

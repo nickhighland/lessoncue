@@ -33,6 +33,7 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
     public DbSet<AudienceQuestion> AudienceQuestions => Set<AudienceQuestion>();
     public DbSet<AudienceResponse> AudienceResponses => Set<AudienceResponse>();
     public DbSet<Activities.ActivityDefinition> ActivityDefinitions => Set<Activities.ActivityDefinition>();
+    public DbSet<Activities.ActivitySessionGroup> ActivitySessionGroups => Set<Activities.ActivitySessionGroup>();
     public DbSet<Activities.ActivityRun> ActivityRuns => Set<Activities.ActivityRun>();
     public DbSet<Activities.ActivityAsset> ActivityAssets => Set<Activities.ActivityAsset>();
     public DbSet<Activities.ActivityParticipant> ActivityParticipants => Set<Activities.ActivityParticipant>();
@@ -111,11 +112,19 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
         // the MediaAsset filter so Includes do not turn the required
         // relationship into an unexpected inner join.
         modelBuilder.Entity<Activities.ActivityAsset>().HasQueryFilter(x => x.Media != null && x.Media.DeletedAt == null);
+        modelBuilder.Entity<Activities.ActivitySessionGroup>().HasIndex(x => x.JoinCode).IsUnique();
+        modelBuilder.Entity<Activities.ActivitySessionGroup>().HasIndex(x => x.LessonId);
+        modelBuilder.Entity<Activities.ActivityRun>().HasIndex(x => x.SessionGroupId);
+        modelBuilder.Entity<Activities.ActivityParticipant>().HasIndex(x => x.SessionGroupId);
+        modelBuilder.Entity<Activities.ActivityTeam>().HasIndex(x => x.SessionGroupId);
+        modelBuilder.Entity<Activities.ActivityScoreEvent>().HasIndex(x => x.SessionGroupId);
         modelBuilder.Entity<Activities.ActivityRun>().HasIndex(x => new { x.ActivityDefinitionId, x.LessonId });
         modelBuilder.Entity<Activities.ActivityRun>().HasIndex(x => x.LessonItemId);
         modelBuilder.Entity<Activities.ActivityRun>().HasOne(x => x.ActivityDefinition).WithMany()
             .HasForeignKey(x => x.ActivityDefinitionId).OnDelete(DeleteBehavior.Cascade);
-        modelBuilder.Entity<Activities.ActivityRun>().HasIndex(x => x.JoinCode).IsUnique();
+        // Not unique any more: every run in a lesson's lobby carries that lobby's
+        // code. Uniqueness now belongs to ActivitySessionGroup.JoinCode.
+        modelBuilder.Entity<Activities.ActivityRun>().HasIndex(x => x.JoinCode);
         modelBuilder.Entity<Activities.ActivityRun>().HasMany(x => x.Participants).WithOne(x => x.ActivityRun)
             .HasForeignKey(x => x.ActivityRunId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<Activities.ActivityRun>().HasMany(x => x.Teams).WithOne(x => x.ActivityRun)

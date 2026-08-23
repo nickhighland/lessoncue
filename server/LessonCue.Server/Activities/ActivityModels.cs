@@ -166,8 +166,39 @@ public sealed class ActivityAsset
     [MaxLength(2000)] public string MetadataJson { get; set; } = "{}";
 }
 
+/// <summary>
+/// The lobby a room joins, which outlives any single game.
+///
+/// Players were previously tied to one <see cref="ActivityRun"/>, so every
+/// activity in a lesson issued a new code and a new roster: people re-scanned
+/// per game, scores reset, and a rename forked the player in two. The group
+/// owns the join code, the people, the teams, and the score history; runs
+/// attach to it and contribute their own rounds.
+///
+/// Scoped to a lesson where there is one, otherwise to a single ad-hoc run.
+/// </summary>
+public sealed class ActivitySessionGroup
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid? LessonId { get; set; }
+    public Lesson? Lesson { get; set; }
+    [MaxLength(12)] public required string JoinCode { get; set; }
+    /// <summary>The run phones should follow right now, as the lesson moves.</summary>
+    public Guid? CurrentRunId { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    /// <summary>Set when a host clears the board to start scoring over.</summary>
+    public DateTimeOffset? ScoresResetAt { get; set; }
+    public List<ActivityRun> Runs { get; set; } = [];
+    public List<ActivityParticipant> Participants { get; set; } = [];
+    public List<ActivityTeam> Teams { get; set; } = [];
+}
+
 public sealed class ActivityRun
 {
+    public Guid? SessionGroupId { get; set; }
+    public ActivitySessionGroup? SessionGroup { get; set; }
+
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ActivityDefinitionId { get; set; }
     public ActivityDefinition? ActivityDefinition { get; set; }
@@ -193,9 +224,24 @@ public sealed class ActivityRun
     public long? TimerDurationMs { get; set; }
     public DateTimeOffset? TimerPausedAt { get; set; }
     public int RetentionDays { get; set; } = 7;
-    public List<ActivityParticipant> Participants { get; set; } = [];
-    public List<ActivityTeam> Teams { get; set; } = [];
-    public List<ActivityScoreEvent> ScoreEvents { get; set; } = [];
+    /// <summary>
+    /// EF navigations, scoped to this one run. Mutating these persists.
+    /// </summary>
+    public List<ActivityParticipant> RunParticipants { get; set; } = [];
+    public List<ActivityTeam> RunTeams { get; set; } = [];
+    public List<ActivityScoreEvent> RunScoreEvents { get; set; } = [];
+
+    /// <summary>
+    /// The lobby's people, teams and points, spanning every game in the lesson.
+    ///
+    /// Deliberately unmapped. Assigning a lobby-wide list into an EF navigation
+    /// re-parents the rows — every participant's ActivityRunId would be
+    /// rewritten to whichever game loaded them last. Projections read these;
+    /// persistence goes through the Run* navigations above.
+    /// </summary>
+    [NotMapped] public List<ActivityParticipant> Participants { get; set; } = [];
+    [NotMapped] public List<ActivityTeam> Teams { get; set; } = [];
+    [NotMapped] public List<ActivityScoreEvent> ScoreEvents { get; set; } = [];
     public List<ActivitySubmission> Submissions { get; set; } = [];
     public List<ActivityVote> Votes { get; set; } = [];
 }
@@ -232,8 +278,12 @@ public static class ActivityModes
 public sealed class ActivityParticipant
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    /// <summary>The run this player first joined through. Kept for history.</summary>
     public Guid ActivityRunId { get; set; }
     public ActivityRun? ActivityRun { get; set; }
+    /// <summary>The lobby this player belongs to, which spans games.</summary>
+    public Guid? SessionGroupId { get; set; }
+    public ActivitySessionGroup? SessionGroup { get; set; }
     [MaxLength(128)] public required string ParticipantTokenHash { get; set; }
     [MaxLength(80)] public string DisplayName { get; set; } = "Guest";
     /// <summary>Emoji chosen at join. Constrained to <see cref="ActivityIdentity"/>.</summary>
@@ -254,6 +304,8 @@ public sealed class ActivityTeam
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ActivityRunId { get; set; }
     public ActivityRun? ActivityRun { get; set; }
+    public Guid? SessionGroupId { get; set; }
+    public ActivitySessionGroup? SessionGroup { get; set; }
     [MaxLength(80)] public required string Name { get; set; }
     [MaxLength(16)] public string Color { get; set; } = "#6d5dfc";
     [MaxLength(8)] public string Icon { get; set; } = "★";
@@ -266,8 +318,12 @@ public sealed class ActivityTeam
 public sealed class ActivityScoreEvent
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    /// <summary>Which game earned it, so one game's points stay attributable.</summary>
     public Guid ActivityRunId { get; set; }
     public ActivityRun? ActivityRun { get; set; }
+    /// <summary>The lobby the points belong to, so totals span games.</summary>
+    public Guid? SessionGroupId { get; set; }
+    public ActivitySessionGroup? SessionGroup { get; set; }
     public Guid? ParticipantId { get; set; }
     public ActivityParticipant? Participant { get; set; }
     public Guid? TeamId { get; set; }

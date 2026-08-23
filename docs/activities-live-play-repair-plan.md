@@ -14,7 +14,7 @@ is called out — the fix belongs where the cause is.
 | 0 | This plan | done |
 | 1 | Shrink the controller pause button | done |
 | 2 | Server-admin switch to hide Activities while testing | done |
-| 3 | Repair live play: shared lesson session, host visibility, flow | not started |
+| 3 | Repair live play: shared lesson session, host visibility, flow | in progress |
 | 4 | Exercise every game individually | not started |
 | 5 | Remove the Android launch hang | not started |
 
@@ -174,11 +174,16 @@ lesson.
 
 Depends on the lesson session above.
 
-1. **One code per lesson.** Group creation, run adoption, migration, and a
-   single QR that stays valid across every game in the lesson. Resolving a
-   lesson to exactly one live session also removes the "joined the wrong run"
-   trap; where two runs genuinely exist, the host surface must say so rather
-   than leaving a room stuck in a session nobody is driving.
+1. **One code per lesson.** *(done)* `ActivitySessionGroup` owns the join code,
+   the roster, the teams and the score history. Runs attach to it, existing runs
+   are adopted with their code and history intact, and a join code resolves to
+   whichever game the lesson is currently on. Uniqueness moved from
+   `ActivityRuns.JoinCode` to the group, since runs in one lobby now share a
+   code. Identity is salted by the lobby, so the same phone is the same player
+   in every game, and a rename updates that player instead of forking them.
+
+   Still to do here: surface the "two runs exist" case in the host UI, since a
+   run started outside a lesson still forms its own lobby.
 2. **Carry scores.** Cumulative standings across games, plus a host reset.
 3. **Host visibility.** Move the moderation queue out of setup so pending
    drawings and answers are always visible during play, with a count, the
@@ -244,6 +249,11 @@ Recorded here so nothing is lost between sessions.
 - **Host controls state what to do and what will happen**, per phase — see the
   table above.
 - **Auto-progress** once all answers are in and all votes are cast.
+- **Default response timers**, so a round is never open-ended: 30 seconds for
+  multiple choice, 60 seconds for drawing, text entry and the other
+  compose-an-answer inputs. The round advances on whichever comes first — the
+  timer running out, or everyone having submitted. Teacher-editable per
+  activity; these are defaults, not limits.
 - **Players signed in but were not added to the game** — see root cause A.
 - **A player renaming themselves became a second player** — see root cause A.
 

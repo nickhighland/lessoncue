@@ -43,11 +43,7 @@ public sealed class ActivitySessionService(
                 changed = true;
             }
 
-            if (string.IsNullOrWhiteSpace(current.JoinCode))
-            {
-                current.JoinCode = await NewJoinCodeAsync(ct);
-                changed = true;
-            }
+            if (await AttachSessionGroupAsync(current, ct)) changed = true;
 
             var state = ParseObject(current.StateJson);
             if (!state.ContainsKey("phase"))
@@ -78,14 +74,122 @@ public sealed class ActivitySessionService(
         }
     }
 
+
+    /// <summary>
+    /// Put this run into the lobby its room joins, creating or adopting one.
+    ///
+    /// A lesson gets a single group, so every activity in it shares one join
+    /// code, one roster and one running score. A run with no lesson gets its own
+    /// group, which keeps ad-hoc launches working exactly as before.
+    ///
+    /// Existing runs are adopted rather than reset: the group takes over the
+    /// run's current join code where it has one, and the run's people, teams and
+    /// score history are backfilled into the group so nothing in flight breaks
+    /// and no history is lost.
+    /// </summary>
+    private async Task<bool> AttachSessionGroupAsync(ActivityRun run, CancellationToken ct)
+    {
+        if (run.SessionGroupId.HasValue)
+        {
+            var existing = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == run.SessionGroupId.Value, ct);
+            if (existing is not null)
+            {
+                var moved = existing.CurrentRunId != run.Id;
+                if (moved)
+                {
+                    existing.CurrentRunId = run.Id;
+                    existing.UpdatedAt = DateTimeOffset.UtcNow;
+                }
+                return moved;
+            }
+            run.SessionGroupId = null;
+        }
+
+        var group = run.LessonId.HasValue
+            ? await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.LessonId == run.LessonId.Value, ct)
+            : null;
+
+        if (group is null)
+        {
+            group = new ActivitySessionGroup
+            {
+                Id = Guid.NewGuid(),
+                LessonId = run.LessonId,
+                // Adopt the code the room may already be looking at.
+                JoinCode = string.IsNullOrWhiteSpace(run.JoinCode) ? await NewJoinCodeAsync(ct) : run.JoinCode!,
+                CurrentRunId = run.Id,
+            };
+            db.ActivitySessionGroups.Add(group);
+        }
+
+        run.SessionGroupId = group.Id;
+        // Runs still carry the code so older clients and the legacy envelope
+        // keep working; the group is the authority.
+        run.JoinCode = group.JoinCode;
+        group.CurrentRunId = run.Id;
+        group.UpdatedAt = DateTimeOffset.UtcNow;
+
+        await BackfillGroupOwnershipAsync(run.Id, group.Id, ct);
+        return true;
+    }
+
+    /// <summary>Move a run's existing people, teams and points into its group.</summary>
+    private async Task BackfillGroupOwnershipAsync(Guid runId, Guid groupId, CancellationToken ct)
+    {
+        await db.ActivityParticipants
+            .Where(x => x.ActivityRunId == runId && x.SessionGroupId == null)
+            .ExecuteUpdateAsync(x => x.SetProperty(item => item.SessionGroupId, groupId), ct);
+        await db.ActivityTeams
+            .Where(x => x.ActivityRunId == runId && x.SessionGroupId == null)
+            .ExecuteUpdateAsync(x => x.SetProperty(item => item.SessionGroupId, groupId), ct);
+        await db.ActivityScoreEvents
+            .Where(x => x.ActivityRunId == runId && x.SessionGroupId == null)
+            .ExecuteUpdateAsync(x => x.SetProperty(item => item.SessionGroupId, groupId), ct);
+    }
+
+    /// <summary>
+    /// Resolve a join code to the game the room should currently be in.
+    ///
+    /// The code belongs to the lobby, not to one game, so a phone that joined
+    /// during the first activity follows the lesson into the next one without
+    /// re-scanning. Falls back to the legacy per-run code so a session that was
+    /// already live before groups existed keeps working.
+    /// </summary>
     public async Task<ActivityRun?> FindByJoinCodeAsync(string code, CancellationToken ct = default)
     {
         var normalized = NormalizeCode(code);
         if (normalized.Length == 0) return null;
+
+        var group = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.JoinCode == normalized, ct);
+        if (group is not null)
+        {
+            var current = await ResolveGroupRunAsync(group, ct);
+            if (current is not null) return await EnsureInteractiveRunAsync(current, ct);
+        }
+
         var run = await db.ActivityRuns.Include(x => x.ActivityDefinition)
             .SingleOrDefaultAsync(x => x.JoinCode == normalized, ct);
         if (run is null || run.ActivityDefinition is null || run.Status == ActivityRunStatuses.Ended) return null;
         return await EnsureInteractiveRunAsync(run, ct);
+    }
+
+    /// <summary>
+    /// The live run for a lobby: the one the host is driving, or the most
+    /// recently touched one that has not ended.
+    /// </summary>
+    private async Task<ActivityRun?> ResolveGroupRunAsync(ActivitySessionGroup group, CancellationToken ct)
+    {
+        if (group.CurrentRunId.HasValue)
+        {
+            var current = await db.ActivityRuns.Include(x => x.ActivityDefinition)
+                .SingleOrDefaultAsync(x => x.Id == group.CurrentRunId.Value, ct);
+            if (current?.ActivityDefinition is not null && current.Status != ActivityRunStatuses.Ended) return current;
+        }
+
+        return await db.ActivityRuns.Include(x => x.ActivityDefinition)
+            .Where(x => x.SessionGroupId == group.Id && x.Status != ActivityRunStatuses.Ended)
+            .OrderByDescending(x => x.UpdatedAt)
+            .FirstOrDefaultAsync(ct);
     }
 
     public async Task<(ActivityRun? Run, ActivityParticipant? Participant, string Token, string? Error)> JoinAsync(
@@ -98,15 +202,20 @@ public sealed class ActivitySessionService(
 
         var token = (input.ParticipantToken ?? "").Trim();
         if (token.Length is < 20 or > 200) token = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
-        var hash = TokenHash(run.Id, token);
-        var participant = await db.ActivityParticipants
-            .SingleOrDefaultAsync(x => x.ActivityRunId == run.Id && x.ParticipantTokenHash == hash, ct);
+
+        // Identity belongs to the lobby, so a phone that joined an earlier game
+        // in this lesson is recognised rather than signed up again.
+        var groupId = run.SessionGroupId;
+        var hash = TokenHash(groupId ?? run.Id, token);
+        var participant = await FindParticipantAsync(run.Id, token, ct);
         var isNewParticipant = participant is null;
 
         var displayName = NormalizeDisplayName(input.DisplayName);
         if (participant is null)
         {
-            var count = await db.ActivityParticipants.CountAsync(x => x.ActivityRunId == run.Id && x.Status != "removed", ct);
+            var count = groupId.HasValue
+                ? await db.ActivityParticipants.CountAsync(x => x.SessionGroupId == groupId.Value && x.Status != "removed", ct)
+                : await db.ActivityParticipants.CountAsync(x => x.ActivityRunId == run.Id && x.Status != "removed", ct);
             // Unclaimed identities are spread by join order so a room that
             // never touches the picker still looks varied on the stage.
             var (defaultAvatar, defaultColor) = ActivityIdentity.ForIndex(count);
@@ -114,6 +223,7 @@ public sealed class ActivitySessionService(
             {
                 Id = Guid.NewGuid(),
                 ActivityRunId = run.Id,
+                SessionGroupId = groupId,
                 ParticipantTokenHash = hash,
                 DisplayName = string.IsNullOrWhiteSpace(displayName) ? $"Player {count + 1}" : displayName,
                 Avatar = string.IsNullOrWhiteSpace(input.Avatar) ? defaultAvatar : ActivityIdentity.NormalizeAvatar(input.Avatar),
@@ -379,7 +489,7 @@ public sealed class ActivitySessionService(
             {
                 var name = NormalizeDisplayName(input.Name);
                 if (string.IsNullOrWhiteSpace(name)) name = $"Team {index + 1}";
-                replacementTeams.Add(new ActivityTeam { ActivityRunId = run.Id, Name = name, Position = index, Color = input.Color ?? TeamColors[index % TeamColors.Length], Icon = input.Icon ?? TeamIcons[index % TeamIcons.Length] });
+                replacementTeams.Add(new ActivityTeam { ActivityRunId = run.Id, SessionGroupId = run.SessionGroupId, Name = name, Position = index, Color = input.Color ?? TeamColors[index % TeamColors.Length], Icon = input.Icon ?? TeamIcons[index % TeamIcons.Length] });
             }
             db.ActivityTeams.AddRange(replacementTeams);
             await db.SaveChangesAsync(ct);
@@ -2379,12 +2489,14 @@ public sealed class ActivitySessionService(
             var team = new ActivityTeam
             {
                 ActivityRunId = run.Id,
+                SessionGroupId = run.SessionGroupId,
                 Name = $"Team {index + 1}",
                 Position = index,
                 Color = TeamColors[index % TeamColors.Length],
                 Icon = TeamIcons[index % TeamIcons.Length]
             };
             teams.Add(team);
+            run.RunTeams.Add(team);
             run.Teams.Add(team);
         }
         db.ActivityTeams.AddRange(teams);
@@ -3287,7 +3399,9 @@ public sealed class ActivitySessionService(
         var team = resolvedTeamId.HasValue ? run.Teams.FirstOrDefault(x => x.Id == resolvedTeamId.Value) : null;
         var already = run.ScoreEvents.Any(x => !x.IsUndone && x.ParticipantId == participantId && x.TeamId == resolvedTeamId && x.RoundId == roundId && x.Reason == reason);
         if (already) return;
-        db.ActivityScoreEvents.Add(new ActivityScoreEvent { ActivityRunId = run.Id, ParticipantId = participantId, TeamId = resolvedTeamId, RoundId = roundId, Amount = amount, Reason = reason });
+        // Stamped with the lobby so totals carry across the lesson's games,
+        // and with the run so a single game's points stay attributable.
+        db.ActivityScoreEvents.Add(new ActivityScoreEvent { ActivityRunId = run.Id, SessionGroupId = run.SessionGroupId, ParticipantId = participantId, TeamId = resolvedTeamId, RoundId = roundId, Amount = amount, Reason = reason });
         if (team is not null) team.Score += amount;
         await Task.CompletedTask;
     }
@@ -3690,7 +3804,8 @@ public sealed class ActivitySessionService(
         foreach (var item in run.ScoreEvents)
         {
             if (item.IsUndone || item.Amount <= 0 || !item.ParticipantId.HasValue || string.IsNullOrEmpty(item.RoundId)) continue;
-            scoredRounds.Add((item.ParticipantId.Value, item.RoundId!));
+            // Keyed by run as well: two games in a lesson both have a "round-1".
+            scoredRounds.Add((item.ParticipantId.Value, $"{item.ActivityRunId:N}:{item.RoundId}"));
         }
 
         var roundsByParticipant = new Dictionary<Guid, List<string>>();
@@ -3704,7 +3819,7 @@ public sealed class ActivitySessionService(
                 rounds = [];
                 roundsByParticipant[submission.ParticipantId] = rounds;
             }
-            rounds.Add(submission.RoundId);
+            rounds.Add($"{submission.ActivityRunId:N}:{submission.RoundId}");
         }
 
         var streaks = new Dictionary<Guid, int>();
@@ -3728,7 +3843,8 @@ public sealed class ActivitySessionService(
     private static bool IsFirstCorrect(ActivityRun run, string roundId, Guid participantId)
     {
         var scorers = run.ScoreEvents
-            .Where(item => !item.IsUndone && item.RoundId == roundId && item.Amount > 0 && item.ParticipantId.HasValue)
+            .Where(item => !item.IsUndone && item.ActivityRunId == run.Id
+                && item.RoundId == roundId && item.Amount > 0 && item.ParticipantId.HasValue)
             .Select(item => item.ParticipantId!.Value)
             .ToHashSet();
         if (!scorers.Contains(participantId)) return false;
@@ -3775,8 +3891,11 @@ public sealed class ActivitySessionService(
         // Ties share a rank rather than being ordered arbitrarily.
         var rank = 1 + totals.Values.Count(other => other > score);
 
+        // Round ids repeat between games ("round-1"), so this must stay pinned
+        // to the current run even though the totals above span the lesson.
         var roundPoints = run.ScoreEvents
-            .Where(item => !item.IsUndone && item.ParticipantId == participantId && item.RoundId == roundId)
+            .Where(item => !item.IsUndone && item.ActivityRunId == run.Id
+                && item.ParticipantId == participantId && item.RoundId == roundId)
             .Sum(item => item.Amount);
 
         var answered = await db.ActivitySubmissions
@@ -4337,19 +4456,90 @@ public sealed class ActivitySessionService(
         return projected;
     }
 
-    private async Task<ActivityRun?> LoadRunAsync(Guid runId, CancellationToken ct) => await db.ActivityRuns
-        .Include(x => x.ActivityDefinition)
-        .Include(x => x.Participants).ThenInclude(x => x.Team)
-        .Include(x => x.Teams)
-        .Include(x => x.ScoreEvents)
-        .Include(x => x.Submissions).ThenInclude(x => x.Participant)
-        .Include(x => x.Votes).ThenInclude(x => x.VoterParticipant)
-        .SingleOrDefaultAsync(x => x.Id == runId, ct);
+    private async Task<ActivityRun?> LoadRunAsync(Guid runId, CancellationToken ct)
+    {
+        var run = await db.ActivityRuns
+            .Include(x => x.ActivityDefinition)
+            .Include(x => x.RunParticipants).ThenInclude(x => x.Team)
+            .Include(x => x.RunTeams)
+            .Include(x => x.RunScoreEvents)
+            .Include(x => x.Submissions).ThenInclude(x => x.Participant)
+            .Include(x => x.Votes).ThenInclude(x => x.VoterParticipant)
+            .SingleOrDefaultAsync(x => x.Id == runId, ct);
+        if (run is null) return null;
 
+        // Start from this run's own rows, then widen to the lobby when there is
+        // one. Submissions and votes stay per-run: they are this game's answers.
+        run.Participants = [.. run.RunParticipants];
+        run.Teams = [.. run.RunTeams];
+        run.ScoreEvents = [.. run.RunScoreEvents];
+
+        if (run.SessionGroupId is Guid groupId)
+        {
+            var group = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == groupId, ct);
+            // Ordering and the reset cut-off happen in memory: SQLite cannot
+            // sort or compare DateTimeOffset in SQL, and these are classroom-
+            // sized collections.
+            var people = await db.ActivityParticipants
+                .Include(x => x.Team)
+                .Where(x => x.SessionGroupId == groupId)
+                .ToListAsync(ct);
+            run.Participants = [.. people.OrderBy(x => x.JoinedAt)];
+
+            run.Teams = await db.ActivityTeams
+                .Where(x => x.SessionGroupId == groupId)
+                .OrderBy(x => x.Position)
+                .ToListAsync(ct);
+
+            // A host who cleared the board starts everyone from nothing, without
+            // deleting the history behind it.
+            var since = group?.ScoresResetAt;
+            var points = await db.ActivityScoreEvents
+                .Where(x => x.SessionGroupId == groupId)
+                .ToListAsync(ct);
+            run.ScoreEvents = since is null ? points : [.. points.Where(x => x.CreatedAt > since.Value)];
+        }
+
+        return run;
+    }
+
+    /// <summary>
+    /// Find a player by their phone's token.
+    ///
+    /// Tokens are salted by the lobby, so the same phone is the same player in
+    /// every game of a lesson. A token salted by a run predates groups; that
+    /// row is upgraded in place on first sight so an in-flight session keeps
+    /// its people instead of forking them.
+    /// </summary>
     private async Task<ActivityParticipant?> FindParticipantAsync(Guid runId, string token, CancellationToken ct)
     {
-        var raw = (token ?? "").Trim(); if (raw.Length is < 20 or > 200) return null;
-        return await db.ActivityParticipants.SingleOrDefaultAsync(x => x.ActivityRunId == runId && x.ParticipantTokenHash == TokenHash(runId, raw), ct);
+        var raw = (token ?? "").Trim();
+        if (raw.Length is < 20 or > 200) return null;
+
+        var run = await db.ActivityRuns.SingleOrDefaultAsync(x => x.Id == runId, ct);
+        if (run is null) return null;
+
+        if (run.SessionGroupId is Guid groupId)
+        {
+            var hash = TokenHash(groupId, raw);
+            var byGroup = await db.ActivityParticipants
+                .SingleOrDefaultAsync(x => x.SessionGroupId == groupId && x.ParticipantTokenHash == hash, ct);
+            if (byGroup is not null) return byGroup;
+
+            var legacy = await db.ActivityParticipants
+                .SingleOrDefaultAsync(x => x.ActivityRunId == runId && x.ParticipantTokenHash == TokenHash(runId, raw), ct);
+            if (legacy is not null)
+            {
+                legacy.SessionGroupId = groupId;
+                legacy.ParticipantTokenHash = hash;
+                await db.SaveChangesAsync(ct);
+                return legacy;
+            }
+            return null;
+        }
+
+        return await db.ActivityParticipants
+            .SingleOrDefaultAsync(x => x.ActivityRunId == runId && x.ParticipantTokenHash == TokenHash(runId, raw), ct);
     }
 
     private async Task<string> NewJoinCodeAsync(CancellationToken ct)
