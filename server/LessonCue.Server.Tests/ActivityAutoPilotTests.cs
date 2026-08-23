@@ -313,4 +313,73 @@ public sealed class ActivityAutoPilotTests
         }
         Directory.Delete(dataPath, true);
     }
+
+    [Fact]
+    public async Task ARefusedActionParksTheGameInsteadOfRetryingForever()
+    {
+        var (db, activities, sessions, connection, dataPath) = await LiveAsync();
+        await using (connection)
+        await using (db)
+        {
+            // Match Minds cannot open a round until somebody is the target.
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput(
+                "Match", ActivityTypes.MatchPlayer, Config: JsonDocument.Parse("""
+                    {"title":"Match","rounds":[{"id":"r1","prompt":"Pick","options":["A","B"],"answerMode":"choice"}]}
+                    """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken);
+            run = await sessions.EnsureInteractiveRunAsync(run, TestContext.Current.CancellationToken);
+
+            // Nobody has joined, so no target can be chosen for it.
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken);
+            await MakeDueAsync(db, run.Id);
+            await sessions.AdvanceAutomaticallyAsync(run.Id, TestContext.Current.CancellationToken);
+
+            var parked = await db.ActivityRuns.SingleAsync(x => x.Id == run.Id, TestContext.Current.CancellationToken);
+            // Parked rather than left due, which would spin the service every
+            // second against a command that can only fail.
+            Assert.Null(parked.AutoAdvanceAt);
+            Assert.Contains("target", JsonNode.Parse(parked.StateJson)?["autoBlockedReason"]?.GetValue<string>() ?? "",
+                StringComparison.OrdinalIgnoreCase);
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
+    public async Task AutonomyPicksTheMatchTargetSoTheRoundCanOpen()
+    {
+        var (db, activities, sessions, connection, dataPath) = await LiveAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput(
+                "Match", ActivityTypes.MatchPlayer, Config: JsonDocument.Parse("""
+                    {"title":"Match","rounds":[
+                        {"id":"r1","prompt":"Pick","options":["A","B"],"answerMode":"choice"},
+                        {"id":"r2","prompt":"Again","options":["A","B"],"answerMode":"choice"}]}
+                    """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken);
+            run = await sessions.EnsureInteractiveRunAsync(run, TestContext.Current.CancellationToken);
+            await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Alex"), TestContext.Current.CancellationToken);
+            await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Jordan"), TestContext.Current.CancellationToken);
+
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken);
+            await MakeDueAsync(db, run.Id);
+            await sessions.AdvanceAutomaticallyAsync(run.Id, TestContext.Current.CancellationToken);
+
+            // Choosing who answers privately is a host chore worth removing.
+            var opened = await db.ActivityRuns.SingleAsync(x => x.Id == run.Id, TestContext.Current.CancellationToken);
+            var first = JsonNode.Parse(opened.StateJson)?["targetParticipantId"]?.GetValue<string>();
+            Assert.False(string.IsNullOrWhiteSpace(first));
+            Assert.Equal(ActivityPhases.AcceptingResponses, PhaseOf(opened));
+
+            // And the spotlight moves, rather than landing on one person all game.
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "next"), TestContext.Current.CancellationToken);
+            await MakeDueAsync(db, run.Id);
+            await sessions.AdvanceAutomaticallyAsync(run.Id, TestContext.Current.CancellationToken);
+            var second = JsonNode.Parse((await db.ActivityRuns.SingleAsync(x => x.Id == run.Id, TestContext.Current.CancellationToken)).StateJson)
+                ?["targetParticipantId"]?.GetValue<string>();
+            Assert.NotEqual(first, second);
+        }
+        Directory.Delete(dataPath, true);
+    }
 }

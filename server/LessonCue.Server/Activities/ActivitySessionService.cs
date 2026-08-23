@@ -442,9 +442,53 @@ public sealed class ActivitySessionService(
             return;
         }
 
+        // Some engines need a choice made before a round can open. Picking one is
+        // exactly the chore autonomy exists to remove, so make it rather than
+        // stalling and waiting for a host who was told they need not watch.
+        await PrepareForStepAsync(run, state, step.Action, ct);
+
         // Goes through the same command path a host would use, so autonomy can
         // never reach a transition the host could not have made themselves.
-        await ExecuteHostActionAsync(runId, new ActivityCommandEnvelope(null, null, step.Action), ct);
+        var result = await ExecuteHostActionAsync(runId, new ActivityCommandEnvelope(null, null, step.Action), ct);
+        if (result.Success) return;
+
+        // A refused action means this game needs a person. Park it rather than
+        // retrying every second: a failed command never reaches CommitAsync, so
+        // the due time would stay in the past and the service would spin on it
+        // forever while the game sat stuck.
+        var parked = await db.ActivityRuns.SingleOrDefaultAsync(x => x.Id == runId, ct);
+        if (parked is null) return;
+        parked.AutoAdvanceAt = null;
+        var parkedState = ParseObject(parked.StateJson);
+        parkedState["autoBlockedReason"] = result.Error ?? "This game needs you to continue it.";
+        parked.StateJson = Serialize(parkedState);
+        await db.SaveChangesAsync(ct);
+        await BroadcastDisplayAsync(runId, ct);
+    }
+
+    /// <summary>
+    /// Make any choice an engine requires before its next step can succeed.
+    /// </summary>
+    private async Task PrepareForStepAsync(ActivityRun run, JsonObject state, string action, CancellationToken ct)
+    {
+        if (action != "open") return;
+        if (run.ActivityDefinition?.Type != ActivityTypes.MatchPlayer) return;
+        if (Guid.TryParse(StringValue(state, "targetParticipantId"), out _)) return;
+
+        // The target is cleared between rounds, so step through the room in join
+        // order rather than spotlighting the same person every single round.
+        var candidates = run.Participants
+            .Where(x => x.Status is not ("removed" or "eliminated"))
+            .OrderBy(x => x.JoinedAt)
+            .ThenBy(x => x.Id)
+            .ToList();
+        if (candidates.Count == 0) return;
+        var candidate = candidates[Math.Abs(IntValue(state, "currentRoundIndex")) % candidates.Count];
+
+        var payload = new JsonObject { ["participantId"] = candidate.Id.ToString() };
+        await ExecuteHostActionAsync(run.Id,
+            new ActivityCommandEnvelope(null, null, "settarget", JsonSerializer.SerializeToElement(payload)),
+            ct);
     }
 
     public async Task<ActivityCommandResult> ExecuteHostActionAsync(

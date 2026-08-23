@@ -15,8 +15,8 @@ is called out — the fix belongs where the cause is.
 | 1 | Shrink the controller pause button | done |
 | 2 | Server-admin switch to hide Activities while testing | done |
 | 3 | Repair live play: shared lesson session, host visibility, flow | done |
-| 4 | Exercise every game individually | not started |
-| 5 | Remove the Android launch hang | not started |
+| 4 | Exercise every game individually | done |
+| 5 | Remove the Android launch hang | done |
 
 ---
 
@@ -229,18 +229,39 @@ Depends on the lesson session above.
    name and character. Re-joining with the existing token updates that player,
    so the score and standings place stay with them.
 
-## Phase 4 — Exercise every game
+## Phase 4 — Exercise every game *(done)*
 
-Per engine, end to end through the real host surface rather than the API:
-lobby → open → submit from a phone → host review where applicable → reveal →
-standings. Record what works, what is awkward, and what is broken. The existing
-163-preset smoke test covers rendering only; this is about operation.
+Every engine was driven through a real round with two phones attached. Two
+genuine defects came out of it, both introduced by autonomy and neither visible
+from a single-engine test:
 
-## Phase 5 — Android launch
+- **A refused action spun the service.** A failed command never reaches
+  `CommitAsync`, so the due time stayed in the past and the background service
+  retried it every second, forever, while the game sat stuck with nothing on
+  screen to say why. Refused actions now park the run and record the reason.
+- **Match Minds could never open on its own.** It requires a target player to be
+  chosen first, and it was in the autonomous set, so it hit the case above every
+  time. Autonomy now picks the target, which is exactly the kind of chore it
+  exists to remove.
 
-Render from the cached manifest first and reconnect in the background, so the
-first frame does not wait on the network. Keep discovery, but off the launch
-path. Verify cold start with the server present, absent, and slow.
+The host-led engines — physical room, stage challenge, image reveal, wheel,
+utility, survey board — correctly stayed manual.
+
+The sweep also confirmed the shape of the autonomous path end to end: lobby
+holds for the host, the round opens itself, the last answer closes the window,
+and standings follow without anyone asking.
+
+## Phase 5 — Android launch *(done)*
+
+`onCreate` painted a Loading screen and then called `reconnectSavedServer`
+before anything else: an 8s connect plus 15s read timeout, then mDNS discovery,
+and only then a fallback to the manifest already cached on disk. A slow or
+absent server left the TV blank for over twenty seconds for no reason.
+
+The cached manifest is now read first, off the main thread, and the library
+paints immediately; the reconnect happens behind it and upgrades the screen
+when it lands. The "saved server unavailable" path is kept for the genuine
+case where there is nothing cached to show.
 
 ---
 
