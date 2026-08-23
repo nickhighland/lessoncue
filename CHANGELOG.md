@@ -4,6 +4,59 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.41.0 — Activities that survive a real lesson
+
+### User changes
+
+- One join code per lesson. A lesson with four games used to hand out four
+  codes and four rosters; players now scan once and keep their name, character,
+  and score across every game in it, with a control to wipe scores and start
+  over.
+- Games run themselves. The host presses Start and moderates anything a person
+  sent; everything else is on a clock — thirty seconds to answer a multiple
+  choice, sixty to draw or write, closing early once everyone is in. Standings
+  follow every round.
+- Answer clocks now appear on the TV and on every phone. Games timed by
+  autonomy previously counted down with nothing on screen showing it.
+- The console says what it wants at each phase, and says so plainly when a game
+  needs a person before it can continue instead of appearing frozen.
+- Hosts can remove a player mid-game. Their phone cannot rejoin, and anything of
+  theirs still waiting to be reviewed goes with them.
+- A full class fits. The lobby wall used to clip names past roughly two dozen
+  players, which looked to a student like a failed join; names now shrink as the
+  room fills. Standings say how many players are not on screen, and every player
+  sees their own place on their phone.
+- Sorting, matching, and grouping answers no longer lose the player's work when
+  the screen updates.
+- The TV opens straight to its library instead of waiting on the network. On a
+  slow or unreachable server this was over twenty seconds of nothing; it is now
+  about four, marked as a cached schedule.
+- A short domain can send its bare root somewhere useful — an organization's
+  website, for example — while every short link and game code underneath it
+  keeps working.
+- Service Admins can hide Activities while testing, and choose which address the
+  room is shown for joining.
+
+### Developer changes
+
+- `ActivitySessionGroup` owns the join code, roster, teams, and scores for a
+  lesson; runs join a group rather than each minting their own code.
+- `ActivityAutoPilot` decides the next transition from phase alone and returns
+  nothing for the lobby and for outstanding moderation, so the two places a
+  person is required are structural rather than conventional.
+- A refused autonomous action parks the run and records why, instead of leaving
+  a due timestamp in the past for the background service to retry every second.
+- `CommitAsync` serializes state after stamping rather than before; the previous
+  order discarded every write that function made, including the countdown the
+  console was meant to show.
+- The short domain is routed by one pure function, asserted for every root
+  configuration to never claim a non-root path. Requests reach the shortener
+  with their original Host so per-domain code resolution still works, and Shlink
+  ships behind a compose profile.
+- Sign-in, controller unlock, and screen pairing are each performed once per
+  test worker; all three share a per-IP budget that the suite had begun to
+  exhaust.
+
 ## v0.40.58 — Google TV production release
 
 ### User changes
