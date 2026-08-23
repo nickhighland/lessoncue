@@ -48,7 +48,8 @@ export const ActivityLiveHostPanel: React.FC<{
   // gating is why drawings and answers appeared never to reach the host.
   const pending = hostView.submissions.filter(item => item.moderationStatus === 'pending' && !item.hidden);
   const autoPaused = state.autoPaused === true;
-  const step = hostStepFor(phase, pending.length, autoPaused);
+  const blockedReason = textOf(state.autoBlockedReason) || undefined;
+  const step = hostStepFor(phase, pending.length, autoPaused, blockedReason);
   const countdown = useAutoAdvanceCountdown(state.autoAdvanceAt, autoPaused || pending.length > 0);
 
   const send = async (action: string, label: string) => {

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { signInAsAdmin } from "./support/adminSession";
+import { openUniversalRemote } from "./support/controllerSession";
 
 // During a live round the host console showed no join code, no roster, and no
 // answer count, so the only way to know whether to close the window was to ask
@@ -9,13 +10,14 @@ test.use({ serviceWorkers: "block" });
 
 const authenticate = (page: Page) => signInAsAdmin(page, "Host Console");
 
-async function prepareHostedTrivia(page: Page, name: string) {
-  return page.evaluate(async activityName => {
+async function prepareHostedTrivia(page: Page, name: string, engine?: { type: string; config: Record<string, unknown> }, ownLesson = false) {
+  return page.evaluate(async input => {
+    const activityName = input.activityName;
     const headers = { "Content-Type": "application/json" };
     const created = await fetch("/api/v1/activities", {
       method: "POST", headers,
       body: JSON.stringify({
-        name: activityName, type: "trivia", config: {
+        name: activityName, type: input.engine?.type ?? "trivia", config: input.engine?.config ?? {
           title: activityName,
           questions: [{ id: "q1", prompt: "Red planet?", options: ["Venus", "Mars"], correctIndex: 1 }],
         },
@@ -23,7 +25,16 @@ async function prepareHostedTrivia(page: Page, name: string) {
     }).then(r => r.json()) as { id: string };
 
     const lessons = await fetch("/api/v1/lessons").then(r => r.json()) as Array<{ id: string; classId: string; title: string; items: Array<{ position: number }> }>;
-    const lesson = lessons.find(l => l.title === "Sample Lesson") || lessons[0];
+    const shared = lessons.find(l => l.title === "Sample Lesson") || lessons[0];
+    // Players and scores follow a lesson across its games by design, so a test
+    // that needs an empty room has to bring its own lesson rather than reuse
+    // the shared one every other test has already filled.
+    const lesson = input.ownLesson
+      ? { ...await fetch("/api/v1/lessons", {
+            method: "POST", headers,
+            body: JSON.stringify({ classId: shared.classId, title: `${activityName} Lesson`, description: null }),
+          }).then(r => r.json()) as { id: string; classId: string }, items: [] as Array<{ position: number }> }
+      : shared;
     const position = Math.max(0, ...lesson.items.map(i => i.position)) + 1000;
     const item = await fetch(`/api/v1/lessons/${lesson.id}/items`, {
       method: "POST", headers,
@@ -63,26 +74,13 @@ async function prepareHostedTrivia(page: Page, name: string) {
     }).then(r => r.json()) as { runId: string; state?: { joinCode?: string } };
 
     return { screenId: identity.screenId, runId: run.runId, joinCode: run.state!.joinCode! };
-  }, name);
-}
-
-async function openRemote(page: Page, screenId: string) {
-  await page.evaluate(async () => {
-    await fetch("/api/v1/controller-pin", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pin: "482731" }),
-    });
-  });
-  await page.goto("/universalremote");
-  await page.getByLabel("Six-digit controller PIN").fill("482731");
-  await page.getByRole("button", { name: "Open universal remote" }).click();
-  await page.getByLabel("Control this screen").selectOption(screenId);
+  }, { activityName: name, engine: engine ?? null, ownLesson });
 }
 
 test("the remote tabs are named for what they do", async ({ page }) => {
   await authenticate(page);
   const prepared = await prepareHostedTrivia(page, "Host Tabs");
-  await openRemote(page, prepared.screenId);
+  await openUniversalRemote(page, prepared.screenId);
 
   // Placeholder labels shipped as "Tab 1/2/3".
   await expect(page.getByRole("tab", { name: /Tab \d/ })).toHaveCount(0);
@@ -93,7 +91,7 @@ test("the remote tabs are named for what they do", async ({ page }) => {
 test("the live console shows the join code, roster, and answers-in count", async ({ page }) => {
   await authenticate(page);
   const prepared = await prepareHostedTrivia(page, "Host Live Panel");
-  await openRemote(page, prepared.screenId);
+  await openUniversalRemote(page, prepared.screenId);
   await page.getByRole("tab", { name: /Activity/ }).click();
 
   const panel = page.locator(".activity-live-host");
@@ -146,4 +144,31 @@ test("the live console shows the join code, roster, and answers-in count", async
 
   // And a standings control, which Trivia previously had no button for.
   await expect(panel.getByRole("button", { name: /Show standings/ })).toBeEnabled();
+});
+
+test("when autonomy gives up, the console says so instead of looking frozen", async ({ page }) => {
+  await authenticate(page);
+  // Match Minds needs somebody chosen as the target. With an empty room even
+  // autonomy cannot choose one, so the action is refused and the run parks --
+  // and a parked game is indistinguishable from a broken one unless it says why.
+  const prepared = await prepareHostedTrivia(page, "Parked Game", {
+    type: "matchPlayer",
+    config: { title: "Parked Game", rounds: [{ id: "r1", prompt: "Pick one", options: ["A", "B"], answerMode: "choice" }] },
+  }, true);
+  await page.evaluate(async id => {
+    await fetch(`/api/v1/activity-runs/${id}/command`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "start", payload: null }),
+    });
+  }, prepared.runId);
+
+  await openUniversalRemote(page, prepared.screenId);
+  await page.getByRole("tab", { name: /Activity/ }).click();
+
+  const panel = page.locator(".activity-live-host");
+  await expect(panel).toBeVisible({ timeout: 20_000 });
+  await expect(panel).toContainText("Needs you", { timeout: 30_000 });
+  await expect(panel).toContainText(/target participant/i);
+  // And no clock ticking towards a moment that will never come.
+  await expect(panel.locator(".activity-live-host-countdown")).toHaveCount(0);
 });

@@ -460,6 +460,10 @@ public sealed class ActivitySessionService(
         if (parked is null) return;
         parked.AutoAdvanceAt = null;
         var parkedState = ParseObject(parked.StateJson);
+        // Clear the mirror too, or the stage and console keep counting down to a
+        // moment that will never arrive.
+        parkedState.Remove("autoAdvanceAt");
+        parkedState.Remove("autoAdvanceMs");
         parkedState["autoBlockedReason"] = result.Error ?? "This game needs you to continue it.";
         parked.StateJson = Serialize(parkedState);
         await db.SaveChangesAsync(ct);
@@ -3542,7 +3546,6 @@ public sealed class ActivitySessionService(
     private async Task CommitAsync(ActivityRun run, JsonObject state, CancellationToken ct, bool incrementRevision = true)
     {
         state["actionNonce"] = LongValue(state, "actionNonce") + 1;
-        run.StateJson = Serialize(state);
         run.CurrentPhase = StringValue(state, "phase") ?? ActivityPhases.Lobby;
         run.UpdatedAt = DateTimeOffset.UtcNow;
         if (incrementRevision) run.Revision++;
@@ -3552,6 +3555,10 @@ public sealed class ActivitySessionService(
             run.StartedAt ??= DateTimeOffset.UtcNow;
         }
         await StampAutoAdvanceAsync(run, state, ct);
+        // Serialized after stamping, not before: stamping is what writes the
+        // countdown and clears a stale block, and taking the copy first dropped
+        // both on the floor, so the host's clock never appeared at all.
+        run.StateJson = Serialize(state);
         await db.SaveChangesAsync(ct);
         await BroadcastDisplayAsync(run.Id, ct);
     }
@@ -3568,9 +3575,15 @@ public sealed class ActivitySessionService(
     private async Task StampAutoAdvanceAsync(ActivityRun run, JsonObject state, CancellationToken ct)
     {
         var config = ParseConfig(run);
+        var now = DateTimeOffset.UtcNow;
         var step = ActivityAutoPilot.Next(
-            run.ActivityDefinition?.Type, config, state, DateTimeOffset.UtcNow,
+            run.ActivityDefinition?.Type, config, state, now,
             everyoneAnswered: false, moderationPending: false);
+
+        // Reaching here at all means something moved, so whatever autonomy was
+        // stuck on is no longer true. Left behind, the notice would outlive the
+        // problem and tell the host to fix an already-fixed game.
+        state.Remove("autoBlockedReason");
 
         // Moderation parks the game with no due time; the host's decision is
         // what restarts it.
@@ -3578,12 +3591,17 @@ public sealed class ActivitySessionService(
         {
             run.AutoAdvanceAt = null;
             state.Remove("autoAdvanceAt");
+            state.Remove("autoAdvanceMs");
             return;
         }
 
         run.AutoAdvanceAt = step.DueAt;
-        // Mirrored into the projection so the stage can show the clock.
+        // Mirrored into the projection so the stage can show the clock. The
+        // window length goes with it: stamping happens at the transition, so
+        // the remaining time is the whole window, and without it the room gets
+        // a number with no bar to read it against.
         state["autoAdvanceAt"] = step.DueAt.ToString("O");
+        state["autoAdvanceMs"] = (long)Math.Max(0, (step.DueAt - now).TotalMilliseconds);
         await Task.CompletedTask;
     }
 

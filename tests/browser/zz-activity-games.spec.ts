@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openUniversalRemote } from "./support/controllerSession";
 import { signInAsAdmin } from "./support/adminSession";
 
 // One shared sign-in for the whole suite: the server allows 10 attempts per
@@ -1142,16 +1143,7 @@ test("Activity controller shows live recovery state and command acknowledgements
     return { screenId: identity.screenId };
   }, definitionId);
 
-  const pinResponse = await page.evaluate(async () => (await fetch("/api/v1/controller-pin", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pin: "482731" }),
-  })).ok);
-  expect(pinResponse).toBe(true);
-  await page.goto("/universalremote");
-  await page.getByLabel("Six-digit controller PIN").fill("482731");
-  await page.getByRole("button", { name: "Open universal remote" }).click();
-  await page.getByLabel("Control this screen").selectOption(prepared.screenId);
+  await openUniversalRemote(page, prepared.screenId);
   // The remote groups its controls into tabs; the Activity controls live in one.
   await page.getByRole("tab", { name: "Activity" }).click();
   const activityController = page.locator(".activity-controller-shell");

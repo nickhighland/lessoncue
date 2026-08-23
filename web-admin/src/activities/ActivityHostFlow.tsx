@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 /**
  * What the host is being asked to do, in plain language.
@@ -19,12 +19,24 @@ export interface HostStep {
   needsHost: boolean;
 }
 
-export function hostStepFor(phase: string, moderationCount: number, autoPaused: boolean): HostStep {
+export function hostStepFor(phase: string, moderationCount: number, autoPaused: boolean, blockedReason?: string): HostStep {
   if (moderationCount > 0) {
     return {
       action: null,
       label: `${moderationCount} waiting for you`,
       detail: 'Approve or hide each response below. The game continues once the queue is clear.',
+      needsHost: true,
+    };
+  }
+
+  // Autonomy tried, was refused, and parked the game rather than spinning on a
+  // command that could only keep failing. Without this the host sees a frozen
+  // game and no reason for it — the exact confusion autonomy was meant to end.
+  if (blockedReason) {
+    return {
+      action: null,
+      label: 'Needs you',
+      detail: blockedReason,
       needsHost: true,
     };
   }

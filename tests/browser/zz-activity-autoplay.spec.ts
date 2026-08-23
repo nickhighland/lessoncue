@@ -137,3 +137,56 @@ test("a player can change their name and character without losing their score", 
     await phone.context().close();
   }
 });
+
+test("a game timed only by autonomy still counts down on the phone", async ({ page }) => {
+  await authenticate(page);
+  // Trivia runs no engine timer, so the phone used to show the answer window
+  // with no clock on it and never reached the last-five-seconds treatment.
+  const run = await launch(page, "Phone Clock", "trivia", QUIZ);
+  const phone = await joinPhone(page, run.joinCode, "Robin");
+  try {
+    await host(page, run.runId, "start");
+    await host(page, run.runId, "open");
+
+    const clock = phone.locator(".activity-motion-countdown");
+    await expect(clock).toBeVisible({ timeout: 15_000 });
+    await expect(clock.locator("strong")).not.toHaveText("0:00");
+    const first = await clock.locator("strong").textContent();
+    await expect.poll(async () => clock.locator("strong").textContent(), { timeout: 10_000 }).not.toBe(first);
+  } finally {
+    await phone.context().close();
+  }
+});
+
+
+test("an arrangement on the phone survives the round's clock ticking", async ({ page }) => {
+  await authenticate(page);
+  // These inputs re-seeded themselves from a prop rebuilt on every render, so
+  // any re-render threw the player's work away. A round with a clock re-renders
+  // four times a second, which made it impossible to sort anything at all.
+  const run = await launch(page, "Sort Under Clock", "ordering", {
+    title: "Sort Under Clock",
+    rounds: [{
+      id: "r1", prompt: "Put these in order.", points: 100, scoringMode: "partial", mode: "sequence",
+      items: [{ id: "a", label: "Alpha" }, { id: "b", label: "Bravo" }, { id: "c", label: "Charlie" }],
+    }],
+  });
+  const phone = await joinPhone(page, run.joinCode, "Sorter");
+  try {
+    await host(page, run.runId, "start");
+    await host(page, run.runId, "open");
+    await expect(phone.locator(".ordering-participant-list")).toBeVisible({ timeout: 15_000 });
+    // The clock has to actually be running, or this proves nothing.
+    await expect(phone.locator(".activity-motion-countdown")).toBeVisible();
+
+    await phone.getByRole("button", { name: "Move Alpha down" }).click();
+    const moved = ["Bravo", "Alpha", "Charlie"];
+    await expect(phone.locator(".ordering-participant-row span")).toHaveText(moved);
+
+    // Several ticks later it must still be theirs, not the server's order again.
+    await page.waitForTimeout(2_000);
+    await expect(phone.locator(".ordering-participant-row span")).toHaveText(moved);
+  } finally {
+    await phone.context().close();
+  }
+});

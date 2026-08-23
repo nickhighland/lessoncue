@@ -17,6 +17,7 @@ is called out — the fix belongs where the cause is.
 | 3 | Repair live play: shared lesson session, host visibility, flow | done |
 | 4 | Exercise every game individually | done |
 | 5 | Remove the Android launch hang | done |
+| 6 | Put the clock on every screen, and say when autonomy stops | done |
 
 ---
 
@@ -261,7 +262,55 @@ absent server left the TV blank for over twenty seconds for no reason.
 The cached manifest is now read first, off the main thread, and the library
 paints immediately; the reconnect happens behind it and upgrades the screen
 when it lands. The "saved server unavailable" path is kept for the genuine
-case where there is nothing cached to show.
+case where there is nothing cached to show, and a reconnect that lands late
+refreshes the library without pulling anyone out of a lesson they opened while
+it was in flight.
+
+Measured on a Google TV emulator against a black-holed server, so connects time
+out rather than refuse:
+
+| build | time to a usable library |
+| --- | --- |
+| before | 17.8s, held on "Searching for the local server…" |
+| after | 4.3s, showing "Using cached schedule" |
+
+Worth recording for whoever repeats this: the emulator's own network controls
+are no help. Airplane mode and `network delay` both leave traffic to the host
+at 0.3ms, so every launch reconnects happily and proves nothing. The condition
+has to come from the saved address itself — a non-routable one of the same byte
+length, written into the app's datastore.
+
+## Phase 6 — The clock, and the reason it stopped *(done)*
+
+Chasing "a parked game looks frozen to the host" turned up a second, larger
+problem sitting underneath it.
+
+**The host's countdown never worked at all.** `CommitAsync` serialized the state
+and *then* called `StampAutoAdvanceAsync`, so everything that function wrote —
+the deadline, and now the cleared block — was dropped on the floor. Autonomy
+still ran, because the background service reads the database column rather than
+the projection, which is why nothing looked wrong. But the mirror the comment
+promised was never written, so the console's "Next in 30s" could not appear.
+Serializing after the stamp fixes it.
+
+**The thirty and sixty second answer windows were invisible in the room.** Both
+the TV clock and the phone clock keyed off `timerRunning`, which only the few
+engines with their own host-driven timer ever set. Everything timed by autonomy
+— trivia, poll, drawing, ordering, prediction — published a deadline instead and
+drew no clock anywhere. Both surfaces now fall back to that deadline, sharing
+one `useDeadlineCountdown` hook, and the window length rides along with it so
+the bar has something to fill against. The phone reaching the shared
+last-five-seconds panic state in those games follows from the same fix.
+
+**A parked game now says so.** `hostStepFor` takes the blocked reason and leads
+with it, and the stale countdown is cleared when the run parks so nothing
+counts down towards a moment that will never arrive. A successful move clears
+the notice, so it cannot outlive the problem.
+
+One thing worth keeping: the browser test that first failed here failed for a
+good reason. It assumed an empty room, but the roster had carried over from the
+previous game in the same lesson — the shared session group working exactly as
+intended. Tests that need an empty room bring their own lesson now.
 
 ---
 

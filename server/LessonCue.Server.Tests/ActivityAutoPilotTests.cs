@@ -340,6 +340,15 @@ public sealed class ActivityAutoPilotTests
             Assert.Null(parked.AutoAdvanceAt);
             Assert.Contains("target", JsonNode.Parse(parked.StateJson)?["autoBlockedReason"]?.GetValue<string>() ?? "",
                 StringComparison.OrdinalIgnoreCase);
+            // No countdown to a moment that will never arrive.
+            Assert.Null(JsonNode.Parse(parked.StateJson)?["autoAdvanceAt"]);
+
+            // Once a person unblocks it, the notice goes with the problem.
+            var joined = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Alex"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "settarget",
+                JsonSerializer.SerializeToElement(new { participantId = joined.Participant.Id })), TestContext.Current.CancellationToken);
+            var cleared = await db.ActivityRuns.SingleAsync(x => x.Id == run.Id, TestContext.Current.CancellationToken);
+            Assert.Null(JsonNode.Parse(cleared.StateJson)?["autoBlockedReason"]);
         }
         Directory.Delete(dataPath, true);
     }

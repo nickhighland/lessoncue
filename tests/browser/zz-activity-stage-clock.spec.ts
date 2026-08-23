@@ -58,3 +58,45 @@ test("the stage shows the response clock and enters panic in the last five secon
     await tv.close();
   }
 });
+
+test("a game timed by autonomy puts its answer window on the room's screen too", async ({ page, context }) => {
+  await authenticate(page);
+  // Trivia runs no engine timer of its own — autonomy publishes a deadline
+  // instead, and that clock used to be invisible to everyone but the server.
+  const run = await page.evaluate(async () => {
+    const created = await fetch("/api/v1/activities", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Autonomous Clock", type: "trivia", config: {
+          title: "Autonomous Clock",
+          rounds: [{ id: "round-1", prompt: "Pick one.", options: ["A", "B"], correctIndex: 0, points: 10 }],
+        },
+      }),
+    }).then(r => r.json()) as { id: string };
+    const started = await fetch("/api/v1/activity-runs", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ activityDefinitionId: created.id }),
+    }).then(r => r.json()) as { runId: string };
+    await fetch(`/api/v1/activity-runs/${started.runId}/command`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "open", payload: null }),
+    });
+    return started;
+  });
+
+  const tv = await context.newPage();
+  await tv.setViewportSize({ width: 1280, height: 720 });
+  try {
+    await tv.goto(`/activity-display?runId=${run.runId}`);
+    const clock = tv.locator(".activity-stage-clock .activity-motion-countdown");
+    await expect(clock).toBeVisible({ timeout: 20_000 });
+
+    // A real countdown, not a frozen zero, and with a bar to read it against.
+    await expect(clock.locator("strong")).not.toHaveText("0:00");
+    await expect(clock.locator(".activity-motion-countdown-track")).toBeVisible();
+    const first = await clock.locator("strong").textContent();
+    await expect.poll(async () => clock.locator("strong").textContent(), { timeout: 10_000 }).not.toBe(first);
+  } finally {
+    await tv.close();
+  }
+});
