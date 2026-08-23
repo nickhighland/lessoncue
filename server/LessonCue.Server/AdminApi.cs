@@ -3098,6 +3098,65 @@ public static class AdminApi
             return Results.NoContent();
         });
 
+        appSettings.MapGet("/short-domain", async (LessonCueDb db, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            var settings = ShortDomainService.Read(organization);
+            return Results.Ok(new
+            {
+                domain = settings.Domain,
+                upstream = settings.Upstream,
+                rootRedirectUrl = settings.RootRedirectUrl,
+                rootRedirectEnabled = settings.RootRedirectEnabled,
+                rootFallback = settings.RootFallback,
+                permanent = settings.Permanent,
+                preserveQuery = settings.PreserveQuery,
+                configured = settings.Configured,
+                rootRedirectConfigured = settings.RootRedirectConfigured,
+                warnings = ShortDomainService.Warnings(settings),
+            });
+        });
+
+        appSettings.MapPut("/short-domain", async (ShortDomainInput input, LessonCueDb db,
+            ShortDomainService shortDomain, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+            string domain, upstream, destination;
+            try
+            {
+                domain = ShortDomainService.NormalizeDomain(input.Domain);
+                upstream = ShortDomainService.NormalizeUpstream(input.Upstream);
+                // Validated against the domain being saved, not the stored one,
+                // so a loop cannot be introduced by changing both at once.
+                destination = ShortDomainService.NormalizeRootRedirect(input.RootRedirectUrl, domain);
+            }
+            catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
+
+            if (input.RootRedirectEnabled && domain.Length > 0 && destination.Length == 0)
+                return Results.BadRequest(new { error = "Enter where the bare short domain should send people, or turn the redirect off." });
+
+            organization.ShortDomain = domain;
+            organization.ShortDomainUpstream = upstream;
+            organization.ShortDomainRootRedirectUrl = destination;
+            organization.ShortDomainRootRedirectEnabled = input.RootRedirectEnabled;
+            organization.ShortDomainRootFallback = ShortDomainService.NormalizeFallback(input.RootFallback);
+            organization.ShortDomainRootRedirectPermanent = input.Permanent;
+            organization.ShortDomainRootPreserveQuery = input.PreserveQuery;
+            Audit(db, "shortdomain.update", organization.Id,
+                domain.Length == 0 ? "Short domain cleared" : $"Short domain {domain} root set to {(destination.Length == 0 ? organization.ShortDomainRootFallback : destination)}");
+            await db.SaveChangesAsync(ct);
+            shortDomain.Invalidate();
+
+            var saved = ShortDomainService.Read(organization);
+            return Results.Ok(new { warnings = ShortDomainService.Warnings(saved) });
+        });
+
+        appSettings.MapPost("/short-domain/test", async (ShortDomainTestInput? input, ShortDomainService shortDomain, CancellationToken ct) =>
+        {
+            var checks = await shortDomain.TestAsync(input?.SampleSlug, input?.GameCode, ct);
+            return Results.Ok(new { passed = checks.All(check => check.Passed), checks });
+        });
+
         appSettings.MapGet("/recycle-bin", async (LessonCueDb db, CancellationToken ct) =>
         {
             var classes = await db.Classes.IgnoreQueryFilters().AsNoTracking().Where(x => x.DeletedAt != null)

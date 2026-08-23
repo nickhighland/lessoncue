@@ -60,6 +60,7 @@ builder.Services.AddScoped<ManifestService>();
 builder.Services.AddSingleton(troubleshootingLog);
 builder.Services.AddSingleton(new PairingCodeService(dataPath, builder.Configuration["LessonCue:PairingPin"]));
 builder.Services.AddSingleton(new BackupService(dataPath));
+builder.Services.AddShortDomain();
 builder.Services.AddHttpClient("backup-offsite", client =>
     client.Timeout = TimeSpan.FromHours(6))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
@@ -311,6 +312,10 @@ forwardedHeaders.KnownProxies.Clear();
 forwardedHeaders.KnownProxies.Add(System.Net.IPAddress.Loopback);
 forwardedHeaders.KnownProxies.Add(System.Net.IPAddress.IPv6Loopback);
 app.UseForwardedHeaders(forwardedHeaders);
+// Ahead of everything else: a request to the short domain is never a LessonCue
+// page, so it should not pick up LessonCue's headers, static files, or auth on
+// the way past. Requests for any other host fall straight through.
+app.UseMiddleware<ShortDomainMiddleware>();
 app.Use(async (context, next) =>
 {
     context.Response.Headers.XContentTypeOptions = "nosniff";

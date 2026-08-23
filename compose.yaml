@@ -39,3 +39,42 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  # The link shortener. Optional: bring it up with
+  #   docker compose --profile shortener up -d
+  # and leave it out entirely on installations that do not use short links.
+  #
+  # Two hostnames point here, and they do different jobs:
+  #   SHORT_DOMAIN        the public short domain, e.g. chroc.cc. Route it to
+  #                       lessoncue, which answers "/" and hands every other
+  #                       path to this container.
+  #   SHORTENER_HOSTNAME  the shortener's own address, e.g. short.chroc.cc.
+  #                       Route it straight here for the admin UI and API.
+  shlink:
+    image: ghcr.io/shlinkio/shlink:4.4.6
+    container_name: lessoncue-shlink
+    profiles: ["shortener"]
+    restart: unless-stopped
+    ports:
+      - "${SHORTENER_HTTP_PORT:-8081}:8080"
+    volumes:
+      - "${SHORTENER_DATA_PATH:-./shlink-data}:/etc/shlink/data"
+    environment:
+      # The domain short links are minted on. LessonCue fronts this hostname
+      # and forwards everything but the bare root here, with the original Host
+      # intact so multi-domain resolution still works.
+      DEFAULT_DOMAIN: "${SHORT_DOMAIN:?set SHORT_DOMAIN, for example chroc.cc}"
+      IS_HTTPS_ENABLED: "true"
+      # SQLite keeps this a single-box install like the rest of LessonCue.
+      DB_DRIVER: sqlite
+      GEOLITE_LICENSE_KEY: "${SHORTENER_GEOLITE_KEY:-}"
+      # The bare root is LessonCue's to answer, so Shlink never needs an
+      # opinion about it. Anything that does reach here without a short code
+      # is a genuine miss.
+      DEFAULT_INVALID_SHORT_URL_REDIRECT: "${SHORTENER_INVALID_REDIRECT:-}"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/rest/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
