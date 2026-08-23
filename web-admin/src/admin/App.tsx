@@ -811,6 +811,8 @@ export function Shell({
   const canManageUpdates = has("updates.manage");
   const [dataVersion, setDataVersion] = useState(0);
   const [bootstrap, setBootstrap] = useState<Bootstrap>();
+  // Absent on an older server payload, so default to available.
+  const activitiesEnabled = bootstrap?.activitiesEnabled !== false;
   const [classes, setClasses] = useState<LessonClass[]>([]);
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [templates, setTemplates] = useState<LessonTemplate[]>([]);
@@ -1052,7 +1054,9 @@ export function Shell({
       ? [
           { key: "classes" as View, icon: "▤", label: "Lessons" },
           { key: "templates" as View, icon: "↻", label: "Templates" },
-          { key: "activities" as View, icon: "✦", label: "Activities" },
+          ...(activitiesEnabled
+            ? [{ key: "activities" as View, icon: "✦", label: "Activities" }]
+            : []),
           { key: "audience" as View, icon: "◉", label: "Audience" },
         ]
       : []),

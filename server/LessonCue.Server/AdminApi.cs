@@ -606,6 +606,7 @@ public static class AdminApi
         admin.MapGet("/admin/bootstrap", async (LessonCueDb db, PairingCodeService pairing, StorageService storage,
             UpdateService updates, LocalAddressService localAddress, HttpPortService httpPort,
             CloudflareTunnelService cloudflareTunnel, HardwareAccelerationService hardwareAcceleration,
+            ActivityAvailabilityService activityAvailability,
             BackupPolicyService backupPolicy,
             HttpContext context,
             CancellationToken ct) =>
@@ -671,6 +672,9 @@ public static class AdminApi
                 hardwareAcceleration = canManageService ? hardwareAcceleration.Status : new HardwareAccelerationStatus(
                     false, false, "", "", null, null, null, null, null),
                 accountEmail = emailStatus(organization),
+                // Every role needs this: it decides whether the Activities
+                // surfaces render at all, not just who may change the switch.
+                activitiesEnabled = activityAvailability.Enabled,
                 permissionDefinitions = LessonCuePermissions.All,
                 permissionPresets = new
                 {
@@ -3242,6 +3246,16 @@ public static class AdminApi
             }
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
+
+        settings.MapGet("/activity-availability",
+            (ActivityAvailabilityService availability) => Results.Ok(availability.Status))
+            .RequireAuthorization(LessonCuePermissions.Settings);
+
+        settings.MapPut("/activity-availability", async (
+            ActivityAvailabilityInput input,
+            ActivityAvailabilityService availability,
+            CancellationToken ct) => Results.Ok(await availability.SetAsync(input.Enabled, ct)))
+            .RequireAuthorization(LessonCuePermissions.Settings);
 
         settings.MapGet("/activity-join-address",
             (ActivityJoinAddressService joinAddress) => Results.Ok(joinAddress.Status));

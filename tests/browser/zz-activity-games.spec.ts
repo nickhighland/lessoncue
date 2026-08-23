@@ -1220,10 +1220,10 @@ test("Activities Studio supports grid/list views, filters, arranging, and bulk d
   if (/Page 1 of 1/.test(libraryCountText)) {
     await expect(page.getByRole("button", { name: new RegExp(`Move ${triviaName} later`) })).toBeVisible();
     await page.getByRole("button", { name: new RegExp(`Move ${triviaName} later`) }).click();
-    await expect(page.getByRole("status")).toContainText("Activity order saved.");
+    await expect(page.locator(".activity-library-status")).toContainText("Activity order saved.");
     await page.getByRole("button", { name: "Done arranging" }).click();
   } else {
-    await expect(page.getByRole("status")).toContainText("Arrange is available when the full library fits on one page");
+    await expect(page.locator(".activity-library-status")).toContainText("Arrange is available when the full library fits on one page");
   }
 
   await page.getByRole("button", { name: "Grid view" }).click();
@@ -1238,17 +1238,17 @@ test("Activities Studio supports grid/list views, filters, arranging, and bulk d
   await page.getByRole("checkbox", { name: `Select ${triviaName}`, exact: true }).check();
   await page.getByRole("checkbox", { name: `Select ${bracketName}`, exact: true }).check();
   await page.getByRole("button", { name: "Duplicate selected" }).click();
-  await expect(page.getByRole("status")).toContainText("2 activities duplicated.");
+  await expect(page.locator(".activity-library-status")).toContainText("2 activities duplicated.");
 
   await page.getByRole("checkbox", { name: `Select ${triviaName}`, exact: true }).check();
   await page.getByRole("checkbox", { name: `Select ${bracketName}`, exact: true }).check();
   await page.getByRole("button", { name: "Archive selected" }).click();
-  await expect(page.getByRole("status")).toContainText("2 activities archived.");
+  await expect(page.locator(".activity-library-status")).toContainText("2 activities archived.");
   await page.getByRole("checkbox", { name: "Show archived" }).check();
   await page.getByRole("checkbox", { name: `Select ${triviaName}`, exact: true }).check();
   await page.getByRole("checkbox", { name: `Select ${bracketName}`, exact: true }).check();
   await page.getByRole("button", { name: "Restore selected" }).click();
-  await expect(page.getByRole("status")).toContainText("2 activities restored.");
+  await expect(page.locator(".activity-library-status")).toContainText("2 activities restored.");
 
   await page.getByRole("checkbox", { name: `Select ${triviaName}`, exact: true }).check();
   await page.getByRole("checkbox", { name: `Select ${bracketName}`, exact: true }).check();
@@ -1256,7 +1256,7 @@ test("Activities Studio supports grid/list views, filters, arranging, and bulk d
   const confirmation = page.getByRole("dialog", { name: "Delete 2 activities?" });
   await expect(confirmation).toBeVisible();
   await confirmation.getByRole("button", { name: "Delete selected" }).click();
-  await expect(page.getByRole("status")).toContainText("2 deleted");
+  await expect(page.locator(".activity-library-status")).toContainText("2 deleted");
   await expect(page.getByText(triviaName, { exact: true })).toHaveCount(0);
   await expect(page.getByText(bracketName, { exact: true })).toHaveCount(0);
 });

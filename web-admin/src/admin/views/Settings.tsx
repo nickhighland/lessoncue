@@ -1903,6 +1903,7 @@ export function Settings({
             >
               <h2>Server connection</h2>
               <GameJoinAddressPanel notify={notify} />
+              <ActivityAvailabilityPanel notify={notify} refresh={refresh} />
               <Definition
                 label="Browser address"
                 value={`${location.protocol}//${location.host}`}
@@ -3019,6 +3020,75 @@ function GameJoinAddressPanel({ notify }: { notify: (message: string) => void })
           {status.resolvedFrom === "none" ? "code only" : status.resolvedFrom} address instead.
         </div>
       )}
+    </div>
+  );
+}
+
+
+/**
+ * Hide Activities from the people planning lessons.
+ *
+ * For running an unfinished game system on a real server: nothing is deleted,
+ * teacher-facing surfaces disappear, and nothing new can be launched. A session
+ * already in progress is deliberately left alone.
+ */
+function ActivityAvailabilityPanel({
+  notify,
+  refresh,
+}: {
+  notify: (message: string) => void;
+  refresh: () => void;
+}) {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    api<{ enabled: boolean }>("/api/v1/activity-availability")
+      .then((value) => { if (active) setEnabled(value.enabled); })
+      .catch(() => { if (active) setEnabled(null); });
+    return () => { active = false; };
+  }, []);
+
+  async function choose(next: boolean) {
+    setSaving(true);
+    try {
+      const updated = await api<{ enabled: boolean }>("/api/v1/activity-availability", {
+        method: "PUT",
+        body: JSON.stringify({ enabled: next }),
+      });
+      setEnabled(updated.enabled);
+      refresh();
+      notify(
+        updated.enabled
+          ? "Activities are available to teachers."
+          : "Activities are hidden. Games already running are unaffected.",
+      );
+    } catch (e) {
+      notify(errorText(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (enabled === null) return null;
+
+  return (
+    <div className="stack">
+      <label className="switch-row">
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={saving}
+          onChange={(event) => void choose(event.target.checked)}
+        />
+        <span>Offer Activities to teachers</span>
+      </label>
+      <p className="settings-copy">
+        Turn this off while a game is still being built. The Activities area and
+        the activity cue type disappear for everyone, and no new game can be
+        started. Nothing is deleted, and a game already running keeps going.
+      </p>
     </div>
   );
 }

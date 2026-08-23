@@ -1607,7 +1607,9 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .remote-transport button > span { font-size: clamp(25px, 7vw, 36px); font-weight: 900; line-height: .9; }
 .remote-transport button small { font-size: 9px; font-weight: 800; }
 .remote-transport button:hover { transform: translateY(-1px); background: #fff; }
-.remote-transport .transport-main { min-height: 76px; border: 1px solid var(--gold); color: #20180d; background: var(--gold); box-shadow: 0 5px 14px #d88c1e4a; }
+/* Same footprint as its siblings: it is one transport control among four, not
+   the primary action of the whole remote. Colour alone carries the emphasis. */
+.remote-transport .transport-main { border: 1px solid var(--gold); color: #20180d; background: var(--gold); box-shadow: 0 3px 8px #d88c1e3a; }
 .remote-transport .stop-transport { color: #9c3e3e; }
 .remote-command-status { min-height: 13px; margin-top: 7px; color: var(--remote-muted); font-size: 9px; text-align: center; }
 .remote-tab-commands { display: flex; flex: 1 1 auto; min-height: 0; overflow: hidden; }
@@ -1690,7 +1692,6 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   .remote-progress-row { margin: 9px 0 11px; }
   .remote-transport { gap: 6px; }
   .remote-transport button { min-height: 55px; border-radius: 11px; }
-  .remote-transport .transport-main { min-height: 64px; }
   .remote-transport button > span { font-size: 26px; }
   .remote-transport button small { font-size: 8px; }
   .remote-tabs { margin-top: 9px; border-radius: 13px 13px 0 0; }

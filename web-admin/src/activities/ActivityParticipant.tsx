@@ -220,6 +220,13 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
   // The phone wears the same colours as the stage, so a player glancing down
   // stays inside the same game rather than a generic form.
   const themeVariables = activityThemeVariables(resolveActivityTheme(envelope.type, config.preset, envelope.theme));
+  // The activity name and its title are usually the same string, which printed
+  // the heading twice — small, then large. Only label it when the label says
+  // something the title does not.
+  const activityName = textOf(envelope.name).trim();
+  const headerKicker = activityName && activityName.toLowerCase() !== title.trim().toLowerCase()
+    ? activityName
+    : '';
   // Only ever this player's own standing; the server keeps other scores out.
   const personalResult = readPersonalResult(state.you);
   // The server owns the clock. This only mirrors it into the shared
@@ -264,7 +271,7 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
   const sendGroups = (groups: Array<{ groupId: string; itemIds: string[] }>) => onAction('group', { groups });
   const sendAdventureChoice = (index: number) => { setSelected(String(index)); onAction('choose', { choiceIndex: index }); };
 
-  return <GameAudioProvider chain={audioChain}><main className="activity-participant-page" data-activity-type={envelope.type} data-activity-preset={textOf(config.preset) || undefined} data-activity-panic={panicking ? 'true' : 'false'} style={themeVariables}><div className="participant-game-shell"><header className="participant-game-header"><div><span className="participant-kicker">{textOf(envelope.name, 'LIVE ACTIVITY')}</span><h1>{title}</h1></div><div className="participant-identity"><MuteToggle /><span className="participant-identity-badge" style={{ background: textOf(view.color, '#f6c531'), color: inkOnPlayerColor(textOf(view.color, '#f6c531')) }} aria-hidden="true">{textOf(view.avatar, '🙂')}</span><div><strong>{view.displayName}</strong><small>{view.hasSubmitted ? 'Response saved' : phase.replace(/([a-z])([A-Z])/g, '$1 $2')}</small></div></div></header>{error && <div className="participant-error" role="alert">{error}</div>}
+  return <GameAudioProvider chain={audioChain}><main className="activity-participant-page" data-activity-type={envelope.type} data-activity-preset={textOf(config.preset) || undefined} data-activity-panic={panicking ? 'true' : 'false'} style={themeVariables}><div className="participant-game-shell"><header className="participant-game-header"><div>{headerKicker && <span className="participant-kicker">{headerKicker}</span>}<h1>{title}</h1></div><div className="participant-identity"><MuteToggle /><span className="participant-identity-badge" style={{ background: textOf(view.color, '#f6c531'), color: inkOnPlayerColor(textOf(view.color, '#f6c531')) }} aria-hidden="true">{textOf(view.avatar, '🙂')}</span><div><strong>{view.displayName}</strong><small>{view.hasSubmitted ? 'Response saved' : phase.replace(/([a-z])([A-Z])/g, '$1 $2')}</small></div></div></header>{error && <div className="participant-error" role="alert">{error}</div>}
     {timerRunning && phase === 'acceptingResponses' && envelope.type !== 'word' && <ActivityCountdown remainingMs={responseTimerRemainingMs} durationMs={timerDurationMs} label="TIME LEFT" compact />}
     {phase === 'lobby' || phase === 'setup' ? <section className="participant-waiting"><span className="waiting-orb" style={idleWobbleStyle(view.participantId, 1)}>✦</span><h2>You’re in.</h2><p>Waiting for the host to start the game.</p><div className="participant-count">{numberOf(state.participantCount)} players joined</div></section> :
       phase === 'acceptingResponses' && isChoice ? <ChoiceInput kicker={choiceKicker} prompt={prompt} options={options} selected={selected === null ? null : Number(selected)} disabled={busy || view.hasSubmitted} onSelect={sendChoice} modifierControls={quizModifierControls} /> :

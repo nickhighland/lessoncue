@@ -141,6 +141,7 @@ builder.Services.AddSingleton(services => new CloudflareTunnelService(dataPath,
     services.GetRequiredService<HttpPortService>(), services.GetRequiredService<IHttpClientFactory>(),
     services.GetRequiredService<ILogger<CloudflareTunnelService>>()));
 builder.Services.AddHostedService(services => services.GetRequiredService<CloudflareTunnelService>());
+builder.Services.AddSingleton(new ActivityAvailabilityService(dataPath));
 builder.Services.AddSingleton(services => new ActivityJoinAddressService(dataPath,
     services.GetRequiredService<LocalAddressService>(),
     services.GetRequiredService<CloudflareTunnelService>(),
