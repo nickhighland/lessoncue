@@ -9,7 +9,7 @@ public enum ShortDomainRootAction
 {
     /// <summary>Send the visitor to the configured destination.</summary>
     Redirect,
-    /// <summary>Send them to LessonCue itself.</summary>
+    /// <summary>Serve LessonCue itself on the short domain. Not a redirect.</summary>
     LessonCue,
     /// <summary>Hand the request to the shortener like any other path.</summary>
     Shortener,
@@ -60,9 +60,11 @@ public sealed class ShortDomainService(IServiceScopeFactory scopes, IHttpClientF
 
     private static readonly string[] Fallbacks = ["lessoncue", "shortener", "notfound"];
 
+    private static readonly TimeSpan CacheFor = TimeSpan.FromSeconds(5);
+
+    private readonly Lock _cacheLock = new();
     private ShortDomainSettings _cached = ShortDomainSettings.Empty;
     private DateTimeOffset _cachedAt = DateTimeOffset.MinValue;
-    private readonly SemaphoreSlim _gate = new(1, 1);
 
     /// <summary>
     /// Current settings, cached briefly.
@@ -75,13 +77,18 @@ public sealed class ShortDomainService(IServiceScopeFactory scopes, IHttpClientF
     {
         get
         {
-            if (DateTimeOffset.UtcNow - _cachedAt < TimeSpan.FromSeconds(5)) return _cached;
-            using var scope = scopes.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
-            var organization = db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstOrDefault();
-            _cached = organization is null ? ShortDomainSettings.Empty : Read(organization);
-            _cachedAt = DateTimeOffset.UtcNow;
-            return _cached;
+            lock (_cacheLock)
+            {
+                // Checked again inside the lock: several requests can pass the
+                // first test together, and only one of them should go and ask.
+                if (DateTimeOffset.UtcNow - _cachedAt < CacheFor) return _cached;
+                using var scope = scopes.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
+                var organization = db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstOrDefault();
+                _cached = organization is null ? ShortDomainSettings.Empty : Read(organization);
+                _cachedAt = DateTimeOffset.UtcNow;
+                return _cached;
+            }
         }
     }
 
@@ -174,7 +181,7 @@ public sealed class ShortDomainService(IServiceScopeFactory scopes, IHttpClientF
         if (!candidate.Contains("://", StringComparison.Ordinal)) candidate = "https://" + candidate;
         if (!Uri.TryCreate(candidate, UriKind.Absolute, out var uri) || uri.IdnHost.Length == 0)
             throw new ArgumentException("Enter the short domain on its own, such as go.example.org.");
-        if (uri.AbsolutePath.Length > 1 || uri.Query.Length > 0)
+        if (uri.AbsolutePath.Length > 1 || uri.Query.Length > 0 || uri.Fragment.Length > 0)
             throw new ArgumentException("Enter the short domain without a path, such as go.example.org.");
         var host = uri.IdnHost.ToLowerInvariant();
         if (!host.Contains('.') || System.Net.IPAddress.TryParse(host, out _))

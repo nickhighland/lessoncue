@@ -149,6 +149,10 @@ public class ShortDomainTests
     public void TheDomainIsAcceptedHoweverItIsTyped(string typed, string expected) =>
         Assert.Equal(expected, ShortDomainService.NormalizeDomain(typed));
 
+    [Fact]
+    public void ADomainWithAFragmentIsNotTheDomainOnItsOwn() =>
+        Assert.Throws<ArgumentException>(() => ShortDomainService.NormalizeDomain("go.example.org#kids"));
+
     [Theory]
     [InlineData("https://go.example.org/kids")]
     [InlineData("localhost")]

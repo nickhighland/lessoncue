@@ -51,7 +51,9 @@ code up against the wrong one and miss a link that exists.
   inside the deployment, e.g. `http://shlink:8080`.
 - **Redirect the root short domain** — on by default. With it on, give a
   destination; with it off, choose what the bare root does instead: show
-  Shlink's own page, redirect to LessonCue, or return 404.
+  Shlink's own page, serve LessonCue on the short domain, or return 404. Only
+  the first of those is a redirect — the LessonCue option answers the request
+  itself rather than sending the browser anywhere.
 - **Carry the query string across** — on by default, so a printed
   `go.example.org/?source=poster` still arrives with its tracking intact.
 - **Permanent redirect (301)** — off by default, and worth leaving off. A 302

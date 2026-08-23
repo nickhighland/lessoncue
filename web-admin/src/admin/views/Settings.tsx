@@ -2227,7 +2227,7 @@ export function Settings({
                         : prev))}
                     >
                       <option value="shortener">Show the shortener's own page</option>
-                      <option value="lessoncue">Redirect to LessonCue</option>
+                      <option value="lessoncue">Show LessonCue on the short domain</option>
                       <option value="notfound">Return 404</option>
                     </select>
                   </Field>
