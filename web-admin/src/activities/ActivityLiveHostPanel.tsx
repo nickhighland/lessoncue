@@ -26,6 +26,15 @@ export const ActivityLiveHostPanel: React.FC<{
   const roundId = textOf(state.currentRoundId) || undefined;
 
   const players = hostView.participants.filter(player => player.status !== 'removed');
+  // A class can be forty phones. Past a couple of dozen, picking one person out
+  // of the roster by eye stops working, which matters most when the reason you
+  // are looking is that they need removing.
+  const [rosterFilter, setRosterFilter] = useState('');
+  const FILTER_FROM = 12;
+  const needle = rosterFilter.trim().toLowerCase();
+  const shownPlayers = needle
+    ? players.filter(player => player.displayName.toLowerCase().includes(needle))
+    : players;
   // A player counts as in once they have submitted or voted this round.
   const answeredIds = new Set<string>([
     ...hostView.submissions.filter(item => !roundId || item.roundId === roundId).map(item => item.participantId),
@@ -51,6 +60,18 @@ export const ActivityLiveHostPanel: React.FC<{
   const blockedReason = textOf(state.autoBlockedReason) || undefined;
   const step = hostStepFor(phase, pending.length, autoPaused, blockedReason);
   const countdown = useAutoAdvanceCountdown(state.autoAdvanceAt, autoPaused || pending.length > 0);
+
+  // Removing someone was only ever reachable from setup, which is closed while
+  // a game is running -- the same gating that hid the moderation queue. Bad
+  // behaviour happens mid-round, so the control belongs beside the roster.
+  const remove = async (participantId: string, displayName: string) => {
+    if (!window.confirm(`Remove ${displayName} from the game?\n\nTheir phone cannot rejoin, and anything of theirs still waiting for you is withdrawn.`)) return;
+    setBusy(`remove:${participantId}`);
+    try {
+      await ActivityApi.executeCommand(hostView.state.runId, { action: 'removeparticipant', payload: { participantId } });
+      onRefresh();
+    } finally { setBusy(''); }
+  };
 
   const send = async (action: string, label: string) => {
     setBusy(label);
@@ -95,8 +116,18 @@ export const ActivityLiveHostPanel: React.FC<{
       </div>}
       {players.length === 0
         ? <p className="muted">No phones have joined yet.</p>
-        : <ul className="activity-live-host-roster">
-            {players.map(player => {
+        : <>
+          {players.length >= FILTER_FROM && <input
+            type="search"
+            className="activity-live-host-filter"
+            value={rosterFilter}
+            placeholder={`Find someone in ${players.length}…`}
+            aria-label="Find a player in the roster"
+            onChange={event => setRosterFilter(event.target.value)}
+          />}
+          {needle && shownPlayers.length === 0 && <p className="activity-live-host-empty">Nobody here matches “{rosterFilter.trim()}”.</p>}
+          <ul className="activity-live-host-roster">
+            {shownPlayers.map(player => {
               const isIn = answeredIds.has(player.id);
               return <li key={player.id} className={isIn ? 'answered' : ''}>
                 <span
@@ -106,9 +137,18 @@ export const ActivityLiveHostPanel: React.FC<{
                 >{player.avatar || '🙂'}</span>
                 <b>{player.displayName}</b>
                 {collecting && <span className="activity-live-host-tick" aria-label={isIn ? 'Answered' : 'Still answering'}>{isIn ? '✓' : '…'}</span>}
+                <button
+                  type="button"
+                  className="activity-live-host-remove"
+                  aria-label={`Remove ${player.displayName} from the game`}
+                  title="Remove from the game"
+                  disabled={busy !== ''}
+                  onClick={() => void remove(player.id, player.displayName)}
+                >✕</button>
               </li>;
             })}
-          </ul>}
+          </ul>
+        </>}
     </div>
 
     <div className="activity-live-host-step">

@@ -4079,3 +4079,15 @@
 .activity-live-host-moderation { display: grid; gap: .35rem; }
 .activity-live-host-moderation-item { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: .4rem; padding: .35rem .5rem; border: 1px solid var(--gold, #d88c1e); border-radius: 10px; background: #fffaf1; font-size: .82rem; }
 .activity-live-host-moderation-item > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Deliberately quiet until reached for: removing a player is not a routine
+   part of running a game, but it has to be one press away when it is needed. */
+.activity-live-host-roster li:has(.activity-live-host-remove) { padding-right: .2rem; }
+.activity-live-host-remove { flex-shrink: 0; display: grid; place-items: center; width: 22px; height: 22px; min-height: 22px; padding: 0; border: 1px solid transparent; border-radius: 50%; color: var(--muted, #64756f); background: transparent; font-size: .68rem; font-weight: 900; line-height: 1; cursor: pointer; opacity: .5; }
+.activity-live-host-remove:hover, .activity-live-host-remove:focus-visible { border-color: #b4453f; color: #b4453f; background: #fdf2f1; opacity: 1; }
+.activity-live-host-remove:disabled { opacity: .25; cursor: default; }
+
+/* The roster has to hold a whole class without pushing the controls off the
+   screen, so it scrolls rather than growing without limit. */
+.activity-live-host-roster { max-height: 34vh; overflow-y: auto; overscroll-behavior: contain; }
+.activity-live-host-filter { width: 100%; margin: .35rem 0 0; padding: .35rem .6rem; border: 1px solid var(--line, #d9e2de); border-radius: 999px; background: var(--surface, #fff); color: inherit; font: inherit; font-size: .78rem; }
+.activity-live-host-empty { margin: .4rem 0 0; color: var(--muted, #64756f); font-size: .78rem; }

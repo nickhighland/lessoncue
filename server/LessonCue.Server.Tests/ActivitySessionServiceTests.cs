@@ -225,6 +225,43 @@ public sealed class ActivitySessionServiceTests
     }
 
     [Fact]
+    public async Task RemovingAPlayerWithdrawsWhatTheySentAndKeepsTheirPhoneOut()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput(
+                "Doodles", ActivityTypes.Drawing, Config: JsonDocument.Parse("""
+                    {"title":"Doodles","requireModeration":true,"rounds":[{"id":"r1","prompt":"Draw"}]}
+                    """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            var offender = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Trouble"), TestContext.Current.CancellationToken);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken);
+            var sent = await sessions.ExecuteParticipantActionAsync(run.Id,
+                new ActivityParticipantActionInput(offender.Token, "submit",
+                    JsonDocument.Parse("""{"strokes":[{"points":[[0.1,0.1],[0.9,0.9]]}]}""").RootElement),
+                TestContext.Current.CancellationToken);
+            Assert.True(sent.Success, sent.Error);
+
+            var removed = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "removeparticipant",
+                JsonDocument.Parse($"{{\"participantId\":\"{offender.Participant!.Id}\"}}").RootElement), TestContext.Current.CancellationToken);
+            Assert.True(removed.Success, removed.Error);
+
+            // A host removing someone is reacting to what they sent, so it must
+            // not be left sitting in the queue to be judged on its own.
+            var submission = await db.ActivitySubmissions.SingleAsync(x => x.ParticipantId == offender.Participant.Id, TestContext.Current.CancellationToken);
+            Assert.True(submission.Hidden);
+            Assert.Equal("rejected", submission.ModerationStatus);
+
+            // And the phone that misbehaved cannot simply reconnect.
+            var rejoin = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(offender.Token, "Trouble"), TestContext.Current.CancellationToken);
+            Assert.Null(rejoin.Participant);
+            Assert.Contains("removed", rejoin.Error ?? "", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
     public async Task HostCommandsRejectStaleRevisionsAndLeaveTheAuthoritativeStateUnchanged()
     {
         var (db, activities, sessions, connection) = await CreateAsync();

@@ -18,6 +18,7 @@ is called out — the fix belongs where the cause is.
 | 4 | Exercise every game individually | done |
 | 5 | Remove the Android launch hang | done |
 | 6 | Put the clock on every screen, and say when autonomy stops | done |
+| 7 | Hold a whole class, and let the host remove someone | done |
 
 ---
 
@@ -311,6 +312,46 @@ One thing worth keeping: the browser test that first failed here failed for a
 good reason. It assumed an empty room, but the roster had carried over from the
 previous game in the same lesson — the shared session group working exactly as
 intended. Tests that need an empty room bring their own lesson now.
+
+## Phase 7 — A whole class, and removing someone *(done)*
+
+**The lobby was hiding players.** The roster on the TV was a fixed-size grid
+inside `max-height: 26vh; overflow: hidden`, so past roughly two dozen names the
+newest arrivals were simply clipped off the wall. A student who cannot find
+their name concludes the join failed -- which makes this a strong candidate for
+the reported "several people signed in but were not added to the game", at
+least for the part of it that survived the join-code fix. Names now shrink
+through four tiers as the room fills rather than disappearing.
+
+**Standings showed a hard top eight** with nothing saying others existed. It is
+count-aware now and says how many are not on screen. That is honest rather than
+apologetic: every player already gets their own rank on their own phone, so the
+wall is a showcase and only needed to stop implying otherwise.
+
+**The host roster grew without limit.** At desktop width it wraps and fits, so
+this only bites on a phone -- which is where a host actually holds the console.
+It scrolls within itself now, with a search box once there are more than a
+dozen players, because picking one person out of thirty matters most when the
+reason you are looking is to remove them.
+
+**Removing a player was unreachable during play.** The action existed and
+correctly refused a removed token on rejoin, but its only control lived in the
+setup panel, which is closed while a game is running -- the same gating that
+hid the moderation queue. It is on each roster row now, and it withdraws that
+player's unresolved submissions with them, because a host removing someone is
+reacting to what they just sent.
+
+One cap left deliberately: bracket entrants stay at 32, which is the size of
+the tournament, not a display limit.
+
+### A note on the test suite
+
+This phase tripped the third distinct per-IP rate limit in the suite, after
+sign-in and the controller unlock: pairing, at ten a minute, because the host
+console helper paired a fresh TV per test. A 429 returns an empty body, so it
+surfaced as a JSON parse error rather than anything resembling a rate limit.
+Any helper that performs a privileged handshake per test will eventually
+exhaust a shared budget -- pair, sign in, or unlock once per worker and reuse.
 
 ---
 

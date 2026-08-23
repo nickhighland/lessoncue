@@ -3032,10 +3032,26 @@ public sealed class ActivitySessionService(
         return (true, null);
     }
 
+    /// <summary>
+    /// Remove a player from the game. Their token is refused on rejoin, so the
+    /// phone that misbehaved cannot simply reconnect.
+    /// </summary>
     private static (bool Success, string? Error) RemoveParticipant(ActivityRun run, JsonElement? payload)
     {
         var id = ReadGuid(payload, "participantId"); var participant = id.HasValue ? run.Participants.FirstOrDefault(x => x.Id == id.Value) : null;
-        if (participant is null) return (false, "Participant not found."); participant.Status = "removed"; participant.TeamId = null; return (true, null);
+        if (participant is null) return (false, "Participant not found.");
+        participant.Status = "removed"; participant.TeamId = null;
+
+        // A host removing someone is almost always reacting to what that person
+        // just sent. Leaving it in the queue to be judged on its own is the
+        // wrong default, so take their unresolved work out with them.
+        foreach (var submission in run.Submissions.Where(x => x.ParticipantId == participant.Id && x.ModerationStatus != "approved"))
+        {
+            submission.ModerationStatus = "rejected";
+            submission.Hidden = true;
+            submission.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+        return (true, null);
     }
 
     private static (bool Success, string? Error) RenameParticipant(ActivityRun run, JsonElement? payload)
