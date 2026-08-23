@@ -668,6 +668,33 @@ public sealed class ActivitySessionService(
         }
         if (action is "awardpoints" or "score" or "award") return await AwardFromPayloadAsync(run, state, payload, ct);
         if (action is "undoscore" or "undoscoreevent") return await UndoScoreAsync(run, payload, ct);
+        if (action is "hold" or "resume" or "autopilot")
+        {
+            // A host stepping in stops the clock; resuming hands it back.
+            var hold = action switch
+            {
+                "hold" => true,
+                "resume" => false,
+                _ => payload.HasValue && payload.Value.TryGetProperty("paused", out var flag)
+                    ? flag.ValueKind == System.Text.Json.JsonValueKind.True
+                    : !BoolValue(state, "autoPaused"),
+            };
+            state["autoPaused"] = hold;
+            return (true, null);
+        }
+        if (action is "resetscores" or "clearscores")
+        {
+            var group = run.SessionGroupId.HasValue
+                ? await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == run.SessionGroupId.Value, ct)
+                : null;
+            if (group is null) return (false, "This game has no shared scoreboard to clear.");
+            // Marks a line in the sand rather than deleting anything, so the
+            // history behind it stays auditable and undo still means something.
+            group.ScoresResetAt = DateTimeOffset.UtcNow;
+            group.UpdatedAt = group.ScoresResetAt.Value;
+            await db.SaveChangesAsync(ct);
+            return (true, null);
+        }
         if (action is "autoadvance" or "setautoadvance")
         {
             if (!SupportsAutoAdvance(run)) return (false, "This game does not close its window on a head count.");

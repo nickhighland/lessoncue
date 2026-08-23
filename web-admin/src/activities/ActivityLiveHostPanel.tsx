@@ -3,6 +3,7 @@ import type { ActivityHostView } from './types';
 import { ActivityApi } from './api';
 import { ActivityQr, readableJoinAddress } from './ActivityJoin';
 import { inkOnPlayerColor } from './activityIdentity';
+import { hostStepFor, useAutoAdvanceCountdown } from './ActivityHostFlow';
 
 /**
  * What the host needs while a round is actually live.
@@ -42,10 +43,26 @@ export const ActivityLiveHostPanel: React.FC<{
   const supportsAutoAdvance = autoAdvanceEngines.includes(hostView.state.type);
   const autoAdvance = state.autoAdvanceEnabled === true;
 
+  // Anonymous work waiting on a decision. This is the only thing the host must
+  // act on, so it belongs in the live panel rather than behind setup — that
+  // gating is why drawings and answers appeared never to reach the host.
+  const pending = hostView.submissions.filter(item => item.moderationStatus === 'pending' && !item.hidden);
+  const autoPaused = state.autoPaused === true;
+  const step = hostStepFor(phase, pending.length, autoPaused);
+  const countdown = useAutoAdvanceCountdown(state.autoAdvanceAt, autoPaused || pending.length > 0);
+
   const send = async (action: string, label: string) => {
     setBusy(label);
     try {
       await ActivityApi.executeCommand(hostView.state.runId, { action });
+      onRefresh();
+    } finally { setBusy(''); }
+  };
+
+  const moderate = async (submissionId: string, status: 'approved' | 'rejected') => {
+    setBusy(submissionId);
+    try {
+      await ActivityApi.executeCommand(hostView.state.runId, { action: 'moderate', payload: { submissionId, status } });
       onRefresh();
     } finally { setBusy(''); }
   };
@@ -93,6 +110,41 @@ export const ActivityLiveHostPanel: React.FC<{
           </ul>}
     </div>
 
+    <div className="activity-live-host-step">
+      <div>
+        <span className="controller-eyebrow">{step.needsHost ? 'YOUR MOVE' : 'RUNNING ITSELF'}</span>
+        <strong>{step.label}</strong>
+        <small>{step.detail}</small>
+      </div>
+      {step.action
+        ? <button
+            type="button"
+            className="button primary"
+            disabled={busy !== ''}
+            onClick={() => void send(step.action!, 'step')}
+          >{busy === 'step' ? 'Working…' : step.label}</button>
+        : countdown !== null
+          ? <span className="activity-live-host-countdown" role="status" aria-live="off">
+              Next in {countdown}s
+            </span>
+          : null}
+    </div>
+
+    {pending.length > 0 && <div className="activity-live-host-moderation">
+      {pending.map(item => {
+        const payload = item.payload as Record<string, unknown>;
+        const preview = typeof payload.text === 'string' ? payload.text
+          : Array.isArray(payload.words) ? (payload.words as string[]).join(', ')
+          : Array.isArray(payload.strokes) ? 'Drawing'
+          : 'Response';
+        return <div key={item.id} className="activity-live-host-moderation-item">
+          <span>{preview}</span>
+          <button type="button" className="button" disabled={busy !== ''} onClick={() => void moderate(item.id, 'approved')}>Approve</button>
+          <button type="button" className="button danger" disabled={busy !== ''} onClick={() => void moderate(item.id, 'rejected')}>Hide</button>
+        </div>;
+      })}
+    </div>}
+
     <div className="activity-live-host-actions">
       <button
         type="button"
@@ -100,6 +152,21 @@ export const ActivityLiveHostPanel: React.FC<{
         disabled={busy !== '' || !players.length}
         onClick={() => void send('showleaderboard', 'standings')}
       >{busy === 'standings' ? 'Showing…' : '🏁 Show standings'}</button>
+
+      {phase !== 'lobby' && phase !== 'setup' && <button
+        type="button"
+        className="button"
+        disabled={busy !== ''}
+        aria-pressed={autoPaused}
+        onClick={() => void send(autoPaused ? 'resume' : 'hold', 'hold')}
+      >{autoPaused ? '▶ Resume' : '⏸ Hold'}</button>}
+
+      <button
+        type="button"
+        className="button danger"
+        disabled={busy !== ''}
+        onClick={() => void send('resetscores', 'reset')}
+      >{busy === 'reset' ? 'Clearing…' : 'Clear scores'}</button>
 
       {supportsAutoAdvance && <label className="activity-live-host-auto">
         <input

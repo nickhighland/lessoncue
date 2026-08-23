@@ -128,6 +128,31 @@ export const ActivityParticipantApp: React.FC = () => {
     finally { setBusy(false); }
   };
 
+  /**
+   * Change name or character without losing the session.
+   *
+   * Joining again with the same token updates that player rather than creating
+   * one: identity is keyed to the lobby, so this keeps their score and their
+   * place in the standings.
+   */
+  const updateIdentity = async (next: { displayName?: string; avatar?: string; color?: string }) => {
+    if (!participant || busy) return;
+    setBusy(true); setError('');
+    try {
+      const result = await ActivityApi.joinSession(
+        code, token || undefined,
+        next.displayName ?? participant.displayName,
+        { avatar: next.avatar ?? avatar, color: next.color ?? color },
+      );
+      if (next.avatar) setAvatar(next.avatar);
+      if (next.color) setColor(next.color);
+      setParticipant(result.participant);
+      setName(result.participant.displayName);
+      await refresh(result.participant.state.runId);
+    } catch (cause) { setError((cause as Error).message || 'That change could not be saved.'); }
+    finally { setBusy(false); }
+  };
+
   const action = async (name: string, payload?: JsonRecord) => {
     if (!participant || busy) return;
     setBusy(true); setError('');
@@ -140,7 +165,7 @@ export const ActivityParticipantApp: React.FC = () => {
   if (error && !publicSession) return <main className="activity-participant-page"><div className="participant-card"><span className="participant-mark">⚠</span><h1>Game unavailable</h1><p>{error}</p></div></main>;
   if (!publicSession) return null;
   if (!participant) return <JoinCard title={textOf(publicSession.state.name, 'LessonCue Game')} code={code} name={name} setName={setName} onSubmit={join} busy={busy} error={error} envelope={publicSession.state} avatar={avatar} setAvatar={setAvatar} color={color} setColor={setColor} />;
-  return <ParticipantGame view={participant} token={token} busy={busy} error={error} onAction={action} onLeave={() => { setParticipant(null); setToken(''); try { localStorage.removeItem(participantTokenKey(code)); } catch { /* ignore */ } }} />;
+  return <ParticipantGame view={participant} token={token} busy={busy} error={error} onAction={action} onUpdateIdentity={updateIdentity} onLeave={() => { setParticipant(null); setToken(''); try { localStorage.removeItem(participantTokenKey(code)); } catch { /* ignore */ } }} />;
 };
 
 const JoinCard: React.FC<{ title: string; code: string; name: string; setName: (value: string) => void; onSubmit: (event: FormEvent) => void; busy: boolean; error: string; envelope: ActivityStateEnvelope; avatar: string; setAvatar: (value: string) => void; color: string; setColor: (value: string) => void }> = ({ title, code, name, setName, onSubmit, busy, error, envelope, avatar, setAvatar, color, setColor }) => (
@@ -156,7 +181,7 @@ const JoinCard: React.FC<{ title: string; code: string; name: string; setName: (
     </div>{error && <div className="participant-error" role="alert">{error}</div>}<GameButton className="participant-primary-button" lockIn disabled={busy}>{busy ? 'Joining…' : 'Join game'}</GameButton></form><small>No LessonCue account required.</small><div className="participant-join-sound"><MuteToggle /></div></div></main>
 );
 
-const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; busy: boolean; error: string; onAction: (action: string, payload?: JsonRecord) => void; onLeave: () => void }> = ({ view, busy, error, onAction, onLeave }) => {
+const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; busy: boolean; error: string; onAction: (action: string, payload?: JsonRecord) => void; onUpdateIdentity: (next: { displayName?: string; avatar?: string; color?: string }) => void; onLeave: () => void }> = ({ view, busy, error, onAction, onUpdateIdentity, onLeave }) => {
   const envelope = view.state;
   const state = objectOf(envelope.state);
   const config = objectOf(envelope.config);
@@ -229,6 +254,8 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
     : '';
   // Only ever this player's own standing; the server keeps other scores out.
   const personalResult = readPersonalResult(state.you);
+  const [editingIdentity, setEditingIdentity] = useState(false);
+  const [draftName, setDraftName] = useState(view.displayName);
   // The server owns the clock. This only mirrors it into the shared
   // last-five-seconds presentation and its tick/alarm cues.
   const secondsRemaining = Math.max(0, Math.ceil(responseTimerRemainingMs / 1000));
@@ -271,7 +298,19 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
   const sendGroups = (groups: Array<{ groupId: string; itemIds: string[] }>) => onAction('group', { groups });
   const sendAdventureChoice = (index: number) => { setSelected(String(index)); onAction('choose', { choiceIndex: index }); };
 
-  return <GameAudioProvider chain={audioChain}><main className="activity-participant-page" data-activity-type={envelope.type} data-activity-preset={textOf(config.preset) || undefined} data-activity-panic={panicking ? 'true' : 'false'} style={themeVariables}><div className="participant-game-shell"><header className="participant-game-header"><div>{headerKicker && <span className="participant-kicker">{headerKicker}</span>}<h1>{title}</h1></div><div className="participant-identity"><MuteToggle /><span className="participant-identity-badge" style={{ background: textOf(view.color, '#f6c531'), color: inkOnPlayerColor(textOf(view.color, '#f6c531')) }} aria-hidden="true">{textOf(view.avatar, '🙂')}</span><div><strong>{view.displayName}</strong><small>{view.hasSubmitted ? 'Response saved' : phase.replace(/([a-z])([A-Z])/g, '$1 $2')}</small></div></div></header>{error && <div className="participant-error" role="alert">{error}</div>}
+  return <GameAudioProvider chain={audioChain}><main className="activity-participant-page" data-activity-type={envelope.type} data-activity-preset={textOf(config.preset) || undefined} data-activity-panic={panicking ? 'true' : 'false'} style={themeVariables}><div className="participant-game-shell"><header className="participant-game-header"><div>{headerKicker && <span className="participant-kicker">{headerKicker}</span>}<h1>{title}</h1></div><div className="participant-identity"><MuteToggle /><GameButton type="button" className="participant-identity-edit" silent aria-label="Change your name and character" onClick={() => setEditingIdentity(current => !current)}><span className="participant-identity-badge" style={{ background: textOf(view.color, '#f6c531'), color: inkOnPlayerColor(textOf(view.color, '#f6c531')) }} aria-hidden="true">{textOf(view.avatar, '🙂')}</span><div><strong>{view.displayName}</strong><small>{view.hasSubmitted ? 'Response saved' : phase.replace(/([a-z])([A-Z])/g, '$1 $2')}</small></div></GameButton></div></header>{error && <div className="participant-error" role="alert">{error}</div>}
+    {editingIdentity && <section className="participant-input-card participant-identity-editor">
+      <span className="participant-kicker">YOUR PLAYER</span>
+      <label>Name <input maxLength={40} value={draftName} onChange={event => setDraftName(event.target.value)} /></label>
+      <div className="participant-identity-choices" role="radiogroup" aria-label="Choose your character">
+        {ACTIVITY_AVATARS.map(option => <GameButton key={option} type="button" className={`participant-avatar-swatch ${textOf(view.avatar) === option ? 'selected' : ''}`} role="radio" aria-checked={textOf(view.avatar) === option} aria-label={`Character ${option}`} disabled={busy} onClick={() => onUpdateIdentity({ avatar: option })}>{option}</GameButton>)}
+      </div>
+      <div className="participant-identity-choices" role="radiogroup" aria-label="Choose your colour">
+        {ACTIVITY_COLORS.map(option => <GameButton key={option} type="button" className={`participant-color-swatch ${textOf(view.color) === option ? 'selected' : ''}`} role="radio" aria-checked={textOf(view.color) === option} aria-label={`Colour ${option}`} style={{ background: option }} disabled={busy} onClick={() => onUpdateIdentity({ color: option })} />)}
+      </div>
+      <GameButton className="participant-primary-button" lockIn disabled={busy || !draftName.trim()} onClick={() => { onUpdateIdentity({ displayName: draftName.trim() }); setEditingIdentity(false); }}>Save</GameButton>
+      <small className="participant-saved-note">Your score and place in the standings stay with you.</small>
+    </section>}
     {timerRunning && phase === 'acceptingResponses' && envelope.type !== 'word' && <ActivityCountdown remainingMs={responseTimerRemainingMs} durationMs={timerDurationMs} label="TIME LEFT" compact />}
     {phase === 'lobby' || phase === 'setup' ? <section className="participant-waiting"><span className="waiting-orb" style={idleWobbleStyle(view.participantId, 1)}>✦</span><h2>You’re in.</h2><p>Waiting for the host to start the game.</p><div className="participant-count">{numberOf(state.participantCount)} players joined</div></section> :
       phase === 'acceptingResponses' && isChoice ? <ChoiceInput kicker={choiceKicker} prompt={prompt} options={options} selected={selected === null ? null : Number(selected)} disabled={busy || view.hasSubmitted} onSelect={sendChoice} modifierControls={quizModifierControls} /> :

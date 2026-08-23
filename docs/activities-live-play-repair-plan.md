@@ -14,7 +14,7 @@ is called out — the fix belongs where the cause is.
 | 0 | This plan | done |
 | 1 | Shrink the controller pause button | done |
 | 2 | Server-admin switch to hide Activities while testing | done |
-| 3 | Repair live play: shared lesson session, host visibility, flow | in progress |
+| 3 | Repair live play: shared lesson session, host visibility, flow | done |
 | 4 | Exercise every game individually | not started |
 | 5 | Remove the Android launch hang | not started |
 
@@ -184,12 +184,12 @@ Depends on the lesson session above.
 
    Still to do here: surface the "two runs exist" case in the host UI, since a
    run started outside a lesson still forms its own lobby.
-2. **Carry scores.** Cumulative standings across games, plus a host reset.
-3. **Host visibility.** Move the moderation queue out of setup so pending
-   drawings and answers are always visible during play, with a count, the
-   submitting player, and approve/hide per item.
-4. **Games run themselves.** *(server side done; host surface pending)* The host
-   presses Start and then watches the room, not the screen. Once a game starts
+2. **Carry scores.** *(done)* Totals span the lesson, and a host can clear the
+   board — a reset marker rather than a delete, so history stays auditable.
+3. **Host visibility.** *(done)* The moderation queue lives in the live panel,
+   so pending drawings and answers are reachable during play rather than only
+   when setup happens to be open.
+4. **Games run themselves.** *(done)* The host presses Start and then watches the room, not the screen. Once a game starts
    the server drives it:
 
    | Phase | Leaves when |
@@ -225,8 +225,9 @@ Depends on the lesson session above.
    when the host remembers to ask for them. The race screen already exists; autonomy
    shows it between rounds as a matter of course.
 
-7. **Player self-service.** Change name and character from the phone without
-   losing the session or the score.
+7. **Player self-service.** *(done)* Tapping your own badge opens an editor for
+   name and character. Re-joining with the existing token updates that player,
+   so the score and standings place stay with them.
 
 ## Phase 4 — Exercise every game
 

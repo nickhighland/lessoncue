@@ -3929,3 +3929,12 @@
 .activity-live-host-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
 .activity-live-host-auto { display: flex; align-items: flex-start; gap: .45rem; width: 100%; color: var(--muted, #64756f); font-size: .76rem; line-height: 1.35; }
 .activity-live-host-auto input { margin-top: .15rem; }
+
+/* ------------------------------------------------------- host flow ----- */
+.activity-live-host-step { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .6rem .7rem; border: 1px solid var(--line, #d9e2de); border-radius: 12px; background: var(--surface-2, #f5f7f6); }
+.activity-live-host-step strong { display: block; font-size: 1.02rem; font-weight: 900; }
+.activity-live-host-step small { display: block; margin-top: .1rem; color: var(--muted, #64756f); font-size: .76rem; line-height: 1.35; }
+.activity-live-host-countdown { flex-shrink: 0; padding: .3rem .6rem; border-radius: 999px; background: rgba(0,0,0,.07); color: var(--muted, #64756f); font-size: .78rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.activity-live-host-moderation { display: grid; gap: .35rem; }
+.activity-live-host-moderation-item { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: .4rem; padding: .35rem .5rem; border: 1px solid var(--gold, #d88c1e); border-radius: 10px; background: #fffaf1; font-size: .82rem; }
+.activity-live-host-moderation-item > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

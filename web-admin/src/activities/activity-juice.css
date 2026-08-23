@@ -922,3 +922,26 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
 .activity-participant-page .participant-kicker {
   font-family: var(--act-display-font);
 }
+
+.activity-participant-page .participant-identity-edit {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .2rem .35rem .2rem .2rem;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  text-align: right;
+}
+
+.activity-participant-page .participant-identity-edit:hover,
+.activity-participant-page .participant-identity-edit:focus-visible {
+  border-color: rgba(255, 255, 255, .22);
+  background: rgba(255, 255, 255, .07);
+}
+
+.activity-participant-page .participant-identity-edit strong,
+.activity-participant-page .participant-identity-edit small { display: block; }
+
+.participant-identity-editor .participant-identity-choices { margin-top: .6rem; }
