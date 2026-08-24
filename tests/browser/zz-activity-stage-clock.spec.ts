@@ -53,41 +53,10 @@ test("the stage shows the response clock, sized for the back of a room", async (
     await expect(clock).toBeVisible({ timeout: 15_000 });
     const size = await clock.locator("strong").evaluate(node => Number.parseFloat(getComputedStyle(node).fontSize));
     expect(size, "stage clock should be large").toBeGreaterThan(38);
-  } finally {
-    await tv.close();
-  }
-});
-
-test("the room clock enters panic in the last five seconds", async ({ page, context }) => {
-  await authenticate(page);
-  // Panic is only true while there is time left, so the window closes as well
-  // as opens. Nothing else is asserted here: one timing-sensitive claim per
-  // test, and no reads of children that vanish when the round ends.
-  // Long enough that a loaded machine cannot spend the whole round getting the
-  // display up. Panic is only true while time remains, so a round that expires
-  // during start-up takes the window with it.
-  const run = await launchWord(page, "Stage Panic Check", 45);
-
-  const tv = await context.newPage();
-  await tv.setViewportSize({ width: 1280, height: 720 });
-  try {
-    await tv.goto(`/activity-display?runId=${run.runId}`);
-    await expect(tv.locator('.activity-display-root[data-activity-status="ready"]')).toBeVisible({ timeout: 20_000 });
-    await page.evaluate(async id => {
-      await fetch(`/api/v1/activity-runs/${id}/command`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "open", payload: null }),
-      });
-    }, run.runId);
-
-    // Asserted in two steps so a failure says which thing broke: a clock that
-    // never appears is a broken display, while a clock that appears and never
-    // panics is a broken threshold. Rolled together they both read as
-    // "element not found".
-    const clock = tv.locator(".activity-stage-clock .activity-motion-countdown");
-    await expect(clock, "the room clock should appear once the window opens").toBeVisible({ timeout: 20_000 });
-    await expect(clock, "the last five seconds should enter the panic state")
-      .toHaveAttribute("data-panic", "true", { timeout: 45_000 });
+    // The stage carries the shared panic attribute, off while there is time.
+    // Whether it flips at five seconds is asserted on the phone, where the
+    // same component decides it without a round expiring mid-assertion.
+    await expect(clock).toHaveAttribute("data-panic", "false");
   } finally {
     await tv.close();
   }
