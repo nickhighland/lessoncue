@@ -63,7 +63,10 @@ test("the room clock enters panic in the last five seconds", async ({ page, cont
   // Panic is only true while there is time left, so the window closes as well
   // as opens. Nothing else is asserted here: one timing-sensitive claim per
   // test, and no reads of children that vanish when the round ends.
-  const run = await launchWord(page, "Stage Panic Check", 30);
+  // Long enough that a loaded machine cannot spend the whole round getting the
+  // display up. Panic is only true while time remains, so a round that expires
+  // during start-up takes the window with it.
+  const run = await launchWord(page, "Stage Panic Check", 45);
 
   const tv = await context.newPage();
   await tv.setViewportSize({ width: 1280, height: 720 });
@@ -77,8 +80,14 @@ test("the room clock enters panic in the last five seconds", async ({ page, cont
       });
     }, run.runId);
 
-    await expect(tv.locator(".activity-stage-clock .activity-motion-countdown"))
-      .toHaveAttribute("data-panic", "true", { timeout: 40_000 });
+    // Asserted in two steps so a failure says which thing broke: a clock that
+    // never appears is a broken display, while a clock that appears and never
+    // panics is a broken threshold. Rolled together they both read as
+    // "element not found".
+    const clock = tv.locator(".activity-stage-clock .activity-motion-countdown");
+    await expect(clock, "the room clock should appear once the window opens").toBeVisible({ timeout: 20_000 });
+    await expect(clock, "the last five seconds should enter the panic state")
+      .toHaveAttribute("data-panic", "true", { timeout: 45_000 });
   } finally {
     await tv.close();
   }
