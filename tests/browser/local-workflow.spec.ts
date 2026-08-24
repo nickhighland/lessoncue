@@ -753,11 +753,15 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   expect((await page.request.get(firstPermanent.path.replace("/session/", "/api/v1/controller/sessions/"))).status()).toBe(200);
   await controllerDialog.getByRole("button", { name: "Refresh permanent QR" }).click();
   await acceptActionDialog(page);
-  const rotatedPermanent = await page.evaluate(async () => {
+  // Polled rather than read once: accepting the dialog only starts the
+  // rotation, so reading straight away can still see the old link and look
+  // exactly like a rotation that never happened.
+  const readPermanent = () => page.evaluate(async () => {
     const classes = await fetch("/api/v1/classes").then(response => response.json());
-    return fetch(`/api/v1/controller/permanent/${classes[0].id}`).then(response => response.json());
+    return fetch(`/api/v1/controller/permanent/${classes[0].id}`).then(response => response.json()) as Promise<{ path: string }>;
   });
-  expect(rotatedPermanent.path).not.toBe(firstPermanent.path);
+  await expect.poll(async () => (await readPermanent()).path, { timeout: 15_000 }).not.toBe(firstPermanent.path);
+  const rotatedPermanent = await readPermanent();
   expect((await page.request.get(firstPermanent.path.replace("/session/", "/api/v1/controller/sessions/"))).status()).toBe(404);
   expect((await page.request.get(rotatedPermanent.path.replace("/session/", "/api/v1/controller/sessions/"))).status()).toBe(200);
   await controllerDialog.getByRole("button", { name: "Revoke" }).click();
