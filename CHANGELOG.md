@@ -4,6 +4,31 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.42.1 — Shortener settings that fill themselves in
+
+### User changes
+
+- The URL shortener's reachable address arrives filled in rather than blank.
+  Which address is right depends on how LessonCue itself runs, so it is worked
+  out for you instead of left as a guess.
+- The management address follows the short domain as you type it, and stops
+  following once you override it.
+- The Cloudflare Tunnel instructions are always shown, not only after a domain
+  has been saved — including the warning that a redirect rule on the whole
+  hostname would swallow every short link. Once a domain is set, the exact
+  hostnames and ports appear as a table to copy.
+- Where this server has a local cloudflared configuration, the merged version
+  is shown with the new routes added and every existing one untouched.
+
+### Developer changes
+
+- `ShortenerConfiguration.SuggestUpstream` derives the address from whether
+  LessonCue is containerised: the shortener's service name and internal port
+  inside the compose network, the published loopback port outside it. Saving
+  the field blank stores the suggestion rather than nothing.
+- `ForManagedTunnel` returns generic guidance when no domain is configured, so
+  the section is useful before setup rather than after it.
+
 ## v0.42.0 — Optional URL shortener
 
 ### User changes

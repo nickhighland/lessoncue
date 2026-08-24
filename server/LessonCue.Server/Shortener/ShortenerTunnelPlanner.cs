@@ -48,7 +48,20 @@ public static class ShortenerTunnelPlanner
     {
         var routes = RoutesFor(settings, shortenerPort, consolePort);
         if (routes.Count == 0)
-            return new TunnelPlan([], false, "Configure the short domain first.", []);
+            // Still worth explaining. Somebody reading this before they have
+            // chosen a domain is exactly who most needs to know what the tunnel
+            // will have to do, and that a hostname-wide redirect rule is a trap.
+            return new TunnelPlan([], false,
+                "Once a short domain is set, LessonCue will show the exact routes to add here. "
+                + "The shape is the same for every installation.",
+                [
+                    "Reuse the Cloudflare Tunnel already serving LessonCue rather than creating a second one.",
+                    "Open Cloudflare Zero Trust, then Networks → Tunnels, and choose that tunnel.",
+                    $"On its Public Hostnames tab, the short domain points at the shortener on port {shortenerPort}, and the management address at the console on port {consolePort}.",
+                    "Both are served over the tunnel, so neither port needs opening on the firewall.",
+                    "Cloudflare creates the DNS records for you, provided the domain is in the same account.",
+                    "Do not add a Redirect Rule for the short domain. A rule on the whole hostname would also catch the short links and the game codes underneath it.",
+                ]);
 
         var steps = new List<string>
         {

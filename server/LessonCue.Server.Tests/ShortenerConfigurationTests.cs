@@ -143,4 +143,32 @@ public class ShortenerConfigurationTests
         // Public links must never be moved onto the management host.
         Assert.StartsWith(settings.PublicUrl + "/", settings.ShortLinkFor("Q7Z6"));
     }
+
+    // ------------------------------------------------------- where it lives
+
+    [Fact]
+    public void InsideTheComposeNetworkTheShortenerIsAnotherContainer() =>
+        // Service name and the port it listens on inside itself, which is not
+        // the port the stack publishes.
+        Assert.Equal("http://shlink:8080", ShortenerConfiguration.SuggestUpstream(true, 8081));
+
+    [Fact]
+    public void InstalledNativelyItIsReachedOnThePublishedPort() =>
+        Assert.Equal("http://127.0.0.1:8081", ShortenerConfiguration.SuggestUpstream(false, 8081));
+
+    [Fact]
+    public void ACustomPublishedPortIsRespected() =>
+        Assert.Equal("http://127.0.0.1:9091", ShortenerConfiguration.SuggestUpstream(false, 9091));
+
+    [Fact]
+    public void TheSuggestionIsSomethingTheValidatorAccepts()
+    {
+        // A suggestion that would be rejected on save is worse than none.
+        foreach (var suggested in new[]
+        {
+            ShortenerConfiguration.SuggestUpstream(true, 8081),
+            ShortenerConfiguration.SuggestUpstream(false, 8081),
+        })
+            Assert.Equal(suggested, ShortenerConfiguration.NormalizeUpstream(suggested));
+    }
 }

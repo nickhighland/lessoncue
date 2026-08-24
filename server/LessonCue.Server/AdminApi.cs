@@ -3118,6 +3118,9 @@ public static class AdminApi
                 adminHost = settings.AdminHost,
                 suggestedAdminHost = ShortenerConfiguration.DefaultAdminHost(settings.Domain),
                 upstream = settings.Upstream,
+                suggestedUpstream = ShortenerConfiguration.SuggestUpstream(
+                    string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase),
+                    PortFromEnvironment("SHORTENER_HTTP_PORT", 8081)),
                 rootRedirectMode = ShortenerConfiguration.RootRedirectName(settings.RootRedirect),
                 rootRedirectUrl = settings.RootRedirectUrl,
                 // What SHORT_DOMAIN_ROOT_REDIRECT has to be set to for this
@@ -3149,6 +3152,12 @@ public static class AdminApi
                 domain = ShortenerConfiguration.NormalizeHost(input.Domain);
                 adminHost = ShortenerConfiguration.NormalizeAdminHost(input.AdminHost, domain);
                 upstream = ShortenerConfiguration.NormalizeUpstream(input.Upstream);
+                // Left blank, take the address the console offered rather than
+                // saving a configuration that cannot reach anything.
+                if (upstream.Length == 0 && domain.Length > 0)
+                    upstream = ShortenerConfiguration.SuggestUpstream(
+                        string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase),
+                        PortFromEnvironment("SHORTENER_HTTP_PORT", 8081));
                 mode = ShortenerConfiguration.ParseRootRedirect(input.RootRedirectMode);
                 // Checked against the domain being saved, so a loop cannot be
                 // introduced by changing both at once.

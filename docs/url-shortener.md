@@ -102,6 +102,10 @@ SHORT_DOMAIN=go.example.org docker compose --profile shortener up -d
 Both published ports bind to loopback, and PostgreSQL is not published at all —
 the tunnel is the only way in from outside.
 
+The settings card also carries the Cloudflare routes for this installation —
+the exact hostnames and ports to add — and shows them before a domain is even
+chosen, so the shape is clear up front.
+
 ### 2. Add two tunnel routes
 
 Reuse the tunnel already serving LessonCue. In Cloudflare Zero Trust →
@@ -131,11 +135,15 @@ with this installation's own hostnames and ports.
 **Settings → Integrations · URL shortener.**
 
 - **Short domain** — bare, no scheme.
-- **Management address** — defaults to `short.{SHORT_DOMAIN}`, and can be
-  overridden for installations without DNS control over that name. It may not
-  be the short domain itself.
-- **Where the shortener is reachable** — from this server, e.g.
-  `http://shlink:8080`.
+- **Management address** — follows the short domain as you type it
+  (`short.{SHORT_DOMAIN}`), and can be overridden for installations without DNS
+  control over that name. It may not be the short domain itself.
+- **Where the shortener is reachable** — filled in for you. Which address is
+  right depends on how LessonCue itself runs, which is why it is not a fixed
+  value: inside the compose stack the shortener is another container
+  (`http://shlink:8080`, its *internal* port), while a native install reaches it
+  through the published one (`http://127.0.0.1:8081`). Note `127.0.0.1` inside
+  LessonCue's container is LessonCue, not the shortener.
 - **When someone visits the bare short domain** — the shortener's own page, the
   organization's website, LessonCue, or somewhere else. Shlink serves that root
   and reads the destination from `SHORT_DOMAIN_ROOT_REDIRECT` at start-up, so
