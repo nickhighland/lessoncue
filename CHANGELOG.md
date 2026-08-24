@@ -4,6 +4,48 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## Unreleased — Optional URL shortener
+
+### User changes
+
+- LessonCue can now run a self-hosted URL shortener on a short domain of your
+  own, giving the organization ordinary short links and giving games short,
+  readable join codes on the same domain.
+- Games joined at `{your-short-domain}/{code}`. Codes are four characters —
+  a letter, a digit, a letter, a digit — with `0`, `1`, `I`, `L` and `O` left
+  out so a room can read one off a television. A code typed in lower case works.
+- The QR on the lobby screen and the address beside it both use the short
+  domain when the shortener is on.
+- Entirely optional. An installation that never turns it on is unchanged, and
+  one whose shortener stops answering keeps running games on its own addresses.
+- Settings → Integrations · URL shortener shows what state it is in, how many
+  reserved codes the shortener holds, how many games are using one, and the
+  exact Cloudflare Tunnel routes to add. It can test each hostname separately
+  and repair codes that have drifted.
+- The bare short domain can be sent to the organization's website, to
+  LessonCue, or left showing the shortener's own page.
+
+### Developer changes
+
+- Four containers behind a `shortener` compose profile: Shlink, PostgreSQL, the
+  web client, and nothing at all when the profile is not requested. The
+  database is never published, both published ports bind to loopback, and the
+  browser client is deployed with no credentials.
+- 100 reserved codes ship as a fixed, version-controlled asset with a digest
+  test, because they become slugs inside the shortener and a silent edit would
+  strand links.
+- Reserved links are permanent. Games take and release codes in LessonCue
+  alone, so starting or ending one never touches the shortener.
+- Provisioning, reconciliation and repair go through the REST API with a
+  credential of LessonCue's own. A slug an administrator created by hand is
+  reported as a conflict rather than taken over.
+- Replaces the 0.41.0 root-redirect proxy, which put LessonCue in front of the
+  short domain. The shortener answers its own root, so the tunnel now points
+  there directly.
+- `scripts/shortener-install.sh` and `scripts/shortener-update.sh` handle
+  secrets, ordering, and update safety; `npm run test:shortener` guards the
+  compose file's security properties.
+
 ## v0.41.0 — Activities that survive a real lesson
 
 ### User changes
