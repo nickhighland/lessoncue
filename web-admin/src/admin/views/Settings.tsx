@@ -715,6 +715,29 @@ export function Settings({
     void api<ShortenerTunnelPlan>("/api/v1/shortener/tunnel").then(setShortenerTunnel).catch(() => setShortenerTunnel(null));
   }, [canManageApp]);
 
+  // The install runs in a privileged helper and takes a minute or two, so the
+  // panel has to ask again. Without this the outcome only appeared if the
+  // operator happened to reload the page.
+  const shortenerInstalling = Boolean(shortener?.installRequestedFor) && !shortener?.installResult;
+  useEffect(() => {
+    if (!canManageApp || !shortenerInstalling) return;
+    const poll = window.setInterval(() => {
+      void api<ShortenerSettings>("/api/v1/shortener")
+        // Keep what the operator has typed. Only the progress of the install
+        // comes from the server while this is running.
+        .then((loaded) => setShortener((previous) => previous ? {
+          ...loaded,
+          domain: previous.domain,
+          adminHost: previous.adminHost,
+          upstream: previous.upstream,
+          rootRedirectUrl: previous.rootRedirectUrl,
+          rootRedirectMode: previous.rootRedirectMode,
+        } : loaded))
+        .catch(() => { /* a restarting server is expected mid-install */ });
+    }, 5_000);
+    return () => window.clearInterval(poll);
+  }, [canManageApp, shortenerInstalling]);
+
   async function saveShortener(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!shortener) return;
@@ -765,7 +788,7 @@ export function Settings({
       });
       await loadShortener();
       notify(requested
-        ? "The shortener will be installed the next time this server updates."
+        ? "Installing the shortener now. This takes a minute or two the first time."
         : "The shortener will not be installed.");
     } catch (e) {
       notify(errorText(e));
