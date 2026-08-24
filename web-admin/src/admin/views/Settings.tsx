@@ -700,7 +700,16 @@ export function Settings({
     if (!canManageApp) return;
     // Read directly here rather than through the handler, so this effect
     // depends only on the permission and not on a function identity.
-    void api<ShortenerSettings>("/api/v1/shortener").then(setShortener).catch(() => setShortener(null));
+    void api<ShortenerSettings>("/api/v1/shortener")
+      .then((loaded) => setShortener({
+        ...loaded,
+        // Filled in rather than merely suggested. Both of these are derivable,
+        // and leaving them blank asks the operator to work out an address they
+        // can just as easily get wrong.
+        upstream: loaded.upstream || loaded.suggestedUpstream,
+        adminHost: loaded.adminHost || loaded.suggestedAdminHost,
+      }))
+      .catch(() => setShortener(null));
     // The tunnel routes are the thing an operator most often comes here to
     // copy, so fetch them on open rather than only after a save.
     void api<ShortenerTunnelPlan>("/api/v1/shortener/tunnel").then(setShortenerTunnel).catch(() => setShortenerTunnel(null));
@@ -2247,7 +2256,20 @@ export function Settings({
                 <Field label="Short domain" hint="The domain short links live on, such as go.example.org.">
                   <input
                     value={shortener.domain}
-                    onChange={(event) => setShortener((prev) => (prev ? { ...prev, domain: event.target.value } : prev))}
+                    onChange={(event) => setShortener((prev) => {
+                      if (!prev) return prev;
+                      const domain = event.target.value.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+                      // Keep the management address in step while it is still
+                      // the derived one; an overridden value is left alone.
+                      const derived = domain ? `short.${domain}` : "";
+                      const following = !prev.adminHost || prev.adminHost === prev.suggestedAdminHost;
+                      return {
+                        ...prev,
+                        domain: event.target.value,
+                        suggestedAdminHost: derived,
+                        adminHost: following ? derived : prev.adminHost,
+                      };
+                    })}
                     placeholder="go.example.org"
                     autoComplete="off"
                     spellCheck={false}
@@ -2267,11 +2289,14 @@ export function Settings({
                     spellCheck={false}
                   />
                 </Field>
-                <Field label="Where the shortener is reachable" hint="From this server, inside the deployment.">
+                <Field
+                  label="Where the shortener is reachable"
+                  hint={`From this server. Leave blank for ${shortener.suggestedUpstream}, which is where the shortener normally is for this installation.`}
+                >
                   <input
                     value={shortener.upstream}
                     onChange={(event) => setShortener((prev) => (prev ? { ...prev, upstream: event.target.value } : prev))}
-                    placeholder="http://shlink:8080"
+                    placeholder={shortener.suggestedUpstream}
                     autoComplete="off"
                     spellCheck={false}
                   />
@@ -2377,11 +2402,37 @@ export function Settings({
                 </p>
               )}
 
-              {shortenerTunnel && shortenerTunnel.routes.length > 0 && (
+              {shortenerTunnel && (
                 <div className="settings-instructions">
                   <strong>Cloudflare Tunnel</strong>
                   <p className="settings-copy">{shortenerTunnel.explanation}</p>
+                  {shortenerTunnel.routes.length > 0 && (
+                    <table className="settings-route-table">
+                      <thead><tr><th>Public hostname</th><th>Service</th></tr></thead>
+                      <tbody>
+                        {shortenerTunnel.routes.map((route) => (
+                          <tr key={route.hostname}>
+                            <td><code>{route.hostname}</code></td>
+                            <td><code>{route.service}</code></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                   <ol>{shortenerTunnel.instructions.map((step) => <li key={step}>{step}</li>)}</ol>
+                  {shortenerTunnel.localConfigPath && (
+                    <p className="settings-copy">
+                      This server also has a cloudflared configuration at <code>{shortenerTunnel.localConfigPath}</code>.
+                      {shortenerTunnel.localConfigRefusal
+                        ? ` ${shortenerTunnel.localConfigRefusal}`
+                        : shortenerTunnel.localConfigMerged
+                          ? " The merged version below adds these routes and leaves every existing one untouched."
+                          : " It already has these routes."}
+                    </p>
+                  )}
+                  {shortenerTunnel.localConfigMerged && (
+                    <pre className="settings-config-preview"><code>{shortenerTunnel.localConfigMerged}</code></pre>
+                  )}
                 </div>
               )}
 

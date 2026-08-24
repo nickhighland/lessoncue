@@ -92,6 +92,27 @@ public static partial class ShortenerConfiguration
         return candidate;
     }
 
+    /// <summary>The port the shortener listens on inside its own container.</summary>
+    public const int ShortenerContainerPort = 8080;
+
+    /// <summary>The service name the compose stack gives the shortener.</summary>
+    public const string ShortenerServiceName = "shlink";
+
+    /// <summary>
+    /// Where the shortener most likely is, given how LessonCue itself is running.
+    ///
+    /// There is no single right answer, which is why this is worth filling in
+    /// rather than leaving blank. Inside the compose network the shortener is
+    /// another container, reached by service name on its own port. Installed
+    /// natively, LessonCue reaches it through the port the stack publishes on
+    /// loopback -- which is a different number, because the published port and
+    /// the container port are not the same.
+    /// </summary>
+    public static string SuggestUpstream(bool lessonCueInContainer, int publishedPort) =>
+        lessonCueInContainer
+            ? $"http://{ShortenerServiceName}:{ShortenerContainerPort}"
+            : $"http://127.0.0.1:{publishedPort}";
+
     /// <summary>Where LessonCue reaches the shortener from inside the deployment.</summary>
     public static string NormalizeUpstream(string? value)
     {

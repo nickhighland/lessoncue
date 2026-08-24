@@ -3537,3 +3537,11 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 
 .settings-instructions { margin: .9rem 0 0; padding: .8rem; border: 1px solid var(--line); border-radius: 12px; }
 .settings-instructions ol { margin: .4rem 0 0; padding-left: 1.15rem; display: grid; gap: .35rem; font-size: .84rem; line-height: 1.45; }
+
+/* The two routes are the thing an operator copies into Cloudflare, so they get
+   a table rather than being buried in prose. */
+.settings-route-table { width: 100%; margin: .6rem 0; border-collapse: collapse; font-size: .82rem; }
+.settings-route-table th { padding: .3rem .5rem; border-bottom: 1px solid var(--line); text-align: left; font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.settings-route-table td { padding: .35rem .5rem; border-bottom: 1px solid var(--line); }
+.settings-route-table code { overflow-wrap: anywhere; font-size: .82rem; }
+.settings-config-preview { max-height: 260px; margin: .5rem 0 0; padding: .6rem .7rem; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2, #f5f7f6); font-size: .76rem; line-height: 1.4; }

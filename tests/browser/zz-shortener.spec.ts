@@ -254,3 +254,52 @@ test("an unconfigured shortener says what to do rather than erroring", async ({ 
   expect(result.passed).toBe(false);
   expect(result.checks[0].detail).toContain("Set the short domain");
 });
+
+test("the reachable address is offered rather than left to guesswork", async ({ page }) => {
+  await authenticate(page);
+  const suggested = await page.evaluate(async () =>
+    (await fetch("/api/v1/shortener").then(r => r.json())) as { suggestedUpstream: string });
+
+  // Whichever shape this installation is, the suggestion is a usable address.
+  expect(suggested.suggestedUpstream).toMatch(/^http:\/\/(shlink:8080|127\.0\.0\.1:\d+)$/);
+
+  // Saved blank, it takes the suggestion rather than storing nothing.
+  const saved = await page.evaluate(async () => {
+    await fetch("/api/v1/shortener", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: "go.example.org", adminHost: "", upstream: "", rootRedirectMode: "notfound", enabled: true }),
+    });
+    return await fetch("/api/v1/shortener").then(r => r.json()) as { upstream: string; suggestedUpstream: string };
+  });
+  expect(saved.upstream).toBe(saved.suggestedUpstream);
+});
+
+
+test("the console explains the Cloudflare routes before a domain is even chosen", async ({ page }) => {
+  await authenticate(page);
+  await configure(page, { domain: "", adminHost: "", upstream: "", rootRedirectMode: "notfound", enabled: false });
+
+  const plan = await page.evaluate(async () =>
+    (await fetch("/api/v1/shortener/tunnel").then(r => r.json())) as { instructions: string[]; routes: unknown[] });
+
+  // No routes to name yet, but the shape and the trap are worth knowing early.
+  expect(plan.routes).toHaveLength(0);
+  expect(plan.instructions.length).toBeGreaterThan(3);
+  expect(plan.instructions.some(step => step.includes("Redirect Rule"))).toBe(true);
+  expect(plan.instructions.some(step => step.includes("already serving LessonCue"))).toBe(true);
+});
+
+test("the settings arrive filled in rather than blank", async ({ page }) => {
+  await authenticate(page);
+  await configure(page, { domain: "", adminHost: "", upstream: "", rootRedirectMode: "notfound", enabled: false });
+
+  const panel = await openSection(page);
+  // Matched loosely on purpose: these fields carry a hint, which the shared
+  // Field component folds into the accessible name.
+  const upstream = panel.getByLabel(/^Where the shortener is reachable/);
+  await expect(upstream).toHaveValue(/^http:\/\/(shlink:8080|127\.0\.0\.1:\d+)$/);
+
+  // And the management address follows the domain as it is typed.
+  await panel.getByLabel(/^Short domain/).fill("go.example.org");
+  await expect(panel.getByLabel(/^Management address/)).toHaveValue("short.go.example.org");
+});

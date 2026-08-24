@@ -934,6 +934,7 @@ export type ShortenerSettings = {
   adminHost: string;
   suggestedAdminHost: string;
   upstream: string;
+  suggestedUpstream: string;
   rootRedirectMode: "notfound" | "lessoncue" | "organization" | "custom";
   rootRedirectUrl: string;
   publicUrl: string;
@@ -954,6 +955,9 @@ export type ShortenerTunnelPlan = {
   explanation: string;
   instructions: string[];
   routes: ShortenerTunnelRoute[];
+  localConfigPath: string | null;
+  localConfigMerged: string | null;
+  localConfigRefusal: string | null;
 };
 
 export type ShortenerReport = {
