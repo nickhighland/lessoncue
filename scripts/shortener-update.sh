@@ -10,7 +10,20 @@
 # anything.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+# This script ships two ways: in the repository it sits in scripts/ with the
+# compose file a level up, and in the release bundle it sits directly beside
+# it. Find the compose file rather than assume which copy this is. Assuming
+# sent an administrator's install to /opt, where there is no compose file, and
+# reported nothing beyond "the shortener did not start".
+HERE="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "${HERE}/compose.yaml" ]; then
+  cd "$HERE"
+elif [ -f "${HERE}/../compose.yaml" ]; then
+  cd "${HERE}/.."
+else
+  echo "Cannot find compose.yaml beside $0 or in its parent directory." >&2
+  exit 1
+fi
 COMPOSE=(docker compose --profile shortener)
 BACKUP_DIR="${SHORTENER_BACKUP_DIR:-./shortener-data/backups}"
 NEW_TAG="${1:-}"

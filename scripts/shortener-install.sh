@@ -8,7 +8,20 @@
 # this repairs a half-finished install rather than starting over.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+# This script ships two ways: in the repository it sits in scripts/ with the
+# compose file a level up, and in the release bundle it sits directly beside
+# it. Find the compose file rather than assume which copy this is. Assuming
+# sent an administrator's install to /opt, where there is no compose file, and
+# reported nothing beyond "the shortener did not start".
+HERE="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "${HERE}/compose.yaml" ]; then
+  cd "$HERE"
+elif [ -f "${HERE}/../compose.yaml" ]; then
+  cd "${HERE}/.."
+else
+  echo "Cannot find compose.yaml beside $0 or in its parent directory." >&2
+  exit 1
+fi
 
 SHORT_DOMAIN="${1:-${SHORT_DOMAIN:-}}"
 # Where the bare short domain should send people. Shlink reads this at start-up,
@@ -63,6 +76,27 @@ for file in "$DB_PASSWORD_FILE" "$INTEGRATION_KEY_FILE"; do
   fi
 done
 
+# The shortener container runs as an unprivileged user and reads these through
+# a bind mount, where the file's own mode is all that applies. Root-only secrets
+# are why a perfectly healthy database sat beside a Shlink that restarted for
+# ever, complaining it could not open its own password. The directories above
+# stay restrictive; these two files are the part a container has to read.
+chmod 644 "$DB_PASSWORD_FILE" "$INTEGRATION_KEY_FILE"
+
+# LessonCue authenticates to the shortener with the integration key, and does
+# not run as root either. Hand its directory to whoever owns LessonCue's data
+# rather than assuming an account name.
+owner_of() {
+  stat -c '%u:%g' "$1" 2>/dev/null || stat -f '%u:%g' "$1" 2>/dev/null || true
+}
+if [ "$(id -u)" = "0" ]; then
+  # The config directory, not the data root: LessonCue's data directory belongs
+  # to root, and taking the owner from there quietly chowned this to root:root
+  # and left LessonCue unable to read the key it authenticates with.
+  OWNER="$(owner_of "$(dirname "$SHARED_KEY_DIR")")"
+  [ -n "$OWNER" ] && chown -R "$OWNER" "$SHARED_KEY_DIR" || true
+fi
+
 # Exported rather than set per-command: the compose file requires them, and
 # reading the resolved configuration back needs them just as much as `up` does.
 export SHORT_DOMAIN
@@ -73,9 +107,32 @@ export SHORTENER_INTEGRATION_KEY_FILE="$INTEGRATION_KEY_FILE"
 # reads, and only the local network should be able to read it.
 export SHORT_DOMAIN_ROOT_REDIRECT
 
+# Written down, not only exported. Every later compose command -- an update, a
+# restart, an operator reading logs -- runs without this shell, and a variable
+# that lived only here made all of them fail on a missing SHORT_DOMAIN.
+# Anything the operator set themselves (ports, bind addresses) is kept.
+OWNED='^(SHORT_DOMAIN|SHORT_DOMAIN_ROOT_REDIRECT|SHORTENER_DB_PASSWORD_FILE|SHORTENER_INTEGRATION_KEY_FILE)='
+KEPT=""
+if [ -f .env ]; then
+  KEPT="$(grep -v -E "$OWNED" .env || true)"
+fi
+{
+  [ -n "$KEPT" ] && printf '%s\n' "$KEPT"
+  printf 'SHORT_DOMAIN=%s\n' "$SHORT_DOMAIN"
+  printf 'SHORT_DOMAIN_ROOT_REDIRECT="%s"\n' "$SHORT_DOMAIN_ROOT_REDIRECT"
+  printf 'SHORTENER_DB_PASSWORD_FILE=%s\n' "$DB_PASSWORD_FILE"
+  printf 'SHORTENER_INTEGRATION_KEY_FILE=%s\n' "$INTEGRATION_KEY_FILE"
+} > .env.tmp
+mv .env.tmp .env
+chmod 600 .env
+
 echo
 echo "Starting the shortener for ${SHORT_DOMAIN}"
-docker compose --profile shortener up -d
+# Named explicitly, never a bare `up`. This compose file also describes
+# LessonCue itself, which has no build context in the shipped bundle and, on a
+# native install, is already serving on port 80 -- starting it here would fail
+# to build and then fight the real server for its port.
+docker compose --profile shortener up -d shlink-db shlink shlink-web-client
 
 # Read back from compose rather than assumed, so the printed routes match the
 # ports actually bound -- including any set in .env, which this shell never saw.
