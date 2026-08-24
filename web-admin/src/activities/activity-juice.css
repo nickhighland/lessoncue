@@ -947,17 +947,15 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
 
 .participant-identity-editor .participant-identity-choices { margin-top: .6rem; }
 
-/* A whole class has to fit on the wall. Names shrink as the room fills rather
-   than being clipped out of sight, because a student who cannot find their own
-   name assumes the join did not work. */
-.activity-lobby-roster[data-size="medium"] li { padding: .3rem .65rem .3rem .3rem; font-size: clamp(.78rem, 1.15vw, .98rem); }
-.activity-lobby-roster[data-size="medium"] .activity-lobby-avatar { width: 1.5em; height: 1.5em; }
-.activity-lobby-roster[data-size="tight"] { gap: .4rem .5rem; }
-.activity-lobby-roster[data-size="tight"] li { padding: .24rem .55rem .24rem .24rem; font-size: clamp(.7rem, .95vw, .86rem); }
-.activity-lobby-roster[data-size="tight"] .activity-lobby-avatar { width: 1.4em; height: 1.4em; }
-.activity-lobby-roster[data-size="packed"] { gap: .3rem .38rem; max-height: 52vh; }
-.activity-lobby-roster[data-size="packed"] li { padding: .18rem .45rem .18rem .18rem; font-size: clamp(.62rem, .8vw, .76rem); }
-.activity-lobby-roster[data-size="packed"] .activity-lobby-avatar { width: 1.3em; height: 1.3em; }
+/* A whole class has to fit on the wall. The scale is measured by the stage --
+   whether it actually fits, rather than a guess from the head count, which is
+   really a guess about fonts and name lengths. */
+.activity-lobby-roster { gap: calc(.55rem * var(--lc-roster-scale, 1)) calc(.7rem * var(--lc-roster-scale, 1)); }
+.activity-lobby-roster li {
+  padding: calc(.35rem * var(--lc-roster-scale, 1)) calc(.8rem * var(--lc-roster-scale, 1))
+           calc(.35rem * var(--lc-roster-scale, 1)) calc(.35rem * var(--lc-roster-scale, 1));
+  font-size: calc(clamp(.85rem, 1.4vw, 1.15rem) * var(--lc-roster-scale, 1));
+}
 
 /* Lanes tighten as the field grows so a dozen still fit on the wall. */
 .activity-score-race[data-lanes="11"] .activity-race-lane,
