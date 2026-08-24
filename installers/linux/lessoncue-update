@@ -626,6 +626,42 @@ if [[ "${REQUEST}" == connector:prepare ]]; then
   echo "${CLOUDFLARED_PREPARE_ERROR}"
   exit 1
 fi
+# Docker, from the distribution where it packages a usable Compose plugin, and
+# from Docker's own signed repository where it does not. Deliberately quiet
+# about failure: the caller turns that into something an administrator reads.
+install_docker_for_shortener() {
+  local id="" codename="" architecture=""
+  command -v apt-get >/dev/null 2>&1 || return 1
+
+  apt-get update >/dev/null 2>&1 || true
+  if apt-get install -y docker.io docker-compose-v2 >/dev/null 2>&1 ||
+     apt-get install -y docker.io docker-compose-plugin >/dev/null 2>&1; then
+    command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 && return 0
+  fi
+
+  # Fall through to Docker's repository, which is what the LessonCue installer
+  # does when the distribution has no Compose v2 package.
+  [[ -r /etc/os-release ]] || return 1
+  # shellcheck disable=SC1091
+  id="$(. /etc/os-release && printf '%s' "${ID}")"
+  codename="$(. /etc/os-release && printf '%s' "${VERSION_CODENAME:-}")"
+  [[ -z "${codename}" ]] && command -v lsb_release >/dev/null 2>&1 && codename="$(lsb_release -cs 2>/dev/null || true)"
+  [[ -n "${id}" && -n "${codename}" ]] || return 1
+  command -v dpkg >/dev/null 2>&1 || return 1
+  architecture="$(dpkg --print-architecture)"
+
+  install -m 0755 -d /etc/apt/keyrings || return 1
+  curl -fsSL "https://download.docker.com/linux/${id}/gpg" | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg || return 1
+  chmod a+r /etc/apt/keyrings/docker.gpg
+  printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/%s %s stable\n' \
+    "${architecture}" "${id}" "${codename}" > /etc/apt/sources.list.d/docker.list
+  apt-get update >/dev/null 2>&1 || return 1
+  apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null 2>&1 || return 1
+
+  systemctl enable --now docker >/dev/null 2>&1 || true
+  command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1
+}
+
 write_shortener_result() {
   local ok="$1" domain="$2" error="$3" result=/var/lib/lessoncue/config/shortener-result.json temporary
   temporary="$(mktemp)"
@@ -651,9 +687,16 @@ if [[ "${REQUEST}" == shortener:install ]]; then
   fi
   SHORT_DOMAIN="$(tr -d '[:space:]' < "${MARKER}")"
 
+  # Install Docker rather than refuse for the want of it. This runs as root and
+  # is the same thing the LessonCue installer does; asking an administrator to
+  # go and do it by hand is asking them to do our job.
   if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
-    write_shortener_result false "${SHORT_DOMAIN}" "Docker with the Compose plugin is not installed on this server."
-    exit 1
+    echo "Installing Docker so the URL shortener can run."
+    if ! install_docker_for_shortener; then
+      write_shortener_result false "${SHORT_DOMAIN}" \
+        "Docker could not be installed automatically. Install Docker with the Compose plugin, then turn the shortener on again."
+      exit 1
+    fi
   fi
 
   INSTALLED_VERSION="$(cat /var/lib/lessoncue/config/installed-version 2>/dev/null || true)"
@@ -1064,6 +1107,7 @@ update_shortener() {
     ( cd "${dir}" \
       && SHORTENER_DATA_DIR=/var/lib/lessoncue/shortener \
          LESSONCUE_DATA_PATH=/var/lib/lessoncue \
+         SHORT_DOMAIN_ROOT_REDIRECT="$(cat /var/lib/lessoncue/config/shortener-root-redirect 2>/dev/null || true)" \
          ./install.sh "${domain}" ) \
       || echo "The URL shortener did not come up. LessonCue itself is unaffected."
   fi

@@ -3192,6 +3192,12 @@ public static class AdminApi
             // administrator switching the shortener off has to take effect on
             // the next game rather than the next five seconds' worth.
             shortener.Invalidate();
+            // The shortener reads its root destination when it starts, so a
+            // change here has to be carried to it rather than only stored.
+            await shortener.ReapplyAsync(
+                ShortenerConfiguration.ResolveRootRedirect(
+                    ShortenerConfiguration.Read(organization), organization.PublicBaseUrl.Trim().TrimEnd('/')),
+                ct);
             return Results.Ok(new { state = (await shortener.StatusAsync(ct)).State.ToString() });
         });
 
@@ -3210,10 +3216,31 @@ public static class AdminApi
             // Falls back to the configured short domain, which is what an
             // administrator means when they tick the box having already set one.
             var domain = string.IsNullOrWhiteSpace(input.Domain) ? organization.ShortDomain : input.Domain;
+            string normalizedDomain;
+            try { normalizedDomain = ShortenerConfiguration.NormalizeHost(domain); }
+            catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
+            if (normalizedDomain.Length == 0)
+                return Results.BadRequest(new { error = "Enter the short domain to install the shortener for." });
+
+            // Turning it on settles everything that has one right answer, so an
+            // administrator is not left to fill in fields whose values follow
+            // from the domain they just gave.
+            organization.ShortDomain = normalizedDomain;
+            if (organization.ShortenerAdminHost.Trim().Length == 0)
+                organization.ShortenerAdminHost = ShortenerConfiguration.DefaultAdminHost(normalizedDomain);
+            if (organization.ShortDomainUpstream.Trim().Length == 0)
+                organization.ShortDomainUpstream = ShortenerConfiguration.SuggestUpstream(
+                    string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase),
+                    PortFromEnvironment("SHORTENER_HTTP_PORT", 8081));
+            organization.ShortenerEnabled = true;
+
+            var rootRedirect = ShortenerConfiguration.ResolveRootRedirect(
+                ShortenerConfiguration.Read(organization), organization.PublicBaseUrl.Trim().TrimEnd('/'));
+
             string? deferred = null;
             try
             {
-                await shortener.RequestInstallAsync(domain ?? "", ct);
+                await shortener.RequestInstallAsync(normalizedDomain, rootRedirect, ct);
             }
             catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
             catch (ShortenerService.InstallHelperUnavailableException error)
@@ -3233,6 +3260,7 @@ public static class AdminApi
             Audit(db, "shortener.install.request", organization.Id,
                 $"Asked for the URL shortener to be installed for {shortener.InstallRequestedFor}");
             await db.SaveChangesAsync(ct);
+            shortener.Invalidate();
             return Results.Ok(new { installRequestedFor = shortener.InstallRequestedFor, deferred });
         });
 

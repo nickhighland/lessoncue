@@ -744,6 +744,21 @@ export function Settings({
   async function setShortenerInstall(requested: boolean) {
     setShortenerBusy("install");
     try {
+      // Save the destination first: the shortener reads it when it starts, so
+      // it has to be recorded before the containers come up.
+      if (requested && shortener) {
+        await api("/api/v1/shortener", {
+          method: "PUT",
+          body: JSON.stringify({
+            domain: shortener.domain,
+            adminHost: shortener.adminHost,
+            upstream: shortener.upstream,
+            rootRedirectMode: shortener.rootRedirectUrl ? "organization" : "notfound",
+            rootRedirectUrl: shortener.rootRedirectUrl,
+            enabled: true,
+          }),
+        });
+      }
       await api("/api/v1/shortener/install", {
         method: "PUT",
         body: JSON.stringify({ requested, domain: shortener?.domain ?? "" }),
@@ -2262,7 +2277,10 @@ export function Settings({
               <Definition label="Status" value={shortenerStateLabel(shortener.state)} />
               {shortener.detail && <p className="settings-copy settings-warning">{shortener.detail}</p>}
 
-              {shortener.state === "NotInstalled" && (
+              {/* Offered whenever the shortener is not actually answering. Keyed on
+                  NotInstalled alone, it vanished the moment a domain was saved --
+                  which is the exact point somebody wants to install it. */}
+              {shortener.state !== "Running" && shortener.state !== "Degraded" && (
                 <div className="settings-instructions">
                   <strong>Install it on this server</strong>
                   <p className="settings-copy">
@@ -2272,25 +2290,62 @@ export function Settings({
                   </p>
                   {shortener.canRequestInstall ? (
                     <>
-                      <div className="check-row">
+                      <Field label="Short domain" hint="The domain your short links and game codes live on.">
                         <input
-                          id="shortener-install-request"
-                          type="checkbox"
-                          checked={shortener.installRequestedFor !== null}
-                          disabled={shortenerBusy !== "" || !shortener.domain}
-                          onChange={(event) => void setShortenerInstall(event.target.checked)}
+                          value={shortener.domain}
+                          onChange={(event) => setShortener((prev) => (prev ? { ...prev, domain: event.target.value } : prev))}
+                          placeholder="go.example.org"
+                          autoComplete="off"
+                          spellCheck={false}
                         />
-                        <label htmlFor="shortener-install-request">
-                          Install the URL shortener on this server with the next update
-                        </label>
+                      </Field>
+                      <Field label="Send the bare domain to" hint="Where someone visiting the domain on its own should end up. Optional.">
+                        <input
+                          value={shortener.rootRedirectUrl}
+                          onChange={(event) => setShortener((prev) => (prev
+                            ? { ...prev, rootRedirectUrl: event.target.value, rootRedirectMode: event.target.value ? "organization" : "notfound" }
+                            : prev))}
+                          placeholder="https://www.example.org"
+                          autoComplete="off"
+                          spellCheck={false}
+                        />
+                      </Field>
+                      <div className="row gap">
+                        <button
+                          type="button"
+                          className="button primary"
+                          disabled={shortenerBusy !== "" || !shortener.domain.trim()}
+                          onClick={() => void setShortenerInstall(true)}
+                        >{shortenerBusy === "install" ? "Installing…" : "Install the URL shortener"}</button>
+                        {shortener.installRequestedFor && (
+                          <button
+                            type="button"
+                            className="button"
+                            disabled={shortenerBusy !== ""}
+                            onClick={() => void setShortenerInstall(false)}
+                          >Cancel</button>
+                        )}
                       </div>
-                      {!shortener.domain && (
-                        <p className="settings-copy">Enter a short domain below first — the request is for a particular domain.</p>
-                      )}
-                      {shortener.installRequestedFor && (
+                      <p className="settings-copy">
+                        Everything else is worked out for you, including Docker if this server does not have it yet.
+                        The first install takes a minute or two.
+                      </p>
+                      {shortener.installRequestedFor && !shortener.installResult && (
                         <p className="settings-copy">
-                          Requested for <strong>{shortener.installRequestedFor}</strong>. It needs Docker with the
-                          Compose plugin on this server; without it the update says so and leaves the request in place.
+                          Installing for <strong>{shortener.installRequestedFor}</strong>. This takes a minute or two
+                          the first time, while the containers are fetched.
+                        </p>
+                      )}
+                      {shortener.installResult && !shortener.installResult.installed && (
+                        <p className="settings-copy settings-warning">
+                          {shortener.installResult.error
+                            || "The shortener did not start. Check the container logs on this server."}
+                        </p>
+                      )}
+                      {shortener.installResult?.installed && (
+                        <p className="settings-copy">
+                          Installed for <strong>{shortener.installResult.domain}</strong>. Waiting for it to answer
+                          and for the reserved game codes to be provisioned.
                         </p>
                       )}
                     </>
@@ -2323,6 +2378,10 @@ export function Settings({
                 </p>
               )}
 
+              {/* Only once it is running. Before that the install block above is
+                  the whole story, and a second Short domain field on the same
+                  panel is just something to get wrong. */}
+              {(shortener.state === "Running" || shortener.state === "Degraded") && (
               <form className="stack" onSubmit={saveShortener}>
                 <Field label="Short domain" hint="The domain short links live on, such as go.example.org.">
                   <input
@@ -2427,6 +2486,7 @@ export function Settings({
                   )}
                 </div>
               </form>
+              )}
 
               {shortener.integrationKeyConfigured && shortener.adminUrl && (
                 <div className="settings-instructions">
