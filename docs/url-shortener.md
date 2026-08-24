@@ -71,7 +71,20 @@ as `Q7Z6` on screen.
 
 ## Setting it up
 
+Installing it is a deliberate act — nothing below runs otherwise.
+
 ### 1. Start the stack
+
+```bash
+scripts/shortener-install.sh go.example.org
+```
+
+That generates the database password and LessonCue's own API key, starts the
+four containers, waits for the shortener to answer, and prints the tunnel routes
+to add. Run it again any time: existing secrets and data are kept, so it repairs
+a half-finished install rather than starting over.
+
+To do it by hand instead:
 
 ```bash
 SHORT_DOMAIN=go.example.org docker compose --profile shortener up -d
