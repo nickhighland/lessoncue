@@ -3138,6 +3138,8 @@ public static class AdminApi
                 conflicts = status.Conflicts,
                 // Whether a key exists, never the key itself.
                 integrationKeyConfigured = shortener.IntegrationKey is not null,
+                installRequestedFor = shortener.InstallRequestedFor,
+                canRequestInstall = shortener.CanRequestInstall,
             });
         });
 
@@ -3188,6 +3190,41 @@ public static class AdminApi
             // the next game rather than the next five seconds' worth.
             shortener.Invalidate();
             return Results.Ok(new { state = (await shortener.StatusAsync(ct)).State.ToString() });
+        });
+
+        appSettings.MapPut("/shortener/install", async (ShortenerInstallInput input, LessonCueDb db,
+            ShortenerService shortener, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+            if (!input.Requested)
+            {
+                shortener.CancelInstallRequest();
+                Audit(db, "shortener.install.cancel", organization.Id, "Withdrew the URL shortener install request");
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(new { installRequestedFor = (string?)null });
+            }
+
+            // Falls back to the configured short domain, which is what an
+            // administrator means when they tick the box having already set one.
+            var domain = string.IsNullOrWhiteSpace(input.Domain) ? organization.ShortDomain : input.Domain;
+            try
+            {
+                await shortener.RequestInstallAsync(domain ?? "", ct);
+            }
+            catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                return Results.BadRequest(new
+                {
+                    error = "LessonCue could not write to its own configuration directory, so it cannot record this. "
+                        + "Check the permissions on the data directory.",
+                });
+            }
+
+            Audit(db, "shortener.install.request", organization.Id,
+                $"Asked for the URL shortener to be installed for {shortener.InstallRequestedFor}");
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { installRequestedFor = shortener.InstallRequestedFor });
         });
 
         appSettings.MapPost("/shortener/key/reveal", async (LessonCueDb db, ShortenerService shortener, CancellationToken ct) =>

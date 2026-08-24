@@ -947,6 +947,8 @@ export type ShortenerSettings = {
   detail: string | null;
   conflicts: string[];
   integrationKeyConfigured: boolean;
+  installRequestedFor: string | null;
+  canRequestInstall: boolean;
 };
 
 export type ShortenerTunnelRoute = { hostname: string; service: string; purpose: string };

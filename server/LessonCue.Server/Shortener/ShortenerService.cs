@@ -34,6 +34,13 @@ public sealed class ShortenerService(
     HttpClient probes,
     string dataPath)
 {
+    /// <summary>
+    /// The file the Linux updater looks for to decide whether this server wants
+    /// the shortener. Written here so an existing installation can adopt it
+    /// from the console rather than needing a shell.
+    /// </summary>
+    private readonly string _installMarkerPath = Path.Combine(dataPath, "config", "shortener-domain");
+
     private readonly string _integrationKeyPath = Path.Combine(dataPath, "config", "shortener-integration-key");
     /// <summary>The secret the installer shares with the shortener container.</summary>
     private readonly string _sharedKeyPath = Path.Combine(dataPath, "config", "shortener", "integration-key");
@@ -194,6 +201,67 @@ public sealed class ShortenerService(
     {
         foreach (var path in new[] { _integrationKeyPath, _integrationKeyPath + ".tmp" })
             try { if (File.Exists(path)) File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+    }
+
+    // ------------------------------------------------------------ installing
+
+    /// <summary>
+    /// The domain this server has asked to have the shortener installed for,
+    /// or null when it has not asked.
+    /// </summary>
+    public string? InstallRequestedFor
+    {
+        get
+        {
+            try
+            {
+                if (!File.Exists(_installMarkerPath)) return null;
+                var value = File.ReadAllText(_installMarkerPath).Trim();
+                return value.Length == 0 ? null : value;
+            }
+            catch (IOException) { return null; }
+            catch (UnauthorizedAccessException) { return null; }
+        }
+    }
+
+    /// <summary>
+    /// Ask for the shortener to be installed the next time this server updates.
+    ///
+    /// Only records the intent. Installing containers is the updater's job, and
+    /// it runs with privileges the application deliberately does not have.
+    /// </summary>
+    public async Task RequestInstallAsync(string domain, CancellationToken ct = default)
+    {
+        var normalized = ShortenerConfiguration.NormalizeHost(domain);
+        if (normalized.Length == 0) throw new ArgumentException("Enter the short domain to install the shortener for.");
+        await WriteSecretAsync(_installMarkerPath, normalized, ct);
+    }
+
+    /// <summary>Withdraw the request. Never removes an installation already made.</summary>
+    public void CancelInstallRequest()
+    {
+        try { if (File.Exists(_installMarkerPath)) File.Delete(_installMarkerPath); }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
+    }
+
+    /// <summary>Can this server record the request at all?</summary>
+    public bool CanRequestInstall
+    {
+        get
+        {
+            try
+            {
+                var directory = Path.GetDirectoryName(_installMarkerPath)!;
+                Directory.CreateDirectory(directory);
+                // Proven by doing it, rather than by guessing at permissions.
+                var probe = Path.Combine(directory, ".shortener-write-probe");
+                File.WriteAllText(probe, "");
+                File.Delete(probe);
+                return true;
+            }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+        }
     }
 
     // --------------------------------------------------------------- status

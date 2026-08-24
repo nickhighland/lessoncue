@@ -741,6 +741,24 @@ export function Settings({
     }
   }
 
+  async function setShortenerInstall(requested: boolean) {
+    setShortenerBusy("install");
+    try {
+      await api("/api/v1/shortener/install", {
+        method: "PUT",
+        body: JSON.stringify({ requested, domain: shortener?.domain ?? "" }),
+      });
+      await loadShortener();
+      notify(requested
+        ? "The shortener will be installed the next time this server updates."
+        : "The shortener will not be installed.");
+    } catch (e) {
+      notify(errorText(e));
+    } finally {
+      setShortenerBusy("");
+    }
+  }
+
   async function revealShortenerKey() {
     setShortenerBusy("reveal");
     try {
@@ -2243,6 +2261,47 @@ export function Settings({
 
               <Definition label="Status" value={shortenerStateLabel(shortener.state)} />
               {shortener.detail && <p className="settings-copy settings-warning">{shortener.detail}</p>}
+
+              {shortener.state === "NotInstalled" && (
+                <div className="settings-instructions">
+                  <strong>Install it on this server</strong>
+                  <p className="settings-copy">
+                    The shortener runs as containers alongside LessonCue, which only the updater
+                    has the privileges to set up. Asking for it here records the request; the next
+                    update installs it and every update afterwards keeps it running.
+                  </p>
+                  {shortener.canRequestInstall ? (
+                    <>
+                      <div className="check-row">
+                        <input
+                          id="shortener-install-request"
+                          type="checkbox"
+                          checked={shortener.installRequestedFor !== null}
+                          disabled={shortenerBusy !== "" || !shortener.domain}
+                          onChange={(event) => void setShortenerInstall(event.target.checked)}
+                        />
+                        <label htmlFor="shortener-install-request">
+                          Install the URL shortener on this server with the next update
+                        </label>
+                      </div>
+                      {!shortener.domain && (
+                        <p className="settings-copy">Enter a short domain below first — the request is for a particular domain.</p>
+                      )}
+                      {shortener.installRequestedFor && (
+                        <p className="settings-copy">
+                          Requested for <strong>{shortener.installRequestedFor}</strong>. It needs Docker with the
+                          Compose plugin on this server; without it the update says so and leaves the request in place.
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="settings-copy settings-warning">
+                      LessonCue cannot write to its own configuration directory here, so it cannot record
+                      the request. On a container install, run the shortener stack directly instead.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {shortener.state !== "NotInstalled" && (
                 <>

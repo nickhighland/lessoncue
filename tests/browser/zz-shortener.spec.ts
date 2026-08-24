@@ -347,3 +347,46 @@ test("the API key is only handed over when explicitly asked for", async ({ page 
     (await fetch("/api/v1/shortener/key/reveal", { method: "POST" }).then(r => r.json())) as { apiKey: string });
   expect(revealed.apiKey).toBe("abcdef0123456789abcdef0123456789");
 });
+
+test("a server can ask for the shortener without touching the command line", async ({ page }) => {
+  await authenticate(page);
+  await configure(page, {
+    domain: "chroc.cc", adminHost: "", upstream: "http://127.0.0.1:9",
+    rootRedirectMode: "notfound", enabled: false,
+  });
+
+  const asked = await page.evaluate(async () => {
+    await fetch("/api/v1/shortener/install", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requested: true }),
+    });
+    return await fetch("/api/v1/shortener").then(r => r.json()) as { installRequestedFor: string | null };
+  });
+
+  // Recorded for the domain that is configured, which is what ticking the box
+  // means once one is set.
+  expect(asked.installRequestedFor).toBe("chroc.cc");
+
+  const withdrawn = await page.evaluate(async () => {
+    await fetch("/api/v1/shortener/install", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requested: false }),
+    });
+    return await fetch("/api/v1/shortener").then(r => r.json()) as { installRequestedFor: string | null };
+  });
+  expect(withdrawn.installRequestedFor).toBeNull();
+});
+
+test("an install request is refused without a domain to install for", async ({ page }) => {
+  await authenticate(page);
+  await configure(page, { domain: "", adminHost: "", upstream: "", rootRedirectMode: "notfound", enabled: false });
+
+  const status = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/shortener/install", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requested: true }),
+    });
+    return response.status;
+  });
+  expect(status).toBe(400);
+});

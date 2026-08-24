@@ -706,6 +706,9 @@ public sealed record PairingConfirmInput(Guid RequestId, string Pin);
 public sealed record PairingPinInput(string? Pin, bool Automatic = false);
 public sealed record ControllerPinInput(string Pin);
 
+/// <summary>Ask for the shortener to be installed on this server at the next update.</summary>
+public sealed record ShortenerInstallInput(bool Requested, string? Domain = null);
+
 /// <summary>The API key the shortener was started with. LessonCue records it; it cannot mint one.</summary>
 public sealed record ShortenerKeyInput(string? ApiKey);
 
