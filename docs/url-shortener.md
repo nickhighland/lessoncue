@@ -73,7 +73,30 @@ as `Q7Z6` on screen.
 
 Installing it is a deliberate act — nothing below runs otherwise.
 
-### 1. Start the stack
+### On a server
+
+The Linux installer offers it, and remembers the answer so later updates keep
+it running:
+
+```bash
+sudo ./install-lessoncue.sh --with-shortener go.example.org
+```
+
+Run without the flag and it asks, unless the session is non-interactive. The
+answer is recorded in `/var/lib/lessoncue/config/shortener-domain`; an update
+that finds it there installs or refreshes the stack, so a server that said yes
+once does not have to be set up again by hand.
+
+The stack lives in `/opt/lessoncue-shortener` — beside the application rather
+than inside it, because `/opt/lessoncue` is replaced wholesale on every update
+— with its data under `/var/lib/lessoncue/shortener`. The bundle is downloaded
+and checked against the same signed checksums as the server itself.
+
+Docker with the Compose plugin is required. Without it the answer is still
+recorded, and the installer tells you the one command to run once Docker is
+there.
+
+### By hand
 
 ```bash
 scripts/shortener-install.sh go.example.org
@@ -170,6 +193,11 @@ docker compose exec shlink shlink api-key:generate
 
 Use a separate key for your own work in the console, so LessonCue's routine
 provisioning is never done with a person's credential.
+
+The settings card can show you the key LessonCue holds — **Show API key**,
+which is a deliberate action and is audited. The console is a page in your
+browser, so LessonCue cannot hand it the key automatically; nothing is stored
+there until you paste it.
 
 The web client is deployed with no server list and no key. It is a static page
 served to a browser, so anything baked in there would be handed to whoever

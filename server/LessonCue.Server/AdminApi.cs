@@ -3190,6 +3190,20 @@ public static class AdminApi
             return Results.Ok(new { state = (await shortener.StatusAsync(ct)).State.ToString() });
         });
 
+        appSettings.MapPost("/shortener/key/reveal", async (LessonCueDb db, ShortenerService shortener, CancellationToken ct) =>
+        {
+            // Deliberately a POST an administrator has to ask for, and audited.
+            // The key is never included in the status the console polls, so it
+            // does not sit in memory or a log waiting to be found.
+            var key = shortener.IntegrationKey;
+            if (key is null) return Results.NotFound(new { error = "LessonCue has no API key for the shortener yet." });
+
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+            Audit(db, "shortener.key.reveal", organization.Id, "Revealed the URL shortener API key");
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { apiKey = key });
+        });
+
         appSettings.MapPut("/shortener/key", async (ShortenerKeyInput input, LessonCueDb db,
             ShortenerService shortener, CancellationToken ct) =>
         {
@@ -3216,13 +3230,17 @@ public static class AdminApi
             return Results.Ok(new { passed = checks.All(check => check.Passed), checks });
         });
 
-        appSettings.MapGet("/shortener/tunnel", async (LessonCueDb db, CancellationToken ct) =>
+        appSettings.MapGet("/shortener/tunnel", async (LessonCueDb db, LocalAddressService localAddress,
+            CancellationToken ct) =>
         {
             var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
             var settings = ShortenerConfiguration.Read(organization);
             var shortenerPort = PortFromEnvironment("SHORTENER_HTTP_PORT", 8081);
             var consolePort = PortFromEnvironment("SHORTENER_UI_PORT", 8082);
-            var plan = ShortenerTunnelPlanner.ForManagedTunnel(settings, shortenerPort, consolePort);
+            // This server's own address, so the routes name something the
+            // operator can check by hand rather than an abstract "localhost".
+            var serverHost = HostOf(localAddress.Status.Address);
+            var plan = ShortenerTunnelPlanner.ForManagedTunnel(settings, shortenerPort, consolePort, serverHost);
 
             // Where cloudflared is run from a local file instead, offer the
             // merged configuration rather than only describing it. Read-only:
@@ -3253,6 +3271,9 @@ public static class AdminApi
                 explanation = plan.Explanation,
                 instructions = plan.Instructions,
                 routes = plan.Routes.Select(route => new { route.Hostname, route.Service, route.Purpose }),
+                serverHost,
+                shortenerPort,
+                consolePort,
                 localConfigPath = localPath,
                 localConfigMerged = localMerged,
                 localConfigRefusal = localRefusal,
@@ -4722,6 +4743,10 @@ public static class AdminApi
         return context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity),
             new AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddHours(12) });
     }
+
+    /// <summary>Just the host from an absolute URL, for building a service address.</summary>
+    private static string? HostOf(string? url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var parsed) ? parsed.Host : null;
 
     /// <summary>A published port from the environment, or the compose default.</summary>
     private static int PortFromEnvironment(string name, int fallback) =>

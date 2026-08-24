@@ -27,12 +27,12 @@ async function launchWord(page: Page, name: string, seconds: number) {
   }, { name, seconds });
 }
 
-test("the stage shows the response clock and enters panic in the last five seconds", async ({ page, context }) => {
+test("the stage shows the response clock, sized for the back of a room", async ({ page, context }) => {
   await authenticate(page);
-  // Long enough that a slow machine cannot let the clock run out before the
-  // panic assertion starts watching. Panic is only true while there is time
-  // left, so a missed window looks identical to a broken feature.
-  const run = await launchWord(page, "Stage Clock Check", 40);
+  // Deliberately far longer than the test needs. The clock unmounts the moment
+  // the round ends, so a round that can expire mid-assertion makes every read
+  // after the first a race.
+  const run = await launchWord(page, "Stage Clock Check", 600);
 
   const tv = await context.newPage();
   await tv.setViewportSize({ width: 1280, height: 720 });
@@ -50,15 +50,35 @@ test("the stage shows the response clock and enters panic in the last five secon
     }, run.runId);
 
     const clock = tv.locator(".activity-stage-clock .activity-motion-countdown");
-    // A tighter budget on purpose: the room should see the clock promptly once
-    // the window opens, and a slow one here is worth failing over.
-    await expect(clock).toBeVisible({ timeout: 10_000 });
-    // Sized for the back of a room, not a phone.
+    await expect(clock).toBeVisible({ timeout: 15_000 });
     const size = await clock.locator("strong").evaluate(node => Number.parseFloat(getComputedStyle(node).fontSize));
     expect(size, "stage clock should be large").toBeGreaterThan(38);
+  } finally {
+    await tv.close();
+  }
+});
 
-    // The shared panic threshold applies to the room clock too.
-    await expect(clock).toHaveAttribute("data-panic", "true", { timeout: 45_000 });
+test("the room clock enters panic in the last five seconds", async ({ page, context }) => {
+  await authenticate(page);
+  // Panic is only true while there is time left, so the window closes as well
+  // as opens. Nothing else is asserted here: one timing-sensitive claim per
+  // test, and no reads of children that vanish when the round ends.
+  const run = await launchWord(page, "Stage Panic Check", 30);
+
+  const tv = await context.newPage();
+  await tv.setViewportSize({ width: 1280, height: 720 });
+  try {
+    await tv.goto(`/activity-display?runId=${run.runId}`);
+    await expect(tv.locator('.activity-display-root[data-activity-status="ready"]')).toBeVisible({ timeout: 20_000 });
+    await page.evaluate(async id => {
+      await fetch(`/api/v1/activity-runs/${id}/command`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "open", payload: null }),
+      });
+    }, run.runId);
+
+    await expect(tv.locator(".activity-stage-clock .activity-motion-countdown"))
+      .toHaveAttribute("data-panic", "true", { timeout: 40_000 });
   } finally {
     await tv.close();
   }

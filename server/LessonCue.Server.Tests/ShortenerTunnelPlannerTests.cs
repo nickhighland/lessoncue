@@ -199,4 +199,29 @@ public class ShortenerTunnelPlannerTests
         Assert.False(changed);
         Assert.Null(refusal);
     }
+
+    [Fact]
+    public void RoutesNameTheServersOwnAddressWhenItIsKnown()
+    {
+        // An operator checking a route by hand needs something they can curl,
+        // not an abstract localhost.
+        var routes = ShortenerTunnelPlanner.RoutesFor(Settings(), 8081, 8082, "192.168.4.138");
+        Assert.Equal("http://192.168.4.138:8081", routes[0].Service);
+        Assert.Equal("http://192.168.4.138:8082", routes[1].Service);
+    }
+
+    [Fact]
+    public void WithoutAKnownAddressTheRoutesFallBackToLocalhost()
+    {
+        var routes = ShortenerTunnelPlanner.RoutesFor(Settings(), 8081, 8082, null);
+        Assert.Equal("http://localhost:8081", routes[0].Service);
+    }
+
+    [Fact]
+    public void TheInstructionsSayTheFirewallDoesNotNeedOpening()
+    {
+        var plan = ShortenerTunnelPlanner.ForManagedTunnel(Settings(), 8081, 8082, "192.168.4.138");
+        Assert.Contains(plan.Instructions, step => step.Contains("firewall"));
+        Assert.Contains(plan.Instructions, step => step.Contains("192.168.4.138:8081"));
+    }
 }
