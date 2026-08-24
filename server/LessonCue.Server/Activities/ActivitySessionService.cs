@@ -19,7 +19,10 @@ public sealed class ActivitySessionService(
     LessonCueDb db,
     IHubContext<ActivityHub> hub,
     IActivityRandomSource random,
-    ActivityJoinAddressService joinAddress)
+    ActivityJoinAddressService joinAddress,
+    // Optional on purpose: an installation without the shortener, and every
+    // test that predates it, constructs this service without one.
+    LessonCue.Server.Shortener.ShortenerService? shortener = null)
 {
     private const string CodeAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> Locks = new();
@@ -4130,7 +4133,10 @@ public sealed class ActivitySessionService(
         // A phone cannot use a relative path, and the display's own origin is
         // whatever the TV connected to. The teacher-selected address is the one
         // the room should see and scan.
-        projected["joinUrl"] = joinAddress.ResolveJoinUrl(run.JoinCode);
+        // The short domain when this game holds a reserved code, LessonCue's own
+        // address otherwise. Everything downstream -- the lobby text, the QR the
+        // room scans, the phone's own header -- reads this one value.
+        projected["joinUrl"] = shortener?.ShortJoinUrlFor(run.JoinCode) ?? joinAddress.ResolveJoinUrl(run.JoinCode);
         projected["participantCount"] = await db.ActivityParticipants.CountAsync(x => x.ActivityRunId == run.Id && x.Status != "removed", ct);
         // Public roster, lobby only. Bluffing and creative games hide who wrote
         // what until the host reveals, so once play starts a name list in the
@@ -4745,13 +4751,37 @@ public sealed class ActivitySessionService(
 
     private async Task<string> NewJoinCodeAsync(CancellationToken ct)
     {
+        // With the shortener on, a game takes one of the hundred reserved
+        // codes, because those are the ones the short domain can actually
+        // resolve. A four-character code on a television is also easier to read
+        // out than six.
+        if (shortener?.Current is { Enabled: true, Domain.Length: > 0 })
+        {
+            var pool = new ReservedGameCodePool(db, random);
+            for (var attempt = 0; attempt < 5; attempt++)
+            {
+                var reserved = await pool.TryTakeAsync(ct);
+                // Exhausted: a hundred games at once. Fall through to an
+                // ordinary code rather than refuse to start the game -- it will
+                // not work on the short domain, but it will work.
+                if (reserved is null) break;
+                if (!await InUseAsync(reserved, ct)) return reserved;
+            }
+        }
+
         for (var attempt = 0; attempt < 50; attempt++)
         {
             var code = new string(RandomNumberGenerator.GetBytes(6).Select(x => CodeAlphabet[x % CodeAlphabet.Length]).ToArray());
-            if (!await db.ActivityRuns.AnyAsync(x => x.JoinCode == code && x.Status != ActivityRunStatuses.Ended, ct)) return code;
+            if (!await InUseAsync(code, ct)) return code;
         }
         throw new InvalidOperationException("Could not create a unique activity join code.");
     }
+
+    /// <summary>Is any unfinished game already holding this code?</summary>
+    private async Task<bool> InUseAsync(string code, CancellationToken ct) =>
+        await db.ActivityRuns.AnyAsync(x => x.JoinCode == code && x.Status != ActivityRunStatuses.Ended, ct) ||
+        await db.ActivitySessionGroups.AnyAsync(
+            x => x.JoinCode == code && x.Runs.Any(run => run.Status != ActivityRunStatuses.Ended), ct);
 
     private static string Snapshot(ActivityDefinition definition) => JsonSerializer.Serialize(new
     {

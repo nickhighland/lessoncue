@@ -1,3 +1,5 @@
+using LessonCue.Server.Activities;
+using LessonCue.Server.Shortener;
 using System.Globalization;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -3098,63 +3100,146 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        appSettings.MapGet("/short-domain", async (LessonCueDb db, CancellationToken ct) =>
+        // ------------------------------------------------- URL shortener ---
+        // Optional. Every one of these answers sensibly when the integration
+        // has never been installed, so the console can render its card without
+        // knowing in advance.
+
+        appSettings.MapGet("/shortener", async (LessonCueDb db, ShortenerService shortener, CancellationToken ct) =>
         {
             var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
-            var settings = ShortDomainService.Read(organization);
+            var settings = ShortenerConfiguration.Read(organization);
+            var status = await shortener.StatusAsync(ct);
             return Results.Ok(new
             {
+                state = status.State.ToString(),
+                enabled = settings.Enabled,
                 domain = settings.Domain,
+                adminHost = settings.AdminHost,
+                suggestedAdminHost = ShortenerConfiguration.DefaultAdminHost(settings.Domain),
                 upstream = settings.Upstream,
+                rootRedirectMode = ShortenerConfiguration.RootRedirectName(settings.RootRedirect),
                 rootRedirectUrl = settings.RootRedirectUrl,
-                rootRedirectEnabled = settings.RootRedirectEnabled,
-                rootFallback = settings.RootFallback,
-                permanent = settings.Permanent,
-                preserveQuery = settings.PreserveQuery,
-                configured = settings.Configured,
-                rootRedirectConfigured = settings.RootRedirectConfigured,
-                warnings = ShortDomainService.Warnings(settings),
+                publicUrl = status.PublicUrl,
+                adminUrl = status.AdminUrl,
+                lessonCuePublicUrl = organization.PublicBaseUrl,
+                poolVersion = ReservedGameCodes.Version,
+                poolTotal = status.PoolTotal,
+                poolPresent = status.PoolPresent,
+                activeCodes = status.PoolActive,
+                detail = status.Detail,
+                conflicts = status.Conflicts,
+                // Whether a key exists, never the key itself.
+                integrationKeyConfigured = shortener.IntegrationKey is not null,
             });
         });
 
-        appSettings.MapPut("/short-domain", async (ShortDomainInput input, LessonCueDb db,
-            ShortDomainService shortDomain, CancellationToken ct) =>
+        appSettings.MapPut("/shortener", async (ShortenerConfigureInput input, LessonCueDb db,
+            ShortenerService shortener, CancellationToken ct) =>
         {
             var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
-            string domain, upstream, destination;
+            string domain, adminHost, upstream, redirect;
+            ShortenerRootRedirect mode;
             try
             {
-                domain = ShortDomainService.NormalizeDomain(input.Domain);
-                upstream = ShortDomainService.NormalizeUpstream(input.Upstream);
-                // Validated against the domain being saved, not the stored one,
-                // so a loop cannot be introduced by changing both at once.
-                destination = ShortDomainService.NormalizeRootRedirect(input.RootRedirectUrl, domain);
+                domain = ShortenerConfiguration.NormalizeHost(input.Domain);
+                adminHost = ShortenerConfiguration.NormalizeAdminHost(input.AdminHost, domain);
+                upstream = ShortenerConfiguration.NormalizeUpstream(input.Upstream);
+                mode = ShortenerConfiguration.ParseRootRedirect(input.RootRedirectMode);
+                // Checked against the domain being saved, so a loop cannot be
+                // introduced by changing both at once.
+                redirect = ShortenerConfiguration.NormalizeRedirect(input.RootRedirectUrl, domain);
             }
             catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
 
-            if (input.RootRedirectEnabled && domain.Length > 0 && destination.Length == 0)
-                return Results.BadRequest(new { error = "Enter where the bare short domain should send people, or turn the redirect off." });
+            if (mode is ShortenerRootRedirect.Organization or ShortenerRootRedirect.Custom && redirect.Length == 0)
+                return Results.BadRequest(new { error = "Enter where the bare short domain should send people, or choose another behaviour." });
+            if (mode is ShortenerRootRedirect.LessonCue && organization.PublicBaseUrl.Trim().Length == 0)
+                return Results.BadRequest(new { error = "Set LessonCue's public address before sending the short domain to it." });
 
             organization.ShortDomain = domain;
+            organization.ShortenerAdminHost = adminHost;
             organization.ShortDomainUpstream = upstream;
-            organization.ShortDomainRootRedirectUrl = destination;
-            organization.ShortDomainRootRedirectEnabled = input.RootRedirectEnabled;
-            organization.ShortDomainRootFallback = ShortDomainService.NormalizeFallback(input.RootFallback);
-            organization.ShortDomainRootRedirectPermanent = input.Permanent;
-            organization.ShortDomainRootPreserveQuery = input.PreserveQuery;
-            Audit(db, "shortdomain.update", organization.Id,
-                domain.Length == 0 ? "Short domain cleared" : $"Short domain {domain} root set to {(destination.Length == 0 ? organization.ShortDomainRootFallback : destination)}");
+            organization.ShortenerRootRedirectMode = ShortenerConfiguration.RootRedirectName(mode);
+            organization.ShortDomainRootRedirectUrl = redirect;
+            organization.ShortenerEnabled = input.Enabled && domain.Length > 0;
+            Audit(db, "shortener.configure", organization.Id,
+                domain.Length == 0 ? "URL shortener cleared" : $"URL shortener set to {domain}");
             await db.SaveChangesAsync(ct);
-            shortDomain.Invalidate();
-
-            var saved = ShortDomainService.Read(organization);
-            return Results.Ok(new { warnings = ShortDomainService.Warnings(saved) });
+            return Results.Ok(new { state = (await shortener.StatusAsync(ct)).State.ToString() });
         });
 
-        appSettings.MapPost("/short-domain/test", async (ShortDomainTestInput? input, ShortDomainService shortDomain, CancellationToken ct) =>
+        appSettings.MapPost("/shortener/keys", async (LessonCueDb db, ShortenerService shortener, CancellationToken ct) =>
         {
-            var checks = await shortDomain.TestAsync(input?.SampleSlug, input?.GameCode, ct);
-            return Results.Ok(new { passed = checks.All(check => check.Passed), checks });
+            // Two credentials: one for LessonCue's own reconciliation work, one
+            // for the person. The administrator's is shown exactly once here
+            // and never returned again.
+            var integration = ShortenerService.NewApiKey();
+            var admin = ShortenerService.NewApiKey();
+            await shortener.SetIntegrationKeyAsync(integration, ct);
+            await shortener.SetAdminKeyAsync(admin, ct);
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+            Audit(db, "shortener.keys.issue", organization.Id, "Issued URL shortener API keys");
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { adminApiKey = admin, integrationConfigured = true });
+        });
+
+        appSettings.MapPost("/shortener/reconcile", async (LessonCueDb db, ShortenerService shortener, CancellationToken ct) =>
+        {
+            try
+            {
+                var report = await shortener.ReconcileAsync(ct);
+                var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+                organization.ShortenerPoolVersion = ReservedGameCodes.Version;
+                Audit(db, "shortener.reconcile", organization.Id,
+                    $"Reserved codes: {report.Created} created, {report.Repaired} repaired, {report.Conflicts.Count} conflicting");
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(new
+                {
+                    report.Total, report.AlreadyCorrect, report.Created, report.Repaired,
+                    report.Present, report.Degraded, report.Conflicts, report.Failures,
+                });
+            }
+            catch (InvalidOperationException error) { return Results.BadRequest(new { error = error.Message }); }
+        });
+
+        appSettings.MapPost("/shortener/lifecycle", async (ShortenerLifecycleInput input, LessonCueDb db,
+            ShortenerService shortener, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+            switch ((input.Action ?? "").Trim().ToLowerInvariant())
+            {
+                case "disable":
+                    // LessonCue stops using short links. The shortener keeps running.
+                    organization.ShortenerEnabled = false;
+                    Audit(db, "shortener.disable", organization.Id, "URL shortener integration disabled");
+                    break;
+
+                case "uninstall":
+                    if (!input.Confirm)
+                        return Results.BadRequest(new { error = "Confirm before removing the URL shortener integration." });
+                    organization.ShortenerEnabled = false;
+                    organization.ShortDomain = "";
+                    organization.ShortenerAdminHost = "";
+                    organization.ShortDomainUpstream = "";
+                    organization.ShortenerRootRedirectMode = "notfound";
+                    organization.ShortDomainRootRedirectUrl = "";
+                    organization.ShortenerPoolVersion = 0;
+                    shortener.ForgetSecrets();
+                    // Deliberately never touches the shortener's own database.
+                    // Removing links people rely on is a separate, explicit act.
+                    Audit(db, "shortener.uninstall", organization.Id,
+                        input.DeleteData
+                            ? "URL shortener integration removed; operator asked to delete shortener data separately"
+                            : "URL shortener integration removed; shortener data retained");
+                    break;
+
+                default:
+                    return Results.BadRequest(new { error = $"Unrecognized shortener action '{input.Action}'." });
+            }
+
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { state = (await shortener.StatusAsync(ct)).State.ToString() });
         });
 
         appSettings.MapGet("/recycle-bin", async (LessonCueDb db, CancellationToken ct) =>
