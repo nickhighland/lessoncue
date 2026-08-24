@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ActivityDefinition, ActivityTheme, ActivityTypeDescriptor } from './types';
 import { ActivityApi } from './api';
 import { ACTIVITY_REGISTRY, getActivityDescriptor } from './activityRegistry';
@@ -79,6 +79,14 @@ export const ActivityLibrary: React.FC = () => {
     config: editingConfig,
     theme: editingTheme || undefined
   } : null, [editingConfig, editingDescription, editingName, editingTheme, selectedActivity]);
+
+  // What the editor is showing right now, for callers that must not depend on
+  // when their closure was created. Updated after commit, which is the same
+  // moment the change becomes visible on screen.
+  const draftRef = useRef({ name: editingName, description: editingDescription, config: editingConfig, theme: editingTheme });
+  useEffect(() => {
+    draftRef.current = { name: editingName, description: editingDescription, config: editingConfig, theme: editingTheme };
+  }, [editingConfig, editingDescription, editingName, editingTheme]);
 
   const isEditorDirty = Boolean(draftDefinition && activityDraftSnapshot(
     draftDefinition.name,
@@ -304,14 +312,19 @@ export const ActivityLibrary: React.FC = () => {
   const handleSaveEdit = async (closeAfterSave = false): Promise<boolean> => {
     if (!selectedActivity) return false;
     setIsSaving(true);
+    // Read through a ref rather than the values this closure captured. Saving
+    // right after applying a preset intermittently stored the previous preset,
+    // which is a teacher choosing a format, pressing save, and quietly not
+    // getting it. Whatever the editor is showing now is what gets sent.
+    const draft = draftRef.current;
     try {
       const updated = await ActivityApi.updateActivity(selectedActivity.id, {
-        name: editingName.trim() || selectedActivity.name,
+        name: draft.name.trim() || selectedActivity.name,
         type: selectedActivity.type,
-        presetType: typeof editingConfig.preset === 'string' ? editingConfig.preset : selectedActivity.presetType || getActivityDescriptor(selectedActivity.type).presetType,
-        description: editingDescription.trim(),
-        config: editingConfig,
-        theme: editingTheme || undefined
+        presetType: typeof draft.config.preset === 'string' ? draft.config.preset : selectedActivity.presetType || getActivityDescriptor(selectedActivity.type).presetType,
+        description: draft.description.trim(),
+        config: draft.config,
+        theme: draft.theme || undefined
       });
       setSelectedActivity(updated);
       setEditingName(updated.name);
