@@ -73,7 +73,21 @@ as `Q7Z6` on screen.
 
 Installing it is a deliberate act — nothing below runs otherwise.
 
-### On a server
+### On a server that is already running
+
+**Settings → Integrations · URL shortener**, enter the short domain, and tick
+**Install the URL shortener on this server with the next update**. The next
+update installs it, and every update afterwards keeps it running.
+
+Nothing is installed at the moment you tick it: setting up containers needs
+privileges the application deliberately does not have, so it records the
+request in `/var/lib/lessoncue/config/shortener-domain` and the updater — which
+does have them — acts on it.
+
+Docker with the Compose plugin has to be present. Without it the update says so
+and leaves the request in place for when it is.
+
+### On a new server
 
 The Linux installer offers it, and remembers the answer so later updates keep
 it running:

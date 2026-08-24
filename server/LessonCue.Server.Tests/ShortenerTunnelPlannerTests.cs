@@ -25,6 +25,8 @@ public class ShortenerTunnelPlannerTests
     [Fact]
     public void TheShortDomainAndTheConsoleGetSeparateRoutes()
     {
+        // Short links live on the bare domain; the console is a different
+        // hostname entirely and never serves a link.
         var routes = ShortenerTunnelPlanner.RoutesFor(Settings(), 8081, 8082);
         Assert.Equal(2, routes.Count);
         Assert.Equal("go.example.org", routes[0].Hostname);
@@ -42,6 +44,8 @@ public class ShortenerTunnelPlannerTests
         var routes = ShortenerTunnelPlanner.RoutesFor(Settings(domain, admin), 8081, 8082);
         Assert.Equal(domain, routes[0].Hostname);
         Assert.Equal(admin, routes[1].Hostname);
+        // The console's hostname never carries short links.
+        Assert.Equal("Short links, and the game codes on them", routes[0].Purpose);
     }
 
     [Fact]
@@ -55,6 +59,8 @@ public class ShortenerTunnelPlannerTests
         Assert.False(plan.CanApplyAutomatically);
         Assert.Contains(plan.Instructions, step => step.Contains("go.example.org at http://localhost:8081"));
         Assert.Contains(plan.Instructions, step => step.Contains("short.go.example.org at http://localhost:8082"));
+        // And recommends protecting the console, which an API key alone guards.
+        Assert.Contains(plan.Instructions, step => step.Contains("Cloudflare Access"));
         // The warning that matters: a hostname-wide rule eats the short links.
         Assert.Contains(plan.Instructions, step => step.Contains("Redirect Rule"));
         Assert.Contains(plan.Instructions, step => step.Contains("unrelated entry exactly as it is"));

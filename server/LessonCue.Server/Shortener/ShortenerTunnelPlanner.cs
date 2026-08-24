@@ -82,7 +82,8 @@ public static class ShortenerTunnelPlanner
         steps.Add($"If {settings.Domain} already has an entry from an earlier version sending it to LessonCue, "
             + "change that entry's service to the one above rather than adding a second. A hostname can only appear once.");
         steps.Add("Leave every unrelated entry exactly as it is.");
-        steps.Add("The ports are bound to this server only, so neither needs opening on the firewall — the tunnel is the way in.");
+        steps.Add("Nothing needs opening on the firewall — the tunnel is the way in.");
+        steps.Add($"Consider putting Cloudflare Access in front of {settings.AdminHost}. It is the console for every short link on the domain, and it is protected by an API key alone.");
         steps.Add("Cloudflare creates the DNS records for you, provided the domain is in the same account.");
         steps.Add("Do not add a Redirect Rule for the short domain. A rule on the whole hostname would also catch the short links and the game codes underneath it.");
 

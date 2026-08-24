@@ -4,6 +4,40 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.44.0 — Setting up short links in one pass
+
+### User changes
+
+- Fixed: the television could stay on the lobby after the host pressed Start.
+  It listened for live updates but never checked again, so anything that
+  happened while it was still connecting was missed and nothing recovered it
+  until the browser was reloaded.
+- Installing the URL shortener is now a switch in Settings. Enter the short
+  domain, turn it on, and it installs — no command line, and no waiting for an
+  update.
+- The hundred reserved game codes provision themselves once the shortener
+  answers, instead of waiting for someone to find a Repair button.
+- The installer takes where the bare short domain should forward to, so
+  `chroc.cc` sends people to your website from the first start.
+- The management console arrives pointed at your shortener, with only the API
+  key to supply — one click from **Show API key** in Settings.
+- Settings names the exact Cloudflare Tunnel routes for this server, and
+  recommends putting Cloudflare Access in front of the console's hostname.
+
+### Developer changes
+
+- `shortener:install` joins `update:` and `tunnel:enable` on the protected
+  request path, so the console can ask the privileged helper to install now and
+  read the outcome back. Where no helper exists the marker still stands and the
+  next update honours it, and the response says which happened.
+- `ShortenerHealthService` reconciles reserved codes when it finds the
+  shortener healthy but incomplete.
+- `SHORTENER_BIND` and `SHORTENER_UI_BIND` make the published ports an
+  operator's choice, defaulting to loopback since the tunnel is the way in.
+- The console is given `SHLINK_SERVER_URL` and `SHLINK_SERVER_NAME` but never
+  an API key: it is served to any browser reaching its hostname.
+  `SHORTENER_UI_API_KEY` opts in, for hostnames behind Cloudflare Access.
+
 ## v0.43.0 — The shortener installs with the server
 
 ### User changes

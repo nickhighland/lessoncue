@@ -34,6 +34,13 @@ public sealed class ShortenerService(
     HttpClient probes,
     string dataPath)
 {
+    /// <summary>
+    /// The file the Linux updater looks for to decide whether this server wants
+    /// the shortener. Written here so an existing installation can adopt it
+    /// from the console rather than needing a shell.
+    /// </summary>
+    private readonly string _installMarkerPath = Path.Combine(dataPath, "config", "shortener-domain");
+
     private readonly string _integrationKeyPath = Path.Combine(dataPath, "config", "shortener-integration-key");
     /// <summary>The secret the installer shares with the shortener container.</summary>
     private readonly string _sharedKeyPath = Path.Combine(dataPath, "config", "shortener", "integration-key");
@@ -194,6 +201,119 @@ public sealed class ShortenerService(
     {
         foreach (var path in new[] { _integrationKeyPath, _integrationKeyPath + ".tmp" })
             try { if (File.Exists(path)) File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+    }
+
+    // ------------------------------------------------------------ installing
+
+    /// <summary>
+    /// The domain this server has asked to have the shortener installed for,
+    /// or null when it has not asked.
+    /// </summary>
+    public string? InstallRequestedFor
+    {
+        get
+        {
+            try
+            {
+                if (!File.Exists(_installMarkerPath)) return null;
+                var value = File.ReadAllText(_installMarkerPath).Trim();
+                return value.Length == 0 ? null : value;
+            }
+            catch (IOException) { return null; }
+            catch (UnauthorizedAccessException) { return null; }
+        }
+    }
+
+    /// <summary>Where a privileged helper watches for work the application cannot do itself.</summary>
+    private const string ProtectedRequestPath = "/var/lib/lessoncue/config/update-request";
+    private readonly string _installResultPath = Path.Combine(dataPath, "config", "shortener-result.json");
+
+    /// <summary>How an install asked for from the console turned out.</summary>
+    public sealed record InstallOutcome(bool Installed, string Domain, DateTimeOffset? AppliedAt, string? Error);
+
+    /// <summary>
+    /// Install the shortener on this server, now.
+    ///
+    /// The application cannot start containers itself and should not be given
+    /// the privileges to; it asks the same helper that performs updates and
+    /// manages the tunnel, which acts the moment the request appears. The
+    /// recorded domain also tells later updates to keep it running.
+    /// </summary>
+    public async Task RequestInstallAsync(string domain, CancellationToken ct = default)
+    {
+        var normalized = ShortenerConfiguration.NormalizeHost(domain);
+        if (normalized.Length == 0) throw new ArgumentException("Enter the short domain to install the shortener for.");
+        await WriteSecretAsync(_installMarkerPath, normalized, ct);
+
+        // Clear any previous outcome so the console does not report a stale one
+        // while this attempt is still running.
+        try { if (File.Exists(_installResultPath)) File.Delete(_installResultPath); }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
+
+        try
+        {
+            await File.WriteAllTextAsync(ProtectedRequestPath, "shortener:install\n", ct);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+        {
+            // No helper here -- a container install, or a server whose updater
+            // predates this. The request stands, and the next update honours it.
+            throw new InstallHelperUnavailableException();
+        }
+    }
+
+    /// <summary>There is no privileged helper to act on the request right now.</summary>
+    public sealed class InstallHelperUnavailableException() : InvalidOperationException(
+        "Recorded, but this server has no updater able to install it right now. The next update will.");
+
+    /// <summary>The result the helper left behind, if it has finished.</summary>
+    public InstallOutcome? InstallResult
+    {
+        get
+        {
+            try
+            {
+                if (!File.Exists(_installResultPath)) return null;
+                var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(_installResultPath));
+                if (node is null) return null;
+                return new InstallOutcome(
+                    node["installed"]?.GetValue<bool>() ?? false,
+                    node["domain"]?.GetValue<string>() ?? "",
+                    DateTimeOffset.TryParse(node["appliedAt"]?.GetValue<string>(), out var at) ? at : null,
+                    node["error"]?.GetValue<string>());
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+            {
+                return null;
+            }
+        }
+    }
+
+    /// <summary>Withdraw the request. Never removes an installation already made.</summary>
+    public void CancelInstallRequest()
+    {
+        try { if (File.Exists(_installMarkerPath)) File.Delete(_installMarkerPath); }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
+    }
+
+    /// <summary>Can this server record the request at all?</summary>
+    public bool CanRequestInstall
+    {
+        get
+        {
+            try
+            {
+                var directory = Path.GetDirectoryName(_installMarkerPath)!;
+                Directory.CreateDirectory(directory);
+                // Proven by doing it, rather than by guessing at permissions.
+                var probe = Path.Combine(directory, ".shortener-write-probe");
+                File.WriteAllText(probe, "");
+                File.Delete(probe);
+                return true;
+            }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+        }
     }
 
     // --------------------------------------------------------------- status

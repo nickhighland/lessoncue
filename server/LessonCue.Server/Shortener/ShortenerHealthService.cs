@@ -21,14 +21,27 @@ public sealed class ShortenerHealthService(ShortenerService shortener, ILogger<S
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Let the application finish starting before reaching for the network.
-        await Task.Delay(TimeSpan.FromSeconds(20), stoppingToken).ConfigureAwait(false);
+        await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken).ConfigureAwait(false);
 
         using var timer = new PeriodicTimer(Interval);
         do
         {
             try
             {
-                if (shortener.Current.Enabled) await shortener.StatusAsync(stoppingToken);
+                if (!shortener.Current.Configured) continue;
+                var status = await shortener.StatusAsync(stoppingToken);
+
+                // Provision the reserved codes as soon as the shortener can take
+                // them, rather than waiting for somebody to press a button they
+                // should not have to know about.
+                if (status.State is ShortenerState.Degraded && shortener.IntegrationKey is not null)
+                {
+                    var report = await shortener.ReconcileAsync(stoppingToken);
+                    if (report.Created > 0 || report.Repaired > 0)
+                        log.LogInformation(
+                            "Reserved game codes brought up to date: {Created} created, {Repaired} repaired.",
+                            report.Created, report.Repaired);
+                }
             }
             catch (OperationCanceledException) { return; }
             catch (Exception error)

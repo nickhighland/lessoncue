@@ -103,3 +103,28 @@ test("a game timed by autonomy puts its answer window on the room's screen too",
     await tv.close();
   }
 });
+
+test("the room catches up even when the change lands while it is connecting", async ({ page, context }) => {
+  await authenticate(page);
+  const run = await launchWord(page, "Stage Catch Up", 600);
+
+  const tv = await context.newPage();
+  await tv.setViewportSize({ width: 1280, height: 720 });
+  try {
+    // Open the round *before* the display has loaded at all, so the push it
+    // would have received was sent to nobody. A television left showing the
+    // lobby after the host pressed Start is the failure this guards.
+    await page.evaluate(async id => {
+      await fetch(`/api/v1/activity-runs/${id}/command`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "open", payload: null }),
+      });
+    }, run.runId);
+
+    await tv.goto(`/activity-display?runId=${run.runId}`);
+    await expect(tv.locator(".activity-stage-clock .activity-motion-countdown"))
+      .toBeVisible({ timeout: 20_000 });
+  } finally {
+    await tv.close();
+  }
+});
