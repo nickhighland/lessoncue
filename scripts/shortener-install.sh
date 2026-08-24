@@ -171,6 +171,36 @@ FAILED
   exit 1
 fi
 
+# The console gets its own key, scoped to what it creates itself. Shlink's
+# AUTHORED_SHORT_URLS role means a key only sees short URLs it made, so the
+# hundred reserved game codes -- authored by LessonCue's key -- are invisible
+# through the web interface and cannot be edited or deleted there. The operator
+# still manages every link they make themselves.
+#
+# Generated through the CLI, which can mint keys even though the REST API
+# cannot. Once only: a second run keeps the key the console is already using.
+CONSOLE_KEY_FILE="${SHARED_KEY_DIR}/console-key"
+if [ -s "$CONSOLE_KEY_FILE" ]; then
+  echo "Keeping the existing console key in ${CONSOLE_KEY_FILE}"
+else
+  MINTED="$(docker compose --profile shortener exec -T shlink \
+    shlink api-key:generate --name=lessoncue-console --author-only 2>/dev/null \
+    | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)"
+  if [ -n "$MINTED" ]; then
+    printf '%s' "$MINTED" > "$CONSOLE_KEY_FILE"
+    echo "Generated a console key that cannot see the reserved game codes"
+  else
+    echo "Could not generate a console key; LessonCue will offer its own instead." >&2
+  fi
+  unset MINTED
+fi
+# Same reasoning as the other secrets: LessonCue reads this to show it to a
+# signed-in administrator, and it does not run as root.
+[ -f "$CONSOLE_KEY_FILE" ] && chmod 644 "$CONSOLE_KEY_FILE"
+if [ "$(id -u)" = "0" ] && [ -n "${OWNER:-}" ]; then
+  chown "$OWNER" "$CONSOLE_KEY_FILE" 2>/dev/null || true
+fi
+
 SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 [ -z "$SERVER_IP" ] && SERVER_IP="this server"
 

@@ -3269,13 +3269,17 @@ public static class AdminApi
             // Deliberately a POST an administrator has to ask for, and audited.
             // The key is never included in the status the console polls, so it
             // does not sit in memory or a log waiting to be found.
-            var key = shortener.IntegrationKey;
+            // The console's own key first. It is scoped to what it creates, so
+            // pasting it into the web interface cannot reach the reserved game
+            // codes -- handing over the administrator key would.
+            var key = shortener.ConsoleKey ?? shortener.IntegrationKey;
+            var scope = shortener.ConsoleKey is not null ? "console" : "administrator";
             if (key is null) return Results.NotFound(new { error = "LessonCue has no API key for the shortener yet." });
 
             var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             Audit(db, "shortener.key.reveal", organization.Id, "Revealed the URL shortener API key");
             await db.SaveChangesAsync(ct);
-            return Results.Ok(new { apiKey = key });
+            return Results.Ok(new { apiKey = key, scope });
         });
 
         appSettings.MapPut("/shortener/key", async (ShortenerKeyInput input, LessonCueDb db,

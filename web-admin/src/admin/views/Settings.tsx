@@ -684,6 +684,7 @@ export function Settings({
   const [shortenerTunnel, setShortenerTunnel] = useState<ShortenerTunnelPlan | null>(null);
   const [shortenerReport, setShortenerReport] = useState<ShortenerReport | null>(null);
   const [shortenerAdminKey, setShortenerAdminKey] = useState("");
+  const [shortenerKeyScope, setShortenerKeyScope] = useState("");
   const [shortenerTest, setShortenerTest] = useState<ShortenerTestResult | null>(null);
   const [shortenerBusy, setShortenerBusy] = useState("");
 
@@ -800,8 +801,9 @@ export function Settings({
   async function revealShortenerKey() {
     setShortenerBusy("reveal");
     try {
-      const revealed = await api<{ apiKey: string }>("/api/v1/shortener/key/reveal", { method: "POST" });
+      const revealed = await api<{ apiKey: string; scope: string }>("/api/v1/shortener/key/reveal", { method: "POST" });
       setShortenerAdminKey(revealed.apiKey);
+      setShortenerKeyScope(revealed.scope);
     } catch (e) {
       notify(errorText(e));
     } finally {
@@ -2540,9 +2542,13 @@ export function Settings({
                         onClick={() => void navigator.clipboard.writeText(shortenerAdminKey).then(() => notify("API key copied."))}
                       >Copy</button>
                       <small>
-                        This is the key LessonCue uses for its own reserved codes. For day-to-day work in the
-                        console, generate a separate one with
-                        {" "}<code>docker compose exec shlink shlink api-key:generate</code>.
+                        {shortenerKeyScope === "console"
+                          ? "This key is scoped to the links you make in the console. The reserved game codes"
+                            + " were made by LessonCue, so they do not appear there and cannot be edited or"
+                            + " deleted through it."
+                          : "This is the key LessonCue uses for its own reserved codes, and it can reach them."
+                            + " For day-to-day work in the console, install the shortener again to have a"
+                            + " scoped key generated for you."}
                       </small>
                     </div>
                   )}
