@@ -741,6 +741,18 @@ export function Settings({
     }
   }
 
+  async function revealShortenerKey() {
+    setShortenerBusy("reveal");
+    try {
+      const revealed = await api<{ apiKey: string }>("/api/v1/shortener/key/reveal", { method: "POST" });
+      setShortenerAdminKey(revealed.apiKey);
+    } catch (e) {
+      notify(errorText(e));
+    } finally {
+      setShortenerBusy("");
+    }
+  }
+
   async function saveShortenerKey() {
     setShortenerBusy("keys");
     try {
@@ -2356,6 +2368,44 @@ export function Settings({
                   )}
                 </div>
               </form>
+
+              {shortener.integrationKeyConfigured && shortener.adminUrl && (
+                <div className="settings-instructions">
+                  <strong>Connecting the shortener's console</strong>
+                  <p className="settings-copy">
+                    Open <code>{shortener.adminUrl}</code>, add a server with the short domain{" "}
+                    <code>{shortener.publicUrl}</code>, and paste the API key below. The console is a page
+                    in your browser, so LessonCue cannot hand it the key for you — nothing is stored there
+                    until you do.
+                  </p>
+                  <div className="row gap">
+                    <button
+                      type="button"
+                      className="button"
+                      disabled={shortenerBusy !== ""}
+                      onClick={() => void revealShortenerKey()}
+                    >{shortenerBusy === "reveal" ? "Reading…" : "Show API key"}</button>
+                    {shortener.adminUrl && (
+                      <a className="button" href={shortener.adminUrl} target="_blank" rel="noreferrer noopener">Open console</a>
+                    )}
+                  </div>
+                  {shortenerAdminKey && (
+                    <div className="settings-key-reveal">
+                      <code>{shortenerAdminKey}</code>
+                      <button
+                        type="button"
+                        className="button"
+                        onClick={() => void navigator.clipboard.writeText(shortenerAdminKey).then(() => notify("API key copied."))}
+                      >Copy</button>
+                      <small>
+                        This is the key LessonCue uses for its own reserved codes. For day-to-day work in the
+                        console, generate a separate one with
+                        {" "}<code>docker compose exec shlink shlink api-key:generate</code>.
+                      </small>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {!shortener.integrationKeyConfigured && shortener.domain && (
                 <div className="settings-key-reveal">

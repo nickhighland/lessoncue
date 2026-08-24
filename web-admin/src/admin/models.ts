@@ -955,6 +955,9 @@ export type ShortenerTunnelPlan = {
   explanation: string;
   instructions: string[];
   routes: ShortenerTunnelRoute[];
+  serverHost: string | null;
+  shortenerPort: number;
+  consolePort: number;
   localConfigPath: string | null;
   localConfigMerged: string | null;
   localConfigRefusal: string | null;

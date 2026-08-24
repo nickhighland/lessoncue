@@ -4,8 +4,21 @@ set -euo pipefail
 repair_updater=false
 prerequisites_only=false
 requested_version=""
+# The optional URL shortener. Empty means "ask, or leave it alone"; a domain
+# means install it for that domain without asking.
+shortener_domain=""
+shortener_requested=false
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
+    --with-shortener)
+      if [[ "$#" -lt 2 ]]; then
+        echo "--with-shortener requires the short domain, such as go.example.org."
+        exit 1
+      fi
+      shortener_domain="$2"
+      shortener_requested=true
+      shift 2
+      ;;
     --repair-updater)
       repair_updater=true
       shift
@@ -24,7 +37,7 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: install-latest.sh [--repair-updater] [--prerequisites-only] [--version vX.Y.Z]"
+      echo "Usage: install-latest.sh [--repair-updater] [--prerequisites-only] [--version vX.Y.Z] [--with-shortener DOMAIN]"
       exit 1
       ;;
   esac
@@ -222,6 +235,93 @@ if [[ ! "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
   echo "LessonCue rejected the requested release because '${version}' is not a valid version tag."
   exit 1
 fi
+# ---------------------------------------------------------------- shortener
+#
+# Optional, and never assumed. An installation that says no here is untouched,
+# and one that says yes gets the container stack alongside the native server.
+# The answer is remembered so an update can keep it running.
+SHORTENER_MARKER="/var/lib/lessoncue/config/shortener-domain"
+SHORTENER_DIR="/opt/lessoncue-shortener"
+SHORTENER_DATA="/var/lib/lessoncue/shortener"
+
+install_shortener_if_wanted() {
+  local server_ip="$1"
+  local domain="${shortener_domain}"
+
+  # Already set up: honour the recorded answer rather than asking again.
+  if [[ -z "${domain}" && -s "${SHORTENER_MARKER}" ]]; then
+    domain="$(cat "${SHORTENER_MARKER}")"
+  elif [[ -z "${domain}" && "${shortener_requested}" != true ]]; then
+    if [[ ! -t 0 ]]; then
+      return 0
+    fi
+    echo
+    echo "Install the optional self-hosted URL shortener?"
+    echo "It gives short links on a domain of your own, and short codes for joining games."
+    read -r -p "Short domain (blank to skip): " domain || true
+    domain="$(echo "${domain}" | tr -d '[:space:]')"
+  fi
+
+  [[ -z "${domain}" ]] && return 0
+
+  if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+    echo "The URL shortener needs Docker with the Compose plugin, which is not installed."
+    echo "Install it, then run: sudo ${SHORTENER_DIR}/install.sh ${domain}"
+    # Remember the answer anyway, so a later update can finish the job.
+    install -d -m 755 "$(dirname "${SHORTENER_MARKER}")"
+    printf '%s\n' "${domain}" > "${SHORTENER_MARKER}"
+    chmod 600 "${SHORTENER_MARKER}"
+    return 0
+  fi
+
+  echo
+  echo "Installing the URL shortener for ${domain}"
+
+  # Fetched and checked against the same signed SHA256SUMS as the server
+  # itself. An unverified download here would undo the point of signing them.
+  local bundle="LessonCue-URL-Shortener.tar.gz"
+  if ! curl -fL "${release_root}/${bundle}" -o "${workdir}/${bundle}" 2>/dev/null; then
+    echo "This release does not carry the URL shortener bundle. Skipping."
+    return 0
+  fi
+  if ! grep -F "  ${bundle}" "${workdir}/SHA256SUMS" > "${workdir}/shortener.sha256"; then
+    echo "The URL shortener bundle is not listed in the signed checksums. Skipping."
+    return 0
+  fi
+  if ! ( cd "${workdir}" && sha256sum -c shortener.sha256 >/dev/null ); then
+    echo "The URL shortener bundle did not match its signed checksum. Skipping."
+    return 0
+  fi
+
+  install -d -m 755 "${SHORTENER_DIR}"
+  if ! tar -xzf "${workdir}/${bundle}" -C "${SHORTENER_DIR}" --strip-components=1; then
+    echo "The URL shortener bundle could not be unpacked. Skipping."
+    return 0
+  fi
+  chmod +x "${SHORTENER_DIR}"/*.sh 2>/dev/null || true
+
+  # Remembered so the updater keeps it running without asking again.
+  install -d -m 755 "$(dirname "${SHORTENER_MARKER}")"
+  printf '%s\n' "${domain}" > "${SHORTENER_MARKER}"
+  chmod 600 "${SHORTENER_MARKER}"
+
+  # Data under the service's own directory, and the integration key where
+  # LessonCue actually reads it rather than beside the compose file.
+  install -d -m 750 "${SHORTENER_DATA}"
+  if ( cd "${SHORTENER_DIR}" \
+       && SHORTENER_DATA_DIR="${SHORTENER_DATA}" \
+          LESSONCUE_DATA_PATH="/var/lib/lessoncue" \
+          ./install.sh "${domain}" ); then
+    echo
+    echo "Add these two routes to the Cloudflare Tunnel already serving LessonCue:"
+    echo "    ${domain}          ->  http://${server_ip}:8081"
+    echo "    short.${domain}    ->  http://${server_ip}:8082"
+    echo "Then open Settings -> Integrations - URL shortener in LessonCue."
+  else
+    echo "The URL shortener did not finish installing. LessonCue itself is unaffected."
+  fi
+}
+
 workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT
 
@@ -285,6 +385,7 @@ for attempt in $(seq 1 30); do
     echo "LessonCue is ready."
     echo "Open http://${local_hostname}.local${port_suffix} in a browser on the same network."
     echo "Numeric fallback: http://${server_ip}${port_suffix}"
+    install_shortener_if_wanted "${server_ip}"
     exit 0
   fi
   sleep 1

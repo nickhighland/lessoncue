@@ -28,15 +28,20 @@ public static class ShortenerTunnelPlanner
     /// to the web client. They are never the same service: one serves links to
     /// the public, the other serves a console to an administrator.
     /// </summary>
-    public static IReadOnlyList<TunnelRoute> RoutesFor(ShortenerSettings settings, int shortenerPort, int consolePort)
+    public static IReadOnlyList<TunnelRoute> RoutesFor(
+        ShortenerSettings settings, int shortenerPort, int consolePort, string? serverHost = null)
     {
         if (!settings.Configured) return [];
+        // The connector normally runs on this machine, so localhost is what it
+        // needs. The server's own address is offered alongside it, because that
+        // is what an operator can actually curl to check the route by hand.
+        var host = string.IsNullOrWhiteSpace(serverHost) ? "localhost" : serverHost.Trim();
         var routes = new List<TunnelRoute>
         {
-            new(settings.Domain, $"http://localhost:{shortenerPort}", "Short links, and the game codes on them"),
+            new(settings.Domain, $"http://{host}:{shortenerPort}", "Short links, and the game codes on them"),
         };
         if (settings.AdminHost.Length > 0)
-            routes.Add(new(settings.AdminHost, $"http://localhost:{consolePort}", "The shortener's management console"));
+            routes.Add(new(settings.AdminHost, $"http://{host}:{consolePort}", "The shortener's management console"));
         return routes;
     }
 
@@ -44,9 +49,10 @@ public static class ShortenerTunnelPlanner
     /// Instructions precise enough to follow without guessing, using the
     /// hostnames this installation actually configured.
     /// </summary>
-    public static TunnelPlan ForManagedTunnel(ShortenerSettings settings, int shortenerPort, int consolePort)
+    public static TunnelPlan ForManagedTunnel(
+        ShortenerSettings settings, int shortenerPort, int consolePort, string? serverHost = null)
     {
-        var routes = RoutesFor(settings, shortenerPort, consolePort);
+        var routes = RoutesFor(settings, shortenerPort, consolePort, serverHost);
         if (routes.Count == 0)
             // Still worth explaining. Somebody reading this before they have
             // chosen a domain is exactly who most needs to know what the tunnel
@@ -76,6 +82,7 @@ public static class ShortenerTunnelPlanner
         steps.Add($"If {settings.Domain} already has an entry from an earlier version sending it to LessonCue, "
             + "change that entry's service to the one above rather than adding a second. A hostname can only appear once.");
         steps.Add("Leave every unrelated entry exactly as it is.");
+        steps.Add("The ports are bound to this server only, so neither needs opening on the firewall — the tunnel is the way in.");
         steps.Add("Cloudflare creates the DNS records for you, provided the domain is in the same account.");
         steps.Add("Do not add a Redirect Rule for the short domain. A rule on the whole hostname would also catch the short links and the game codes underneath it.");
 

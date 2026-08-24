@@ -303,3 +303,47 @@ test("the settings arrive filled in rather than blank", async ({ page }) => {
   await panel.getByLabel(/^Short domain/).fill("go.example.org");
   await expect(panel.getByLabel(/^Management address/)).toHaveValue("short.go.example.org");
 });
+
+test("the tunnel routes name a concrete address and the ports in use", async ({ page }) => {
+  await authenticate(page);
+  await configure(page, {
+    domain: "chroc.cc", adminHost: "", upstream: "http://127.0.0.1:9",
+    rootRedirectMode: "notfound", enabled: true,
+  });
+
+  const plan = await page.evaluate(async () =>
+    (await fetch("/api/v1/shortener/tunnel").then(r => r.json())) as {
+      routes: { hostname: string; service: string }[];
+      shortenerPort: number; consolePort: number; serverHost: string | null;
+    });
+
+  // The short domain to the shortener, the console to the web client, each on
+  // its own port — the two lines an operator copies into Cloudflare.
+  expect(plan.routes.map(r => r.hostname)).toEqual(["chroc.cc", "short.chroc.cc"]);
+  expect(plan.routes[0].service).toContain(`:${plan.shortenerPort}`);
+  expect(plan.routes[1].service).toContain(`:${plan.consolePort}`);
+  expect(plan.shortenerPort).not.toBe(plan.consolePort);
+});
+
+test("the API key is only handed over when explicitly asked for", async ({ page }) => {
+  await authenticate(page);
+  await configure(page, {
+    domain: "chroc.cc", adminHost: "", upstream: "http://127.0.0.1:9",
+    rootRedirectMode: "notfound", enabled: true,
+  });
+  await page.evaluate(async () => {
+    await fetch("/api/v1/shortener/key", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: "abcdef0123456789abcdef0123456789" }),
+    });
+  });
+
+  // Never in the status the console polls.
+  const status = await page.evaluate(async () => await fetch("/api/v1/shortener").then(r => r.text()));
+  expect(status).not.toContain("abcdef0123456789");
+
+  // Only from the endpoint that exists to reveal it.
+  const revealed = await page.evaluate(async () =>
+    (await fetch("/api/v1/shortener/key/reveal", { method: "POST" }).then(r => r.json())) as { apiKey: string });
+  expect(revealed.apiKey).toBe("abcdef0123456789abcdef0123456789");
+});

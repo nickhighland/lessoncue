@@ -362,6 +362,10 @@ public sealed class ShortenerService(
         var publicUrl = await PublicBaseUrlAsync(ct);
         if (publicUrl.Length == 0)
             throw new InvalidOperationException("Set LessonCue's public address first: reserved codes have to point back to it.");
-        return await provisioner.ReconcileAsync(settings.Upstream, key, settings.Domain, publicUrl, ct);
+        var report = await provisioner.ReconcileAsync(settings.Upstream, key, settings.Domain, publicUrl, ct);
+        // A clean reconcile is exactly the finding the short-link gate wants,
+        // so record it here rather than making games wait for the next check.
+        MarkUsable(!report.Degraded && report.Present == ReservedGameCodes.All.Count);
+        return report;
     }
 }

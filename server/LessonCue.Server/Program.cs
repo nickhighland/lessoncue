@@ -73,6 +73,7 @@ builder.Services.AddSingleton(provider => new LessonCue.Server.Shortener.Shorten
     provider.GetRequiredService<LessonCue.Server.Shortener.ReservedCodeProvisioner>(),
     provider.GetRequiredService<IHttpClientFactory>().CreateClient("shortener-probe"),
     dataPath));
+builder.Services.AddHostedService<LessonCue.Server.Shortener.ShortenerHealthService>();
 builder.Services.AddHttpClient("backup-offsite", client =>
     client.Timeout = TimeSpan.FromHours(6))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler

@@ -302,6 +302,16 @@ jobs:
           bash scripts/extract-release-notes.sh "${GITHUB_REF_NAME}" > release/RELEASE-NOTES.md
           cp CHANGELOG.md release/CHANGELOG.md
           cp installers/linux/install-latest.sh release/install-lessoncue.sh
+          # The optional URL shortener is a container stack, while the server
+          # itself installs natively. Ship its definition and scripts with the
+          # release so a server has them locally instead of needing the repo.
+          mkdir -p release/shortener
+          cp compose.yaml release/shortener/compose.yaml
+          cp scripts/shortener-install.sh release/shortener/install.sh
+          cp scripts/shortener-update.sh release/shortener/update.sh
+          cp docs/url-shortener.md release/shortener/README.md
+          tar -czf release/LessonCue-URL-Shortener.tar.gz -C release shortener
+          rm -rf release/shortener
       - name: Install checksum-pinned Trivy
         run: bash scripts/install-trivy.sh "${RUNNER_TEMP}/lessoncue-security"
       - name: Generate release SBOM and third-party inventory
