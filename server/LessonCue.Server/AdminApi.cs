@@ -1685,7 +1685,7 @@ public static class AdminApi
             foreach (var value in profiles) await AdaptiveTranscodeService.QueueAsync(db, media, value, ct);
             db.AuditEvents.Add(new AuditEvent { Actor = context.User.Identity?.Name ?? "admin", Action = "media.transcode.queue",
                 Object = media.Id.ToString(), Summary = string.Join(',', profiles) });
-            await db.SaveChangesAsync(ct);
+            await AdaptiveTranscodeService.SaveQueuedAsync(db, ct);
             return Results.Accepted(value: new { queued = profiles });
         }).RequireRateLimiting("media-processing");
 
