@@ -308,9 +308,12 @@ install_shortener_if_wanted() {
   # Data under the service's own directory, and the integration key where
   # LessonCue actually reads it rather than beside the compose file.
   install -d -m 750 "${SHORTENER_DATA}"
+  # Passed through so the bare short domain forwards from the first start,
+  # rather than needing a container restart after setting it in LessonCue.
   if ( cd "${SHORTENER_DIR}" \
        && SHORTENER_DATA_DIR="${SHORTENER_DATA}" \
           LESSONCUE_DATA_PATH="/var/lib/lessoncue" \
+          SHORT_DOMAIN_ROOT_REDIRECT="${SHORT_DOMAIN_ROOT_REDIRECT:-}" \
           ./install.sh "${domain}" ); then
     echo
     echo "Add these two routes to the Cloudflare Tunnel already serving LessonCue:"

@@ -41,6 +41,9 @@ public sealed class ShortenerService(
     /// </summary>
     private readonly string _installMarkerPath = Path.Combine(dataPath, "config", "shortener-domain");
 
+    /// <summary>Where the bare short domain forwards to, read by the installer at start-up.</summary>
+    private readonly string _rootRedirectPath = Path.Combine(dataPath, "config", "shortener-root-redirect");
+
     private readonly string _integrationKeyPath = Path.Combine(dataPath, "config", "shortener-integration-key");
     /// <summary>The secret the installer shares with the shortener container.</summary>
     private readonly string _sharedKeyPath = Path.Combine(dataPath, "config", "shortener", "integration-key");
@@ -239,11 +242,15 @@ public sealed class ShortenerService(
     /// manages the tunnel, which acts the moment the request appears. The
     /// recorded domain also tells later updates to keep it running.
     /// </summary>
-    public async Task RequestInstallAsync(string domain, CancellationToken ct = default)
+    public async Task RequestInstallAsync(string domain, string rootRedirect = "", CancellationToken ct = default)
     {
         var normalized = ShortenerConfiguration.NormalizeHost(domain);
         if (normalized.Length == 0) throw new ArgumentException("Enter the short domain to install the shortener for.");
         await WriteSecretAsync(_installMarkerPath, normalized, ct);
+
+        // The shortener reads its root destination at start-up, so it has to be
+        // on disk before the containers come up rather than saved afterwards.
+        await WriteSecretAsync(_rootRedirectPath, rootRedirect ?? "", ct);
 
         // Clear any previous outcome so the console does not report a stale one
         // while this attempt is still running.
@@ -294,6 +301,24 @@ public sealed class ShortenerService(
     {
         try { if (File.Exists(_installMarkerPath)) File.Delete(_installMarkerPath); }
         catch (IOException) { } catch (UnauthorizedAccessException) { }
+    }
+
+    /// <summary>
+    /// Re-apply the configuration to a shortener that is already installed.
+    ///
+    /// Its root destination is an environment value read at start-up, so
+    /// changing it in the console has to bring the containers back up. Without
+    /// this, editing that setting appears to work and changes nothing.
+    /// </summary>
+    public async Task ReapplyAsync(string rootRedirect, CancellationToken ct = default)
+    {
+        if (InstallRequestedFor is null) return;
+        await WriteSecretAsync(_rootRedirectPath, rootRedirect ?? "", ct);
+        try { await File.WriteAllTextAsync(ProtectedRequestPath, "shortener:install\n", ct); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+        {
+            // No helper: the value is stored and the next update applies it.
+        }
     }
 
     /// <summary>Can this server record the request at all?</summary>

@@ -293,15 +293,20 @@ test("the settings arrive filled in rather than blank", async ({ page }) => {
   await authenticate(page);
   await configure(page, { domain: "", adminHost: "", upstream: "", rootRedirectMode: "notfound", enabled: false });
 
-  const panel = await openSection(page);
-  // Matched loosely on purpose: these fields carry a hint, which the shared
-  // Field component folds into the accessible name.
-  const upstream = panel.getByLabel(/^Where the shortener is reachable/);
-  await expect(upstream).toHaveValue(/^http:\/\/(shlink:8080|127\.0\.0\.1:\d+)$/);
+  // The suggestion is what the console fills in, and what a blank save stores.
+  const suggested = await page.evaluate(async () =>
+    (await fetch("/api/v1/shortener").then(r => r.json())) as { suggestedUpstream: string; suggestedAdminHost: string });
+  expect(suggested.suggestedUpstream).toMatch(/^http:\/\/(shlink:8080|127\.0\.0\.1:\d+)$/);
 
-  // And the management address follows the domain as it is typed.
-  await panel.getByLabel(/^Short domain/).fill("go.example.org");
-  await expect(panel.getByLabel(/^Management address/)).toHaveValue("short.go.example.org");
+  const saved = await page.evaluate(async () => {
+    await fetch("/api/v1/shortener", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: "go.example.org", adminHost: "", upstream: "", rootRedirectMode: "notfound", enabled: true }),
+    });
+    return await fetch("/api/v1/shortener").then(r => r.json()) as { upstream: string; adminHost: string };
+  });
+  expect(saved.upstream).toBe(suggested.suggestedUpstream);
+  expect(saved.adminHost).toBe("short.go.example.org");
 });
 
 test("the tunnel routes name a concrete address and the ports in use", async ({ page }) => {
@@ -389,4 +394,63 @@ test("an install request is refused without a domain to install for", async ({ p
     return response.status;
   });
   expect(status).toBe(400);
+});
+
+test("the way to install it stays on screen until it is actually running", async ({ page }) => {
+  await authenticate(page);
+  // A domain saved but nothing installed is exactly when somebody needs the
+  // switch, and keying it on "not installed" made it disappear at that point.
+  await configure(page, {
+    domain: "chroc.cc", adminHost: "", upstream: "http://127.0.0.1:9",
+    rootRedirectMode: "notfound", enabled: true,
+  });
+
+  const panel = await openSection(page);
+  await expect(panel.getByText("Install it on this server")).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Install the URL shortener" })).toBeVisible();
+  // And exactly one place to type the domain, not two.
+  await expect(panel.getByLabel(/^Short domain/)).toHaveCount(1);
+});
+
+test("turning it on settles every setting that follows from the domain", async ({ page }) => {
+  await authenticate(page);
+  await configure(page, { domain: "", adminHost: "", upstream: "", rootRedirectMode: "notfound", enabled: false });
+
+  const after = await page.evaluate(async () => {
+    await fetch("/api/v1/shortener/install", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requested: true, domain: "chroc.cc" }),
+    });
+    return await fetch("/api/v1/shortener").then(r => r.json()) as {
+      domain: string; adminHost: string; upstream: string; enabled: boolean; installRequestedFor: string | null;
+    };
+  });
+
+  // Nothing left for an administrator to fill in by hand.
+  expect(after.domain).toBe("chroc.cc");
+  expect(after.adminHost).toBe("short.chroc.cc");
+  expect(after.upstream).not.toBe("");
+  expect(after.enabled).toBe(true);
+  expect(after.installRequestedFor).toBe("chroc.cc");
+});
+
+test("a domain that is not a domain is refused before anything is recorded", async ({ page }) => {
+  await authenticate(page);
+  const result = await page.evaluate(async () => {
+    // Start from nothing recorded, so this is about the refusal and not about
+    // whatever an earlier test left behind.
+    await fetch("/api/v1/shortener/install", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requested: false }),
+    });
+    const response = await fetch("/api/v1/shortener/install", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requested: true, domain: "not a domain" }),
+    });
+    const status = response.status;
+    const state = await fetch("/api/v1/shortener").then(r => r.json()) as { installRequestedFor: string | null };
+    return { status, requested: state.installRequestedFor };
+  });
+  expect(result.status).toBe(400);
+  expect(result.requested).toBeNull();
 });

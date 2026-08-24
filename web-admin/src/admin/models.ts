@@ -949,6 +949,7 @@ export type ShortenerSettings = {
   integrationKeyConfigured: boolean;
   installRequestedFor: string | null;
   canRequestInstall: boolean;
+  installResult: { installed: boolean; domain: string; appliedAt: string | null; error: string | null } | null;
 };
 
 export type ShortenerTunnelRoute = { hostname: string; service: string; purpose: string };

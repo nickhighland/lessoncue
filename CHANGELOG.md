@@ -4,6 +4,37 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.0 — One button sets up short links
+
+### User changes
+
+- Setting up the URL shortener is now one button. Enter the short domain and
+  where the bare domain should forward to, press Install, and everything else
+  is worked out: the management address, how LessonCue reaches it, the reserved
+  game codes, and Docker itself if this server does not have it yet.
+- Changing where the bare short domain forwards to now takes effect. The
+  shortener reads that when it starts, so the setting was previously stored and
+  quietly ignored.
+- The install controls stay on screen until the shortener is actually running,
+  and report progress and any error. They used to disappear the moment a domain
+  was saved — exactly when they were needed.
+- The settings panel shows one thing at a time: two fields and a button before
+  it is running, the full configuration after.
+
+### Developer changes
+
+- The updater installs Docker and the Compose plugin when they are missing,
+  using the distribution package where it carries Compose v2 and Docker's
+  signed repository where it does not. It runs as root; refusing for the want
+  of a prerequisite it can satisfy was the wrong division of labour.
+- `POST /shortener/install` settles the derived configuration — management
+  host, upstream, enabled — and records the root destination where the
+  installer reads it at container start.
+- `ShortenerService.ReapplyAsync` re-runs the install so a changed root
+  destination reaches the running containers.
+- `install-latest.sh` and the updater both pass `SHORT_DOMAIN_ROOT_REDIRECT`
+  through, so the bare domain forwards from the first start.
+
 ## v0.44.0 — Setting up short links in one pass
 
 ### User changes
