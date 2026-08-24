@@ -75,7 +75,9 @@ services:
       start_period: 20s
 
   shlink:
-    image: ghcr.io/shlinkio/shlink:4.4.6
+    # Pinned, never `latest`: an unattended major bump would migrate the
+    # database out from under the links the organization depends on.
+    image: "${SHORTENER_IMAGE:-ghcr.io/shlinkio/shlink:4.4.6}"
     container_name: lessoncue-shlink
     profiles: ["shortener"]
     restart: unless-stopped

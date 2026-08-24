@@ -3166,6 +3166,10 @@ public static class AdminApi
             Audit(db, "shortener.configure", organization.Id,
                 domain.Length == 0 ? "URL shortener cleared" : $"URL shortener set to {domain}");
             await db.SaveChangesAsync(ct);
+            // Games read these settings from a short-lived cache, so an
+            // administrator switching the shortener off has to take effect on
+            // the next game rather than the next five seconds' worth.
+            shortener.Invalidate();
             return Results.Ok(new { state = (await shortener.StatusAsync(ct)).State.ToString() });
         });
 
@@ -3255,6 +3259,7 @@ public static class AdminApi
             }
 
             await db.SaveChangesAsync(ct);
+            shortener.Invalidate();
             return Results.Ok(new { state = (await shortener.StatusAsync(ct)).State.ToString() });
         });
 

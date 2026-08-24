@@ -1,86 +1,77 @@
-# URL shortener and the short domain
+# URL shortener
 
-LessonCue can sit in front of a [Shlink](https://shlink.io) instance so a short
-domain works the way people expect: the bare domain goes somewhere useful, and
-everything underneath it is a short link.
+LessonCue can optionally run a self-hosted [Shlink](https://shlink.io) on the
+same server, giving the organization a short domain of its own and giving games
+a set of short, readable join codes.
 
-Nothing here is specific to one installation. The domain, the destination, and
-the shortener's address are all settings.
+It is optional in the strong sense. An installation that never turns it on runs
+exactly as before, and one that turns it on and later loses it keeps working —
+short links stop, nothing else does.
+
+Nothing here is specific to any installation. The short domain, the management
+address, and the root destination are all configuration.
 
 ## The shape of it
 
-Two public hostnames, doing different jobs:
-
-| Hostname | Points at | Serves |
-| --- | --- | --- |
-| the short domain, e.g. `go.example.org` | LessonCue | `/` itself; everything else is handed to Shlink |
-| the shortener's own host, e.g. `short.go.example.org` | Shlink | Shlink's admin UI and REST API |
-
-The short domain is routed to LessonCue rather than straight to Shlink because
-the bare root needs different behaviour from every other path, and that is a
-decision about one exact path. Sending the whole hostname somewhere else — a
-Cloudflare redirect rule on the hostname, say — would take `/kids` and every
-reserved game code with it.
-
-For the same reason the root is **not** implemented as a short code with an
-empty slug. It is handled before Shlink is consulted at all, so it cannot
-shadow a real link.
-
-## What happens to a request
+Four containers, behind a compose profile:
 
 ```
-https://go.example.org          ->  the configured destination
-https://go.example.org/         ->  the configured destination
-https://go.example.org/kids     ->  Shlink
-https://go.example.org/Q7Z6     ->  Shlink, which sends the phone to the game
-https://lesson.example.org/     ->  LessonCue, untouched
+Cloudflare Tunnel
+│
+├── lessoncue.example.org  ──▶  LessonCue
+├── go.example.org         ──▶  Shlink              short links and game codes
+└── short.go.example.org   ──▶  Shlink Web Client   the management console
+                                     │
+                                Shlink ──▶ PostgreSQL   (never published)
 ```
 
-Only an exact `/` is LessonCue's. `/kids/` is a path, and belongs to Shlink.
+The short domain goes **straight to Shlink**. LessonCue is not in that path, and
+does not proxy it — Shlink answers its own root natively, so putting anything in
+front of it would only add a hop that can fail.
 
-Requests are forwarded with their original `Host` header, because Shlink
-resolves short codes per domain — rewriting the host would make it look the
-code up against the wrong one and miss a link that exists.
+The management console is a different hostname from the short domain. One serves
+links to the public, the other serves an administrator's console; short links
+always stay on `https://{SHORT_DOMAIN}/{slug}` and never move to the management
+host.
+
+## What the addresses do
+
+```
+https://go.example.org           the root destination you configured
+https://go.example.org/kids      an ordinary short link
+https://go.example.org/give      an ordinary short link
+https://go.example.org/Q7Z6      a LessonCue game
+https://short.go.example.org     the management console
+```
+
+## Game codes
+
+LessonCue reserves exactly **100** four-character codes, shipped as
+`reserved-game-codes-v1.json`. Each is a letter, a digit, a letter, a digit,
+drawn from an alphabet with `0`, `1`, `I`, `L` and `O` left out so a room can
+read one off a television without arguing about it.
+
+The shape also keeps them clear of the words an organization actually wants:
+`/kids`, `/give`, `/easter` and `/register` stay available, while `/Q7Z6` is
+obviously a game. Only those exact hundred slugs are reserved — four-character
+short links in general are not.
+
+**The links are permanent.** `/Q7Z6` always points at LessonCue's join page for
+`Q7Z6`. A game starting or ending never touches Shlink; all that changes is
+whether a session currently owns that code. When none does, the join page says
+so in its usual way. When a later game takes it, the same link works again.
+
+Codes are handed out at random from those not currently in use, so a room that
+meets weekly cannot guess next week's from last week's. If all hundred are in
+play at once, a new game falls back to an ordinary six-character code: it will
+not work on the short domain, but the lesson still runs.
+
+Shlink runs in **loose** mode, so `go.example.org/q7z6` reaches the game shown
+as `Q7Z6` on screen.
 
 ## Setting it up
 
-**Settings → Integrations · URL shortener.**
-
-- **Short domain** — the public short domain on its own, no path.
-- **Where the shortener is reachable** — how LessonCue reaches Shlink from
-  inside the deployment, e.g. `http://shlink:8080`.
-- **Redirect the root short domain** — on by default. With it on, give a
-  destination; with it off, choose what the bare root does instead: show
-  Shlink's own page, serve LessonCue on the short domain, or return 404. Only
-  the first of those is a redirect — the LessonCue option answers the request
-  itself rather than sending the browser anywhere.
-- **Carry the query string across** — on by default, so a printed
-  `go.example.org/?source=poster` still arrives with its tracking intact.
-- **Permanent redirect (301)** — off by default, and worth leaving off. A 302
-  can be changed the moment you change this setting; a 301 is cached hard by
-  browsers and proxies, and visitors who have already seen it may keep being
-  sent to the old destination long afterwards. Turn it on once the destination
-  is genuinely settled.
-
-**Test** checks four things, because each can be true on its own while the
-domain as a whole is broken: the domain answers, the root does what it was
-configured to do, an ordinary short link still reaches Shlink, and a reserved
-game code still resolves.
-
-### What is rejected
-
-- Anything that is not `http://` or `https://`. `javascript:`, `data:` and
-  `file:` are excluded by only allowing the two, rather than by blocklist.
-- A destination on the short domain itself, which would send the root back to
-  the root until the browser gave up.
-
-A plain-`http://` destination and a permanent redirect are both allowed, and
-both say so when you save.
-
-## Running Shlink
-
-Shlink ships in `compose.yaml` behind a profile, so installations that do not
-use short links never start it:
+### 1. Start the stack
 
 ```bash
 SHORT_DOMAIN=go.example.org docker compose --profile shortener up -d
@@ -89,17 +80,120 @@ SHORT_DOMAIN=go.example.org docker compose --profile shortener up -d
 | Variable | Purpose |
 | --- | --- |
 | `SHORT_DOMAIN` | the domain short links are minted on; required |
-| `SHORTENER_HTTP_PORT` | host port for Shlink, default `8081` |
-| `SHORTENER_DATA_PATH` | where Shlink keeps its SQLite database |
-| `SHORTENER_GEOLITE_KEY` | optional, for geographic visit stats |
+| `SHORTENER_HTTP_PORT` | local port for Shlink, default `8081` |
+| `SHORTENER_UI_PORT` | local port for the console, default `8082` |
+| `SHORTENER_DB_PATH` | where PostgreSQL keeps its data |
+| `SHORT_DOMAIN_ROOT_REDIRECT` | where the bare domain goes; empty leaves Shlink's own page |
+| `SHORTENER_GEOLITE_KEY` | optional, for geographic visit statistics |
 
-Then point the tunnel or reverse proxy at both hostnames: the short domain at
-LessonCue, and the shortener's own hostname at Shlink's port.
+Both published ports bind to loopback, and PostgreSQL is not published at all —
+the tunnel is the only way in from outside.
 
-## Reserved game codes
+### 2. Add two tunnel routes
 
-A game code works on the short domain the same way any short link does: create
-a short URL in Shlink whose slug is the code and whose destination is the
-LessonCue join address. Nothing about the root redirect touches it — that is
-what the fourth check in **Test** is there to prove, and what the routing tests
-assert for every possible root setting.
+Reuse the tunnel already serving LessonCue. In Cloudflare Zero Trust →
+Networks → Tunnels → your tunnel → **Public Hostnames**, add:
+
+| Hostname | Service |
+| --- | --- |
+| `{SHORT_DOMAIN}` | `http://localhost:8081` |
+| `{SHORTENER_ADMIN_HOST}` | `http://localhost:8082` |
+
+Leave every existing entry alone; the one pointing at LessonCue has to keep
+working. Cloudflare creates the DNS records itself when the domain is in the
+same account.
+
+**Do not add a Redirect Rule for the short domain.** A rule on the whole
+hostname would also catch `/kids` and every game code underneath it.
+
+LessonCue holds a tunnel connector token rather than a Cloudflare API token, so
+it cannot add these routes for you. Settings shows the exact entries to add,
+with this installation's own hostnames and ports.
+
+### 3. Configure LessonCue
+
+**Settings → Integrations · URL shortener.**
+
+- **Short domain** — bare, no scheme.
+- **Management address** — defaults to `short.{SHORT_DOMAIN}`, and can be
+  overridden for installations without DNS control over that name. It may not
+  be the short domain itself.
+- **Where the shortener is reachable** — from this server, e.g.
+  `http://shlink:8080`.
+- **When someone visits the bare short domain** — the shortener's own page, the
+  organization's website, LessonCue, or somewhere else.
+- **Use short-domain links for game codes** — what makes games hand out
+  reserved codes and show the short link.
+
+Then **Issue API keys**, and **Repair reserved codes** to create all hundred.
+
+### API keys
+
+Two credentials, deliberately:
+
+- **LessonCue's own** is used only to provision, reconcile and repair the
+  reserved codes. It never leaves the server.
+- **The administrator's** is shown once, when issued, and is not stored anywhere
+  LessonCue can show it again. It is for connecting a browser to the management
+  console.
+
+The web client is deployed with no server list and no key. It is a static page
+served to a browser, so anything baked in there would be handed to whoever
+opens it.
+
+## Keeping it honest
+
+LessonCue re-checks the reserved codes and repairs what has drifted:
+
+- A missing code is recreated.
+- A code pointing at the wrong place — usually because LessonCue's public
+  address changed — is repaired in place, so its visit history survives.
+- A code that exists but belongs to someone else is **not** taken over. The
+  integration reports as degraded and names the conflicting code, so an
+  administrator can delete or rename that link and repair again.
+
+## Backups
+
+LessonCue's own backup covers the shortener's *configuration* and the
+reserved-pool version, because both live in its database. The API keys are
+treated as secrets and are left out of a backup taken without them.
+
+**Shlink's database is not included** — it lives in its own container volume,
+outside LessonCue's data path. Back it up separately:
+
+```bash
+docker compose exec shlink-db pg_dump -U shlink shlink > shlink-backup.sql
+```
+
+Ordinary organization short links cannot be recreated from anything LessonCue
+holds, so this matters.
+
+## Turning it off
+
+Three distinct actions:
+
+- **Stop using short links** — LessonCue goes back to its own join addresses.
+  Shlink keeps running and every link keeps working.
+- **Stop the containers** — `docker compose --profile shortener down`. The
+  database, configuration and volumes are all retained.
+- **Remove the integration** — LessonCue clears its settings and forgets its
+  credentials. It does not touch Shlink's database: those links belong to the
+  organization, and deleting them is a separate, deliberate act.
+
+## Updating
+
+The Shlink image is pinned, never `latest` — an unattended major bump would
+migrate the database out from under the links the organization depends on.
+
+```bash
+scripts/shortener-update.sh 4.5.0
+```
+
+It refuses to start unless the shortener is currently healthy, dumps the
+database first, counts the reserved codes before and after, and waits for the
+migration to finish. If the count changes, use **Repair reserved codes**. If it
+never comes back healthy, the dump and the previous tag are both there to go
+back to.
+
+Run it with no tag to see the running version and the reserved count without
+changing anything.
