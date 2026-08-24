@@ -81,9 +81,12 @@ export const ActivityLibrary: React.FC = () => {
   } : null, [editingConfig, editingDescription, editingName, editingTheme, selectedActivity]);
 
   // What the editor is showing right now, for callers that must not depend on
-  // when their closure was created.
+  // when their closure was created. Updated after commit, which is the same
+  // moment the change becomes visible on screen.
   const draftRef = useRef({ name: editingName, description: editingDescription, config: editingConfig, theme: editingTheme });
-  draftRef.current = { name: editingName, description: editingDescription, config: editingConfig, theme: editingTheme };
+  useEffect(() => {
+    draftRef.current = { name: editingName, description: editingDescription, config: editingConfig, theme: editingTheme };
+  }, [editingConfig, editingDescription, editingName, editingTheme]);
 
   const isEditorDirty = Boolean(draftDefinition && activityDraftSnapshot(
     draftDefinition.name,
