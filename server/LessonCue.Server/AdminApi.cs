@@ -3188,6 +3188,12 @@ public static class AdminApi
             return Results.Ok(new { adminApiKey = admin, integrationConfigured = true });
         });
 
+        appSettings.MapPost("/shortener/test", async (ShortenerService shortener, CancellationToken ct) =>
+        {
+            var checks = await shortener.ProbeAsync(ct);
+            return Results.Ok(new { passed = checks.All(check => check.Passed), checks });
+        });
+
         appSettings.MapGet("/shortener/tunnel", async (LessonCueDb db, CancellationToken ct) =>
         {
             var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);

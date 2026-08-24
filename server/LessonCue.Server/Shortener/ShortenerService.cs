@@ -29,6 +29,9 @@ public sealed class ShortenerService(
     IServiceScopeFactory scopes,
     ShlinkClient shlink,
     ReservedCodeProvisioner provisioner,
+    // A separate client that does not follow redirects: seeing the redirect is
+    // the whole point of probing a game code.
+    HttpClient probes,
     string dataPath)
 {
     private readonly string _integrationKeyPath = Path.Combine(dataPath, "config", "shortener-integration-key");
@@ -217,6 +220,71 @@ public sealed class ShortenerService(
         using var scope = scopes.CreateScope();
         var pool = scope.ServiceProvider.GetRequiredService<ReservedGameCodePool>();
         return await pool.StatusAsync(ct);
+    }
+
+    // -------------------------------------------------------------- probing
+
+    /// <summary>One thing that was checked from the public side, and the result.</summary>
+    public sealed record Check(string Name, bool Passed, string Detail);
+
+    /// <summary>
+    /// Check the two public hostnames the way a phone would.
+    ///
+    /// Each of these can be true on its own while the domain as a whole is
+    /// wrong, so they are asked separately: the shortener answering locally
+    /// tells you nothing about whether the tunnel route reaches it.
+    /// </summary>
+    public async Task<IReadOnlyList<Check>> ProbeAsync(CancellationToken ct = default)
+    {
+        var settings = await SettingsAsync(ct);
+        if (!settings.Configured)
+            return [new Check("Configured", false, "Set the short domain and where the shortener is reachable first.")];
+
+        var checks = new List<Check>
+        {
+            await ProbeOneAsync("The shortener answers locally", $"{settings.Upstream.TrimEnd('/')}/{ShlinkClient.ApiRoot}/health",
+                "LessonCue can reach it inside the deployment.", ct),
+        };
+
+        // Through the tunnel now, on the hostnames the room will actually use.
+        checks.Add(await ProbeOneAsync($"{settings.Domain} reaches the shortener",
+            $"{settings.PublicUrl}/{ShlinkClient.ApiRoot}/health",
+            "The short domain is routed to the shortener.", ct));
+
+        if (settings.AdminHost.Length > 0)
+            checks.Add(await ProbeOneAsync($"{settings.AdminHost} serves the console",
+                settings.AdminUrl, "The management address is routed to the web client.", ct));
+
+        // And a reserved code, because that is the path a phone takes.
+        var sample = ReservedGameCodes.All.FirstOrDefault();
+        if (sample is not null)
+            checks.Add(await ProbeOneAsync($"A game code resolves on {settings.Domain}",
+                settings.ShortLinkFor(sample), "A reserved code redirects rather than 404s.", ct, expectRedirect: true));
+
+        return checks;
+    }
+
+    private async Task<Check> ProbeOneAsync(string name, string url, string good, CancellationToken ct, bool expectRedirect = false)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var response = await probes.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            var status = (int)response.StatusCode;
+            var redirected = status is >= 300 and < 400;
+            var passed = expectRedirect ? redirected : status is >= 200 and < 400;
+            return new Check(name, passed, passed
+                ? good
+                : expectRedirect && status == 404
+                    ? "The shortener answered, but does not know that code. Repair the reserved codes."
+                    : $"Answered {status}.");
+        }
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException)
+        {
+            return new Check(name, false, error is TaskCanceledException
+                ? "Timed out. If the tunnel route was only just added, give it a moment."
+                : "No answer. Check the tunnel route for this hostname.");
+        }
     }
 
     // ---------------------------------------------------------- provisioning

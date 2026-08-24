@@ -64,10 +64,14 @@ builder.Services.AddSingleton(new BackupService(dataPath));
 builder.Services.AddScoped<LessonCue.Server.Activities.ReservedGameCodePool>();
 builder.Services.AddHttpClient<LessonCue.Server.Shortener.ShlinkClient>(client => client.Timeout = TimeSpan.FromSeconds(12));
 builder.Services.AddSingleton<LessonCue.Server.Shortener.ReservedCodeProvisioner>();
+builder.Services.AddHttpClient("shortener-probe")
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false })
+    .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(8));
 builder.Services.AddSingleton(provider => new LessonCue.Server.Shortener.ShortenerService(
     provider.GetRequiredService<IServiceScopeFactory>(),
     provider.GetRequiredService<LessonCue.Server.Shortener.ShlinkClient>(),
     provider.GetRequiredService<LessonCue.Server.Shortener.ReservedCodeProvisioner>(),
+    provider.GetRequiredService<IHttpClientFactory>().CreateClient("shortener-probe"),
     dataPath));
 builder.Services.AddHttpClient("backup-offsite", client =>
     client.Timeout = TimeSpan.FromHours(6))

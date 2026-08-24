@@ -1,7 +1,7 @@
 import { confirmAction } from "../../AccessibleDialogs";
 import { FormEvent, useEffect, useState } from "react";
 import { api, waitForVersion } from "../api";
-import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, JoinAddressStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, ShortenerReport, ShortenerSettings, ShortenerTunnelPlan, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
+import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, JoinAddressStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, ShortenerReport, ShortenerSettings, ShortenerTestResult, ShortenerTunnelPlan, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
 import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead, StorageMeter } from "../ui";
 import { RegistrationSettingsPanel, ServiceAdminMfaPanel, TroubleshootingLogPanel } from "./Users";
 import { cleanReleaseNotes, errorText, formatBytes, parseStringArray, quotaLimitsFromText, quotaLimitsToText, timeAgo } from "../utils";
@@ -684,6 +684,7 @@ export function Settings({
   const [shortenerTunnel, setShortenerTunnel] = useState<ShortenerTunnelPlan | null>(null);
   const [shortenerReport, setShortenerReport] = useState<ShortenerReport | null>(null);
   const [shortenerAdminKey, setShortenerAdminKey] = useState("");
+  const [shortenerTest, setShortenerTest] = useState<ShortenerTestResult | null>(null);
   const [shortenerBusy, setShortenerBusy] = useState("");
 
   async function loadShortener() {
@@ -735,6 +736,18 @@ export function Settings({
       // Shown once, here, and never returned by the server again.
       setShortenerAdminKey(issued.adminApiKey);
       await loadShortener();
+    } catch (e) {
+      notify(errorText(e));
+    } finally {
+      setShortenerBusy("");
+    }
+  }
+
+  async function testShortener() {
+    setShortenerBusy("test");
+    setShortenerTest(null);
+    try {
+      setShortenerTest(await api<ShortenerTestResult>("/api/v1/shortener/test", { method: "POST" }));
     } catch (e) {
       notify(errorText(e));
     } finally {
@@ -2305,6 +2318,12 @@ export function Settings({
                     disabled={shortenerBusy !== "" || !shortener.integrationKeyConfigured}
                     onClick={() => void reconcileShortener()}
                   >{shortenerBusy === "repair" ? "Repairing…" : "Repair reserved codes"}</button>
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={shortenerBusy !== "" || !shortener.domain}
+                    onClick={() => void testShortener()}
+                  >{shortenerBusy === "test" ? "Testing…" : "Test configuration"}</button>
                   {shortener.adminUrl && (
                     <a className="button" href={shortener.adminUrl} target="_blank" rel="noreferrer noopener">Open shortener</a>
                   )}
@@ -2325,6 +2344,17 @@ export function Settings({
                     can show it again. You will need it to connect a browser to the management console.
                   </small>
                 </div>
+              )}
+
+              {shortenerTest && (
+                <ul className="settings-check-list">
+                  {shortenerTest.checks.map((check) => (
+                    <li key={check.name} className={check.passed ? "passed" : "failed"}>
+                      <strong>{check.passed ? "✓" : "✕"} {check.name}</strong>
+                      <small>{check.detail}</small>
+                    </li>
+                  ))}
+                </ul>
               )}
 
               {shortenerReport && (

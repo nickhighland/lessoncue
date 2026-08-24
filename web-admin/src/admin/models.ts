@@ -966,3 +966,6 @@ export type ShortenerReport = {
   conflicts: string[];
   failures: string[];
 };
+
+export type ShortenerCheck = { name: string; passed: boolean; detail: string };
+export type ShortenerTestResult = { passed: boolean; checks: ShortenerCheck[] };

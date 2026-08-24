@@ -204,3 +204,39 @@ test("with the shortener off, games keep LessonCue's own join address", async ({
   expect(run.state.joinCode).toHaveLength(6);
   expect(run.state.joinUrl ?? "").not.toContain("go.example.org");
 });
+
+test("testing the configuration checks each hostname separately", async ({ page }) => {
+  await authenticate(page);
+  await configure(page, {
+    // Nothing is listening on either, so every check should fail honestly
+    // rather than the whole thing erroring.
+    domain: "go.invalid", adminHost: "short.go.invalid", upstream: "http://127.0.0.1:9",
+    rootRedirectMode: "notfound", enabled: true,
+  });
+
+  const result = await page.evaluate(async () =>
+    (await fetch("/api/v1/shortener/test", { method: "POST" }).then(r => r.json())) as {
+      passed: boolean; checks: { name: string; passed: boolean; detail: string }[];
+    });
+
+  expect(result.passed).toBe(false);
+  // Local reachability, the short domain, the console, and a game code: four
+  // separate answers, because each can be wrong on its own.
+  expect(result.checks.length).toBeGreaterThanOrEqual(4);
+  expect(result.checks.some(check => check.name.includes("go.invalid"))).toBe(true);
+  expect(result.checks.some(check => check.name.includes("short.go.invalid"))).toBe(true);
+  expect(result.checks.every(check => check.detail.length > 0)).toBe(true);
+});
+
+test("an unconfigured shortener says what to do rather than erroring", async ({ page }) => {
+  await authenticate(page);
+  await configure(page, { domain: "", adminHost: "", upstream: "", rootRedirectMode: "notfound", enabled: false });
+
+  const result = await page.evaluate(async () =>
+    (await fetch("/api/v1/shortener/test", { method: "POST" }).then(r => r.json())) as {
+      passed: boolean; checks: { name: string; detail: string }[];
+    });
+
+  expect(result.passed).toBe(false);
+  expect(result.checks[0].detail).toContain("Set the short domain");
+});
