@@ -33,6 +33,10 @@ services:
       # has explicitly enabled nested namespaces.
       LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX: "${LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX:-1}"
       LESSONCUE_SERVER_NAME: "${LESSONCUE_SERVER_NAME:-LessonCue}"
+      # Passed in so the tunnel instructions name the ports actually published,
+      # rather than the defaults this file happens to use.
+      SHORTENER_HTTP_PORT: "${SHORTENER_HTTP_PORT:-8081}"
+      SHORTENER_UI_PORT: "${SHORTENER_UI_PORT:-8082}"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health/ready"]
       interval: 30s
@@ -40,41 +44,100 @@ services:
       retries: 5
       start_period: 20s
 
-  # The link shortener. Optional: bring it up with
-  #   docker compose --profile shortener up -d
-  # and leave it out entirely on installations that do not use short links.
+  # ------------------------------------------------------------------------
+  # Optional URL shortener. Nothing below starts unless it is asked for:
   #
-  # Two hostnames point here, and they do different jobs:
-  #   SHORT_DOMAIN        the public short domain, e.g. chroc.cc. Route it to
-  #                       lessoncue, which answers "/" and hands every other
-  #                       path to this container.
-  #   SHORTENER_HOSTNAME  the shortener's own address, e.g. short.chroc.cc.
-  #                       Route it straight here for the admin UI and API.
+  #   docker compose --profile shortener up -d
+  #
+  # Two public hostnames point here, and they do different jobs. Route the
+  # short domain to `shlink`, and the management host to `shlink-web-client`.
+  # Both go through the same Cloudflare Tunnel that already serves LessonCue.
+  # ------------------------------------------------------------------------
+
+  shlink-db:
+    image: postgres:17.6-alpine
+    container_name: lessoncue-shlink-db
+    profiles: ["shortener"]
+    restart: unless-stopped
+    # Never published. The database is reachable only from the compose network,
+    # and never through the tunnel.
+    expose:
+      - "5432"
+    volumes:
+      - "${SHORTENER_DB_PATH:-./shortener-data/postgres}:/var/lib/postgresql/data"
+    environment:
+      POSTGRES_DB: shlink
+      POSTGRES_USER: shlink
+      POSTGRES_PASSWORD_FILE: /run/secrets/shortener_db_password
+    secrets:
+      - shortener_db_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shlink -d shlink"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   shlink:
-    image: ghcr.io/shlinkio/shlink:4.4.6
+    # Pinned, never `latest`: an unattended major bump would migrate the
+    # database out from under the links the organization depends on.
+    image: "${SHORTENER_IMAGE:-ghcr.io/shlinkio/shlink:4.4.6}"
     container_name: lessoncue-shlink
     profiles: ["shortener"]
     restart: unless-stopped
+    depends_on:
+      shlink-db:
+        condition: service_healthy
     ports:
-      - "${SHORTENER_HTTP_PORT:-8081}:8080"
-    volumes:
-      - "${SHORTENER_DATA_PATH:-./shlink-data}:/etc/shlink/data"
+      - "127.0.0.1:${SHORTENER_HTTP_PORT:-8081}:8080"
     environment:
-      # The domain short links are minted on. LessonCue fronts this hostname
-      # and forwards everything but the bare root here, with the original Host
-      # intact so multi-domain resolution still works.
-      DEFAULT_DOMAIN: "${SHORT_DOMAIN:?set SHORT_DOMAIN, for example chroc.cc}"
+      # The domain short links are minted on. Supplied by the operator; nothing
+      # in LessonCue assumes any particular value.
+      DEFAULT_DOMAIN: "${SHORT_DOMAIN:?set SHORT_DOMAIN, for example go.example.org}"
       IS_HTTPS_ENABLED: "true"
-      # SQLite keeps this a single-box install like the rest of LessonCue.
-      DB_DRIVER: sqlite
+      # Loose mode is what makes a code typed as q7z6 reach the game shown as
+      # Q7Z6 on the television.
+      SHORT_URL_MODE: loose
+      DB_DRIVER: postgres
+      DB_HOST: shlink-db
+      DB_NAME: shlink
+      DB_USER: shlink
+      DB_PASSWORD_FILE: /run/secrets/shortener_db_password
+      # LessonCue's own credential, used only for provisioning and repair.
+      INITIAL_API_KEY_FILE: /run/secrets/shortener_integration_key
+      # Where the bare short domain goes. Empty leaves the shortener's own
+      # not-found page in place, which is the default.
+      DEFAULT_BASE_URL_REDIRECT: "${SHORT_DOMAIN_ROOT_REDIRECT:-}"
       GEOLITE_LICENSE_KEY: "${SHORTENER_GEOLITE_KEY:-}"
-      # The bare root is LessonCue's to answer, so Shlink never needs an
-      # opinion about it. Anything that does reach here without a short code
-      # is a genuine miss.
-      DEFAULT_INVALID_SHORT_URL_REDIRECT: "${SHORTENER_INVALID_REDIRECT:-}"
+    secrets:
+      - shortener_db_password
+      - shortener_integration_key
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/rest/health"]
       interval: 30s
       timeout: 5s
       retries: 5
+      start_period: 30s
+
+  shlink-web-client:
+    image: ghcr.io/shlinkio/shlink-web-client:4.4.0
+    container_name: lessoncue-shlink-web
+    profiles: ["shortener"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${SHORTENER_UI_PORT:-8082}:8080"
+    # Deliberately given no server list and no API key. The client is a static
+    # page served to a browser, so anything handed to it here would be handed
+    # to whoever opens it. An administrator connects it with their own key.
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
       start_period: 20s
+
+secrets:
+  shortener_db_password:
+    file: "${SHORTENER_DB_PASSWORD_FILE:-./shortener-data/db-password}"
+  shortener_integration_key:
+    file: "${SHORTENER_INTEGRATION_KEY_FILE:-./shortener-data/integration-key}"

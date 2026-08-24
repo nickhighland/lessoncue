@@ -29,7 +29,11 @@ public sealed class BackupService
         "email-provider.json",
         "signage-credentials.json",
         "pairing-secret",
-        "pairing-pin"
+        "pairing-pin",
+        // Credentials for the shortener's API. A backup taken without secrets
+        // must not carry them, or "exclude secrets" would not mean much.
+        "shortener-integration-key",
+        "shortener-admin-key"
     };
 
     public BackupService(string dataPath)

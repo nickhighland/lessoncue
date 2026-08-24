@@ -1,7 +1,7 @@
 import { confirmAction } from "../../AccessibleDialogs";
 import { FormEvent, useEffect, useState } from "react";
 import { api, waitForVersion } from "../api";
-import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, JoinAddressStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, ShortDomainSettings, ShortDomainTestResult, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
+import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, JoinAddressStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, ShortenerReport, ShortenerSettings, ShortenerTestResult, ShortenerTunnelPlan, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
 import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead, StorageMeter } from "../ui";
 import { RegistrationSettingsPanel, ServiceAdminMfaPanel, TroubleshootingLogPanel } from "./Users";
 import { cleanReleaseNotes, errorText, formatBytes, parseStringArray, quotaLimitsFromText, quotaLimitsToText, timeAgo } from "../utils";
@@ -680,51 +680,118 @@ export function Settings({
       notify(errorText(e));
     }
   }
-  const [shortDomain, setShortDomain] = useState<ShortDomainSettings | null>(null);
-  const [shortDomainTest, setShortDomainTest] = useState<ShortDomainTestResult | null>(null);
-  const [shortDomainBusy, setShortDomainBusy] = useState(false);
+  const [shortener, setShortener] = useState<ShortenerSettings | null>(null);
+  const [shortenerTunnel, setShortenerTunnel] = useState<ShortenerTunnelPlan | null>(null);
+  const [shortenerReport, setShortenerReport] = useState<ShortenerReport | null>(null);
+  const [shortenerAdminKey, setShortenerAdminKey] = useState("");
+  const [shortenerTest, setShortenerTest] = useState<ShortenerTestResult | null>(null);
+  const [shortenerBusy, setShortenerBusy] = useState("");
 
-  useEffect(() => {
+  async function loadShortener() {
     if (!canManageApp) return;
-    void api<ShortDomainSettings>("/api/v1/short-domain").then(setShortDomain).catch(() => setShortDomain(null));
-  }, [canManageApp]);
-
-  async function saveShortDomain(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!shortDomain) return;
-    setShortDomainBusy(true);
     try {
-      const saved = await api<{ warnings: string[] }>("/api/v1/short-domain", {
-        method: "PUT",
-        body: JSON.stringify({
-          domain: shortDomain.domain,
-          upstream: shortDomain.upstream,
-          rootRedirectUrl: shortDomain.rootRedirectUrl,
-          rootRedirectEnabled: shortDomain.rootRedirectEnabled,
-          rootFallback: shortDomain.rootFallback,
-          permanent: shortDomain.permanent,
-          preserveQuery: shortDomain.preserveQuery,
-        }),
-      });
-      setShortDomain(await api<ShortDomainSettings>("/api/v1/short-domain"));
-      setShortDomainTest(null);
-      notify(saved.warnings.length ? saved.warnings.join(" ") : "Short domain saved.");
-    } catch (e) {
-      notify(errorText(e));
-    } finally {
-      setShortDomainBusy(false);
+      setShortener(await api<ShortenerSettings>("/api/v1/shortener"));
+    } catch {
+      setShortener(null);
     }
   }
 
-  async function testShortDomain() {
-    setShortDomainBusy(true);
-    setShortDomainTest(null);
+  useEffect(() => {
+    if (!canManageApp) return;
+    // Read directly here rather than through the handler, so this effect
+    // depends only on the permission and not on a function identity.
+    void api<ShortenerSettings>("/api/v1/shortener").then(setShortener).catch(() => setShortener(null));
+    // The tunnel routes are the thing an operator most often comes here to
+    // copy, so fetch them on open rather than only after a save.
+    void api<ShortenerTunnelPlan>("/api/v1/shortener/tunnel").then(setShortenerTunnel).catch(() => setShortenerTunnel(null));
+  }, [canManageApp]);
+
+  async function saveShortener(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!shortener) return;
+    setShortenerBusy("save");
     try {
-      setShortDomainTest(await api<ShortDomainTestResult>("/api/v1/short-domain/test", { method: "POST", body: JSON.stringify({}) }));
+      await api("/api/v1/shortener", {
+        method: "PUT",
+        body: JSON.stringify({
+          domain: shortener.domain,
+          adminHost: shortener.adminHost,
+          upstream: shortener.upstream,
+          rootRedirectMode: shortener.rootRedirectMode,
+          rootRedirectUrl: shortener.rootRedirectUrl,
+          enabled: shortener.enabled,
+        }),
+      });
+      await loadShortener();
+      setShortenerTunnel(await api<ShortenerTunnelPlan>("/api/v1/shortener/tunnel"));
+      notify("URL shortener settings saved.");
     } catch (e) {
       notify(errorText(e));
     } finally {
-      setShortDomainBusy(false);
+      setShortenerBusy("");
+    }
+  }
+
+  async function saveShortenerKey() {
+    setShortenerBusy("keys");
+    try {
+      // Recorded, not minted. The shortener has no way to register a key we
+      // invent, so this is the value it was started with.
+      const result = await api<{ state: string; detail: string | null }>("/api/v1/shortener/key", {
+        method: "PUT",
+        body: JSON.stringify({ apiKey: shortenerAdminKey }),
+      });
+      setShortenerAdminKey("");
+      await loadShortener();
+      notify(result.detail || "API key recorded.");
+    } catch (e) {
+      notify(errorText(e));
+    } finally {
+      setShortenerBusy("");
+    }
+  }
+
+  async function testShortener() {
+    setShortenerBusy("test");
+    setShortenerTest(null);
+    try {
+      setShortenerTest(await api<ShortenerTestResult>("/api/v1/shortener/test", { method: "POST" }));
+    } catch (e) {
+      notify(errorText(e));
+    } finally {
+      setShortenerBusy("");
+    }
+  }
+
+  async function reconcileShortener() {
+    setShortenerBusy("repair");
+    setShortenerReport(null);
+    try {
+      setShortenerReport(await api<ShortenerReport>("/api/v1/shortener/reconcile", { method: "POST" }));
+      await loadShortener();
+    } catch (e) {
+      notify(errorText(e));
+    } finally {
+      setShortenerBusy("");
+    }
+  }
+
+  async function shortenerLifecycle(action: "disable" | "uninstall") {
+    if (action === "uninstall" && !(await confirmAction(
+      "Remove the URL shortener integration? LessonCue stops using short links and forgets its credentials. "
+      + "The shortener's own database and every link in it are left untouched.",
+      { title: "Remove the URL shortener integration?", destructive: true, confirmLabel: "Remove integration" },
+    ))) return;
+
+    setShortenerBusy(action);
+    try {
+      await api("/api/v1/shortener/lifecycle", { method: "POST", body: JSON.stringify({ action, confirm: true }) });
+      await loadShortener();
+      notify(action === "disable" ? "Short links switched off." : "URL shortener integration removed.");
+    } catch (e) {
+      notify(errorText(e));
+    } finally {
+      setShortenerBusy("");
     }
   }
 
@@ -2140,134 +2207,199 @@ export function Settings({
               </form>
             </CollapsibleSettingsSection>
           )}
-          {canManageApp && shortDomain && (
+          {canManageApp && shortener && (
             <CollapsibleSettingsSection
               label="Integrations · URL shortener"
               className="settings-panel settings-connections"
             >
               <h2>URL shortener</h2>
               <p className="settings-copy">
-                Short links live on their own domain, served by the shortener.
-                LessonCue answers only the bare root of that domain, so every
-                short link and every game code underneath it is untouched.
+                An optional self-hosted shortener on your own domain. It gives the
+                organization ordinary short links, and gives LessonCue a hundred
+                reserved codes that games can be joined with. Everything below is
+                yours to set — LessonCue assumes no particular domain.
               </p>
-              <form className="stack" onSubmit={saveShortDomain}>
-                <Field label="Short domain">
+
+              <Definition label="Status" value={shortenerStateLabel(shortener.state)} />
+              {shortener.detail && <p className="settings-copy settings-warning">{shortener.detail}</p>}
+
+              {shortener.state !== "NotInstalled" && (
+                <>
+                  <Definition label="Short domain" value={shortener.publicUrl || "Not set"} />
+                  <Definition label="Management" value={shortener.adminUrl || "Not set"} />
+                  <Definition
+                    label="Reserved LessonCue codes"
+                    value={`${shortener.poolPresent} / ${shortener.poolTotal} in the shortener`}
+                  />
+                  <Definition label="Active game codes" value={String(shortener.activeCodes)} />
+                </>
+              )}
+
+              {shortener.conflicts.length > 0 && (
+                <p className="settings-copy settings-warning">
+                  Owned by someone else in the shortener: {shortener.conflicts.slice(0, 8).join(", ")}
+                  {shortener.conflicts.length > 8 ? `, and ${shortener.conflicts.length - 8} more` : ""}.
+                  Delete or rename those links there, then repair.
+                </p>
+              )}
+
+              <form className="stack" onSubmit={saveShortener}>
+                <Field label="Short domain" hint="The domain short links live on, such as go.example.org.">
                   <input
-                    value={shortDomain.domain}
-                    onChange={(event) => setShortDomain((prev) => (prev ? { ...prev, domain: event.target.value } : prev))}
+                    value={shortener.domain}
+                    onChange={(event) => setShortener((prev) => (prev ? { ...prev, domain: event.target.value } : prev))}
                     placeholder="go.example.org"
                     autoComplete="off"
                     spellCheck={false}
                   />
                 </Field>
-                <Field label="Where the shortener is reachable">
+                <Field
+                  label="Management address"
+                  hint={shortener.suggestedAdminHost
+                    ? `Leave blank to use ${shortener.suggestedAdminHost}. This is the console, never where short links live.`
+                    : "The shortener's console. Never where short links live."}
+                >
                   <input
-                    value={shortDomain.upstream}
-                    onChange={(event) => setShortDomain((prev) => (prev ? { ...prev, upstream: event.target.value } : prev))}
+                    value={shortener.adminHost}
+                    onChange={(event) => setShortener((prev) => (prev ? { ...prev, adminHost: event.target.value } : prev))}
+                    placeholder={shortener.suggestedAdminHost || "short.go.example.org"}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </Field>
+                <Field label="Where the shortener is reachable" hint="From this server, inside the deployment.">
+                  <input
+                    value={shortener.upstream}
+                    onChange={(event) => setShortener((prev) => (prev ? { ...prev, upstream: event.target.value } : prev))}
                     placeholder="http://shlink:8080"
                     autoComplete="off"
                     spellCheck={false}
                   />
                 </Field>
 
-                <h3 className="settings-subhead">Root domain destination</h3>
-                <div className="check-row">
-                  <input
-                    id="short-domain-root-enabled"
-                    type="checkbox"
-                    checked={shortDomain.rootRedirectEnabled}
-                    onChange={(event) => setShortDomain((prev) => (prev ? { ...prev, rootRedirectEnabled: event.target.checked } : prev))}
-                  />
-                  <label htmlFor="short-domain-root-enabled">Redirect the root short domain</label>
-                </div>
-
-                {shortDomain.rootRedirectEnabled ? (
-                  <>
-                    <p className="settings-copy">
-                      When someone visits <strong>https://{shortDomain.domain || "your-short-domain"}</strong>, redirect them to:
-                    </p>
-                    <Field label="Destination">
-                      <input
-                        value={shortDomain.rootRedirectUrl}
-                        onChange={(event) => setShortDomain((prev) => (prev ? { ...prev, rootRedirectUrl: event.target.value } : prev))}
-                        placeholder="https://www.example.org"
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                    </Field>
-                    <div className="check-row">
-                      <input
-                        id="short-domain-preserve-query"
-                        type="checkbox"
-                        checked={shortDomain.preserveQuery}
-                        onChange={(event) => setShortDomain((prev) => (prev ? { ...prev, preserveQuery: event.target.checked } : prev))}
-                      />
-                      <label htmlFor="short-domain-preserve-query">Carry the query string across, so ?source=poster is not lost</label>
-                    </div>
-                    <div className="check-row">
-                      <input
-                        id="short-domain-permanent"
-                        type="checkbox"
-                        checked={shortDomain.permanent}
-                        onChange={(event) => setShortDomain((prev) => (prev ? { ...prev, permanent: event.target.checked } : prev))}
-                      />
-                      <label htmlFor="short-domain-permanent">
-                        Permanent redirect (301). Leave this off while the destination is new — browsers
-                        cache a 301 hard and will keep using it after you change it.
-                      </label>
-                    </div>
-                  </>
-                ) : (
-                  <Field label="Root-domain behavior">
-                    <select
-                      value={shortDomain.rootFallback}
-                      onChange={(event) => setShortDomain((prev) => (prev
-                        ? { ...prev, rootFallback: event.target.value as ShortDomainSettings["rootFallback"] }
-                        : prev))}
-                    >
-                      <option value="shortener">Show the shortener's own page</option>
-                      <option value="lessoncue">Show LessonCue on the short domain</option>
-                      <option value="notfound">Return 404</option>
-                    </select>
+                <Field label="When someone visits the bare short domain">
+                  <select
+                    value={shortener.rootRedirectMode}
+                    onChange={(event) => setShortener((prev) => (prev
+                      ? { ...prev, rootRedirectMode: event.target.value as ShortenerSettings["rootRedirectMode"] }
+                      : prev))}
+                  >
+                    <option value="notfound">Show the shortener's own page</option>
+                    <option value="organization">Send them to the organization's website</option>
+                    <option value="lessoncue">Send them to LessonCue</option>
+                    <option value="custom">Send them somewhere else</option>
+                  </select>
+                </Field>
+                {(shortener.rootRedirectMode === "organization" || shortener.rootRedirectMode === "custom") && (
+                  <Field label="Destination">
+                    <input
+                      value={shortener.rootRedirectUrl}
+                      onChange={(event) => setShortener((prev) => (prev ? { ...prev, rootRedirectUrl: event.target.value } : prev))}
+                      placeholder="https://www.example.org"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
                   </Field>
                 )}
 
+                <div className="check-row">
+                  <input
+                    id="shortener-enabled"
+                    type="checkbox"
+                    checked={shortener.enabled}
+                    onChange={(event) => setShortener((prev) => (prev ? { ...prev, enabled: event.target.checked } : prev))}
+                  />
+                  <label htmlFor="shortener-enabled">Use short-domain links for game codes</label>
+                </div>
+
                 <div className="row gap">
-                  <button className="button primary" disabled={shortDomainBusy}>Save</button>
+                  <button className="button primary" disabled={shortenerBusy !== ""}>Save</button>
                   <button
                     type="button"
                     className="button"
-                    disabled={shortDomainBusy || !shortDomain.configured}
-                    onClick={() => void testShortDomain()}
-                  >Test</button>
+                    disabled={shortenerBusy !== "" || !shortener.integrationKeyConfigured}
+                    onClick={() => void reconcileShortener()}
+                  >{shortenerBusy === "repair" ? "Repairing…" : "Repair reserved codes"}</button>
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={shortenerBusy !== "" || !shortener.domain}
+                    onClick={() => void testShortener()}
+                  >{shortenerBusy === "test" ? "Testing…" : "Test configuration"}</button>
+                  {shortener.adminUrl && (
+                    <a className="button" href={shortener.adminUrl} target="_blank" rel="noreferrer noopener">Open shortener</a>
+                  )}
                 </div>
               </form>
 
-              <Definition
-                label="Root-domain redirect"
-                value={
-                  !shortDomain.configured
-                    ? "Not configured"
-                    : shortDomain.rootRedirectConfigured
-                      ? `${shortDomain.domain} → ${shortDomain.rootRedirectUrl}`
-                      : `${shortDomain.domain} → ${shortDomain.rootFallback === "notfound" ? "404" : shortDomain.rootFallback === "lessoncue" ? "LessonCue" : "the shortener"}`
-                }
-              />
+              {!shortener.integrationKeyConfigured && shortener.domain && (
+                <div className="settings-key-reveal">
+                  <strong>LessonCue needs the shortener's API key</strong>
+                  <small>
+                    The installer wrote it where LessonCue can read it. If it cannot — because the
+                    shortener runs elsewhere, or you rotated the key — paste it here. LessonCue cannot
+                    create one: the shortener has no way to register a key it did not start with.
+                    Generate another with <code>docker compose exec shlink shlink api-key:generate</code>.
+                  </small>
+                  <input
+                    type="password"
+                    value={shortenerAdminKey}
+                    placeholder="Paste the shortener's API key"
+                    autoComplete="off"
+                    onChange={(event) => setShortenerAdminKey(event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={shortenerBusy !== "" || shortenerAdminKey.trim().length < 8}
+                    onClick={() => void saveShortenerKey()}
+                  >Record API key</button>
+                </div>
+              )}
 
-              {shortDomain.warnings.map((warning) => (
-                <p className="settings-copy settings-warning" key={warning}>{warning}</p>
-              ))}
-
-              {shortDomainTest && (
+              {shortenerTest && (
                 <ul className="settings-check-list">
-                  {shortDomainTest.checks.map((check) => (
+                  {shortenerTest.checks.map((check) => (
                     <li key={check.name} className={check.passed ? "passed" : "failed"}>
                       <strong>{check.passed ? "✓" : "✕"} {check.name}</strong>
                       <small>{check.detail}</small>
                     </li>
                   ))}
                 </ul>
+              )}
+
+              {shortenerReport && (
+                <p className="settings-copy">
+                  {shortenerReport.created} created, {shortenerReport.repaired} repaired,{" "}
+                  {shortenerReport.alreadyCorrect} already correct
+                  {shortenerReport.conflicts.length > 0 ? `, ${shortenerReport.conflicts.length} in conflict` : ""}
+                  {shortenerReport.failures.length > 0 ? `, ${shortenerReport.failures.length} failed` : ""}.
+                </p>
+              )}
+
+              {shortenerTunnel && shortenerTunnel.routes.length > 0 && (
+                <div className="settings-instructions">
+                  <strong>Cloudflare Tunnel</strong>
+                  <p className="settings-copy">{shortenerTunnel.explanation}</p>
+                  <ol>{shortenerTunnel.instructions.map((step) => <li key={step}>{step}</li>)}</ol>
+                </div>
+              )}
+
+              {shortener.state !== "NotInstalled" && (
+                <div className="row gap">
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={shortenerBusy !== "" || !shortener.enabled}
+                    onClick={() => void shortenerLifecycle("disable")}
+                  >Stop using short links</button>
+                  <button
+                    type="button"
+                    className="button danger"
+                    disabled={shortenerBusy !== ""}
+                    onClick={() => void shortenerLifecycle("uninstall")}
+                  >Remove integration</button>
+                </div>
               )}
             </CollapsibleSettingsSection>
           )}
@@ -3270,4 +3402,17 @@ function ActivityAvailabilityPanel({
       </p>
     </div>
   );
+}
+
+/** The integration's state, in words rather than an enum name. */
+function shortenerStateLabel(state: ShortenerSettings["state"]): string {
+  switch (state) {
+    case "Running": return "Running";
+    case "Degraded": return "Degraded — some reserved codes need attention";
+    case "Stopped": return "Stopped — the shortener is not answering";
+    case "Configured": return "Configured, not yet in use";
+    case "Installing": return "Installing";
+    case "ConfigurationError": return "Configuration error";
+    default: return "Not installed";
+  }
 }

@@ -10,6 +10,12 @@
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Compiled in so the pool travels with the binary rather than depending
+         on a file surviving whichever way the server was deployed. -->
+    <EmbeddedResource Include="Activities/reserved-game-codes-v1.json" LogicalName="LessonCue.Server.Activities.reserved-game-codes-v1.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">

@@ -923,18 +923,49 @@ export interface JoinAddressStatus {
   options: JoinAddressOption[];
 }
 
-export type ShortDomainSettings = {
+export type ShortenerState =
+  | "NotInstalled" | "Installing" | "Configured" | "Running"
+  | "Degraded" | "Stopped" | "ConfigurationError";
+
+export type ShortenerSettings = {
+  state: ShortenerState;
+  enabled: boolean;
   domain: string;
+  adminHost: string;
+  suggestedAdminHost: string;
   upstream: string;
+  rootRedirectMode: "notfound" | "lessoncue" | "organization" | "custom";
   rootRedirectUrl: string;
-  rootRedirectEnabled: boolean;
-  rootFallback: "lessoncue" | "shortener" | "notfound";
-  permanent: boolean;
-  preserveQuery: boolean;
-  configured: boolean;
-  rootRedirectConfigured: boolean;
-  warnings: string[];
+  publicUrl: string;
+  adminUrl: string;
+  lessonCuePublicUrl: string;
+  poolVersion: number;
+  poolTotal: number;
+  poolPresent: number;
+  activeCodes: number;
+  detail: string | null;
+  conflicts: string[];
+  integrationKeyConfigured: boolean;
 };
 
-export type ShortDomainCheck = { name: string; passed: boolean; detail: string };
-export type ShortDomainTestResult = { passed: boolean; checks: ShortDomainCheck[] };
+export type ShortenerTunnelRoute = { hostname: string; service: string; purpose: string };
+export type ShortenerTunnelPlan = {
+  canApplyAutomatically: boolean;
+  explanation: string;
+  instructions: string[];
+  routes: ShortenerTunnelRoute[];
+};
+
+export type ShortenerReport = {
+  total: number;
+  alreadyCorrect: number;
+  created: number;
+  repaired: number;
+  present: number;
+  degraded: boolean;
+  conflicts: string[];
+  failures: string[];
+};
+
+export type ShortenerCheck = { name: string; passed: boolean; detail: string };
+export type ShortenerTestResult = { passed: boolean; checks: ShortenerCheck[] };

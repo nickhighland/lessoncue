@@ -36,19 +36,29 @@ public sealed class Organization
     [MaxLength(16)] public string EmailProvider { get; set; } = "none";
     [MaxLength(24000)] public string UploadQuotaPolicyJson { get; set; } = "{}";
 
-    // The public short domain, and what the bare root of it should do. Kept on
-    // the organization rather than in environment variables so an administrator
-    // can repoint it without a redeploy.
+    // The optional self-hosted URL shortener. Every value here is an
+    // administrator's to set: nothing about a particular domain belongs in the
+    // application, and an installation that never turns this on is unaffected.
+    public bool ShortenerEnabled { get; set; }
+    /// <summary>The public short domain, stored bare: "go.example.org", never with a scheme.</summary>
     [MaxLength(253)] public string ShortDomain { get; set; } = "";
+    /// <summary>Where the management UI lives. Defaults to short.{ShortDomain}, and can be overridden.</summary>
+    [MaxLength(253)] public string ShortenerAdminHost { get; set; } = "";
+    /// <summary>Where LessonCue reaches the shortener's API from inside the deployment.</summary>
+    [MaxLength(253)] public string ShortDomainUpstream { get; set; } = "";
+    /// <summary>What the bare short domain does: lessoncue, organization, custom, or notfound.</summary>
+    [MaxLength(16)] public string ShortenerRootRedirectMode { get; set; } = "notfound";
+    /// <summary>The destination for the organization and custom root modes.</summary>
     [MaxLength(2048)] public string ShortDomainRootRedirectUrl { get; set; } = "";
+    /// <summary>Which reserved-code pool this installation provisioned, for backup and upgrade.</summary>
+    public int ShortenerPoolVersion { get; set; }
+
+    // Retained so an installation that ran 0.41.0 keeps its columns; the
+    // shortener answers its own root now, so nothing reads these.
     public bool ShortDomainRootRedirectEnabled { get; set; } = true;
-    /// <summary>What the bare root does when the redirect is switched off: lessoncue, shortener, or notfound.</summary>
     [MaxLength(16)] public string ShortDomainRootFallback { get; set; } = "shortener";
-    /// <summary>302 by default: intermediaries cache a 301 aggressively and a new destination is rarely final.</summary>
     public bool ShortDomainRootRedirectPermanent { get; set; }
     public bool ShortDomainRootPreserveQuery { get; set; } = true;
-    /// <summary>Where the shortener itself is reachable from the server, for example http://shlink:8080.</summary>
-    [MaxLength(253)] public string ShortDomainUpstream { get; set; } = "";
 }
 
 public sealed class AdminAccount
@@ -696,16 +706,19 @@ public sealed record PairingConfirmInput(Guid RequestId, string Pin);
 public sealed record PairingPinInput(string? Pin, bool Automatic = false);
 public sealed record ControllerPinInput(string Pin);
 
-public sealed record ShortDomainTestInput(string? SampleSlug = null, string? GameCode = null);
+/// <summary>The API key the shortener was started with. LessonCue records it; it cannot mint one.</summary>
+public sealed record ShortenerKeyInput(string? ApiKey);
 
-public sealed record ShortDomainInput(
+public sealed record ShortenerConfigureInput(
     string? Domain,
+    string? AdminHost,
     string? Upstream,
+    string? RootRedirectMode,
     string? RootRedirectUrl,
-    bool RootRedirectEnabled = true,
-    string? RootFallback = null,
-    bool Permanent = false,
-    bool PreserveQuery = true);
+    bool Enabled = true);
+
+/// <summary>Stop, disable, or remove the integration. Distinct actions on purpose.</summary>
+public sealed record ShortenerLifecycleInput(string Action, bool DeleteData = false, bool Confirm = false);
 public sealed record TemporaryControllerSessionInput(Guid ClassId, Guid? LessonId, int ExpiresInMinutes = 60);
 public sealed record PermanentControllerSessionInput(Guid ClassId, Guid? LessonId);
 public sealed record RecycleBinItem(string Kind, Guid Id, string Title, string Detail,

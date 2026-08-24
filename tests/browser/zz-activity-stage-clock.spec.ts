@@ -29,7 +29,10 @@ async function launchWord(page: Page, name: string, seconds: number) {
 
 test("the stage shows the response clock and enters panic in the last five seconds", async ({ page, context }) => {
   await authenticate(page);
-  const run = await launchWord(page, "Stage Clock Check", 20);
+  // Long enough that a slow machine cannot let the clock run out before the
+  // panic assertion starts watching. Panic is only true while there is time
+  // left, so a missed window looks identical to a broken feature.
+  const run = await launchWord(page, "Stage Clock Check", 40);
 
   const tv = await context.newPage();
   await tv.setViewportSize({ width: 1280, height: 720 });
@@ -47,13 +50,15 @@ test("the stage shows the response clock and enters panic in the last five secon
     }, run.runId);
 
     const clock = tv.locator(".activity-stage-clock .activity-motion-countdown");
-    await expect(clock).toBeVisible({ timeout: 15_000 });
+    // A tighter budget on purpose: the room should see the clock promptly once
+    // the window opens, and a slow one here is worth failing over.
+    await expect(clock).toBeVisible({ timeout: 10_000 });
     // Sized for the back of a room, not a phone.
     const size = await clock.locator("strong").evaluate(node => Number.parseFloat(getComputedStyle(node).fontSize));
     expect(size, "stage clock should be large").toBeGreaterThan(38);
 
     // The shared panic threshold applies to the room clock too.
-    await expect(clock).toHaveAttribute("data-panic", "true", { timeout: 25_000 });
+    await expect(clock).toHaveAttribute("data-panic", "true", { timeout: 45_000 });
   } finally {
     await tv.close();
   }
