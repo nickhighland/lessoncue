@@ -4,6 +4,35 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.43.0 — The shortener installs with the server
+
+### User changes
+
+- The URL shortener now installs alongside LessonCue. The Linux installer
+  offers it, and an update installs or refreshes it on a server that already
+  said yes — so it no longer has to be set up by hand.
+- Settings shows the exact Cloudflare Tunnel routes for this server: its own
+  address, the ports actually published, and a note that neither needs opening
+  on the firewall because the tunnel is the way in.
+- The API key LessonCue holds can be shown on request, with the address to
+  paste it into, for connecting the shortener's own console.
+- Fixed: games stopped using short links on a server left running, because the
+  check behind them was only refreshed when somebody opened Settings.
+
+### Developer changes
+
+- The release carries `LessonCue-URL-Shortener.tar.gz` — the compose file and
+  its scripts — verified against the same signed checksums as the server.
+- `install-latest.sh --with-shortener DOMAIN` installs it and records the
+  answer in `/var/lib/lessoncue/config/shortener-domain`; the updater acts on
+  that marker. The stack lives in `/opt/lessoncue-shortener`, beside the
+  application rather than inside it, since `/opt/lessoncue` is replaced on
+  every update.
+- `ShortenerHealthService` keeps the short-link gate's finding fresh in the
+  background rather than depending on somebody loading the settings page.
+- Tunnel routes take the server's own host, and the reveal endpoint is audited
+  and excluded from the polled status.
+
 ## v0.42.1 — Shortener settings that fill themselves in
 
 ### User changes
