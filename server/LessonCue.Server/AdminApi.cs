@@ -3184,6 +3184,22 @@ public static class AdminApi
             return Results.Ok(new { adminApiKey = admin, integrationConfigured = true });
         });
 
+        appSettings.MapGet("/shortener/tunnel", async (LessonCueDb db, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            var settings = ShortenerConfiguration.Read(organization);
+            var shortenerPort = PortFromEnvironment("SHORTENER_HTTP_PORT", 8081);
+            var consolePort = PortFromEnvironment("SHORTENER_UI_PORT", 8082);
+            var plan = ShortenerTunnelPlanner.ForManagedTunnel(settings, shortenerPort, consolePort);
+            return Results.Ok(new
+            {
+                canApplyAutomatically = plan.CanApplyAutomatically,
+                explanation = plan.Explanation,
+                instructions = plan.Instructions,
+                routes = plan.Routes.Select(route => new { route.Hostname, route.Service, route.Purpose }),
+            });
+        });
+
         appSettings.MapPost("/shortener/reconcile", async (LessonCueDb db, ShortenerService shortener, CancellationToken ct) =>
         {
             try
@@ -4646,6 +4662,10 @@ public static class AdminApi
         return context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity),
             new AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddHours(12) });
     }
+
+    /// <summary>A published port from the environment, or the compose default.</summary>
+    private static int PortFromEnvironment(string name, int fallback) =>
+        int.TryParse(Environment.GetEnvironmentVariable(name), out var value) && value is > 0 and < 65536 ? value : fallback;
 
     private static void Audit(LessonCueDb db, string action, Guid id, string? summary) =>
         db.AuditEvents.Add(new AuditEvent { Actor = "admin", Action = action, Object = id.ToString(), Summary = summary });
