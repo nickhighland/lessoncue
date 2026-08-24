@@ -116,7 +116,7 @@ services:
       - shortener_db_password
       - shortener_integration_key
     healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/rest/health"]
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:8080/rest/health"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -145,7 +145,10 @@ services:
       # Cloudflare Access or an equivalent, and you accept the trade.
       SHLINK_SERVER_API_KEY: "${SHORTENER_UI_API_KEY:-}"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/"]
+      # 127.0.0.1, not localhost: inside these images localhost resolves to ::1
+      # alone while the server binds IPv4, so wget -- which does not fall back
+      # the way curl does -- reported a perfectly healthy console as down.
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/"]
       interval: 30s
       timeout: 5s
       retries: 5

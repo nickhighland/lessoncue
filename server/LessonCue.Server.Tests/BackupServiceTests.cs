@@ -100,6 +100,43 @@ public sealed class BackupServiceTests
     }
 
     [Fact]
+    public async Task BackupWithoutSecretsLeavesTheShortenerKeysBehind()
+    {
+        // The installer writes these in a subdirectory, and the exclusion list
+        // named only files at the top of config/ -- so a backup taken without
+        // secrets carried the shortener's administrator key inside it.
+        var ct = TestContext.Current.CancellationToken;
+        var root = Path.Combine(Path.GetTempPath(), $"lessoncue-backup-keys-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(root, "database"));
+        Directory.CreateDirectory(Path.Combine(root, "config", "shortener"));
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(root, "config", "shortener", "integration-key"), "admin-secret", ct);
+            await File.WriteAllTextAsync(Path.Combine(root, "config", "shortener", "console-key"), "console-secret", ct);
+            await File.WriteAllTextAsync(Path.Combine(root, "config", "http-port"), "80", ct);
+
+            var options = new DbContextOptionsBuilder<LessonCueDb>()
+                .UseSqlite($"Data Source={Path.Combine(root, "database", "lessoncue.db")}").Options;
+            await using var db = new LessonCueDb(options);
+            await db.Database.EnsureCreatedAsync(ct);
+            db.Organizations.Add(new Organization { Name = "Key Holder" });
+            await db.SaveChangesAsync(ct);
+
+            var service = new BackupService(root);
+            var backup = await service.CreateAsync(db, false, "owner", ct);
+            using var archive = ZipFile.OpenRead(service.Resolve(backup.FileName)!);
+            var names = archive.Entries.Select(entry => entry.FullName.Replace('\\', '/')).ToList();
+
+            Assert.DoesNotContain(names, name => name.EndsWith("shortener/integration-key", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(names, name => name.EndsWith("shortener/console-key", StringComparison.OrdinalIgnoreCase));
+            // Ordinary configuration still travels, or the exclusion would be
+            // hiding more than the secrets.
+            Assert.Contains(names, name => name.EndsWith("config/http-port", StringComparison.OrdinalIgnoreCase));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Fact]
     public async Task PreviewRejectsArchiveTraversal()
     {
         var ct = TestContext.Current.CancellationToken;

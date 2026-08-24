@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace LessonCue.Server;
@@ -101,6 +102,44 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
         return variant;
     }
 
+    /// <summary>Save queued variants, tolerating another writer having queued the
+    /// same profile first.</summary>
+    /// <remarks>
+    /// Queueing reads before it writes, and the administrator's request is not
+    /// the only writer: the screen prewarm queues the same profiles from its own
+    /// context. Both can find nothing and both insert, and the unique index on
+    /// (media, profile) then turns the loser's request into a 500 -- for work the
+    /// winner has already scheduled. Losing that race is not a failure.
+    /// </remarks>
+    public static async Task SaveQueuedAsync(LessonCueDb db, CancellationToken ct = default)
+    {
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException error) when (error.InnerException is SqliteException { SqliteErrorCode: 19 })
+        {
+            // Only the rows another writer got to first. Anything else this
+            // request meant to write still has to be saved.
+            var added = db.ChangeTracker.Entries<MediaTranscodeVariant>()
+                .Where(entry => entry.State == EntityState.Added).ToList();
+            if (added.Count == 0) throw;
+
+            var duplicates = 0;
+            foreach (var entry in added)
+            {
+                var variant = entry.Entity;
+                var exists = await db.MediaTranscodeVariants.AsNoTracking().IgnoreQueryFilters()
+                    .AnyAsync(x => x.MediaAssetId == variant.MediaAssetId && x.Profile == variant.Profile, ct);
+                if (!exists) continue;
+                entry.State = EntityState.Detached;
+                duplicates++;
+            }
+            if (duplicates == 0) throw;
+            await db.SaveChangesAsync(ct);
+        }
+    }
+
     public static async Task<MediaTranscodeVariant?> QueueNextIdleUploadAsync(LessonCueDb db,
         CancellationToken ct = default)
     {
@@ -157,7 +196,7 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
                 existing.Status is "ready" or "pending" or "converting" or "failed") continue;
             await QueueAsync(db, media, profile, ct); changed = true;
         }
-        if (changed) await db.SaveChangesAsync(ct);
+        if (changed) await SaveQueuedAsync(db, ct);
     }
 
     private async Task ProcessAsync(LessonCueDb db, MediaTranscodeVariant variant, CancellationToken ct)

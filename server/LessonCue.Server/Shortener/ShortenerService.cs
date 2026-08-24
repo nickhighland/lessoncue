@@ -48,6 +48,11 @@ public sealed class ShortenerService(
     /// <summary>The secret the installer shares with the shortener container.</summary>
     private readonly string _sharedKeyPath = Path.Combine(dataPath, "config", "shortener", "integration-key");
 
+    /// <summary>The key meant for the shortener's own web console. Shlink scopes
+    /// it to short URLs it created itself, so the reserved game codes are not
+    /// visible there and cannot be edited or deleted through that interface.</summary>
+    private readonly string _consoleKeyPath = Path.Combine(dataPath, "config", "shortener", "console-key");
+
     private ShortenerStatus? _lastStatus;
     private readonly Lock _statusLock = new();
 
@@ -143,6 +148,9 @@ public sealed class ShortenerService(
     /// value to the shortener's secret and to the path below.
     /// </summary>
     public string? IntegrationKey => ReadSecret(_integrationKeyPath) ?? ReadSecret(_sharedKeyPath);
+
+    /// <summary>The key to hand an administrator for the shortener's console.</summary>
+    public string? ConsoleKey => ReadSecret(_consoleKeyPath);
 
     /// <summary>Where a key came from, so the console can explain itself.</summary>
     public string IntegrationKeySource =>

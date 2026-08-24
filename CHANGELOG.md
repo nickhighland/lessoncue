@@ -4,6 +4,22 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## Unreleased
+
+### User changes
+
+- Pressing Install for the URL shortener no longer claims the install will
+  happen at the next update. It starts immediately, and now says so.
+- The shortener panel keeps up with an install while it runs, so the result —
+  whether it worked or why it did not — appears without reloading the page.
+
+### Developer changes
+
+- The success toast in the shortener install block was showing the copy meant
+  for a server with no privileged helper. On a normal server the install had
+  already begun by the time it appeared, and any error the helper wrote was
+  invisible until the operator happened to reload.
+
 ## v0.45.0 — One button sets up short links
 
 ### User changes

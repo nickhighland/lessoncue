@@ -33,7 +33,12 @@ public sealed class BackupService
         // Credentials for the shortener's API. A backup taken without secrets
         // must not carry them, or "exclude secrets" would not mean much.
         "shortener-integration-key",
-        "shortener-admin-key"
+        "shortener-admin-key",
+        // The installer writes its copies in a subdirectory, which the names
+        // above never matched -- so a backup taken "without secrets" carried
+        // the shortener's administrator key.
+        "shortener/integration-key",
+        "shortener/console-key"
     };
 
     public BackupService(string dataPath)

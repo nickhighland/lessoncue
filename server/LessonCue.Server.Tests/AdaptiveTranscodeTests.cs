@@ -61,6 +61,69 @@ public sealed class AdaptiveTranscodeTests
         Assert.Single(await db.MediaTranscodeVariants.ToListAsync(cancellationToken));
     }
 
+    [Fact]
+    public async Task QueueingSurvivesAnotherWriterQueueingTheSameProfileFirst()
+    {
+        // The administrator's request is not the only writer: the screen prewarm
+        // queues the same profiles from its own context. Both read nothing, both
+        // insert, and the unique index turned the loser into a 500 for work the
+        // winner had already scheduled.
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(cancellationToken);
+        var options = new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options;
+
+        await using var db = new LessonCueDb(options);
+        await db.Database.EnsureCreatedAsync(cancellationToken);
+        db.Organizations.Add(new Organization { Name = "Test Organization" });
+        var media = ReadyVideo("contested.mp4", DateTimeOffset.UtcNow);
+        db.MediaAssets.Add(media);
+        await db.SaveChangesAsync(cancellationToken);
+
+        // This context reads before the other writer commits, so it sees nothing.
+        await AdaptiveTranscodeService.QueueAsync(db, media, AdaptiveTranscodeProfiles.Balanced720, cancellationToken);
+
+        await using (var other = new LessonCueDb(options))
+        {
+            var winner = await other.MediaAssets.SingleAsync(x => x.Id == media.Id, cancellationToken);
+            await AdaptiveTranscodeService.QueueAsync(other, winner, AdaptiveTranscodeProfiles.Balanced720, cancellationToken);
+            await other.SaveChangesAsync(cancellationToken);
+        }
+
+        await AdaptiveTranscodeService.SaveQueuedAsync(db, cancellationToken);
+
+        await using var reader = new LessonCueDb(options);
+        var variants = await reader.MediaTranscodeVariants
+            .Where(x => x.MediaAssetId == media.Id).ToListAsync(cancellationToken);
+        Assert.Single(variants);
+        Assert.Equal("pending", variants[0].Status);
+    }
+
+    [Fact]
+    public async Task SavingStillReportsAConstraintFailureThatIsNotADuplicateProfile()
+    {
+        // The tolerance is for one specific lost race, not a licence to swallow
+        // whatever the database refuses.
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(cancellationToken);
+        var options = new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options;
+        await using var db = new LessonCueDb(options);
+        await db.Database.EnsureCreatedAsync(cancellationToken);
+        db.Organizations.Add(new Organization { Name = "Test Organization" });
+        await db.SaveChangesAsync(cancellationToken);
+
+        // No such media asset, so the foreign key is what fails.
+        db.MediaTranscodeVariants.Add(new MediaTranscodeVariant
+        {
+            MediaAssetId = Guid.NewGuid(), Profile = AdaptiveTranscodeProfiles.Balanced720,
+            Status = "pending", QueuedAt = DateTimeOffset.UtcNow
+        });
+
+        await Assert.ThrowsAsync<DbUpdateException>(
+            () => AdaptiveTranscodeService.SaveQueuedAsync(db, cancellationToken));
+    }
+
     private static MediaAsset ReadyVideo(string fileName, DateTimeOffset createdAt) => new()
     {
         FileName = fileName,

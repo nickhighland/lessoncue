@@ -684,6 +684,7 @@ export function Settings({
   const [shortenerTunnel, setShortenerTunnel] = useState<ShortenerTunnelPlan | null>(null);
   const [shortenerReport, setShortenerReport] = useState<ShortenerReport | null>(null);
   const [shortenerAdminKey, setShortenerAdminKey] = useState("");
+  const [shortenerKeyScope, setShortenerKeyScope] = useState("");
   const [shortenerTest, setShortenerTest] = useState<ShortenerTestResult | null>(null);
   const [shortenerBusy, setShortenerBusy] = useState("");
 
@@ -714,6 +715,29 @@ export function Settings({
     // copy, so fetch them on open rather than only after a save.
     void api<ShortenerTunnelPlan>("/api/v1/shortener/tunnel").then(setShortenerTunnel).catch(() => setShortenerTunnel(null));
   }, [canManageApp]);
+
+  // The install runs in a privileged helper and takes a minute or two, so the
+  // panel has to ask again. Without this the outcome only appeared if the
+  // operator happened to reload the page.
+  const shortenerInstalling = Boolean(shortener?.installRequestedFor) && !shortener?.installResult;
+  useEffect(() => {
+    if (!canManageApp || !shortenerInstalling) return;
+    const poll = window.setInterval(() => {
+      void api<ShortenerSettings>("/api/v1/shortener")
+        // Keep what the operator has typed. Only the progress of the install
+        // comes from the server while this is running.
+        .then((loaded) => setShortener((previous) => previous ? {
+          ...loaded,
+          domain: previous.domain,
+          adminHost: previous.adminHost,
+          upstream: previous.upstream,
+          rootRedirectUrl: previous.rootRedirectUrl,
+          rootRedirectMode: previous.rootRedirectMode,
+        } : loaded))
+        .catch(() => { /* a restarting server is expected mid-install */ });
+    }, 5_000);
+    return () => window.clearInterval(poll);
+  }, [canManageApp, shortenerInstalling]);
 
   async function saveShortener(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -765,7 +789,7 @@ export function Settings({
       });
       await loadShortener();
       notify(requested
-        ? "The shortener will be installed the next time this server updates."
+        ? "Installing the shortener now. This takes a minute or two the first time."
         : "The shortener will not be installed.");
     } catch (e) {
       notify(errorText(e));
@@ -777,8 +801,9 @@ export function Settings({
   async function revealShortenerKey() {
     setShortenerBusy("reveal");
     try {
-      const revealed = await api<{ apiKey: string }>("/api/v1/shortener/key/reveal", { method: "POST" });
+      const revealed = await api<{ apiKey: string; scope: string }>("/api/v1/shortener/key/reveal", { method: "POST" });
       setShortenerAdminKey(revealed.apiKey);
+      setShortenerKeyScope(revealed.scope);
     } catch (e) {
       notify(errorText(e));
     } finally {
@@ -2517,9 +2542,13 @@ export function Settings({
                         onClick={() => void navigator.clipboard.writeText(shortenerAdminKey).then(() => notify("API key copied."))}
                       >Copy</button>
                       <small>
-                        This is the key LessonCue uses for its own reserved codes. For day-to-day work in the
-                        console, generate a separate one with
-                        {" "}<code>docker compose exec shlink shlink api-key:generate</code>.
+                        {shortenerKeyScope === "console"
+                          ? "This key is scoped to the links you make in the console. The reserved game codes"
+                            + " were made by LessonCue, so they do not appear there and cannot be edited or"
+                            + " deleted through it."
+                          : "This is the key LessonCue uses for its own reserved codes, and it can reach them."
+                            + " For day-to-day work in the console, install the shortener again to have a"
+                            + " scoped key generated for you."}
                       </small>
                     </div>
                   )}
