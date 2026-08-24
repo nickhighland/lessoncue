@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -73,16 +74,10 @@ public sealed class ShlinkClient(HttpClient http)
         string baseUrl, string apiKey, string slug, string longUrl, string domain, IReadOnlyList<string> tags, CancellationToken ct = default)
     {
         using var request = Request(HttpMethod.Post, baseUrl, $"{ApiRoot}/short-urls", apiKey);
-        request.Content = JsonContent.Create(new
-        {
-            longUrl,
-            customSlug = slug,
-            domain,
-            tags,
-            // Deliberately not findIfExists: a slug that already exists because
-            // somebody created it by hand has to surface as a conflict, not be
-            // quietly adopted as though we had made it.
-        }, options: Json);
+        // Deliberately not findIfExists: a slug that already exists because
+        // somebody created it by hand has to surface as a conflict, not be
+        // quietly adopted as though we had made it.
+        request.Content = Body(new { longUrl, customSlug = slug, domain, tags });
         using var response = await SendAsync(request, ct);
         await EnsureAsync(response, $"create /{slug}", ct);
         return Parse(await response.Content.ReadFromJsonAsync<JsonNode>(Json, ct))
@@ -94,12 +89,22 @@ public sealed class ShlinkClient(HttpClient http)
         string baseUrl, string apiKey, string slug, string longUrl, string domain, IReadOnlyList<string> tags, CancellationToken ct = default)
     {
         using var request = Request(HttpMethod.Patch, baseUrl, $"{ApiRoot}/short-urls/{Uri.EscapeDataString(slug)}?domain={Uri.EscapeDataString(domain)}", apiKey);
-        request.Content = JsonContent.Create(new { longUrl, tags }, options: Json);
+        request.Content = Body(new { longUrl, tags });
         using var response = await SendAsync(request, ct);
         await EnsureAsync(response, $"repair /{slug}", ct);
         return Parse(await response.Content.ReadFromJsonAsync<JsonNode>(Json, ct))
             ?? throw new ShlinkException($"The shortener did not describe /{slug} after updating it.");
     }
+
+    /// <summary>
+    /// A request body of known length.
+    ///
+    /// Serialized up front rather than streamed, so the request carries a
+    /// Content-Length instead of being chunked. Plenty of reverse proxies in
+    /// front of a shortener refuse a chunked body outright.
+    /// </summary>
+    private static StringContent Body<T>(T value) =>
+        new(JsonSerializer.Serialize(value, Json), Encoding.UTF8, "application/json");
 
     private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {

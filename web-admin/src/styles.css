@@ -3528,3 +3528,12 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .settings-check-list li.passed { border-color: #3f8f5f; background: #f2faf5; }
 .settings-check-list li.failed { border-color: #b4453f; background: #fdf2f1; }
 .settings-check-list small { color: var(--muted); font-size: .78rem; }
+
+/* Shown once and never again, so it needs to be obvious and easy to copy. */
+.settings-key-reveal { display: grid; gap: .45rem; margin: .8rem 0 0; padding: .8rem; border: 1px solid var(--gold); border-radius: 12px; background: #fffaf1; }
+.settings-key-reveal code { overflow-wrap: anywhere; padding: .4rem .55rem; border-radius: 8px; background: #00000010; font-size: .8rem; }
+.settings-key-reveal button { justify-self: start; }
+.settings-key-reveal small { color: var(--muted); font-size: .78rem; line-height: 1.4; }
+
+.settings-instructions { margin: .9rem 0 0; padding: .8rem; border: 1px solid var(--line); border-radius: 12px; }
+.settings-instructions ol { margin: .4rem 0 0; padding-left: 1.15rem; display: grid; gap: .35rem; font-size: .84rem; line-height: 1.45; }
