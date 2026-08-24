@@ -4,7 +4,7 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
-## Unreleased — Optional URL shortener
+## v0.42.0 — Optional URL shortener
 
 ### User changes
 
