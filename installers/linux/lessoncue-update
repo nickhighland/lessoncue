@@ -626,6 +626,77 @@ if [[ "${REQUEST}" == connector:prepare ]]; then
   echo "${CLOUDFLARED_PREPARE_ERROR}"
   exit 1
 fi
+write_shortener_result() {
+  local ok="$1" domain="$2" error="$3" result=/var/lib/lessoncue/config/shortener-result.json temporary
+  temporary="$(mktemp)"
+  if [[ -n "${error}" ]]; then
+    printf '{"installed":%s,"domain":"%s","appliedAt":"%s","error":"%s"}\n' \
+      "${ok}" "${domain}" "$(date --iso-8601=seconds)" "${error}" > "${temporary}"
+  else
+    printf '{"installed":%s,"domain":"%s","appliedAt":"%s","error":null}\n' \
+      "${ok}" "${domain}" "$(date --iso-8601=seconds)" > "${temporary}"
+  fi
+  install -o lessoncue -g lessoncue -m 0600 "${temporary}" "${result}"
+  rm -f "${temporary}"
+}
+
+if [[ "${REQUEST}" == shortener:install ]]; then
+  MARKER=/var/lib/lessoncue/config/shortener-domain
+  SHORTENER_DIR=/opt/lessoncue-shortener
+  SHORTENER_DATA=/var/lib/lessoncue/shortener
+
+  if [[ ! -s "${MARKER}" ]]; then
+    write_shortener_result false "" "No short domain was recorded."
+    exit 1
+  fi
+  SHORT_DOMAIN="$(tr -d '[:space:]' < "${MARKER}")"
+
+  if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+    write_shortener_result false "${SHORT_DOMAIN}" "Docker with the Compose plugin is not installed on this server."
+    exit 1
+  fi
+
+  INSTALLED_VERSION="$(cat /var/lib/lessoncue/config/installed-version 2>/dev/null || true)"
+  if [[ -z "${INSTALLED_VERSION}" ]]; then
+    write_shortener_result false "${SHORT_DOMAIN}" "This server does not know which release it is running."
+    exit 1
+  fi
+
+  SHORTENER_WORK="$(mktemp -d)"
+  trap 'rm -rf "${SHORTENER_WORK}"' EXIT
+  BUNDLE=LessonCue-URL-Shortener.tar.gz
+  BASE="https://github.com/nickhighland/lessoncue/releases/download/v${INSTALLED_VERSION#v}"
+
+  # Checked against the signed checksums, the same as every other download.
+  if ! curl -fL "${BASE}/${BUNDLE}" -o "${SHORTENER_WORK}/${BUNDLE}" 2>/dev/null ||
+     ! curl -fL "${BASE}/SHA256SUMS" -o "${SHORTENER_WORK}/SHA256SUMS" 2>/dev/null; then
+    write_shortener_result false "${SHORT_DOMAIN}" "This release does not carry the URL shortener bundle."
+    exit 1
+  fi
+  if ! grep -F "  ${BUNDLE}" "${SHORTENER_WORK}/SHA256SUMS" > "${SHORTENER_WORK}/bundle.sha256" ||
+     ! ( cd "${SHORTENER_WORK}" && sha256sum -c bundle.sha256 >/dev/null ); then
+    write_shortener_result false "${SHORT_DOMAIN}" "The URL shortener bundle did not match its checksum."
+    exit 1
+  fi
+
+  install -d -m 755 "${SHORTENER_DIR}"
+  tar -xzf "${SHORTENER_WORK}/${BUNDLE}" -C "${SHORTENER_DIR}" --strip-components=1
+  chmod +x "${SHORTENER_DIR}"/*.sh 2>/dev/null || true
+  install -d -m 750 "${SHORTENER_DATA}"
+
+  if ( cd "${SHORTENER_DIR}" \
+       && SHORTENER_DATA_DIR="${SHORTENER_DATA}" \
+          LESSONCUE_DATA_PATH=/var/lib/lessoncue \
+          ./install.sh "${SHORT_DOMAIN}" ); then
+    write_shortener_result true "${SHORT_DOMAIN}" ""
+    echo "The LessonCue URL shortener is installed for ${SHORT_DOMAIN}."
+    exit 0
+  fi
+
+  write_shortener_result false "${SHORT_DOMAIN}" "The shortener did not start. Check: docker compose --profile shortener logs"
+  exit 1
+fi
+
 if [[ "${REQUEST}" == tunnel:disable ]]; then
   systemctl disable --now lessoncue-cloudflared.service >/dev/null 2>&1 || true
   rm -f /etc/lessoncue/cloudflare-token /var/lib/lessoncue/config/cloudflare-token.pending

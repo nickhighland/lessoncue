@@ -89,7 +89,10 @@ services:
       shlink-db:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${SHORTENER_HTTP_PORT:-8081}:8080"
+      # Loopback by default, so the tunnel is the only way in. Set
+      # SHORTENER_BIND=0.0.0.0 to also reach it from the local network -- useful
+      # while setting up, and a deliberate choice rather than the default.
+      - "${SHORTENER_BIND:-127.0.0.1}:${SHORTENER_HTTP_PORT:-8081}:8080"
     environment:
       # The domain short links are minted on. Supplied by the operator; nothing
       # in LessonCue assumes any particular value.
@@ -125,10 +128,22 @@ services:
     profiles: ["shortener"]
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${SHORTENER_UI_PORT:-8082}:8080"
-    # Deliberately given no server list and no API key. The client is a static
-    # page served to a browser, so anything handed to it here would be handed
-    # to whoever opens it. An administrator connects it with their own key.
+      # Loopback is enough: the tunnel connector runs on this host, so it
+      # reaches the console here and publishes it on the management hostname.
+      - "${SHORTENER_UI_BIND:-127.0.0.1}:${SHORTENER_UI_PORT:-8082}:8080"
+    environment:
+      # The server is named and addressed for you, so the console opens on the
+      # right Shlink with only the key left to supply.
+      SHLINK_SERVER_NAME: "${SHORT_DOMAIN:-LessonCue}"
+      SHLINK_SERVER_URL: "https://${SHORT_DOMAIN:?set SHORT_DOMAIN}"
+      # Deliberately empty. This console is published on its own hostname, and
+      # a key set here is readable by anyone who loads the page -- it would be
+      # short-link admin for the whole domain, handed out. LessonCue shows the
+      # key to a signed-in administrator instead.
+      #
+      # Set SHORTENER_UI_API_KEY only when the management hostname is behind
+      # Cloudflare Access or an equivalent, and you accept the trade.
+      SHLINK_SERVER_API_KEY: "${SHORTENER_UI_API_KEY:-}"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/"]
       interval: 30s

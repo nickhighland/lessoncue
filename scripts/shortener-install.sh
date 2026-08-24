@@ -11,15 +11,19 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SHORT_DOMAIN="${1:-${SHORT_DOMAIN:-}}"
+# Where the bare short domain should send people. Shlink reads this at start-up,
+# so it belongs here rather than only in LessonCue's settings.
+SHORT_DOMAIN_ROOT_REDIRECT="${2:-${SHORT_DOMAIN_ROOT_REDIRECT:-}}"
 if [ -z "$SHORT_DOMAIN" ]; then
   cat >&2 <<'USAGE'
 Give the short domain this installation will use.
 
-  scripts/shortener-install.sh go.example.org
+  scripts/shortener-install.sh go.example.org [https://www.example.org]
 
-It is the domain short links are minted on, bare and without a scheme. The
-management console defaults to short.<that domain>, and can be changed later in
-LessonCue under Settings → Integrations · URL shortener.
+The first argument is the domain short links are minted on, bare and without a
+scheme. The second is optional: where someone visiting the bare domain should
+be sent -- your main website, usually. Both can be changed later in LessonCue
+under Settings → Integrations · URL shortener.
 USAGE
   exit 64
 fi
@@ -64,6 +68,10 @@ done
 export SHORT_DOMAIN
 export SHORTENER_DB_PASSWORD_FILE="$DB_PASSWORD_FILE"
 export SHORTENER_INTEGRATION_KEY_FILE="$INTEGRATION_KEY_FILE"
+# Handed to the console so it arrives already connected. This is why the console
+# is not routed publicly by default: the value ends up in a page a browser
+# reads, and only the local network should be able to read it.
+export SHORT_DOMAIN_ROOT_REDIRECT
 
 echo
 echo "Starting the shortener for ${SHORT_DOMAIN}"
@@ -106,28 +114,34 @@ FAILED
   exit 1
 fi
 
+SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+[ -z "$SERVER_IP" ] && SERVER_IP="this server"
+
 cat <<NEXT
 
-Next, and none of it can be done from here:
+Done. The shortener is running and LessonCue will pick it up on its own --
+it reads the same key the shortener was started with, and provisions the
+hundred reserved game codes within a few minutes.
 
-1. Add two routes to the Cloudflare Tunnel already serving LessonCue.
-   Zero Trust → Networks → Tunnels → your tunnel → Public Hostnames.
+One thing left, and it is the only part that cannot be done from here:
 
-     ${SHORT_DOMAIN}  ->  http://localhost:${SHORTENER_HTTP_PORT}
-     short.${SHORT_DOMAIN}  ->  http://localhost:${SHORTENER_UI_PORT}
+    Add TWO routes to the Cloudflare Tunnel already serving LessonCue.
+    Zero Trust -> Networks -> Tunnels -> your tunnel -> Public Hostnames.
 
-   Leave every existing entry alone. Do not add a Redirect Rule for
-   ${SHORT_DOMAIN}: a rule on the whole hostname would also swallow the short
-   links and the game codes underneath it.
+        ${SHORT_DOMAIN}        ->  http://localhost:${SHORTENER_HTTP_PORT}
+        short.${SHORT_DOMAIN}  ->  http://localhost:${SHORTENER_UI_PORT}
 
-2. In LessonCue, open Settings → Integrations · URL shortener. Enter
-   ${SHORT_DOMAIN} and where the shortener is reachable, then use
-   Issue API keys and Repair reserved codes.
+    Leave every existing entry alone. Do not add a Redirect Rule for
+    ${SHORT_DOMAIN}: a rule on the whole hostname would also swallow the short
+    links and the game codes underneath it.
 
-3. Press Test configuration. It checks the short domain, the management
-   address, and a game code separately.
+Then in LessonCue, Settings -> Integrations - URL shortener:
 
-LessonCue's integration key is in ${INTEGRATION_KEY_FILE}. The shortener was
-started with it, so LessonCue can provision its reserved codes with a
-credential of its own rather than a person's.
+  * Press Test configuration to check both hostnames.
+  * Press Show API key, and paste it into the console the first time you open
+    short.${SHORT_DOMAIN}. The console is a page in your browser, so a key
+    built into it would be handed to anyone who opened that address.
+
+Worth doing: put Cloudflare Access in front of short.${SHORT_DOMAIN}. It
+manages every short link on the domain and an API key is all that guards it.
 NEXT
