@@ -53,11 +53,13 @@ public class ShortenerTunnelPlannerTests
     {
         var plan = ShortenerTunnelPlanner.ForManagedTunnel(Settings(), 8081, 8082);
         Assert.False(plan.CanApplyAutomatically);
-        Assert.Contains(plan.Instructions, step => step.Contains("go.example.org → http://localhost:8081"));
-        Assert.Contains(plan.Instructions, step => step.Contains("short.go.example.org → http://localhost:8082"));
+        Assert.Contains(plan.Instructions, step => step.Contains("go.example.org at http://localhost:8081"));
+        Assert.Contains(plan.Instructions, step => step.Contains("short.go.example.org at http://localhost:8082"));
         // The warning that matters: a hostname-wide rule eats the short links.
         Assert.Contains(plan.Instructions, step => step.Contains("Redirect Rule"));
-        Assert.Contains(plan.Instructions, step => step.Contains("existing entry alone"));
+        Assert.Contains(plan.Instructions, step => step.Contains("unrelated entry exactly as it is"));
+        // And the upgrade case: a hostname can only appear once in a tunnel.
+        Assert.Contains(plan.Instructions, step => step.Contains("earlier version") && step.Contains("only appear once"));
     }
 
     [Fact]
@@ -151,5 +153,50 @@ public class ShortenerTunnelPlannerTests
         // LessonCue's own route must not pass inspection.
         var mangled = "ingress:\n  - hostname: go.example.org\n    service: http://localhost:8081\n  - service: http_status:404\n";
         Assert.False(ShortenerTunnelPlanner.PreservesExisting(ExistingConfig, mangled));
+    }
+
+    [Fact]
+    public void AnEntryLeftOverFromTheVersionThatFrontedTheShortDomainIsRefused()
+    {
+        // 0.41.0 sent the short domain to LessonCue. That entry has to be
+        // changed, not added beside -- a tunnel holds one entry per hostname --
+        // and silently treating it as satisfied would leave every link broken.
+        var legacy = """
+            ingress:
+              - hostname: lessoncue.example.org
+                service: http://localhost:80
+              - hostname: go.example.org
+                service: http://localhost:80
+              - service: http_status:404
+            """;
+
+        var (changed, config, refusal) = ShortenerTunnelPlanner.MergeIngress(
+            legacy, ShortenerTunnelPlanner.RoutesFor(Settings(), 8081, 8082));
+
+        Assert.False(changed);
+        Assert.Equal(legacy, config);
+        Assert.Contains("go.example.org", refusal);
+        Assert.Contains("somewhere else", refusal);
+    }
+
+    [Fact]
+    public void AnEntryAlreadyPointingAtTheRightServiceIsLeftAlone()
+    {
+        var current = """
+            ingress:
+              - hostname: lessoncue.example.org
+                service: http://localhost:80
+              - hostname: go.example.org
+                service: http://localhost:8081
+              - hostname: short.go.example.org
+                service: http://localhost:8082
+              - service: http_status:404
+            """;
+
+        var (changed, _, refusal) = ShortenerTunnelPlanner.MergeIngress(
+            current, ShortenerTunnelPlanner.RoutesFor(Settings(), 8081, 8082));
+
+        Assert.False(changed);
+        Assert.Null(refusal);
     }
 }

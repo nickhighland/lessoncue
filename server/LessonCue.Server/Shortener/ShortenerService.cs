@@ -35,7 +35,8 @@ public sealed class ShortenerService(
     string dataPath)
 {
     private readonly string _integrationKeyPath = Path.Combine(dataPath, "config", "shortener-integration-key");
-    private readonly string _adminKeyPath = Path.Combine(dataPath, "config", "shortener-admin-key");
+    /// <summary>The secret the installer shares with the shortener container.</summary>
+    private readonly string _sharedKeyPath = Path.Combine(dataPath, "config", "shortener", "integration-key");
 
     private ShortenerStatus? _lastStatus;
     private readonly Lock _statusLock = new();
@@ -70,8 +71,16 @@ public sealed class ShortenerService(
         }
     }
 
-    /// <summary>Drop the cache so an administrator sees their own edit at once.</summary>
-    public void Invalidate() { lock (_cacheLock) _cachedAt = DateTimeOffset.MinValue; }
+    /// <summary>
+    /// Drop the cache so an administrator sees their own edit at once. Also
+    /// forgets that short links were working, because the change may be exactly
+    /// what stopped them.
+    /// </summary>
+    public void Invalidate()
+    {
+        lock (_cacheLock) _cachedAt = DateTimeOffset.MinValue;
+        MarkUsable(false);
+    }
 
     /// <summary>
     /// The address a phone should be given for this game.
@@ -86,6 +95,9 @@ public sealed class ShortenerService(
         if (string.IsNullOrWhiteSpace(joinCode)) return null;
         var settings = Current;
         if (!settings.Enabled || settings.Domain.Length == 0) return null;
+        // Never point a room at a short domain that has not been shown to
+        // resolve. A dead QR on a wall is worse than a longer address.
+        if (!ShortLinksUsable) return null;
         var code = ReservedGameCodes.Normalize(joinCode);
         return ReservedGameCodes.IsReserved(code) ? settings.ShortLinkFor(code) : null;
     }
@@ -113,26 +125,33 @@ public sealed class ShortenerService(
 
     /// <summary>
     /// LessonCue's own API key, used only for provisioning, reconciliation and
-    /// repair. Separate from the administrator's so routine work is never done
-    /// with a human's credential, and so the shortener attributes our links to
-    /// us.
+    /// repair, so routine work is never done with a person's credential.
+    ///
+    /// This is the key the shortener was *started with*, not one LessonCue
+    /// invents: the shortener has no API for creating keys, so a locally
+    /// generated one would simply be rejected. The installer writes the same
+    /// value to the shortener's secret and to the path below.
     /// </summary>
-    public string? IntegrationKey => ReadSecret(_integrationKeyPath);
+    public string? IntegrationKey => ReadSecret(_integrationKeyPath) ?? ReadSecret(_sharedKeyPath);
+
+    /// <summary>Where a key came from, so the console can explain itself.</summary>
+    public string IntegrationKeySource =>
+        ReadSecret(_integrationKeyPath) is not null ? "entered" :
+        ReadSecret(_sharedKeyPath) is not null ? "installer" : "none";
 
     /// <summary>
-    /// The administrator's key. Shown once at install and never again, and
-    /// never sent to the browser afterwards.
+    /// Record the key the shortener was started with.
+    ///
+    /// Accepts rather than generates. An administrator can paste the value from
+    /// the installer, or from `shlink api-key:generate`, for deployments where
+    /// LessonCue cannot read the shared secret file directly.
     /// </summary>
-    public string? AdminKey => ReadSecret(_adminKeyPath);
-
-    public async Task SetIntegrationKeyAsync(string key, CancellationToken ct = default) =>
-        await WriteSecretAsync(_integrationKeyPath, key, ct);
-
-    public async Task SetAdminKeyAsync(string key, CancellationToken ct = default) =>
-        await WriteSecretAsync(_adminKeyPath, key, ct);
-
-    /// <summary>A key the shortener will accept, generated locally.</summary>
-    public static string NewApiKey() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+    public async Task SetIntegrationKeyAsync(string key, CancellationToken ct = default)
+    {
+        var trimmed = (key ?? "").Trim();
+        if (trimmed.Length < 8) throw new ArgumentException("That does not look like an API key.");
+        await WriteSecretAsync(_integrationKeyPath, trimmed, ct);
+    }
 
     private static string? ReadSecret(string path)
     {
@@ -150,16 +169,30 @@ public sealed class ShortenerService(
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var temporary = path + ".tmp";
-        await File.WriteAllTextAsync(temporary, value.Trim() + Environment.NewLine, ct);
-        // Readable only by the account that runs the server.
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-        File.Move(temporary, path, true);
+        try
+        {
+            await File.WriteAllTextAsync(temporary, value.Trim() + Environment.NewLine, ct);
+            // Readable only by the account that runs the server.
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            File.Move(temporary, path, true);
+        }
+        finally
+        {
+            // A cancelled or failed write would otherwise leave a whole API key
+            // in a file nothing knows to clean up or exclude from a backup.
+            try { if (File.Exists(temporary)) File.Delete(temporary); }
+            catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
     }
 
+    /// <summary>
+    /// Forget the copy LessonCue holds. Never the shared secret, which belongs
+    /// to the shortener and is what it is still running with.
+    /// </summary>
     public void ForgetSecrets()
     {
-        foreach (var path in new[] { _integrationKeyPath, _adminKeyPath })
+        foreach (var path in new[] { _integrationKeyPath, _integrationKeyPath + ".tmp" })
             try { if (File.Exists(path)) File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
@@ -180,6 +213,14 @@ public sealed class ShortenerService(
             return Remember(new ShortenerStatus(ShortenerState.NotInstalled, false, settings.Domain, settings.AdminHost,
                 settings.PublicUrl, settings.AdminUrl, ReservedGameCodes.All.Count, 0, pool.Active, null, []));
 
+        // Switched off deliberately. Whether the shortener happens to be
+        // answering is beside the point -- reporting Running here would
+        // contradict the button the administrator just pressed.
+        if (!settings.Enabled)
+            return Remember(new ShortenerStatus(ShortenerState.Configured, false, settings.Domain, settings.AdminHost,
+                settings.PublicUrl, settings.AdminUrl, ReservedGameCodes.All.Count, 0, pool.Active,
+                "Short links are switched off. Games use LessonCue's own address.", []));
+
         if (!settings.Configured)
             return Remember(new ShortenerStatus(ShortenerState.ConfigurationError, settings.Enabled, settings.Domain, settings.AdminHost,
                 settings.PublicUrl, settings.AdminUrl, ReservedGameCodes.All.Count, 0, pool.Active,
@@ -198,6 +239,9 @@ public sealed class ShortenerService(
 
         var (present, missing) = await provisioner.AuditAsync(settings.Upstream, key, settings.Domain, ct);
         var state = missing.Count == 0 ? ShortenerState.Running : ShortenerState.Degraded;
+        // Recorded so the hot path can decide whether a short link would
+        // actually resolve, without asking the network on every projection.
+        MarkUsable(missing.Count == 0);
         var detail = missing.Count == 0
             ? null
             : $"{missing.Count} reserved {(missing.Count == 1 ? "code is" : "codes are")} missing or owned by someone else.";
@@ -205,6 +249,25 @@ public sealed class ShortenerService(
         return Remember(new ShortenerStatus(state, settings.Enabled, settings.Domain, settings.AdminHost,
             settings.PublicUrl, settings.AdminUrl, ReservedGameCodes.All.Count, present, pool.Active, detail, missing));
     }
+
+    private volatile bool _usable;
+    private DateTimeOffset _usableAt = DateTimeOffset.MinValue;
+
+    private void MarkUsable(bool usable)
+    {
+        _usable = usable;
+        _usableAt = usable ? DateTimeOffset.UtcNow : DateTimeOffset.MinValue;
+    }
+
+    /// <summary>
+    /// Are short links actually working right now?
+    ///
+    /// True only after a status check found the shortener answering with the
+    /// whole reserved set present, and only for as long as that finding is
+    /// fresh. Anything else and games fall back to LessonCue's own address --
+    /// far better than handing a room a link that 404s.
+    /// </summary>
+    public bool ShortLinksUsable => _usable && DateTimeOffset.UtcNow - _usableAt < TimeSpan.FromMinutes(10);
 
     /// <summary>The last status we saw, for callers that must not wait on the network.</summary>
     public ShortenerStatus? LastStatus { get { lock (_statusLock) return _lastStatus; } }
@@ -242,13 +305,13 @@ public sealed class ShortenerService(
 
         var checks = new List<Check>
         {
-            await ProbeOneAsync("The shortener answers locally", $"{settings.Upstream.TrimEnd('/')}/{ShlinkClient.ApiRoot}/health",
+            await ProbeOneAsync("The shortener answers locally", $"{settings.Upstream.TrimEnd('/')}/{ShlinkClient.HealthPath}",
                 "LessonCue can reach it inside the deployment.", ct),
         };
 
         // Through the tunnel now, on the hostnames the room will actually use.
         checks.Add(await ProbeOneAsync($"{settings.Domain} reaches the shortener",
-            $"{settings.PublicUrl}/{ShlinkClient.ApiRoot}/health",
+            $"{settings.PublicUrl}/{ShlinkClient.HealthPath}",
             "The short domain is routed to the shortener.", ct));
 
         if (settings.AdminHost.Length > 0)

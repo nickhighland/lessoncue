@@ -262,6 +262,35 @@ public sealed class ActivitySessionServiceTests
     }
 
     [Fact]
+    public async Task AReservedCodeCanBeGivenToALaterLessonOnceTheFirstHasFinished()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            // A lobby outlives the games in it, and join codes are unique
+            // across lobbies, so a released code has to be taken back before it
+            // can be handed on -- otherwise a hundred codes would last exactly
+            // a hundred lessons.
+            var first = new ActivitySessionGroup { Id = Guid.NewGuid(), JoinCode = "Q7Z6" };
+            db.ActivitySessionGroups.Add(first);
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+            var definition = await activities.CreateDefinitionAsync(
+                new ActivityDefinitionInput("Later Lesson", ActivityTypes.Buzzer), "teacher", TestContext.Current.CancellationToken);
+            var run = await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken);
+            run.JoinCode = "Q7Z6";
+
+            // The dormant lobby gives the code up rather than blocking it.
+            var live = await sessions.EnsureInteractiveRunAsync(run, TestContext.Current.CancellationToken);
+            Assert.Equal("Q7Z6", live.JoinCode);
+
+            var retired = await db.ActivitySessionGroups.SingleAsync(x => x.Id == first.Id, TestContext.Current.CancellationToken);
+            Assert.NotEqual("Q7Z6", retired.JoinCode);
+        }
+    }
+
+    [Fact]
     public async Task HostCommandsRejectStaleRevisionsAndLeaveTheAuthoritativeStateUnchanged()
     {
         var (db, activities, sessions, connection) = await CreateAsync();

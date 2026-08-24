@@ -701,6 +701,9 @@ export function Settings({
     // Read directly here rather than through the handler, so this effect
     // depends only on the permission and not on a function identity.
     void api<ShortenerSettings>("/api/v1/shortener").then(setShortener).catch(() => setShortener(null));
+    // The tunnel routes are the thing an operator most often comes here to
+    // copy, so fetch them on open rather than only after a save.
+    void api<ShortenerTunnelPlan>("/api/v1/shortener/tunnel").then(setShortenerTunnel).catch(() => setShortenerTunnel(null));
   }, [canManageApp]);
 
   async function saveShortener(event: FormEvent<HTMLFormElement>) {
@@ -729,13 +732,18 @@ export function Settings({
     }
   }
 
-  async function issueShortenerKeys() {
+  async function saveShortenerKey() {
     setShortenerBusy("keys");
     try {
-      const issued = await api<{ adminApiKey: string }>("/api/v1/shortener/keys", { method: "POST" });
-      // Shown once, here, and never returned by the server again.
-      setShortenerAdminKey(issued.adminApiKey);
+      // Recorded, not minted. The shortener has no way to register a key we
+      // invent, so this is the value it was started with.
+      const result = await api<{ state: string; detail: string | null }>("/api/v1/shortener/key", {
+        method: "PUT",
+        body: JSON.stringify({ apiKey: shortenerAdminKey }),
+      });
+      setShortenerAdminKey("");
       await loadShortener();
+      notify(result.detail || "API key recorded.");
     } catch (e) {
       notify(errorText(e));
     } finally {
@@ -2309,12 +2317,6 @@ export function Settings({
                   <button
                     type="button"
                     className="button"
-                    disabled={shortenerBusy !== "" || !shortener.domain}
-                    onClick={() => void issueShortenerKeys()}
-                  >{shortener.integrationKeyConfigured ? "Reissue API keys" : "Issue API keys"}</button>
-                  <button
-                    type="button"
-                    className="button"
                     disabled={shortenerBusy !== "" || !shortener.integrationKeyConfigured}
                     onClick={() => void reconcileShortener()}
                   >{shortenerBusy === "repair" ? "Repairing…" : "Repair reserved codes"}</button>
@@ -2330,19 +2332,28 @@ export function Settings({
                 </div>
               </form>
 
-              {shortenerAdminKey && (
+              {!shortener.integrationKeyConfigured && shortener.domain && (
                 <div className="settings-key-reveal">
-                  <strong>Shlink administrator API key</strong>
-                  <code>{shortenerAdminKey}</code>
+                  <strong>LessonCue needs the shortener's API key</strong>
+                  <small>
+                    The installer wrote it where LessonCue can read it. If it cannot — because the
+                    shortener runs elsewhere, or you rotated the key — paste it here. LessonCue cannot
+                    create one: the shortener has no way to register a key it did not start with.
+                    Generate another with <code>docker compose exec shlink shlink api-key:generate</code>.
+                  </small>
+                  <input
+                    type="password"
+                    value={shortenerAdminKey}
+                    placeholder="Paste the shortener's API key"
+                    autoComplete="off"
+                    onChange={(event) => setShortenerAdminKey(event.target.value)}
+                  />
                   <button
                     type="button"
                     className="button"
-                    onClick={() => void navigator.clipboard.writeText(shortenerAdminKey).then(() => notify("API key copied."))}
-                  >Copy</button>
-                  <small>
-                    Store this securely. It is shown once and is not kept anywhere LessonCue
-                    can show it again. You will need it to connect a browser to the management console.
-                  </small>
+                    disabled={shortenerBusy !== "" || shortenerAdminKey.trim().length < 8}
+                    onClick={() => void saveShortenerKey()}
+                  >Record API key</button>
                 </div>
               )}
 

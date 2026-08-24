@@ -112,9 +112,12 @@ Networks → Tunnels → your tunnel → **Public Hostnames**, add:
 | `{SHORT_DOMAIN}` | `http://localhost:8081` |
 | `{SHORTENER_ADMIN_HOST}` | `http://localhost:8082` |
 
-Leave every existing entry alone; the one pointing at LessonCue has to keep
-working. Cloudflare creates the DNS records itself when the domain is in the
-same account.
+Keep the entry pointing at LessonCue itself. If the short domain already has an
+entry from **v0.41.0**, where LessonCue fronted it, change that entry's service
+rather than adding a second — a tunnel holds one entry per hostname, and leaving
+the old one would keep every short link going to LessonCue. Leave unrelated
+entries alone. Cloudflare creates the DNS records itself when the domain is in
+the same account.
 
 **Do not add a Redirect Rule for the short domain.** A rule on the whole
 hostname would also catch `/kids` and every game code underneath it.
@@ -134,7 +137,10 @@ with this installation's own hostnames and ports.
 - **Where the shortener is reachable** — from this server, e.g.
   `http://shlink:8080`.
 - **When someone visits the bare short domain** — the shortener's own page, the
-  organization's website, LessonCue, or somewhere else.
+  organization's website, LessonCue, or somewhere else. Shlink serves that root
+  and reads the destination from `SHORT_DOMAIN_ROOT_REDIRECT` at start-up, so
+  the card shows the value to set and the container needs restarting for a
+  change to take effect.
 - **Use short-domain links for game codes** — what makes games hand out
   reserved codes and show the short link.
 
@@ -142,13 +148,20 @@ Then **Issue API keys**, and **Repair reserved codes** to create all hundred.
 
 ### API keys
 
-Two credentials, deliberately:
+LessonCue **records** the shortener's key; it cannot create one. Shlink has no
+API for minting keys, so anything LessonCue generated would simply be rejected.
 
-- **LessonCue's own** is used only to provision, reconcile and repair the
-  reserved codes. It never leaves the server.
-- **The administrator's** is shown once, when issued, and is not stored anywhere
-  LessonCue can show it again. It is for connecting a browser to the management
-  console.
+The installer generates one key, starts Shlink with it, and writes it where
+LessonCue can read it — so there is normally nothing to do here. If the
+shortener runs somewhere LessonCue cannot read that file, or you rotate the
+key, paste it into the settings card instead. Generate another with:
+
+```bash
+docker compose exec shlink shlink api-key:generate
+```
+
+Use a separate key for your own work in the console, so LessonCue's routine
+provisioning is never done with a person's credential.
 
 The web client is deployed with no server list and no key. It is a static page
 served to a browser, so anything baked in there would be handed to whoever

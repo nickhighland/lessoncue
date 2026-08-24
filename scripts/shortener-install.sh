@@ -32,14 +32,22 @@ esac
 
 DATA_DIR="${SHORTENER_DATA_DIR:-./shortener-data}"
 DB_PASSWORD_FILE="${SHORTENER_DB_PASSWORD_FILE:-${DATA_DIR}/db-password}"
-INTEGRATION_KEY_FILE="${SHORTENER_INTEGRATION_KEY_FILE:-${DATA_DIR}/integration-key}"
 
-mkdir -p "$DATA_DIR" "${DATA_DIR}/postgres"
-chmod 700 "$DATA_DIR"
+# The integration key has to be readable by both sides: the shortener is
+# started with it, and LessonCue authenticates with it. LessonCue's data
+# directory is mounted into its container, so the shared copy lives there.
+LESSONCUE_DATA_PATH="${LESSONCUE_DATA_PATH:-./lessoncue-data}"
+SHARED_KEY_DIR="${LESSONCUE_DATA_PATH}/config/shortener"
+INTEGRATION_KEY_FILE="${SHORTENER_INTEGRATION_KEY_FILE:-${SHARED_KEY_DIR}/integration-key}"
+
+mkdir -p "$DATA_DIR" "${DATA_DIR}/postgres" "$SHARED_KEY_DIR"
+chmod 700 "$DATA_DIR" "$SHARED_KEY_DIR"
 
 # Generated once and kept. Regenerating the database password on a second run
 # would lock the shortener out of its own data.
-new_secret() { LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 64; }
+# A finite source: an endless `tr` feeding `head` takes SIGPIPE, and pipefail
+# turns that into a failure that would abort the install on its first secret.
+new_secret() { od -An -tx1 -N32 /dev/urandom | tr -d ' \n'; }
 
 for file in "$DB_PASSWORD_FILE" "$INTEGRATION_KEY_FILE"; do
   if [ -s "$file" ]; then
@@ -51,25 +59,52 @@ for file in "$DB_PASSWORD_FILE" "$INTEGRATION_KEY_FILE"; do
   fi
 done
 
+# Exported rather than set per-command: the compose file requires them, and
+# reading the resolved configuration back needs them just as much as `up` does.
+export SHORT_DOMAIN
+export SHORTENER_DB_PASSWORD_FILE="$DB_PASSWORD_FILE"
+export SHORTENER_INTEGRATION_KEY_FILE="$INTEGRATION_KEY_FILE"
+
 echo
 echo "Starting the shortener for ${SHORT_DOMAIN}"
-SHORT_DOMAIN="$SHORT_DOMAIN" \
-SHORTENER_DB_PASSWORD_FILE="$DB_PASSWORD_FILE" \
-SHORTENER_INTEGRATION_KEY_FILE="$INTEGRATION_KEY_FILE" \
-  docker compose --profile shortener up -d
+docker compose --profile shortener up -d
 
-SHORTENER_HTTP_PORT="${SHORTENER_HTTP_PORT:-8081}"
-SHORTENER_UI_PORT="${SHORTENER_UI_PORT:-8082}"
+# Read back from compose rather than assumed, so the printed routes match the
+# ports actually bound -- including any set in .env, which this shell never saw.
+resolved_port() {
+  docker compose --profile shortener config --format json 2>/dev/null \
+    | python3 -c "import json,sys; s=json.load(sys.stdin)['services'].get('$1',{}); print((s.get('ports') or [{}])[0].get('published',''))" 2>/dev/null
+}
+SHORTENER_HTTP_PORT="$(resolved_port shlink)"
+SHORTENER_UI_PORT="$(resolved_port shlink-web-client)"
+: "${SHORTENER_HTTP_PORT:=8081}"
+: "${SHORTENER_UI_PORT:=8082}"
 
 echo
 echo "Waiting for it to come up"
+healthy=0
 for _ in $(seq 1 40); do
-  if curl --fail --silent "http://127.0.0.1:${SHORTENER_HTTP_PORT}/rest/v3/health" >/dev/null 2>&1; then
+  if curl --fail --silent "http://127.0.0.1:${SHORTENER_HTTP_PORT}/rest/health" >/dev/null 2>&1; then
     echo "The shortener is answering."
+    healthy=1
     break
   fi
   sleep 3
 done
+
+if [ "$healthy" -ne 1 ]; then
+  cat >&2 <<'FAILED'
+
+The shortener never answered. Nothing has been configured, and printing
+tunnel routes for a service that is not running would only waste your time.
+
+Look at what it said:
+
+  docker compose --profile shortener logs shlink
+  docker compose --profile shortener logs shlink-db
+FAILED
+  exit 1
+fi
 
 cat <<NEXT
 

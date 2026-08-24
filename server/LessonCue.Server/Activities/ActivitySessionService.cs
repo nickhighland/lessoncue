@@ -114,12 +114,16 @@ public sealed class ActivitySessionService(
 
         if (group is null)
         {
+            // Adopt the code the room may already be looking at.
+            var joinCode = string.IsNullOrWhiteSpace(run.JoinCode) ? await NewJoinCodeAsync(ct) : run.JoinCode!;
+            // Codes are unique across lobbies and a lobby outlives its games, so
+            // take the code back from any finished lobby still holding it.
+            await ReleaseDormantCodeAsync(joinCode, ct);
             group = new ActivitySessionGroup
             {
                 Id = Guid.NewGuid(),
                 LessonId = run.LessonId,
-                // Adopt the code the room may already be looking at.
-                JoinCode = string.IsNullOrWhiteSpace(run.JoinCode) ? await NewJoinCodeAsync(ct) : run.JoinCode!,
+                JoinCode = joinCode,
                 CurrentRunId = run.Id,
             };
             db.ActivitySessionGroups.Add(group);
@@ -354,7 +358,10 @@ public sealed class ActivitySessionService(
         var scoreEvents = run.ScoreEvents.OrderByDescending(x => x.CreatedAt)
             .Select(x => (object)new { id = x.Id, participantId = x.ParticipantId, teamId = x.TeamId, roundId = x.RoundId, amount = x.Amount, reason = x.Reason, createdAt = x.CreatedAt, isUndone = x.IsUndone, undoneAt = x.UndoneAt })
             .ToArray();
-        return new ActivityHostView(envelope, run.JoinCode, joinAddress.ResolveJoinUrl(run.JoinCode), participants, teams, submissions, votes, scoreEvents);
+        // The same address the room is shown. The host's own QR and join text
+        // come from here, and they must not disagree with the television.
+        var hostJoinUrl = shortener?.ShortJoinUrlFor(run.JoinCode) ?? joinAddress.ResolveJoinUrl(run.JoinCode);
+        return new ActivityHostView(envelope, run.JoinCode, hostJoinUrl, participants, teams, submissions, votes, scoreEvents);
     }
 
     public async Task<ActivityCommandResult> ExecuteParticipantActionAsync(
@@ -4755,7 +4762,10 @@ public sealed class ActivitySessionService(
         // codes, because those are the ones the short domain can actually
         // resolve. A four-character code on a television is also easier to read
         // out than six.
-        if (shortener?.Current is { Enabled: true, Domain.Length: > 0 })
+        // Only once the shortener has been shown to hold the whole reserved set.
+        // Handing out a four-character code the shortener does not know would
+        // put an unusable address on the wall.
+        if (shortener is { ShortLinksUsable: true } && shortener.Current is { Enabled: true, Domain.Length: > 0 })
         {
             var pool = new ReservedGameCodePool(db, random);
             for (var attempt = 0; attempt < 5; attempt++)
@@ -4782,6 +4792,45 @@ public sealed class ActivitySessionService(
         await db.ActivityRuns.AnyAsync(x => x.JoinCode == code && x.Status != ActivityRunStatuses.Ended, ct) ||
         await db.ActivitySessionGroups.AnyAsync(
             x => x.JoinCode == code && x.Runs.Any(run => run.Status != ActivityRunStatuses.Ended), ct);
+
+    /// <summary>
+    /// Take a finished lobby's code back so a new one can use it.
+    ///
+    /// Join codes are unique across session groups, and a group outlives the
+    /// games in it. Without this, a reserved code released by one lesson could
+    /// never be given to the next -- the insert would fail on the unique index
+    /// -- and a hundred codes would be spent after a hundred lessons.
+    ///
+    /// The dormant group keeps its identity, its players and its scores; only
+    /// the code it is no longer using changes.
+    /// </summary>
+    private async Task ReleaseDormantCodeAsync(string code, CancellationToken ct)
+    {
+        var dormant = await db.ActivitySessionGroups
+            .Include(group => group.Runs)
+            .Where(group => group.JoinCode == code)
+            .ToListAsync(ct);
+
+        foreach (var group in dormant)
+        {
+            // Only ever a lobby with nothing live in it.
+            if (group.Runs.Any(run => run.Status != ActivityRunStatuses.Ended)) continue;
+            group.JoinCode = await RetiredCodeAsync(ct);
+            group.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+    }
+
+    /// <summary>A code no reserved pool will ever hand out, for a retired lobby.</summary>
+    private async Task<string> RetiredCodeAsync(CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            var code = "X" + new string(RandomNumberGenerator.GetBytes(9)
+                .Select(x => CodeAlphabet[x % CodeAlphabet.Length]).ToArray());
+            if (!await db.ActivitySessionGroups.AnyAsync(x => x.JoinCode == code, ct)) return code;
+        }
+        throw new InvalidOperationException("Could not retire an activity join code.");
+    }
 
     private static string Snapshot(ActivityDefinition definition) => JsonSerializer.Serialize(new
     {

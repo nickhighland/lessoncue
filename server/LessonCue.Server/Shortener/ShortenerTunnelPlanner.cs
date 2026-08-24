@@ -53,9 +53,16 @@ public static class ShortenerTunnelPlanner
         var steps = new List<string>
         {
             "Open Cloudflare Zero Trust, then Networks → Tunnels, and choose the tunnel already serving LessonCue.",
-            "On its Public Hostnames tab, add the entries below. Leave every existing entry alone — the one pointing at LessonCue has to keep working.",
+            "On its Public Hostnames tab, keep the entry pointing at LessonCue itself. It has to go on working.",
         };
-        steps.AddRange(routes.Select(route => $"Add {route.Hostname} → {route.Service}  ({route.Purpose})"));
+        steps.AddRange(routes.Select(route =>
+            $"Point {route.Hostname} at {route.Service}  ({route.Purpose})"));
+        // A tunnel cannot hold two entries for one hostname, so an installation
+        // upgrading from the version where LessonCue fronted the short domain
+        // has to change that entry rather than add beside it.
+        steps.Add($"If {settings.Domain} already has an entry from an earlier version sending it to LessonCue, "
+            + "change that entry's service to the one above rather than adding a second. A hostname can only appear once.");
+        steps.Add("Leave every unrelated entry exactly as it is.");
         steps.Add("Cloudflare creates the DNS records for you, provided the domain is in the same account.");
         steps.Add("Do not add a Redirect Rule for the short domain. A rule on the whole hostname would also catch the short links and the game codes underneath it.");
 
@@ -92,8 +99,16 @@ public static class ShortenerTunnelPlanner
         }
         if (catchAllAt < 0) return (false, existing, "That cloudflared configuration has no catch-all rule, so LessonCue will not edit it.");
 
-        var already = existing;
-        var missing = routes.Where(route => !already.Contains($"hostname: {route.Hostname}", StringComparison.OrdinalIgnoreCase)).ToList();
+        // Present with the wrong target is not the same as present. An earlier
+        // version sent the short domain to LessonCue, and treating that entry
+        // as satisfied would leave every short link broken.
+        var stale = routes.Where(route => Mentions(existing, route.Hostname) && !PointsAt(existing, route.Hostname, route.Service)).ToList();
+        if (stale.Count > 0)
+            return (false, existing, "The cloudflared configuration already routes "
+                + string.Join(" and ", stale.Select(route => route.Hostname))
+                + " somewhere else. Change that entry to the service shown above; LessonCue will not rewrite an existing route.");
+
+        var missing = routes.Where(route => !Mentions(existing, route.Hostname)).ToList();
         if (missing.Count == 0) return (false, existing, null);
 
         var indent = new string(' ', lines[catchAllAt].Length - lines[catchAllAt].TrimStart().Length);
@@ -119,6 +134,24 @@ public static class ShortenerTunnelPlanner
     {
         var hostnames = Hostnames(before);
         return hostnames.All(after.Contains) && after.TrimEnd().EndsWith(LastRule(before).TrimEnd(), StringComparison.Ordinal);
+    }
+
+    private static bool Mentions(string config, string hostname) =>
+        config.Contains($"hostname: {hostname}", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Does this hostname's entry already point at the service we want?</summary>
+    private static bool PointsAt(string config, string hostname, string service)
+    {
+        var lines = config.Replace("\r\n", "\n").Split('\n');
+        for (var index = 0; index < lines.Length; index++)
+        {
+            if (!lines[index].Contains($"hostname: {hostname}", StringComparison.OrdinalIgnoreCase)) continue;
+            // The service belongs to the entry, so look at the lines that follow
+            // until the next one begins.
+            for (var next = index + 1; next < lines.Length && !lines[next].TrimStart().StartsWith("- ", StringComparison.Ordinal); next++)
+                if (lines[next].Contains($"service: {service}", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
     }
 
     private static IEnumerable<string> Hostnames(string config) => config

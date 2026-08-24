@@ -312,7 +312,10 @@ const ActivityHostSessionPanel: React.FC<{ hostView: ActivityHostView; onRefresh
   const [teamBusy, setTeamBusy] = useState(false);
   const [targetBusy, setTargetBusy] = useState(false);
   const pending = hostView.submissions.filter(item => item.moderationStatus === 'pending' && !item.hidden);
-  const joinUrl = hostView.joinCode ? `${location.origin}/play/${hostView.joinCode}` : '';
+  // The address the server resolved, which is the short domain when the
+  // shortener is working. Building one from location.origin here put a
+  // different address on the host's screen from the one on the television.
+  const joinUrl = hostView.joinUrl || (hostView.joinCode ? `${location.origin}/play/${hostView.joinCode}` : '');
   const currentTargetId = hostView.state.type === 'matchPlayer' && hostView.state.state && typeof hostView.state.state === 'object' ? String((hostView.state.state as Record<string, unknown>).targetParticipantId || '') : '';
   const currentContestantId = hostView.state.type === 'stageChallenge' && hostView.state.state && typeof hostView.state.state === 'object' ? String((hostView.state.state as Record<string, unknown>).selectedParticipantId || '') : '';
   const moderate = async (submissionId: string, status: 'approved' | 'rejected') => {

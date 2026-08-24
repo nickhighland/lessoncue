@@ -32,6 +32,13 @@ public sealed class ShlinkClient(HttpClient http)
     /// <summary>The API version LessonCue speaks.</summary>
     public const string ApiRoot = "rest/v3";
 
+    /// <summary>
+    /// Health is not versioned. One constant, because having the application
+    /// probe one path while the container healthcheck probed another made a
+    /// perfectly healthy shortener look stopped.
+    /// </summary>
+    public const string HealthPath = "rest/health";
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public static HttpRequestMessage Request(HttpMethod method, string baseUrl, string path, string apiKey)
@@ -46,7 +53,7 @@ public sealed class ShlinkClient(HttpClient http)
     {
         try
         {
-            using var response = await http.GetAsync($"{baseUrl.TrimEnd('/')}/{ApiRoot}/health", ct);
+            using var response = await http.GetAsync($"{baseUrl.TrimEnd('/')}/{HealthPath}", ct);
             return response.IsSuccessStatusCode;
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException)

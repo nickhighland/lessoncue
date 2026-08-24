@@ -3120,6 +3120,10 @@ public static class AdminApi
                 upstream = settings.Upstream,
                 rootRedirectMode = ShortenerConfiguration.RootRedirectName(settings.RootRedirect),
                 rootRedirectUrl = settings.RootRedirectUrl,
+                // What SHORT_DOMAIN_ROOT_REDIRECT has to be set to for this
+                // choice to take effect, and whether the container needs
+                // restarting for it.
+                rootRedirectValue = ShortenerConfiguration.ResolveRootRedirect(settings, organization.PublicBaseUrl.Trim().TrimEnd('/')),
                 publicUrl = status.PublicUrl,
                 adminUrl = status.AdminUrl,
                 lessonCuePublicUrl = organization.PublicBaseUrl,
@@ -3162,6 +3166,10 @@ public static class AdminApi
             organization.ShortDomainUpstream = upstream;
             organization.ShortenerRootRedirectMode = ShortenerConfiguration.RootRedirectName(mode);
             organization.ShortDomainRootRedirectUrl = redirect;
+            // Stored, but the shortener is what actually serves the bare root,
+            // and it reads that destination from its environment at start-up.
+            // The console reports the value to set rather than pretending this
+            // took effect on its own.
             organization.ShortenerEnabled = input.Enabled && domain.Length > 0;
             Audit(db, "shortener.configure", organization.Id,
                 domain.Length == 0 ? "URL shortener cleared" : $"URL shortener set to {domain}");
@@ -3173,19 +3181,24 @@ public static class AdminApi
             return Results.Ok(new { state = (await shortener.StatusAsync(ct)).State.ToString() });
         });
 
-        appSettings.MapPost("/shortener/keys", async (LessonCueDb db, ShortenerService shortener, CancellationToken ct) =>
+        appSettings.MapPut("/shortener/key", async (ShortenerKeyInput input, LessonCueDb db,
+            ShortenerService shortener, CancellationToken ct) =>
         {
-            // Two credentials: one for LessonCue's own reconciliation work, one
-            // for the person. The administrator's is shown exactly once here
-            // and never returned again.
-            var integration = ShortenerService.NewApiKey();
-            var admin = ShortenerService.NewApiKey();
-            await shortener.SetIntegrationKeyAsync(integration, ct);
-            await shortener.SetAdminKeyAsync(admin, ct);
+            // Recorded, not minted. The shortener has no API for creating keys,
+            // so anything generated here would simply be rejected by it. This
+            // is the value the shortener was started with.
+            try
+            {
+                await shortener.SetIntegrationKeyAsync(input.ApiKey ?? "", ct);
+            }
+            catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
+
             var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
-            Audit(db, "shortener.keys.issue", organization.Id, "Issued URL shortener API keys");
+            Audit(db, "shortener.key.set", organization.Id, "Recorded the URL shortener API key");
             await db.SaveChangesAsync(ct);
-            return Results.Ok(new { adminApiKey = admin, integrationConfigured = true });
+            // Prove it works before saying so.
+            var status = await shortener.StatusAsync(ct);
+            return Results.Ok(new { state = status.State.ToString(), status.Detail });
         });
 
         appSettings.MapPost("/shortener/test", async (ShortenerService shortener, CancellationToken ct) =>
@@ -3201,12 +3214,39 @@ public static class AdminApi
             var shortenerPort = PortFromEnvironment("SHORTENER_HTTP_PORT", 8081);
             var consolePort = PortFromEnvironment("SHORTENER_UI_PORT", 8082);
             var plan = ShortenerTunnelPlanner.ForManagedTunnel(settings, shortenerPort, consolePort);
+
+            // Where cloudflared is run from a local file instead, offer the
+            // merged configuration rather than only describing it. Read-only:
+            // this file is what keeps LessonCue itself reachable, so the
+            // operator applies it, not us.
+            string? localPath = null, localMerged = null, localRefusal = null;
+            foreach (var candidate in new[] { "/etc/cloudflared/config.yml", "/etc/cloudflared/config.yaml" })
+            {
+                if (!System.IO.File.Exists(candidate)) continue;
+                localPath = candidate;
+                try
+                {
+                    var current = await System.IO.File.ReadAllTextAsync(candidate, ct);
+                    var (changed, merged, refusal) = ShortenerTunnelPlanner.MergeIngress(current, plan.Routes);
+                    localRefusal = refusal;
+                    localMerged = changed ? merged : null;
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    localRefusal = "LessonCue cannot read that cloudflared configuration.";
+                }
+                break;
+            }
+
             return Results.Ok(new
             {
                 canApplyAutomatically = plan.CanApplyAutomatically,
                 explanation = plan.Explanation,
                 instructions = plan.Instructions,
                 routes = plan.Routes.Select(route => new { route.Hostname, route.Service, route.Purpose }),
+                localConfigPath = localPath,
+                localConfigMerged = localMerged,
+                localConfigRefusal = localRefusal,
             });
         });
 
