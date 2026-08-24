@@ -93,11 +93,25 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
         setLoading(false);
 
         // Subscribe to live SignalR updates
-        unsubscribe = await activityHub.subscribeRun(activeRun.runId, updated => {
+        const runId = activeRun.runId;
+        unsubscribe = await activityHub.subscribeRun(runId, updated => {
           if (!isCancelled) {
             setEnvelope(updated);
           }
         });
+
+        // Read once more now the subscription exists. Anything that changed
+        // between the first read and this point was pushed to nobody -- which
+        // on a slow machine is exactly when a host presses Start, and the room
+        // is left looking at the lobby.
+        if (!isCancelled) {
+          try {
+            const current = await ActivityApi.getRun(runId);
+            if (!isCancelled) setEnvelope(current);
+          } catch {
+            // The subscription is live; the next push will carry the truth.
+          }
+        }
       } catch (err) {
         if (!isCancelled) {
           console.error('Failed to initialize activity display:', err);
@@ -109,8 +123,21 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
 
     initRun();
 
+    // A slow safety net under the live connection. A television is left running
+    // for an hour at a time, and a dropped or missed push should heal itself
+    // rather than leaving the room looking at a stale screen until somebody
+    // reloads the browser.
+    const heal = window.setInterval(() => {
+      const runId = propRunId || initialEnvelope?.runId;
+      if (!runId || isCancelled) return;
+      void ActivityApi.getRun(runId)
+        .then(current => { if (!isCancelled) setEnvelope(current); })
+        .catch(() => { /* offline for a moment; the next tick tries again */ });
+    }, 5_000);
+
     return () => {
       isCancelled = true;
+      window.clearInterval(heal);
       if (unsubscribe) unsubscribe();
     };
   }, [propRunId, definitionId, initialEnvelope, lessonId, lessonItemId]);

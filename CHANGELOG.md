@@ -8,6 +8,10 @@ administrator installs an update.
 
 ### User changes
 
+- Fixed: the television could stay on the lobby after the host pressed Start.
+  It listened for live updates but never checked again, so anything that
+  happened while it was still connecting was missed and nothing recovered it
+  until the browser was reloaded.
 - Installing the URL shortener is now a switch in Settings. Enter the short
   domain, turn it on, and it installs — no command line, and no waiting for an
   update.
