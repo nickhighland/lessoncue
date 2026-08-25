@@ -327,10 +327,13 @@
         if (!entries.length) return '<div class="chart-empty-note">No recent ' + (kind === 'device' ? 'device' : 'platform') + ' data yet.<small>It will appear after tracked visits arrive.</small></div>';
         const total = entries.reduce((sum, entry) => sum + entry.value, 0);
         const colors = kind === 'device' ? ['#36bb7e', '#4778ff', '#a4afb9'] : ['#36bb7e', '#4778ff', '#ffa95a', '#8d6de8', '#e55e86', '#58b8c8', '#a4afb9'];
+        const circumference = 2 * Math.PI * 52;
         let offset = 0;
         const rings = entries.map((entry, index) => {
-            const dash = entry.value / total * (2 * Math.PI * 52);
-            const ring = '<circle class="pie-segment pie-color-' + (index % colors.length) + '" cx="60" cy="60" r="52" stroke-dasharray="' + dash.toFixed(3) + ' ' + ((2 * Math.PI * 52) - dash).toFixed(3) + '" stroke-dashoffset="' + (-offset).toFixed(3) + '" transform="rotate(-90 60 60)"></circle>';
+            const share = entry.value / total;
+            const dash = share * circumference;
+            const dashAttributes = share >= 1 ? '' : ' stroke-dasharray="' + dash.toFixed(3) + ' ' + (circumference - dash).toFixed(3) + '" stroke-dashoffset="' + (-offset).toFixed(3) + '"';
+            const ring = '<circle class="pie-segment pie-color-' + (index % colors.length) + '" cx="60" cy="60" r="52"' + dashAttributes + ' transform="rotate(-90 60 60)"></circle>';
             offset += dash;
             return ring;
         }).join('');
