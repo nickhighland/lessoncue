@@ -4,6 +4,19 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.4 — Complete Google Play TV release
+
+### User changes
+
+- Google Play production publishing now leaves the release in the Play Console
+  for the required review workflow instead of failing during automatic
+  submission.
+
+### Developer changes
+
+- Bumped the application and Android TV package versions for the corrected
+  production release.
+
 ## v0.45.3 — Complete Link Studio migration
 
 ### User changes

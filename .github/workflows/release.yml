@@ -404,6 +404,9 @@ jobs:
           tracks: "tv:production"
           releaseName: ${{ github.ref_name }}
           status: completed
+          # Google Play requires this flag when the account/release is not
+          # allowed to submit changes for review automatically.
+          changesNotSentForReview: true
       - uses: softprops/action-gh-release@v2
         with:
           body_path: release/RELEASE-NOTES.md
