@@ -4,6 +4,19 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.7 — Preserve short-domain forwarding
+
+### User changes
+
+- Installing or refreshing the URL shortener now preserves the configured
+  destination for the bare short domain.
+
+### Developer changes
+
+- The protected Linux shortener-install path and the standalone installer both
+  pass through LessonCue's saved root-redirect handoff instead of allowing an
+  empty value to replace it.
+
 ## v0.45.6 — Reliable activity editor saves
 
 ### User changes

@@ -10,6 +10,7 @@ import { join } from "node:path";
 const compose = readFileSync("compose.yaml", "utf8");
 const installer = readFileSync("scripts/shortener-install.sh", "utf8");
 const updater = readFileSync("scripts/shortener-update.sh", "utf8");
+const lessonCueUpdater = readFileSync("installers/linux/lessoncue-update", "utf8");
 const failures = [];
 const check = (ok, message) => { if (!ok) failures.push(message); };
 
@@ -93,6 +94,17 @@ for (const script of [installer, updater]) {
 }
 check(/ui_health/.test(updater), "the shortener updater must wait for the Companion as well as Shlink");
 
+const shortenerInstallStart = lessonCueUpdater.indexOf('if [[ "${REQUEST}" == shortener:install ]]; then');
+const shortenerInstallEnd = lessonCueUpdater.indexOf('if [[ "${REQUEST}" == tunnel:disable ]]; then', shortenerInstallStart);
+const shortenerInstallPath = shortenerInstallStart >= 0 && shortenerInstallEnd > shortenerInstallStart
+  ? lessonCueUpdater.slice(shortenerInstallStart, shortenerInstallEnd)
+  : "";
+check(shortenerInstallPath.includes('ROOT_REDIRECT="$(cat /var/lib/lessoncue/config/shortener-root-redirect 2>/dev/null || true)"') &&
+  shortenerInstallPath.includes('SHORT_DOMAIN_ROOT_REDIRECT="${ROOT_REDIRECT}"'),
+  "the protected shortener installation path must pass LessonCue's saved bare-domain destination to the installer");
+check(installer.includes('${LESSONCUE_DATA_PATH}/config/shortener-root-redirect'),
+  "the standalone shortener installer must preserve LessonCue's saved bare-domain destination");
+
 // No installation's domain belongs in a file everyone ships.
 for (const domain of ["chroc.cc", "cityhope"])
   check(!compose.toLowerCase().includes(domain), `compose.yaml must not name ${domain}: the short domain is configuration`);
@@ -116,6 +128,9 @@ for (const layout of layouts) {
     const here = layout.script(root);
     mkdirSync(here, { recursive: true });
     mkdirSync(join(root, "bin"), { recursive: true });
+    mkdirSync(join(root, "lessoncue", "config"), { recursive: true });
+    writeFileSync(join(root, "lessoncue", "config", "shortener-root-redirect"),
+      "https://lessoncue.example.test/\n");
     cpSync("compose.yaml", join(root, "compose.yaml"));
     cpSync("shortener-companion", join(root, "shortener-companion"), { recursive: true });
     cpSync(join("scripts", "shortener-install.sh"), join(here, "install.sh"));
@@ -125,14 +140,16 @@ for (const layout of layouts) {
       `#!/bin/sh\npwd > ${record}\necho "$@" >> ${record}.args\nexit 1\n`);
     chmodSync(join(root, "bin", "docker"), 0o755);
 
+    const testEnv = {
+      ...process.env,
+      PATH: `${join(root, "bin")}:${process.env.PATH}`,
+      SHORTENER_DATA_DIR: join(root, "data"),
+      LESSONCUE_DATA_PATH: join(root, "lessoncue"),
+    };
+    delete testEnv.SHORT_DOMAIN_ROOT_REDIRECT;
     spawnSync("bash", [join(here, "install.sh"), "short.example.test"], {
       encoding: "utf8",
-      env: {
-        ...process.env,
-        PATH: `${join(root, "bin")}:${process.env.PATH}`,
-        SHORTENER_DATA_DIR: join(root, "data"),
-        LESSONCUE_DATA_PATH: join(root, "lessoncue"),
-      },
+      env: testEnv,
     });
 
     const ran = existsSync(record) ? readFileSync(record, "utf8").trim() : "(docker was never reached)";
@@ -144,6 +161,8 @@ for (const layout of layouts) {
     const env = existsSync(join(ran, ".env")) ? readFileSync(join(ran, ".env"), "utf8") : "";
     check(/^SHORT_DOMAIN=short\.example\.test$/m.test(env),
       `in the ${layout.name} layout the installer did not record SHORT_DOMAIN where compose reads it`);
+    check(/^SHORT_DOMAIN_ROOT_REDIRECT="https:\/\/lessoncue\.example\.test\/"$/m.test(env),
+      `in the ${layout.name} layout the installer did not preserve LessonCue's saved bare-domain destination`);
 
     // This compose file also describes LessonCue itself. The installer must
     // start only the database and Shlink first, then the companion after its

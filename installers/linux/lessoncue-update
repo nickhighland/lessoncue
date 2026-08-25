@@ -686,6 +686,7 @@ if [[ "${REQUEST}" == shortener:install ]]; then
     exit 1
   fi
   SHORT_DOMAIN="$(tr -d '[:space:]' < "${MARKER}")"
+  ROOT_REDIRECT="$(cat /var/lib/lessoncue/config/shortener-root-redirect 2>/dev/null || true)"
 
   # Install Docker rather than refuse for the want of it. This runs as root and
   # is the same thing the LessonCue installer does; asking an administrator to
@@ -730,6 +731,7 @@ if [[ "${REQUEST}" == shortener:install ]]; then
   if ( cd "${SHORTENER_DIR}" \
        && SHORTENER_DATA_DIR="${SHORTENER_DATA}" \
           LESSONCUE_DATA_PATH=/var/lib/lessoncue \
+          SHORT_DOMAIN_ROOT_REDIRECT="${ROOT_REDIRECT}" \
           ./install.sh "${SHORT_DOMAIN}" ); then
     write_shortener_result true "${SHORT_DOMAIN}" ""
     echo "The LessonCue URL shortener is installed for ${SHORT_DOMAIN}."

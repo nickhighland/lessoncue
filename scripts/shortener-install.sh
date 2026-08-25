@@ -26,7 +26,15 @@ fi
 SHORT_DOMAIN="${1:-${SHORT_DOMAIN:-}}"
 # Where the bare short domain should send people. Shlink reads this at start-up,
 # so it belongs here rather than only in LessonCue's settings.
-SHORT_DOMAIN_ROOT_REDIRECT="${2:-${SHORT_DOMAIN_ROOT_REDIRECT:-}}"
+ROOT_REDIRECT_OVERRIDE=0
+if [ "$#" -ge 2 ]; then
+  SHORT_DOMAIN_ROOT_REDIRECT="$2"
+  ROOT_REDIRECT_OVERRIDE=1
+elif [ "${SHORT_DOMAIN_ROOT_REDIRECT+x}" = x ]; then
+  ROOT_REDIRECT_OVERRIDE=1
+else
+  SHORT_DOMAIN_ROOT_REDIRECT=""
+fi
 if [ -z "$SHORT_DOMAIN" ]; then
   cat >&2 <<'USAGE'
 Give the short domain this installation will use.
@@ -54,6 +62,14 @@ DB_PASSWORD_FILE="${SHORTENER_DB_PASSWORD_FILE:-${DATA_DIR}/db-password}"
 # started with it, and LessonCue authenticates with it. LessonCue's data
 # directory is mounted into its container, so the shared copy lives there.
 LESSONCUE_DATA_PATH="${LESSONCUE_DATA_PATH:-./lessoncue-data}"
+# The LessonCue server writes this handoff before asking its protected updater
+# to install the shortener. Use it as a final fallback as well, so a direct
+# reinstall cannot silently replace a configured bare-domain destination with
+# an empty Shlink redirect. An explicit argument or environment value still
+# wins, including an intentional empty value for the not-found mode.
+if [ "$ROOT_REDIRECT_OVERRIDE" -eq 0 ] && [ -r "${LESSONCUE_DATA_PATH}/config/shortener-root-redirect" ]; then
+  SHORT_DOMAIN_ROOT_REDIRECT="$(cat "${LESSONCUE_DATA_PATH}/config/shortener-root-redirect")"
+fi
 SHARED_KEY_DIR="${LESSONCUE_DATA_PATH}/config/shortener"
 INTEGRATION_KEY_FILE="${SHORTENER_INTEGRATION_KEY_FILE:-${SHARED_KEY_DIR}/integration-key}"
 CONSOLE_KEY_FILE="${SHARED_KEY_DIR}/console-key"
