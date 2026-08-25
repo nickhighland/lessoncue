@@ -19,9 +19,24 @@ const section = (name) => {
   return next < 0 ? rest : rest.slice(0, next);
 };
 
+const publishedPorts = (service) => {
+  const start = service.search(/^\s+ports:\s*$/m);
+  if (start < 0) return [];
+  const rest = service.slice(start).split("\n").slice(1);
+  const ports = [];
+  for (const line of rest) {
+    if (/^\s+#/.test(line)) continue;
+    const item = line.match(/^\s+- "?([^"]+)"?\s*$/);
+    if (!item) break;
+    ports.push(item[1]);
+  }
+  return ports;
+};
+
 const db = section("shlink-db");
 const shlink = section("shlink");
 const client = section("shlink-web-client");
+const gate = section("shlink-web-gate");
 
 check(db.length > 0 && shlink.length > 0 && client.length > 0, "the shortener services are missing from compose.yaml");
 check(!/^\s+ports:/m.test(db), "shlink-db must not publish a port: the database is never reachable from outside");
@@ -29,15 +44,14 @@ check(/expose:/.test(db), "shlink-db should expose its port to the compose netwo
 
 // Short links are public through the tunnel, so the shortener itself stays on
 // loopback and the tunnel is the way in.
-for (const port of shlink.match(/^\s+- "([^"]+)"/gm) ?? [])
+for (const port of publishedPorts(shlink))
   check(port.includes("SHORTENER_BIND:-127.0.0.1"),
     `shlink publishes ${port.trim()} without defaulting to loopback; the tunnel should be the way in unless an operator chooses otherwise`);
 
-// The console is the opposite trade: it arrives holding a key, so it is
-// reachable on the local network and must never be routed publicly by default.
-for (const port of client.match(/^\s+- "([^"]+)"/gm) ?? [])
-  check(port.includes("SHORTENER_UI_BIND"),
-    `shlink-web-client should use its own bind setting, not the shortener's`);
+// The console is reached only through its password gate, which is what the
+// management hostname points at.
+check(publishedPorts(client).length === 0,
+  "shlink-web-client must not publish a port: the password gate is the way in");
 
 // The console is pre-filled on purpose, which is only safe while it stays off
 // the public internet. Guard the thing that makes it safe.
@@ -57,6 +71,18 @@ check(/DB_DRIVER: postgres/.test(shlink), "the shortener must run on postgres, n
 check(/SHORT_URL_MODE: loose/.test(shlink), "loose mode is what makes a code typed in lower case resolve");
 check(/_FILE:/.test(shlink), "credentials should reach the shortener as files, not inline values");
 check(/profiles: \["shortener"\]/.test(shlink), "the shortener must stay behind its compose profile");
+
+// The console has no login of its own. On a public hostname the gate in front
+// of it is the only thing between a visitor and every short link the
+// organization owns, so the console must not be reachable around it.
+check(gate.length > 0, "the console's password gate is missing from compose.yaml");
+check(/auth_basic_user_file/.test(gate), "the gate must ask for a password");
+check(/profiles: \["shortener"\]/.test(gate), "the gate must stay behind the shortener profile");
+for (const port of publishedPorts(gate))
+  check(port.includes("SHORTENER_UI_BIND:-127.0.0.1"),
+    "the gate must publish on loopback, so the tunnel stays the way in");
+// A health check behind the password would report a working gate as down.
+check(/healthz/.test(gate), "the gate needs a health check that is not behind the password");
 
 // No installation's domain belongs in a file everyone ships.
 for (const domain of ["chroc.cc", "cityhope"])
@@ -114,15 +140,19 @@ for (const layout of layouts) {
     // install would then contend for the port the real server is already on.
     const args = existsSync(`${record}.args`) ? readFileSync(`${record}.args`, "utf8") : "";
     const up = args.split("\n").find((line) => line.includes(" up "));
-    check(up !== undefined && ["shlink-db", "shlink", "shlink-web-client"].every((s) => up.split(/\s+/).includes(s)),
+    check(up !== undefined && ["shlink-db", "shlink", "shlink-web-client", "shlink-web-gate"].every((s) => up.split(/\s+/).includes(s)),
       `in the ${layout.name} layout the installer must name the shortener services to start, got: ${up ?? "(no up)"}`);
     check(up === undefined || !up.split(/\s+/).includes("lessoncue"),
       `in the ${layout.name} layout the installer must not start LessonCue itself`);
 
     // Compose bind-mounts these into the container, where only the file's own
     // mode applies. Root-only meant Shlink could not read its own password.
+    check(existsSync(join(root, "lessoncue", "config", "shortener", "console-password")),
+      `in the ${layout.name} layout the installer must create the console password file before compose runs`);
+
     for (const secret of [join(root, "data", "db-password"),
-                          join(root, "lessoncue", "config", "shortener", "integration-key")]) {
+                          join(root, "lessoncue", "config", "shortener", "integration-key"),
+                          join(root, "lessoncue", "config", "shortener", "console-password")]) {
       check(existsSync(secret) && (statSync(secret).mode & 0o044) === 0o044,
         `${secret.replace(root, "")} must be readable by the unprivileged user the container runs as`);
     }

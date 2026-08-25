@@ -3138,6 +3138,9 @@ public static class AdminApi
                 conflicts = status.Conflicts,
                 // Whether a key exists, never the key itself.
                 integrationKeyConfigured = shortener.IntegrationKey is not null,
+                // Likewise for the console's password: whether one was chosen.
+                consolePasswordSet = shortener.ConsolePasswordSet,
+                consoleUser = ShortenerService.ConsoleUser,
                 installRequestedFor = shortener.InstallRequestedFor,
                 canRequestInstall = shortener.CanRequestInstall,
                 installResult = shortener.InstallResult is { } outcome
@@ -3280,6 +3283,27 @@ public static class AdminApi
             Audit(db, "shortener.key.reveal", organization.Id, "Revealed the URL shortener API key");
             await db.SaveChangesAsync(ct);
             return Results.Ok(new { apiKey = key, scope });
+        });
+
+        appSettings.MapPut("/shortener/console-password", async (ShortenerConsolePasswordInput input,
+            LessonCueDb db, ShortenerService shortener, CancellationToken ct) =>
+        {
+            // The console has no login of its own, so on a public hostname the
+            // gate in front of it is the only thing between a visitor and every
+            // short link the organization owns.
+            try
+            {
+                await shortener.SetConsolePasswordAsync(input.Password, ct);
+            }
+            catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
+            catch (IOException) { return Results.BadRequest(new { error = "LessonCue could not write the console password on this server." }); }
+            catch (UnauthorizedAccessException) { return Results.BadRequest(new { error = "LessonCue is not allowed to write the console password on this server." }); }
+
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+            // The password itself is never recorded, here or anywhere else.
+            Audit(db, "shortener.console.password", organization.Id, "Set the URL shortener console password");
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { user = ShortenerService.ConsoleUser });
         });
 
         appSettings.MapPut("/shortener/key", async (ShortenerKeyInput input, LessonCueDb db,

@@ -712,6 +712,8 @@ public sealed record ShortenerInstallInput(bool Requested, string? Domain = null
 /// <summary>The API key the shortener was started with. LessonCue records it; it cannot mint one.</summary>
 public sealed record ShortenerKeyInput(string? ApiKey);
 
+public sealed record ShortenerConsolePasswordInput(string Password);
+
 public sealed record ShortenerConfigureInput(
     string? Domain,
     string? AdminHost,

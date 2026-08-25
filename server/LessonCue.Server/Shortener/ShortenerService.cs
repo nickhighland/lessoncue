@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using LessonCue.Server.Activities;
 using Microsoft.EntityFrameworkCore;
 
@@ -52,6 +53,9 @@ public sealed class ShortenerService(
     /// it to short URLs it created itself, so the reserved game codes are not
     /// visible there and cannot be edited or deleted through that interface.</summary>
     private readonly string _consoleKeyPath = Path.Combine(dataPath, "config", "shortener", "console-key");
+
+    /// <summary>The htpasswd file the console's password gate reads.</summary>
+    private readonly string _consolePasswordPath = Path.Combine(dataPath, "config", "shortener", "console-password");
 
     private ShortenerStatus? _lastStatus;
     private readonly Lock _statusLock = new();
@@ -151,6 +155,46 @@ public sealed class ShortenerService(
 
     /// <summary>The key to hand an administrator for the shortener's console.</summary>
     public string? ConsoleKey => ReadSecret(_consoleKeyPath);
+
+    /// <summary>Marks the file the installer wrote before anyone chose a password.</summary>
+    private const string ConsoleLockedMarker = "# lessoncue-console-locked";
+
+    /// <summary>Whether an administrator has chosen the console's password.</summary>
+    public bool ConsolePasswordSet
+    {
+        get
+        {
+            var current = ReadSecret(_consolePasswordPath);
+            return current is not null && !current.Contains(ConsoleLockedMarker, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>Set the password asked for in front of the shortener's console.</summary>
+    /// <remarks>
+    /// Written in the htpasswd form the gate reads, which it consults per
+    /// request -- so a new password takes effect without restarting anything.
+    /// SHA-1 without a salt is what that format offers and all this guards is a
+    /// link console behind HTTPS; it is a gate, not a vault.
+    /// </remarks>
+    public async Task SetConsolePasswordAsync(string password, CancellationToken ct = default)
+    {
+        var chosen = (password ?? "").Trim();
+        if (chosen.Length < 8)
+            throw new ArgumentException("Choose a console password of at least 8 characters.");
+
+        var digest = Convert.ToBase64String(SHA1.HashData(Encoding.UTF8.GetBytes(chosen)));
+        await WriteSecretAsync(_consolePasswordPath, $"{ConsoleUser}:{{SHA}}{digest}\n", ct);
+
+        // The gate runs as its own user and only ever reads this.
+        try { File.SetUnixFileMode(_consolePasswordPath, ReadableByTheGate); }
+        catch (PlatformNotSupportedException) { } catch (IOException) { } catch (UnauthorizedAccessException) { }
+    }
+
+    /// <summary>The one account the gate knows.</summary>
+    public const string ConsoleUser = "admin";
+
+    private const UnixFileMode ReadableByTheGate =
+        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead;
 
     /// <summary>Where a key came from, so the console can explain itself.</summary>
     public string IntegrationKeySource =>

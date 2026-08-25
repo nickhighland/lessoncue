@@ -947,6 +947,8 @@ export type ShortenerSettings = {
   detail: string | null;
   conflicts: string[];
   integrationKeyConfigured: boolean;
+  consolePasswordSet: boolean;
+  consoleUser: string;
   installRequestedFor: string | null;
   canRequestInstall: boolean;
   installResult: { installed: boolean; domain: string; appliedAt: string | null; error: string | null } | null;
