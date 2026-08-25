@@ -37,9 +37,11 @@ const publishedPorts = (service) => {
 
 const db = section("shlink-db");
 const shlink = section("shlink");
-const client = section("shlink-web-client");
+const client = section("link-shortener-companion");
 
 check(db.length > 0 && shlink.length > 0 && client.length > 0, "the shortener services are missing from compose.yaml");
+check(!compose.includes("shlinkio/shlink-web-client"), "compose must not use the old Shlink Web image");
+check(/container_name: lessoncue-link-studio/.test(client), "the Companion must have its own container identity");
 check(!/^\s+ports:/m.test(db), "shlink-db must not publish a port: the database is never reachable from outside");
 check(/expose:/.test(db), "shlink-db should expose its port to the compose network only");
 
@@ -73,7 +75,7 @@ check(/secrets:\s*\n\s+- shortener_console_key/.test(client),
   "the companion must consume the scoped console key as a Compose secret");
 // Inside these images localhost resolves to ::1 alone while the servers bind
 // IPv4. A healthcheck aimed at localhost reported a working console as down.
-for (const [name, service] of [["shlink", shlink], ["shlink-web-client", client]])
+for (const [name, service] of [["shlink", shlink], ["link-shortener-companion", client]])
   check(!/test:.*localhost/.test(service),
     `${name}'s healthcheck must use 127.0.0.1: localhost is IPv6-only in these images`);
 
@@ -83,8 +85,12 @@ check(/_FILE:/.test(shlink), "credentials should reach the shortener as files, n
 check(/profiles: \["shortener"\]/.test(shlink), "the shortener must stay behind its compose profile");
 check(!section("shlink-web-gate"), "the old unauthenticated web client gate must not return");
 check(/shortener_console_key:\s*\n\s+file:/.test(compose), "compose must declare the companion API-key secret");
-check(/docker rm -f lessoncue-shlink-gate/.test(installer) && /docker rm -f lessoncue-shlink-gate/.test(updater),
-  "the install and update paths must remove the obsolete v0.45.1 management gate before binding its port");
+for (const script of [installer, updater]) {
+  check(/lessoncue-shlink-gate/.test(script) && /lessoncue-shlink-web/.test(script),
+    "the install and update paths must remove the legacy Shlink Web containers before binding the Companion port");
+  check(/--file \"\$PWD\/compose\.yaml\"/.test(script),
+    "the install and update paths must explicitly use the release compose file");
+}
 check(/ui_health/.test(updater), "the shortener updater must wait for the Companion as well as Shlink");
 
 // No installation's domain belongs in a file everyone ships.

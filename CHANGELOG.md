@@ -4,6 +4,20 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.3 — Complete Link Studio migration
+
+### User changes
+
+- Installing or updating the URL shortener now removes the legacy Shlink Web
+  container and starts Link Studio under its own service and container name.
+- The installer always uses the release's compose file, so a stale compose
+  override cannot silently restore the old web client.
+
+### Developer changes
+
+- The Companion migration covers both the old nginx gate and the known Shlink
+  Web container naming layouts without touching Shlink or PostgreSQL data.
+
 ## v0.45.2 — Link Shortener Companion
 
 ### User changes

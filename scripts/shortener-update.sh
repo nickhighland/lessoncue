@@ -24,7 +24,10 @@ else
   echo "Cannot find compose.yaml beside $0 or in its parent directory." >&2
   exit 1
 fi
-COMPOSE=(docker compose --profile shortener)
+# Do not inherit a stale COMPOSE_FILE from an older manual install. The
+# release's compose file is what guarantees that Link Studio, not Shlink Web,
+# is rebuilt during the migration.
+COMPOSE=(docker compose --file "$PWD/compose.yaml" --profile shortener)
 BACKUP_DIR="${SHORTENER_BACKUP_DIR:-./shortener-data/backups}"
 NEW_TAG="${1:-}"
 
@@ -38,7 +41,7 @@ health() {
 
 ui_port() {
   "${COMPOSE[@]}" config --format json 2>/dev/null \
-    | python3 -c "import json,sys; s=json.load(sys.stdin)['services'].get('shlink-web-client',{}); print((s.get('ports') or [{}])[0].get('published',''))" 2>/dev/null
+    | python3 -c "import json,sys; s=json.load(sys.stdin)['services'].get('link-shortener-companion',{}); print((s.get('ports') or [{}])[0].get('published',''))" 2>/dev/null
 }
 
 ui_health() {
@@ -80,13 +83,21 @@ echo "Backed up $(wc -c < "$DUMP") bytes"
 
 echo "Updating to ${NEW_TAG}"
 SHORTENER_IMAGE="ghcr.io/shlinkio/shlink:${NEW_TAG}" "${COMPOSE[@]}" up -d shlink
-# v0.45.1 left this exact nginx container behind. It owned the management
-# port that the Companion now publishes; remove only that obsolete container.
-if docker rm -f lessoncue-shlink-gate >/dev/null 2>&1; then
-  echo "Removed the obsolete Link Shortener password gate"
-fi
+remove_legacy_web_containers() {
+  local name
+  # Remove only the known v0.45.1 management containers. The new service has
+  # its own name and container, so an old Shlink Web container cannot survive
+  # this update or occupy the management port.
+  for name in lessoncue-shlink-gate lessoncue-shlink-web lessoncue-shlink-web-client-1; do
+    if docker rm -f "$name" >/dev/null 2>&1; then
+      echo "Removed legacy shortener web container ${name}"
+    fi
+  done
+}
+
+remove_legacy_web_containers
 echo "Rebuilding the Link Shortener Companion"
-"${COMPOSE[@]}" up -d --build shlink-web-client
+"${COMPOSE[@]}" up -d --build link-shortener-companion
 
 echo "Waiting for migrations and health"
 for _ in $(seq 1 30); do

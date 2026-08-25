@@ -152,7 +152,7 @@ export SHORT_DOMAIN_ROOT_REDIRECT
 # restart, an operator reading logs -- runs without this shell, and a variable
 # that lived only here made all of them fail on a missing SHORT_DOMAIN.
 # Anything the operator set themselves (ports, bind addresses) is kept.
-OWNED='^(SHORT_DOMAIN|SHORT_DOMAIN_ROOT_REDIRECT|LESSONCUE_DATA_PATH|LESSONCUE_UID|LESSONCUE_GID|SHORTENER_DB_PASSWORD_FILE|SHORTENER_INTEGRATION_KEY_FILE|SHORTENER_CONSOLE_KEY_FILE|SHORTENER_COMPANION_DATA_PATH|SHORTENER_COMPANION_CONTROL_PATH|SHORTENER_UI_UID|SHORTENER_UI_GID)='
+OWNED='^(SHORT_DOMAIN|SHORT_DOMAIN_ROOT_REDIRECT|LESSONCUE_DATA_PATH|LESSONCUE_UID|LESSONCUE_GID|SHORTENER_DB_PASSWORD_FILE|SHORTENER_INTEGRATION_KEY_FILE|SHORTENER_CONSOLE_KEY_FILE|SHORTENER_COMPANION_DATA_PATH|SHORTENER_COMPANION_CONTROL_PATH|SHORTENER_UI_IMAGE|SHORTENER_UI_UID|SHORTENER_UI_GID)='
 KEPT=""
 if [ -f .env ]; then
   KEPT="$(grep -v -E "$OWNED" .env || true)"
@@ -172,6 +172,11 @@ fi
 mv .env.tmp .env
 chmod 600 .env
 
+# Always use the release bundle's compose file. A stale COMPOSE_FILE from an
+# older manual install must not silently send this migration back to Shlink
+# Web, and the explicit file makes repository and release layouts identical.
+COMPOSE=(docker compose --file "$PWD/compose.yaml" --profile shortener)
+
 echo
 echo "Starting the shortener for ${SHORT_DOMAIN}"
 # Named explicitly, never a bare `up`. This compose file also describes
@@ -179,16 +184,16 @@ echo "Starting the shortener for ${SHORT_DOMAIN}"
 # native install, is already serving on port 80 -- starting it here would fail
 # to build and then fight the real server for its port. Start Shlink first so
 # its CLI can mint the companion's scoped key before the UI container starts.
-docker compose --profile shortener up -d shlink-db shlink
+"${COMPOSE[@]}" up -d shlink-db shlink
 
 # Read back from compose rather than assumed, so the printed routes match the
 # ports actually bound -- including any set in .env, which this shell never saw.
 resolved_port() {
-  docker compose --profile shortener config --format json 2>/dev/null \
+  "${COMPOSE[@]}" config --format json 2>/dev/null \
     | python3 -c "import json,sys; s=json.load(sys.stdin)['services'].get('$1',{}); print((s.get('ports') or [{}])[0].get('published',''))" 2>/dev/null
 }
 SHORTENER_HTTP_PORT="$(resolved_port shlink)"
-SHORTENER_UI_PORT="$(resolved_port shlink-web-client)"
+SHORTENER_UI_PORT="$(resolved_port link-shortener-companion)"
 : "${SHORTENER_HTTP_PORT:=8081}"
 : "${SHORTENER_UI_PORT:=8082}"
 
@@ -229,7 +234,7 @@ fi
 if [ "$CONSOLE_KEY_NEEDS_MINT" -eq 0 ]; then
   echo "Keeping the existing console key in ${CONSOLE_KEY_FILE}"
 else
-  MINTED="$(docker compose --profile shortener exec -T shlink \
+  MINTED="$("${COMPOSE[@]}" exec -T shlink \
     shlink api-key:generate --name=lessoncue-console --author-only 2>/dev/null \
     | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)"
   if [ -n "$MINTED" ]; then
@@ -237,7 +242,7 @@ else
     echo "Generated a console key that cannot see the reserved game codes"
   else
     rm -f "$CONSOLE_KEY_FILE"
-    echo "Could not generate the companion's scoped console key; the web client was not started." >&2
+    echo "Could not generate the companion's scoped console key; Link Studio was not started." >&2
     exit 1
   fi
   unset MINTED
@@ -249,15 +254,23 @@ if [ "$(id -u)" = "0" ] && [ -n "${OWNER:-}" ]; then
   chown "$OWNER" "$CONSOLE_KEY_FILE" 2>/dev/null || true
 fi
 
-# v0.45.1 placed an nginx password gate in front of the web client. The new
-# Companion owns this same management port, so remove that exact obsolete
-# container before Compose tries to publish it. No other container is touched.
-if docker rm -f lessoncue-shlink-gate >/dev/null 2>&1; then
-  echo "Removed the obsolete Link Shortener password gate"
-fi
+remove_legacy_web_containers() {
+  local name
+  # v0.45.1 used these exact names for the nginx gate and Shlink Web. The
+  # auto-generated name covers installs made from a compose file without an
+  # explicit container_name. Remove only these known management containers;
+  # the database and Shlink data containers are never touched.
+  for name in lessoncue-shlink-gate lessoncue-shlink-web lessoncue-shlink-web-client-1; do
+    if docker rm -f "$name" >/dev/null 2>&1; then
+      echo "Removed legacy shortener web container ${name}"
+    fi
+  done
+}
+
+remove_legacy_web_containers
 
 echo "Starting the Link Shortener Companion"
-docker compose --profile shortener up -d --build shlink-web-client
+"${COMPOSE[@]}" up -d --build link-shortener-companion
 
 ui_healthy=0
 for _ in $(seq 1 40); do
@@ -276,7 +289,7 @@ The Link Shortener Companion never answered.
 
 Look at what it said:
 
-  docker compose --profile shortener logs shlink-web-client
+  "${COMPOSE[@]}" logs link-shortener-companion
 FAILED_UI
   exit 1
 fi
