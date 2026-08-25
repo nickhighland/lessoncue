@@ -254,21 +254,6 @@ if [ "$(id -u)" = "0" ] && [ -n "${OWNER:-}" ]; then
   chown "$OWNER" "$CONSOLE_KEY_FILE" 2>/dev/null || true
 fi
 
-remove_legacy_web_containers() {
-  local name
-  # v0.45.1 used these exact names for the nginx gate and Shlink Web. The
-  # auto-generated name covers installs made from a compose file without an
-  # explicit container_name. Remove only these known management containers;
-  # the database and Shlink data containers are never touched.
-  for name in lessoncue-shlink-gate lessoncue-shlink-web lessoncue-shlink-web-client-1; do
-    if docker rm -f "$name" >/dev/null 2>&1; then
-      echo "Removed legacy shortener web container ${name}"
-    fi
-  done
-}
-
-remove_legacy_web_containers
-
 echo "Starting the Link Shortener Companion"
 "${COMPOSE[@]}" up -d --build link-shortener-companion
 

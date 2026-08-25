@@ -908,6 +908,19 @@ export type View =
   | "users"
   | "settings";
 
+export type SettingsSection =
+  | "overview"
+  | "general"
+  | "accounts"
+  | "appearance"
+  | "media"
+  | "playback"
+  | "network"
+  | "integrations"
+  | "security"
+  | "backup"
+  | "system";
+
 export interface JoinAddressOption {
   id: string;
   label: string;

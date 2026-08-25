@@ -174,6 +174,27 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   box-shadow: inset 3px 0 0 var(--gold);
 }
 .sidebar nav button.active .nav-icon { opacity: 1; color: var(--gold); }
+.settings-nav-item > button .nav-disclosure { margin-left: auto; color: #90a8a3; font-size: 12px; }
+.settings-subnavigation {
+  display: grid; gap: 2px; margin: 2px 0 10px 34px; padding: 4px 0 4px 10px;
+  border-left: 1px solid #ffffff20; overflow: visible !important;
+}
+.sidebar nav .settings-subnavigation > button,
+.sidebar nav .settings-subnavigation .settings-subgroup button {
+  min-height: 0; padding: 7px 10px; border-radius: 7px; color: #a9bbb6;
+  font-size: 11px; font-weight: 600; line-height: 1.2;
+}
+.sidebar nav .settings-subnavigation > button:hover,
+.sidebar nav .settings-subnavigation .settings-subgroup button:hover { color: #fff; background: #ffffff0c; }
+.sidebar nav .settings-subnavigation > button.active,
+.sidebar nav .settings-subnavigation .settings-subgroup button.active {
+  color: #fff; background: #ffffff12; box-shadow: inset 2px 0 0 var(--gold);
+}
+.settings-subgroup { display: grid; gap: 2px; }
+.settings-subgroup-label {
+  padding: 9px 10px 3px; color: #a3bdb6; font-size: 8px; font-weight: 800;
+  letter-spacing: .1em; text-transform: uppercase;
+}
 .sidebar-foot { margin-top: auto; border-top: 1px solid #ffffff14; padding-top: 18px; display: grid; gap: 12px; }
 .storage-mini { display: grid; gap: 6px; color: #a7bbb6; font-size: 9px; }
 .storage-mini strong { color: #fff; font-size: 12px; }
@@ -953,40 +974,54 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .pairing-form { margin-top: 20px; }
 .domain-suffix span { min-width: 58px; }
 
-/* ── Settings Tabs ───────────────────────────────────────────────────────── */
-.settings-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: -8px 0 24px; }
-.settings-tabs button {
-  min-width: 0; color: var(--ink); text-align: left; background: #fff;
-  border: 1.5px solid var(--line); border-radius: 12px; padding: 14px;
-  display: grid; grid-template-columns: auto 1fr; column-gap: 10px;
-  cursor: pointer; transition: all 0.15s ease;
+/* ── Settings workspace ──────────────────────────────────────────────────── */
+.settings-overview {
+  display: none; margin-bottom: 20px; padding: 24px; background: #fff;
+  border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
 }
-.settings-tabs button:hover { border-color: #cdd3cd; box-shadow: var(--shadow-sm); }
-.settings-tabs button > span { color: var(--gold); grid-row: 1 / 3; align-self: center; font-size: 20px; }
-.settings-tabs strong, .settings-tabs small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.settings-tabs strong { font-size: 10px; }
-.settings-tabs small { color: var(--muted); margin-top: 3px; font-size: 8px; }
-.settings-tabs button.active { border-color: var(--gold); background: #fffaf0; box-shadow: 0 0 0 2px #d88c1e18; }
+.settings-page[data-section="overview"] > .settings-overview { display: block; }
+.settings-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.settings-overview-card {
+  display: grid; gap: 6px; min-width: 0; padding: 16px; border: 1.5px solid var(--line);
+  border-radius: 10px; color: var(--ink); background: #fff; text-align: left; cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.settings-overview-card:hover { border-color: var(--gold); box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+.settings-overview-card span { color: var(--muted); font-size: 8px; font-weight: 900; letter-spacing: .1em; }
+.settings-overview-card strong { color: var(--deep); font-size: 14px; overflow-wrap: anywhere; }
+.settings-overview-card small { color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
 .settings-page > .account-settings-grid { display: none; }
-.settings-page[data-section="accounts"] > .account-settings-grid { display: grid; }
+.settings-page[data-section="accounts"] > .account-settings-grid,
+.settings-page[data-section="security"] > .account-settings-grid { display: grid; }
+.settings-page > .account-settings-grid > .modal-backdrop { display: grid; }
+.settings-page > .account-settings-grid > * { display: none; }
+.settings-page[data-section="accounts"] > .account-settings-grid > .settings-registration,
+.settings-page[data-section="accounts"] > .account-settings-grid > .settings-email,
+.settings-page[data-section="security"] > .account-settings-grid > .settings-mfa { display: block; }
 .settings-page > .settings-grid:not(.account-settings-grid) > * { display: none; }
 .settings-page[data-section="system"] > .settings-grid:not(.account-settings-grid) > .settings-system,
+.settings-page[data-section="general"] > .settings-grid:not(.account-settings-grid) > .settings-general,
 .settings-page[data-section="accounts"] > .settings-grid:not(.account-settings-grid) > .settings-accounts,
+.settings-page[data-section="appearance"] > .settings-grid:not(.account-settings-grid) > .settings-appearance,
 .settings-page[data-section="media"] > .settings-grid:not(.account-settings-grid) > .settings-media,
-.settings-page[data-section="connections"] > .settings-grid:not(.account-settings-grid) > .settings-connections,
-.settings-page[data-section="data"] > .settings-grid:not(.account-settings-grid) > .settings-data { display: block; }
+.settings-page[data-section="playback"] > .settings-grid:not(.account-settings-grid) > .settings-playback,
+.settings-page[data-section="network"] > .settings-grid:not(.account-settings-grid) > .settings-network,
+.settings-page[data-section="integrations"] > .settings-grid:not(.account-settings-grid) > .settings-integrations,
+.settings-page[data-section="security"] > .settings-grid:not(.account-settings-grid) > .settings-security,
+.settings-page[data-section="backup"] > .settings-grid:not(.account-settings-grid) > .settings-backup,
+.settings-page[data-section="system"] > .settings-grid:not(.account-settings-grid) > .settings-system { display: block; }
 .account-settings { border-color: #c7d5ca; background: linear-gradient(135deg, #fff, #f5f9f5); }
 .account-settings-grid > .settings-registration,
 .account-settings-grid > .settings-email { grid-column: span 2; }
 .account-settings-grid > .settings-mfa { grid-column: 1; }
 .account-settings-grid > .settings-preview-features { grid-column: 2; }
-.settings-data .backup-actions {
+.settings-backup .backup-actions {
   display: grid; grid-template-columns: 1fr 1fr; align-items: end;
   padding: 16px; border: 1.5px solid var(--line); border-radius: 10px; background: #fbfaf5;
 }
-.settings-data .backup-actions label:not(.check) { display: grid; gap: 7px; color: var(--green); font-size: 10px; font-weight: 800; }
-.settings-data .backup-actions .backup-secret-choice, .settings-data .backup-actions .backup-password-note { grid-column: 1 / -1; }
-.settings-data .backup-actions .button { width: 100%; }
+.settings-backup .backup-actions label:not(.check) { display: grid; gap: 7px; color: var(--green); font-size: 10px; font-weight: 800; }
+.settings-backup .backup-actions .backup-secret-choice, .settings-backup .backup-actions .backup-password-note { grid-column: 1 / -1; }
+.settings-backup .backup-actions .button { width: 100%; }
 .backup-password-note { margin: 0; }
 .backup-restore-upload {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
@@ -1019,7 +1054,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .wide-settings { grid-column: span 2; }
 .settings-page[data-section="media"] > .settings-grid:not(.account-settings-grid) > .settings-upload-limits { order: 1; }
 .settings-page[data-section="media"] > .settings-grid:not(.account-settings-grid) > .settings-storage { order: 2; }
-.settings-page[data-section="media"] > .settings-grid:not(.account-settings-grid) > .settings-adaptive-playback { order: 3; }
+.settings-page[data-section="playback"] > .settings-grid:not(.account-settings-grid) > .settings-adaptive-playback { order: 1; }
 .backup-actions { margin: 20px 0 14px; }
 .backup-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -1888,8 +1923,8 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   .class-list { display: flex; overflow: auto; }
   .class-list h3 { display: none; }
   .class-list > button { width: auto; flex: 0 0 190px; }
-  .quick-create, .two-fields, .backup-restore-upload, .media-filters, .replace-media, .settings-data .backup-actions { grid-template-columns: 1fr; }
-  .settings-data .backup-actions .backup-secret-choice, .settings-data .backup-actions .backup-password-note { grid-column: auto; }
+  .quick-create, .two-fields, .backup-restore-upload, .media-filters, .replace-media, .settings-backup .backup-actions { grid-template-columns: 1fr; }
+  .settings-backup .backup-actions .backup-secret-choice, .settings-backup .backup-actions .backup-password-note { grid-column: auto; }
   .media-filters > span { padding: 0; }
   .restore-counts, .media-manager-summary { grid-template-columns: 1fr 1fr; }
   .schedule-panel { display: block; }
@@ -1923,8 +1958,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   .screen-card.expanded { grid-column: auto; }
   .diagnostic-summary, .codec-list { grid-template-columns: 1fr 1fr; }
   .diagnostic-list > div { grid-template-columns: 1fr; }
-  .settings-tabs { display: flex; overflow-x: auto; padding-bottom: 3px; }
-  .settings-tabs button { flex: 0 0 190px; }
+  .settings-overview-grid { grid-template-columns: 1fr 1fr; }
   .registration-code-form { grid-template-columns: 1fr; }
   .email-test-form { grid-template-columns: 1fr; }
   .secret-reveal { grid-template-columns: 1fr 1fr; }

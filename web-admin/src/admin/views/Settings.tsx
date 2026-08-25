@@ -1,7 +1,7 @@
 import { confirmAction } from "../../AccessibleDialogs";
 import { FormEvent, useEffect, useState } from "react";
 import { api, waitForVersion } from "../api";
-import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, JoinAddressStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, ShortenerReport, ShortenerSettings, ShortenerTestResult, ShortenerTunnelPlan, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
+import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, JoinAddressStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, SettingsSection, ShortenerReport, ShortenerSettings, ShortenerTestResult, ShortenerTunnelPlan, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
 import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead, StorageMeter } from "../ui";
 import { RegistrationSettingsPanel, ServiceAdminMfaPanel, TroubleshootingLogPanel } from "./Users";
 import { cleanReleaseNotes, errorText, formatBytes, parseStringArray, quotaLimitsFromText, quotaLimitsToText, timeAgo } from "../utils";
@@ -41,6 +41,8 @@ export function Settings({
   canServiceSettings,
   canBackups,
   canUpdates,
+  settingsSection,
+  setSettingsSection,
 }: {
   bootstrap: Bootstrap;
   backups: Backup[];
@@ -51,11 +53,10 @@ export function Settings({
   canServiceSettings: boolean;
   canBackups: boolean;
   canUpdates: boolean;
+  settingsSection: SettingsSection;
+  setSettingsSection: (section: SettingsSection) => void;
 }) {
   const canManageApp = canAppSettings || canServiceSettings;
-  const [settingsSection, setSettingsSection] = useState<
-    "system" | "accounts" | "media" | "connections" | "data"
-  >(canUpdates ? "system" : canManageApp ? "accounts" : "data");
   const [automaticStorage, setAutomaticStorage] = useState(
     bootstrap.storage.automaticAllocation,
   );
@@ -251,21 +252,40 @@ export function Settings({
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const values = Object.fromEntries(form);
+    const value = (name: string, fallback: string) =>
+      String(values[name] ?? fallback);
+    const controllerValues = form.getAll("requireLocalRoomControllers");
     try {
       await api("/api/v1/organization", {
         method: "PUT",
         body: JSON.stringify({
-          ...values,
+          // The settings pages deliberately split one legacy form into
+          // focused cards. Keep the server's complete input contract intact
+          // while letting each card submit only the fields it owns.
+          name: value("name", o.name),
+          siteName: value("siteName", o.siteName),
+          timeZone: value("timeZone", o.timeZone),
+          weekStartsOn: value("weekStartsOn", o.weekStartsOn),
+          welcomeMessage: value("welcomeMessage", o.welcomeMessage),
           defaultLessonDurationMinutes: Number(
-            values.defaultLessonDurationMinutes,
+            values.defaultLessonDurationMinutes ?? o.defaultLessonDurationMinutes,
           ),
-          defaultRetentionDays: Number(values.defaultRetentionDays),
-          requireLocalRoomControllers:
-            form.get("requireLocalRoomControllers") === "on",
-          signageSourceAllowlist: String(values.signageSourceAllowlist || "")
+          defaultRetentionDays: Number(
+            values.defaultRetentionDays ?? o.defaultRetentionDays,
+          ),
+          primaryColor: value("primaryColor", o.primaryColor),
+          accentColor: value("accentColor", o.accentColor),
+          navigationTextColor: value("navigationTextColor", o.navigationTextColor),
+          selectedTabColor: value("selectedTabColor", o.selectedTabColor),
+          requireLocalRoomControllers: form.has("requireLocalRoomControllers")
+            ? controllerValues.includes("on")
+            : o.requireLocalRoomControllers,
+          signageSourceAllowlist: form.has("signageSourceAllowlist")
+            ? String(values.signageSourceAllowlist || "")
             .split(/[\s,]+/)
             .map((value) => value.trim())
-            .filter(Boolean),
+            .filter(Boolean)
+            : parseStringArray(o.signageSourceAllowlistJson),
         }),
       });
       refresh();
@@ -1077,79 +1097,64 @@ export function Settings({
       <PageHead
         eyebrow="SERVER"
         title="Settings"
-        detail="Updates, appearance, storage, connectivity, recovery, and local server operations."
+        detail="Choose an area from the settings menu to manage LessonCue."
       />
-      <nav className="settings-tabs" aria-label="Settings sections">
-        {canUpdates && (
-          <button
-            className={settingsSection === "system" ? "active" : ""}
-            onClick={() => setSettingsSection("system")}
-          >
-            <span>↻</span>
-            <strong>System</strong>
-            <small>Updates</small>
-          </button>
-        )}
-        {canManageApp && (
-          <button
-            className={settingsSection === "accounts" ? "active" : ""}
-            onClick={() => setSettingsSection("accounts")}
-          >
-            <span>♙</span>
-            <strong>
-              {canServiceSettings ? "Organization & accounts" : "Registration"}
-            </strong>
-            <small>
-              {canServiceSettings
-                ? "Appearance, registration, email"
-                : "Modes and registration codes"}
-            </small>
-          </button>
-        )}
-        {canManageApp && (
-          <button
-            className={settingsSection === "media" ? "active" : ""}
-            onClick={() => setSettingsSection("media")}
-          >
-            <span>▶</span>
-            <strong>Media & storage</strong>
-            <small>
-              {canServiceSettings
-                ? "Folders, capacity, playback"
-                : "Approved folders and tags"}
-            </small>
-          </button>
-        )}
-        {canManageApp && (
-          <button
-            className={settingsSection === "connections" ? "active" : ""}
-            onClick={() => setSettingsSection("connections")}
-          >
-            <span>⌁</span>
-            <strong>Connections & pairing</strong>
-            <small>
-              {canServiceSettings
-                ? "Address, pairing, remote access"
-                : "Pairing and controller PINs"}
-            </small>
-          </button>
-        )}
-        {(canManageApp || canBackups) && (
-          <button
-            className={settingsSection === "data" ? "active" : ""}
-            onClick={() => setSettingsSection("data")}
-          >
-            <span>▤</span>
-            <strong>Data & recovery</strong>
-            <small>
-              {canServiceSettings
-                ? "Backups, recycle bin, activity"
-                : "Recycle bin and activity"}
-            </small>
-          </button>
-        )}
-      </nav>
       <div className="settings-page" data-section={settingsSection}>
+        <section className="settings-overview" aria-labelledby="settings-overview-title">
+          <div className="settings-heading">
+            <div>
+              <span className="settings-kicker">SETTINGS</span>
+              <h2 id="settings-overview-title">Settings overview</h2>
+              <p className="settings-copy">
+                A quick view of the server. Select any status to open the page
+                where it can be managed.
+              </p>
+            </div>
+          </div>
+          <div className="settings-overview-grid">
+            {(canServiceSettings || canUpdates) && (
+              <button className="settings-overview-card" onClick={() => setSettingsSection("system")}>
+                <span>SYSTEM</span>
+                <strong>
+                  {diagnostics
+                    ? diagnosticConverterReady && diagnostics.screens.playbackErrors === 0 && !diagnostics.backup.overdue
+                      ? "Healthy"
+                      : "Needs attention"
+                    : "Checking"}
+                </strong>
+                <small>Version {bootstrap.update.currentVersion}</small>
+              </button>
+            )}
+            {canManageApp && (
+              <button className="settings-overview-card" onClick={() => setSettingsSection("playback")}>
+                <span>DISPLAYS</span>
+                <strong>{bootstrap.counts.screens} registered</strong>
+                <small>Open Playback &amp; Displays</small>
+              </button>
+            )}
+            {canServiceSettings && (
+              <button className="settings-overview-card" onClick={() => setSettingsSection("network")}>
+                <span>REMOTE ACCESS</span>
+                <strong>{bootstrap.cloudflareTunnel.enabled ? "Enabled" : "Disabled"}</strong>
+                <small>{bootstrap.cloudflareTunnel.connected ? `${bootstrap.cloudflareTunnel.activeConnections} edge connections` : "Cloudflare Tunnel"}</small>
+              </button>
+            )}
+            {canManageApp && shortener && (
+              <button className="settings-overview-card" onClick={() => setSettingsSection("integrations")}>
+                <span>SHORTENER</span>
+                <strong>{shortenerStateLabel(shortener.state)}</strong>
+                <small>{shortener.publicUrl || "URL shortener"}</small>
+              </button>
+            )}
+            {(canManageApp || canBackups) && (
+              <button className="settings-overview-card" onClick={() => setSettingsSection("backup")}>
+                <span>BACKUPS</span>
+                <strong>{bootstrap.backupPolicy?.enabled ? "Enabled" : "Disabled"}</strong>
+                <small>{bootstrap.backupPolicy?.overdue ? "Needs attention" : "Backup & Recovery"}</small>
+              </button>
+            )}
+          </div>
+        </section>
         {canManageApp && (
           <div className="settings-grid account-settings-grid">
             <RegistrationSettingsPanel
@@ -1590,16 +1595,24 @@ export function Settings({
             </CollapsibleSettingsSection>
           )}
       {canServiceSettings && (
-        <CollapsibleSettingsSection
-          label="Organization & appearance"
-          className="wide-settings settings-panel settings-accounts"
-        >
-              <h2>Organization & appearance</h2>
-              <p className="settings-copy">
-                Manage organization defaults, controller access, and every
-                interface color together.
-              </p>
-              <form className="stack" onSubmit={saveOrganization}>
+        <>
+          <CollapsibleSettingsSection
+            label="General"
+            className="wide-settings settings-panel settings-general"
+          >
+            <div className="settings-heading">
+              <div>
+                <span className="settings-kicker">ORGANIZATION</span>
+                <h2>General</h2>
+                <p className="settings-copy">
+                  Organization identity, lesson defaults, and teacher-facing
+                  feature availability.
+                </p>
+              </div>
+            </div>
+            <form className="stack" onSubmit={saveOrganization}>
+              <div className="settings-subsection">
+                <h3>Organization</h3>
                 <div className="two-fields">
                   <Field label="Organization">
                     <input name="name" defaultValue={o.name} required />
@@ -1619,111 +1632,109 @@ export function Settings({
                     </select>
                   </Field>
                 </div>
+              </div>
+              <div className="settings-subsection">
+                <h3>Lesson defaults</h3>
                 <Field label="Welcome message">
+                  <input name="welcomeMessage" defaultValue={o.welcomeMessage} />
+                </Field>
+                <Field label="Default lesson minutes">
                   <input
-                    name="welcomeMessage"
-                    defaultValue={o.welcomeMessage}
+                    name="defaultLessonDurationMinutes"
+                    type="number"
+                    min="5"
+                    max="480"
+                    defaultValue={o.defaultLessonDurationMinutes}
                   />
                 </Field>
-                <div className="two-fields">
-                  <Field label="Default lesson minutes">
-                    <input
-                      name="defaultLessonDurationMinutes"
-                      type="number"
-                      min="5"
-                      max="480"
-                      defaultValue={o.defaultLessonDurationMinutes}
-                    />
-                  </Field>
-                  <Field label="Archive retention days">
-                    <input
-                      name="defaultRetentionDays"
-                      type="number"
-                      min="1"
-                      max="3650"
-                      defaultValue={o.defaultRetentionDays}
-                    />
-                  </Field>
-                </div>
-                <div className="settings-subsection">
-                  <h3>Approved signage information sources</h3>
-                  <p>
-                    Enter one trusted website origin per line, such as
-                    https://weather.example.org. Signage editors may only use
-                    RSS, calendars, weather, menus, or JSON data from these
-                    origins.
-                  </p>
-                  <Field label="Approved source origins">
-                    <textarea
-                      name="signageSourceAllowlist"
-                      rows={4}
-                      defaultValue={parseStringArray(
-                        o.signageSourceAllowlistJson,
-                      ).join("\n")}
-                      placeholder="https://example.org"
-                    />
-                  </Field>
-                </div>
-                <div className="settings-subsection">
-                  <h3>Room controller access</h3>
-                  <label className="check-row">
-                    <input
-                      name="requireLocalRoomControllers"
-                      type="checkbox"
-                      defaultChecked={o.requireLocalRoomControllers}
-                    />{" "}
-                    Require non-administrator room remotes to use the local
-                    .local address
-                  </label>
-                  <p>
-                    When enabled, room and temporary controllers used by Editors
-                    or Viewers are rejected on public hostnames. Service Admins
-                    and App Admins can still troubleshoot remotely.
-                  </p>
-                </div>
-                <div className="settings-subsection">
-                  <h3>Interface colors</h3>
-                  <p>
-                    Choose the navigation background, general accent, navigation
-                    text, and selected-tab colors in one place.
-                  </p>
-                  <div className="color-fields">
-                    <Field label="Navigation background">
-                      <input
-                        name="primaryColor"
-                        type="color"
-                        defaultValue={o.primaryColor}
-                      />
-                    </Field>
-                    <Field label="Accent color">
-                      <input
-                        name="accentColor"
-                        type="color"
-                        defaultValue={o.accentColor}
-                      />
-                    </Field>
-                    <Field label="Navigation text">
-                      <input
-                        name="navigationTextColor"
-                        type="color"
-                        defaultValue={o.navigationTextColor}
-                      />
-                    </Field>
-                    <Field label="Selected navigation tab">
-                      <input
-                        name="selectedTabColor"
-                        type="color"
-                        defaultValue={o.selectedTabColor}
-                      />
-                    </Field>
-                  </div>
-                </div>
-                <button className="button primary">
-                  Save organization & appearance
-                </button>
-              </form>
-            </CollapsibleSettingsSection>
-          )}
+              </div>
+              <div className="settings-subsection">
+                <h3>Features</h3>
+                <ActivityAvailabilityPanel notify={notify} refresh={refresh} />
+              </div>
+              <button className="button primary">Save general settings</button>
+            </form>
+          </CollapsibleSettingsSection>
+
+          <CollapsibleSettingsSection
+            label="Appearance"
+            className="wide-settings settings-panel settings-appearance"
+          >
+            <div className="settings-heading">
+              <div>
+                <span className="settings-kicker">BRANDING</span>
+                <h2>Appearance</h2>
+                <p className="settings-copy">
+                  Set the colors used by the LessonCue navigation and selected
+                  states. Future branding and logo settings belong here too.
+                </p>
+              </div>
+            </div>
+            <form className="stack" onSubmit={saveOrganization}>
+              <div className="color-fields">
+                <Field label="Navigation background">
+                  <input name="primaryColor" type="color" defaultValue={o.primaryColor} />
+                </Field>
+                <Field label="Accent color">
+                  <input name="accentColor" type="color" defaultValue={o.accentColor} />
+                </Field>
+                <Field label="Navigation text">
+                  <input name="navigationTextColor" type="color" defaultValue={o.navigationTextColor} />
+                </Field>
+                <Field label="Selected navigation tab">
+                  <input name="selectedTabColor" type="color" defaultValue={o.selectedTabColor} />
+                </Field>
+              </div>
+              <button className="button primary">Save appearance</button>
+            </form>
+          </CollapsibleSettingsSection>
+
+          <CollapsibleSettingsSection
+            label="Approved signage sources"
+            className="wide-settings settings-panel settings-integrations"
+          >
+            <h2>Approved signage sources</h2>
+            <p className="settings-copy">
+              Signage editors may only use RSS, calendars, weather, menus, or
+              JSON data from origins approved here.
+            </p>
+            <form className="stack" onSubmit={saveOrganization}>
+              <Field label="Approved source origins" hint="Enter one trusted website origin per line.">
+                <textarea
+                  name="signageSourceAllowlist"
+                  rows={5}
+                  defaultValue={parseStringArray(o.signageSourceAllowlistJson).join("\n")}
+                  placeholder="https://example.org"
+                />
+              </Field>
+              <button className="button primary">Save approved sources</button>
+            </form>
+          </CollapsibleSettingsSection>
+
+          <CollapsibleSettingsSection
+            label="Room controller policy"
+            className="wide-settings settings-panel settings-security"
+          >
+            <h2>Room controller policy</h2>
+            <p className="settings-copy">
+              Restrict room and temporary remotes to the local network while
+              allowing administrators to troubleshoot remotely.
+            </p>
+            <form className="stack" onSubmit={saveOrganization}>
+              <input type="hidden" name="requireLocalRoomControllers" value="off" />
+              <label className="check-row">
+                <input
+                  name="requireLocalRoomControllers"
+                  type="checkbox"
+                  defaultChecked={o.requireLocalRoomControllers}
+                />{" "}
+                Require non-administrator room remotes to use the local .local address
+              </label>
+              <button className="button primary">Save controller policy</button>
+            </form>
+          </CollapsibleSettingsSection>
+        </>
+      )}
           {canManageApp && (
             <CollapsibleSettingsSection
               label="Approved folders & tags"
@@ -1991,7 +2002,7 @@ export function Settings({
           {canServiceSettings && (
             <CollapsibleSettingsSection
               label="Adaptive TV playback"
-              className="settings-panel settings-media settings-adaptive-playback"
+              className="settings-panel settings-playback settings-adaptive-playback"
             >
               <div className="settings-heading">
                 <div>
@@ -2111,11 +2122,10 @@ export function Settings({
           {canServiceSettings && (
             <CollapsibleSettingsSection
               label="Server connection"
-              className="settings-panel settings-connections"
+              className="settings-panel settings-network"
             >
               <h2>Server connection</h2>
               <GameJoinAddressPanel notify={notify} />
-              <ActivityAvailabilityPanel notify={notify} refresh={refresh} />
               <Definition
                 label="Browser address"
                 value={`${location.protocol}//${location.host}`}
@@ -2200,7 +2210,7 @@ export function Settings({
           {canServiceSettings && (
             <CollapsibleSettingsSection
               label="Optional local HTTPS"
-              className="wide-settings settings-panel settings-connections"
+              className="wide-settings settings-panel settings-network"
             >
               <div className="settings-heading">
                 <div>
@@ -2259,7 +2269,7 @@ export function Settings({
           {canManageApp && (
             <CollapsibleSettingsSection
               label="Screen pairing"
-              className="settings-panel settings-connections"
+              className="settings-panel settings-playback"
             >
               <h2>Screen pairing</h2>
               <Definition
@@ -2307,7 +2317,7 @@ export function Settings({
           {canManageApp && shortener && (
             <CollapsibleSettingsSection
               label="Integrations · URL shortener"
-              className="settings-panel settings-connections"
+              className="settings-panel settings-integrations"
             >
               <h2>URL shortener</h2>
               <p className="settings-copy">
@@ -2704,7 +2714,7 @@ export function Settings({
           {canManageApp && (
             <CollapsibleSettingsSection
               label="Universal controller"
-              className="settings-panel settings-connections"
+              className="settings-panel settings-playback"
             >
               <h2>Universal controller</h2>
               <Definition
@@ -2757,7 +2767,7 @@ export function Settings({
           {canServiceSettings && (
             <CollapsibleSettingsSection
               label="Optional remote access"
-              className="wide-settings cloudflare-settings settings-panel settings-connections"
+              className="wide-settings cloudflare-settings settings-panel settings-network"
             >
               <div className="settings-heading">
                 <div>
@@ -2932,14 +2942,14 @@ export function Settings({
           {canManageApp && (
             <CollapsibleSettingsSection
               label="Recycling bin"
-              className="wide-settings settings-panel settings-data"
+              className="wide-settings settings-panel settings-backup"
             >
               <div className="settings-heading">
                 <div>
                   <h2>Recycling bin</h2>
                   <p className="settings-copy">
                     Deleted classes, lessons, and media remain recoverable for
-                    30 days. Recycled media still uses storage until it is
+                    {o.defaultRetentionDays} days. Recycled media still uses storage until it is
                     purged.
                   </p>
                 </div>
@@ -2965,7 +2975,7 @@ export function Settings({
                         <small>
                           Purges{" "}
                           {new Date(
-                            new Date(item.deletedAt).getTime() + 30 * 86400000,
+                            new Date(item.deletedAt).getTime() + o.defaultRetentionDays * 86400000,
                           ).toLocaleDateString()}
                         </small>
                         <button
@@ -2981,7 +2991,7 @@ export function Settings({
               ) : (
                 <Empty
                   title="Recycling bin is empty"
-                  body="Deleted classes, lessons, and media will appear here for 30 days."
+                  body={`Deleted classes, lessons, and media will appear here for ${o.defaultRetentionDays} days.`}
                 />
               )}
             </CollapsibleSettingsSection>
@@ -2989,9 +2999,24 @@ export function Settings({
           {canServiceSettings && canBackups && (
             <CollapsibleSettingsSection
               label="Privacy & backups"
-              className="settings-panel settings-data"
+              className="settings-panel settings-backup"
             >
               <h2>Privacy & backups</h2>
+              <form className="stack retention-form" onSubmit={saveOrganization}>
+                <Field
+                  label="Archive retention days"
+                  hint="How long deleted classes, lessons, and media remain recoverable before purge."
+                >
+                  <input
+                    name="defaultRetentionDays"
+                    type="number"
+                    min="1"
+                    max="3650"
+                    defaultValue={o.defaultRetentionDays}
+                  />
+                </Field>
+                <button className="button">Save retention</button>
+              </form>
               <div className="privacy-callout">
                 <span>⌂</span>
                 <div>
@@ -3519,7 +3544,7 @@ export function Settings({
           {canManageApp && (
             <CollapsibleSettingsSection
               label="Recent activity"
-              className="settings-panel settings-data"
+              className="settings-panel settings-security"
             >
               <h2>Recent activity</h2>
               <div className="audit-list">
@@ -3538,7 +3563,7 @@ export function Settings({
           {canServiceSettings && (
             <CollapsibleSettingsSection
               label="Server commands"
-              className="settings-panel settings-data"
+              className="settings-panel settings-system"
             >
               <h2>Server commands</h2>
               <pre>

@@ -434,6 +434,11 @@ public sealed class ShortenerService(
     /// </summary>
     public async Task<ShortenerStatus> StatusAsync(CancellationToken ct = default)
     {
+        // A live status check is the authority for whether games may advertise
+        // short links. Clear the previous finding before doing any I/O so a
+        // stopped or reconfigured shortener can never remain usable while this
+        // check is in progress.
+        MarkUsable(false);
         var settings = await SettingsAsync(ct);
         var pool = await PoolStatusAsync(ct);
 

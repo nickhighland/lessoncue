@@ -4,6 +4,27 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.5 — LessonCue Shortener installation
+
+### User changes
+
+- The next shortener installation starts the LessonCue Link Shortener
+  Companion directly in place of the retired Shlink Web client.
+- Short Link game addresses now refresh shortener health before they are
+  offered, so a newly installed shortener is available immediately when it is
+  healthy.
+- Settings is organized behind an expandable left navigation with an overview
+  and grouped pages for organization, content and devices, infrastructure, and
+  administration.
+
+### Developer changes
+
+- The release bundle includes a one-time `remove-shlink-web-client.sh` utility
+  for retiring the old management containers and image without touching Shlink
+  or PostgreSQL data.
+- The normal installer and updater no longer contain legacy migration cleanup;
+  they install the Companion directly as the supported management UI.
+
 ## v0.45.4 — Complete Google Play TV release
 
 ### User changes
