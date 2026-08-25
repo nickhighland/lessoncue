@@ -58,6 +58,17 @@ esac
 DATA_DIR="${SHORTENER_DATA_DIR:-./shortener-data}"
 DB_PASSWORD_FILE="${SHORTENER_DB_PASSWORD_FILE:-${DATA_DIR}/db-password}"
 
+# The protected Linux updater runs with ProtectHome enabled, so Docker cannot
+# create its default /root/.docker directory there. Keep Compose's transient
+# client state beside the shortener data instead; this directory contains no
+# LessonCue or registry secret and is safe to recreate if necessary.
+if [ -z "${DOCKER_CONFIG:-}" ]; then
+  DOCKER_CONFIG="${SHORTENER_DOCKER_CONFIG_DIR:-${DATA_DIR}/docker-config}"
+  mkdir -p "$DOCKER_CONFIG"
+  chmod 700 "$DOCKER_CONFIG"
+  export DOCKER_CONFIG
+fi
+
 # The integration key has to be readable by both sides: the shortener is
 # started with it, and LessonCue authenticates with it. LessonCue's data
 # directory is mounted into its container, so the shared copy lives there.
