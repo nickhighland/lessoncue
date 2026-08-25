@@ -1,0 +1,30 @@
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. POST /api/v1/activity-sessions/82af03b3-b29d-4de1-ac08-08335b6b2793/participant-action returned 400 in 1.4 ms. Trace 0HNO291DAIRST:0000000D; user browser-admin
+[WebServer] warn: LessonCue.Server[0]
+[WebServer]       HTTP request returned a failure status. POST /api/v1/activity-sessions/82af03b3-b29d-4de1-ac08-08335b6b2793/participant-action returned 400 in 1.1 ms. Trace 0HNO291DAIRST:00000010; user browser-admin
+  ✓  10 tests/browser/zz-activity-games.spec.ts:492:1 › Buzzer Battle keeps the first buzz authoritative and locks out a miss (4.5s)
+  ✓  11 tests/browser/zz-activity-games.spec.ts:537:1 › Existing game engines can run an embedded server-authoritative utility (1.1s)
+  ✓  12 tests/browser/zz-activity-games.spec.ts:563:1 › Fake Out keeps truth hidden as a label, moderates bluffs, and scores truth picks (5.0s)
+  ✓  13 tests/browser/zz-activity-games.spec.ts:611:1 › Survey Showdown supports team turns, strikes, conservative matching, and a steal (5.4s)
+  ✓  14 tests/browser/zz-activity-games.spec.ts:716:1 › Order Up supports accessible phone sorting and partial credit (4.4s)
+  ✓  15 tests/browser/zz-activity-games.spec.ts:746:1 › Match Minds gives the target a private answer and scores matching predictions (5.3s)
+  ✓  16 tests/browser/zz-activity-games.spec.ts:783:1 › Match Minds supports private text answers on phone controllers (4.9s)
+  ✓  17 tests/browser/zz-activity-games.spec.ts:837:1 › Beat the Clock gives the host a timed no-phone challenge and ruling (3.4s)
+  ✓  18 tests/browser/zz-activity-games.spec.ts:863:1 › Stage Challenge can take an audience call before the host reveals (4.5s)
+  ✓  19 tests/browser/zz-activity-games.spec.ts:919:1 › Bracket Battle carries phone votes through semifinals and a final (5.9s)
+  ✓  20 tests/browser/zz-activity-games.spec.ts:986:1 › Four Corners runs with no phone participants and host-controlled pacing (2.3s)
+  ✓  21 tests/browser/zz-activity-games.spec.ts:1010:1 › Game Show Utilities keeps random outcomes server-controlled (2.2s)
+  ✓  22 tests/browser/zz-activity-games.spec.ts:1022:1 › Game Show Utilities can pick the live roster and run a server countdown (2.3s)
+  ✓  23 tests/browser/zz-activity-games.spec.ts:1078:1 › Activity controller shows live recovery state and command acknowledgements (2.9s)
+  ✓  24 tests/browser/zz-activity-games.spec.ts:1159:1 › Activities Studio supports grid/list views, filters, arranging, and bulk deletion (3.8s)
+  ✓  25 tests/browser/zz-activity-games.spec.ts:1261:1 › Activities library exposes bounded server-side pages for large collections (972ms)
+  ✓  26 tests/browser/zz-activity-games.spec.ts:1294:1 › Activities editor previews draft snapshots and protects unsaved changes (2.4s)
+  ✓  27 tests/browser/zz-activity-games.spec.ts:1338:1 › Quiz and poll editors apply reusable named presets without changing engines (4.2s)
+  ✓  28 tests/browser/zz-activity-games.spec.ts:1407:1 › Buzzer, creative, and bluffing editors reuse named engine presets (4.0s)
+  ✓  29 tests/browser/zz-activity-games.spec.ts:1461:1 › Drawing and survey editors apply creative board templates with editable entries (3.2s)
+  ✓  30 tests/browser/zz-activity-games.spec.ts:1502:1 › Ordering, word, and match editors reuse named templates with flexible content (4.3s)
+  ✓  31 tests/browser/zz-activity-games.spec.ts:1558:1 › Media reveal editors apply named visual formats without changing the source link (2.4s)
+  ✓  32 tests/browser/zz-activity-games.spec.ts:1587:1 › Adventure and observation presets expose their differentiated editor surfaces (4.1s)
+  ✓  33 tests/browser/zz-activity-games.spec.ts:1642:1 › Stage challenge editors apply host-led formats with editable timing and scoring (2.1s)
+
+  33 passed (2.1m)
