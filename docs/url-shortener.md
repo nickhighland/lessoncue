@@ -273,3 +273,30 @@ back to.
 
 Run it with no tag to see the running version and the reserved count without
 changing anything.
+
+## Running your own build
+
+Shlink and its console are MIT licensed, so a fork is yours to build and run.
+Neither image is built from this repository -- both are pulled from
+`ghcr.io/shlinkio` -- so swapping one in means pointing at your own image
+rather than patching anything here.
+
+Build and push your image, then name it in `/opt/lessoncue-shortener/.env`:
+
+```
+SHORTENER_IMAGE=ghcr.io/your-org/shlink:your-tag
+SHORTENER_UI_IMAGE=ghcr.io/your-org/shlink-web-client:your-tag
+```
+
+Then `docker compose --profile shortener up -d`. The installer keeps any
+setting it does not own, so these survive a reinstall and an update.
+
+One constraint worth knowing before you start. LessonCue talks to the API over
+Shlink's REST interface: `rest/v3/short-urls` for the reserved codes,
+`rest/health` for whether the shortener is answering, custom slugs, and the
+`lessoncue-reserved` tag that marks which links are its own. A fork that keeps
+those working can change anything else. A fork that changes them will show up
+as reserved codes going missing or being reported as somebody else's.
+
+The console is the safer thing to fork: LessonCue never calls it, so its
+appearance and behaviour are entirely yours.

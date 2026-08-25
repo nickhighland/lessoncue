@@ -27,6 +27,8 @@ administrator installs an update.
   credentials can.
 - Queueing an adaptive video profile no longer fails when the same profile is
   being queued elsewhere at that moment.
+- Saving an activity right after choosing a preset stores the preset you chose.
+  It could still store the previous one.
 
 ### Developer changes
 
@@ -46,6 +48,11 @@ administrator installs an update.
   both secrets readable by the unprivileged users that consume them.
 - Secretless backups exclude the installer's shortener keys, which live one
   directory below the names the exclusion list held.
+- The activity editor writes its draft ref in the same handler as the state
+  rather than in an effect. The effect ran after commit, so a save pressed
+  before React flushed it read the draft from before the change.
+- The shortener's console image is swappable through SHORTENER_UI_IMAGE, as the
+  API image already was, for anyone running their own build of either.
 - The compose guard runs the installer against a stub docker in both layouts,
   and the provisioner's stand-in shortener lower-cases slugs the way the real
   one does.

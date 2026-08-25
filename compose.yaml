@@ -123,7 +123,10 @@ services:
       start_period: 30s
 
   shlink-web-client:
-    image: ghcr.io/shlinkio/shlink-web-client:4.4.0
+    # Swappable, like the API image above. Shlink and its console are MIT, so a
+    # fork built into your own image drops in here -- set SHORTENER_UI_IMAGE in
+    # .env, which the installer preserves.
+    image: "${SHORTENER_UI_IMAGE:-ghcr.io/shlinkio/shlink-web-client:4.4.0}"
     container_name: lessoncue-shlink-web
     profiles: ["shortener"]
     restart: unless-stopped

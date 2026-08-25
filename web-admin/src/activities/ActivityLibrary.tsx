@@ -81,12 +81,44 @@ export const ActivityLibrary: React.FC = () => {
   } : null, [editingConfig, editingDescription, editingName, editingTheme, selectedActivity]);
 
   // What the editor is showing right now, for callers that must not depend on
-  // when their closure was created. Updated after commit, which is the same
-  // moment the change becomes visible on screen.
+  // when their closure was created.
+  //
+  // Every write goes through the commits below, which set the ref in the same
+  // handler as the state. An effect alone was not enough: it runs after the
+  // commit, and a save pressed before React flushed it read the draft from
+  // before the change -- a teacher choosing a preset, pressing save, and
+  // quietly getting the previous one. The effect stays as a backstop for any
+  // state set some other way.
   const draftRef = useRef({ name: editingName, description: editingDescription, config: editingConfig, theme: editingTheme });
   useEffect(() => {
     draftRef.current = { name: editingName, description: editingDescription, config: editingConfig, theme: editingTheme };
   }, [editingConfig, editingDescription, editingName, editingTheme]);
+
+  const commitName = useCallback((value: string) => {
+    draftRef.current = { ...draftRef.current, name: value };
+    setEditingName(value);
+  }, []);
+  const commitDescription = useCallback((value: string) => {
+    draftRef.current = { ...draftRef.current, description: value };
+    setEditingDescription(value);
+  }, []);
+  const commitConfig = useCallback((value: Record<string, unknown>) => {
+    draftRef.current = { ...draftRef.current, config: value };
+    setEditingConfig(value);
+  }, []);
+  const commitTheme = useCallback((value: ActivityTheme | null) => {
+    draftRef.current = { ...draftRef.current, theme: value };
+    setEditingTheme(value);
+  }, []);
+  const commitDraft = useCallback((draft: {
+    name: string; description: string; config: Record<string, unknown>; theme: ActivityTheme | null;
+  }) => {
+    draftRef.current = draft;
+    setEditingName(draft.name);
+    setEditingDescription(draft.description);
+    setEditingConfig(draft.config);
+    setEditingTheme(draft.theme);
+  }, []);
 
   const isEditorDirty = Boolean(draftDefinition && activityDraftSnapshot(
     draftDefinition.name,
@@ -249,10 +281,10 @@ export const ActivityLibrary: React.FC = () => {
 
   const handleSelectActivity = (item: ActivityDefinition) => {
     setSelectedActivity(item);
-    setEditingName(item.name);
-    setEditingDescription(item.description || '');
-    setEditingConfig(item.config || {});
-    setEditingTheme(item.theme || null);
+    commitDraft({
+      name: item.name, description: item.description || '',
+      config: item.config || {}, theme: item.theme || null,
+    });
     setSavedDraftSnapshot(activityDraftSnapshot(item.name, item.description || '', item.config || {}, item.theme));
     setPendingEditorClose(false);
     setPreviewTab('display');
@@ -327,10 +359,10 @@ export const ActivityLibrary: React.FC = () => {
         theme: draft.theme || undefined
       });
       setSelectedActivity(updated);
-      setEditingName(updated.name);
-      setEditingDescription(updated.description || '');
-      setEditingConfig(updated.config || {});
-      setEditingTheme(updated.theme || null);
+      commitDraft({
+        name: updated.name, description: updated.description || '',
+        config: updated.config || {}, theme: updated.theme || null,
+      });
       setSavedDraftSnapshot(activityDraftSnapshot(updated.name, updated.description || '', updated.config || {}, updated.theme));
       await fetchActivities();
       setStatusMessage('Activity saved.');
@@ -357,10 +389,10 @@ export const ActivityLibrary: React.FC = () => {
 
   const discardEditorChanges = () => {
     if (selectedActivity) {
-      setEditingName(selectedActivity.name);
-      setEditingDescription(selectedActivity.description || '');
-      setEditingConfig(selectedActivity.config || {});
-      setEditingTheme(selectedActivity.theme || null);
+      commitDraft({
+        name: selectedActivity.name, description: selectedActivity.description || '',
+        config: selectedActivity.config || {}, theme: selectedActivity.theme || null,
+      });
       setSavedDraftSnapshot(activityDraftSnapshot(selectedActivity.name, selectedActivity.description || '', selectedActivity.config || {}, selectedActivity.theme));
     }
     setPendingEditorClose(false);
@@ -873,7 +905,7 @@ export const ActivityLibrary: React.FC = () => {
                   <input
                     type="text"
                     value={editingName}
-                    onChange={e => setEditingName(e.target.value)}
+                    onChange={e => commitName(e.target.value)}
                     style={{
                       fontSize: '1.25rem',
                       fontWeight: 800,
@@ -947,7 +979,7 @@ export const ActivityLibrary: React.FC = () => {
                   <Field label="Description">
                     <textarea
                       value={editingDescription}
-                      onChange={e => setEditingDescription(e.target.value)}
+                      onChange={e => commitDescription(e.target.value)}
                       rows={2}
                       placeholder="Optional notes or instructions"
                     />
@@ -960,12 +992,12 @@ export const ActivityLibrary: React.FC = () => {
                       <strong id="activity-theme-heading">TV presentation</strong>
                       <small>Choose an original LessonCue color and sound treatment for the room display.</small>
                     </div>
-                    <button type="button" className="button" onClick={() => setEditingTheme({ ...ACTIVITY_THEME_PRESETS.stage })}>Reset</button>
+                    <button type="button" className="button" onClick={() => commitTheme({ ...ACTIVITY_THEME_PRESETS.stage })}>Reset</button>
                   </div>
                   <label>Theme
                     <select
                       value={editingTheme?.preset || 'stage'}
-                      onChange={event => setEditingTheme({ ...ACTIVITY_THEME_PRESETS[event.target.value as ActivityThemePreset] })}
+                      onChange={event => commitTheme({ ...ACTIVITY_THEME_PRESETS[event.target.value as ActivityThemePreset] })}
                     >
                       {Object.keys(ACTIVITY_THEME_PRESETS).map(value => <option key={value} value={value}>{value === 'stage' ? 'LessonCue Stage' : value.replace(/^./, character => character.toUpperCase())}</option>)}
                     </select>
@@ -974,7 +1006,7 @@ export const ActivityLibrary: React.FC = () => {
                     <label>Sound
                       <select
                         value={editingTheme?.soundPack || 'gameshow'}
-                        onChange={event => setEditingTheme({ ...(editingTheme || ACTIVITY_THEME_PRESETS.stage), soundPack: event.target.value as ActivityTheme['soundPack'] })}
+                        onChange={event => commitTheme({ ...(draftRef.current.theme || ACTIVITY_THEME_PRESETS.stage), soundPack: event.target.value as ActivityTheme['soundPack'] })}
                       >
                         <option value="gameshow">Game show</option>
                         <option value="arcade">Arcade</option>
@@ -986,7 +1018,7 @@ export const ActivityLibrary: React.FC = () => {
                       <input
                         type="checkbox"
                         checked={editingTheme?.backgroundMotion !== false}
-                        onChange={event => setEditingTheme({ ...(editingTheme || ACTIVITY_THEME_PRESETS.stage), backgroundMotion: event.target.checked })}
+                        onChange={event => commitTheme({ ...(draftRef.current.theme || ACTIVITY_THEME_PRESETS.stage), backgroundMotion: event.target.checked })}
                       />
                       Ambient motion
                     </label>
@@ -995,7 +1027,7 @@ export const ActivityLibrary: React.FC = () => {
                     <select
                       aria-label="Reveal pacing"
                       value={typeof editingConfig.revealPacing === 'string' ? editingConfig.revealPacing : 'dramatic'}
-                      onChange={event => setEditingConfig({ ...editingConfig, revealPacing: event.target.value })}
+                      onChange={event => commitConfig({ ...draftRef.current.config, revealPacing: event.target.value })}
                     >
                       <option value="quick">Quick</option>
                       <option value="dramatic">Dramatic</option>
@@ -1012,14 +1044,14 @@ export const ActivityLibrary: React.FC = () => {
                     <>
                       <EditorComponent
                         config={editingConfig}
-                        onChange={setEditingConfig}
+                        onChange={commitConfig}
                       />
                       {/* Shared across engines rather than repeated in each
                           editor, so every supporting engine gets it. */}
                       <ActivityAutoAdvanceEditor
                         type={selectedActivity.type}
                         config={editingConfig}
-                        onChange={setEditingConfig}
+                        onChange={commitConfig}
                       />
                     </>
                   );
