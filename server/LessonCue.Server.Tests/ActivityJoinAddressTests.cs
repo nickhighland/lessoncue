@@ -1,3 +1,5 @@
+using LessonCue.Server;
+using LessonCue.Server.Activities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -10,7 +12,7 @@ public sealed class ActivityJoinAddressTests
         public HttpClient CreateClient(string name) => new();
     }
 
-    private static (ActivityJoinAddressService Service, string DataPath) Create()
+    private static (ActivityJoinAddressService Service, string DataPath) Create(IShortJoinAddress? shortener = null)
     {
         var dataPath = Path.Combine(Path.GetTempPath(), $"lessoncue-join-address-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dataPath);
@@ -18,7 +20,62 @@ public sealed class ActivityJoinAddressTests
         var localAddress = new LocalAddressService(dataPath, 80, NullLogger<LocalAddressService>.Instance);
         var tunnel = new CloudflareTunnelService(dataPath, httpPort, new TestHttpClientFactory(),
             NullLogger<CloudflareTunnelService>.Instance);
-        return (new ActivityJoinAddressService(dataPath, localAddress, tunnel, httpPort), dataPath);
+        return (new ActivityJoinAddressService(dataPath, localAddress, tunnel, httpPort, shortener), dataPath);
+    }
+
+    /// <summary>A shortener that holds the reserved codes and nothing else.</summary>
+    private sealed class RunningShortener(string domain = "go.example.org") : IShortJoinAddress
+    {
+        public string? ShortBaseUrl => $"https://{domain}";
+
+        public string? ShortJoinUrlFor(string? joinCode)
+        {
+            var code = ReservedGameCodes.Normalize(joinCode ?? "");
+            return ReservedGameCodes.IsReserved(code) ? $"https://{domain}/{code}" : null;
+        }
+    }
+
+    [Fact]
+    public async Task TheShortDomainIsOfferedAndUsedOnceTheShortenerRuns()
+    {
+        var (service, dataPath) = Create(new RunningShortener());
+        try
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var offered = service.Status.Options.Single(option => option.Id == "shortener");
+            Assert.True(offered.Available);
+            Assert.Equal("https://go.example.org", offered.Url);
+
+            var status = await service.SetAsync("shortener", ct);
+            Assert.Equal("shortener", status.ResolvedFrom);
+
+            var reserved = ReservedGameCodes.All[0];
+            Assert.Equal($"https://go.example.org/{reserved}", service.ResolveJoinUrl(reserved));
+        }
+        finally { Directory.Delete(dataPath, true); }
+    }
+
+    [Fact]
+    public async Task AGameWhoseCodeTheShortenerDoesNotHoldGetsAnOrdinaryAddress()
+    {
+        // A game started while the shortener was down has an ordinary six
+        // character code. Advertising it on the short domain would be a dead
+        // link on a wall, whatever the room has been asked to prefer.
+        var (service, dataPath) = Create(new RunningShortener());
+        try
+        {
+            await service.SetAsync("shortener", TestContext.Current.CancellationToken);
+
+            var resolved = service.ResolveJoinUrl("K7M2QP");
+
+            Assert.False(ReservedGameCodes.IsReserved("K7M2QP"));
+            if (resolved is not null)
+            {
+                Assert.DoesNotContain("go.example.org", resolved);
+                Assert.EndsWith("/play/K7M2QP", resolved);
+            }
+        }
+        finally { Directory.Delete(dataPath, true); }
     }
 
     [Theory]
@@ -59,7 +116,10 @@ public sealed class ActivityJoinAddressTests
         try
         {
             var status = service.Status;
-            Assert.Equal(["auto", "cloudflare", "local", "lan"], status.Options.Select(option => option.Id).ToArray());
+            Assert.Equal(["auto", "shortener", "cloudflare", "local", "lan"], status.Options.Select(option => option.Id).ToArray());
+            // Offered even with no shortener, so a teacher can see it exists and
+            // what it needs, rather than wondering where the short domain went.
+            Assert.Null(status.Options.Single(option => option.Id == "shortener").Url);
             // Unreachable options stay listed so the teacher can see why.
             Assert.All(status.Options, option => Assert.False(string.IsNullOrWhiteSpace(option.Label)));
             Assert.All(status.Options, option => Assert.False(string.IsNullOrWhiteSpace(option.Detail)));

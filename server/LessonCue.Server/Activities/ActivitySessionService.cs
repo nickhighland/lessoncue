@@ -360,7 +360,7 @@ public sealed class ActivitySessionService(
             .ToArray();
         // The same address the room is shown. The host's own QR and join text
         // come from here, and they must not disagree with the television.
-        var hostJoinUrl = shortener?.ShortJoinUrlFor(run.JoinCode) ?? joinAddress.ResolveJoinUrl(run.JoinCode);
+        var hostJoinUrl = joinAddress.ResolveJoinUrl(run.JoinCode);
         return new ActivityHostView(envelope, run.JoinCode, hostJoinUrl, participants, teams, submissions, votes, scoreEvents);
     }
 
@@ -4143,7 +4143,7 @@ public sealed class ActivitySessionService(
         // The short domain when this game holds a reserved code, LessonCue's own
         // address otherwise. Everything downstream -- the lobby text, the QR the
         // room scans, the phone's own header -- reads this one value.
-        projected["joinUrl"] = shortener?.ShortJoinUrlFor(run.JoinCode) ?? joinAddress.ResolveJoinUrl(run.JoinCode);
+        projected["joinUrl"] = joinAddress.ResolveJoinUrl(run.JoinCode);
         projected["participantCount"] = await db.ActivityParticipants.CountAsync(x => x.ActivityRunId == run.Id && x.Status != "removed", ct);
         // Public roster, lobby only. Bluffing and creative games hide who wrote
         // what until the host reveals, so once play starts a name list in the

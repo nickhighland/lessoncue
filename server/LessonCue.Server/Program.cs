@@ -159,7 +159,8 @@ builder.Services.AddSingleton(new ActivityAvailabilityService(dataPath));
 builder.Services.AddSingleton(services => new ActivityJoinAddressService(dataPath,
     services.GetRequiredService<LocalAddressService>(),
     services.GetRequiredService<CloudflareTunnelService>(),
-    services.GetRequiredService<HttpPortService>()));
+    services.GetRequiredService<HttpPortService>(),
+    services.GetRequiredService<LessonCue.Server.Shortener.ShortenerService>()));
 builder.Services.AddSingleton<IPasswordHasher<PairingAttempt>, PasswordHasher<PairingAttempt>>();
 builder.Services.AddSingleton<IPasswordHasher<AdminAccount>, PasswordHasher<AdminAccount>>();
 builder.Services.AddSingleton<IPasswordHasher<Organization>, PasswordHasher<Organization>>();

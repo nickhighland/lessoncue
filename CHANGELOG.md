@@ -14,6 +14,10 @@ administrator installs an update.
 - The shortener's web console now asks for a password, which you set in
   Settings. It arrives locked, so publishing its address does not hand it to
   whoever finds it.
+- The short domain is now one of the choices for the game join address, rather
+  than something that quietly took over once the shortener was running. Games
+  whose code the shortener does not hold still get an ordinary address, so a
+  wall never carries a dead link.
 - Pressing Install for the URL shortener no longer claims the install will
   happen at the next update. It starts immediately, and now says so.
 - The shortener panel keeps up with an install while it runs, so the result —
@@ -26,6 +30,10 @@ administrator installs an update.
 
 ### Developer changes
 
+- The join address service offers the short domain as a mode and owns the
+  decision, so the session no longer overrides whatever the room was set to. It
+  takes an interface rather than the shortener itself, which is what lets the
+  awkward case -- short domain chosen, code not reserved -- be tested.
 - Short URL lookup falls back to the lower-cased slug. Loose mode lower-cases a
   custom slug as it stores it while lookup stays exact, so all hundred codes
   were created and then never found again.
