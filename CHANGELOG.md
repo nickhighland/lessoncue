@@ -4,21 +4,43 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
-## Unreleased
+## v0.45.1 — Short links that stay set up
 
 ### User changes
 
+- The URL shortener no longer reports its own hundred reserved game codes as
+  belonging to somebody else. They were LessonCue's all along; it was looking
+  them up in the wrong case and never finding them.
+- The shortener's web console now asks for a password, which you set in
+  Settings. It arrives locked, so publishing its address does not hand it to
+  whoever finds it.
 - Pressing Install for the URL shortener no longer claims the install will
   happen at the next update. It starts immediately, and now says so.
 - The shortener panel keeps up with an install while it runs, so the result —
   whether it worked or why it did not — appears without reloading the page.
+- Installing the shortener works on a real server: it finds its own files,
+  starts only its own containers, and the parts that need to read each other's
+  credentials can.
+- Queueing an adaptive video profile no longer fails when the same profile is
+  being queued elsewhere at that moment.
 
 ### Developer changes
 
-- The success toast in the shortener install block was showing the copy meant
-  for a server with no privileged helper. On a normal server the install had
-  already begun by the time it appeared, and any error the helper wrote was
-  invisible until the operator happened to reload.
+- Short URL lookup falls back to the lower-cased slug. Loose mode lower-cases a
+  custom slug as it stores it while lookup stays exact, so all hundred codes
+  were created and then never found again.
+- An nginx gate fronts the console; the console itself is no longer published.
+  The gate takes the port the console had, so an existing tunnel route is
+  unaffected. The password file is read per request, so a change needs no
+  restart.
+- The shortener scripts locate their compose file rather than assuming a fixed
+  depth, record SHORT_DOMAIN in .env, name the services they start, and leave
+  both secrets readable by the unprivileged users that consume them.
+- Secretless backups exclude the installer's shortener keys, which live one
+  directory below the names the exclusion list held.
+- The compose guard runs the installer against a stub docker in both layouts,
+  and the provisioner's stand-in shortener lower-cases slugs the way the real
+  one does.
 
 ## v0.45.0 — One button sets up short links
 
