@@ -22,6 +22,11 @@ async function createActivity(page: Page, presetName: string, activityName: stri
   const saved = await saveResponse;
   const activity = await saved.json() as { id: string; name: string };
   expect(activity.name).toBe(activityName);
+  // The response arriving is not the editor having finished with it: the client
+  // still has a continuation to run. Waiting for what that continuation
+  // produces keeps the next step from racing it -- and a save landing mid-edit
+  // is a real thing that happens to a teacher, not only to a test.
+  await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
   return activity.id;
 }
 

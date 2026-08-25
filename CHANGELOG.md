@@ -51,6 +51,10 @@ administrator installs an update.
 - The activity editor writes its draft ref in the same handler as the state
   rather than in an effect. The effect ran after commit, so a save pressed
   before React flushed it read the draft from before the change.
+- The browser tests' activity helper waits for the editor to finish handling a
+  save rather than for the response alone. It was returning while the client
+  still had work to do, so the next step interleaved with it -- which is what
+  made a whole spec file fail differently on each loaded run.
 - The shortener's console image is swappable through SHORTENER_UI_IMAGE, as the
   API image already was, for anyone running their own build of either.
 - The compose guard runs the installer against a stub docker in both layouts,
