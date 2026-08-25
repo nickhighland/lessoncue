@@ -4,6 +4,18 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.9 — Complete Link Studio analytics charts
+
+### User changes
+
+- Platform and device analytics now show a complete ring when all recent
+  visits belong to one category.
+
+### Developer changes
+
+- Full-circle SVG segments avoid browser-specific dash rendering gaps while
+  mixed breakdowns retain their proportional arcs.
+
 ## v0.45.8 — Reliable Link Studio rebuilding
 
 ### User changes
