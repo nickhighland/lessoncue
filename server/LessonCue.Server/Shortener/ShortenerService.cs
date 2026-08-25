@@ -33,7 +33,7 @@ public sealed class ShortenerService(
     // A separate client that does not follow redirects: seeing the redirect is
     // the whole point of probing a game code.
     HttpClient probes,
-    string dataPath)
+    string dataPath) : IShortJoinAddress
 {
     /// <summary>
     /// The file the Linux updater looks for to decide whether this server wants
@@ -109,6 +109,17 @@ public sealed class ShortenerService(
     /// end. Null means "use LessonCue's own address", which is what happens
     /// whenever the integration is off, unconfigured, or unreachable.
     /// </summary>
+    /// <summary>The short domain, but only once short links resolve.</summary>
+    public string? ShortBaseUrl
+    {
+        get
+        {
+            var settings = Current;
+            if (!settings.Enabled || settings.Domain.Length == 0) return null;
+            return ShortLinksUsable ? settings.PublicUrl : null;
+        }
+    }
+
     public string? ShortJoinUrlFor(string? joinCode)
     {
         if (string.IsNullOrWhiteSpace(joinCode)) return null;

@@ -101,7 +101,19 @@ test("the admin chooses which address the room is shown", async ({ page }) => {
       mode: string; url: string | null; resolvedFrom: string;
       options: Array<{ id: string; label: string; url: string | null; available: boolean }>;
     });
-  expect(options.options.map(option => option.id)).toEqual(["auto", "cloudflare", "local", "lan"]);
+  expect(options.options.map(option => option.id)).toEqual(["auto", "shortener", "cloudflare", "local", "lan"]);
+
+  // Offered whether or not a shortener is set up, so an administrator can see
+  // the choice exists and what it needs. No shortener runs in this fixture.
+  const shortener = options.options.find(option => option.id === "shortener");
+  expect(shortener?.available).toBe(false);
+  expect(shortener?.url).toBeNull();
+
+  // Choosing it anyway must not leave a game advertising an address that does
+  // not answer.
+  const chosen = await setMode(page, "shortener");
+  expect(chosen.mode).toBe("shortener");
+  expect(chosen.resolvedFrom).not.toBe("shortener");
 
   // An explicit choice is stored even when it is not currently reachable, and
   // the room is shown a working address rather than a dead one.

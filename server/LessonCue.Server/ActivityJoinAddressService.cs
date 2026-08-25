@@ -5,6 +5,21 @@ using System.Text.Json;
 
 namespace LessonCue.Server;
 
+/// <summary>What choosing a join address needs to know about the shortener.</summary>
+/// <remarks>
+/// An interface rather than the service itself, so the awkward case -- the room
+/// asked for the short domain but this game's code is not one the shortener
+/// holds -- can be exercised without a database behind it.
+/// </remarks>
+public interface IShortJoinAddress
+{
+    /// <summary>The short domain, but only once short links resolve.</summary>
+    string? ShortBaseUrl { get; }
+
+    /// <summary>The short link for one code, or null when it holds no such code.</summary>
+    string? ShortJoinUrlFor(string? joinCode);
+}
+
 /// <summary>A base URL a phone can actually reach to join a game.</summary>
 public sealed record JoinAddressOption(
     string Id,
@@ -34,14 +49,19 @@ public sealed class ActivityJoinAddressService(
     string dataPath,
     LocalAddressService localAddress,
     CloudflareTunnelService tunnel,
-    HttpPortService httpPort)
+    HttpPortService httpPort,
+    IShortJoinAddress? shortener = null)
 {
     public const string ModeAuto = "auto";
+    public const string ModeShortener = "shortener";
     public const string ModeCloudflare = "cloudflare";
     public const string ModeLocal = "local";
     public const string ModeLan = "lan";
 
-    private static readonly string[] Modes = [ModeAuto, ModeCloudflare, ModeLocal, ModeLan];
+    private static readonly string[] Modes = [ModeAuto, ModeShortener, ModeCloudflare, ModeLocal, ModeLan];
+
+    /// <summary>The addresses that work for any game, short domain excepted.</summary>
+    private static readonly string[] OrdinaryModes = [ModeCloudflare, ModeLocal, ModeLan];
     private readonly string configPath = Path.Combine(dataPath, "activity-join-address.json");
     private readonly SemaphoreSlim gate = new(1, 1);
 
@@ -73,8 +93,26 @@ public sealed class ActivityJoinAddressService(
     public string? ResolveJoinUrl(string? joinCode)
     {
         if (string.IsNullOrWhiteSpace(joinCode)) return null;
+        var code = joinCode.Trim().ToUpperInvariant();
+
+        // The short domain is a base like any other, except that it carries only
+        // the reserved codes the shortener holds. A game that started while the
+        // shortener was down has an ordinary code and needs an ordinary address,
+        // whatever the room has been asked to prefer.
+        if (Build(ReadMode()).ResolvedFrom == ModeShortener)
+        {
+            var shortUrl = shortener?.ShortJoinUrlFor(code);
+            if (!string.IsNullOrWhiteSpace(shortUrl)) return shortUrl;
+
+            var byId = BuildOptions().ToDictionary(option => option.Id, StringComparer.OrdinalIgnoreCase);
+            var ordinary = OrdinaryModes
+                .Select(mode => byId.GetValueOrDefault(mode)?.Url)
+                .FirstOrDefault(url => !string.IsNullOrWhiteSpace(url));
+            return string.IsNullOrWhiteSpace(ordinary) ? null : $"{ordinary!.TrimEnd('/')}/play/{code}";
+        }
+
         var baseUrl = ResolveBaseUrl();
-        return string.IsNullOrWhiteSpace(baseUrl) ? null : $"{baseUrl.TrimEnd('/')}/play/{joinCode.Trim().ToUpperInvariant()}";
+        return string.IsNullOrWhiteSpace(baseUrl) ? null : $"{baseUrl.TrimEnd('/')}/play/{code}";
     }
 
     private string ReadMode()
@@ -100,7 +138,7 @@ public sealed class ActivityJoinAddressService(
         {
             // .local before the numeric address: it is easier to read aloud, and
             // the IP is the fallback for networks where mDNS does not work.
-            foreach (var candidate in new[] { ModeCloudflare, ModeLocal, ModeLan })
+            foreach (var candidate in new[] { ModeShortener }.Concat(OrdinaryModes))
             {
                 var option = byId.GetValueOrDefault(candidate);
                 if (string.IsNullOrWhiteSpace(option?.Url)) continue;
@@ -125,10 +163,19 @@ public sealed class ActivityJoinAddressService(
         var localUrl = string.IsNullOrWhiteSpace(local.Address) ? null : local.Address;
         var lanUrl = BuildLanUrl(httpPort.Status.Port);
 
+        // Only when short links have actually been shown to resolve. Pointing a
+        // room at a short domain that does not answer is worse than a long one.
+        var shortenerUrl = shortener?.ShortBaseUrl;
+        if (string.IsNullOrWhiteSpace(shortenerUrl)) shortenerUrl = null;
+
         return
         [
             new JoinAddressOption(ModeAuto, "Automatic", null, true,
-                "Use the internet address when a tunnel is published, then the local name, then the network address."),
+                "Use the short domain when the shortener is running, then the internet address, then the local name, then the network address."),
+            new JoinAddressOption(ModeShortener, "Short domain", shortenerUrl, shortenerUrl is not null,
+                shortenerUrl is not null
+                    ? "The shortest address to read aloud, and the one that fits under a code on a television."
+                    : "Set up the URL shortener to use this address."),
             new JoinAddressOption(ModeCloudflare, "Internet address", cloudflareUrl, cloudflareUrl is not null,
                 cloudflareUrl is not null
                     ? "Works on any network, including phones on mobile data."

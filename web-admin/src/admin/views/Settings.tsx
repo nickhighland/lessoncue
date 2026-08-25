@@ -3622,12 +3622,20 @@ function GameJoinAddressPanel({ notify }: { notify: (message: string) => void })
       {selected?.detail && <p className="settings-copy">{selected.detail}</p>}
       <Definition
         label="Players will see"
-        value={status.url ? `${status.url}/play/CODE` : "Code only — no reachable address yet"}
+        value={status.url
+          // The short domain carries the code directly; every other address is
+          // LessonCue's own, where the game lives under /play.
+          ? `${status.url}${status.resolvedFrom === "shortener" ? "" : "/play"}/CODE`
+          : "Code only — no reachable address yet"}
       />
       {fellBack && (
         <div className="alert">
           That address is not reachable right now, so games are showing the{" "}
-          {status.resolvedFrom === "none" ? "code only" : status.resolvedFrom} address instead.
+          {status.resolvedFrom === "none"
+            ? "code only"
+            : (status.options.find((option) => option.id === status.resolvedFrom)?.label
+                ?? status.resolvedFrom).toLowerCase()}{" "}
+          address instead.
         </div>
       )}
     </div>
