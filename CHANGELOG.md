@@ -4,6 +4,18 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.8 — Reliable Link Studio rebuilding
+
+### User changes
+
+- Link Studio now rebuilds correctly when the server performs a protected
+  LessonCue update.
+
+### Developer changes
+
+- Shortener installers use a writable Docker client configuration directory
+  instead of the unavailable root home directory under systemd hardening.
+
 ## v0.45.7 — Preserve short-domain forwarding
 
 ### User changes

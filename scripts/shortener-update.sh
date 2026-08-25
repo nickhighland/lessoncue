@@ -27,6 +27,12 @@ fi
 # Do not inherit a stale COMPOSE_FILE from an older manual install. The
 # release's compose file is what guarantees that Link Studio, not Shlink Web,
 # is rebuilt during the migration.
+if [ -z "${DOCKER_CONFIG:-}" ]; then
+  DOCKER_CONFIG="${SHORTENER_DOCKER_CONFIG_DIR:-${PWD}/shortener-data/docker-config}"
+  mkdir -p "$DOCKER_CONFIG"
+  chmod 700 "$DOCKER_CONFIG"
+  export DOCKER_CONFIG
+fi
 COMPOSE=(docker compose --file "$PWD/compose.yaml" --profile shortener)
 BACKUP_DIR="${SHORTENER_BACKUP_DIR:-./shortener-data/backups}"
 NEW_TAG="${1:-}"

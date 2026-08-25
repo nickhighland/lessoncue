@@ -91,6 +91,8 @@ for (const script of [installer, updater]) {
     "the install and update paths must start the LessonCue Link Shortener Companion");
   check(/--file \"\$PWD\/compose\.yaml\"/.test(script),
     "the install and update paths must explicitly use the release compose file");
+  check(/DOCKER_CONFIG=/.test(script) && /export DOCKER_CONFIG/.test(script),
+    "the install and update paths must give Docker a writable config directory under the protected Linux updater");
 }
 check(/ui_health/.test(updater), "the shortener updater must wait for the Companion as well as Shlink");
 
@@ -163,6 +165,8 @@ for (const layout of layouts) {
       `in the ${layout.name} layout the installer did not record SHORT_DOMAIN where compose reads it`);
     check(/^SHORT_DOMAIN_ROOT_REDIRECT="https:\/\/lessoncue\.example\.test\/"$/m.test(env),
       `in the ${layout.name} layout the installer did not preserve LessonCue's saved bare-domain destination`);
+    check(existsSync(join(root, "data", "docker-config")),
+      `in the ${layout.name} layout the installer did not create Docker's writable config directory`);
 
     // This compose file also describes LessonCue itself. The installer must
     // start only the database and Shlink first, then the companion after its
