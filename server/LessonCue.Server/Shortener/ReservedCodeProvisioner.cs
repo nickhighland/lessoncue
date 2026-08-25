@@ -76,7 +76,9 @@ public sealed class ReservedCodeProvisioner(ShlinkClient shlink)
                     if (string.Equals(existing.LongUrl, destination, StringComparison.OrdinalIgnoreCase)) correct++;
                     else
                     {
-                        await shlink.UpdateAsync(upstream, apiKey, code, destination, domain, Tags, ct);
+                        // The slug as the shortener stored it, which in loose
+                        // mode is the lower-cased form of the code we asked for.
+                        await shlink.UpdateAsync(upstream, apiKey, existing.ShortCode, destination, domain, Tags, ct);
                         repaired++;
                     }
                     continue;

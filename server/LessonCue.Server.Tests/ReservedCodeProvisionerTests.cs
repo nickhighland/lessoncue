@@ -26,7 +26,7 @@ public class ReservedCodeProvisionerTests
         public int Creates;
         public int Updates;
         public bool Unreachable;
-        public readonly HashSet<string> RefuseToCreate = new(StringComparer.Ordinal);
+        public readonly HashSet<string> RefuseToCreate = new(StringComparer.OrdinalIgnoreCase);
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
@@ -46,7 +46,11 @@ public class ReservedCodeProvisionerTests
             if (request.Method == HttpMethod.Post)
             {
                 var body = JsonDocument.Parse(request.Content!.ReadAsStringAsync(ct).Result).RootElement;
-                var customSlug = body.GetProperty("customSlug").GetString()!;
+                // Loose mode lower-cases a custom slug as it stores it, while
+                // lookup by slug stays exact. Storing the code verbatim here is
+                // what let a hundred reserved codes be created and then never
+                // found again on the real thing.
+                var customSlug = body.GetProperty("customSlug").GetString()!.ToLowerInvariant();
                 if (RefuseToCreate.Contains(customSlug) || Urls.ContainsKey(customSlug))
                     return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("slug already in use") });
                 var tags = body.GetProperty("tags").EnumerateArray().Select(x => x.GetString()!).ToList();
@@ -65,6 +69,17 @@ public class ReservedCodeProvisionerTests
             }
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.MethodNotAllowed));
+        }
+
+        /// <summary>The slug as this shortener stores it. Tests name codes the
+        /// way LessonCue writes them; loose mode keeps them lower-cased.</summary>
+        private static string Stored(string code) => code.ToLowerInvariant();
+        public bool Has(string code) => Urls.ContainsKey(Stored(code));
+        public void Forget(string code) => Urls.Remove(Stored(code));
+        public (string LongUrl, List<string> Tags) this[string code]
+        {
+            get => Urls[Stored(code)];
+            set => Urls[Stored(code)] = value;
         }
 
         private static HttpResponseMessage Json(HttpStatusCode status, string slug, string longUrl, IEnumerable<string> tags) =>
@@ -101,7 +116,7 @@ public class ReservedCodeProvisionerTests
         await provisioner.ReconcileAsync(Upstream, Key, Domain, PublicUrl, TestContext.Current.CancellationToken);
 
         // Reusing the existing route rather than inventing a second way in.
-        Assert.Equal($"{PublicUrl}/play/Q7Z6", fake.Urls["Q7Z6"].LongUrl);
+        Assert.Equal($"{PublicUrl}/play/Q7Z6", fake["Q7Z6"].LongUrl);
         Assert.All(fake.Urls, entry => Assert.Contains("/play/", entry.Value.LongUrl));
     }
 
@@ -131,11 +146,11 @@ public class ReservedCodeProvisionerTests
     {
         var (provisioner, fake) = Create();
         await provisioner.ReconcileAsync(Upstream, Key, Domain, PublicUrl, TestContext.Current.CancellationToken);
-        fake.Urls.Remove("A3C8");
+        fake.Forget("A3C8");
 
         var report = await provisioner.ReconcileAsync(Upstream, Key, Domain, PublicUrl, TestContext.Current.CancellationToken);
         Assert.Equal(1, report.Created);
-        Assert.True(fake.Urls.ContainsKey("A3C8"));
+        Assert.True(fake.Has("A3C8"));
     }
 
     [Fact]
@@ -144,12 +159,12 @@ public class ReservedCodeProvisionerTests
         var (provisioner, fake) = Create();
         await provisioner.ReconcileAsync(Upstream, Key, Domain, PublicUrl, TestContext.Current.CancellationToken);
         // As happens when LessonCue's public address changes.
-        fake.Urls["Q7Z6"] = ("https://old.example.org/play/Q7Z6", [ReservedGameCodes.ReservedTag]);
+        fake["Q7Z6"] = ("https://old.example.org/play/Q7Z6", [ReservedGameCodes.ReservedTag]);
 
         var report = await provisioner.ReconcileAsync(Upstream, Key, Domain, PublicUrl, TestContext.Current.CancellationToken);
         Assert.Equal(1, report.Repaired);
         Assert.Equal(0, report.Created);
-        Assert.Equal($"{PublicUrl}/play/Q7Z6", fake.Urls["Q7Z6"].LongUrl);
+        Assert.Equal($"{PublicUrl}/play/Q7Z6", fake["Q7Z6"].LongUrl);
         // Repaired in place, so its visit history survives.
         Assert.Equal(1, fake.Updates);
     }
@@ -158,14 +173,14 @@ public class ReservedCodeProvisionerTests
     public async Task ASlugSomebodyElseCreatedIsReportedRatherThanTakenOver()
     {
         var (provisioner, fake) = Create();
-        fake.Urls["Q7Z6"] = ("https://someone-elses.example.org/campaign", ["marketing"]);
+        fake["Q7Z6"] = ("https://someone-elses.example.org/campaign", ["marketing"]);
 
         var report = await provisioner.ReconcileAsync(Upstream, Key, Domain, PublicUrl, TestContext.Current.CancellationToken);
 
         Assert.Contains("Q7Z6", report.Conflicts);
         Assert.True(report.Degraded);
         // Left exactly as they had it.
-        Assert.Equal("https://someone-elses.example.org/campaign", fake.Urls["Q7Z6"].LongUrl);
+        Assert.Equal("https://someone-elses.example.org/campaign", fake["Q7Z6"].LongUrl);
         Assert.Equal(99, report.Created);
     }
 
@@ -197,7 +212,7 @@ public class ReservedCodeProvisionerTests
     {
         var (provisioner, fake) = Create();
         await provisioner.ReconcileAsync(Upstream, Key, Domain, PublicUrl, TestContext.Current.CancellationToken);
-        fake.Urls.Remove("Z9Y5");
+        fake.Forget("Z9Y5");
         var creates = fake.Creates;
 
         var (present, missing) = await provisioner.AuditAsync(Upstream, Key, Domain, TestContext.Current.CancellationToken);

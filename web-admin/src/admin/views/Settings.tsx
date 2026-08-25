@@ -685,6 +685,7 @@ export function Settings({
   const [shortenerReport, setShortenerReport] = useState<ShortenerReport | null>(null);
   const [shortenerAdminKey, setShortenerAdminKey] = useState("");
   const [shortenerKeyScope, setShortenerKeyScope] = useState("");
+  const [shortenerConsolePassword, setShortenerConsolePassword] = useState("");
   const [shortenerTest, setShortenerTest] = useState<ShortenerTestResult | null>(null);
   const [shortenerBusy, setShortenerBusy] = useState("");
 
@@ -791,6 +792,23 @@ export function Settings({
       notify(requested
         ? "Installing the shortener now. This takes a minute or two the first time."
         : "The shortener will not be installed.");
+    } catch (e) {
+      notify(errorText(e));
+    } finally {
+      setShortenerBusy("");
+    }
+  }
+
+  async function saveShortenerConsolePassword() {
+    setShortenerBusy("console-password");
+    try {
+      await api("/api/v1/shortener/console-password", {
+        method: "PUT",
+        body: JSON.stringify({ password: shortenerConsolePassword }),
+      });
+      setShortenerConsolePassword("");
+      await loadShortener();
+      notify("Console password set. It applies to the next visit — nothing needs restarting.");
     } catch (e) {
       notify(errorText(e));
     } finally {
@@ -2514,6 +2532,37 @@ export function Settings({
               )}
 
               {shortener.integrationKeyConfigured && shortener.adminUrl && (
+                <>
+                <div className="settings-instructions">
+                  <strong>Password for the console</strong>
+                  <p className="settings-copy">
+                    {shortener.consolePasswordSet
+                      ? (<>The console asks for a password before it will open. Sign in as <code>{shortener.consoleUser}</code>. Setting a new one here replaces it.</>)
+                      : (<>The console has no login of its own, so anyone who reaches <code>{shortener.adminHost || "its address"}</code> would be inside it. It is shut until you set a password here.</>)}
+                  </p>
+                  <div className="row gap">
+                    <input
+                      type="password"
+                      className="input"
+                      autoComplete="new-password"
+                      placeholder="At least 8 characters"
+                      value={shortenerConsolePassword}
+                      onChange={(event) => setShortenerConsolePassword(event.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="button"
+                      disabled={shortenerBusy !== "" || shortenerConsolePassword.trim().length < 8}
+                      onClick={() => void saveShortenerConsolePassword()}
+                    >{shortenerBusy === "console-password" ? "Setting…" : shortener.consolePasswordSet ? "Change password" : "Set password"}</button>
+                  </div>
+                  <small>
+                    A gate, not a vault: one shared password over HTTPS, which is what guards a
+                    links console. It protects the console only — your short links and game codes
+                    keep working for everyone.
+                  </small>
+                </div>
+
                 <div className="settings-instructions">
                   <strong>Connecting the shortener's console</strong>
                   <p className="settings-copy">
@@ -2553,6 +2602,7 @@ export function Settings({
                     </div>
                   )}
                 </div>
+                </>
               )}
 
               {!shortener.integrationKeyConfigured && shortener.domain && (

@@ -83,6 +83,21 @@ done
 # stay restrictive; these two files are the part a container has to read.
 chmod 644 "$DB_PASSWORD_FILE" "$INTEGRATION_KEY_FILE"
 
+# The console's password file. Created locked -- a hash of something nobody
+# knows -- so the gate is shut from the first moment rather than open until an
+# administrator gets round to it. LessonCue rewrites this when one is set.
+CONSOLE_PASSWORD_FILE="${SHORTENER_CONSOLE_PASSWORD_FILE:-${SHARED_KEY_DIR}/console-password}"
+if [ ! -s "$CONSOLE_PASSWORD_FILE" ]; then
+  {
+    echo "# lessoncue-console-locked"
+    printf 'admin:{SHA}%s\n' "$(new_secret | openssl sha1 -binary 2>/dev/null | openssl base64 2>/dev/null)"
+  } > "$CONSOLE_PASSWORD_FILE"
+  echo "Locked the console until a password is set in LessonCue"
+fi
+chmod 644 "$CONSOLE_PASSWORD_FILE"
+export SHORTENER_CONSOLE_PASSWORD_FILE="$CONSOLE_PASSWORD_FILE"
+
+
 # LessonCue authenticates to the shortener with the integration key, and does
 # not run as root either. Hand its directory to whoever owns LessonCue's data
 # rather than assuming an account name.
@@ -111,7 +126,7 @@ export SHORT_DOMAIN_ROOT_REDIRECT
 # restart, an operator reading logs -- runs without this shell, and a variable
 # that lived only here made all of them fail on a missing SHORT_DOMAIN.
 # Anything the operator set themselves (ports, bind addresses) is kept.
-OWNED='^(SHORT_DOMAIN|SHORT_DOMAIN_ROOT_REDIRECT|SHORTENER_DB_PASSWORD_FILE|SHORTENER_INTEGRATION_KEY_FILE)='
+OWNED='^(SHORT_DOMAIN|SHORT_DOMAIN_ROOT_REDIRECT|SHORTENER_DB_PASSWORD_FILE|SHORTENER_INTEGRATION_KEY_FILE|SHORTENER_CONSOLE_PASSWORD_FILE)='
 KEPT=""
 if [ -f .env ]; then
   KEPT="$(grep -v -E "$OWNED" .env || true)"
@@ -122,6 +137,7 @@ fi
   printf 'SHORT_DOMAIN_ROOT_REDIRECT="%s"\n' "$SHORT_DOMAIN_ROOT_REDIRECT"
   printf 'SHORTENER_DB_PASSWORD_FILE=%s\n' "$DB_PASSWORD_FILE"
   printf 'SHORTENER_INTEGRATION_KEY_FILE=%s\n' "$INTEGRATION_KEY_FILE"
+  printf 'SHORTENER_CONSOLE_PASSWORD_FILE=%s\n' "$CONSOLE_PASSWORD_FILE"
 } > .env.tmp
 mv .env.tmp .env
 chmod 600 .env
@@ -132,7 +148,7 @@ echo "Starting the shortener for ${SHORT_DOMAIN}"
 # LessonCue itself, which has no build context in the shipped bundle and, on a
 # native install, is already serving on port 80 -- starting it here would fail
 # to build and then fight the real server for its port.
-docker compose --profile shortener up -d shlink-db shlink shlink-web-client
+docker compose --profile shortener up -d shlink-db shlink shlink-web-client shlink-web-gate
 
 # Read back from compose rather than assumed, so the printed routes match the
 # ports actually bound -- including any set in .env, which this shell never saw.
@@ -141,7 +157,7 @@ resolved_port() {
     | python3 -c "import json,sys; s=json.load(sys.stdin)['services'].get('$1',{}); print((s.get('ports') or [{}])[0].get('published',''))" 2>/dev/null
 }
 SHORTENER_HTTP_PORT="$(resolved_port shlink)"
-SHORTENER_UI_PORT="$(resolved_port shlink-web-client)"
+SHORTENER_UI_PORT="$(resolved_port shlink-web-gate)"
 : "${SHORTENER_HTTP_PORT:=8081}"
 : "${SHORTENER_UI_PORT:=8082}"
 
