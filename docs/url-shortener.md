@@ -297,11 +297,12 @@ Build and push your image, then name it in `/opt/lessoncue-shortener/.env`:
 
 ```
 SHORTENER_IMAGE=ghcr.io/your-org/shlink:your-tag
+SHORTENER_COMPANION_IMAGE=your-registry/link-shortener-companion:your-tag
 ```
 
-Then `docker compose --profile shortener up -d`. The installer keeps the
-Shlink image setting; the companion is built from the vendored source in the
-release bundle.
+Then rerun the release `install.sh` or `update.sh` so the management container
+is rebuilt from the selected Companion image. The installer keeps the Shlink
+image setting and ignores the retired `SHORTENER_UI_IMAGE` override.
 
 One constraint worth knowing before you start. LessonCue talks to the API over
 Shlink's REST interface: `rest/v3/short-urls` for the reserved codes,
