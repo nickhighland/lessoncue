@@ -84,15 +84,11 @@ export const ActivityLibrary: React.FC = () => {
   // when their closure was created.
   //
   // Every write goes through the commits below, which set the ref in the same
-  // handler as the state. An effect alone was not enough: it runs after the
-  // commit, and a save pressed before React flushed it read the draft from
-  // before the change -- a teacher choosing a preset, pressing save, and
-  // quietly getting the previous one. The effect stays as a backstop for any
-  // state set some other way.
+  // handler as the state. The ref is authoritative for save: synchronizing it
+  // from an effect is unsafe because an older pending effect can run after a
+  // newer input event and put the previous draft back just before Save is
+  // pressed.
   const draftRef = useRef({ name: editingName, description: editingDescription, config: editingConfig, theme: editingTheme });
-  useEffect(() => {
-    draftRef.current = { name: editingName, description: editingDescription, config: editingConfig, theme: editingTheme };
-  }, [editingConfig, editingDescription, editingName, editingTheme]);
 
   const commitName = useCallback((value: string) => {
     draftRef.current = { ...draftRef.current, name: value };

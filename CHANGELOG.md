@@ -4,6 +4,18 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.6 — Reliable activity editor saves
+
+### User changes
+
+- Applying an activity preset or entering a media URL immediately before saving
+  now saves the new value reliably.
+
+### Developer changes
+
+- Removed stale effect-based draft-ref synchronization that could replace a
+  just-entered editor value with the previous draft during a fast save.
+
 ## v0.45.5 — LessonCue Shortener installation
 
 ### User changes
