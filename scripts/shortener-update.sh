@@ -36,6 +36,18 @@ health() {
   "${COMPOSE[@]}" exec -T shlink curl --fail --silent http://localhost:8080/rest/health >/dev/null 2>&1
 }
 
+ui_port() {
+  "${COMPOSE[@]}" config --format json 2>/dev/null \
+    | python3 -c "import json,sys; s=json.load(sys.stdin)['services'].get('shlink-web-client',{}); print((s.get('ports') or [{}])[0].get('published',''))" 2>/dev/null
+}
+
+ui_health() {
+  local port
+  port="$(ui_port)"
+  : "${port:=8082}"
+  curl --fail --silent "http://127.0.0.1:${port}/" >/dev/null 2>&1
+}
+
 echo "Running version: $(running_version)"
 if ! health; then
   echo "The shortener is not healthy right now. Fix that before updating." >&2
@@ -68,10 +80,17 @@ echo "Backed up $(wc -c < "$DUMP") bytes"
 
 echo "Updating to ${NEW_TAG}"
 SHORTENER_IMAGE="ghcr.io/shlinkio/shlink:${NEW_TAG}" "${COMPOSE[@]}" up -d shlink
+# v0.45.1 left this exact nginx container behind. It owned the management
+# port that the Companion now publishes; remove only that obsolete container.
+if docker rm -f lessoncue-shlink-gate >/dev/null 2>&1; then
+  echo "Removed the obsolete Link Shortener password gate"
+fi
+echo "Rebuilding the Link Shortener Companion"
+"${COMPOSE[@]}" up -d --build shlink-web-client
 
 echo "Waiting for migrations and health"
 for _ in $(seq 1 30); do
-  if health; then
+  if health && ui_health; then
     AFTER_CODES="$(reserved_present || echo unknown)"
     echo "Running version: $(running_version)"
     echo "Reserved codes after: ${AFTER_CODES}"
@@ -85,7 +104,7 @@ for _ in $(seq 1 30); do
   sleep 5
 done
 
-echo "The shortener did not come back healthy." >&2
+echo "The shortener or Link Shortener Companion did not come back healthy." >&2
 echo "Its database is unchanged on disk, and ${DUMP} is a dump from before the update." >&2
 echo "Roll back by putting the previous tag in compose.yaml and bringing it up again." >&2
 exit 1

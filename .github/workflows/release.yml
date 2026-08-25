@@ -310,6 +310,10 @@ jobs:
           cp scripts/shortener-install.sh release/shortener/install.sh
           cp scripts/shortener-update.sh release/shortener/update.sh
           cp docs/url-shortener.md release/shortener/README.md
+          # The management UI is built locally from the LessonCue-specific
+          # Link Shortener Companion fork. Keep its source and license in the
+          # signed bundle; servers must not need a second repository checkout.
+          cp -R shortener-companion release/shortener/shortener-companion
           tar -czf release/LessonCue-URL-Shortener.tar.gz -C release shortener
           rm -rf release/shortener
       - name: Install checksum-pinned Trivy

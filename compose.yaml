@@ -6,6 +6,7 @@ services:
     image: lessoncue/server:local
     container_name: lessoncue
     restart: unless-stopped
+    user: "${LESSONCUE_UID:-10001}:${LESSONCUE_GID:-10001}"
     ports:
       - "${LESSONCUE_HTTP_PORT:-80}:8080"
     volumes:
@@ -26,6 +27,11 @@ services:
       ASPNETCORE_URLS: http://0.0.0.0:8080
       LESSONCUE_DATA_PATH: /data
       LESSONCUE_HTTP_PORT: "${LESSONCUE_HTTP_PORT:-80}"
+      # Match the owner chosen by the shortener installer when this compose
+      # file is used outside the native Linux package. The native installer
+      # keeps the documented 10001:10001 default.
+      LESSONCUE_UID: "${LESSONCUE_UID:-10001}"
+      LESSONCUE_GID: "${LESSONCUE_GID:-10001}"
       # Docker's default seccomp profile commonly blocks the nested user and
       # mount namespaces Bubblewrap needs. The outer container already supplies
       # the isolation boundary, so Docker defaults to the constrained worker
@@ -123,101 +129,54 @@ services:
       start_period: 30s
 
   shlink-web-client:
-    # Swappable, like the API image above. Shlink and its console are MIT, so a
-    # fork built into your own image drops in here -- set SHORTENER_UI_IMAGE in
-    # .env, which the installer preserves.
-    image: "${SHORTENER_UI_IMAGE:-ghcr.io/shlinkio/shlink-web-client:4.4.0}"
+    # This is the LessonCue Link Shortener Companion, a customized fork of the
+    # Shlink web client. It is built from the pinned source shipped beside this
+    # compose file instead of loading a browser-only Shlink image.
+    build:
+      context: ./shortener-companion
+      dockerfile: Dockerfile
+    image: "${SHORTENER_UI_IMAGE:-lessoncue/link-shortener-companion:local}"
     container_name: lessoncue-shlink-web
     profiles: ["shortener"]
     restart: unless-stopped
-    expose:
-      # Reached only through the password gate in front of it, which is what
-      # the management hostname actually points at.
-      - "8080"
+    depends_on:
+      shlink:
+        condition: service_healthy
+    ports:
+      # The companion authenticates visitors itself. Keep the published port
+      # on loopback so the Cloudflare Tunnel remains the normal public route.
+      - "${SHORTENER_UI_BIND:-127.0.0.1}:${SHORTENER_UI_PORT:-8082}:8080"
+    user: "${SHORTENER_UI_UID:-10001}:${SHORTENER_UI_GID:-10001}"
     environment:
-      # The server is named and addressed for you, so the console opens on the
-      # right Shlink with only the key left to supply.
-      SHLINK_SERVER_NAME: "${SHORT_DOMAIN:-LessonCue}"
-      SHLINK_SERVER_URL: "https://${SHORT_DOMAIN:?set SHORT_DOMAIN}"
-      # Deliberately empty. This console is published on its own hostname, and
-      # a key set here is readable by anyone who loads the page -- it would be
-      # short-link admin for the whole domain, handed out. LessonCue shows the
-      # key to a signed-in administrator instead.
-      #
-      # Set SHORTENER_UI_API_KEY only when the management hostname is behind
-      # Cloudflare Access or an equivalent, and you accept the trade.
-      SHLINK_SERVER_API_KEY: "${SHORTENER_UI_API_KEY:-}"
+      # The API key is read by PHP from a Docker secret and is never placed in
+      # the HTML or JavaScript sent to a browser.
+      SHLINK_API_URL: "http://shlink:8080/rest/v3"
+      SHLINK_API_KEY_FILE: /run/secrets/shortener_console_key
+      SHLINK_SHORT_URL_BASE: "https://${SHORT_DOMAIN:?set SHORT_DOMAIN}/"
+      COMPANION_APP_NAME: "${SHORTENER_UI_APP_NAME:-Link Shortener}"
+      # LessonCue writes a JSON reset request here when an administrator sets
+      # the shared password. The companion consumes it into ui-config.json;
+      # later changes made in Access & brand remain effective.
+      COMPANION_PASSWORD_RESET_FILE: /var/lib/companion-control/password-reset
+    secrets:
+      - shortener_console_key
+    volumes:
+      - "${LESSONCUE_DATA_PATH:-./lessoncue-data}/config/shortener/companion-data:/var/www/companion/data"
+      - "${LESSONCUE_DATA_PATH:-./lessoncue-data}/config/shortener/companion-control:/var/lib/companion-control"
     healthcheck:
-      # 127.0.0.1, not localhost: inside these images localhost resolves to ::1
-      # alone while the server binds IPv4, so wget -- which does not fall back
-      # the way curl does -- reported a perfectly healthy console as down.
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/"]
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1:8080/') === false ? 1 : 0);"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 20s
-
-  # A password in front of the console. The console is a page in a browser with
-  # no login of its own, so on a public hostname anyone who finds the address is
-  # already inside it. This asks for a password first, and LessonCue sets it.
-  #
-  # The configuration is written here at start-up rather than shipped as a
-  # second file: the release bundle and the repository lay their files out
-  # differently, and one path assumed wrong has cost this feature enough
-  # already. Note $$ -- compose would otherwise read $host as a variable.
-  shlink-web-gate:
-    image: nginx:1.27-alpine
-    container_name: lessoncue-shlink-gate
-    profiles: ["shortener"]
-    restart: unless-stopped
-    depends_on:
-      - shlink-web-client
-    ports:
-      # Loopback is enough: the tunnel connector runs on this host, so it
-      # reaches the gate here and publishes it on the management hostname.
-      - "${SHORTENER_UI_BIND:-127.0.0.1}:${SHORTENER_UI_PORT:-8082}:8080"
-    volumes:
-      # Read-only, and written by LessonCue when an administrator sets it.
-      - "${SHORTENER_CONSOLE_PASSWORD_FILE:-./shortener-data/console-password}:/run/console-password:ro"
-    command:
-      - sh
-      - -c
-      - |
-        cat > /etc/nginx/conf.d/default.conf <<'CONF'
-        server {
-          listen 8080;
-          server_name _;
-
-          # Unauthenticated on purpose, and it reveals nothing: the container
-          # healthcheck has to reach something that is not behind the password.
-          location = /healthz { auth_basic off; return 200 "ok\n"; }
-
-          location / {
-            auth_basic "LessonCue short links";
-            auth_basic_user_file /run/console-password;
-            proxy_pass http://shlink-web-client:8080;
-            proxy_set_header Host $$host;
-            proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $$scheme;
-          }
-        }
-        CONF
-        exec nginx -g 'daemon off;'
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
     read_only: true
     tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=16m
-      - /var/cache/nginx:rw,nosuid,nodev,size=16m
-      - /var/run:rw,noexec,nosuid,nodev,size=4m
-      - /etc/nginx/conf.d:rw,noexec,nosuid,nodev,size=1m
-    mem_limit: 128m
-    cpus: "0.25"
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+    mem_limit: 256m
+    cpus: "0.50"
     pids_limit: 64
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
 
@@ -226,3 +185,5 @@ secrets:
     file: "${SHORTENER_DB_PASSWORD_FILE:-./shortener-data/db-password}"
   shortener_integration_key:
     file: "${SHORTENER_INTEGRATION_KEY_FILE:-./shortener-data/integration-key}"
+  shortener_console_key:
+    file: "${LESSONCUE_DATA_PATH:-./lessoncue-data}/config/shortener/console-key"

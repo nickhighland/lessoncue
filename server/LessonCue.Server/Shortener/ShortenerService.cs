@@ -1,5 +1,4 @@
-using System.Security.Cryptography;
-using System.Text;
+using System.Text.Json;
 using LessonCue.Server.Activities;
 using Microsoft.EntityFrameworkCore;
 
@@ -54,8 +53,12 @@ public sealed class ShortenerService(
     /// visible there and cannot be edited or deleted through that interface.</summary>
     private readonly string _consoleKeyPath = Path.Combine(dataPath, "config", "shortener", "console-key");
 
-    /// <summary>The htpasswd file the console's password gate reads.</summary>
-    private readonly string _consolePasswordPath = Path.Combine(dataPath, "config", "shortener", "console-password");
+    /// <summary>The companion's private UI data, including its stored password hashes.</summary>
+    private readonly string _companionDataPath = Path.Combine(dataPath, "config", "shortener", "companion-data");
+
+    /// <summary>The one-shot control file shared with the companion container.</summary>
+    private readonly string _companionPasswordResetPath = Path.Combine(
+        dataPath, "config", "shortener", "companion-control", "password-reset");
 
     private ShortenerStatus? _lastStatus;
     private readonly Lock _statusLock = new();
@@ -167,25 +170,23 @@ public sealed class ShortenerService(
     /// <summary>The key to hand an administrator for the shortener's console.</summary>
     public string? ConsoleKey => ReadSecret(_consoleKeyPath);
 
-    /// <summary>Marks the file the installer wrote before anyone chose a password.</summary>
-    private const string ConsoleLockedMarker = "# lessoncue-console-locked";
-
-    /// <summary>Whether an administrator has chosen the console's password.</summary>
+    /// <summary>Whether both companion accounts have a usable stored password.</summary>
     public bool ConsolePasswordSet
     {
         get
         {
-            var current = ReadSecret(_consolePasswordPath);
-            return current is not null && !current.Contains(ConsoleLockedMarker, StringComparison.Ordinal);
+            // A pending reset is already a deliberate password choice, even
+            // if the companion has not received its next request yet.
+            return File.Exists(_companionPasswordResetPath) || CompanionPasswordsConfigured();
         }
     }
 
-    /// <summary>Set the password asked for in front of the shortener's console.</summary>
+    /// <summary>Set the shared password used by both companion account types.</summary>
     /// <remarks>
-    /// Written in the htpasswd form the gate reads, which it consults per
-    /// request -- so a new password takes effect without restarting anything.
-    /// SHA-1 without a salt is what that format offers and all this guards is a
-    /// link console behind HTTPS; it is a gate, not a vault.
+    /// The companion consumes this one-shot request and hashes both passwords
+    /// into its own ui-config.json. It is intentionally not passed as a
+    /// permanent environment variable: the companion's Access &amp; brand page
+    /// must be able to change either account afterwards.
     /// </remarks>
     public async Task SetConsolePasswordAsync(string password, CancellationToken ct = default)
     {
@@ -193,19 +194,12 @@ public sealed class ShortenerService(
         if (chosen.Length < 8)
             throw new ArgumentException("Choose a console password of at least 8 characters.");
 
-        var digest = Convert.ToBase64String(SHA1.HashData(Encoding.UTF8.GetBytes(chosen)));
-        await WriteSecretAsync(_consolePasswordPath, $"{ConsoleUser}:{{SHA}}{digest}\n", ct);
-
-        // The gate runs as its own user and only ever reads this.
-        try { File.SetUnixFileMode(_consolePasswordPath, ReadableByTheGate); }
-        catch (PlatformNotSupportedException) { } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        var reset = JsonSerializer.Serialize(new { adminPassword = chosen, userPassword = chosen });
+        await WriteSecretAsync(_companionPasswordResetPath, reset, ct);
     }
 
-    /// <summary>The one account the gate knows.</summary>
+    /// <summary>The administrator account in the companion.</summary>
     public const string ConsoleUser = "admin";
-
-    private const UnixFileMode ReadableByTheGate =
-        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead;
 
     /// <summary>Where a key came from, so the console can explain itself.</summary>
     public string IntegrationKeySource =>
@@ -238,6 +232,26 @@ public sealed class ShortenerService(
         catch (UnauthorizedAccessException) { return null; }
     }
 
+    private bool CompanionPasswordsConfigured()
+    {
+        var contents = ReadSecret(Path.Combine(_companionDataPath, "ui-config.json"));
+        if (contents is null) return false;
+
+        try
+        {
+            using var document = JsonDocument.Parse(contents);
+            var root = document.RootElement;
+            return HasTextProperty(root, "adminPasswordHash") && HasTextProperty(root, "userPasswordHash");
+        }
+        catch (JsonException) { return false; }
+        catch (InvalidOperationException) { return false; }
+    }
+
+    private static bool HasTextProperty(JsonElement objectElement, string name) =>
+        objectElement.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.String
+        && !string.IsNullOrWhiteSpace(value.GetString());
+
     private static async Task WriteSecretAsync(string path, string value, CancellationToken ct)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -265,7 +279,13 @@ public sealed class ShortenerService(
     /// </summary>
     public void ForgetSecrets()
     {
-        foreach (var path in new[] { _integrationKeyPath, _integrationKeyPath + ".tmp" })
+        foreach (var path in new[]
+        {
+            _integrationKeyPath,
+            _integrationKeyPath + ".tmp",
+            _companionPasswordResetPath,
+            _companionPasswordResetPath + ".tmp",
+        })
             try { if (File.Exists(path)) File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 

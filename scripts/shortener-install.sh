@@ -56,9 +56,13 @@ DB_PASSWORD_FILE="${SHORTENER_DB_PASSWORD_FILE:-${DATA_DIR}/db-password}"
 LESSONCUE_DATA_PATH="${LESSONCUE_DATA_PATH:-./lessoncue-data}"
 SHARED_KEY_DIR="${LESSONCUE_DATA_PATH}/config/shortener"
 INTEGRATION_KEY_FILE="${SHORTENER_INTEGRATION_KEY_FILE:-${SHARED_KEY_DIR}/integration-key}"
+CONSOLE_KEY_FILE="${SHARED_KEY_DIR}/console-key"
+COMPANION_DATA_DIR="${SHARED_KEY_DIR}/companion-data"
+COMPANION_CONTROL_DIR="${SHARED_KEY_DIR}/companion-control"
+PASSWORD_RESET_FILE="${COMPANION_CONTROL_DIR}/password-reset"
 
-mkdir -p "$DATA_DIR" "${DATA_DIR}/postgres" "$SHARED_KEY_DIR"
-chmod 700 "$DATA_DIR" "$SHARED_KEY_DIR"
+mkdir -p "$DATA_DIR" "${DATA_DIR}/postgres" "$SHARED_KEY_DIR" "$COMPANION_DATA_DIR" "$COMPANION_CONTROL_DIR"
+chmod 700 "$DATA_DIR" "$SHARED_KEY_DIR" "$COMPANION_DATA_DIR" "$COMPANION_CONTROL_DIR"
 
 # Generated once and kept. Regenerating the database password on a second run
 # would lock the shortener out of its own data.
@@ -83,33 +87,54 @@ done
 # stay restrictive; these two files are the part a container has to read.
 chmod 644 "$DB_PASSWORD_FILE" "$INTEGRATION_KEY_FILE"
 
-# The console's password file. Created locked -- a hash of something nobody
-# knows -- so the gate is shut from the first moment rather than open until an
-# administrator gets round to it. LessonCue rewrites this when one is set.
-CONSOLE_PASSWORD_FILE="${SHORTENER_CONSOLE_PASSWORD_FILE:-${SHARED_KEY_DIR}/console-password}"
-if [ ! -s "$CONSOLE_PASSWORD_FILE" ]; then
-  {
-    echo "# lessoncue-console-locked"
-    printf 'admin:{SHA}%s\n' "$(new_secret | openssl sha1 -binary 2>/dev/null | openssl base64 2>/dev/null)"
-  } > "$CONSOLE_PASSWORD_FILE"
-  echo "Locked the console until a password is set in LessonCue"
-fi
-chmod 644 "$CONSOLE_PASSWORD_FILE"
-export SHORTENER_CONSOLE_PASSWORD_FILE="$CONSOLE_PASSWORD_FILE"
-
-
 # LessonCue authenticates to the shortener with the integration key, and does
 # not run as root either. Hand its directory to whoever owns LessonCue's data
 # rather than assuming an account name.
 owner_of() {
   stat -c '%u:%g' "$1" 2>/dev/null || stat -f '%u:%g' "$1" 2>/dev/null || true
 }
+OWNER="$(owner_of "$(dirname "$SHARED_KEY_DIR")")"
+case "$OWNER" in
+  *:*) ;;
+  *) OWNER="10001:10001" ;;
+esac
+UI_UID="${OWNER%%:*}"
+UI_GID="${OWNER##*:}"
 if [ "$(id -u)" = "0" ]; then
   # The config directory, not the data root: LessonCue's data directory belongs
   # to root, and taking the owner from there quietly chowned this to root:root
   # and left LessonCue unable to read the key it authenticates with.
-  OWNER="$(owner_of "$(dirname "$SHARED_KEY_DIR")")"
-  [ -n "$OWNER" ] && chown -R "$OWNER" "$SHARED_KEY_DIR" || true
+  chown -R "$OWNER" "$SHARED_KEY_DIR" 2>/dev/null || true
+fi
+
+# Seed the companion with a password nobody knows until LessonCue sets one.
+# Without this, a fresh deployment would expose the companion's first-visit
+# setup screen on its management hostname. The companion consumes this one-shot
+# request into password hashes on its first request; it is not an environment
+# override, so its own password settings remain usable afterwards.
+if [ ! -s "$COMPANION_DATA_DIR/ui-config.json" ] || \
+   ! grep -Eq '"adminPasswordHash"[[:space:]]*:[[:space:]]*"[^"]+"' "$COMPANION_DATA_DIR/ui-config.json" || \
+   ! grep -Eq '"userPasswordHash"[[:space:]]*:[[:space:]]*"[^"]+"' "$COMPANION_DATA_DIR/ui-config.json"; then
+  if [ ! -s "$PASSWORD_RESET_FILE" ]; then
+    seed_password="$(new_secret)"
+    printf '{"adminPassword":"%s","userPassword":"%s"}\n' "$seed_password" "$seed_password" > "$PASSWORD_RESET_FILE"
+    unset seed_password
+    chmod 600 "$PASSWORD_RESET_FILE"
+    echo "Locked the companion until a password is set in LessonCue"
+  fi
+fi
+
+# Compose needs the secret source file to exist even for the first `config` or
+# `up`. A placeholder is used only until Shlink can mint the scoped console
+# key; it is never used to start the companion.
+CONSOLE_KEY_NEEDS_MINT=0
+if [ ! -s "$CONSOLE_KEY_FILE" ]; then
+  new_secret > "$CONSOLE_KEY_FILE"
+  CONSOLE_KEY_NEEDS_MINT=1
+fi
+chmod 644 "$CONSOLE_KEY_FILE"
+if [ "$(id -u)" = "0" ]; then
+  chown "$OWNER" "$CONSOLE_KEY_FILE" 2>/dev/null || true
 fi
 
 # Exported rather than set per-command: the compose file requires them, and
@@ -117,16 +142,17 @@ fi
 export SHORT_DOMAIN
 export SHORTENER_DB_PASSWORD_FILE="$DB_PASSWORD_FILE"
 export SHORTENER_INTEGRATION_KEY_FILE="$INTEGRATION_KEY_FILE"
-# Handed to the console so it arrives already connected. This is why the console
-# is not routed publicly by default: the value ends up in a page a browser
-# reads, and only the local network should be able to read it.
+export SHORTENER_UI_UID="$UI_UID"
+export SHORTENER_UI_GID="$UI_GID"
+export LESSONCUE_UID="$UI_UID"
+export LESSONCUE_GID="$UI_GID"
 export SHORT_DOMAIN_ROOT_REDIRECT
 
 # Written down, not only exported. Every later compose command -- an update, a
 # restart, an operator reading logs -- runs without this shell, and a variable
 # that lived only here made all of them fail on a missing SHORT_DOMAIN.
 # Anything the operator set themselves (ports, bind addresses) is kept.
-OWNED='^(SHORT_DOMAIN|SHORT_DOMAIN_ROOT_REDIRECT|SHORTENER_DB_PASSWORD_FILE|SHORTENER_INTEGRATION_KEY_FILE|SHORTENER_CONSOLE_PASSWORD_FILE)='
+OWNED='^(SHORT_DOMAIN|SHORT_DOMAIN_ROOT_REDIRECT|LESSONCUE_DATA_PATH|LESSONCUE_UID|LESSONCUE_GID|SHORTENER_DB_PASSWORD_FILE|SHORTENER_INTEGRATION_KEY_FILE|SHORTENER_CONSOLE_KEY_FILE|SHORTENER_COMPANION_DATA_PATH|SHORTENER_COMPANION_CONTROL_PATH|SHORTENER_UI_UID|SHORTENER_UI_GID)='
 KEPT=""
 if [ -f .env ]; then
   KEPT="$(grep -v -E "$OWNED" .env || true)"
@@ -135,9 +161,13 @@ fi
   [ -n "$KEPT" ] && printf '%s\n' "$KEPT"
   printf 'SHORT_DOMAIN=%s\n' "$SHORT_DOMAIN"
   printf 'SHORT_DOMAIN_ROOT_REDIRECT="%s"\n' "$SHORT_DOMAIN_ROOT_REDIRECT"
+  printf 'LESSONCUE_DATA_PATH=%s\n' "$LESSONCUE_DATA_PATH"
+  printf 'LESSONCUE_UID=%s\n' "$UI_UID"
+  printf 'LESSONCUE_GID=%s\n' "$UI_GID"
   printf 'SHORTENER_DB_PASSWORD_FILE=%s\n' "$DB_PASSWORD_FILE"
   printf 'SHORTENER_INTEGRATION_KEY_FILE=%s\n' "$INTEGRATION_KEY_FILE"
-  printf 'SHORTENER_CONSOLE_PASSWORD_FILE=%s\n' "$CONSOLE_PASSWORD_FILE"
+  printf 'SHORTENER_UI_UID=%s\n' "$UI_UID"
+  printf 'SHORTENER_UI_GID=%s\n' "$UI_GID"
 } > .env.tmp
 mv .env.tmp .env
 chmod 600 .env
@@ -147,8 +177,9 @@ echo "Starting the shortener for ${SHORT_DOMAIN}"
 # Named explicitly, never a bare `up`. This compose file also describes
 # LessonCue itself, which has no build context in the shipped bundle and, on a
 # native install, is already serving on port 80 -- starting it here would fail
-# to build and then fight the real server for its port.
-docker compose --profile shortener up -d shlink-db shlink shlink-web-client shlink-web-gate
+# to build and then fight the real server for its port. Start Shlink first so
+# its CLI can mint the companion's scoped key before the UI container starts.
+docker compose --profile shortener up -d shlink-db shlink
 
 # Read back from compose rather than assumed, so the printed routes match the
 # ports actually bound -- including any set in .env, which this shell never saw.
@@ -157,7 +188,7 @@ resolved_port() {
     | python3 -c "import json,sys; s=json.load(sys.stdin)['services'].get('$1',{}); print((s.get('ports') or [{}])[0].get('published',''))" 2>/dev/null
 }
 SHORTENER_HTTP_PORT="$(resolved_port shlink)"
-SHORTENER_UI_PORT="$(resolved_port shlink-web-gate)"
+SHORTENER_UI_PORT="$(resolved_port shlink-web-client)"
 : "${SHORTENER_HTTP_PORT:=8081}"
 : "${SHORTENER_UI_PORT:=8082}"
 
@@ -187,16 +218,15 @@ FAILED
   exit 1
 fi
 
-# The console gets its own key, scoped to what it creates itself. Shlink's
+# The companion gets its own key, scoped to what it creates itself. Shlink's
 # AUTHORED_SHORT_URLS role means a key only sees short URLs it made, so the
 # hundred reserved game codes -- authored by LessonCue's key -- are invisible
 # through the web interface and cannot be edited or deleted there. The operator
 # still manages every link they make themselves.
 #
 # Generated through the CLI, which can mint keys even though the REST API
-# cannot. Once only: a second run keeps the key the console is already using.
-CONSOLE_KEY_FILE="${SHARED_KEY_DIR}/console-key"
-if [ -s "$CONSOLE_KEY_FILE" ]; then
+# cannot. Once only: a second run keeps the key the companion is already using.
+if [ "$CONSOLE_KEY_NEEDS_MINT" -eq 0 ]; then
   echo "Keeping the existing console key in ${CONSOLE_KEY_FILE}"
 else
   MINTED="$(docker compose --profile shortener exec -T shlink \
@@ -206,7 +236,9 @@ else
     printf '%s' "$MINTED" > "$CONSOLE_KEY_FILE"
     echo "Generated a console key that cannot see the reserved game codes"
   else
-    echo "Could not generate a console key; LessonCue will offer its own instead." >&2
+    rm -f "$CONSOLE_KEY_FILE"
+    echo "Could not generate the companion's scoped console key; the web client was not started." >&2
+    exit 1
   fi
   unset MINTED
 fi
@@ -217,12 +249,44 @@ if [ "$(id -u)" = "0" ] && [ -n "${OWNER:-}" ]; then
   chown "$OWNER" "$CONSOLE_KEY_FILE" 2>/dev/null || true
 fi
 
+# v0.45.1 placed an nginx password gate in front of the web client. The new
+# Companion owns this same management port, so remove that exact obsolete
+# container before Compose tries to publish it. No other container is touched.
+if docker rm -f lessoncue-shlink-gate >/dev/null 2>&1; then
+  echo "Removed the obsolete Link Shortener password gate"
+fi
+
+echo "Starting the Link Shortener Companion"
+docker compose --profile shortener up -d --build shlink-web-client
+
+ui_healthy=0
+for _ in $(seq 1 40); do
+  if curl --fail --silent "http://127.0.0.1:${SHORTENER_UI_PORT}/" >/dev/null 2>&1; then
+    echo "The companion is answering."
+    ui_healthy=1
+    break
+  fi
+  sleep 3
+done
+
+if [ "$ui_healthy" -ne 1 ]; then
+  cat >&2 <<'FAILED_UI'
+
+The Link Shortener Companion never answered.
+
+Look at what it said:
+
+  docker compose --profile shortener logs shlink-web-client
+FAILED_UI
+  exit 1
+fi
+
 SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 [ -z "$SERVER_IP" ] && SERVER_IP="this server"
 
 cat <<NEXT
 
-Done. The shortener is running and LessonCue will pick it up on its own --
+Done. The shortener and Link Shortener Companion are running and LessonCue will pick them up on its own --
 it reads the same key the shortener was started with, and provisions the
 hundred reserved game codes within a few minutes.
 
@@ -241,10 +305,12 @@ One thing left, and it is the only part that cannot be done from here:
 Then in LessonCue, Settings -> Integrations - URL shortener:
 
   * Press Test configuration to check both hostnames.
-  * Press Show API key, and paste it into the console the first time you open
-    short.${SHORT_DOMAIN}. The console is a page in your browser, so a key
-    built into it would be handed to anyone who opened that address.
+  * Set the Companion password there. LessonCue sets both the Administrator and
+    Link Studio passwords without exposing the Shlink API key to the browser.
+  * After signing in, either password can be changed separately under the
+    Companion's Access & brand page.
 
-Worth doing: put Cloudflare Access in front of short.${SHORT_DOMAIN}. It
-manages every short link on the domain and an API key is all that guards it.
+Worth doing: put Cloudflare Access in front of short.${SHORT_DOMAIN}. The
+Companion has its own login, and Access adds another layer for the management
+hostname.
 NEXT

@@ -808,7 +808,7 @@ export function Settings({
       });
       setShortenerConsolePassword("");
       await loadShortener();
-      notify("Console password set. It applies to the next visit — nothing needs restarting.");
+      notify("Companion password set for both accounts.");
     } catch (e) {
       notify(errorText(e));
     } finally {
@@ -2534,11 +2534,11 @@ export function Settings({
               {shortener.integrationKeyConfigured && shortener.adminUrl && (
                 <>
                 <div className="settings-instructions">
-                  <strong>Password for the console</strong>
+                  <strong>Password for Link Shortener Companion</strong>
                   <p className="settings-copy">
                     {shortener.consolePasswordSet
-                      ? (<>The console asks for a password before it will open. Sign in as <code>{shortener.consoleUser}</code>. Setting a new one here replaces it.</>)
-                      : (<>The console has no login of its own, so anyone who reaches <code>{shortener.adminHost || "its address"}</code> would be inside it. It is shut until you set a password here.</>)}
+                      ? (<>The companion asks for a password before it will open. Sign in as <code>{shortener.consoleUser}</code>. Setting a new one here updates both the Administrator and Link Studio accounts.</>)
+                      : (<>The companion is locked until you set its first password here. LessonCue will use it for both the Administrator and Link Studio accounts.</>)}
                   </p>
                   <div className="row gap">
                     <input
@@ -2557,19 +2557,18 @@ export function Settings({
                     >{shortenerBusy === "console-password" ? "Setting…" : shortener.consolePasswordSet ? "Change password" : "Set password"}</button>
                   </div>
                   <small>
-                    A gate, not a vault: one shared password over HTTPS, which is what guards a
-                    links console. It protects the console only — your short links and game codes
-                    keep working for everyone.
+                    This sets the stored passwords in the companion. After signing in, an administrator
+                    can change either account separately under Access &amp; brand. It protects the management
+                    workspace only — your short links and game codes keep working for everyone.
                   </small>
                 </div>
 
                 <div className="settings-instructions">
-                  <strong>Connecting the shortener's console</strong>
+                  <strong>Link Shortener Companion</strong>
                   <p className="settings-copy">
-                    Open <code>{shortener.adminUrl}</code>, add a server with the short domain{" "}
-                    <code>{shortener.publicUrl}</code>, and paste the API key below. The console is a page
-                    in your browser, so LessonCue cannot hand it the key for you — nothing is stored there
-                    until you do.
+                    Open <code>{shortener.adminUrl}</code> and sign in. The companion is already connected to{" "}
+                    <code>{shortener.publicUrl}</code>; its Shlink API key stays on the server and is never sent
+                    to your browser. Use the API-key button only when configuring another Shlink client.
                   </p>
                   <div className="row gap">
                     <button

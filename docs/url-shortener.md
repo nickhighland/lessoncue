@@ -13,14 +13,14 @@ address, and the root destination are all configuration.
 
 ## The shape of it
 
-Four containers, behind a compose profile:
+Three containers, behind a compose profile:
 
 ```
 Cloudflare Tunnel
 │
 ├── lessoncue.example.org  ──▶  LessonCue
 ├── go.example.org         ──▶  Shlink              short links and game codes
-└── short.go.example.org   ──▶  Shlink Web Client   the management console
+└── short.go.example.org   ──▶  Link Shortener Companion   the management console
                                      │
                                 Shlink ──▶ PostgreSQL   (never published)
 ```
@@ -30,9 +30,10 @@ does not proxy it — Shlink answers its own root natively, so putting anything 
 front of it would only add a hop that can fail.
 
 The management console is a different hostname from the short domain. One serves
-links to the public, the other serves an administrator's console; short links
-always stay on `https://{SHORT_DOMAIN}/{slug}` and never move to the management
-host.
+links to the public, the other serves the Link Shortener Companion workspace;
+short links always stay on `https://{SHORT_DOMAIN}/{slug}` and never move to the
+management host. The companion authenticates its own Administrator and Link
+Studio accounts and calls Shlink server-side.
 
 ## What the addresses do
 
@@ -116,22 +117,22 @@ there.
 scripts/shortener-install.sh go.example.org
 ```
 
-That generates the database password and LessonCue's own API key, starts the
-four containers, waits for the shortener to answer, and prints the tunnel routes
-to add. Run it again any time: existing secrets and data are kept, so it repairs
-a half-finished install rather than starting over.
+That generates the database password and LessonCue's own API key, starts Shlink,
+mints a scoped companion key, builds the Link Shortener Companion, waits for both
+services to answer, and prints the tunnel routes to add. Run it again any time:
+existing secrets and data are kept, so it repairs a half-finished install rather
+than starting over.
 
-To do it by hand instead:
-
-```bash
-SHORT_DOMAIN=go.example.org docker compose --profile shortener up -d
-```
+Do not use a bare `docker compose up` for the first install: the installer is
+what creates the shared secret files, mints the Companion's scoped API key, and
+locks the management console until a password is chosen in LessonCue. Use the
+script above even when running the setup manually.
 
 | Variable | Purpose |
 | --- | --- |
 | `SHORT_DOMAIN` | the domain short links are minted on; required |
 | `SHORTENER_HTTP_PORT` | local port for Shlink, default `8081` |
-| `SHORTENER_UI_PORT` | local port for the console, default `8082` |
+| `SHORTENER_UI_PORT` | local port for the Link Shortener Companion, default `8082` |
 | `SHORTENER_DB_PATH` | where PostgreSQL keeps its data |
 | `SHORT_DOMAIN_ROOT_REDIRECT` | where the bare domain goes; empty leaves Shlink's own page |
 | `SHORTENER_GEOLITE_KEY` | optional, for geographic visit statistics |
@@ -153,12 +154,12 @@ Networks → Tunnels → your tunnel → **Public Hostnames**, add:
 | `{SHORT_DOMAIN}` | `http://localhost:8081` |
 | `{SHORTENER_ADMIN_HOST}` | `http://localhost:8082` |
 
-Keep the entry pointing at LessonCue itself. If the short domain already has an
-entry from **v0.41.0**, where LessonCue fronted it, change that entry's service
-rather than adding a second — a tunnel holds one entry per hostname, and leaving
-the old one would keep every short link going to LessonCue. Leave unrelated
-entries alone. Cloudflare creates the DNS records itself when the domain is in
-the same account.
+Keep the existing LessonCue hostname entry unchanged. If the short domain
+already has an entry from **v0.41.0**, where LessonCue fronted it, change that
+entry's service to Shlink rather than adding a second — a tunnel holds one entry
+per hostname, and leaving the old one would keep every short link going to
+LessonCue. Leave unrelated entries alone. Cloudflare creates the DNS records
+itself when the domain is in the same account.
 
 **Do not add a Redirect Rule for the short domain.** A rule on the whole
 hostname would also catch `/kids` and every game code underneath it.
@@ -191,6 +192,20 @@ with this installation's own hostnames and ports.
 
 Then **Issue API keys**, and **Repair reserved codes** to create all hundred.
 
+### Companion password
+
+The Link Shortener Companion starts locked with an unknown seed password so a
+fresh management hostname cannot display its first-run setup screen. In LessonCue
+Settings, set the URL shortener password once. LessonCue writes a one-shot request
+that the companion turns into its own stored password hashes for both
+**Administrator** and **Link Studio**. Nothing needs restarting.
+
+After signing in, an administrator can change either account separately under
+**Access & brand** in the companion. Do not set permanent
+`COMPANION_ADMIN_PASSWORD` or `COMPANION_USER_PASSWORD` environment variables in
+this deployment: those values intentionally override the companion's stored
+settings and would make later web-client password changes ineffective.
+
 ### API keys
 
 LessonCue **records** the shortener's key; it cannot create one. Shlink has no
@@ -208,14 +223,10 @@ docker compose exec shlink shlink api-key:generate
 Use a separate key for your own work in the console, so LessonCue's routine
 provisioning is never done with a person's credential.
 
-The settings card can show you the key LessonCue holds — **Show API key**,
-which is a deliberate action and is audited. The console is a page in your
-browser, so LessonCue cannot hand it the key automatically; nothing is stored
-there until you paste it.
-
-The web client is deployed with no server list and no key. It is a static page
-served to a browser, so anything baked in there would be handed to whoever
-opens it.
+The settings card can show you the key LessonCue holds — **Show API key**, which
+is a deliberate action and is audited. That is for another Shlink client or
+diagnostics. The Link Shortener Companion is already connected: its scoped key is
+mounted as a server-side secret and is never sent to a browser.
 
 ## Keeping it honest
 
@@ -259,7 +270,9 @@ Three distinct actions:
 ## Updating
 
 The Shlink image is pinned, never `latest` — an unattended major bump would
-migrate the database out from under the links the organization depends on.
+migrate the database out from under the links the organization depends on. The
+companion source is shipped in the LessonCue release bundle and rebuilt when the
+installer runs, so its source changes arrive with the LessonCue release.
 
 ```bash
 scripts/shortener-update.sh 4.5.0
@@ -276,20 +289,19 @@ changing anything.
 
 ## Running your own build
 
-Shlink and its console are MIT licensed, so a fork is yours to build and run.
-Neither image is built from this repository -- both are pulled from
-`ghcr.io/shlinkio` -- so swapping one in means pointing at your own image
-rather than patching anything here.
+Shlink and the companion are MIT licensed. LessonCue vendors the companion UI
+source from the Link Shortener fork and builds it locally, so no browser client
+image or API key needs to be published separately.
 
 Build and push your image, then name it in `/opt/lessoncue-shortener/.env`:
 
 ```
 SHORTENER_IMAGE=ghcr.io/your-org/shlink:your-tag
-SHORTENER_UI_IMAGE=ghcr.io/your-org/shlink-web-client:your-tag
 ```
 
-Then `docker compose --profile shortener up -d`. The installer keeps any
-setting it does not own, so these survive a reinstall and an update.
+Then `docker compose --profile shortener up -d`. The installer keeps the
+Shlink image setting; the companion is built from the vendored source in the
+release bundle.
 
 One constraint worth knowing before you start. LessonCue talks to the API over
 Shlink's REST interface: `rest/v3/short-urls` for the reserved codes,
@@ -298,5 +310,7 @@ Shlink's REST interface: `rest/v3/short-urls` for the reserved codes,
 those working can change anything else. A fork that changes them will show up
 as reserved codes going missing or being reported as somebody else's.
 
-The console is the safer thing to fork: LessonCue never calls it, so its
-appearance and behaviour are entirely yours.
+The companion is the safer thing to customize: LessonCue never calls its UI
+routes, so its appearance and day-to-day link workspace behaviour are entirely
+yours. Keep the LessonCue password-reset file contract intact if you want the
+LessonCue Settings password field to continue updating both accounts.
