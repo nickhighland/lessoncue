@@ -1,13 +1,15 @@
 // The shortener stack has security properties that are easy to lose in an
-// edit: the database must never be published, the console must carry no
-// credentials, and both published ports must stay on loopback so the tunnel is
-// the only way in. Checked here rather than trusted to review.
+// edit: the database must never be published, the companion must keep the API
+// key server-side, and both published ports must stay on loopback so the tunnel
+// is the normal way in. Checked here rather than trusted to review.
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const compose = readFileSync("compose.yaml", "utf8");
+const installer = readFileSync("scripts/shortener-install.sh", "utf8");
+const updater = readFileSync("scripts/shortener-update.sh", "utf8");
 const failures = [];
 const check = (ok, message) => { if (!ok) failures.push(message); };
 
@@ -36,7 +38,6 @@ const publishedPorts = (service) => {
 const db = section("shlink-db");
 const shlink = section("shlink");
 const client = section("shlink-web-client");
-const gate = section("shlink-web-gate");
 
 check(db.length > 0 && shlink.length > 0 && client.length > 0, "the shortener services are missing from compose.yaml");
 check(!/^\s+ports:/m.test(db), "shlink-db must not publish a port: the database is never reachable from outside");
@@ -48,19 +49,28 @@ for (const port of publishedPorts(shlink))
   check(port.includes("SHORTENER_BIND:-127.0.0.1"),
     `shlink publishes ${port.trim()} without defaulting to loopback; the tunnel should be the way in unless an operator chooses otherwise`);
 
-// The console is reached only through its password gate, which is what the
-// management hostname points at.
-check(publishedPorts(client).length === 0,
-  "shlink-web-client must not publish a port: the password gate is the way in");
-
-// The console is pre-filled on purpose, which is only safe while it stays off
-// the public internet. Guard the thing that makes it safe.
-// Published on its own hostname, so a key baked in here is a key given away.
-check(/SHLINK_SERVER_API_KEY: "\$\{SHORTENER_UI_API_KEY:-\}"/.test(client),
-  "shlink-web-client must not carry an API key by default: it is served to any browser that reaches its hostname");
-// Matched on a single word: the sentence wraps across comment lines.
-check(/Cloudflare/.test(client),
-  "the console's comment must keep saying what makes exposing it safe");
+// The companion has its own login and is published directly for the
+// management hostname. It still binds to loopback so the tunnel remains the
+// normal public route.
+check(publishedPorts(client).length === 1,
+  "the companion must publish exactly one management port");
+for (const port of publishedPorts(client))
+  check(port.includes("SHORTENER_UI_BIND:-127.0.0.1"),
+    "the companion must publish on loopback, so the tunnel stays the way in");
+check(/build:\s*\n\s+context: \.\/shortener-companion/.test(client),
+  "the management service must build from the pinned LessonCue companion source");
+check(/SHLINK_API_URL: "http:\/\/shlink:8080\/rest\/v3"/.test(client),
+  "the companion must call Shlink over the private compose network");
+check(/SHLINK_API_KEY_FILE: \/run\/secrets\/shortener_console_key/.test(client),
+  "the Shlink API key must reach the companion through a secret file");
+check(!/SHLINK_SERVER_API_KEY|SHORTENER_UI_API_KEY|SHLINK_API_KEY:/.test(client),
+  "the browser client must not receive an inline Shlink API key");
+check(/COMPANION_PASSWORD_RESET_FILE: \/var\/lib\/companion-control\/password-reset/.test(client),
+  "the companion must expose the LessonCue password reset control path");
+check(/\/var\/www\/companion\/data/.test(client) && /\/var\/lib\/companion-control/.test(client),
+  "the companion must persist UI data and mount its private control directory");
+check(/secrets:\s*\n\s+- shortener_console_key/.test(client),
+  "the companion must consume the scoped console key as a Compose secret");
 // Inside these images localhost resolves to ::1 alone while the servers bind
 // IPv4. A healthcheck aimed at localhost reported a working console as down.
 for (const [name, service] of [["shlink", shlink], ["shlink-web-client", client]])
@@ -71,18 +81,11 @@ check(/DB_DRIVER: postgres/.test(shlink), "the shortener must run on postgres, n
 check(/SHORT_URL_MODE: loose/.test(shlink), "loose mode is what makes a code typed in lower case resolve");
 check(/_FILE:/.test(shlink), "credentials should reach the shortener as files, not inline values");
 check(/profiles: \["shortener"\]/.test(shlink), "the shortener must stay behind its compose profile");
-
-// The console has no login of its own. On a public hostname the gate in front
-// of it is the only thing between a visitor and every short link the
-// organization owns, so the console must not be reachable around it.
-check(gate.length > 0, "the console's password gate is missing from compose.yaml");
-check(/auth_basic_user_file/.test(gate), "the gate must ask for a password");
-check(/profiles: \["shortener"\]/.test(gate), "the gate must stay behind the shortener profile");
-for (const port of publishedPorts(gate))
-  check(port.includes("SHORTENER_UI_BIND:-127.0.0.1"),
-    "the gate must publish on loopback, so the tunnel stays the way in");
-// A health check behind the password would report a working gate as down.
-check(/healthz/.test(gate), "the gate needs a health check that is not behind the password");
+check(!section("shlink-web-gate"), "the old unauthenticated web client gate must not return");
+check(/shortener_console_key:\s*\n\s+file:/.test(compose), "compose must declare the companion API-key secret");
+check(/docker rm -f lessoncue-shlink-gate/.test(installer) && /docker rm -f lessoncue-shlink-gate/.test(updater),
+  "the install and update paths must remove the obsolete v0.45.1 management gate before binding its port");
+check(/ui_health/.test(updater), "the shortener updater must wait for the Companion as well as Shlink");
 
 // No installation's domain belongs in a file everyone ships.
 for (const domain of ["chroc.cc", "cityhope"])
@@ -108,6 +111,7 @@ for (const layout of layouts) {
     mkdirSync(here, { recursive: true });
     mkdirSync(join(root, "bin"), { recursive: true });
     cpSync("compose.yaml", join(root, "compose.yaml"));
+    cpSync("shortener-companion", join(root, "shortener-companion"), { recursive: true });
     cpSync(join("scripts", "shortener-install.sh"), join(here, "install.sh"));
 
     const record = join(root, "where");
@@ -135,27 +139,35 @@ for (const layout of layouts) {
     check(/^SHORT_DOMAIN=short\.example\.test$/m.test(env),
       `in the ${layout.name} layout the installer did not record SHORT_DOMAIN where compose reads it`);
 
-    // This compose file also describes LessonCue itself. A bare `up` tries to
-    // build it -- there is no build context in the bundle -- and on a native
-    // install would then contend for the port the real server is already on.
+    // This compose file also describes LessonCue itself. The installer must
+    // start only the database and Shlink first, then the companion after its
+    // scoped key exists -- never build LessonCue itself on a native install.
     const args = existsSync(`${record}.args`) ? readFileSync(`${record}.args`, "utf8") : "";
-    const up = args.split("\n").find((line) => line.includes(" up "));
-    check(up !== undefined && ["shlink-db", "shlink", "shlink-web-client", "shlink-web-gate"].every((s) => up.split(/\s+/).includes(s)),
-      `in the ${layout.name} layout the installer must name the shortener services to start, got: ${up ?? "(no up)"}`);
-    check(up === undefined || !up.split(/\s+/).includes("lessoncue"),
+    const ups = args.split("\n").filter((line) => line.includes(" up "));
+    const firstUp = ups[0];
+    check(firstUp !== undefined && ["shlink-db", "shlink"].every((s) => firstUp.split(/\s+/).includes(s)),
+      `in the ${layout.name} layout the installer must start Shlink before the companion, got: ${firstUp ?? "(no up)"}`);
+    check(ups.every((line) => !line.split(/\s+/).includes("lessoncue")),
       `in the ${layout.name} layout the installer must not start LessonCue itself`);
 
-    // Compose bind-mounts these into the container, where only the file's own
-    // mode applies. Root-only meant Shlink could not read its own password.
-    check(existsSync(join(root, "lessoncue", "config", "shortener", "console-password")),
-      `in the ${layout.name} layout the installer must create the console password file before compose runs`);
+    // The first `up` fails in this test stub, so these are the files that must
+    // already exist before Compose is asked to start anything. The reset file
+    // is intentionally private; the two API keys are readable by containers.
+    const reset = join(root, "lessoncue", "config", "shortener", "companion-control", "password-reset");
+    const companionData = join(root, "lessoncue", "config", "shortener", "companion-data");
+    check(existsSync(reset),
+      `in the ${layout.name} layout the installer must create the companion reset file before compose runs`);
+    check(existsSync(companionData),
+      `in the ${layout.name} layout the installer must create the companion data directory before compose runs`);
 
     for (const secret of [join(root, "data", "db-password"),
                           join(root, "lessoncue", "config", "shortener", "integration-key"),
-                          join(root, "lessoncue", "config", "shortener", "console-password")]) {
+                          join(root, "lessoncue", "config", "shortener", "console-key")]) {
       check(existsSync(secret) && (statSync(secret).mode & 0o044) === 0o044,
         `${secret.replace(root, "")} must be readable by the unprivileged user the container runs as`);
     }
+    check(existsSync(reset) && (statSync(reset).mode & 0o400) === 0o400 && (statSync(reset).mode & 0o077) === 0,
+      `${reset.replace(root, "")} must be private to the LessonCue/companion account`);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -180,4 +192,4 @@ if (failures.length) {
   for (const failure of failures) console.error(`  - ${failure}`);
   process.exit(1);
 }
-console.log("Shortener compose valid: database unpublished, ports on loopback, no credentials in the browser client.");
+console.log("Shortener compose valid: database unpublished, ports on loopback, companion API key server-side.");

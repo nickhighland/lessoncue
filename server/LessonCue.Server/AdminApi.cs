@@ -3288,9 +3288,9 @@ public static class AdminApi
         appSettings.MapPut("/shortener/console-password", async (ShortenerConsolePasswordInput input,
             LessonCueDb db, ShortenerService shortener, CancellationToken ct) =>
         {
-            // The console has no login of its own, so on a public hostname the
-            // gate in front of it is the only thing between a visitor and every
-            // short link the organization owns.
+            // LessonCue writes the chosen password into the companion's private
+            // one-shot control file. The companion hashes both account values
+            // and continues to own its own login and later password changes.
             try
             {
                 await shortener.SetConsolePasswordAsync(input.Password, ct);

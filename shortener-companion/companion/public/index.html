@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101827">
+    <meta name="description" content="A private workspace for creating and monitoring short links.">
+    <title>Link Shortener</title>
+    <link rel="stylesheet" href="ui.css">
+</head>
+<body>
+<div id="auth-screen" class="screen">
+    <div class="auth-shell">
+        <section class="auth-intro">
+            <div class="brand-lockup">
+                <span id="auth-logo" class="brand-mark" aria-hidden="true"><span></span><span></span></span>
+                <span id="auth-brand-name">Link Shortener</span>
+            </div>
+            <div class="intro-copy">
+                <h1>Make every destination feel intentional.</h1>
+            </div>
+            <div class="intro-foot"><span class="status-dot"></span><span>Self-hosted and under your control</span></div>
+        </section>
+        <section class="auth-card-wrap">
+            <div class="auth-card">
+                <div class="auth-card-heading">
+                    <div><p class="eyebrow">WELCOME BACK</p><h2>Sign in to continue</h2></div>
+                    <span class="secure-badge"><span aria-hidden="true">⌁</span> Secure</span>
+                </div>
+                <div class="account-switcher" role="tablist" aria-label="Account type">
+                    <button type="button" class="account-tab is-active" data-login-role="user" role="tab"><span class="tab-icon">◌</span><span><strong>Link Studio</strong></span></button>
+                    <button type="button" class="account-tab" data-login-role="admin" role="tab"><span class="tab-icon">✦</span><span><strong>Admin</strong></span></button>
+                </div>
+                <form id="login-form" class="stack-form">
+                    <label class="field"><span>Password</span><input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required></label>
+                    <button class="button button-primary button-wide" type="submit"><span>Sign in</span><span aria-hidden="true">↗</span></button>
+                    <p id="login-message" class="form-message" role="status"></p>
+                </form>
+                <p class="auth-note"><span aria-hidden="true">●</span> Your password never leaves this server.</p>
+            </div>
+            <p class="auth-footer">Powered by your Shlink instance</p>
+        </section>
+    </div>
+</div>
+
+<div id="setup-screen" class="screen is-hidden">
+    <div class="setup-shell">
+        <div class="setup-brand"><span id="setup-logo" class="brand-mark" aria-hidden="true"><span></span><span></span></span><span id="setup-brand-name">Link Shortener</span></div>
+        <div class="setup-card">
+            <div class="setup-icon" aria-hidden="true">✦</div>
+            <p class="eyebrow">FIRST-RUN SETUP</p>
+            <h1>Make this workspace yours.</h1>
+            <p class="muted">Create the administrator password and the password your team will use to access enabled features.</p>
+            <form id="setup-form" class="stack-form">
+                <label class="field"><span>Administrator password</span><input id="setup-admin-password" type="password" autocomplete="new-password" minlength="8" placeholder="At least 8 characters" required></label>
+                <label class="field"><span>Link Studio password</span><input id="setup-user-password" type="password" autocomplete="new-password" minlength="8" placeholder="At least 8 characters" required></label>
+                <button class="button button-primary button-wide" type="submit">Create workspace <span aria-hidden="true">↗</span></button>
+                <p id="setup-message" class="form-message" role="status"></p>
+            </form>
+        </div>
+        <p class="auth-footer">You can change these passwords later in Access &amp; brand.</p>
+    </div>
+</div>
+
+<div id="app-screen" class="app-screen is-hidden">
+    <aside id="sidebar" class="sidebar">
+        <div class="sidebar-brand"><span id="sidebar-logo" class="brand-mark" aria-hidden="true"><span></span><span></span></span><span id="sidebar-brand-name">Link Shortener</span></div>
+        <div class="workspace-label">WORKSPACE</div>
+        <nav id="primary-nav" class="primary-nav" aria-label="Primary navigation"></nav>
+        <div class="sidebar-spacer"></div>
+        <div class="sidebar-footer">
+            <div class="account-pill"><span id="account-avatar" class="avatar">A</span><span><strong id="account-name">Administrator</strong><small id="account-role">Full access</small></span></div>
+            <button id="logout-button" class="logout-button" type="button"><span aria-hidden="true">↪</span> Sign out</button>
+        </div>
+    </aside>
+    <main class="main-content">
+        <header class="topbar">
+            <button id="menu-button" class="icon-button mobile-only" type="button" aria-label="Open menu">☰</button>
+            <div><p id="topbar-kicker" class="eyebrow">OVERVIEW</p><h2 id="topbar-title">Good to see you.</h2></div>
+            <div class="topbar-actions"><span id="topbar-status" class="live-status"><span class="status-dot"></span> Live workspace</span><button id="topbar-add-link" class="button button-primary compact" type="button"><span aria-hidden="true">＋</span> New link</button></div>
+        </header>
+        <div id="app-content" class="page-content" aria-live="polite"></div>
+    </main>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+<script src="ui.js" defer></script>
+</body>
+</html>

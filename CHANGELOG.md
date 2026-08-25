@@ -4,6 +4,22 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.2 — Link Shortener Companion
+
+### User changes
+
+- The shortener management workspace now uses LessonCue's Link Shortener
+  Companion, with separate Administrator and Link Studio accounts.
+- Set the initial shared password in LessonCue Settings, then change either
+  account independently in the Companion's Access & brand page.
+
+### Developer changes
+
+- The Companion source is bundled and built locally; its scoped Shlink API key
+  stays server-side in a Docker secret.
+- Install and update paths remove the obsolete v0.45.1 nginx gate before
+  publishing the Companion management port, and wait for both services.
+
 ## v0.45.1 — Short links that stay set up
 
 ### User changes
