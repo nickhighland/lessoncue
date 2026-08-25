@@ -1103,7 +1103,7 @@ export function SignageEditor({
                             hint={
                               sourceAllowlist.length
                                 ? `Allowed: ${sourceAllowlist.join(", ")}`
-                                : "An administrator must first approve its origin in Settings → Organization & appearance."
+                                : "An administrator must first approve its origin in Settings → Integrations."
                             }
                           >
                             <input

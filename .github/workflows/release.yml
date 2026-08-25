@@ -33,7 +33,7 @@ jobs:
       - run: npm test
       - run: dotnet restore server/LessonCue.Server.Tests/LessonCue.Server.Tests.csproj
       - run: dotnet test server/LessonCue.Server.Tests/LessonCue.Server.Tests.csproj -c Release --no-restore
-      - run: bash -n installers/linux/install-latest.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue-update installers/linux/repair-updater.sh tests/linux-updater-transaction.sh
+      - run: bash -n installers/linux/install-latest.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue-update installers/linux/repair-updater.sh scripts/remove-shlink-web-client.sh tests/linux-updater-transaction.sh
       - name: Exercise transactional Linux updates before packaging
         run: >-
           docker run --rm
@@ -309,6 +309,7 @@ jobs:
           cp compose.yaml release/shortener/compose.yaml
           cp scripts/shortener-install.sh release/shortener/install.sh
           cp scripts/shortener-update.sh release/shortener/update.sh
+          cp scripts/remove-shlink-web-client.sh release/shortener/remove-shlink-web-client.sh
           cp docs/url-shortener.md release/shortener/README.md
           # The management UI is built locally from the LessonCue-specific
           # Link Shortener Companion fork. Keep its source and license in the

@@ -86,8 +86,8 @@ check(/profiles: \["shortener"\]/.test(shlink), "the shortener must stay behind 
 check(!section("shlink-web-gate"), "the old unauthenticated web client gate must not return");
 check(/shortener_console_key:\s*\n\s+file:/.test(compose), "compose must declare the companion API-key secret");
 for (const script of [installer, updater]) {
-  check(/lessoncue-shlink-gate/.test(script) && /lessoncue-shlink-web/.test(script),
-    "the install and update paths must remove the legacy Shlink Web containers before binding the Companion port");
+  check(/up -d --build link-shortener-companion/.test(script),
+    "the install and update paths must start the LessonCue Link Shortener Companion");
   check(/--file \"\$PWD\/compose\.yaml\"/.test(script),
     "the install and update paths must explicitly use the release compose file");
 }

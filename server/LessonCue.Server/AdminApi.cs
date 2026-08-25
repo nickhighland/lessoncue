@@ -3600,13 +3600,29 @@ public static class AdminApi
             CancellationToken ct) => Results.Ok(await availability.SetAsync(input.Enabled, ct)))
             .RequireAuthorization(LessonCuePermissions.Settings);
 
-        settings.MapGet("/activity-join-address",
-            (ActivityJoinAddressService joinAddress) => Results.Ok(joinAddress.Status));
+        settings.MapGet("/activity-join-address", async (
+            ActivityJoinAddressService joinAddress,
+            ShortenerService shortener,
+            CancellationToken ct) =>
+        {
+            // ActivityJoinAddressService intentionally has a synchronous hot
+            // path, while the shortener's usability is established by a live
+            // health/audit check. Refresh here so opening Settings immediately
+            // after installation (or after a restart) can select Short domain
+            // without waiting for the background health service.
+            await shortener.StatusAsync(ct);
+            return Results.Ok(joinAddress.Status);
+        });
 
         settings.MapPut("/activity-join-address", async (
             JoinAddressInput input,
             ActivityJoinAddressService joinAddress,
-            CancellationToken ct) => Results.Ok(await joinAddress.SetAsync(input.Mode, ct)));
+            ShortenerService shortener,
+            CancellationToken ct) =>
+        {
+            await shortener.StatusAsync(ct);
+            return Results.Ok(await joinAddress.SetAsync(input.Mode, ct));
+        });
 
         settings.MapGet("/cloudflare-tunnel", (CloudflareTunnelService tunnel) => Results.Ok(tunnel.Status));
 

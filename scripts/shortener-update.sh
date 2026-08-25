@@ -83,19 +83,6 @@ echo "Backed up $(wc -c < "$DUMP") bytes"
 
 echo "Updating to ${NEW_TAG}"
 SHORTENER_IMAGE="ghcr.io/shlinkio/shlink:${NEW_TAG}" "${COMPOSE[@]}" up -d shlink
-remove_legacy_web_containers() {
-  local name
-  # Remove only the known v0.45.1 management containers. The new service has
-  # its own name and container, so an old Shlink Web container cannot survive
-  # this update or occupy the management port.
-  for name in lessoncue-shlink-gate lessoncue-shlink-web lessoncue-shlink-web-client-1; do
-    if docker rm -f "$name" >/dev/null 2>&1; then
-      echo "Removed legacy shortener web container ${name}"
-    fi
-  done
-}
-
-remove_legacy_web_containers
 echo "Rebuilding the Link Shortener Companion"
 "${COMPOSE[@]}" up -d --build link-shortener-companion
 

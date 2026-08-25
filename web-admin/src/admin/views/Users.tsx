@@ -217,7 +217,7 @@ export function UsersView({
                 disabled={!emailConfigured}
                 title={
                   !emailConfigured
-                    ? "Configure account email under Settings → Organization & accounts first."
+                    ? "Configure account email under Settings → Accounts first."
                     : undefined
                 }
                 onClick={() => {
@@ -243,7 +243,7 @@ export function UsersView({
       {canManage && !emailConfigured && (
         <div className="alert user-email-note">
           Setup invitations and approval notifications require a configured
-          email provider under Settings → Organization & accounts. Local
+          email provider under Settings → Accounts. Local
           temporary-password accounts remain available.
         </div>
       )}
@@ -1235,7 +1235,7 @@ export function ServiceAdminMfaPanel({
   return (
     <CollapsibleSettingsSection
       label="Authenticator MFA"
-      className="settings-panel settings-accounts settings-mfa"
+      className="settings-panel settings-security settings-mfa"
     >
       <div className="settings-heading">
         <div>
@@ -1393,7 +1393,7 @@ export function TroubleshootingLogPanel({
   return (
     <CollapsibleSettingsSection
       label="Troubleshooting log"
-      className="wide-settings settings-panel settings-data"
+      className="wide-settings settings-panel settings-system"
     >
       <div className="settings-heading">
         <div>

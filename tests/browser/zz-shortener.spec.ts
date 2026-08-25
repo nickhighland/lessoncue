@@ -9,7 +9,7 @@ const authenticate = (page: Page) => signInAsAdmin(page, "Shortener");
 
 const openSection = async (page: Page) => {
   await page.getByRole("button", { name: /Settings$/ }).click();
-  await page.getByRole("button", { name: /Connections/ }).click();
+  await page.getByRole("button", { name: "Integrations", exact: true }).click();
   const panel = page.locator(".settings-panel").filter({ hasText: "URL shortener" });
   await expect(panel.getByRole("heading", { name: "URL shortener" })).toBeVisible({ timeout: 20_000 });
   return panel;

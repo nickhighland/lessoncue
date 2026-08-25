@@ -287,6 +287,21 @@ back to.
 Run it with no tag to see the running version and the reserved count without
 changing anything.
 
+### Retiring the old Shlink Web client
+
+Servers that ran the pre-Link Studio management client need a one-time cleanup
+before installing the next release. The release bundle includes
+`remove-shlink-web-client.sh`; run it as root from the extracted `shortener/`
+directory:
+
+```bash
+sudo ./remove-shlink-web-client.sh
+```
+
+It removes the retired Shlink Web containers and image only. It does not remove
+the Shlink API, PostgreSQL, short links, or their data. The normal LessonCue
+shortener installer then starts Link Shortener Companion directly.
+
 ## Running your own build
 
 Shlink and the companion are MIT licensed. LessonCue vendors the companion UI

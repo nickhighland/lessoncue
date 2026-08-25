@@ -2,7 +2,7 @@ import { AccessibleDialogHost } from "../AccessibleDialogs";
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
 import { FormEvent, lazy, ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
-import { AccountProfile, Audit, Backup, Bootstrap, Lesson, LessonClass, LessonTemplate, Media, Permission, RecurringSchedule, Screen, Session, Signage, UpdateStatus, User, View } from "./models";
+import { AccountProfile, Audit, Backup, Bootstrap, Lesson, LessonClass, LessonTemplate, Media, Permission, RecurringSchedule, Screen, Session, SettingsSection, Signage, UpdateStatus, User, View } from "./models";
 import { BrandMark, Field, Modal } from "./ui";
 import { errorText, formatBytes, isAccountLinkPath, isActivityDisplayPath, isActivityParticipantPath, isAudienceDisplayPath, isAudiencePath, isControllerPath, isWebPlayerPath } from "./utils";
 
@@ -809,6 +809,15 @@ export function Shell({
   const canManageServiceSettings = has("settings.manage");
   const canManageBackups = has("backups.manage");
   const canManageUpdates = has("updates.manage");
+  const defaultSettingsSection: SettingsSection = canManageUpdates
+    ? "system"
+    : canManageServiceSettings
+      ? "overview"
+      : canManageBackups
+        ? "backup"
+        : "overview";
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>(defaultSettingsSection);
+  const [settingsExpanded, setSettingsExpanded] = useState(view === "settings");
   const [dataVersion, setDataVersion] = useState(0);
   const [bootstrap, setBootstrap] = useState<Bootstrap>();
   // Absent on an older server payload, so default to available.
@@ -1082,9 +1091,116 @@ export function Shell({
     { label: "Media & Devices", keys: ["media", "screens", "signage"] },
     { label: "Administration", keys: ["users", "settings"] },
   ];
+  const settingsGroups: { label: string; items: { id: SettingsSection; label: string; visible: boolean }[] }[] = [
+    {
+      label: "Organization",
+      items: [
+        { id: "general", label: "General", visible: canManageServiceSettings },
+        { id: "accounts", label: "Accounts", visible: canManageAppSettings || canManageServiceSettings },
+        { id: "appearance", label: "Appearance", visible: canManageServiceSettings },
+      ],
+    },
+    {
+      label: "Content & Devices",
+      items: [
+        { id: "media", label: "Media & Storage", visible: canManageAppSettings || canManageServiceSettings },
+        { id: "playback", label: "Playback & Displays", visible: canManageAppSettings || canManageServiceSettings },
+      ],
+    },
+    {
+      label: "Infrastructure",
+      items: [
+        { id: "network", label: "Network & Remote Access", visible: canManageServiceSettings },
+        { id: "integrations", label: "Integrations", visible: canManageAppSettings || canManageServiceSettings },
+      ],
+    },
+    {
+      label: "Administration",
+      items: [
+        { id: "security", label: "Security & Audit", visible: canManageAppSettings || canManageServiceSettings },
+        { id: "backup", label: "Backup & Recovery", visible: canManageAppSettings || canManageBackups },
+        { id: "system", label: "System & Support", visible: canManageServiceSettings || canManageUpdates },
+      ],
+    },
+  ];
+  const openSettings = (section: SettingsSection = "overview") => {
+    setSettingsSection(section);
+    setSettingsExpanded(true);
+    setMobileNavOpen(false);
+    setView("settings");
+  };
+  const renderNavItem = ({ key, icon, label }: { key: View; icon: string; label: string }) => {
+    if (key !== "settings") {
+      return (
+        <button
+          key={key}
+          type="button"
+          className={view === key ? "active" : ""}
+          onClick={() => {
+            setMobileNavOpen(false);
+            setView(key);
+          }}
+          aria-current={view === key ? "page" : undefined}
+        >
+          <span className="nav-icon">{icon}</span>
+          <span>{label}</span>
+        </button>
+      );
+    }
+    return (
+      <div key={key} className="settings-nav-item">
+        <button
+          type="button"
+          className={view === key ? "active" : ""}
+          onClick={() => {
+            if (view !== "settings") openSettings();
+            else setSettingsExpanded((current) => !current);
+          }}
+          aria-current={view === key ? "page" : undefined}
+          aria-expanded={view === "settings" ? settingsExpanded : false}
+          aria-controls="settings-subnavigation"
+        >
+          <span className="nav-icon">{icon}</span>
+          <span>{label}</span>
+          <span className="nav-disclosure" aria-hidden="true">{view === "settings" && settingsExpanded ? "⌃" : "⌄"}</span>
+        </button>
+        {view === "settings" && settingsExpanded && (
+          <nav id="settings-subnavigation" className="settings-subnavigation" aria-label="Settings sections">
+            <button
+              type="button"
+              className={settingsSection === "overview" ? "active" : ""}
+              onClick={() => openSettings("overview")}
+              aria-current={settingsSection === "overview" ? "page" : undefined}
+            >Overview</button>
+            {settingsGroups.map((group) => {
+              const items = group.items.filter((item) => item.visible);
+              if (!items.length) return null;
+              return (
+                <div key={group.label} className="settings-subgroup">
+                  <div className="settings-subgroup-label">{group.label}</div>
+                  {items.map((item) => (
+                    <button
+                      type="button"
+                      key={item.id}
+                      className={settingsSection === item.id ? "active" : ""}
+                      onClick={() => openSettings(item.id)}
+                      aria-current={settingsSection === item.id ? "page" : undefined}
+                    >{item.label}</button>
+                  ))}
+                </div>
+              );
+            })}
+          </nav>
+        )}
+      </div>
+    );
+  };
   useEffect(() => {
     document.getElementById("main-content")?.focus();
     setMobileNavOpen(false);
+  }, [view]);
+  useEffect(() => {
+    if (view === "settings") setSettingsExpanded(true);
   }, [view]);
   useEffect(() => {
     if (mainContent.current)
@@ -1193,20 +1309,7 @@ export function Shell({
               return (
                 <div key={section.label} className="nav-section">
                   <div className="nav-section-label">{section.label}</div>
-                  {sectionItems.map(({ key, icon, label }) => (
-                    <button
-                      key={key}
-                      className={view === key ? "active" : ""}
-                      onClick={() => {
-                        setMobileNavOpen(false);
-                        setView(key);
-                      }}
-                      aria-current={view === key ? "page" : undefined}
-                    >
-                      <span className="nav-icon">{icon}</span>
-                      <span>{label}</span>
-                    </button>
-                  ))}
+                  {sectionItems.map(renderNavItem)}
                 </div>
               );
             })}
@@ -1270,7 +1373,7 @@ export function Shell({
                   {canManageUpdates && (
                     <button
                       className="button"
-                      onClick={() => setView("settings")}
+                      onClick={() => openSettings("system")}
                     >
                       Review update
                     </button>
@@ -1291,7 +1394,7 @@ export function Shell({
                     {canManageBackups && (
                       <button
                         className="button"
-                        onClick={() => setView("settings")}
+                        onClick={() => openSettings("backup")}
                       >
                         Review backups
                       </button>
@@ -1427,6 +1530,8 @@ export function Shell({
                   canServiceSettings={canManageServiceSettings}
                   canBackups={canManageBackups}
                   canUpdates={canManageUpdates}
+                  settingsSection={settingsSection}
+                  setSettingsSection={setSettingsSection}
                 />
               )}
               </Suspense>

@@ -303,14 +303,16 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
 
   await page.getByRole("button", { name: /Settings$/ }).click();
   await expect(page.getByRole("navigation", { name: "Settings sections" })).toBeVisible();
-  await page.getByRole("button", { name: /Organization & accounts/ }).click();
+  await page.getByRole("button", { name: "Accounts", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Registration", exact: true })).toBeVisible();
   const emailPanel = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: "Email settings", exact: true }) });
   await expect(emailPanel).toHaveCount(1);
   await expect(emailPanel).toBeVisible();
+  await page.getByRole("button", { name: "Security & Audit", exact: true }).click();
   const mfaPanel = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: "Authenticator MFA" }) });
   await expect(mfaPanel).toHaveCount(1);
   await expect(mfaPanel).toBeVisible();
+  await page.getByRole("button", { name: "Accounts", exact: true }).click();
   // Signage is always live now; there is no organization-level feature gate.
   await expect(page.getByLabel("Enable Signage")).toHaveCount(0);
   await expect.poll(() => page.evaluate(async () =>
@@ -354,7 +356,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByLabel("Public account-link address").fill(accountLinkAddress.origin);
   await page.getByRole("button", { name: "Save registration" }).click();
   await expect(page.getByText("Registration settings saved.", { exact: false })).toBeVisible();
-  await page.getByRole("button", { name: /Media & storage/ }).click();
+  await page.getByRole("button", { name: "Media & Storage", exact: true }).click();
   await expect(mfaPanel).toBeHidden();
   await page.getByLabel("Approved folder paths").fill("General\nLessons\nSignage\nAudio/Classroom");
   await page.getByLabel("Approved tags").fill("Reusable\nIntro\nOutro\nReference\nWelcome");
@@ -506,7 +508,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(scheduleCard.locator(".schedule-count")).toContainText("1");
 
   await page.getByRole("button", { name: /Settings$/ }).click();
-  await page.getByRole("button", { name: /Connections/ }).click();
+  await page.getByRole("button", { name: "Network & Remote Access", exact: true }).click();
   const remoteAccess = page.locator(".settings-panel").filter({ hasText: "Optional remote access" });
   await expect(remoteAccess.getByRole("heading", { name: "Optional remote access" })).toBeVisible();
   // Scoped to its own panel: "Not configured" is an honest label for more than
@@ -519,6 +521,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   });
   expect(unsupportedTunnel.status).toBe(400);
   expect(unsupportedTunnel.body.error).toContain("native Linux installation");
+  await page.getByRole("button", { name: "Playback & Displays", exact: true }).click();
   const universalPanel = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: "Universal controller" }) });
   await universalPanel.getByLabel("Six-digit PIN").fill("482731");
   await universalPanel.getByRole("button", { name: "Set controller PIN" }).click();
@@ -542,11 +545,12 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   });
   expect(controllerSecurity).toMatchObject({ denied: 403, accepted: 200, updated: 200, created: 201, resolved: 200,
     path: expect.stringMatching(/^\/session\/[0-9a-f]{48}$/), scope: { lessonId: expect.any(String) } });
-  await page.getByRole("button", { name: /Data & recovery/ }).click();
+  await page.getByRole("button", { name: "System & Support", exact: true }).click();
   const troubleshootingPanel = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: "Troubleshooting log" }) });
   await troubleshootingPanel.getByRole("button", { name: "Load log" }).click();
   await expect(troubleshootingPanel.getByRole("button", { name: "Download JSON" })).toBeVisible();
   await expect(troubleshootingPanel.getByRole("heading", { name: /Activity audit/ })).toBeVisible();
+  await page.getByRole("button", { name: "Backup & Recovery", exact: true }).click();
   await page.getByLabel("Encryption password").fill(backupPassword);
   await page.getByLabel("Confirm password").fill(backupPassword);
   await page.getByRole("button", { name: "Full backup" }).click();
@@ -560,8 +564,9 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   expect(backupPath).not.toBeNull();
 
   await expect.poll(async () => page.locator(".toast").count(), { timeout: 5_000 }).toBe(0);
-  await page.getByRole("button", { name: /Organization & accounts/ }).click();
+  await page.getByRole("button", { name: "General", exact: true }).click();
   await page.getByLabel("Organization", { exact: true }).fill("Changed Organization");
+  await page.getByRole("button", { name: "Security & Audit", exact: true }).click();
   await page.getByLabel("Require non-administrator room remotes to use the local .local address").check();
   const localControllerSave = await page.evaluate(async () => {
     const bootstrap = await fetch("/api/v1/admin/bootstrap").then(response => response.json());
@@ -572,7 +577,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect.poll(() => page.evaluate(async () =>
     (await fetch("/api/v1/admin/bootstrap").then(response => response.json())).settings.requireLocalRoomControllers)).toBe(true);
 
-  await page.getByRole("button", { name: /Data & recovery/ }).click();
+  await page.getByRole("button", { name: "Backup & Recovery", exact: true }).click();
   const restoreForm = page.locator("form.backup-restore-upload");
   await restoreForm.getByLabel("Restore a LessonCue backup").setInputFiles(backupPath!);
   await restoreForm.getByLabel("Backup password").fill(backupPassword);
