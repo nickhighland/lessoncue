@@ -67,7 +67,26 @@ public sealed class ShlinkClient(HttpClient http)
     /// it. Scoped to the domain, because the same slug can exist on more than
     /// one domain in the same shortener.
     /// </summary>
+    /// <summary>Look one slug up, in whichever case the shortener stored it.</summary>
+    /// <remarks>
+    /// In loose mode -- which is what makes a code typed in lower case resolve --
+    /// Shlink lowercases a custom slug as it stores it, while lookup by slug is
+    /// exact. Asking for the reserved codes in the upper case they are written in
+    /// therefore missed every one of them: the audit called all hundred missing,
+    /// the repair tried to create them, and the shortener refused each as a slug
+    /// already in use. A hundred codes LessonCue had made itself were reported as
+    /// belonging to somebody else, every three minutes.
+    /// </remarks>
     public async Task<ShlinkShortUrl?> FindAsync(string baseUrl, string apiKey, string slug, string domain, CancellationToken ct = default)
+    {
+        var found = await FindExactAsync(baseUrl, apiKey, slug, domain, ct);
+        if (found is not null) return found;
+
+        var lowered = slug.ToLowerInvariant();
+        return lowered == slug ? null : await FindExactAsync(baseUrl, apiKey, lowered, domain, ct);
+    }
+
+    private async Task<ShlinkShortUrl?> FindExactAsync(string baseUrl, string apiKey, string slug, string domain, CancellationToken ct)
     {
         using var request = Request(HttpMethod.Get, baseUrl, $"{ApiRoot}/short-urls/{Uri.EscapeDataString(slug)}?domain={Uri.EscapeDataString(domain)}", apiKey);
         using var response = await SendAsync(request, ct);
