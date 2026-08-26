@@ -4,6 +4,13 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.12 — Improve Media & Storage layout
+
+### User changes
+
+- Upload limits now share a row with Storage allocation on desktop, making
+  both settings easier to compare.
+
 ## v0.45.11 — Fix Activity availability toggle layout
 
 ### User changes

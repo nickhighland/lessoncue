@@ -1852,7 +1852,7 @@ export function Settings({
           {canServiceSettings && (
             <CollapsibleSettingsSection
               label="Upload limits"
-              className="wide-settings settings-panel settings-media settings-upload-limits"
+              className="settings-panel settings-media settings-upload-limits"
             >
               <div className="settings-heading">
                 <div>
