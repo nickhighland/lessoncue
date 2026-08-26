@@ -4,6 +4,13 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.11 — Fix Activity availability toggle layout
+
+### User changes
+
+- The Activity availability switch in Settings now displays its label and
+  explanation without overlapping or wrapping into the switch control.
+
 ## v0.45.10 — Custom Link Studio favicon
 
 ### User changes
