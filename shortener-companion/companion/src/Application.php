@@ -340,7 +340,10 @@ final class Application
 
         $hasLogo = array_key_exists('logoData', $body);
         $logoData = $hasLogo ? $body['logoData'] : $current['logoData'];
-        $this->validateLogo($logoData);
+        $this->validateImageData($logoData, 'logo');
+        $hasFavicon = array_key_exists('faviconData', $body);
+        $faviconData = $hasFavicon ? $body['faviconData'] : $current['faviconData'];
+        $this->validateImageData($faviconData, 'favicon');
         $features = $this->featuresFromBody($body['features'] ?? $current['features'], $current['features']);
         $adminPasswordHash = $this->optionalPasswordHash($body['adminPassword'] ?? null, 'The administrator password');
         $userPasswordHash = $this->optionalPasswordHash($body['userPassword'] ?? null, 'The Link Studio password');
@@ -352,6 +355,7 @@ final class Application
             $logoSize,
             $showBrandName,
             $logoData,
+            $faviconData,
             $features,
             $adminPasswordHash,
             $userPasswordHash,
@@ -362,6 +366,7 @@ final class Application
             $stored['logoSize'] = $logoSize;
             $stored['showBrandName'] = $showBrandName;
             $stored['logoData'] = $logoData;
+            $stored['faviconData'] = $faviconData;
             $stored['features'] = $features;
             if ($adminPasswordHash !== null) {
                 $stored['adminPasswordHash'] = $adminPasswordHash;
@@ -414,6 +419,7 @@ final class Application
             'logoSize' => is_int($config['logoSize'] ?? null) ? max(40, min(260, $config['logoSize'])) : 100,
             'showBrandName' => ($config['showBrandName'] ?? true) !== false,
             'logoData' => is_string($config['logoData'] ?? null) ? $config['logoData'] : null,
+            'faviconData' => is_string($config['faviconData'] ?? null) ? $config['faviconData'] : null,
         ];
     }
 
@@ -466,17 +472,19 @@ final class Application
         return $this->auth->hashPassword($password);
     }
 
-    private function validateLogo(mixed $logoData): void
+    private function validateImageData(mixed $imageData, string $label): void
     {
-        if ($logoData === null) {
+        if ($imageData === null) {
             return;
         }
-        if (!is_string($logoData) || strlen($logoData) > 700_000) {
-            throw new UiHttpException('The logo must be a small PNG, JPEG, GIF, or WebP data URL.', 422);
+        $formats = $label === 'favicon' ? 'PNG, JPEG, GIF, WebP, or ICO' : 'PNG, JPEG, GIF, or WebP';
+        if (!is_string($imageData) || strlen($imageData) > 700_000) {
+            throw new UiHttpException('The ' . $label . ' must be a small ' . $formats . ' data URL.', 422);
         }
-        if (preg_match('/^data:image\/(png|jpe?g|webp|gif);base64,([A-Za-z0-9+\/]+={0,2})$/', $logoData, $matches) !== 1
+        $mediaTypes = $label === 'favicon' ? 'png|jpe?g|webp|gif|x-icon|vnd\.microsoft\.icon' : 'png|jpe?g|webp|gif';
+        if (preg_match('/^data:image\/(' . $mediaTypes . ');base64,([A-Za-z0-9+\/]+={0,2})$/', $imageData, $matches) !== 1
             || base64_decode($matches[2], true) === false) {
-            throw new UiHttpException('The logo must be a valid base64 image data URL.', 422);
+            throw new UiHttpException('The ' . $label . ' must be a valid base64 image data URL.', 422);
         }
     }
 

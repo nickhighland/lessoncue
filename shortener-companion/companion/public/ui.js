@@ -61,6 +61,12 @@
         document.documentElement.style.setProperty('--navy-foreground', contrastColor(mainColor));
         setLogoScale(logoSize);
         document.title = name;
+        const siteFavicon = document.getElementById('site-favicon');
+        if (siteFavicon) {
+            const faviconType = typeof branding.faviconData === 'string' ? branding.faviconData.match(/^data:(image\/[^;]+);/)?.[1] : null;
+            siteFavicon.setAttribute('href', branding.faviconData || 'favicon.ico');
+            siteFavicon.setAttribute('type', faviconType || 'image/x-icon');
+        }
         ['auth-brand-name', 'setup-brand-name', 'sidebar-brand-name'].forEach((id) => {
             const element = document.getElementById(id);
             if (!element) return;
@@ -362,12 +368,14 @@
         const branding = settings.branding || {};
         const features = settings.features || {};
         const logo = branding.logoData ? '<img src="' + escapeHtml(branding.logoData) + '" alt="Current logo">' : '<span class="brand-mark"><span></span><span></span></span>';
+        const favicon = branding.faviconData ? '<img src="' + escapeHtml(branding.faviconData) + '" alt="Current favicon">' : '<span class="favicon-placeholder" aria-hidden="true">✦</span>';
         content.innerHTML =
             '<div class="page-intro"><div><p class="eyebrow">ADMINISTRATOR CONTROLS</p><h1>Shape the workspace.</h1><p>Decide what Link Studio users can access and make the product feel like yours.</p></div></div>' +
             '<div class="grid settings-grid"><section class="panel settings-card"><h3>Branding</h3><p class="section-copy">These details are visible to everyone who signs in.</p><form id="settings-form" class="settings-form">' +
             '<label class="field"><span>Application name</span><input id="settings-app-name" value="' + escapeHtml(branding.appName || '') + '" maxlength="64" required></label>' +
             '<div class="branding-color-grid"><div class="color-field"><label class="field"><span>Accent color</span><input id="settings-accent" value="' + escapeHtml(branding.accentColor || '#86E7B7') + '" pattern="^#[0-9a-fA-F]{6}$"></label><label class="field"><span>Pick</span><input id="settings-color-picker" type="color" value="' + escapeHtml(branding.accentColor || '#86E7B7') + '"></label></div><div class="color-field"><label class="field"><span>Main color</span><input id="settings-main-color" value="' + escapeHtml(branding.mainColor || '#101827') + '" pattern="^#[0-9a-fA-F]{6}$"></label><label class="field"><span>Pick</span><input id="settings-main-color-picker" type="color" value="' + escapeHtml(branding.mainColor || '#101827') + '"></label></div></div>' +
             '<div class="field"><span>Logo</span><div class="logo-drop"><div id="settings-logo-preview" class="logo-preview">' + logo + '</div><div><p>Use a PNG, JPEG, GIF, or WebP image under 512 KB.</p><label for="settings-logo-file">Choose a logo<input id="settings-logo-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp"></label><button type="button" id="remove-logo" class="panel-link ' + (branding.logoData ? '' : 'is-hidden') + '">Remove</button></div></div></div>' +
+            '<div class="field"><span>Favicon</span><div class="logo-drop favicon-drop"><div id="settings-favicon-preview" class="favicon-preview">' + favicon + '</div><div><p>Use a square PNG, JPEG, GIF, WebP, or ICO image under 512 KB.</p><label for="settings-favicon-file">Choose a favicon<input id="settings-favicon-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/x-icon,.ico"></label><button type="button" id="remove-favicon" class="panel-link ' + (branding.faviconData ? '' : 'is-hidden') + '">Remove</button></div></div></div>' +
             '<div class="logo-size-field"><div class="logo-size-heading"><span>Logo size</span><output id="settings-logo-size-value">' + escapeHtml(branding.logoSize || 100) + '%</output></div><input id="settings-logo-size" type="range" min="40" max="260" step="1" value="' + escapeHtml(branding.logoSize || 100) + '" aria-label="Logo size"><small>Drag to preview the logo size immediately. Save changes to keep it.</small></div>' +
             '<label class="check-field"><input id="settings-show-brand-name" type="checkbox" ' + (branding.showBrandName !== false ? 'checked' : '') + '><span><strong>Show name beside logo</strong><small>Turn this off when the logo already includes the application name.</small></span></label>' +
             '<div class="settings-divider"></div><div><h3>Passwords</h3><p class="section-copy">Leave a password blank to keep the current one.</p></div>' +
@@ -384,6 +392,7 @@
     }
     function bindSettingsForm(settings) {
         let logoData = settings.branding?.logoData || null;
+        let faviconData = settings.branding?.faviconData || null;
         $('#settings-color-picker').addEventListener('input', (event) => { $('#settings-accent').value = event.target.value.toUpperCase(); });
         $('#settings-accent').addEventListener('input', (event) => { if (/^#[0-9a-fA-F]{6}$/.test(event.target.value)) $('#settings-color-picker').value = event.target.value; });
         $('#settings-main-color-picker').addEventListener('input', (event) => { $('#settings-main-color').value = event.target.value.toUpperCase(); });
@@ -398,13 +407,22 @@
             $('#remove-logo').classList.remove('is-hidden');
         });
         $('#remove-logo').addEventListener('click', () => { logoData = null; $('#settings-logo-preview').innerHTML = '<span class="brand-mark"><span></span><span></span></span>'; $('#remove-logo').classList.add('is-hidden'); });
+        $('#settings-favicon-file').addEventListener('change', async (event) => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            if (file.size > 512 * 1024) return showToast('Favicon files must be smaller than 512 KB.', true);
+            faviconData = await readFileAsDataUrl(file);
+            $('#settings-favicon-preview').innerHTML = '<img src="' + escapeHtml(faviconData) + '" alt="New favicon">';
+            $('#remove-favicon').classList.remove('is-hidden');
+        });
+        $('#remove-favicon').addEventListener('click', () => { faviconData = null; $('#settings-favicon-preview').innerHTML = '<span class="favicon-placeholder" aria-hidden="true">✦</span>'; $('#remove-favicon').classList.add('is-hidden'); });
         $('#settings-form').addEventListener('submit', async (event) => {
             event.preventDefault();
             const message = $('#settings-message');
             message.textContent = '';
             const features = {};
             $$('[data-feature-toggle]').forEach((toggle) => { features[toggle.dataset.featureToggle] = toggle.classList.contains('is-on'); });
-            const body = { appName: $('#settings-app-name').value.trim(), accentColor: $('#settings-accent').value.trim(), mainColor: $('#settings-main-color').value.trim(), logoSize: Number($('#settings-logo-size').value), showBrandName: $('#settings-show-brand-name').checked, logoData, features };
+            const body = { appName: $('#settings-app-name').value.trim(), accentColor: $('#settings-accent').value.trim(), mainColor: $('#settings-main-color').value.trim(), logoSize: Number($('#settings-logo-size').value), showBrandName: $('#settings-show-brand-name').checked, logoData, faviconData, features };
             const userPassword = $('#settings-user-password').value;
             const adminPassword = $('#settings-admin-password').value;
             if (userPassword) body.userPassword = userPassword;

@@ -4,6 +4,19 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.10 — Custom Link Studio favicon
+
+### User changes
+
+- Administrators can choose a custom favicon for the Link Studio web client
+  from **Access & brand**.
+
+### Developer changes
+
+- The companion validates and persists favicon data alongside the existing
+  branding settings, applies it to the browser tab, and keeps the default
+  favicon as the fallback.
+
 ## v0.45.9 — Complete Link Studio analytics charts
 
 ### User changes

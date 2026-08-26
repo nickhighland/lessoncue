@@ -294,6 +294,10 @@ a { color: inherit; }
 .logo-drop { border: 1px dashed #cbd3d9; background: #fafbfb; border-radius: 13px; min-height: 108px; display: flex; align-items: center; gap: 17px; padding: 15px; }
 .logo-preview { width: calc(64px * var(--logo-preview-scale)); height: calc(64px * var(--logo-preview-scale)); border-radius: 15px; display: flex; align-items: center; justify-content: center; background: var(--navy); overflow: hidden; flex: 0 0 auto; transition: width .18s ease, height .18s ease; }
 .logo-preview img { width: 100%; height: 100%; object-fit: contain; }
+.favicon-drop { min-height: 78px; }
+.favicon-preview { width: 56px; height: 56px; border-radius: 13px; display: flex; align-items: center; justify-content: center; background: #fff; border: 1px solid var(--line); overflow: hidden; flex: 0 0 auto; }
+.favicon-preview img { width: 100%; height: 100%; object-fit: contain; }
+.favicon-placeholder { color: var(--accent-strong); font-size: 25px; font-weight: 900; }
 .logo-drop p { margin: 0; color: var(--ink-soft); font-size: 11px; line-height: 1.45; }
 .logo-drop label { display: inline-block; color: var(--accent-strong); font-size: 11px; font-weight: 800; cursor: pointer; margin-top: 5px; }
 .logo-drop input { display: none; }
