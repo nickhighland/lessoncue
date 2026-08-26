@@ -4,6 +4,21 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.14 — Responsive Link Studio
+
+### User changes
+
+- Link Studio now adapts to phone-sized screens without horizontal scrolling.
+- Link rows become compact cards on mobile, while destinations, click totals,
+  dates, and copy/delete actions remain available.
+- Analytics charts, settings, dialogs, navigation, and sign-in layouts now fit
+  narrow screens.
+
+### Developer changes
+
+- Added mobile containment rules and responsive breakpoints to the bundled
+  companion, with the standalone Link Studio copy kept in sync.
+
 ## v0.45.13 — Per-user security and compact settings
 
 ### User changes
