@@ -3724,7 +3724,10 @@ function ActivityAvailabilityPanel({
           disabled={saving}
           onChange={(event) => void choose(event.target.checked)}
         />
-        <span>Offer Activities to teachers</span>
+        <span />
+        <div>
+          <strong>Offer Activities to teachers</strong>
+        </div>
       </label>
       <p className="settings-copy">
         Turn this off while a game is still being built. The Activities area and

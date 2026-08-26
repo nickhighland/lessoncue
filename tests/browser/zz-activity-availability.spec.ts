@@ -47,6 +47,19 @@ test.afterEach(async ({ page }) => {
   await setEnabled(page, true).catch(() => {});
 });
 
+test("the Activity availability label stays outside the switch track", async ({ page }) => {
+  await authenticate(page);
+  await page.getByRole("button", { name: /Settings/ }).click();
+  await page.getByRole("button", { name: "General", exact: true }).click();
+
+  const toggle = page.getByRole("checkbox", { name: "Offer Activities to teachers" });
+  const row = page.locator("label.switch-row").filter({ has: toggle });
+  await expect(toggle).toBeVisible();
+  await expect(row.locator("> span")).toHaveCount(1);
+  await expect(row.locator("> span")).toHaveText("");
+  await expect(row.locator("> div > strong")).toHaveText("Offer Activities to teachers");
+});
+
 test("hiding Activities removes the teacher surfaces and blocks new games", async ({ page }) => {
   await authenticate(page);
   const definitionId = await createTrivia(page, "Availability Check");
