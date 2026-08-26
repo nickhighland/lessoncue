@@ -1,9 +1,9 @@
 import { confirmAction } from "../../AccessibleDialogs";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import { permissionOptions } from "../constants";
-import { Bootstrap, MfaSetup, MfaStatus, Permission, RegistrationCode, RegistrationSettings, TroubleshootingLog, User } from "../models";
-import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead, QrCode } from "../ui";
+import { Bootstrap, Permission, RegistrationCode, RegistrationSettings, TroubleshootingLog, User } from "../models";
+import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead } from "../ui";
 import { errorText, initials, isServiceAdminRole, localDateTimeValue, timeAgo } from "../utils";
 
 export function UsersView({
@@ -184,6 +184,22 @@ export function UsersView({
       setPasswordUser(undefined);
       refresh();
       notify(result.message);
+    } catch (cause) {
+      notify(errorText(cause));
+    }
+  }
+  async function resetMfa(user: User) {
+    if (
+      !await confirmAction(
+        `Reset Authenticator MFA for ${user.displayName}? They will need to enroll again.`,
+        { destructive: true, confirmLabel: "Reset MFA" },
+      )
+    )
+      return;
+    try {
+      await api(`/api/v1/users/${user.id}/mfa`, { method: "DELETE" });
+      refresh();
+      notify(`Authenticator MFA was reset for ${user.displayName}.`);
     } catch (cause) {
       notify(errorText(cause));
     }
@@ -454,6 +470,11 @@ export function UsersView({
                     permissions
                     {user.customPermissions ? " · custom" : " · role defaults"}
                   </small>
+                  <small>
+                    {user.mfaEnabled
+                      ? "Authenticator MFA enabled"
+                      : "Authenticator MFA not enabled"}
+                  </small>
                 </span>
               </span>
               <span>
@@ -498,6 +519,15 @@ export function UsersView({
                         disabled={protectedServiceAdmin}
                       >
                         Reset password
+                      </button>
+                    )}
+                    {user.mfaEnabled && !self && (
+                      <button
+                        className="danger"
+                        onClick={() => void resetMfa(user)}
+                        disabled={protectedServiceAdmin}
+                      >
+                        Reset MFA
                       </button>
                     )}
                     <button
@@ -1159,183 +1189,8 @@ export function RegistrationSettingsPanel({
   );
 }
 
-export function ServiceAdminMfaPanel({
-  notify,
-}: {
-  notify: (message: string) => void;
-}) {
-  const [status, setStatus] = useState<MfaStatus>();
-  const [setup, setSetup] = useState<MfaSetup>();
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [code, setCode] = useState("");
-  const [busy, setBusy] = useState(false);
-  const load = useCallback(() =>
-    api<MfaStatus>("/api/v1/auth/mfa")
-      .then(setStatus)
-      .catch((error) => notify(errorText(error))), [notify]);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  async function beginSetup(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    try {
-      const result = await api<MfaSetup>("/api/v1/auth/mfa/setup", {
-        method: "POST",
-        body: JSON.stringify({ currentPassword }),
-      });
-      setSetup(result);
-      setCurrentPassword("");
-      setCode("");
-      await load();
-      notify("Authenticator setup started. Verify one code to enable it.");
-    } catch (error) {
-      notify(errorText(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function enableMfa(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    try {
-      await api("/api/v1/auth/mfa/enable", {
-        method: "POST",
-        body: JSON.stringify({ code }),
-      });
-      setSetup(undefined);
-      setCode("");
-      await load();
-      notify("Authenticator MFA enabled.");
-    } catch (error) {
-      notify(errorText(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function disableMfa(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    try {
-      await api("/api/v1/auth/mfa", {
-        method: "DELETE",
-        body: JSON.stringify({ currentPassword, code }),
-      });
-      setCurrentPassword("");
-      setCode("");
-      setSetup(undefined);
-      await load();
-      notify("Authenticator MFA disabled.");
-    } catch (error) {
-      notify(errorText(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <CollapsibleSettingsSection
-      label="Authenticator MFA"
-      className="settings-panel settings-security settings-mfa"
-    >
-      <div className="settings-heading">
-        <div>
-          <span className="settings-kicker">SERVICE ADMIN SECURITY</span>
-          <h2>Authenticator MFA</h2>
-          <p className="settings-copy">
-            Require a time-based code from any standard authenticator app when
-            this Service Admin signs in.
-          </p>
-        </div>
-        <span
-          className={`update-state ${status?.enabled ? "current" : "available"}`}
-        >
-          {status?.enabled ? "Enabled" : "Optional"}
-        </span>
-      </div>
-      {status?.enabled ? (
-        <form className="stack" onSubmit={disableMfa}>
-          <p className="settings-copy">
-            Enabled
-            {status.totpEnabledAt
-              ? ` ${new Date(status.totpEnabledAt).toLocaleString()}`
-              : ""}. Disabling it signs out other sessions.
-          </p>
-          <Field label="Current password">
-            <input
-              type="password"
-              value={currentPassword}
-              onChange={(event) => setCurrentPassword(event.target.value)}
-              autoComplete="current-password"
-              required
-            />
-          </Field>
-          <Field label="Current authenticator code">
-            <input
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9 ]{6,8}"
-              required
-            />
-          </Field>
-          <button className="button danger" disabled={busy}>
-            {busy ? "Disabling…" : "Disable MFA"}
-          </button>
-        </form>
-      ) : setup ? (
-        <form className="stack mfa-setup" onSubmit={enableMfa}>
-          <div className="mfa-provisioning">
-            <QrCode value={setup.provisioningUri} />
-            <div>
-              <strong>1. Scan this code with your authenticator app.</strong>
-              <p>Or enter this setup key manually:</p>
-              <code>{setup.secret}</code>
-            </div>
-          </div>
-          <Field label="2. Verify the current six-digit code">
-            <input
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9 ]{6,8}"
-              required
-              autoFocus
-            />
-          </Field>
-          <button className="button primary" disabled={busy}>
-            {busy ? "Verifying…" : "Enable MFA"}
-          </button>
-        </form>
-      ) : (
-        <form className="stack" onSubmit={beginSetup}>
-          {status?.configured && (
-            <div className="alert">
-              A previous setup was not finished. Enter your password to create
-              a new setup code.
-            </div>
-          )}
-          <Field
-            label="Current password"
-            hint="SSH password recovery also disables MFA if the authenticator is lost."
-          >
-            <input
-              type="password"
-              value={currentPassword}
-              onChange={(event) => setCurrentPassword(event.target.value)}
-              autoComplete="current-password"
-              required
-            />
-          </Field>
-          <button className="button primary" disabled={busy}>
-            {busy ? "Preparing…" : "Set up authenticator MFA"}
-          </button>
-        </form>
-      )}
-    </CollapsibleSettingsSection>
-  );
-}
+// Kept as a compatibility export for older local settings bundles.
+export { AuthenticatorMfaPanel as ServiceAdminMfaPanel } from "./Mfa";
 
 export function TroubleshootingLogPanel({
   notify,

@@ -357,7 +357,7 @@ Against the mail sink, test provider none, valid provider configuration, invalid
 
 ### AUTH-006 — Authenticator MFA
 
-Enroll TOTP, reject an incorrect code, accept a current code, reject replay of an accepted code, verify time-window behavior, sign out/in, disable with current credentials, and exercise documented SSH recovery on a disposable server. Confirm MFA and Preview features render side-by-side at desktop width and stack meaningfully on narrow screens.
+Enroll TOTP for more than one account, reject an incorrect code, accept a current code, reject replay of an accepted code, verify time-window behavior, sign out/in, disable with current credentials, verify login only asks for MFA after the username is entered, and exercise the all-user requirement plus documented SSH recovery on a disposable server. Confirm the per-user enrollment UI and administrator policy render side-by-side with the neighboring security panel at desktop width and stack meaningfully on narrow screens.
 
 ### AUTH-007 — Security and audit visibility
 

@@ -23,6 +23,7 @@ public sealed class AdminRecoveryCommandTests
                     TotpLastCounter = 42, TotpEnabledAt = DateTimeOffset.UtcNow };
                 account.PasswordHash = new PasswordHasher<AdminAccount>().HashPassword(account, "OldPassword1");
                 db.AdminAccounts.Add(account);
+                db.Organizations.Add(new Organization { Name = "Recovery Test", RequireMfaForAllUsers = true });
                 await db.SaveChangesAsync(ct);
             }
 
@@ -38,6 +39,7 @@ public sealed class AdminRecoveryCommandTests
                 Assert.Null(account.TotpSecretProtected);
                 Assert.Equal(0, account.TotpLastCounter);
                 Assert.Null(account.TotpEnabledAt);
+                Assert.False(await db.Organizations.Select(item => item.RequireMfaForAllUsers).SingleAsync(ct));
                 Assert.NotEqual(PasswordVerificationResult.Failed,
                     new PasswordHasher<AdminAccount>().VerifyHashedPassword(account, account.PasswordHash, "NewPassword2"));
                 Assert.True(await db.AuditEvents.AnyAsync(x => x.Action == "user.password.reset" && x.Actor == "ssh-recovery", ct));
@@ -65,6 +67,7 @@ public sealed class AdminRecoveryCommandTests
             var options = new DbContextOptionsBuilder<LessonCueDb>().UseSqlite($"Data Source={databasePath}").Options;
             await using var db = new LessonCueDb(options);
             await db.Database.EnsureCreatedAsync(ct);
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Organizations\" DROP COLUMN \"RequireMfaForAllUsers\"", ct);
             await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"AdminAccounts\" DROP COLUMN \"PendingApproval\"", ct);
             await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"AdminAccounts\" DROP COLUMN \"PendingSetup\"", ct);
             await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"AdminAccounts\" DROP COLUMN \"MustChangePassword\"", ct);
@@ -87,6 +90,13 @@ public sealed class AdminRecoveryCommandTests
             Assert.Contains("TotpEnabled", columns);
             Assert.Contains("TotpLastCounter", columns);
             Assert.Contains("TotpEnabledAt", columns);
+
+            await using var organizationCommand = db.Database.GetDbConnection().CreateCommand();
+            organizationCommand.CommandText = "PRAGMA table_info(\"Organizations\")";
+            await using var organizationReader = await organizationCommand.ExecuteReaderAsync(ct);
+            var organizationColumns = new List<string>();
+            while (await organizationReader.ReadAsync(ct)) organizationColumns.Add(organizationReader.GetString(1));
+            Assert.Contains("RequireMfaForAllUsers", organizationColumns);
         }
         finally { File.Delete(databasePath); }
     }

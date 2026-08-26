@@ -87,6 +87,8 @@ public static class AdminRecoveryCommand
         accountToReset.TotpLastCounter = 0;
         accountToReset.TotpEnabledAt = null;
         accountToReset.SessionVersion++;
+        var organization = await db.Organizations.OrderBy(item => item.Id).FirstOrDefaultAsync(ct);
+        if (organization is not null) organization.RequireMfaForAllUsers = false;
         db.AuditEvents.Add(new AuditEvent
         {
             Actor = "ssh-recovery",
@@ -96,7 +98,7 @@ public static class AdminRecoveryCommand
         });
         await db.SaveChangesAsync(ct);
 
-        Console.WriteLine($"Password reset complete for '{accountToReset.Username}'. Existing browser sessions were signed out and MFA was disabled.");
+        Console.WriteLine($"Password reset complete for '{accountToReset.Username}'. Existing browser sessions were signed out, MFA was disabled, and the all-user MFA requirement was turned off.");
         if (accountToReset.Disabled)
             Console.WriteLine("This account is disabled. Sign in with another owner account to enable it.");
         return 0;
@@ -116,6 +118,8 @@ public static class AdminRecoveryCommand
         account.TotpLastCounter = 0;
         account.TotpEnabledAt = null;
         account.SessionVersion++;
+        var organization = await db.Organizations.OrderBy(item => item.Id).FirstOrDefaultAsync(ct);
+        if (organization is not null) organization.RequireMfaForAllUsers = false;
         db.AuditEvents.Add(new AuditEvent { Actor = "ssh-recovery", Action = "user.password.reset", Object = account.Id.ToString(), Summary = account.Username });
         await db.SaveChangesAsync(ct);
         return true;

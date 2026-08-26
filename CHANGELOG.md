@@ -4,6 +4,19 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.13 — Per-user security and compact settings
+
+### User changes
+
+- Authenticator MFA can now be enabled separately by each user, with an optional
+  administrator requirement for every active user.
+- Administrators can view and reset another user's enrolled MFA, and the
+  controller pairing PIN remains visible after it is saved.
+- Settings panels are reorganized into compact two-column layouts, with system
+  diagnostics also available from the Settings overview.
+- The bundled Link Studio companion includes its custom favicon setting under
+  **Access & brand**.
+
 ## v0.45.12 — Improve Media & Storage layout
 
 ### User changes

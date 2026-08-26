@@ -20,7 +20,15 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
         ? init.headers
         : { "Content-Type": "application/json", ...init?.headers },
   });
-  if (response.status === 401) throw new Error("SESSION_EXPIRED");
+  if (response.status === 401) {
+    const problem = (await response
+      .json()
+      .catch(() => ({}))) as Record<string, unknown>;
+    if (path === "/api/v1/auth/login" && problem.error) {
+      throw new ApiError(String(problem.error), response.status, problem);
+    }
+    throw new Error("SESSION_EXPIRED");
+  }
   if (!response.ok) {
     const problem = (await response
       .json()

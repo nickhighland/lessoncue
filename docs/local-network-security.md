@@ -93,16 +93,20 @@ Place display devices and the LessonCue server on a trusted LAN/VLAN or behind
 an authenticated VPN. Do not publish the origin port, and do not assume that a
 media URL is private after it has been shared.
 
-## Service Admin MFA and recovery
+## Account MFA and recovery
 
-Service Admins can enable authenticator MFA in **Settings → Organization &
-accounts**. LessonCue supports standard six-digit TOTP authenticator apps and
-rejects reuse of an accepted time window.
+Every signed-in user can enable authenticator MFA from their account menu.
+LessonCue supports standard six-digit TOTP authenticator apps and rejects reuse
+of an accepted time window. A Service Admin can optionally require MFA for every
+active user from **Settings → Security & Audit**, after all active users have
+enrolled.
 
-If an authenticator is lost, use the documented SSH administrator password
-reset. Recovery changes the password, disables MFA for that account, and signs
-out existing browser sessions.
+If an authenticator is lost, a user administrator can reset that user's MFA from
+**Users** while the all-user requirement is off. The documented SSH administrator
+password reset also changes the password, disables MFA for the recovered account,
+turns off the all-user requirement, and signs out existing browser sessions.
 
-Database restore also disables MFA for restored accounts. LessonCue deliberately
-keeps the receiving server's encryption keys rather than replacing them with
-the source server's keys, so restored Service Admins must enroll again.
+Database restore disables MFA for restored accounts and leaves the all-user
+requirement off. LessonCue deliberately keeps the receiving server's encryption
+keys rather than replacing them with the source server's keys, so users must
+enroll again.
