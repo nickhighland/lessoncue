@@ -47,6 +47,7 @@ final class ConfigRepository
      *     logoSize: int,
      *     showBrandName: bool,
      *     logoData: string|null,
+     *     faviconData: string|null,
      *     features: array<string, bool>,
      *     adminPasswordHash: string|null,
      *     userPasswordHash: string|null
@@ -74,7 +75,7 @@ final class ConfigRepository
             throw new RuntimeException('The companion configuration has an invalid structure.');
         }
 
-        /** @var array{appName?: mixed, accentColor?: mixed, mainColor?: mixed, logoSize?: mixed, showBrandName?: mixed, logoData?: mixed, features?: mixed, adminPasswordHash?: mixed, userPasswordHash?: mixed} $stored */
+        /** @var array{appName?: mixed, accentColor?: mixed, mainColor?: mixed, logoSize?: mixed, showBrandName?: mixed, logoData?: mixed, faviconData?: mixed, features?: mixed, adminPasswordHash?: mixed, userPasswordHash?: mixed} $stored */
         return array_replace_recursive($defaults, $stored);
     }
 
@@ -132,6 +133,7 @@ final class ConfigRepository
      *     logoSize: int,
      *     showBrandName: bool,
      *     logoData: string|null,
+     *     faviconData: string|null,
      *     features: array<string, bool>,
      *     adminPasswordHash: string|null,
      *     userPasswordHash: string|null
@@ -146,6 +148,7 @@ final class ConfigRepository
             'logoSize' => 100,
             'showBrandName' => true,
             'logoData' => null,
+            'faviconData' => null,
             'features' => [
                 'dashboard' => true,
                 'links' => true,
