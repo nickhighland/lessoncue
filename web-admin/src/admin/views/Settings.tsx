@@ -3,7 +3,8 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, waitForVersion } from "../api";
 import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, JoinAddressStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, SettingsSection, ShortenerReport, ShortenerSettings, ShortenerTestResult, ShortenerTunnelPlan, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
 import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead, StorageMeter } from "../ui";
-import { RegistrationSettingsPanel, ServiceAdminMfaPanel, TroubleshootingLogPanel } from "./Users";
+import { RegistrationSettingsPanel, TroubleshootingLogPanel } from "./Users";
+import { AuthenticatorMfaPanel } from "./Mfa";
 import { cleanReleaseNotes, errorText, formatBytes, parseStringArray, quotaLimitsFromText, quotaLimitsToText, timeAgo } from "../utils";
 
 type RemoteBackupForm = {
@@ -112,7 +113,7 @@ export function Settings({
   const [installing, setInstalling] = useState(false);
   const [fixedPairing, setFixedPairing] = useState(bootstrap.pairingFixed);
   const [pairingPin, setPairingPin] = useState(bootstrap.pairingPin || "");
-  const [controllerPin, setControllerPin] = useState("");
+  const [controllerPin, setControllerPin] = useState(bootstrap.controllerPin || "");
   const [localHostname, setLocalHostname] = useState(
     bootstrap.localAddress.hostname,
   );
@@ -919,7 +920,6 @@ export function Settings({
         method: "PUT",
         body: JSON.stringify({ pin: controllerPin }),
       });
-      setControllerPin("");
       sessionStorage.removeItem("lessoncue.universalGrant");
       refresh();
       notify("Universal controller PIN saved.");
@@ -1163,7 +1163,31 @@ export function Settings({
               refresh={refresh}
               canServiceSettings={canServiceSettings}
             />
-            {canServiceSettings && <ServiceAdminMfaPanel notify={notify} />}
+            {canServiceSettings && <AuthenticatorMfaPanel notify={notify} showPolicy />}
+            {canServiceSettings && (
+              <CollapsibleSettingsSection
+                label="Room controller policy"
+                className="settings-panel settings-security settings-room-policy"
+              >
+                <h2>Room controller policy</h2>
+                <p className="settings-copy">
+                  Restrict room and temporary remotes to the local network while
+                  allowing administrators to troubleshoot remotely.
+                </p>
+                <form className="stack" onSubmit={saveOrganization}>
+                  <input type="hidden" name="requireLocalRoomControllers" value="off" />
+                  <label className="check-row">
+                    <input
+                      name="requireLocalRoomControllers"
+                      type="checkbox"
+                      defaultChecked={o.requireLocalRoomControllers}
+                    />{" "}
+                    Require non-administrator room remotes to use the local .local address
+                  </label>
+                  <button className="button primary">Save controller policy</button>
+                </form>
+              </CollapsibleSettingsSection>
+            )}
           </div>
         )}
         {restorePreview && (
@@ -1711,28 +1735,6 @@ export function Settings({
             </form>
           </CollapsibleSettingsSection>
 
-          <CollapsibleSettingsSection
-            label="Room controller policy"
-            className="wide-settings settings-panel settings-security"
-          >
-            <h2>Room controller policy</h2>
-            <p className="settings-copy">
-              Restrict room and temporary remotes to the local network while
-              allowing administrators to troubleshoot remotely.
-            </p>
-            <form className="stack" onSubmit={saveOrganization}>
-              <input type="hidden" name="requireLocalRoomControllers" value="off" />
-              <label className="check-row">
-                <input
-                  name="requireLocalRoomControllers"
-                  type="checkbox"
-                  defaultChecked={o.requireLocalRoomControllers}
-                />{" "}
-                Require non-administrator room remotes to use the local .local address
-              </label>
-              <button className="button primary">Save controller policy</button>
-            </form>
-          </CollapsibleSettingsSection>
         </>
       )}
           {canManageApp && (
@@ -2122,7 +2124,7 @@ export function Settings({
           {canServiceSettings && (
             <CollapsibleSettingsSection
               label="Server connection"
-              className="settings-panel settings-network"
+              className="settings-panel settings-network settings-server-connection"
             >
               <h2>Server connection</h2>
               <GameJoinAddressPanel notify={notify} />
@@ -2210,7 +2212,7 @@ export function Settings({
           {canServiceSettings && (
             <CollapsibleSettingsSection
               label="Optional local HTTPS"
-              className="wide-settings settings-panel settings-network"
+              className="wide-settings settings-panel settings-network settings-local-https"
             >
               <div className="settings-heading">
                 <div>
@@ -2317,7 +2319,7 @@ export function Settings({
           {canManageApp && shortener && (
             <CollapsibleSettingsSection
               label="Integrations · URL shortener"
-              className="settings-panel settings-integrations"
+              className="wide-settings settings-panel settings-integrations settings-shortener"
             >
               <h2>URL shortener</h2>
               <p className="settings-copy">
@@ -2327,7 +2329,20 @@ export function Settings({
                 yours to set — LessonCue assumes no particular domain.
               </p>
 
-              <Definition label="Status" value={shortenerStateLabel(shortener.state)} />
+              <div className="shortener-facts">
+                <Definition label="Status" value={shortenerStateLabel(shortener.state)} />
+                {shortener.state !== "NotInstalled" && (
+                  <>
+                    <Definition label="Short domain" value={shortener.publicUrl || "Not set"} />
+                    <Definition label="Management" value={shortener.adminUrl || "Not set"} />
+                    <Definition
+                      label="Reserved LessonCue codes"
+                      value={`${shortener.poolPresent} / ${shortener.poolTotal} in the shortener`}
+                    />
+                    <Definition label="Active game codes" value={String(shortener.activeCodes)} />
+                  </>
+                )}
+              </div>
               {shortener.detail && <p className="settings-copy settings-warning">{shortener.detail}</p>}
 
               {/* Offered whenever the shortener is not actually answering. Keyed on
@@ -2411,18 +2426,6 @@ export function Settings({
                 </div>
               )}
 
-              {shortener.state !== "NotInstalled" && (
-                <>
-                  <Definition label="Short domain" value={shortener.publicUrl || "Not set"} />
-                  <Definition label="Management" value={shortener.adminUrl || "Not set"} />
-                  <Definition
-                    label="Reserved LessonCue codes"
-                    value={`${shortener.poolPresent} / ${shortener.poolTotal} in the shortener`}
-                  />
-                  <Definition label="Active game codes" value={String(shortener.activeCodes)} />
-                </>
-              )}
-
               {shortener.conflicts.length > 0 && (
                 <p className="settings-copy settings-warning">
                   Owned by someone else in the shortener: {shortener.conflicts.slice(0, 8).join(", ")}
@@ -2435,7 +2438,7 @@ export function Settings({
                   the whole story, and a second Short domain field on the same
                   panel is just something to get wrong. */}
               {(shortener.state === "Running" || shortener.state === "Degraded") && (
-              <form className="stack" onSubmit={saveShortener}>
+              <form className="stack shortener-config-form" onSubmit={saveShortener}>
                 <Field label="Short domain" hint="The domain short links live on, such as go.example.org.">
                   <input
                     value={shortener.domain}
@@ -2542,7 +2545,7 @@ export function Settings({
               )}
 
               {shortener.integrationKeyConfigured && shortener.adminUrl && (
-                <>
+                <div className="shortener-companion-grid">
                 <div className="settings-instructions">
                   <strong>Password for Link Shortener Companion</strong>
                   <p className="settings-copy">
@@ -2611,7 +2614,7 @@ export function Settings({
                     </div>
                   )}
                 </div>
-                </>
+                </div>
               )}
 
               {!shortener.integrationKeyConfigured && shortener.domain && (
@@ -2735,11 +2738,7 @@ export function Settings({
               </p>
               <form className="stack pairing-form" onSubmit={saveControllerPin}>
                 <Field
-                  label={
-                    bootstrap.controllerPinConfigured
-                      ? "New six-digit PIN"
-                      : "Six-digit PIN"
-                  }
+                  label="Six-digit pairing PIN"
                 >
                   <input
                     value={controllerPin}
@@ -2767,7 +2766,7 @@ export function Settings({
           {canServiceSettings && (
             <CollapsibleSettingsSection
               label="Optional remote access"
-              className="wide-settings cloudflare-settings settings-panel settings-network"
+              className="cloudflare-settings settings-panel settings-network settings-cloudflare"
             >
               <div className="settings-heading">
                 <div>
@@ -2881,17 +2880,22 @@ export function Settings({
                       />
                     </Field>
                     <Field
-                      label={
+                      label="Tunnel Token"
+                      hint={
                         bootstrap.cloudflareTunnel.credentialConfigured
-                          ? "Replace tunnel token (optional)"
-                          : "Tunnel token"
+                          ? "Leave blank to keep the current token, or paste a replacement. LessonCue never returns this secret to the browser."
+                          : "Paste the eyJ… token or Cloudflare's complete cloudflared service install command. LessonCue never returns this secret to the browser."
                       }
-                      hint="Paste the eyJ… token or Cloudflare's complete cloudflared service install command. LessonCue never returns this secret to the browser."
                     >
                       <input
                         value={tunnelToken}
                         onChange={(e) => setTunnelToken(e.target.value)}
                         type="password"
+                        placeholder={
+                          bootstrap.cloudflareTunnel.credentialConfigured
+                            ? "••••••••••••••••"
+                            : undefined
+                        }
                         required={
                           !bootstrap.cloudflareTunnel.credentialConfigured
                         }
@@ -2999,7 +3003,7 @@ export function Settings({
           {canServiceSettings && canBackups && (
             <CollapsibleSettingsSection
               label="Privacy & backups"
-              className="settings-panel settings-backup"
+              className="wide-settings settings-panel settings-backup settings-privacy-backups"
             >
               <h2>Privacy & backups</h2>
               <form className="stack retention-form" onSubmit={saveOrganization}>

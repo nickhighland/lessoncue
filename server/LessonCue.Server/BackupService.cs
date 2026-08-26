@@ -252,6 +252,14 @@ public sealed class BackupService
                 .SetProperty(account => account.TotpEnabled, false)
                 .SetProperty(account => account.TotpLastCounter, 0L)
                 .SetProperty(account => account.TotpEnabledAt, (DateTimeOffset?)null), ct);
+            // The global requirement is only safe when the restored accounts
+            // still have decryptable secrets, so restore it in the off state.
+            // The restored database may contain a controller PIN protected by
+            // the source server's key ring. Keep its authentication hash, but
+            // require the receiving server to set a fresh displayable copy.
+            await db.Organizations.ExecuteUpdateAsync(update => update
+                .SetProperty(organization => organization.ControllerPinProtected, (string?)null)
+                .SetProperty(organization => organization.RequireMfaForAllUsers, false), ct);
             db.BackupRecords.Add(safety);
             db.AuditEvents.Add(new AuditEvent { Actor = actor, Action = "backup.restore", Object = restoreId.ToString(),
                 Summary = JsonSerializer.Serialize(new { preview.Kind, safetyBackup = safety.FileName, preview.Organization }) });
@@ -364,7 +372,7 @@ public sealed class BackupService
             warnings.Add("This legacy backup may place protected credentials and their local decrypting keys in the same unencrypted ZIP.");
         else
             warnings.Add("Server credentials, pairing secrets, and local data-protection keys are excluded.");
-        warnings.Add("Authenticator MFA is disabled for restored accounts because this server keeps its own encryption keys.");
+        warnings.Add("Authenticator MFA and the all-user MFA requirement are disabled for restored accounts because this server keeps its own encryption keys.");
         var mediaRecords = await CountAsync(connection, "MediaAssets", ct);
         if (includesMedia && mediaFiles < mediaRecords) warnings.Add("Some media records may not have an original file in this archive.");
         return new BackupPreview(restoreId, fileName, includesMedia ? "full" : "configuration",

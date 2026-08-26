@@ -195,7 +195,7 @@ LessonCue remains centered on preparing media, organizing lessons, confirming re
   [x] **Protected local-network operation**
    - [x] Add guided local HTTPS or a supported local reverse-proxy/certificate workflow for shared networks.
    - [x] Remove sensitive pairing values from logs, narrow Android cleartext allowances where practical, and clearly distinguish trusted local HTTP from remote HTTPS.
-   - [x] Add optional authenticator MFA for Service Admins and rate limits for authentication, pairing, expensive media, conversion, and public interaction endpoints.
+   - [x] Add optional per-user authenticator MFA, an administrator-controlled all-user requirement, and rate limits for authentication, pairing, expensive media, conversion, and public interaction endpoints.
    - [x] Review intentionally unauthenticated media delivery, mark it private/non-indexable at shared caches, and document network segmentation and privacy expectations.
 - [x] **Signage architecture and visual overhaul (next release)** — replace the previous schedule-centric studio with a streamlined, responsive workspace that closely follows the approved visual mockups.
    - [x] Organize the workflow into three clear steps: persistent **Layouts**, continuously looping **Playlists**, and **Signs & screens**.

@@ -12,12 +12,17 @@ When account email is configured, **Users → Send setup link** is the preferred
 
 Every signed-in person can select their name at the bottom of the navigation bar to edit their own name, username, email, or password. Changing a username, email, or password requires the current password. Changing an email requires configured email delivery and keeps the current address active until the new address is confirmed.
 
-Service Admins can optionally enroll a standard authenticator app under
-**Settings → Organization & accounts → Authenticator MFA**. Enrollment requires
-the current password and one valid six-digit code. Accepted time windows cannot
-be reused. The SSH password-reset procedure disables MFA if the authenticator is
-lost; restoring a database also disables MFA because the receiving server
-preserves its own encryption keys.
+Every signed-in person can optionally enroll a standard authenticator app from
+their account menu under **Authenticator MFA**. Enrollment requires the current
+password and one valid six-digit code. Accepted time windows cannot be reused.
+Service Admins can turn on **Require Authenticator MFA for every active user** in
+**Settings → Security & Audit**, but only after every active user has enrolled.
+While that requirement is on, new accounts cannot be added and users cannot
+disable their own MFA.
+
+The SSH password-reset procedure disables MFA for the recovered account and
+turns off the all-user requirement if it was enabled; restoring a database does
+the same because the receiving server preserves its own encryption keys.
 
 If browser recovery is unavailable, use the [SSH administrator password-reset procedure](installation.md#reset-a-forgotten-administrator-password).
 

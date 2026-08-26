@@ -4,6 +4,7 @@ import { FormEvent, lazy, ReactNode, Suspense, useCallback, useEffect, useRef, u
 import { api } from "./api";
 import { AccountProfile, Audit, Backup, Bootstrap, Lesson, LessonClass, LessonTemplate, Media, Permission, RecurringSchedule, Screen, Session, SettingsSection, Signage, UpdateStatus, User, View } from "./models";
 import { BrandMark, Field, Modal } from "./ui";
+import { AuthenticatorMfaPanel } from "./views/Mfa";
 import { errorText, formatBytes, isAccountLinkPath, isActivityDisplayPath, isActivityParticipantPath, isAudienceDisplayPath, isAudiencePath, isControllerPath, isWebPlayerPath } from "./utils";
 
 const ActivityParticipantApp = lazy(() => import("../activities/ActivityParticipant").then((module) => ({ default: module.ActivityParticipantApp })));
@@ -194,6 +195,8 @@ export function Auth({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [username, setUsername] = useState("");
+  const [mfaRequired, setMfaRequired] = useState(false);
   const [mode, setMode] = useState<"login" | "register" | "forgot" | "resend">(
     location.pathname === "/register" && session.registrationAvailable
       ? "register"
@@ -207,6 +210,36 @@ export function Auth({
   const resetPath = location.pathname === "/reset-password";
   const setupAccountPath = location.pathname === "/setup-account";
   const [linkResult, setLinkResult] = useState("");
+  useEffect(() => {
+    if (
+      session.setupRequired ||
+      mode !== "login" ||
+      setupAccountPath ||
+      resetPath ||
+      verificationPath ||
+      username.trim().length < 3
+    ) {
+      setMfaRequired(false);
+      return;
+    }
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void api<{ required: boolean }>("/api/v1/auth/login/mfa-requirement", {
+        method: "POST",
+        body: JSON.stringify({ username: username.trim() }),
+      })
+        .then((result) => {
+          if (active) setMfaRequired(result.required);
+        })
+        .catch(() => {
+          if (active) setMfaRequired(false);
+        });
+    }, 220);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [mode, resetPath, session.setupRequired, setupAccountPath, username, verificationPath]);
   useEffect(() => {
     if (!verificationPath || !token) return;
     const endpoint =
@@ -431,6 +464,8 @@ export function Auth({
             <Field label="Username">
               <input
                 name="username"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
                 required
                 minLength={3}
                 maxLength={80}
@@ -706,16 +741,17 @@ export function Auth({
                 </button>
               </div>
             </Field>
-            {!session.setupRequired && (
+            {!session.setupRequired && mode === "login" && mfaRequired && (
               <Field
-                label="Authenticator code (if enabled)"
-                hint="Enter the current six-digit code for a Service Admin account using MFA."
+                label="Authenticator code"
+                hint="Enter the current six-digit code from your authenticator app."
               >
                 <input
                   name="mfaCode"
                   inputMode="numeric"
                   pattern="[0-9 ]{6,8}"
                   maxLength={8}
+                  required
                   autoComplete="one-time-code"
                 />
               </Field>
@@ -1606,87 +1642,90 @@ export function ProfileModal({
           <p className="muted">Loading your account…</p>
         )
       ) : (
-        <form className="stack" onSubmit={save}>
-          <div className="account-profile-summary">
-            <span>{profile.role}</span>
-            <strong>
-              {profile.emailVerified
-                ? "Email verified"
-                : "Email verification pending"}
-            </strong>
-          </div>
-          <Field label="Your name">
-            <input
-              name="displayName"
-              defaultValue={profile.displayName}
-              required
-              autoComplete="name"
-            />
-          </Field>
-          <div className="two-fields">
-            <Field label="Username">
+        <>
+          <form className="stack" onSubmit={save}>
+            <div className="account-profile-summary">
+              <span>{profile.role}</span>
+              <strong>
+                {profile.emailVerified
+                  ? "Email verified"
+                  : "Email verification pending"}
+              </strong>
+            </div>
+            <Field label="Your name">
               <input
-                name="username"
-                defaultValue={profile.username}
+                name="displayName"
+                defaultValue={profile.displayName}
                 required
-                minLength={3}
-                autoComplete="username"
+                autoComplete="name"
               />
             </Field>
-            <Field label="Email (optional for local accounts)">
-              <input
-                name="email"
-                type="email"
-                defaultValue={profile.email || ""}
-                autoComplete="email"
-              />
-            </Field>
-          </div>
-          <Field
-            label="Current password"
-            hint="Required only when changing username, email, or password."
-          >
-            <input
-              name="currentPassword"
-              type="password"
-              autoComplete="current-password"
-            />
-          </Field>
-          <div className="two-fields">
+            <div className="two-fields">
+              <Field label="Username">
+                <input
+                  name="username"
+                  defaultValue={profile.username}
+                  required
+                  minLength={3}
+                  autoComplete="username"
+                />
+              </Field>
+              <Field label="Email (optional for local accounts)">
+                <input
+                  name="email"
+                  type="email"
+                  defaultValue={profile.email || ""}
+                  autoComplete="email"
+                />
+              </Field>
+            </div>
             <Field
-              label="New password"
-              hint="Leave blank to keep it unchanged."
+              label="Current password"
+              hint="Required only when changing username, email, or password."
             >
               <input
-                name="newPassword"
+                name="currentPassword"
                 type="password"
-                minLength={10}
-                autoComplete="new-password"
+                autoComplete="current-password"
               />
             </Field>
-            <Field label="Confirm new password">
-              <input
-                name="confirmPassword"
-                type="password"
-                minLength={10}
-                autoComplete="new-password"
-              />
-            </Field>
-          </div>
-          {error && <div className="alert error" role="alert">{error}</div>}
-          <div className="modal-actions split-actions">
-            <button className="button danger" type="button" onClick={onLogout}>
-              Sign out
-            </button>
-            <span />
-            <button className="button" type="button" onClick={onClose}>
-              Cancel
-            </button>
-            <button className="button primary" disabled={busy}>
-              {busy ? "Saving…" : "Save account"}
-            </button>
-          </div>
-        </form>
+            <div className="two-fields">
+              <Field
+                label="New password"
+                hint="Leave blank to keep it unchanged."
+              >
+                <input
+                  name="newPassword"
+                  type="password"
+                  minLength={10}
+                  autoComplete="new-password"
+                />
+              </Field>
+              <Field label="Confirm new password">
+                <input
+                  name="confirmPassword"
+                  type="password"
+                  minLength={10}
+                  autoComplete="new-password"
+                />
+              </Field>
+            </div>
+            {error && <div className="alert error" role="alert">{error}</div>}
+            <div className="modal-actions split-actions">
+              <button className="button danger" type="button" onClick={onLogout}>
+                Sign out
+              </button>
+              <span />
+              <button className="button" type="button" onClick={onClose}>
+                Cancel
+              </button>
+              <button className="button primary" disabled={busy}>
+                {busy ? "Saving…" : "Save account"}
+              </button>
+            </div>
+          </form>
+          <AuthenticatorMfaPanel notify={notify} profile />
+        </>
       )}
     </Modal>
   );

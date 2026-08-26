@@ -94,6 +94,23 @@ test("the console shows the reserved pool and the tunnel routes to add", async (
   await expect(panel).toContainText("https://go.example.org");
   await expect(panel).toContainText("https://short.go.example.org");
   await expect(panel).toContainText("/ 100 in the shortener");
+  const shortenerLayout = await page.evaluate(() => {
+    const panel = document.querySelector<HTMLElement>(".settings-shortener");
+    const grid = panel?.parentElement?.getBoundingClientRect();
+    const facts = [...document.querySelectorAll<HTMLElement>(".settings-shortener .shortener-facts > .definition")]
+      .map(item => item.getBoundingClientRect());
+    return {
+      panel: panel?.getBoundingClientRect(),
+      grid,
+      facts: facts.map(item => ({ top: item.top, left: item.left, width: item.width })),
+    };
+  });
+  expect(shortenerLayout.panel).not.toBeNull();
+  expect(shortenerLayout.grid).not.toBeNull();
+  expect(shortenerLayout.panel!.width).toBeGreaterThan(shortenerLayout.grid!.width * 0.95);
+  expect(shortenerLayout.facts.length).toBeGreaterThanOrEqual(2);
+  expect(Math.abs(shortenerLayout.facts[0].top - shortenerLayout.facts[1].top)).toBeLessThan(1);
+  expect(shortenerLayout.facts[1].left).toBeGreaterThan(shortenerLayout.facts[0].left);
 
   const tunnel = await page.evaluate(async () =>
     (await fetch("/api/v1/shortener/tunnel").then(r => r.json())) as {

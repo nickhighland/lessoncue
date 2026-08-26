@@ -511,6 +511,27 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: "Network & Remote Access", exact: true }).click();
   const remoteAccess = page.locator(".settings-panel").filter({ hasText: "Optional remote access" });
   await expect(remoteAccess.getByRole("heading", { name: "Optional remote access" })).toBeVisible();
+  const serverConnection = page.locator(".settings-server-connection");
+  const localHttps = page.locator(".settings-local-https");
+  await expect(serverConnection).toBeVisible();
+  await expect(localHttps).toBeVisible();
+  const networkLayout = await page.evaluate(() => {
+    const read = (selector: string) => {
+      const box = document.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+      return box && { top: box.top, left: box.left, width: box.width, bottom: box.bottom };
+    };
+    return {
+      server: read(".settings-server-connection"),
+      cloudflare: read(".settings-cloudflare"),
+      localHttps: read(".settings-local-https"),
+    };
+  });
+  expect(networkLayout.server).not.toBeNull();
+  expect(networkLayout.cloudflare).not.toBeNull();
+  expect(networkLayout.localHttps).not.toBeNull();
+  expect(Math.abs(networkLayout.server!.top - networkLayout.cloudflare!.top)).toBeLessThan(1);
+  expect(networkLayout.cloudflare!.left).toBeGreaterThan(networkLayout.server!.left);
+  expect(networkLayout.localHttps!.top).toBeGreaterThan(networkLayout.server!.bottom);
   // Scoped to its own panel: "Not configured" is an honest label for more than
   // one integration, so an unscoped match breaks whenever another is added.
   await expect(remoteAccess.getByText("Not configured", { exact: true })).toBeVisible();
@@ -523,9 +544,19 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   expect(unsupportedTunnel.body.error).toContain("native Linux installation");
   await page.getByRole("button", { name: "Playback & Displays", exact: true }).click();
   const universalPanel = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: "Universal controller" }) });
-  await universalPanel.getByLabel("Six-digit PIN").fill("482731");
+  await universalPanel.getByLabel("Six-digit pairing PIN").fill("482731");
   await universalPanel.getByRole("button", { name: "Set controller PIN" }).click();
   await expect(page.getByText("Universal controller PIN saved.", { exact: false })).toBeVisible();
+  await expect(universalPanel.getByLabel("Six-digit pairing PIN")).toHaveValue("482731");
+  await expect.poll(() => page.evaluate(async () =>
+    (await fetch("/api/v1/admin/bootstrap").then(response => response.json())).controllerPin as string
+  )).toBe("482731");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)\./ })).toBeVisible();
+  await page.getByRole("button", { name: /Settings$/ }).click();
+  await page.getByRole("button", { name: "Playback & Displays", exact: true }).click();
+  const reloadedUniversalPanel = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: "Universal controller" }) });
+  await expect(reloadedUniversalPanel.getByLabel("Six-digit pairing PIN")).toHaveValue("482731");
   await expect.poll(async () => page.locator(".toast").count(), { timeout: 5_000 }).toBe(0);
   const controllerSecurity = await page.evaluate(async () => {
     const headers = { "Content-Type": "application/json" };

@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -16,6 +17,8 @@ namespace LessonCue.Server;
 
 public static class AdminApi
 {
+    private const string ControllerPinProtectionPurpose = "LessonCue.ControllerPin.v1";
+
     public static void MapLessonCueAdmin(this IEndpointRouteBuilder routes, string mediaPath, string dataPath,
         Guid serverId, string serverName)
     {
@@ -74,6 +77,21 @@ public static class AdminApi
             return Results.Ok(new { account.Username, organization = organization.Name });
         }).RequireRateLimiting("login");
 
+        // The login form uses this anonymous, rate-limited hint to decide whether
+        // it should ask for a TOTP code. It never returns account details.
+        auth.MapPost("/login/mfa-requirement", async (MfaRequirementInput input, LessonCueDb db,
+            CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            var username = input.Username?.Trim().ToLowerInvariant() ?? "";
+            var accountHasMfa = username.Length > 0 && await db.AdminAccounts.AsNoTracking()
+                .Where(account => account.Username == username && !account.Disabled &&
+                    !account.PendingApproval && !account.PendingSetup && account.EmailVerified)
+                .Select(account => account.TotpEnabled)
+                .SingleOrDefaultAsync(ct);
+            return Results.Ok(new { required = organization.RequireMfaForAllUsers || accountHasMfa });
+        }).RequireRateLimiting("login");
+
         auth.MapPost("/login", async (AdminLoginInput input, HttpContext context, LessonCueDb db,
             IPasswordHasher<AdminAccount> hasher, AdminMfaService mfa, CancellationToken ct) =>
         {
@@ -87,7 +105,8 @@ public static class AdminApi
                 await db.SaveChangesAsync(ct);
                 return Results.Unauthorized();
             }
-            if (LessonCuePermissions.IsServiceAdmin(account.Role) && account.TotpEnabled)
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            if (organization.RequireMfaForAllUsers || account.TotpEnabled)
             {
                 var validation = mfa.Validate(account, input.MfaCode, DateTimeOffset.UtcNow, preventReplay: true);
                 if (validation.Success)
@@ -125,6 +144,8 @@ public static class AdminApi
             AccountEmailService email, IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
         {
             var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+            if (organization.RequireMfaForAllUsers)
+                return Results.Conflict(new { error = "Account registration is unavailable while Authenticator MFA is required for every user." });
             if (organization.RegistrationMode is not ("open" or "code" or "approval"))
                 return Results.Json(new { error = "Registration is closed. Ask an administrator to create your account." }, statusCode: 403);
             if (!email.Status(organization.EmailProvider).Configured)
@@ -302,6 +323,9 @@ public static class AdminApi
             var token = await FindTokenAsync(db, input.Token, "setup", ct);
             if (token?.Account is null || !token.Account.PendingSetup)
                 return Results.BadRequest(new { error = "This account setup link is invalid or expired." });
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            if (organization.RequireMfaForAllUsers)
+                return Results.Conflict(new { error = "Account setup is unavailable while Authenticator MFA is required for every user." });
             var validation = ValidateCredentials(input.Username, input.Password);
             if (validation is not null) return Results.BadRequest(new { error = validation });
             if (string.IsNullOrWhiteSpace(input.DisplayName) || input.DisplayName.Trim().Length > 120)
@@ -415,17 +439,60 @@ public static class AdminApi
             return Results.Ok(new { message });
         }).RequireAuthorization().RequireRateLimiting("account");
 
-        var mfaRoutes = auth.MapGroup("/mfa").RequireAuthorization(LessonCuePermissions.Settings);
+        var mfaRoutes = auth.MapGroup("/mfa").RequireAuthorization();
         mfaRoutes.MapGet("", async (HttpContext context, LessonCueDb db, CancellationToken ct) =>
         {
             var account = await CurrentAccountAsync(context, db, ct);
-            return account is null ? Results.Unauthorized() : Results.Ok(new
+            if (account is null) return Results.Unauthorized();
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            return Results.Ok(new
             {
                 enabled = account.TotpEnabled,
                 configured = !string.IsNullOrWhiteSpace(account.TotpSecretProtected),
+                requiredForAllUsers = organization.RequireMfaForAllUsers,
+                requiredForThisAccount = organization.RequireMfaForAllUsers || account.TotpEnabled,
                 account.TotpEnabledAt
             });
         });
+        mfaRoutes.MapGet("/policy", async (LessonCueDb db, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            var activeUsers = EligibleMfaAccounts(db);
+            return Results.Ok(new
+            {
+                requiredForAllUsers = organization.RequireMfaForAllUsers,
+                activeUsers = await activeUsers.CountAsync(ct),
+                enrolledUsers = await activeUsers.CountAsync(account => account.TotpEnabled &&
+                    account.TotpSecretProtected != null && account.TotpSecretProtected != "", ct)
+            });
+        }).RequireAuthorization(LessonCuePermissions.Settings);
+        mfaRoutes.MapPut("/policy", async (MfaPolicyInput input, LessonCueDb db, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+            var activeUsers = EligibleMfaAccounts(db);
+            if (input.RequireForAllUsers && !organization.RequireMfaForAllUsers)
+            {
+                var unconfiguredUsers = await activeUsers.CountAsync(account => !account.TotpEnabled ||
+                    account.TotpSecretProtected == null || account.TotpSecretProtected == "", ct);
+                if (unconfiguredUsers > 0)
+                    return Results.BadRequest(new
+                    {
+                        error = $"Enroll Authenticator MFA for {unconfiguredUsers} active user{(unconfiguredUsers == 1 ? "" : "s")} before requiring it for everyone.",
+                        unconfiguredUsers
+                    });
+            }
+            organization.RequireMfaForAllUsers = input.RequireForAllUsers;
+            Audit(db, "organization.mfa.policy", organization.Id,
+                input.RequireForAllUsers ? "required-for-all-users" : "per-user-only");
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new
+            {
+                requiredForAllUsers = organization.RequireMfaForAllUsers,
+                activeUsers = await activeUsers.CountAsync(ct),
+                enrolledUsers = await activeUsers.CountAsync(account => account.TotpEnabled &&
+                    account.TotpSecretProtected != null && account.TotpSecretProtected != "", ct)
+            });
+        }).RequireAuthorization(LessonCuePermissions.Settings);
         mfaRoutes.MapPost("/setup", async (MfaSetupInput input, HttpContext context, LessonCueDb db,
             IPasswordHasher<AdminAccount> hasher, AdminMfaService mfa, CancellationToken ct) =>
         {
@@ -442,7 +509,7 @@ public static class AdminApi
             account.TotpEnabledAt = null;
             db.AuditEvents.Add(new AuditEvent
             {
-                Actor = account.Username, Action = "admin.mfa.setup", Object = account.Id.ToString()
+                Actor = account.Username, Action = "account.mfa.setup", Object = account.Id.ToString()
             });
             await db.SaveChangesAsync(ct);
             return Results.Ok(new
@@ -465,7 +532,7 @@ public static class AdminApi
             account.SessionVersion++;
             db.AuditEvents.Add(new AuditEvent
             {
-                Actor = account.Username, Action = "admin.mfa.enable", Object = account.Id.ToString()
+                Actor = account.Username, Action = "account.mfa.enable", Object = account.Id.ToString()
             });
             await db.SaveChangesAsync(ct);
             await SignInAsync(context, account);
@@ -476,6 +543,9 @@ public static class AdminApi
         {
             var account = await CurrentAccountAsync(context, db, ct);
             if (account is null) return Results.Unauthorized();
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            if (organization.RequireMfaForAllUsers)
+                return Results.Conflict(new { error = "An administrator requires Authenticator MFA for every user. Ask them to turn that requirement off first." });
             if (hasher.VerifyHashedPassword(account, account.PasswordHash, input.CurrentPassword) ==
                 PasswordVerificationResult.Failed)
                 return Results.BadRequest(new { error = "The current password was not accepted." });
@@ -491,7 +561,7 @@ public static class AdminApi
             account.SessionVersion++;
             db.AuditEvents.Add(new AuditEvent
             {
-                Actor = account.Username, Action = "admin.mfa.disable", Object = account.Id.ToString()
+                Actor = account.Username, Action = "account.mfa.disable", Object = account.Id.ToString()
             });
             await db.SaveChangesAsync(ct);
             await SignInAsync(context, account);
@@ -610,6 +680,7 @@ public static class AdminApi
             CloudflareTunnelService cloudflareTunnel, HardwareAccelerationService hardwareAcceleration,
             ActivityAvailabilityService activityAvailability,
             BackupPolicyService backupPolicy,
+            IDataProtectionProvider protection,
             HttpContext context,
             CancellationToken ct) =>
         {
@@ -619,6 +690,7 @@ public static class AdminApi
                 LessonCuePermissions.Has(context.User, LessonCuePermissions.AppSettings) ||
                 LessonCuePermissions.Has(context.User, LessonCuePermissions.Settings);
             var canManageService = LessonCuePermissions.Has(context.User, LessonCuePermissions.Settings);
+            var canManageApp = LessonCuePermissions.Has(context.User, LessonCuePermissions.AppSettings) || canManageService;
             return Results.Ok(new
             {
                 serverId,
@@ -637,7 +709,7 @@ public static class AdminApi
                     HardwareAccelerationEnabled = canManageService && organization.HardwareAccelerationEnabled,
                     organization.MediaFoldersJson,
                     organization.MediaTagsJson, organization.SignageSourceAllowlistJson, signageEnabled = true,
-                    organization.RequireLocalRoomControllers, organization.RegistrationMode,
+                    organization.RequireLocalRoomControllers, organization.RequireMfaForAllUsers, organization.RegistrationMode,
                     PublicBaseUrl = canManageService ? organization.PublicBaseUrl : "",
                     EmailFromAddress = canManageService ? organization.EmailFromAddress : "",
                     EmailFromName = canManageService ? organization.EmailFromName : "",
@@ -648,6 +720,7 @@ public static class AdminApi
                 pairingExpiresAt = canPair ? (DateTimeOffset?)pairing.ExpiresAt : null,
                 pairingFixed = canPair && pairing.FixedPin is not null,
                 controllerPinConfigured = organization.ControllerPinHash is not null,
+                controllerPin = canManageApp ? UnprotectControllerPin(protection, organization.ControllerPinProtected) : null,
                 storage = canManageService ? storageStatus : storageStatus with
                 {
                     DiskAvailableBytes = 0,
@@ -3088,12 +3161,14 @@ public static class AdminApi
         });
 
         appSettings.MapPut("/controller-pin", async (ControllerPinInput input, LessonCueDb db,
-            IPasswordHasher<Organization> hasher, ControllerSessionService controllerSessions, CancellationToken ct) =>
+            IPasswordHasher<Organization> hasher, ControllerSessionService controllerSessions,
+            IDataProtectionProvider protection, CancellationToken ct) =>
         {
             if (input.Pin.Length != 6 || input.Pin.Any(character => !char.IsAsciiDigit(character)))
                 return Results.BadRequest(new { error = "Universal controller PIN must be exactly six digits." });
             var organization = await db.Organizations.SingleAsync(ct);
             organization.ControllerPinHash = hasher.HashPassword(organization, input.Pin);
+            organization.ControllerPinProtected = protection.CreateProtector(ControllerPinProtectionPurpose).Protect(input.Pin);
             controllerSessions.RevokeUniversalGrants();
             Audit(db, "controller.pin.update", organization.Id, "Universal controller PIN changed");
             await db.SaveChangesAsync(ct);
@@ -3755,7 +3830,7 @@ public static class AdminApi
             return Results.Ok(accounts.Select(x => new
             {
                 x.Id, x.Username, x.DisplayName, x.Email, x.EmailVerified, x.Role, x.Disabled, x.CreatedAt, x.LastLoginAt,
-                x.PendingApproval, x.PendingSetup, x.MustChangePassword,
+                x.PendingApproval, x.PendingSetup, x.MustChangePassword, mfaEnabled = x.TotpEnabled,
                 permissions = LessonCuePermissions.Effective(x),
                 customPermissions = x.PermissionsCsv is null ? null : LessonCuePermissions.Effective(x)
             }));
@@ -3764,6 +3839,9 @@ public static class AdminApi
         userAdmin.MapPost("/users", async (UserInput input, LessonCueDb db, HttpContext context,
             IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
         {
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            if (organization.RequireMfaForAllUsers)
+                return Results.Conflict(new { error = "Disable the all-user MFA requirement before adding a user, or enroll the new user first." });
             var validation = ValidateCredentials(input.Username, input.Password ?? "");
             if (validation is not null) return Results.BadRequest(new { error = validation });
             if (string.IsNullOrWhiteSpace(input.DisplayName)) return Results.BadRequest(new { error = "Name is required." });
@@ -3795,6 +3873,8 @@ public static class AdminApi
             if (await db.AdminAccounts.AnyAsync(x => x.Email == address, ct))
                 return Results.Conflict(new { error = "That email address already belongs to an account." });
             var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+            if (organization.RequireMfaForAllUsers)
+                return Results.Conflict(new { error = "Disable the all-user MFA requirement before adding a user, or enroll the new user first." });
             if (!email.Status(organization.EmailProvider).Configured)
                 return Results.Conflict(new { error = "Configure account email before sending invitations." });
             var role = NormalizeAdminRole(input.Role);
@@ -3848,6 +3928,8 @@ public static class AdminApi
                 return Results.Conflict(new { error = "This account is not waiting for setup." });
             if (LessonCuePermissions.IsServiceAdmin(account.Role) && !IsServiceAdmin(context.User)) return Results.Forbid();
             var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+            if (organization.RequireMfaForAllUsers)
+                return Results.Conflict(new { error = "Disable the all-user MFA requirement before sending a setup link." });
             if (!email.Status(organization.EmailProvider).Configured)
                 return Results.Conflict(new { error = "Configure account email before resending invitations." });
             await InvalidateTokensAsync(db, account.Id, "setup", ct);
@@ -3875,11 +3957,13 @@ public static class AdminApi
             if (!account.PendingApproval)
                 return Results.Conflict(new { error = "This account is not waiting for approval." });
             if (LessonCuePermissions.IsServiceAdmin(account.Role) && !IsServiceAdmin(context.User)) return Results.Forbid();
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+            if (organization.RequireMfaForAllUsers)
+                return Results.Conflict(new { error = "Disable the all-user MFA requirement before approving a user, or enroll them first." });
             account.PendingApproval = false;
             account.SessionVersion++;
             Audit(db, "user.approve", account.Id, account.Username);
             await db.SaveChangesAsync(ct);
-            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
             var delivered = false;
             if (!string.IsNullOrWhiteSpace(account.Email) && email.Status(organization.EmailProvider).Configured)
             {
@@ -3931,6 +4015,31 @@ public static class AdminApi
             return Results.Ok(new { message = $"Temporary password set for {account.DisplayName}. Existing sessions were signed out." });
         });
 
+        userAdmin.MapDelete("/users/{id:guid}/mfa", async (Guid id, LessonCueDb db, HttpContext context,
+            CancellationToken ct) =>
+        {
+            var account = await db.AdminAccounts.SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (account is null) return Results.NotFound();
+            var currentAccountId = Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentId)
+                ? currentId : Guid.Empty;
+            if (account.Id == currentAccountId)
+                return Results.BadRequest(new { error = "Manage your own authenticator from your account menu." });
+            if (LessonCuePermissions.IsServiceAdmin(account.Role) && !IsServiceAdmin(context.User)) return Results.Forbid();
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            if (organization.RequireMfaForAllUsers)
+                return Results.Conflict(new { error = "An administrator requires Authenticator MFA for every user. Turn that requirement off before resetting a user's MFA." });
+            if (!account.TotpEnabled && string.IsNullOrWhiteSpace(account.TotpSecretProtected))
+                return Results.BadRequest(new { error = "Authenticator MFA is not configured for this user." });
+            account.TotpSecretProtected = null;
+            account.TotpEnabled = false;
+            account.TotpLastCounter = 0;
+            account.TotpEnabledAt = null;
+            account.SessionVersion++;
+            Audit(db, "user.mfa.reset", account.Id, account.Username);
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        });
+
         userAdmin.MapPut("/users/{id:guid}", async (Guid id, UserInput input, LessonCueDb db, HttpContext context,
             IPasswordHasher<AdminAccount> hasher, CancellationToken ct) =>
         {
@@ -3945,6 +4054,12 @@ public static class AdminApi
             var username = input.Username.Trim().ToLowerInvariant();
             var address = NullIfBlank(input.Email)?.ToLowerInvariant();
             if (address is not null && !IsEmail(address)) return Results.BadRequest(new { error = "Enter a valid email address." });
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            var emailChanged = account.Email != address;
+            var willBeEligibleForMfa = !input.Disabled && !account.PendingApproval && !account.PendingSetup &&
+                (account.EmailVerified || emailChanged);
+            if (organization.RequireMfaForAllUsers && willBeEligibleForMfa && !HasEnrolledMfa(account))
+                return Results.Conflict(new { error = "Enroll Authenticator MFA for this user before making the account active while the all-user requirement is enabled." });
             if (await db.AdminAccounts.AnyAsync(x => x.Username == username && x.Id != id, ct))
                 return Results.Conflict(new { error = "That username already exists." });
             if (address is not null && await db.AdminAccounts.AnyAsync(x => x.Email == address && x.Id != id, ct))
@@ -3966,7 +4081,6 @@ public static class AdminApi
             var identityChanged = account.Username != username || account.DisplayName != input.DisplayName.Trim() ||
                 account.Email != address || account.Role != role || account.PermissionsCsv != permissionsCsv ||
                 account.Disabled != input.Disabled;
-            var emailChanged = account.Email != address;
             account.Username = username; account.DisplayName = input.DisplayName.Trim(); account.Email = address;
             if (emailChanged)
             {
@@ -4369,6 +4483,22 @@ public static class AdminApi
         });
     }
 
+    private static string? UnprotectControllerPin(IDataProtectionProvider protection, string? protectedPin)
+    {
+        if (string.IsNullOrWhiteSpace(protectedPin)) return null;
+        try
+        {
+            var pin = protection.CreateProtector(ControllerPinProtectionPurpose).Unprotect(protectedPin);
+            return pin.Length == 6 && pin.All(char.IsAsciiDigit) ? pin : null;
+        }
+        catch (CryptographicException)
+        {
+            // A restored database can retain the authentication hash while
+            // its protected value was created with another server's key ring.
+            return null;
+        }
+    }
+
     private static string NormalizeAdminRole(string role) => role switch
     {
         "Service Admin" or "Owner" => "Service Admin",
@@ -4525,6 +4655,13 @@ public static class AdminApi
         Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var id)
             ? db.AdminAccounts.SingleOrDefaultAsync(x => x.Id == id, ct)
             : Task.FromResult<AdminAccount?>(null);
+
+    private static IQueryable<AdminAccount> EligibleMfaAccounts(LessonCueDb db) =>
+        db.AdminAccounts.Where(account => !account.Disabled && !account.PendingApproval &&
+            !account.PendingSetup && account.EmailVerified);
+
+    private static bool HasEnrolledMfa(AdminAccount account) =>
+        account.TotpEnabled && !string.IsNullOrWhiteSpace(account.TotpSecretProtected);
 
     private static Guid CurrentAccountId(HttpContext context) =>
         Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var id)

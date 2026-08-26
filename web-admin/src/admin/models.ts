@@ -31,6 +31,7 @@ export type Bootstrap = {
   pairingExpiresAt?: string;
   pairingFixed: boolean;
   controllerPinConfigured: boolean;
+  controllerPin?: string;
   settings: Organization;
   storage: StorageStatus;
   mediaTaxonomy: MediaTaxonomy;
@@ -91,6 +92,7 @@ export type Organization = {
   transcodeLeadDays: number;
   hardwareAccelerationEnabled: boolean;
   requireLocalRoomControllers: boolean;
+  requireMfaForAllUsers: boolean;
   registrationMode: "closed" | "approval" | "open" | "code";
   publicBaseUrl: string;
   emailFromAddress: string;
@@ -599,6 +601,7 @@ export type User = {
   pendingApproval: boolean;
   pendingSetup: boolean;
   mustChangePassword: boolean;
+  mfaEnabled: boolean;
   createdAt: string;
   lastLoginAt?: string;
   permissions: Permission[];
@@ -614,7 +617,14 @@ export type AccountProfile = {
 export type MfaStatus = {
   enabled: boolean;
   configured: boolean;
+  requiredForAllUsers: boolean;
+  requiredForThisAccount: boolean;
   totpEnabledAt?: string;
+};
+export type MfaPolicyStatus = {
+  requiredForAllUsers: boolean;
+  activeUsers: number;
+  enrolledUsers: number;
 };
 export type MfaSetup = {
   secret: string;

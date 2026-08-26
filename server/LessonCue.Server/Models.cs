@@ -28,7 +28,10 @@ public sealed class Organization
     public bool SignageEnabled { get; set; } = true;
     public int SignageModelVersion { get; set; }
     [JsonIgnore] public string? ControllerPinHash { get; set; }
+    [JsonIgnore, MaxLength(2048)] public string? ControllerPinProtected { get; set; }
     public bool RequireLocalRoomControllers { get; set; }
+    /// <summary>When enabled, every active account must have enrolled authenticator MFA.</summary>
+    public bool RequireMfaForAllUsers { get; set; }
     [MaxLength(16)] public string RegistrationMode { get; set; } = "closed";
     [MaxLength(253)] public string PublicBaseUrl { get; set; } = "";
     [MaxLength(200)] public string EmailFromAddress { get; set; } = "";
@@ -754,6 +757,8 @@ public sealed record AdminSetupInput(string OrganizationName, string Username, s
     string? DisplayName = null, string? TimeZone = null, string? Email = null,
     string? SiteName = null, string? WeekStartsOn = null);
 public sealed record AdminLoginInput(string Username, string Password, string? MfaCode = null);
+public sealed record MfaRequirementInput(string? Username);
+public sealed record MfaPolicyInput(bool RequireForAllUsers);
 public sealed record MfaSetupInput(string CurrentPassword);
 public sealed record MfaCodeInput(string Code);
 public sealed record MfaDisableInput(string CurrentPassword, string Code);

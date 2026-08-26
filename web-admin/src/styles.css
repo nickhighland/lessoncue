@@ -997,7 +997,8 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .settings-page > .account-settings-grid > * { display: none; }
 .settings-page[data-section="accounts"] > .account-settings-grid > .settings-registration,
 .settings-page[data-section="accounts"] > .account-settings-grid > .settings-email,
-.settings-page[data-section="security"] > .account-settings-grid > .settings-mfa { display: block; }
+.settings-page[data-section="security"] > .account-settings-grid > .settings-mfa,
+.settings-page[data-section="security"] > .account-settings-grid > .settings-room-policy { display: block; }
 .settings-page > .settings-grid:not(.account-settings-grid) > * { display: none; }
 .settings-page[data-section="system"] > .settings-grid:not(.account-settings-grid) > .settings-system,
 .settings-page[data-section="general"] > .settings-grid:not(.account-settings-grid) > .settings-general,
@@ -1014,6 +1015,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .account-settings-grid > .settings-registration,
 .account-settings-grid > .settings-email { grid-column: span 2; }
 .account-settings-grid > .settings-mfa { grid-column: 1; }
+.account-settings-grid > .settings-room-policy { grid-column: 2; }
 .account-settings-grid > .settings-preview-features { grid-column: 2; }
 .settings-backup .backup-actions {
   display: grid; grid-template-columns: 1fr 1fr; align-items: end;
@@ -1052,9 +1054,42 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .migration-grant textarea { resize: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 .wide-settings { grid-column: span 2; }
+.settings-privacy-backups {
+  grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
+  gap: 12px 20px;
+}
+.settings-page[data-section="backup"] > .settings-grid:not(.account-settings-grid) > .settings-privacy-backups { display: grid; }
+.settings-privacy-backups > h2 { grid-column: 1 / -1; margin-bottom: 0; }
+.settings-privacy-backups > .retention-form { grid-column: 1; align-self: start; gap: 10px; margin: 0; }
+.settings-privacy-backups > .privacy-callout { grid-column: 1; align-self: start; padding: 14px; gap: 12px; }
+.settings-privacy-backups > .backup-actions {
+  grid-column: 1; align-self: start; gap: 10px; margin: 0; padding: 14px;
+}
+.settings-privacy-backups > .backup-policy-form {
+  grid-column: 2; grid-row: 2 / span 3; gap: 10px; align-self: start; margin: 0; padding: 14px;
+}
+.settings-privacy-backups > .backup-restore-upload,
+.settings-privacy-backups > .migration-pull-form,
+.settings-privacy-backups > .backup-row-actions { grid-column: 1 / -1; }
+.settings-privacy-backups > .backup-restore-upload,
+.settings-privacy-backups > .migration-pull-form { margin: 0; }
+.settings-privacy-backups .backup-remote-settings { gap: 8px; padding: 12px; }
+.settings-privacy-backups .backup-remote-destination { gap: 8px; padding: 11px; }
+.shortener-facts, .shortener-companion-grid, .shortener-config-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.shortener-facts { display: grid; column-gap: 20px; }
+.shortener-facts .definition { min-width: 0; }
+.shortener-config-form { display: grid; column-gap: 20px; }
+.shortener-config-form > .check-row, .shortener-config-form > .row { grid-column: 1 / -1; }
+.shortener-companion-grid { display: grid; gap: 16px; margin-top: 16px; }
+.shortener-companion-grid .settings-instructions { margin: 0; }
+.settings-shortener { min-width: 0; }
 .settings-page[data-section="media"] > .settings-grid:not(.account-settings-grid) > .settings-upload-limits { order: 1; }
 .settings-page[data-section="media"] > .settings-grid:not(.account-settings-grid) > .settings-storage { order: 2; }
 .settings-page[data-section="playback"] > .settings-grid:not(.account-settings-grid) > .settings-adaptive-playback { order: 1; }
+.settings-page[data-section="network"] > .settings-grid:not(.account-settings-grid) > .settings-server-connection { grid-column: 1; order: 1; }
+.settings-page[data-section="network"] > .settings-grid:not(.account-settings-grid) > .settings-cloudflare { grid-column: 2; order: 2; }
+.settings-page[data-section="network"] > .settings-grid:not(.account-settings-grid) > .settings-local-https { grid-column: span 2; order: 3; }
+.settings-page[data-section="overview"] > .settings-grid:not(.account-settings-grid) > .settings-diagnostics { display: block; }
 .backup-actions { margin: 20px 0 14px; }
 .backup-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -1151,6 +1186,11 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .account-profile-summary { display: flex; justify-content: space-between; gap: 12px; border-radius: 10px; padding: 12px 14px; color: #356446; background: #e8f3eb; font-size: 10px; }
 .split-actions { display: grid; grid-template-columns: auto 1fr auto auto; }
 .account-settings-grid { margin-bottom: 20px; }
+.profile-mfa { display: grid; gap: 16px; margin-top: 24px; border-top: 1px solid var(--line); padding-top: 20px; }
+.profile-mfa .settings-heading h2 { font-size: 20px; }
+.mfa-policy { margin-top: 6px; }
+.mfa-policy-count { margin: 0; color: var(--muted); font-size: 10px; }
+.mfa-policy .alert { margin-top: 2px; }
 
 /* ── Modal ───────────────────────────────────────────────────────────────── */
 .modal-backdrop {
@@ -1919,7 +1959,23 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   .storage-overview { grid-template-columns: 1fr; gap: 9px; }
   .stats-grid, .dashboard-grid, .classes-layout, .settings-grid, .screen-grid, .signage-grid, .calendar-grid, .advanced-grid { grid-template-columns: 1fr; }
   .wide-settings { grid-column: auto; }
-  .account-settings-grid > .settings-mfa, .account-settings-grid > .settings-preview-features { grid-column: auto; }
+  .shortener-facts, .shortener-companion-grid, .shortener-config-form { grid-template-columns: 1fr; }
+  .settings-privacy-backups { grid-template-columns: 1fr; }
+  .settings-privacy-backups > h2,
+  .settings-privacy-backups > .retention-form,
+  .settings-privacy-backups > .privacy-callout,
+  .settings-privacy-backups > .backup-actions,
+  .settings-privacy-backups > .backup-policy-form,
+  .settings-privacy-backups > .backup-restore-upload,
+  .settings-privacy-backups > .migration-pull-form,
+  .settings-privacy-backups > .backup-row-actions { grid-column: auto; grid-row: auto; }
+  .shortener-config-form > .check-row, .shortener-config-form > .row { grid-column: auto; }
+  .settings-page[data-section="network"] > .settings-grid:not(.account-settings-grid) > .settings-server-connection,
+  .settings-page[data-section="network"] > .settings-grid:not(.account-settings-grid) > .settings-cloudflare,
+  .settings-page[data-section="network"] > .settings-grid:not(.account-settings-grid) > .settings-local-https { grid-column: auto; }
+  .account-settings-grid > .settings-mfa,
+  .account-settings-grid > .settings-room-policy,
+  .account-settings-grid > .settings-preview-features { grid-column: auto; }
   .class-list { display: flex; overflow: auto; }
   .class-list h3 { display: none; }
   .class-list > button { width: auto; flex: 0 0 190px; }
