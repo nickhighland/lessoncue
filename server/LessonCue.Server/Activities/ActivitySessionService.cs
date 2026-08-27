@@ -25,6 +25,7 @@ public sealed class ActivitySessionService(
     LessonCue.Server.Shortener.ShortenerService? shortener = null)
 {
     private const string CodeAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    private static readonly TimeSpan SessionIdleLifetime = TimeSpan.FromHours(2);
     private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> Locks = new();
 
     public async Task<ActivityRun> EnsureInteractiveRunAsync(ActivityRun run, CancellationToken ct = default)
@@ -40,13 +41,24 @@ public sealed class ActivitySessionService(
             if (current?.ActivityDefinition is null) return run;
 
             var changed = false;
+            var now = DateTimeOffset.UtcNow;
+            if (IsSessionRunExpired(current, now))
+            {
+                current.Status = ActivityRunStatuses.Ended;
+                current.CurrentPhase = ActivityPhases.Complete;
+                current.EndedAt ??= now;
+                var expiredState = ParseObject(current.StateJson);
+                expiredState["phase"] = ActivityPhases.Complete;
+                current.StateJson = Serialize(expiredState);
+                changed = true;
+            }
             if (string.IsNullOrWhiteSpace(current.DefinitionSnapshotJson) || current.DefinitionSnapshotJson == "{}")
             {
                 current.DefinitionSnapshotJson = Snapshot(current.ActivityDefinition);
                 changed = true;
             }
 
-            if (await AttachSessionGroupAsync(current, ct)) changed = true;
+            if (current.Status != ActivityRunStatuses.Ended && await AttachSessionGroupAsync(current, ct)) changed = true;
 
             var state = ParseObject(current.StateJson);
             if (!state.ContainsKey("phase"))
@@ -65,7 +77,7 @@ public sealed class ActivitySessionService(
 
             if (changed)
             {
-                current.UpdatedAt = DateTimeOffset.UtcNow;
+                current.UpdatedAt = now;
                 await db.SaveChangesAsync(ct);
             }
 
@@ -94,10 +106,17 @@ public sealed class ActivitySessionService(
     {
         if (run.SessionGroupId.HasValue)
         {
-            var existing = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == run.SessionGroupId.Value, ct);
+            var existing = await db.ActivitySessionGroups.Include(x => x.Runs)
+                .SingleOrDefaultAsync(x => x.Id == run.SessionGroupId.Value, ct);
             if (existing is not null)
             {
                 var moved = existing.CurrentRunId != run.Id;
+                if (!IsJoinCodeValid(existing.JoinCode))
+                {
+                    await RotateGroupCodeAsync(existing, existing.JoinCode, ct);
+                    moved = true;
+                }
+                run.JoinCode = existing.JoinCode;
                 if (moved)
                 {
                     existing.CurrentRunId = run.Id;
@@ -108,14 +127,26 @@ public sealed class ActivitySessionService(
             run.SessionGroupId = null;
         }
 
-        var group = run.LessonId.HasValue
-            ? await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.LessonId == run.LessonId.Value, ct)
-            : null;
+        var lessonGroups = run.LessonId.HasValue
+            ? (await db.ActivitySessionGroups.Include(x => x.Runs)
+                .Where(x => x.LessonId == run.LessonId.Value)
+                .ToListAsync(ct))
+                .OrderByDescending(x => x.UpdatedAt)
+                .ToList()
+            : [];
+        // Keep a lesson's lobby for the two-hour idle window even when the last
+        // activity has reached its results screen. The next activity can then
+        // adopt the same players; the old code still cannot join until a new run
+        // becomes current.
+        var group = lessonGroups.FirstOrDefault(x => !IsSessionGroupExpired(x, DateTimeOffset.UtcNow));
 
         if (group is null)
         {
             // Adopt the code the room may already be looking at.
-            var joinCode = string.IsNullOrWhiteSpace(run.JoinCode) ? await NewJoinCodeAsync(ct) : run.JoinCode!;
+            var previousCodes = lessonGroups.Select(x => x.JoinCode).Where(x => !string.IsNullOrWhiteSpace(x)).ToArray();
+            var joinCode = IsJoinCodeValid(run.JoinCode)
+                ? run.JoinCode!
+                : await NewJoinCodeAsync(ct, previousCodes);
             // Codes are unique across lobbies and a lobby outlives its games, so
             // take the code back from any finished lobby still holding it.
             await ReleaseDormantCodeAsync(joinCode, ct);
@@ -165,13 +196,19 @@ public sealed class ActivitySessionService(
     public async Task<ActivityRun?> FindByJoinCodeAsync(string code, CancellationToken ct = default)
     {
         var normalized = NormalizeCode(code);
-        if (normalized.Length == 0) return null;
+        if (normalized.Length is not (4 or 6) || !normalized.All(CodeAlphabet.Contains)) return null;
 
-        var group = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.JoinCode == normalized, ct);
+        var group = await db.ActivitySessionGroups.Include(x => x.Runs)
+            .SingleOrDefaultAsync(x => x.JoinCode == normalized, ct);
         if (group is not null)
         {
+            if (IsSessionGroupExpired(group, DateTimeOffset.UtcNow)) return null;
             var current = await ResolveGroupRunAsync(group, ct);
             if (current is not null) return await EnsureInteractiveRunAsync(current, ct);
+            // A completed activity may still own the group's code while the
+            // lesson is between games. Do not fall through to the legacy run
+            // lookup and accidentally reopen that completed activity.
+            return null;
         }
 
         var run = await db.ActivityRuns.Include(x => x.ActivityDefinition)
@@ -190,13 +227,15 @@ public sealed class ActivitySessionService(
         {
             var current = await db.ActivityRuns.Include(x => x.ActivityDefinition)
                 .SingleOrDefaultAsync(x => x.Id == group.CurrentRunId.Value, ct);
-            if (current?.ActivityDefinition is not null && current.Status != ActivityRunStatuses.Ended) return current;
+            if (current?.ActivityDefinition is not null && IsSessionRunActive(current)) return current;
         }
 
-        return await db.ActivityRuns.Include(x => x.ActivityDefinition)
-            .Where(x => x.SessionGroupId == group.Id && x.Status != ActivityRunStatuses.Ended)
+        var runs = await db.ActivityRuns.Include(x => x.ActivityDefinition)
+            .Where(x => x.SessionGroupId == group.Id)
+            .ToListAsync(ct);
+        return runs.Where(IsSessionRunActive)
             .OrderByDescending(x => x.UpdatedAt)
-            .FirstOrDefaultAsync(ct);
+            .FirstOrDefault();
     }
 
     public async Task<(ActivityRun? Run, ActivityParticipant? Participant, string Token, string? Error)> JoinAsync(
@@ -221,8 +260,8 @@ public sealed class ActivitySessionService(
         if (participant is null)
         {
             var count = groupId.HasValue
-                ? await db.ActivityParticipants.CountAsync(x => x.SessionGroupId == groupId.Value && x.Status != "removed", ct)
-                : await db.ActivityParticipants.CountAsync(x => x.ActivityRunId == run.Id && x.Status != "removed", ct);
+                ? await db.ActivityParticipants.CountAsync(x => x.SessionGroupId == groupId.Value && x.Status != ActivityParticipantStatuses.Removed, ct)
+                : await db.ActivityParticipants.CountAsync(x => x.ActivityRunId == run.Id && x.Status != ActivityParticipantStatuses.Removed, ct);
             // Unclaimed identities are spread by join order so a room that
             // never touches the picker still looks varied on the stage.
             var (defaultAvatar, defaultColor) = ActivityIdentity.ForIndex(count);
@@ -243,7 +282,10 @@ public sealed class ActivitySessionService(
         }
         else
         {
-            if (participant.Status == "removed") return (run, null, token, "The host removed this player from the game.");
+            if (participant.Status == ActivityParticipantStatuses.Removed)
+                return (run, null, token, "The host removed this player from the game.");
+            if (participant.Status == ActivityParticipantStatuses.Locked)
+                return (run, null, token, "The host locked this player out of the game.");
             if (!string.IsNullOrWhiteSpace(displayName))
             {
                 participant.DisplayName = displayName;
@@ -262,6 +304,11 @@ public sealed class ActivitySessionService(
                 participant.Lives = quizModifiers.StartingLives;
         }
 
+        if (run.SessionGroupId is Guid joinedGroupId)
+        {
+            var group = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == joinedGroupId, ct);
+            if (group is not null) group.UpdatedAt = DateTimeOffset.UtcNow;
+        }
         await db.SaveChangesAsync(ct);
         await BroadcastDisplayAsync(run.Id, ct);
         return (run, participant, token, null);
@@ -273,19 +320,39 @@ public sealed class ActivitySessionService(
         if (run?.ActivityDefinition is null) return null;
         run = await EnsureInteractiveRunAsync(run, ct);
         run = await LoadRunAsync(run.Id, ct) ?? run;
+        if (run.Status != ActivityRunStatuses.Ended)
+        {
+            var now = DateTimeOffset.UtcNow;
+            run.UpdatedAt = now;
+            if (run.SessionGroupId is Guid publicHeartbeatGroupId)
+            {
+                var group = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == publicHeartbeatGroupId, ct);
+                if (group is not null) group.UpdatedAt = now;
+            }
+            await db.SaveChangesAsync(ct);
+        }
         var envelope = await BuildEnvelopeAsync(run, ProjectionRole.Display, ct);
-        var participants = (await db.ActivityParticipants.AsNoTracking()
-            .Where(x => x.ActivityRunId == run.Id && x.Status != "removed")
+        var participantQuery = run.SessionGroupId is Guid publicGroupId
+            ? db.ActivityParticipants.AsNoTracking().Where(x => x.SessionGroupId == publicGroupId)
+            : db.ActivityParticipants.AsNoTracking().Where(x => x.ActivityRunId == run.Id);
+        var participants = (await participantQuery
+            .Where(x => x.Status == ActivityParticipantStatuses.Active)
             .Select(x => new { id = x.Id, displayName = x.DisplayName, avatar = x.Avatar, color = x.Color, teamId = x.TeamId, joinedAt = x.JoinedAt })
             .ToListAsync(ct))
             .OrderBy(x => x.joinedAt)
             .Select(x => (object)new { id = x.id, displayName = x.displayName, teamId = x.teamId })
             .ToList();
-        var teams = await db.ActivityTeams.AsNoTracking().Where(x => x.ActivityRunId == run.Id && x.Active)
+        var teamQuery = run.SessionGroupId is Guid publicTeamGroupId
+            ? db.ActivityTeams.AsNoTracking().Where(x => x.SessionGroupId == publicTeamGroupId)
+            : db.ActivityTeams.AsNoTracking().Where(x => x.ActivityRunId == run.Id);
+        var teams = await teamQuery.Where(x => x.Active)
             .OrderBy(x => x.Position)
             .Select(x => (object)new { id = x.Id, name = x.Name, color = x.Color, icon = x.Icon, score = x.Score })
             .ToListAsync(ct);
-        return new ActivitySessionPublicView(envelope, run.JoinCode ?? "", participants.Count, participants, teams);
+        var groupExpiry = run.SessionGroupId is Guid expiryGroupId
+            ? (await db.ActivitySessionGroups.AsNoTracking().SingleOrDefaultAsync(x => x.Id == expiryGroupId, ct))?.UpdatedAt.Add(SessionIdleLifetime)
+            : null;
+        return new ActivitySessionPublicView(envelope, run.JoinCode ?? "", participants.Count, participants, teams, groupExpiry);
     }
 
     public async Task<ActivityStateEnvelope?> GetDisplayEnvelopeAsync(Guid runId, CancellationToken ct = default)
@@ -294,6 +361,17 @@ public sealed class ActivitySessionService(
         if (run?.ActivityDefinition is null || !ActivityEngineCatalog.IsInteractive(run.ActivityDefinition)) return null;
         run = await EnsureInteractiveRunAsync(run, ct);
         run = await LoadRunAsync(run.Id, ct) ?? run;
+        if (run.Status != ActivityRunStatuses.Ended)
+        {
+            var now = DateTimeOffset.UtcNow;
+            run.UpdatedAt = now;
+            if (run.SessionGroupId is Guid displayHeartbeatGroupId)
+            {
+                var group = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == displayHeartbeatGroupId, ct);
+                if (group is not null) group.UpdatedAt = now;
+            }
+            await db.SaveChangesAsync(ct);
+        }
         return await BuildEnvelopeAsync(run, ProjectionRole.Display, ct);
     }
 
@@ -304,18 +382,27 @@ public sealed class ActivitySessionService(
     {
         var run = await LoadRunAsync(runId, ct);
         if (run?.ActivityDefinition is null) return null;
+        run = await EnsureInteractiveRunAsync(run, ct);
+        if (run.Status == ActivityRunStatuses.Ended) return null;
         var participant = await FindParticipantAsync(runId, token, ct);
-        if (participant is null || participant.Status == "removed") return null;
-        participant.LastSeenAt = DateTimeOffset.UtcNow;
+        if (participant is null || participant.Status == ActivityParticipantStatuses.Removed) return null;
+        var participantSeenAt = DateTimeOffset.UtcNow;
+        participant.LastSeenAt = participantSeenAt;
+        run.UpdatedAt = participantSeenAt;
+        if (run.SessionGroupId is Guid participantHeartbeatGroupId)
+        {
+            var group = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == participantHeartbeatGroupId, ct);
+            if (group is not null) group.UpdatedAt = participantSeenAt;
+        }
         await db.SaveChangesAsync(ct);
         var envelope = await BuildEnvelopeAsync(run, ProjectionRole.Participant, ct, participant.Id);
         var roundId = CurrentRoundId(run, ParseConfig(run));
         var phase = GetPhase(run);
         var currentConfig = ParseConfig(run);
         var rawState = ParseObject(run.StateJson);
-        var isTurnBasedWord = run.ActivityDefinition.Type == ActivityTypes.Word && BoolValue(currentConfig, "turnBased");
+        var isTurnBasedWord = run.ActivityDefinition?.Type == ActivityTypes.Word && BoolValue(currentConfig, "turnBased");
         var quizModifiers = QuizModifierSettings.FromConfig(currentConfig);
-        var isQuizEliminated = run.ActivityDefinition.Type is ActivityTypes.Trivia or ActivityTypes.RapidFire
+        var isQuizEliminated = run.ActivityDefinition?.Type is ActivityTypes.Trivia or ActivityTypes.RapidFire
             && quizModifiers.LivesEnabled
             && quizModifiers.EliminateAtZeroLives
             && (participant.Status == "eliminated" || participant.Lives <= 0);
@@ -323,7 +410,7 @@ public sealed class ActivitySessionService(
             || isQuizEliminated;
         var isCurrentTurn = isTurnBasedWord && StringValue(rawState, "turnParticipantId") == participant.Id.ToString();
         var hasSubmission = await db.ActivitySubmissions.AnyAsync(x => x.ActivityRunId == runId && x.ParticipantId == participant.Id && x.RoundId == roundId, ct);
-        var voteRoundId = run.ActivityDefinition.Type == ActivityTypes.Punchline
+        var voteRoundId = run.ActivityDefinition?.Type == ActivityTypes.Punchline
             ? CreativeVoteRoundId(run, currentConfig, rawState)
             : roundId;
         var hasVote = await db.ActivityVotes.AnyAsync(x => x.ActivityRunId == runId && x.VoterParticipantId == participant.Id && x.RoundId == voteRoundId, ct);
@@ -331,9 +418,10 @@ public sealed class ActivitySessionService(
         // submit a response first, then vote in a later phase. Do not let the
         // first input disable the second one on the participant phone.
         var hasSubmitted = isTurnBasedWord ? false : phase == ActivityPhases.Voting ? hasVote : hasSubmission || hasVote;
-        var canRespond = phase is ActivityPhases.AcceptingResponses or ActivityPhases.Voting or ActivityPhases.Prompt;
+        var canRespond = participant.Status == ActivityParticipantStatuses.Active &&
+            (phase is ActivityPhases.AcceptingResponses or ActivityPhases.Voting or ActivityPhases.Prompt);
         if (isTurnBasedWord) canRespond = canRespond && isCurrentTurn && !isEliminated;
-        return new ActivityParticipantView(envelope, participant.Id, participant.DisplayName, participant.TeamId?.ToString(), hasSubmitted, canRespond, participant.Avatar, participant.Color);
+        return new ActivityParticipantView(envelope, participant.Id, participant.DisplayName, participant.TeamId?.ToString(), hasSubmitted, canRespond, participant.Avatar, participant.Color, participant.Status);
     }
 
     public async Task<ActivityHostView?> GetHostViewAsync(Guid runId, CancellationToken ct = default)
@@ -342,8 +430,19 @@ public sealed class ActivitySessionService(
         if (run?.ActivityDefinition is null) return null;
         run = await EnsureInteractiveRunAsync(run, ct);
         run = await LoadRunAsync(run.Id, ct) ?? run;
+        if (run.Status != ActivityRunStatuses.Ended)
+        {
+            var now = DateTimeOffset.UtcNow;
+            run.UpdatedAt = now;
+            if (run.SessionGroupId is Guid hostHeartbeatGroupId)
+            {
+                var group = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == hostHeartbeatGroupId, ct);
+                if (group is not null) group.UpdatedAt = now;
+            }
+            await db.SaveChangesAsync(ct);
+        }
         var envelope = await BuildEnvelopeAsync(run, ProjectionRole.Host, ct);
-        var participants = run.Participants.Where(x => x.Status != "removed").OrderBy(x => x.JoinedAt)
+        var participants = run.Participants.Where(x => x.Status != ActivityParticipantStatuses.Removed).OrderBy(x => x.JoinedAt)
             .Select(x => (object)new { id = x.Id, displayName = x.DisplayName, avatar = x.Avatar, color = x.Color, status = x.Status, teamId = x.TeamId, lives = x.Lives, joinedAt = x.JoinedAt, lastSeenAt = x.LastSeenAt })
             .ToArray();
         var teams = run.Teams.OrderBy(x => x.Position)
@@ -360,8 +459,12 @@ public sealed class ActivitySessionService(
             .ToArray();
         // The same address the room is shown. The host's own QR and join text
         // come from here, and they must not disagree with the television.
-        var hostJoinUrl = joinAddress.ResolveJoinUrl(run.JoinCode);
-        return new ActivityHostView(envelope, run.JoinCode, hostJoinUrl, participants, teams, submissions, votes, scoreEvents);
+        var hostJoinCode = IsSessionRunActive(run) ? run.JoinCode : null;
+        var hostJoinUrl = hostJoinCode is null ? null : joinAddress.ResolveJoinUrl(hostJoinCode);
+        var hostExpiry = run.SessionGroupId is Guid hostGroupId
+            ? (await db.ActivitySessionGroups.AsNoTracking().SingleOrDefaultAsync(x => x.Id == hostGroupId, ct))?.UpdatedAt.Add(SessionIdleLifetime)
+            : null;
+        return new ActivityHostView(envelope, hostJoinCode, hostJoinUrl, hostExpiry, participants, teams, submissions, votes, scoreEvents);
     }
 
     public async Task<ActivityCommandResult> ExecuteParticipantActionAsync(
@@ -377,8 +480,18 @@ public sealed class ActivitySessionService(
             if (run?.ActivityDefinition is null || !ActivityEngineCatalog.IsInteractive(run.ActivityDefinition))
                 return Fail("Interactive game session not found.", run);
             var participant = await FindParticipantAsync(runId, input.ParticipantToken, ct);
-            if (participant is null || participant.Status == "removed") return Fail("Participant session not found.", run);
+            if (participant is null || participant.Status == ActivityParticipantStatuses.Removed)
+                return Fail("Participant session not found.", run);
+            if (participant.Status == ActivityParticipantStatuses.Locked)
+                return Fail("The host locked this player out of the game.", run);
+            if (run.Status == ActivityRunStatuses.Ended)
+                return Fail("This game session has expired.", run);
             participant.LastSeenAt = DateTimeOffset.UtcNow;
+            if (run.SessionGroupId is Guid participantGroupId)
+            {
+                var group = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == participantGroupId, ct);
+                if (group is not null) group.UpdatedAt = participant.LastSeenAt;
+            }
             var config = ParseConfig(run);
             var state = ParseObject(run.StateJson);
             var action = input.Action.Trim().ToLowerInvariant();
@@ -414,7 +527,7 @@ public sealed class ActivitySessionService(
         var roundId = CurrentRoundId(run, config);
 
         var eligible = run.Participants
-            .Where(x => x.Status is not ("removed" or "eliminated"))
+            .Where(x => x.Status == ActivityParticipantStatuses.Active)
             .Select(x => x.Id)
             .ToHashSet();
         var answered = run.Submissions.Where(x => x.RoundId == roundId).Select(x => x.ParticipantId).ToHashSet();
@@ -492,7 +605,7 @@ public sealed class ActivitySessionService(
         // The target is cleared between rounds, so step through the room in join
         // order rather than spotlighting the same person every single round.
         var candidates = run.Participants
-            .Where(x => x.Status is not ("removed" or "eliminated"))
+            .Where(x => x.Status == ActivityParticipantStatuses.Active)
             .OrderBy(x => x.JoinedAt)
             .ThenBy(x => x.Id)
             .ToList();
@@ -520,11 +633,16 @@ public sealed class ActivitySessionService(
             var config = ParseConfig(run);
             var state = ParseObject(run.StateJson);
             var action = command.Action.Trim().ToLowerInvariant();
+            if (run.Status == ActivityRunStatuses.Ended && action != "resetplayers")
+                return Fail("This game session has expired. Reset the players to start a fresh lobby.", run);
             if (command.ExpectedRevision is > 0 && command.ExpectedRevision != run.Revision)
                 return new ActivityCommandResult(false, $"Revision mismatch. Server revision is {run.Revision}, expected {command.ExpectedRevision}.", run.Revision, run.Status, ParseUntyped(run.StateJson), DateTimeOffset.UtcNow);
 
-            var result = await HandleHostActionAsync(run, config, state, action, command.Payload, ct);
+            var result = action == "resetplayers"
+                ? await ResetPlayersAsync(run, ct)
+                : await HandleHostActionAsync(run, config, state, action, command.Payload, ct);
             if (!result.Success) return new ActivityCommandResult(false, result.Error, run.Revision, run.Status, ParseUntyped(run.StateJson), DateTimeOffset.UtcNow);
+            if (action == "resetplayers") state = ParseObject(run.StateJson);
             await CommitAsync(run, state, ct);
             var display = await BuildEnvelopeAsync(run, ProjectionRole.Display, ct);
             return new ActivityCommandResult(true, null, run.Revision, run.Status, display.State, DateTimeOffset.UtcNow);
@@ -569,6 +687,67 @@ public sealed class ActivitySessionService(
         finally { gate.Release(); }
     }
 
+    /// <summary>
+    /// Start a fresh player lobby without changing the activity definition.
+    /// The previous group is retained for audit/history, but its code and tokens
+    /// no longer resolve. This is the host's escape hatch when phones were
+    /// shared, a player was locked out, or a new class is taking over the room.
+    /// </summary>
+    private async Task<(bool Success, string? Error)> ResetPlayersAsync(ActivityRun run, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var previousCode = run.JoinCode;
+        ActivitySessionGroup? previousGroup = null;
+        if (run.SessionGroupId is Guid previousGroupId)
+            previousGroup = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == previousGroupId, ct);
+
+        var newCode = await NewJoinCodeAsync(ct, previousCode);
+        await ReleaseDormantCodeAsync(newCode, ct);
+        var freshGroup = new ActivitySessionGroup
+        {
+            Id = Guid.NewGuid(),
+            LessonId = run.LessonId,
+            JoinCode = newCode,
+            CurrentRunId = run.Id,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        db.ActivitySessionGroups.Add(freshGroup);
+
+        if (previousGroup is not null)
+        {
+            previousGroup.CurrentRunId = null;
+            previousGroup.UpdatedAt = now;
+        }
+        else
+        {
+            // Legacy per-run participants have no old group to quarantine.
+            // Mark them removed before moving the run into the fresh lobby.
+            foreach (var participant in run.RunParticipants)
+                participant.Status = ActivityParticipantStatuses.Removed;
+        }
+
+        run.SessionGroupId = freshGroup.Id;
+        run.JoinCode = newCode;
+        run.StateJson = Serialize((JsonObject)JsonNode.Parse(JsonSerializer.Serialize(
+            InteractiveActivityDefaults.CreateInitialState(run.ActivityDefinition!), ActivityJsonDefaults.Options))!);
+        run.CurrentPhase = ActivityPhases.Lobby;
+        run.Status = ActivityRunStatuses.Prepared;
+        run.StartedAt = null;
+        run.EndedAt = null;
+        run.TimerStartedAt = null;
+        run.TimerPausedAt = null;
+        run.TimerDurationMs = null;
+        db.ActivitySubmissions.RemoveRange(run.Submissions);
+        db.ActivityVotes.RemoveRange(run.Votes);
+        run.Participants = [];
+        run.Teams = [];
+        run.ScoreEvents = [];
+        run.Submissions = [];
+        run.Votes = [];
+        return (true, null);
+    }
+
     public async Task<ActivityRun?> EndAsync(Guid runId, CancellationToken ct = default)
     {
         var gate = Locks.GetOrAdd(runId, _ => new SemaphoreSlim(1, 1));
@@ -582,6 +761,15 @@ public sealed class ActivitySessionService(
             run.EndedAt = DateTimeOffset.UtcNow;
             var state = ParseObject(run.StateJson);
             state["phase"] = ActivityPhases.Complete;
+            if (run.SessionGroupId is Guid groupId)
+            {
+                var group = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == groupId, ct);
+                if (group?.CurrentRunId == run.Id)
+                {
+                    group.CurrentRunId = null;
+                    group.UpdatedAt = run.EndedAt.Value;
+                }
+            }
             await CommitAsync(run, state, ct, incrementRevision: true);
             return run;
         }
@@ -761,6 +949,8 @@ public sealed class ActivitySessionService(
                 : !BoolValue(state, "autoAdvanceEnabled");
             return (true, null);
         }
+        if (action is "lockparticipant") return SetParticipantLock(run, payload, true);
+        if (action is "unlockparticipant") return SetParticipantLock(run, payload, false);
         if (action is "removeparticipant") return RemoveParticipant(run, payload);
         if (action is "renameparticipant") return RenameParticipant(run, payload);
         if (action is "moderate" or "moderateresponse") return await ModerateAsync(run, payload, ct);
@@ -1581,7 +1771,7 @@ public sealed class ActivitySessionService(
             case "selecttarget":
             case "settarget":
                 var targetId = ReadGuid(payload, "participantId");
-                var target = targetId.HasValue ? run.Participants.FirstOrDefault(item => item.Id == targetId.Value && item.Status != "removed") : null;
+                var target = targetId.HasValue ? run.Participants.FirstOrDefault(item => item.Id == targetId.Value && item.Status == ActivityParticipantStatuses.Active) : null;
                 if (target is null) return (false, "Choose an active participant as the target.");
                 state["targetParticipantId"] = target.Id.ToString();
                 state["targetName"] = target.DisplayName;
@@ -1699,7 +1889,7 @@ public sealed class ActivitySessionService(
             case "selectcontestant":
             case "selectparticipant":
                 var participantId = ReadGuid(payload, "participantId");
-                var participant = participantId.HasValue ? run.Participants.FirstOrDefault(item => item.Id == participantId.Value && item.Status != "removed") : null;
+                var participant = participantId.HasValue ? run.Participants.FirstOrDefault(item => item.Id == participantId.Value && item.Status == ActivityParticipantStatuses.Active) : null;
                 var teamId = ReadGuid(payload, "teamId");
                 var team = teamId.HasValue ? run.Teams.FirstOrDefault(item => item.Id == teamId.Value && item.Active) : null;
                 if (participant is null && team is null) return (false, "Choose an active contestant or team.");
@@ -2441,7 +2631,7 @@ public sealed class ActivitySessionService(
             case ActivityUtilityTypes.RandomPerson:
             {
                 var participants = run.Participants
-                    .Where(participant => participant.Status != "removed")
+                    .Where(participant => participant.Status == ActivityParticipantStatuses.Active)
                     .OrderBy(participant => participant.JoinedAt)
                     .ToArray();
                 if (participants.Length == 0) return (false, "At least one active participant is required to pick a person.");
@@ -2616,7 +2806,7 @@ public sealed class ActivitySessionService(
     private async Task<(bool Success, string? Error)> GenerateUtilityTeamsAsync(ActivityRun run, JsonObject config, JsonObject state, JsonElement? payload, CancellationToken ct)
     {
         var participants = run.Participants
-            .Where(participant => participant.Status != "removed")
+            .Where(participant => participant.Status == ActivityParticipantStatuses.Active)
             .OrderBy(participant => participant.JoinedAt)
             .ToList();
         if (participants.Count < 2) return (false, "Join at least two participants before generating teams.");
@@ -2826,7 +3016,7 @@ public sealed class ActivitySessionService(
         if (points == 0 || BoolValue(current, "scoreApplied")) return;
         if (Guid.TryParse(winnerId, out var winnerGuid))
         {
-            if (run.Participants.Any(participant => participant.Id == winnerGuid && participant.Status != "removed"))
+            if (run.Participants.Any(participant => participant.Id == winnerGuid && participant.Status == ActivityParticipantStatuses.Active))
                 await AwardScoreAsync(run, winnerGuid, null, points, "Bracket win", roundId ?? "bracket", ct);
             else if (run.Teams.Any(team => team.Id == winnerGuid && team.Active))
                 await AwardScoreAsync(run, null, winnerGuid, points, "Bracket win", roundId ?? "bracket", ct);
@@ -3050,7 +3240,7 @@ public sealed class ActivitySessionService(
     {
         var id = ReadGuid(payload, "participantId"); var participant = id.HasValue ? run.Participants.FirstOrDefault(x => x.Id == id.Value) : null;
         if (participant is null) return (false, "Participant not found.");
-        participant.Status = "removed"; participant.TeamId = null;
+        participant.Status = ActivityParticipantStatuses.Removed; participant.TeamId = null;
 
         // A host removing someone is almost always reacting to what that person
         // just sent. Leaving it in the queue to be judged on its own is the
@@ -3060,6 +3250,28 @@ public sealed class ActivitySessionService(
             submission.ModerationStatus = "rejected";
             submission.Hidden = true;
             submission.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+        return (true, null);
+    }
+
+    private static (bool Success, string? Error) SetParticipantLock(ActivityRun run, JsonElement? payload, bool locked)
+    {
+        var id = ReadGuid(payload, "participantId");
+        var participant = id.HasValue ? run.Participants.FirstOrDefault(x => x.Id == id.Value) : null;
+        if (participant is null) return (false, "Participant not found.");
+        if (participant.Status == ActivityParticipantStatuses.Removed)
+            return (false, "This player has already been removed from the game.");
+
+        participant.Status = locked ? ActivityParticipantStatuses.Locked : ActivityParticipantStatuses.Active;
+        if (locked)
+        {
+            participant.TeamId = null;
+            foreach (var submission in run.Submissions.Where(x => x.ParticipantId == participant.Id && x.ModerationStatus != "approved"))
+            {
+                submission.ModerationStatus = "rejected";
+                submission.Hidden = true;
+                submission.UpdatedAt = DateTimeOffset.UtcNow;
+            }
         }
         return (true, null);
     }
@@ -3574,6 +3786,11 @@ public sealed class ActivitySessionService(
         state["actionNonce"] = LongValue(state, "actionNonce") + 1;
         run.CurrentPhase = StringValue(state, "phase") ?? ActivityPhases.Lobby;
         run.UpdatedAt = DateTimeOffset.UtcNow;
+        if (run.SessionGroupId is Guid groupId)
+        {
+            var group = await db.ActivitySessionGroups.FindAsync([groupId], ct);
+            if (group is not null) group.UpdatedAt = run.UpdatedAt;
+        }
         if (incrementRevision) run.Revision++;
         if (run.Status == ActivityRunStatuses.Prepared && run.CurrentPhase != ActivityPhases.Lobby)
         {
@@ -3683,7 +3900,7 @@ public sealed class ActivitySessionService(
         if (source == "participants")
         {
             var participants = await db.ActivityParticipants
-                .Where(participant => participant.ActivityRunId == run.Id && participant.Status != "removed")
+                .Where(participant => participant.ActivityRunId == run.Id && participant.Status == ActivityParticipantStatuses.Active)
                 .ToListAsync(ct);
             roster.AddRange(participants.OrderBy(participant => participant.JoinedAt).Take(32).Select(participant => new JsonObject { ["id"] = participant.Id.ToString(), ["label"] = participant.DisplayName }));
         }
@@ -3757,7 +3974,7 @@ public sealed class ActivitySessionService(
                 .ThenBy(candidate => candidate.Label, StringComparer.OrdinalIgnoreCase)
                 .Take(limit)
                 .ToList();
-            var targetParticipants = target.Participants.Where(item => item.Status != "removed").ToArray();
+            var targetParticipants = target.Participants.Where(item => item.Status == ActivityParticipantStatuses.Active).ToArray();
             var targetTeams = target.Teams.Where(item => item.Active).ToArray();
             var entrants = new JsonArray();
             foreach (var candidate in chosen)
@@ -3828,7 +4045,7 @@ public sealed class ActivitySessionService(
         }
 
         return source.Participants
-            .Where(participant => participant.Status != "removed")
+            .Where(participant => participant.Status == ActivityParticipantStatuses.Active)
             .Select(participant => new BracketHandoffCandidate(participant.DisplayName, participant.Id, null, participantScores.GetValueOrDefault(participant.Id)))
             .OrderByDescending(candidate => candidate.Score)
             .ThenBy(candidate => candidate.Label, StringComparer.OrdinalIgnoreCase)
@@ -3964,7 +4181,7 @@ public sealed class ActivitySessionService(
         if (!BoolValue(state, "responsesOpen")) return;
 
         var eligible = run.Participants
-            .Where(x => x.Status is not ("removed" or "eliminated"))
+            .Where(x => x.Status == ActivityParticipantStatuses.Active)
             .Select(x => x.Id)
             .ToHashSet();
         if (eligible.Count == 0) return;
@@ -4090,7 +4307,7 @@ public sealed class ActivitySessionService(
         CancellationToken ct)
     {
         var roundId = CurrentRoundId(run, config);
-        var live = run.Participants.Where(x => x.Status != "removed").ToArray();
+        var live = run.Participants.Where(x => x.Status == ActivityParticipantStatuses.Active).ToArray();
 
         var totals = live.ToDictionary(
             participant => participant.Id,
@@ -4136,15 +4353,18 @@ public sealed class ActivitySessionService(
     private async Task<JsonObject> ProjectDisplayStateAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct, Guid? participantId = null)
     {
         var projected = ParseObject(Serialize(state));
-        projected["joinCode"] = run.JoinCode;
+        projected["joinCode"] = IsSessionRunActive(run) ? run.JoinCode : null;
         // A phone cannot use a relative path, and the display's own origin is
         // whatever the TV connected to. The teacher-selected address is the one
         // the room should see and scan.
         // The short domain when this game holds a reserved code, LessonCue's own
         // address otherwise. Everything downstream -- the lobby text, the QR the
         // room scans, the phone's own header -- reads this one value.
-        projected["joinUrl"] = joinAddress.ResolveJoinUrl(run.JoinCode);
-        projected["participantCount"] = await db.ActivityParticipants.CountAsync(x => x.ActivityRunId == run.Id && x.Status != "removed", ct);
+        projected["joinUrl"] = IsSessionRunActive(run) ? joinAddress.ResolveJoinUrl(run.JoinCode) : null;
+        var participantCountQuery = run.SessionGroupId is Guid countGroupId
+            ? db.ActivityParticipants.Where(x => x.SessionGroupId == countGroupId)
+            : db.ActivityParticipants.Where(x => x.ActivityRunId == run.Id);
+        projected["participantCount"] = await participantCountQuery.CountAsync(x => x.Status == ActivityParticipantStatuses.Active, ct);
         // Public roster, lobby only. Bluffing and creative games hide who wrote
         // what until the host reveals, so once play starts a name list in the
         // display projection would give the room something to correlate
@@ -4161,7 +4381,7 @@ public sealed class ActivitySessionService(
         if (rosterPhase is ActivityPhases.Setup or ActivityPhases.Lobby)
         {
             projected["roster"] = new JsonArray(run.Participants
-                .Where(x => x.Status != "removed")
+                .Where(x => x.Status == ActivityParticipantStatuses.Active)
                 .OrderBy(x => x.JoinedAt)
                 .Select(x => (JsonNode)new JsonObject
                 {
@@ -4176,7 +4396,7 @@ public sealed class ActivitySessionService(
         {
             var graded = GradedTypes.Contains(run.ActivityDefinition!.Type);
             var streaks = graded ? BuildStreaks(run) : [];
-            var individualScores = run.Participants.Where(x => x.Status != "removed").Select(participant => new
+            var individualScores = run.Participants.Where(x => x.Status == ActivityParticipantStatuses.Active).Select(participant => new
             {
                 participant.Id,
                 participant.DisplayName,
@@ -4193,7 +4413,7 @@ public sealed class ActivitySessionService(
             var quizModifiers = QuizModifierSettings.FromConfig(config);
             if (quizModifiers.LivesEnabled)
             {
-                projected["quizLives"] = new JsonArray(run.Participants.Where(item => item.Status != "removed").Select(item => (JsonNode)new JsonObject
+                projected["quizLives"] = new JsonArray(run.Participants.Where(item => item.Status == ActivityParticipantStatuses.Active || item.Status == ActivityParticipantStatuses.Eliminated).Select(item => (JsonNode)new JsonObject
                 {
                     ["id"] = item.Id.ToString(),
                     ["name"] = item.DisplayName,
@@ -4756,8 +4976,12 @@ public sealed class ActivitySessionService(
             .SingleOrDefaultAsync(x => x.ActivityRunId == runId && x.ParticipantTokenHash == TokenHash(runId, raw), ct);
     }
 
-    private async Task<string> NewJoinCodeAsync(CancellationToken ct)
+    private async Task<string> NewJoinCodeAsync(CancellationToken ct, params string?[] excludedCodes)
     {
+        var excluded = excludedCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(NormalizeCode)
+            .ToHashSet(StringComparer.Ordinal);
         // With the shortener on, a game takes one of the hundred reserved
         // codes, because those are the ones the short domain can actually
         // resolve. A four-character code on a television is also easier to read
@@ -4768,13 +4992,13 @@ public sealed class ActivitySessionService(
         if (shortener is { ShortLinksUsable: true } && shortener.Current is { Enabled: true, Domain.Length: > 0 })
         {
             var pool = new ReservedGameCodePool(db, random);
-            for (var attempt = 0; attempt < 5; attempt++)
+            var available = (await pool.AvailableAsync(ct))
+                .Where(code => !excluded.Contains(code))
+                .ToList();
+            if (available.Count > 0)
             {
-                var reserved = await pool.TryTakeAsync(ct);
-                // Exhausted: a hundred games at once. Fall through to an
-                // ordinary code rather than refuse to start the game -- it will
-                // not work on the short domain, but it will work.
-                if (reserved is null) break;
+                var reserved = available[random.NextInt(0, available.Count)];
+                await ReleaseDormantCodeAsync(reserved, ct);
                 if (!await InUseAsync(reserved, ct)) return reserved;
             }
         }
@@ -4782,9 +5006,45 @@ public sealed class ActivitySessionService(
         for (var attempt = 0; attempt < 50; attempt++)
         {
             var code = new string(RandomNumberGenerator.GetBytes(6).Select(x => CodeAlphabet[x % CodeAlphabet.Length]).ToArray());
+            if (excluded.Contains(code)) continue;
+            await ReleaseDormantCodeAsync(code, ct);
             if (!await InUseAsync(code, ct)) return code;
         }
         throw new InvalidOperationException("Could not create a unique activity join code.");
+    }
+
+    private async Task RotateGroupCodeAsync(ActivitySessionGroup group, string? previousCode, CancellationToken ct)
+    {
+        var next = await NewJoinCodeAsync(ct, previousCode);
+        await ReleaseDormantCodeAsync(next, ct);
+        group.JoinCode = next;
+        group.UpdatedAt = DateTimeOffset.UtcNow;
+        var runs = await db.ActivityRuns.Where(x => x.SessionGroupId == group.Id).ToListAsync(ct);
+        foreach (var run in runs) run.JoinCode = next;
+    }
+
+    private static bool IsJoinCodeValid(string? code)
+    {
+        var normalized = NormalizeCode(code);
+        return normalized.Length is 4 or 6 && normalized.All(CodeAlphabet.Contains);
+    }
+
+    private static bool IsSessionRunActive(ActivityRun run) =>
+        run.Status != ActivityRunStatuses.Ended && !IsTerminalSessionPhase(run.StateJson);
+
+    private static bool IsSessionRunExpired(ActivityRun run, DateTimeOffset now) =>
+        run.Status != ActivityRunStatuses.Ended &&
+        run.UpdatedAt <= now.Subtract(SessionIdleLifetime);
+
+    private static bool IsTerminalSessionPhase(string stateJson) =>
+        StringValue(ParseObject(stateJson), "phase") is ActivityPhases.FinalResults or ActivityPhases.Complete;
+
+    private static bool IsSessionGroupExpired(ActivitySessionGroup group, DateTimeOffset now)
+    {
+        var lastActivity = group.UpdatedAt;
+        foreach (var run in group.Runs)
+            if (IsSessionRunActive(run) && run.UpdatedAt > lastActivity) lastActivity = run.UpdatedAt;
+        return lastActivity <= now.Subtract(SessionIdleLifetime);
     }
 
     /// <summary>Is any unfinished game already holding this code?</summary>
@@ -4813,10 +5073,23 @@ public sealed class ActivitySessionService(
 
         foreach (var group in dormant)
         {
+            var now = DateTimeOffset.UtcNow;
+            foreach (var run in group.Runs.Where(run => run.Status != ActivityRunStatuses.Ended)
+                         .Where(run => !IsSessionRunActive(run) || IsSessionRunExpired(run, now)))
+            {
+                run.Status = ActivityRunStatuses.Ended;
+                run.CurrentPhase = ActivityPhases.Complete;
+                run.EndedAt ??= now;
+                var expiredState = ParseObject(run.StateJson);
+                expiredState["phase"] = ActivityPhases.Complete;
+                run.StateJson = Serialize(expiredState);
+                run.UpdatedAt = now;
+            }
             // Only ever a lobby with nothing live in it.
-            if (group.Runs.Any(run => run.Status != ActivityRunStatuses.Ended)) continue;
+            if (group.Runs.Any(IsSessionRunActive)) continue;
+            group.CurrentRunId = null;
             group.JoinCode = await RetiredCodeAsync(ct);
-            group.UpdatedAt = DateTimeOffset.UtcNow;
+            group.UpdatedAt = now;
         }
     }
 
@@ -4914,7 +5187,7 @@ public sealed class ActivitySessionService(
         return mode is "majority" or "minority" or "prediction" ? mode : "";
     }
     private static string FirstPlayPhase(string type) => type is ActivityTypes.Poll or ActivityTypes.Prediction or ActivityTypes.Punchline or ActivityTypes.FakeOut ? ActivityPhases.Prompt : ActivityPhases.RoundIntro;
-    private static string NormalizeCode(string value) => (value ?? "").Trim().Replace("-", "").ToUpperInvariant();
+    private static string NormalizeCode(string? value) => (value ?? "").Trim().Replace("-", "").ToUpperInvariant();
     private static string NormalizeDisplayName(string? value) => (value ?? "").Trim() switch { var name when name.Length > 40 => name[..40], var name => name };
     private static string TokenHash(Guid runId, string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{runId:N}:{token}"))).ToLowerInvariant();
     private static JsonObject ParseObject(string json) { try { return JsonNode.Parse(json)?.AsObject() ?? []; } catch (JsonException) { return []; } }
@@ -5022,7 +5295,7 @@ public sealed class ActivitySessionService(
 
     private static void InitializeWordTurn(ActivityRun run, JsonObject state)
     {
-        var order = run.Participants.Where(item => item.Status != "removed").OrderBy(item => item.JoinedAt).Select(item => item.Id.ToString()).ToArray();
+        var order = run.Participants.Where(item => item.Status == ActivityParticipantStatuses.Active).OrderBy(item => item.JoinedAt).Select(item => item.Id.ToString()).ToArray();
         state["turnOrder"] = new JsonArray(order.Select(item => (JsonNode)item).ToArray());
         state["turnIndex"] = 0;
         state["usedWords"] = new JsonArray();
@@ -5101,7 +5374,7 @@ public sealed class ActivitySessionService(
         }
 
         var id = order[index];
-        var participant = run.Participants.FirstOrDefault(item => item.Id.ToString() == id && item.Status != "removed");
+        var participant = run.Participants.FirstOrDefault(item => item.Id.ToString() == id && item.Status == ActivityParticipantStatuses.Active);
         if (participant is null)
         {
             state.Remove("turnParticipantId");

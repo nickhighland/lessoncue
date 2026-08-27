@@ -734,7 +734,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByRole("button", { name: "Pause playback" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Stop playback" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Next cue" })).toBeVisible();
-  await expect(page.locator(".app-shell.controller-mode > .mobile-shell-header")).toHaveCSS("display", "none");
+  await expect(page.locator(".app-shell.controller-mode > .mobile-shell-header")).toHaveCount(0);
   await expect(page.getByRole("tab", { name: "Lesson" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("tab", { name: "Playlist" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Activity" })).toBeVisible();
@@ -1269,9 +1269,16 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const lessons = await fetch("/api/v1/lessons").then(response => response.json());
     const lesson = lessons.find((entry: { items: { title: string }[] }) => entry.items.some(item => item.title === "Browser Test Audio"));
     const item = lesson.items.find((entry: { title: string }) => entry.title === "Browser Test Audio");
+    const jsonHeaders = { "Content-Type": "application/json" };
+    const assignment = await fetch(`/api/v1/screens/${identity.screenId}`, {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify({ assignedClassId: lesson.classId, allowUnsupportedContent: true }),
+    });
+    if (!assignment.ok) throw new Error(`Browser display assignment failed (${assignment.status}): ${await assignment.text()}`);
     const response = await fetch(`/api/v1/screens/${identity.screenId}/control`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...jsonHeaders, "X-LessonCue-Controller": `room:${lesson.classId}` },
       body: JSON.stringify({ action: "play", lessonId: lesson.id, itemId: item.id }),
     });
     const command = await response.json();

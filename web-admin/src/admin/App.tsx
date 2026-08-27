@@ -15,6 +15,7 @@ const AudienceResponseApp = lazy(() => import("../AudienceInteraction").then((mo
 const Dashboard = lazy(() => import("./views/Dashboard").then((module) => ({ default: module.Dashboard })));
 const WebPlayerApp = lazy(() => import("../WebPlayer").then((module) => ({ default: module.WebPlayerApp })));
 const ControllerView = lazy(() => import("./views/Controller").then((module) => ({ default: module.ControllerView })));
+const PublicControllerApp = lazy(() => import("./views/Controller").then((module) => ({ default: module.PublicControllerApp })));
 const ClassesView = lazy(() => import("./views/Lessons").then((module) => ({ default: module.ClassesView })));
 const CalendarView = lazy(() => import("./views/Calendar").then((module) => ({ default: module.CalendarView })));
 const MediaView = lazy(() => import("./views/Media").then((module) => ({ default: module.MediaView })));
@@ -34,6 +35,8 @@ export function App() {
     content = <AudienceDisplayApp />;
   else if (isAudiencePath(location.pathname))
     content = <AudienceResponseApp />;
+  else if (isControllerPath(location.pathname))
+    content = <PublicControllerApp />;
   else content = <AdminApp />;
   return (
     <>

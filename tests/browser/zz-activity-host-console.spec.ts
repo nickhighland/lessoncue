@@ -106,6 +106,9 @@ test("the remote tabs are named for what they do", async ({ page }) => {
   await expect(page.getByRole("tab", { name: /Quick tools/ })).toHaveCount(0);
   await expect(page.locator(".remote-header")).toHaveCount(0);
   await expect(page.locator(".remote-transport button")).toHaveCount(4);
+  const transportHeights = await page.locator(".remote-transport button").evaluateAll(buttons =>
+    buttons.map(button => Math.round(button.getBoundingClientRect().height)));
+  expect(Math.max(...transportHeights) - Math.min(...transportHeights), "pause must share the remote control footprint").toBeLessThanOrEqual(1);
   await expect(page.getByText("Save this controller as an app", { exact: true })).toHaveCount(0);
   await page.getByRole("tab", { name: /Playlist/ }).click();
   await expect(page.locator(".remote-run-summary")).toContainText("REMAINING");
@@ -232,7 +235,7 @@ test("when autonomy gives up, the console says so instead of looking frozen", as
   await expect(panel.locator(".activity-live-host-countdown")).toHaveCount(0);
 });
 
-test("a full class fits: everyone is listed, findable, and removable mid-game", async ({ page }) => {
+test("a full class fits: everyone is listed, findable, and lockable mid-game", async ({ page }) => {
   test.setTimeout(120_000);
   await authenticate(page);
   // A host runs the console from a phone in their hand, which is where an
@@ -278,7 +281,12 @@ test("a full class fits: everyone is listed, findable, and removable mid-game", 
   await expect(panel.locator(".activity-live-host-roster li")).toHaveCount(1);
 
   page.once("dialog", dialog => void dialog.accept());
-  await panel.getByRole("button", { name: "Remove Player 17 from the game" }).click();
-  await panel.getByLabel("Find a player in the roster").fill("");
-  await expect(panel.locator(".activity-live-host-roster li")).toHaveCount(names.length - 1, { timeout: 20_000 });
+  await panel.getByRole("button", { name: "Lock Player 17" }).click();
+  await expect(panel.locator(".activity-live-host-roster li")).toContainText("Locked");
+  await expect(panel.getByRole("button", { name: "Unlock Player 17" })).toBeVisible();
+
+  // Locking is reversible; the player remains in the roster and can be
+  // unblocked without creating a second identity on the phone.
+  await panel.getByRole("button", { name: "Unlock Player 17" }).click();
+  await expect(panel.getByRole("button", { name: "Lock Player 17" })).toBeVisible();
 });

@@ -586,6 +586,223 @@ public static class AdminApi
             return Results.Ok(new { message = "Email address confirmed." });
         }).RequireRateLimiting("account");
 
+        // Controller pages are intentionally public entry points. The room and
+        // temporary-session paths scope the returned data; the universal path
+        // returns only the PIN gate until the short-lived grant is presented.
+        var publicController = api.MapGroup("/controller");
+        publicController.MapGet("/bootstrap", async (string? path, HttpContext context,
+            LessonCueDb db, ControllerSessionService controllerSessions, HttpPortService httpPort,
+            CancellationToken ct) =>
+        {
+            var requestedPath = path?.Trim() ?? "";
+            Guid? classId = null;
+            Guid? lessonId = null;
+            string? sessionToken = null;
+
+            if (requestedPath.StartsWith("/session/", StringComparison.OrdinalIgnoreCase))
+            {
+                sessionToken = requestedPath[9..].Split('/')[0];
+                var session = await ResolveControllerSessionAsync(sessionToken, controllerSessions, db, ct);
+                if (session is null)
+                    return Results.NotFound(new { error = "This controller link is invalid, expired, or revoked." });
+                classId = session.ClassId;
+                lessonId = session.LessonId;
+            }
+            else if (requestedPath.StartsWith("/room/", StringComparison.OrdinalIgnoreCase))
+            {
+                var slug = Uri.UnescapeDataString(requestedPath[6..].Split('/')[0]).Trim().ToLowerInvariant();
+                var lessonClass = await db.Classes.AsNoTracking()
+                    .SingleOrDefaultAsync(x => x.ControllerSlug == slug, ct);
+                if (lessonClass is null)
+                    return Results.NotFound(new { error = "This classroom controller link is invalid." });
+                classId = lessonClass.Id;
+            }
+            else if (!requestedPath.Equals("/controller", StringComparison.OrdinalIgnoreCase) &&
+                     !requestedPath.Equals("/universalremote", StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.BadRequest(new { error = "Unsupported controller path." });
+            }
+
+            // A configured per-class hostname is another room controller entry
+            // point and must behave like /room/{slug}, not like the universal
+            // remote merely because its visible path is /controller.
+            if (classId is null && sessionToken is null)
+            {
+                var hostname = context.Request.Host.Host.TrimEnd('.').ToLowerInvariant();
+                if (hostname.Length > 0)
+                    classId = await db.Classes.AsNoTracking()
+                        .Where(x => x.ControllerHostname == hostname)
+                        .Select(x => (Guid?)x.Id)
+                        .FirstOrDefaultAsync(ct);
+            }
+
+            var universal = classId is null && sessionToken is null;
+            var grant = context.Request.Headers["X-LessonCue-Controller-Grant"].ToString();
+            var grantValid = !universal || controllerSessions.IsUniversalGrantValid(grant);
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+
+            var classesQuery = db.Classes.AsNoTracking().AsQueryable();
+            if (classId is Guid selectedClassId) classesQuery = classesQuery.Where(x => x.Id == selectedClassId);
+            var classes = grantValid
+                ? (await classesQuery.OrderBy(x => x.Name).Select(x => new
+                {
+                    x.Id,
+                    x.Name,
+                    x.Description,
+                    x.ControllerSlug,
+                    x.ControllerColor,
+                    x.ControllerHostname,
+                    lessonCount = db.Lessons.Count(lesson => lesson.ClassId == x.Id && !lesson.Archived),
+                    screenCount = db.Screens.Count(screen => screen.AssignedClassId == x.Id && !screen.Revoked)
+                }).ToListAsync(ct)).Cast<object>().ToArray()
+                : Array.Empty<object>();
+
+            var lessonsQuery = db.Lessons.AsNoTracking().Where(x => !x.Archived).AsQueryable();
+            if (classId is Guid lessonClassId) lessonsQuery = lessonsQuery.Where(x => x.ClassId == lessonClassId);
+            if (lessonId is Guid selectedLessonId) lessonsQuery = lessonsQuery.Where(x => x.Id == selectedLessonId);
+            var lessons = grantValid
+                ? (await lessonsQuery.OrderBy(x => x.Date).Select(x => new
+                {
+                    x.Id,
+                    x.ClassId,
+                    className = x.Class!.Name,
+                    x.Date,
+                    x.Title,
+                    x.AvailableFrom,
+                    x.ExpiresAt,
+                    x.DesignatedStartAt,
+                    x.PreRollStartsAt,
+                    x.PreRollEnabled,
+                    x.CountdownItemId,
+                    x.Version,
+                    x.Archived,
+                    x.KeepOffline,
+                    x.DownloadDaysBefore,
+                    x.VolumePercent,
+                    x.Muted,
+                    x.SubstituteNotes,
+                    x.PreRollMonitorUrl,
+                    x.GeneratedByScheduleId,
+                    items = x.Items.OrderBy(item => item.Position).Select(item => new
+                    {
+                        item.Id,
+                        item.Title,
+                        item.Type,
+                        item.Role,
+                        item.Position,
+                        item.ActivityDefinitionId,
+                        item.MediaAssetId,
+                        mediaFileName = item.MediaAsset != null ? item.MediaAsset.FileName : null,
+                        item.DurationMs,
+                        mediaDurationMs = item.MediaAsset != null ? item.MediaAsset.DurationMs : null,
+                        item.StartMs,
+                        item.EndMs,
+                        item.VolumePercent,
+                        item.ImageDurationSeconds,
+                        item.EstimatedDurationSeconds,
+                        item.EndBehavior,
+                        item.AllowSkip,
+                        item.Notes,
+                        item.FadeInMs,
+                        item.FadeOutMs,
+                        item.NormalizeAudio,
+                        item.CuePointsJson,
+                        item.FitMode,
+                        item.RotationDegrees,
+                        item.CropLeftPercent,
+                        item.CropTopPercent,
+                        item.CropRightPercent,
+                        item.CropBottomPercent,
+                        item.Muted,
+                        item.PlaybackRatePercent,
+                        item.RepeatCount,
+                        item.BackgroundColor,
+                        item.TransitionStyle,
+                        item.TransitionDurationMs,
+                        item.FlexibleTime,
+                        offlineEligible = item.MediaAsset != null && item.MediaAsset.OfflineEligible
+                    }).ToList()
+                }).ToListAsync(ct)).Cast<object>().ToArray()
+                : Array.Empty<object>();
+
+            var onlineCutoff = DateTimeOffset.UtcNow.AddMinutes(-2);
+            var screensQuery = db.Screens.AsNoTracking().Where(x => !x.Revoked).AsQueryable();
+            if (classId is Guid screenClassId) screensQuery = screensQuery.Where(x => x.AssignedClassId == screenClassId);
+            var screens = grantValid
+                ? (await screensQuery.OrderBy(x => x.Name).Select(x => new
+                {
+                    x.Id,
+                    x.Name,
+                    x.Platform,
+                    x.AssignedClassId,
+                    assignedClassName = db.Classes.Where(c => c.Id == x.AssignedClassId).OrderBy(c => c.Name).Select(c => c.Name).FirstOrDefault(),
+                    assignedSignageName = db.SignagePlaylists.Where(sign => sign.Id == x.AssignedSignageId)
+                        .OrderBy(sign => sign.Name).Select(sign => sign.Name).FirstOrDefault(),
+                    x.VolunteerMode,
+                    x.SignageOnly,
+                    x.PermanentPairing,
+                    x.AssignedSignageId,
+                    x.LastSeenAt,
+                    online = x.LastSeenAt != null && x.LastSeenAt >= onlineCutoff,
+                    x.FreeBytes,
+                    x.FailedDownloads,
+                    x.Revoked,
+                    x.AppVersion,
+                    x.ManifestVersion,
+                    x.TagsCsv,
+                    x.Site,
+                    x.SignageOrientation,
+                    x.SignageWidth,
+                    x.SignageHeight,
+                    x.ControlVersion,
+                    x.ControlAction,
+                    x.ControlLessonId,
+                    x.ControlItemId,
+                    x.ControlPositionMs,
+                    x.ControlIssuedAt,
+                    x.AcknowledgedControlVersion,
+                    x.PlaybackState,
+                    x.PlaybackLessonId,
+                    x.PlaybackItemId,
+                    x.PlaybackPositionMs,
+                    x.PlaybackDurationMs,
+                    x.PlaybackVolumePercent,
+                    x.PlaybackUpdatedAt,
+                    x.PlaybackError,
+                    x.CachedItems,
+                    x.TotalItems,
+                    x.DeviceModel,
+                    x.OsVersion,
+                    x.CacheInventoryJson,
+                    x.DownloadQueueJson,
+                    x.CodecCapabilitiesJson,
+                    x.RecentErrorsJson,
+                    x.ClockOffsetMs,
+                    x.NetworkLatencyMs,
+                    x.NetworkQuality,
+                    x.DiagnosticsUpdatedAt,
+                    x.AllowDiagnosticScreenshots,
+                    x.ScreenshotRequestId,
+                    x.ScreenshotRequestedAt,
+                    x.ScreenshotExpiresAt,
+                    x.ScreenshotStatus,
+                    x.ScreenshotCapturedAt,
+                    screenshotAvailable = x.ScreenshotStatus == "ready" && x.ScreenshotCapturedAt != null &&
+                        x.ScreenshotCapturedAt >= DateTimeOffset.UtcNow.AddHours(-24)
+                }).ToListAsync(ct)).Cast<object>().ToArray()
+                : Array.Empty<object>();
+
+            return Results.Ok(new
+            {
+                classes,
+                lessons,
+                screens,
+                controllerPinConfigured = organization.ControllerPinHash is not null,
+                requireLocalRoomControllers = organization.RequireLocalRoomControllers,
+                localAddress = httpPort.Status.Address
+            });
+        });
+
         var admin = api.MapGroup("").RequireAuthorization();
         var planning = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Planning);
         var uploads = admin.MapGroup("").RequireAuthorization(LessonCuePermissions.Uploads);
@@ -939,7 +1156,7 @@ public static class AdminApi
                 expiresAt = session.Permanent ? (DateTimeOffset?)null : session.ExpiresAt,
                 session.Permanent
             });
-        });
+        }).AllowAnonymous();
 
         admin.MapGet("/lessons", async (Guid? classId, LessonCueDb db, CancellationToken ct) =>
         {
@@ -2596,6 +2813,10 @@ public static class AdminApi
             if (screen.SignageOnly)
                 return Results.Conflict(new { error = "This screen is assigned to signage only and cannot receive lesson playback commands." });
             var controllerContext = context.Request.Headers["X-LessonCue-Controller"].ToString();
+            if (!controllerContext.StartsWith("room:", StringComparison.OrdinalIgnoreCase) &&
+                !controllerContext.StartsWith("session:", StringComparison.OrdinalIgnoreCase) &&
+                !controllerContext.Equals("universal", StringComparison.OrdinalIgnoreCase))
+                return Results.Forbid();
             if (controllerContext.StartsWith("room:", StringComparison.OrdinalIgnoreCase) ||
                 controllerContext.StartsWith("session:", StringComparison.OrdinalIgnoreCase))
             {
@@ -2664,7 +2885,7 @@ public static class AdminApi
             await hub.Clients.Group($"screen:{id}").SendAsync("PlaybackCommand", new { screen.ControlVersion }, ct);
             return Results.Accepted(value: new { version = screen.ControlVersion, action, lessonId = input.LessonId,
                 itemId = input.ItemId, positionMs = screen.ControlPositionMs, issuedAt = screen.ControlIssuedAt, state = screen.PlaybackState });
-        });
+        }).AllowAnonymous();
 
         screens.MapPost("/screens/{id:guid}/assignment-check", async (Guid id, ScreenAssignmentCheckInput input,
             LessonCueDb db, CancellationToken ct) =>
@@ -3583,7 +3804,7 @@ public static class AdminApi
             return hasher.VerifyHashedPassword(organization, organization.ControllerPinHash, input.Pin) == PasswordVerificationResult.Failed
                 ? Results.Json(new { error = "That controller PIN was not accepted." }, statusCode: StatusCodes.Status403Forbidden)
                 : Results.Ok(new { grant = controllerSessions.CreateUniversalGrant(), expiresAt = DateTimeOffset.UtcNow.AddHours(12) });
-        }).RequireRateLimiting("login");
+        }).AllowAnonymous().RequireRateLimiting("login");
 
         settings.MapGet("/storage", async (LessonCueDb db, StorageService storage, CancellationToken ct) =>
             Results.Ok(await storage.GetSnapshotAsync(db, ct)));

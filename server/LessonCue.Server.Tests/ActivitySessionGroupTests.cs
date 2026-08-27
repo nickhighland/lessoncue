@@ -242,4 +242,98 @@ public sealed class ActivitySessionGroupTests
         }
         Directory.Delete(dataPath, true);
     }
+
+    [Fact]
+    public async Task AJoinCodeStopsResolvingAfterTwoHoursOfInactivity()
+    {
+        var (db, activities, sessions, connection, dataPath) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var lessonId = await NewLessonAsync(db, "Expiring lesson");
+            var first = await StartGameAsync(activities, sessions, lessonId, "Expiring game");
+            var code = first.JoinCode!;
+            var old = DateTimeOffset.UtcNow.AddHours(-2).AddSeconds(-1);
+            var storedRun = await db.ActivityRuns.SingleAsync(x => x.Id == first.Id, TestContext.Current.CancellationToken);
+            var group = await db.ActivitySessionGroups.SingleAsync(x => x.Id == first.SessionGroupId, TestContext.Current.CancellationToken);
+            storedRun.UpdatedAt = old;
+            group.UpdatedAt = old;
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+            Assert.Null(await sessions.FindByJoinCodeAsync(code, TestContext.Current.CancellationToken));
+
+            var replacement = await activities.GetOrCreateRunAsync(first.ActivityDefinitionId, lessonId,
+                ct: TestContext.Current.CancellationToken);
+            replacement = await sessions.EnsureInteractiveRunAsync(replacement, TestContext.Current.CancellationToken);
+            Assert.NotEqual(first.Id, replacement.Id);
+            Assert.NotEqual(code, replacement.JoinCode);
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
+    public async Task LegacyFiveDigitCodesAreRejectedAndRotated()
+    {
+        var (db, activities, sessions, connection, dataPath) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var run = await StartGameAsync(activities, sessions, await NewLessonAsync(db, "Legacy lesson"), "Legacy game");
+            var group = await db.ActivitySessionGroups.SingleAsync(x => x.Id == run.SessionGroupId, TestContext.Current.CancellationToken);
+            group.JoinCode = "12345";
+            var storedRun = await db.ActivityRuns.SingleAsync(x => x.Id == run.Id, TestContext.Current.CancellationToken);
+            storedRun.JoinCode = "12345";
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+            Assert.Null(await sessions.FindByJoinCodeAsync("12345", TestContext.Current.CancellationToken));
+            var refreshed = await sessions.EnsureInteractiveRunAsync(run, TestContext.Current.CancellationToken);
+            Assert.NotEqual("12345", refreshed.JoinCode);
+            Assert.Equal(6, refreshed.JoinCode!.Length);
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
+    public async Task HostCanLockUnlockAndResetThePlayerLobby()
+    {
+        var (db, activities, sessions, connection, dataPath) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var run = await StartGameAsync(activities, sessions, await NewLessonAsync(db, "Player controls"), "Player controls game");
+            var joined = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Alex"), TestContext.Current.CancellationToken);
+            var participant = joined.Participant!;
+            var payload = JsonDocument.Parse($"{{\"participantId\":\"{participant.Id}\"}}").RootElement;
+
+            var locked = await sessions.ExecuteHostActionAsync(run.Id,
+                new ActivityCommandEnvelope(null, null, "lockparticipant", payload), TestContext.Current.CancellationToken);
+            Assert.True(locked.Success);
+            var lockedView = await sessions.GetParticipantViewAsync(run.Id, joined.Token, TestContext.Current.CancellationToken);
+            Assert.Equal(ActivityParticipantStatuses.Locked, lockedView!.Status);
+            Assert.False(lockedView.CanRespond);
+            var blocked = await sessions.ExecuteParticipantActionAsync(run.Id,
+                new ActivityParticipantActionInput(joined.Token, "answer", JsonDocument.Parse("{\"optionIndex\":0}").RootElement),
+                TestContext.Current.CancellationToken);
+            Assert.False(blocked.Success);
+
+            var unlocked = await sessions.ExecuteHostActionAsync(run.Id,
+                new ActivityCommandEnvelope(null, null, "unlockparticipant", payload), TestContext.Current.CancellationToken);
+            Assert.True(unlocked.Success);
+            var rejoined = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(joined.Token, null), TestContext.Current.CancellationToken);
+            Assert.Null(rejoined.Error);
+            Assert.Equal(participant.Id, rejoined.Participant!.Id);
+
+            var oldCode = run.JoinCode!;
+            var reset = await sessions.ExecuteHostActionAsync(run.Id,
+                new ActivityCommandEnvelope(null, null, "resetplayers"), TestContext.Current.CancellationToken);
+            Assert.True(reset.Success);
+            var host = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
+            Assert.NotEqual(oldCode, host!.JoinCode);
+            Assert.Null(await sessions.FindByJoinCodeAsync(oldCode, TestContext.Current.CancellationToken));
+            var joinedAgain = await sessions.JoinAsync(host.JoinCode!, new ActivityParticipantJoinInput(joined.Token, "Alex"), TestContext.Current.CancellationToken);
+            Assert.Null(joinedAgain.Error);
+            Assert.NotEqual(participant.Id, joinedAgain.Participant!.Id);
+        }
+        Directory.Delete(dataPath, true);
+    }
 }

@@ -253,13 +253,6 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
   // The phone wears the same colours as the stage, so a player glancing down
   // stays inside the same game rather than a generic form.
   const themeVariables = activityThemeVariables(resolveActivityTheme(envelope.type, config.preset, envelope.theme));
-  // The activity name and its title are usually the same string, which printed
-  // the heading twice — small, then large. Only label it when the label says
-  // something the title does not.
-  const activityName = textOf(envelope.name).trim();
-  const headerKicker = activityName && activityName.toLowerCase() !== title.trim().toLowerCase()
-    ? activityName
-    : '';
   // Only ever this player's own standing; the server keeps other scores out.
   const personalResult = readPersonalResult(state.you);
   const [editingIdentity, setEditingIdentity] = useState(false);
@@ -275,6 +268,8 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
   const pollMode = textOf(config.pollMode);
   const choiceKicker = envelope.type !== 'poll' ? undefined : pollMode === 'minority' ? 'PREDICT THE MINORITY' : pollMode === 'majority' ? 'PREDICT THE MAJORITY' : pollMode === 'prediction' ? 'PREDICT THE ROOM' : 'CHOOSE ONE';
   const waitingForSurveyTeam = envelope.type === 'surveyBoard' && phase === 'acceptingResponses' && state.isActiveTeam === false;
+
+  if (view.status === 'locked') return <GameAudioProvider chain={audioChain}><main className="activity-participant-page" data-activity-type={envelope.type} style={themeVariables}><div className="participant-game-shell"><header className="participant-game-header"><div><h1>{title}</h1></div><div className="participant-identity"><MuteToggle /><span className="participant-identity-badge" style={{ background: textOf(view.color, '#f6c531'), color: inkOnPlayerColor(textOf(view.color, '#f6c531')) }} aria-hidden="true">{textOf(view.avatar, '🙂')}</span><div><strong>{view.displayName}</strong><small>Locked out</small></div></div></header>{error && <div className="participant-error" role="alert">{error}</div>}<section className="participant-waiting participant-locked" role="alert"><span className="waiting-orb" style={idleWobbleStyle(view.participantId, 2)}>🔒</span><h2>Locked out</h2><p>The host locked this player out of the game. Ask the host to unlock you, or switch player.</p></section><GameButton className="participant-leave-button" onClick={onLeave}>Switch player</GameButton></div></main></GameAudioProvider>;
 
   const submitText = (event: FormEvent) => { event.preventDefault(); if (text.trim()) { onAction('submit', { text: text.trim() }); setText(''); } };
   const submitQuizResponse = (event: FormEvent) => {
@@ -306,7 +301,7 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
   const sendGroups = (groups: Array<{ groupId: string; itemIds: string[] }>) => onAction('group', { groups });
   const sendAdventureChoice = (index: number) => { setSelected(String(index)); onAction('choose', { choiceIndex: index }); };
 
-  return <GameAudioProvider chain={audioChain}><main className="activity-participant-page" data-activity-type={envelope.type} data-activity-preset={textOf(config.preset) || undefined} data-activity-panic={panicking ? 'true' : 'false'} style={themeVariables}><div className="participant-game-shell"><header className="participant-game-header"><div>{headerKicker && <span className="participant-kicker">{headerKicker}</span>}<h1>{title}</h1></div><div className="participant-identity"><MuteToggle /><GameButton type="button" className="participant-identity-edit" silent aria-label="Change your name and character" onClick={() => setEditingIdentity(current => !current)}><span className="participant-identity-badge" style={{ background: textOf(view.color, '#f6c531'), color: inkOnPlayerColor(textOf(view.color, '#f6c531')) }} aria-hidden="true">{textOf(view.avatar, '🙂')}</span><div><strong>{view.displayName}</strong><small>{view.hasSubmitted ? 'Response saved' : phase.replace(/([a-z])([A-Z])/g, '$1 $2')}</small></div></GameButton></div></header>{error && <div className="participant-error" role="alert">{error}</div>}
+  return <GameAudioProvider chain={audioChain}><main className="activity-participant-page" data-activity-type={envelope.type} data-activity-preset={textOf(config.preset) || undefined} data-activity-panic={panicking ? 'true' : 'false'} style={themeVariables}><div className="participant-game-shell"><header className="participant-game-header"><div><h1>{title}</h1></div><div className="participant-identity"><MuteToggle /><GameButton type="button" className="participant-identity-edit" silent aria-label="Change your name and character" onClick={() => setEditingIdentity(current => !current)}><span className="participant-identity-badge" style={{ background: textOf(view.color, '#f6c531'), color: inkOnPlayerColor(textOf(view.color, '#f6c531')) }} aria-hidden="true">{textOf(view.avatar, '🙂')}</span><div><strong>{view.displayName}</strong><small>{view.hasSubmitted ? 'Response saved' : phase.replace(/([a-z])([A-Z])/g, '$1 $2')}</small></div></GameButton></div></header>{error && <div className="participant-error" role="alert">{error}</div>}
     {editingIdentity && <section className="participant-input-card participant-identity-editor">
       <span className="participant-kicker">YOUR PLAYER</span>
       <label>Name <input maxLength={40} value={draftName} onChange={event => setDraftName(event.target.value)} /></label>

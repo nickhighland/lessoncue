@@ -111,6 +111,14 @@ public static class ActivityRunStatuses
     public static bool IsValid(string status) => All.Contains(status);
 }
 
+public static class ActivityParticipantStatuses
+{
+    public const string Active = "active";
+    public const string Locked = "locked";
+    public const string Removed = "removed";
+    public const string Eliminated = "eliminated";
+}
+
 public sealed class ActivityDefinition
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -519,7 +527,8 @@ public sealed record ActivitySessionPublicView(
     string JoinCode,
     int ParticipantCount,
     IReadOnlyList<object> Participants,
-    IReadOnlyList<object> Teams);
+    IReadOnlyList<object> Teams,
+    DateTimeOffset? JoinCodeExpiresAt = null);
 
 public sealed record ActivityParticipantView(
     ActivityStateEnvelope State,
@@ -529,12 +538,14 @@ public sealed record ActivityParticipantView(
     bool HasSubmitted,
     bool CanRespond,
     string Avatar = ActivityIdentity.DefaultAvatar,
-    string Color = ActivityIdentity.DefaultColor);
+    string Color = ActivityIdentity.DefaultColor,
+    string Status = ActivityParticipantStatuses.Active);
 
 public sealed record ActivityHostView(
     ActivityStateEnvelope State,
     string? JoinCode,
     string? JoinUrl,
+    DateTimeOffset? JoinCodeExpiresAt,
     IReadOnlyList<object> Participants,
     IReadOnlyList<object> Teams,
     IReadOnlyList<object> Submissions,

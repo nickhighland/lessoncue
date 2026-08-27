@@ -122,7 +122,7 @@ export function CompactRemoteShell({
               </button>
               <button
                 type="button"
-                className="transport-main"
+                className="remote-transport-main"
                 onClick={() => void command(isPaused ? "resume" : "pause")}
                 aria-label={isPaused ? "Resume playback" : "Pause playback"}
                 disabled={!selectedScreenOnline}

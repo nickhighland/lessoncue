@@ -26,6 +26,7 @@ export const ActivityLiveHostPanel: React.FC<{
   const roundId = textOf(state.currentRoundId) || undefined;
 
   const players = hostView.participants.filter(player => player.status !== 'removed');
+  const activePlayers = players.filter(player => player.status === 'active');
   // A class can be forty phones. Past a couple of dozen, picking one person out
   // of the roster by eye stops working, which matters most when the reason you
   // are looking is that they need removing.
@@ -40,7 +41,7 @@ export const ActivityLiveHostPanel: React.FC<{
     ...hostView.submissions.filter(item => !roundId || item.roundId === roundId).map(item => item.participantId),
     ...hostView.votes.filter(item => !roundId || item.roundId === roundId).map(item => item.voterParticipantId),
   ]);
-  const answered = players.filter(player => answeredIds.has(player.id)).length;
+  const answered = activePlayers.filter(player => answeredIds.has(player.id)).length;
   const collecting = phase === 'acceptingResponses' || phase === 'voting' || phase === 'prompt';
 
   const joinCode = hostView.joinCode || '';
@@ -61,14 +62,23 @@ export const ActivityLiveHostPanel: React.FC<{
   const step = hostStepFor(phase, pending.length, autoPaused, blockedReason);
   const countdown = useAutoAdvanceCountdown(state.autoAdvanceAt, autoPaused || pending.length > 0);
 
-  // Removing someone was only ever reachable from setup, which is closed while
-  // a game is running -- the same gating that hid the moderation queue. Bad
-  // behaviour happens mid-round, so the control belongs beside the roster.
-  const remove = async (participantId: string, displayName: string) => {
-    if (!window.confirm(`Remove ${displayName} from the game?\n\nTheir phone cannot rejoin, and anything of theirs still waiting for you is withdrawn.`)) return;
-    setBusy(`remove:${participantId}`);
+  // A lock is reversible, so a teacher can handle a disruptive or shared
+  // device without destroying the player's identity and score history.
+  const setPlayerLock = async (participantId: string, displayName: string, locked: boolean) => {
+    if (locked && !window.confirm(`Lock ${displayName} out of the game?\n\nTheir phone will stop receiving prompts until you unlock them.`)) return;
+    const action = locked ? 'lockparticipant' : 'unlockparticipant';
+    setBusy(`${action}:${participantId}`);
     try {
-      await ActivityApi.executeCommand(hostView.state.runId, { action: 'removeparticipant', payload: { participantId } });
+      await ActivityApi.executeCommand(hostView.state.runId, { action, payload: { participantId } });
+      onRefresh();
+    } finally { setBusy(''); }
+  };
+
+  const resetPlayers = async () => {
+    if (!window.confirm('Reset all players?\n\nEveryone will need to join again with the new code. Scores and the old player tokens will no longer be used for this lobby.')) return;
+    setBusy('resetplayers');
+    try {
+      await ActivityApi.executeCommand(hostView.state.runId, { action: 'resetplayers' });
       onRefresh();
     } finally { setBusy(''); }
   };
@@ -102,17 +112,17 @@ export const ActivityLiveHostPanel: React.FC<{
     <div className="activity-live-host-progress">
       <div className="activity-live-host-progress-head">
         <span className="controller-eyebrow">{collecting ? 'ANSWERS IN' : 'PLAYERS'}</span>
-        <strong>{collecting ? `${answered} of ${players.length}` : String(players.length)}</strong>
+        <strong>{collecting ? `${answered} of ${activePlayers.length}` : String(players.length)}</strong>
       </div>
-      {collecting && players.length > 0 && <div
+      {collecting && activePlayers.length > 0 && <div
         className="activity-live-host-meter"
         role="progressbar"
         aria-valuenow={answered}
         aria-valuemin={0}
-        aria-valuemax={players.length}
+        aria-valuemax={activePlayers.length}
         aria-label="Players who have answered"
       >
-        <i style={{ width: `${Math.round(answered / players.length * 100)}%` }} />
+        <i style={{ width: `${Math.round(answered / activePlayers.length * 100)}%` }} />
       </div>}
       {players.length === 0
         ? <p className="muted">No phones have joined yet.</p>
@@ -136,15 +146,17 @@ export const ActivityLiveHostPanel: React.FC<{
                   aria-hidden="true"
                 >{player.avatar || '🙂'}</span>
                 <b>{player.displayName}</b>
-                {collecting && <span className="activity-live-host-tick" aria-label={isIn ? 'Answered' : 'Still answering'}>{isIn ? '✓' : '…'}</span>}
+                {player.status === 'locked'
+                  ? <span className="activity-live-host-locked" role="status">Locked</span>
+                  : collecting && <span className="activity-live-host-tick" aria-label={isIn ? 'Answered' : 'Still answering'}>{isIn ? '✓' : '…'}</span>}
                 <button
                   type="button"
-                  className="activity-live-host-remove"
-                  aria-label={`Remove ${player.displayName} from the game`}
-                  title="Remove from the game"
+                  className="activity-live-host-lock"
+                  aria-label={`${player.status === 'locked' ? 'Unlock' : 'Lock'} ${player.displayName}`}
+                  title={player.status === 'locked' ? 'Unlock player' : 'Lock player out'}
                   disabled={busy !== ''}
-                  onClick={() => void remove(player.id, player.displayName)}
-                >✕</button>
+                  onClick={() => void setPlayerLock(player.id, player.displayName, player.status !== 'locked')}
+                >{player.status === 'locked' ? '🔓' : '🔒'}</button>
               </li>;
             })}
           </ul>
@@ -208,6 +220,13 @@ export const ActivityLiveHostPanel: React.FC<{
         disabled={busy !== ''}
         onClick={() => void send('resetscores', 'reset')}
       >{busy === 'reset' ? 'Clearing…' : 'Clear scores'}</button>
+
+      <button
+        type="button"
+        className="button danger"
+        disabled={busy !== '' || !players.length}
+        onClick={() => void resetPlayers()}
+      >{busy === 'resetplayers' ? 'Resetting…' : 'Reset players'}</button>
 
       {supportsAutoAdvance && <label className="activity-live-host-auto">
         <input

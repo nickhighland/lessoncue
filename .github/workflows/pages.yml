@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - github-pages/**
+      - privacy.md
+      - scripts/build-github-pages.mjs
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -25,10 +27,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the privacy policy page from privacy.md
+        run: node scripts/build-github-pages.mjs _site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: github-pages
+          path: _site
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
