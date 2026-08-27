@@ -125,11 +125,11 @@ public sealed class LessonCueDb(DbContextOptions<LessonCueDb> options) : DbConte
         // Not unique any more: every run in a lesson's lobby carries that lobby's
         // code. Uniqueness now belongs to ActivitySessionGroup.JoinCode.
         modelBuilder.Entity<Activities.ActivityRun>().HasIndex(x => x.JoinCode);
-        modelBuilder.Entity<Activities.ActivityRun>().HasMany(x => x.Participants).WithOne(x => x.ActivityRun)
+        modelBuilder.Entity<Activities.ActivityRun>().HasMany(x => x.RunParticipants).WithOne(x => x.ActivityRun)
             .HasForeignKey(x => x.ActivityRunId).OnDelete(DeleteBehavior.Cascade);
-        modelBuilder.Entity<Activities.ActivityRun>().HasMany(x => x.Teams).WithOne(x => x.ActivityRun)
+        modelBuilder.Entity<Activities.ActivityRun>().HasMany(x => x.RunTeams).WithOne(x => x.ActivityRun)
             .HasForeignKey(x => x.ActivityRunId).OnDelete(DeleteBehavior.Cascade);
-        modelBuilder.Entity<Activities.ActivityRun>().HasMany(x => x.ScoreEvents).WithOne(x => x.ActivityRun)
+        modelBuilder.Entity<Activities.ActivityRun>().HasMany(x => x.RunScoreEvents).WithOne(x => x.ActivityRun)
             .HasForeignKey(x => x.ActivityRunId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<Activities.ActivityRun>().HasMany(x => x.Submissions).WithOne(x => x.ActivityRun)
             .HasForeignKey(x => x.ActivityRunId).OnDelete(DeleteBehavior.Cascade);

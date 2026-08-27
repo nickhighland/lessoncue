@@ -44,6 +44,7 @@ install -o root -g root -m 0644 "${SOURCE_DIR}/lessoncue-update.service" /etc/sy
 install -o root -g root -m 0644 "${SOURCE_DIR}/lessoncue-update.path" /etc/systemd/system/lessoncue-update.path
 install -o root -g root -m 0644 "${SOURCE_DIR}/lessoncue-update-recovery.service" /etc/systemd/system/lessoncue-update-recovery.service
 install -o root -g root -m 0644 "${SOURCE_DIR}/release-signing-public.pem" /etc/lessoncue/release-signing-public.pem
+install -d -o lessoncue -g lessoncue -m 0750 /var/lib/lessoncue
 install -d -o lessoncue -g lessoncue -m 0700 /var/lib/lessoncue/config
 systemctl daemon-reload
 systemctl enable lessoncue-update.path lessoncue-update-recovery.service

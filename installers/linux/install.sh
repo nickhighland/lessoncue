@@ -46,6 +46,10 @@ id lessoncue >/dev/null 2>&1 || useradd --system --home /var/lib/lessoncue --she
 for device_group in render video; do
   if getent group "${device_group}" >/dev/null 2>&1; then usermod -a -G "${device_group}" lessoncue; fi
 done
+# The service writes a few small preferences at runtime as well as inside
+# config. Repair the data root explicitly when upgrading an older install that
+# left this parent owned by root.
+install -d -o lessoncue -g lessoncue -m 0750 /var/lib/lessoncue
 install -d -o lessoncue -g lessoncue /var/lib/lessoncue/{database,media,media/originals,media/versions,media/processed,media/thumbnails,media/temporary,media/live-streams,branding,backups,logs,config,.cache}
 chown lessoncue:lessoncue /var/lib/lessoncue/config
 chmod 0700 /var/lib/lessoncue/config

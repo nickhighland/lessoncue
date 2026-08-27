@@ -1,5 +1,7 @@
 RewriteEngine On
 
+RewriteRule ^favicon\.ico$ index.php [NC,L]
+
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -l [OR]
 RewriteCond %{REQUEST_FILENAME} -d

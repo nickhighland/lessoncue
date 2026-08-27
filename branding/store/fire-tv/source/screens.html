@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, height=1080">
+  <style>
+    :root {
+      --bg: #101815;
+      --bg-soft: #18231f;
+      --panel: rgba(27, 37, 33, .94);
+      --panel-strong: rgba(38, 51, 46, .96);
+      --border: #3a5047;
+      --orange: #d89028;
+      --focus: #f0ad4e;
+      --cream: #f7f2e8;
+      --muted: #a9b3ae;
+      --success: #58d6a9;
+      --coral: #ff7a6e;
+      --shadow: 0 20px 50px rgba(0, 0, 0, .35);
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 1920px; height: 1080px; margin: 0; overflow: hidden; }
+    body {
+      color: var(--cream);
+      background: var(--bg) url("./background-generated.png") center / cover no-repeat;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: .01em;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: linear-gradient(90deg, rgba(16,24,21,.97) 0%, rgba(16,24,21,.82) 37%, rgba(16,24,21,.45) 72%, rgba(16,24,21,.72) 100%);
+      pointer-events: none;
+    }
+    .screen { display: none; position: absolute; inset: 0; padding: 76px 108px 66px; }
+    body[data-screen="library"] .screen.library,
+    body[data-screen="lesson"] .screen.lesson,
+    body[data-screen="playback"] .screen.playback { display: flex; flex-direction: column; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; height: 92px; position: relative; z-index: 1; }
+    .brand { display: flex; align-items: center; gap: 18px; }
+    .brand img { width: 70px; height: 70px; border-radius: 17px; box-shadow: 0 8px 20px rgba(0,0,0,.28); }
+    .brand-name { font-size: 35px; font-weight: 800; letter-spacing: -.04em; }
+    .brand-name span { color: var(--orange); }
+    .room { text-align: right; }
+    .room-label { color: var(--muted); font-size: 15px; font-weight: 800; letter-spacing: .16em; }
+    .room-name { font-size: 25px; font-weight: 700; margin-top: 6px; }
+    .status { display: inline-flex; align-items: center; gap: 10px; color: var(--success); font-size: 14px; font-weight: 800; letter-spacing: .11em; margin-top: 8px; }
+    .status::before { content: ""; width: 11px; height: 11px; border-radius: 50%; background: var(--success); box-shadow: 0 0 14px rgba(88,214,169,.72); }
+    .rule { height: 1px; background: var(--border); opacity: .85; position: relative; z-index: 1; }
+    .content { position: relative; z-index: 1; flex: 1; min-height: 0; }
+    .eyebrow { color: var(--orange); font-size: 15px; font-weight: 900; letter-spacing: .18em; }
+    h1 { font-size: 54px; line-height: 1.03; letter-spacing: -.05em; margin: 10px 0 0; }
+    h2 { font-size: 31px; letter-spacing: -.035em; margin: 0; }
+    h3 { font-size: 23px; margin: 0; }
+    p { color: var(--muted); font-size: 18px; line-height: 1.4; margin: 9px 0 0; }
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 24px; box-shadow: var(--shadow); }
+    .panel.focus { border: 3px solid var(--focus); background: rgba(38,51,46,.98); }
+    .library .content { padding-top: 38px; }
+    .library-grid { display: grid; grid-template-columns: 1.03fr 1.28fr; gap: 30px; height: 100%; }
+    .featured { padding: 42px; display: flex; flex-direction: column; justify-content: space-between; min-height: 725px; }
+    .featured-copy { max-width: 570px; }
+    .featured h1 { max-width: 500px; }
+    .featured .meta { display: flex; gap: 24px; color: var(--muted); font-size: 17px; margin-top: 26px; }
+    .featured .meta strong { color: var(--cream); }
+    .button-row { display: flex; align-items: center; gap: 16px; margin-top: 38px; }
+    .button { display: inline-flex; align-items: center; justify-content: center; min-width: 178px; height: 58px; padding: 0 24px; border-radius: 14px; border: 1px solid var(--border); color: var(--cream); font-size: 17px; font-weight: 800; }
+    .button.primary { background: var(--orange); color: var(--bg); border-color: var(--orange); }
+    .button.secondary { background: rgba(16,24,21,.38); }
+    .list-panel { padding: 34px; min-height: 725px; }
+    .list-head { display: flex; align-items: end; justify-content: space-between; margin-bottom: 22px; }
+    .list-count { color: var(--muted); font-size: 16px; }
+    .lesson-list { display: flex; flex-direction: column; gap: 13px; }
+    .lesson-card { display: grid; grid-template-columns: 72px 1fr auto; gap: 18px; align-items: center; padding: 19px 22px; min-height: 111px; border: 1px solid var(--border); border-radius: 17px; background: rgba(38,51,46,.84); }
+    .lesson-card.selected { border: 3px solid var(--focus); padding: 17px 20px; }
+    .number { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 16px; background: rgba(216,144,40,.16); color: var(--focus); font-size: 22px; font-weight: 900; }
+    .lesson-title { font-size: 22px; font-weight: 800; }
+    .lesson-sub { color: var(--muted); font-size: 15px; margin-top: 5px; }
+    .chevron { color: var(--focus); font-size: 34px; font-weight: 300; }
+    .hint { color: var(--muted); font-size: 16px; position: relative; z-index: 1; margin-top: 22px; }
+    .hint kbd { display: inline-grid; place-items: center; min-width: 28px; height: 28px; margin: 0 5px; border: 1px solid var(--border); border-radius: 7px; color: var(--cream); font-size: 14px; }
+    .lesson .content { padding-top: 36px; }
+    .crumb { color: var(--muted); font-size: 15px; font-weight: 800; letter-spacing: .11em; margin-bottom: 16px; }
+    .lesson-layout { display: grid; grid-template-columns: 1.14fr 1fr; gap: 30px; height: 100%; }
+    .preview { padding: 30px; display: flex; flex-direction: column; }
+    .preview-art { flex: 1; min-height: 500px; border-radius: 18px; border: 1px solid var(--border); background: radial-gradient(circle at 50% 38%, rgba(216,144,40,.30), transparent 25%), linear-gradient(145deg, #23342d, #0e1714 70%); display: grid; place-items: center; position: relative; overflow: hidden; }
+    .preview-art::before { content: ""; position: absolute; width: 560px; height: 340px; border: 1px solid rgba(247,242,232,.16); transform: perspective(500px) rotateX(56deg) rotateZ(-8deg); border-radius: 50%; }
+    .play { display: grid; place-items: center; width: 106px; height: 106px; border-radius: 50%; background: var(--orange); color: var(--bg); font-size: 46px; padding-left: 7px; box-shadow: 0 14px 38px rgba(216,144,40,.28); position: relative; z-index: 1; }
+    .preview-caption { display: flex; justify-content: space-between; align-items: center; margin-top: 22px; }
+    .preview-caption strong { font-size: 24px; }
+    .preview-caption span { color: var(--success); font-size: 15px; font-weight: 800; letter-spacing: .08em; }
+    .cue-panel { padding: 30px; }
+    .cue-panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
+    .cue-panel-head span { color: var(--muted); font-size: 16px; }
+    .cue-list { display: flex; flex-direction: column; gap: 13px; }
+    .cue { display: grid; grid-template-columns: 55px 1fr auto; align-items: center; gap: 16px; min-height: 94px; padding: 15px 18px; border: 1px solid var(--border); border-radius: 16px; background: rgba(38,51,46,.76); }
+    .cue.selected { border: 3px solid var(--focus); padding: 13px 16px; }
+    .cue-index { color: var(--focus); font-size: 18px; font-weight: 900; }
+    .cue-title { font-size: 20px; font-weight: 800; }
+    .cue-duration { color: var(--muted); font-size: 15px; margin-top: 4px; }
+    .cue-play { color: var(--cream); font-size: 24px; }
+    .lesson .hint { margin-top: 20px; }
+    .playback { padding: 0; background: #0b110f url("./featured-background-generated.png") center / cover no-repeat; }
+    .playback::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(7,13,11,.82), rgba(7,13,11,.12) 65%, rgba(7,13,11,.55)); }
+    .playback .topbar, .playback .content, .playback .hint { margin-left: 108px; margin-right: 108px; }
+    .playback .topbar { margin-top: 76px; }
+    .playback .content { display: flex; align-items: end; padding-bottom: 94px; }
+    .now-playing { max-width: 670px; position: relative; z-index: 1; }
+    .now-playing h1 { font-size: 76px; }
+    .now-playing .subtitle { color: var(--cream); font-size: 23px; margin-top: 17px; }
+    .progress { margin-top: 38px; }
+    .progress-track { height: 7px; border-radius: 10px; background: rgba(247,242,232,.22); overflow: hidden; }
+    .progress-track span { display: block; width: 38%; height: 100%; background: var(--orange); }
+    .progress-labels { display: flex; justify-content: space-between; margin-top: 10px; color: var(--muted); font-size: 15px; }
+    .controls { display: flex; gap: 14px; margin-top: 34px; }
+    .control { display: grid; place-items: center; width: 62px; height: 62px; border: 1px solid var(--border); border-radius: 15px; background: rgba(16,24,21,.76); color: var(--cream); font-size: 25px; }
+    .control.active { width: 76px; background: var(--orange); border-color: var(--orange); color: var(--bg); font-size: 31px; }
+    .playback .hint { position: relative; z-index: 1; margin-bottom: 36px; }
+  </style>
+</head>
+<body data-screen="library">
+  <section class="screen library">
+    <header class="topbar">
+      <div class="brand"><img src="../../google-play-app-icon-512.png" alt=""><div class="brand-name">Lesson<span>Cue</span></div></div>
+      <div class="room"><div class="room-label">CONNECTED DISPLAY</div><div class="room-name">Room 1</div><div class="status">ONLINE</div></div>
+    </header>
+    <div class="rule"></div>
+    <main class="content">
+      <div class="library-grid">
+        <article class="panel featured">
+          <div class="featured-copy"><div class="eyebrow">THIS WEEK</div><h1>Sunday Lesson</h1><p>Everything is ready for your next classroom session.</p><div class="meta"><span><strong>7</strong> cues</span><span><strong>32 min</strong> estimated</span></div><div class="button-row"><div class="button primary">▶&nbsp; Play lesson</div><div class="button secondary">View cues</div></div></div>
+          <div><div class="eyebrow">UP NEXT</div><p style="margin-top:8px;color:var(--cream);font-size:20px;font-weight:700;">Welcome · 0:00</p></div>
+        </article>
+        <article class="panel list-panel">
+          <div class="list-head"><h2>Available Lessons</h2><div class="list-count">4 lessons</div></div>
+          <div class="lesson-list">
+            <div class="lesson-card selected"><div class="number">1</div><div><div class="lesson-title">Sunday Lesson</div><div class="lesson-sub">7 cues · ready to play</div></div><div class="chevron">›</div></div>
+            <div class="lesson-card"><div class="number">2</div><div><div class="lesson-title">Youth Gathering</div><div class="lesson-sub">5 cues · ready to play</div></div><div class="chevron">›</div></div>
+            <div class="lesson-card"><div class="number">3</div><div><div class="lesson-title">Midweek Study</div><div class="lesson-sub">9 cues · ready to play</div></div><div class="chevron">›</div></div>
+            <div class="lesson-card"><div class="number">4</div><div><div class="lesson-title">Special Event</div><div class="lesson-sub">3 cues · scheduled</div></div><div class="chevron">›</div></div>
+          </div>
+        </article>
+      </div>
+    </main>
+    <div class="hint"><kbd>↑</kbd><kbd>↓</kbd> Browse lessons &nbsp;&nbsp; <kbd>OK</kbd> Open &nbsp;&nbsp; <kbd>▶</kbd> Play</div>
+  </section>
+
+  <section class="screen lesson">
+    <header class="topbar">
+      <div class="brand"><img src="../../google-play-app-icon-512.png" alt=""><div class="brand-name">Lesson<span>Cue</span></div></div>
+      <div class="room"><div class="room-label">CONNECTED DISPLAY</div><div class="room-name">Room 1</div><div class="status">ONLINE</div></div>
+    </header>
+    <div class="rule"></div>
+    <main class="content"><div class="crumb">LESSONS&nbsp;&nbsp; / &nbsp;&nbsp;SUNDAY LESSON</div><div class="lesson-layout">
+      <article class="panel preview"><div class="eyebrow">LESSON PREVIEW</div><h1>Sunday Lesson</h1><div class="preview-art"><div class="play">▶</div></div><div class="preview-caption"><strong>7 cues · 32 min</strong><span>READY TO PLAY</span></div></article>
+      <article class="panel cue-panel"><div class="cue-panel-head"><h2>Lesson cues</h2><span>7 total</span></div><div class="cue-list">
+        <div class="cue selected"><div class="cue-index">01</div><div><div class="cue-title">Welcome</div><div class="cue-duration">0:00 · opening</div></div><div class="cue-play">▶</div></div>
+        <div class="cue"><div class="cue-index">02</div><div><div class="cue-title">Background</div><div class="cue-duration">2:28 · video</div></div><div class="cue-play">▶</div></div>
+        <div class="cue"><div class="cue-index">03</div><div><div class="cue-title">Scripture Slide</div><div class="cue-duration">5:15 · image</div></div><div class="cue-play">▶</div></div>
+        <div class="cue"><div class="cue-index">04</div><div><div class="cue-title">Message</div><div class="cue-duration">5:25 · video</div></div><div class="cue-play">▶</div></div>
+        <div class="cue"><div class="cue-index">05</div><div><div class="cue-title">Announcements</div><div class="cue-duration">27:34 · video</div></div><div class="cue-play">▶</div></div>
+      </div></article>
+    </div></main><div class="hint"><kbd>←</kbd> Back &nbsp;&nbsp; <kbd>↑</kbd><kbd>↓</kbd> Select cue &nbsp;&nbsp; <kbd>OK</kbd> Play selected cue</div>
+  </section>
+
+  <section class="screen playback">
+    <header class="topbar">
+      <div class="brand"><img src="../../google-play-app-icon-512.png" alt=""><div class="brand-name">Lesson<span>Cue</span></div></div>
+      <div class="room"><div class="room-label">NOW PLAYING</div><div class="room-name">Room 1</div><div class="status">ONLINE</div></div>
+    </header>
+    <main class="content"><div class="now-playing"><div class="eyebrow">SUNDAY LESSON · CUE 1 OF 7</div><h1>Welcome</h1><div class="subtitle">Your lesson is playing on the connected display.</div><div class="progress"><div class="progress-track"><span></span></div><div class="progress-labels"><span>0:42</span><span>2:28</span></div></div><div class="controls"><div class="control">↶</div><div class="control active">Ⅱ</div><div class="control">↷</div><div class="control">＋5</div></div></div></main><div class="hint"><kbd>←</kbd><kbd>→</kbd> Previous / next cue &nbsp;&nbsp; <kbd>Ⅱ</kbd> Pause &nbsp;&nbsp; <kbd>Back</kbd> Return to lesson</div>
+  </section>
+  <script>document.body.dataset.screen = new URLSearchParams(location.search).get('screen') || 'library';</script>
+</body>
+</html>

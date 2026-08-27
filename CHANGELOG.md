@@ -4,6 +4,26 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.15 — Activity reliability and Link Studio polish
+
+### User changes
+
+- Game join address choices now save reliably and confirm the selected address.
+- Existing activities launch and display correctly on the room screen without the
+  display-recovery 500 error.
+- Link Studio favicon changes now reach `/favicon.ico` immediately, including
+  after browser caching, and the signed-out logo matches the signed-in size.
+- Added the prepared Fire TV store artwork and native 1920 × 1080 screenshots.
+
+### Developer changes
+
+- Activity run collections now map to the existing database foreign keys instead
+  of generating a nonexistent shadow `ActivityRunId1` relationship.
+- Join-address preferences live in service-owned configuration, with installer
+  and updater ownership repair for upgraded Linux installations.
+- Companion password-reset processing and favicon delivery are permission-safe
+  and cache-resistant.
+
 ## v0.45.14 — Responsive Link Studio
 
 ### User changes

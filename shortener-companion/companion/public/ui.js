@@ -63,8 +63,10 @@
         document.title = name;
         const siteFavicon = document.getElementById('site-favicon');
         if (siteFavicon) {
-            const faviconType = typeof branding.faviconData === 'string' ? branding.faviconData.match(/^data:(image\/[^;]+);/)?.[1] : null;
-            siteFavicon.setAttribute('href', branding.faviconData || 'favicon.ico');
+            const faviconData = typeof branding.faviconData === 'string' ? branding.faviconData : '';
+            const faviconType = faviconData.match(/^data:(image\/[^;]+);/)?.[1] || null;
+            const faviconUrl = faviconData ? 'favicon.ico?rev=' + faviconRevision(faviconData) : 'favicon.ico?rev=dynamic';
+            siteFavicon.setAttribute('href', faviconUrl);
             siteFavicon.setAttribute('type', faviconType || 'image/x-icon');
         }
         ['auth-brand-name', 'setup-brand-name', 'sidebar-brand-name'].forEach((id) => {
@@ -484,6 +486,11 @@
     }
     function readFileAsDataUrl(file) {
         return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); });
+    }
+    function faviconRevision(value) {
+        let hash = 0;
+        for (let index = 0; index < value.length; index += 1) hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+        return (hash >>> 0).toString(36);
     }
     function showToast(message, error = false) {
         const toast = document.createElement('div');
