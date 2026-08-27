@@ -23,6 +23,7 @@ export function ControllerView({
   userRole,
   refresh,
   notify,
+  onUniversalUnlocked,
 }: {
   screens: Screen[];
   lessons: Lesson[];
@@ -33,6 +34,7 @@ export function ControllerView({
   userRole: string;
   refresh: () => void;
   notify: (s: string) => void;
+  onUniversalUnlocked?: () => void;
 }) {
   const routeSlug = controllerRouteSlug(location.pathname);
   const sessionToken = controllerSessionToken(location.pathname);
@@ -136,6 +138,7 @@ export function ControllerView({
       setUniversalGrant(result.grant);
       setUniversalPin("");
       setUniversalUnlocked(true);
+      onUniversalUnlocked?.();
     } catch (error) {
       setUnlockError(errorText(error));
     } finally {
@@ -436,5 +439,80 @@ export function ControllerView({
       setMonitorOpen={setMonitorOpen}
       showMonitor={showMonitor}
     />
+  );
+}
+
+type PublicControllerBootstrap = {
+  screens: Screen[];
+  lessons: Lesson[];
+  classes: LessonClass[];
+  controllerPinConfigured: boolean;
+  requireLocalRoomControllers: boolean;
+  localAddress: string;
+};
+
+/** Public controller entry point. Room and universal remotes are intentionally
+ * usable without an administrator cookie; the command endpoint still applies
+ * the room/session/universal authorization represented by their headers. */
+export function PublicControllerApp() {
+  const [bootstrap, setBootstrap] = useState<PublicControllerBootstrap>();
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const grant = sessionStorage.getItem("lessoncue.universalGrant") || "";
+    const headers = grant
+      ? { "X-LessonCue-Controller-Grant": grant }
+      : undefined;
+    api<PublicControllerBootstrap>(
+      `/api/v1/controller/bootstrap?path=${encodeURIComponent(location.pathname)}`,
+      { headers },
+    )
+      .then((value) => {
+        if (!cancelled) {
+          setBootstrap(value);
+          setError("");
+        }
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setBootstrap(undefined);
+          setError(errorText(cause));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reload]);
+
+  if (error)
+    return (
+      <div className="controller-page">
+        <PageHead eyebrow="CONTROLLER" title="Controller unavailable" detail={error} />
+      </div>
+    );
+  if (!bootstrap)
+    return (
+      <div className="controller-page">
+        <div className="loading">Opening controller…</div>
+      </div>
+    );
+  return (
+    <>
+      <ControllerView
+        {...bootstrap}
+        userRole=""
+        refresh={() => setReload((value) => value + 1)}
+        notify={setNotice}
+        onUniversalUnlocked={() => setReload((value) => value + 1)}
+      />
+      {notice && (
+        <div className="remote-command-notice" role="status">
+          {notice}
+        </div>
+      )}
+    </>
   );
 }

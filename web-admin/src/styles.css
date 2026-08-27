@@ -1641,7 +1641,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 /* Same footprint as its siblings: it is one transport control among four, not
    the primary action of the whole remote. Colour alone carries the emphasis,
    and the size comes from the shared button rule above. */
-.remote-transport .transport-main { border: 1px solid var(--gold); color: #20180d; background: var(--gold); box-shadow: 0 3px 8px #d88c1e3a; }
+.remote-transport .remote-transport-main { min-height: 52px; padding: 0; font-size: inherit; border: 1px solid var(--gold); color: #20180d; background: var(--gold); box-shadow: 0 3px 8px #d88c1e3a; }
 .remote-transport .stop-transport { color: #9c3e3e; }
 .remote-lock-button { grid-column: 3; justify-self: end; display: grid; place-items: center; width: 34px; height: 34px; min-height: 34px; border: 1px solid #ffffff2d; border-radius: 10px; padding: 0; color: #c7ddd4; background: #ffffff0d; }
 .remote-lock-button:hover, .remote-lock-button.locked { border-color: #d9b461; color: #fff2cf; background: #d88c1e22; }
@@ -2047,6 +2047,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   .transport { gap: 6px; margin-bottom: 8px; }
   .transport button { min-height: 56px; border-radius: 11px; font-size: 25px; }
   .transport .transport-main { min-height: 68px; font-size: 31px; }
+  .remote-transport .remote-transport-main { min-height: 56px; padding: 0; font-size: inherit; }
   .stop-button { min-height: 46px; font-size: 12px; }
   .controller-run-summary { margin: 9px 0; padding: 8px; }
   .controller-note { margin: 9px 0; padding: 9px; }

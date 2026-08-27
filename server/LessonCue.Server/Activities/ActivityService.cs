@@ -12,6 +12,7 @@ public sealed class ActivityService(
     IHubContext<ActivityHub> hub)
 {
     private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> RunLocks = new();
+    private static readonly TimeSpan InteractiveSessionIdleLifetime = TimeSpan.FromHours(2);
 
     public static object CreateDefaultConfig(string type) => type switch
     {
@@ -646,7 +647,23 @@ public sealed class ActivityService(
         }
 
         var existingRuns = await query.ToListAsync(ct);
-        var run = existingRuns.OrderByDescending(x => x.UpdatedAt).FirstOrDefault();
+        var now = DateTimeOffset.UtcNow;
+        var staleRuns = existingRuns
+            .Where(x => x.Status != ActivityRunStatuses.Ended)
+            .Where(x => x.UpdatedAt <= now - InteractiveSessionIdleLifetime ||
+                ActivityEngineCatalog.IsInteractive(definition) && IsTerminalInteractivePhase(x.StateJson))
+            .ToList();
+        foreach (var stale in staleRuns)
+        {
+            stale.Status = ActivityRunStatuses.Ended;
+            stale.EndedAt ??= now;
+        }
+        if (staleRuns.Count > 0) await db.SaveChangesAsync(ct);
+
+        var run = existingRuns
+            .Where(x => x.Status != ActivityRunStatuses.Ended && !staleRuns.Contains(x))
+            .OrderByDescending(x => x.UpdatedAt)
+            .FirstOrDefault();
         if (run != null) return run;
 
         var initialState = ActivityEngineCatalog.IsInteractive(definition)
@@ -688,6 +705,22 @@ public sealed class ActivityService(
         db.ActivityRuns.Add(run);
         await db.SaveChangesAsync(ct);
         return run;
+    }
+
+    private static bool IsTerminalInteractivePhase(string stateJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(stateJson);
+            var phase = document.RootElement.TryGetProperty("phase", out var value)
+                ? value.GetString()
+                : null;
+            return phase is ActivityPhases.FinalResults or ActivityPhases.Complete;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     public async Task<ActivityRun?> GetRunAsync(Guid runId, CancellationToken ct = default)

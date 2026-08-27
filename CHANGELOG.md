@@ -4,6 +4,26 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.17 — Reliable activity sessions and public documentation
+
+### User changes
+
+- Activity join codes now reject legacy five-digit values and expire after two
+  hours without activity, with a fresh code available when a lobby is reset.
+- Hosts can lock or unlock individual players and reset the entire player lobby
+  so everyone can join again with a new code.
+- Room and universal controllers open without an administrator sign-in page;
+  server-side controller authorization remains in force.
+- The remote pause/resume control now has the same compact footprint as the
+  other playback controls on desktop and mobile.
+
+### Developer changes
+
+- The public GitHub Pages site now builds a styled privacy-policy page directly
+  from the canonical root `privacy.md`, and also publishes the source Markdown.
+- Added regression coverage for session expiration, code rotation, player
+  locking, player reset, public controller access, and compact remote controls.
+
 ## v0.45.16 — Production release correction
 
 ### User changes

@@ -3228,6 +3228,9 @@
 .activity-session-name-list span { padding: .35rem .55rem; border-radius: 999px; background: #fff; font-size: .78rem; font-weight: 700; }
 .activity-session-player-list { display: grid; gap: .4rem; margin-top: .65rem; }
 .activity-session-player { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; align-items: center; }
+.activity-session-player.locked { opacity: .7; }
+.activity-session-player-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; margin-top: .45rem; }
+.activity-session-player-actions small { color: #9b4139; font-size: .7rem; font-weight: 800; }
 .activity-session-player label { display: grid; gap: .2rem; min-width: 0; }
 .activity-session-player label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .68rem; }
 .activity-session-player input { min-width: 0; padding: .35rem .5rem; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--ink); font-size: .78rem; font-weight: 700; }
@@ -3274,6 +3277,7 @@
 .participant-identity strong, .participant-identity small { display: block; }
 .participant-identity small { margin-top: .2rem; color: rgba(255,255,255,.58); font-size: .72rem; }
 .participant-waiting, .participant-input-card { margin-top: 1.5rem; padding: 1.25rem; border-radius: 22px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.17); text-align: center; }
+.participant-locked { border-color: rgba(225, 104, 96, .5); background: rgba(90, 18, 18, .22); }
 .waiting-orb { display: inline-grid; place-items: center; width: 68px; height: 68px; border-radius: 50%; background: #f2b943; color: #1b2b25; font-size: 1.8rem; }
 .participant-waiting h2, .participant-input-card h2 { margin: .8rem 0 .25rem; color: var(--act-stage-text, #fff); font-size: 1.35rem; }
 .participant-waiting p { margin: .25rem 0; color: rgba(255,255,255,.7); }
@@ -4079,12 +4083,12 @@
 .activity-live-host-moderation { display: grid; gap: .35rem; }
 .activity-live-host-moderation-item { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: .4rem; padding: .35rem .5rem; border: 1px solid var(--gold, #d88c1e); border-radius: 10px; background: #fffaf1; font-size: .82rem; }
 .activity-live-host-moderation-item > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Deliberately quiet until reached for: removing a player is not a routine
-   part of running a game, but it has to be one press away when it is needed. */
-.activity-live-host-roster li:has(.activity-live-host-remove) { padding-right: .2rem; }
-.activity-live-host-remove { flex-shrink: 0; display: grid; place-items: center; width: 22px; height: 22px; min-height: 22px; padding: 0; border: 1px solid transparent; border-radius: 50%; color: var(--muted, #64756f); background: transparent; font-size: .68rem; font-weight: 900; line-height: 1; cursor: pointer; opacity: .5; }
-.activity-live-host-remove:hover, .activity-live-host-remove:focus-visible { border-color: #b4453f; color: #b4453f; background: #fdf2f1; opacity: 1; }
-.activity-live-host-remove:disabled { opacity: .25; cursor: default; }
+.activity-live-host-roster li:has(.activity-live-host-lock) { padding-right: .2rem; }
+.activity-live-host-roster li.locked { border-color: #e0b7b3; background: #fdf2f1; opacity: 1; }
+.activity-live-host-locked { color: #9b4139; font-size: .7rem; font-weight: 800; }
+.activity-live-host-lock { flex-shrink: 0; display: grid; place-items: center; width: 24px; height: 24px; min-height: 24px; padding: 0; border: 1px solid transparent; border-radius: 50%; color: var(--muted, #64756f); background: transparent; font-size: .8rem; line-height: 1; cursor: pointer; }
+.activity-live-host-lock:hover, .activity-live-host-lock:focus-visible { border-color: #b4453f; color: #b4453f; background: #fdf2f1; }
+.activity-live-host-lock:disabled { opacity: .25; cursor: default; }
 
 /* The roster has to hold a whole class without pushing the controls off the
    screen, so it scrolls rather than growing without limit. */
