@@ -1269,9 +1269,16 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const lessons = await fetch("/api/v1/lessons").then(response => response.json());
     const lesson = lessons.find((entry: { items: { title: string }[] }) => entry.items.some(item => item.title === "Browser Test Audio"));
     const item = lesson.items.find((entry: { title: string }) => entry.title === "Browser Test Audio");
+    const jsonHeaders = { "Content-Type": "application/json" };
+    const assignment = await fetch(`/api/v1/screens/${identity.screenId}`, {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify({ assignedClassId: lesson.classId, allowUnsupportedContent: true }),
+    });
+    if (!assignment.ok) throw new Error(`Browser display assignment failed (${assignment.status}): ${await assignment.text()}`);
     const response = await fetch(`/api/v1/screens/${identity.screenId}/control`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...jsonHeaders, "X-LessonCue-Controller": `room:${lesson.classId}` },
       body: JSON.stringify({ action: "play", lessonId: lesson.id, itemId: item.id }),
     });
     const command = await response.json();
