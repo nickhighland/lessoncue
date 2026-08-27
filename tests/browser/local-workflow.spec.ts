@@ -734,7 +734,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByRole("button", { name: "Pause playback" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Stop playback" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Next cue" })).toBeVisible();
-  await expect(page.locator(".app-shell.controller-mode > .mobile-shell-header")).toHaveCSS("display", "none");
+  await expect(page.locator(".app-shell.controller-mode > .mobile-shell-header")).toHaveCount(0);
   await expect(page.getByRole("tab", { name: "Lesson" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("tab", { name: "Playlist" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Activity" })).toBeVisible();
