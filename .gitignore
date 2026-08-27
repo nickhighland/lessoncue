@@ -44,3 +44,6 @@ server/LessonCue.Server/data/
 *.db-shm
 *.db-wal
 .DS_Store
+
+# Stray test output, committed by accident once already.
+run*.txt
