@@ -62,7 +62,11 @@ public sealed class ActivityJoinAddressService(
 
     /// <summary>The addresses that work for any game, short domain excepted.</summary>
     private static readonly string[] OrdinaryModes = [ModeCloudflare, ModeLocal, ModeLan];
-    private readonly string configPath = Path.Combine(dataPath, "activity-join-address.json");
+    // Keep this preference with the rest of the service-owned configuration.
+    // Older builds wrote it at the data root, which may be root-owned on an
+    // upgraded native install and made the Settings dropdown appear inert.
+    private readonly string configPath = Path.Combine(dataPath, "config", "activity-join-address.json");
+    private readonly string legacyConfigPath = Path.Combine(dataPath, "activity-join-address.json");
     private readonly SemaphoreSlim gate = new(1, 1);
 
     public static string NormalizeMode(string? value)
@@ -79,7 +83,7 @@ public sealed class ActivityJoinAddressService(
         await gate.WaitAsync(ct);
         try
         {
-            Directory.CreateDirectory(dataPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
             await File.WriteAllTextAsync(configPath, JsonSerializer.Serialize(new StoredMode(normalized)), ct);
         }
         finally { gate.Release(); }
@@ -119,8 +123,9 @@ public sealed class ActivityJoinAddressService(
     {
         try
         {
-            if (!File.Exists(configPath)) return ModeAuto;
-            return NormalizeMode(JsonSerializer.Deserialize<StoredMode>(File.ReadAllText(configPath))?.Mode);
+            var path = File.Exists(configPath) ? configPath : legacyConfigPath;
+            if (!File.Exists(path)) return ModeAuto;
+            return NormalizeMode(JsonSerializer.Deserialize<StoredMode>(File.ReadAllText(path))?.Mode);
         }
         catch { return ModeAuto; }
     }

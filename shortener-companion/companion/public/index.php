@@ -22,7 +22,7 @@ spl_autoload_register(static function (string $class): void {
 if (PHP_SAPI === 'cli-server') {
     $path = (string) (parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/');
     $staticFile = __DIR__ . $path;
-    if ($path !== '/' && is_file($staticFile)) {
+    if ($path !== '/' && $path !== '/favicon.ico' && is_file($staticFile)) {
         return false;
     }
 }

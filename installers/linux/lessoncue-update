@@ -10,6 +10,9 @@ fi
 # Repair only the updater-owned paths before the application needs to write its
 # next request, without changing ownership of application data or secrets.
 if id lessoncue >/dev/null 2>&1; then
+  # The service must be able to create runtime preferences at the data root.
+  # Older installs can retain a root-owned parent after an update.
+  install -d -o lessoncue -g lessoncue -m 0750 /var/lib/lessoncue
   install -d -o lessoncue -g lessoncue -m 0700 /var/lib/lessoncue/config
   for result_path in /var/lib/lessoncue/config/update-request /var/lib/lessoncue/config/update-result.json; do
     if [[ -e "${result_path}" ]]; then

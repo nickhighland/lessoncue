@@ -10,6 +10,7 @@ use Throwable;
 use function array_key_exists;
 use function array_replace;
 use function base64_decode;
+use function dirname;
 use function file_get_contents;
 use function header;
 use function http_response_code;
@@ -58,6 +59,11 @@ final class Application
             $path = (string) (parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/');
             $method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 
+            if ($path === '/favicon.ico' && $method === 'GET') {
+                $this->favicon();
+                return;
+            }
+
             if ($this->isFrontendRoute($path, $method)) {
                 $this->frontend();
                 return;
@@ -77,6 +83,38 @@ final class Application
         } catch (Throwable) {
             $this->json(['error' => 'The companion could not complete that request.'], 500);
         }
+    }
+
+    private function favicon(): void
+    {
+        $configured = $this->config->get()['faviconData'] ?? null;
+        $content = null;
+        $contentType = 'image/x-icon';
+
+        if (is_string($configured)
+            && preg_match('/^data:(image\/(?:png|jpe?g|webp|gif|x-icon|vnd\.microsoft\.icon));base64,([A-Za-z0-9+\/]+={0,2})$/', $configured, $matches) === 1) {
+            $decoded = base64_decode($matches[2], true);
+            if ($decoded !== false) {
+                $content = $decoded;
+                $contentType = $matches[1];
+            }
+        }
+
+        if ($content === null) {
+            $fallback = file_get_contents(dirname($this->frontendFile) . '/favicon.ico');
+            if ($fallback === false) {
+                throw new UiHttpException('The companion favicon could not be read.', 500);
+            }
+            $content = $fallback;
+        }
+
+        http_response_code(200);
+        header('Content-Type: ' . $contentType);
+        header('Cache-Control: no-store, max-age=0');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+        header('X-Content-Type-Options: nosniff');
+        echo $content;
     }
 
     /**

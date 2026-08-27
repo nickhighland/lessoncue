@@ -34,7 +34,7 @@ a { color: inherit; }
 .auth-intro { background: radial-gradient(circle at 10% 5%, rgba(134, 231, 183, .24), transparent 18rem), linear-gradient(155deg, var(--navy-light) 0%, var(--navy) 70%); color: var(--navy-foreground); padding: 38px clamp(30px, 6vw, 88px); display: flex; flex-direction: column; position: relative; overflow: hidden; }
 .auth-intro::after { content: ""; width: 26rem; height: 26rem; border: 1px solid rgba(255,255,255,.08); border-radius: 50%; position: absolute; right: -12rem; bottom: -9rem; box-shadow: 0 0 0 3rem rgba(255,255,255,.025), 0 0 0 6rem rgba(255,255,255,.018); }
 .brand-lockup, .sidebar-brand, .setup-brand { display: inline-flex; align-items: center; gap: 12px; font-weight: 760; letter-spacing: -.02em; font-size: 17px; }
-.brand-mark { width: calc(30px * var(--logo-scale)); height: calc(30px * var(--logo-scale)); display: inline-flex; align-items: center; justify-content: center; border-radius: calc(10px * var(--logo-scale)); position: relative; background: var(--accent); flex: 0 0 auto; }
+.brand-mark { width: calc(28px * var(--logo-scale)); height: calc(28px * var(--logo-scale)); display: inline-flex; align-items: center; justify-content: center; border-radius: calc(9px * var(--logo-scale)); position: relative; background: var(--accent); flex: 0 0 auto; }
 .brand-mark span { height: calc(15px * var(--logo-scale)); width: calc(5px * var(--logo-scale)); border-radius: calc(8px * var(--logo-scale)); display: block; position: absolute; background: var(--navy); transform: rotate(42deg); }
 .brand-mark span:first-child { margin-left: calc(-8px * var(--logo-scale)); }
 .brand-mark span:last-child { margin-left: calc(8px * var(--logo-scale)); opacity: .65; }
@@ -91,7 +91,7 @@ a { color: inherit; }
 .sidebar { width: 246px; background: var(--navy); color: var(--navy-foreground); padding: 27px 15px 17px; display: flex; flex-direction: column; min-height: 100vh; flex: 0 0 auto; }
 .sidebar-brand { width: 100%; padding: 0 13px; }
 .sidebar-brand .brand-mark { width: calc(28px * var(--logo-scale)); height: calc(28px * var(--logo-scale)); border-radius: calc(9px * var(--logo-scale)); }
-.sidebar-brand .brand-mark span { height: calc(14px * var(--logo-scale)); }
+.sidebar-brand .brand-mark span { height: calc(15px * var(--logo-scale)); }
 .sidebar-brand.is-logo-only .brand-mark.has-image { display: block; width: var(--sidebar-logo-width); height: auto; min-height: 0; border-radius: 0; background: transparent; }
 .sidebar-brand.is-logo-only .brand-mark.has-image img { display: block; width: 100%; height: auto; object-fit: contain; border-radius: 0; }
 .workspace-label { font-size: 9px; letter-spacing: .16em; font-weight: 800; color: #657184; margin: 53px 13px 14px; }
