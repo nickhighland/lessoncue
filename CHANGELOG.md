@@ -4,6 +4,18 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.45.16 — Production release correction
+
+### User changes
+
+- Republishes the v0.45.15 activity reliability and Link Studio fixes through
+  the corrected Google Play production release workflow.
+
+### Developer changes
+
+- Google Play production uploads now omit the review flag when the Play account
+  automatically sends completed changes for review.
+
 ## v0.45.15 — Activity reliability and Link Studio polish
 
 ### User changes
