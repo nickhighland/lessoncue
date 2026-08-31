@@ -7,7 +7,7 @@ public static class ImageRevealActivity
     public sealed record Config(
         string Title = "Image Reveal",
         string? ImageUrl = null,
-        string Style = "tiles", // "tiles", "pixel", "blur"
+        string Style = "blur", // blur, pixel, zoom, silhouette, crop
         int TotalStages = 10,
         int AutoIntervalSeconds = 3,
         string Prompt = "Can you guess what it is?",
@@ -26,7 +26,10 @@ public static class ImageRevealActivity
     public static object CreateDefaultConfig() => new Config
     {
         Title = "Who Is It?",
-        Style = "tiles",
+        // The shipped default was "tiles", which validation does not accept and
+        // the editor does not offer, so creating one from the library was
+        // refused outright.
+        Style = "blur",
         TotalStages = 12,
         Prompt = "Guess the mystery object!"
     };
