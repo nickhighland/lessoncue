@@ -147,6 +147,57 @@ public sealed class ActivityAutoPilotTests
     }
 
     [Fact]
+    public void AStagedRevealIsPacedByTheServerRatherThanTheHostsBrowser()
+    {
+        // The reveal used to be an interval in the host's controller page, so a
+        // closed remote or a sleeping phone stopped it mid-picture.
+        var playing = State(ActivityPhases.AcceptingResponses,
+            ("isAutoPlaying", true), ("revealed", false));
+
+        var step = Next(ActivityTypes.ImageReveal, playing);
+
+        Assert.Equal("revealstage", step!.Action);
+        Assert.Equal(Now.AddSeconds(ActivityAutoPilot.RevealStageSeconds), step.DueAt);
+    }
+
+    [Fact]
+    public void ARevealHonoursItsOwnInterval()
+    {
+        var playing = State(ActivityPhases.AcceptingResponses,
+            ("isAutoPlaying", true), ("revealed", false));
+        var config = new JsonObject { ["autoIntervalSeconds"] = 8 };
+
+        Assert.Equal(Now.AddSeconds(8), Next(ActivityTypes.ImageReveal, playing, config)!.DueAt);
+    }
+
+    [Fact]
+    public void ARevealTheHostIsDrivingByHandIsLeftAlone()
+    {
+        // Auto reveal off means the host is stepping through it themselves.
+        var manual = State(ActivityPhases.AcceptingResponses, ("isAutoPlaying", false));
+        Assert.Null(Next(ActivityTypes.ImageReveal, manual));
+
+        // And a finished picture is not revealed again for ever.
+        var done = State(ActivityPhases.Reveal, ("isAutoPlaying", true), ("revealed", true));
+        Assert.Null(Next(ActivityTypes.ImageReveal, done));
+
+        // Nor is a lobby, which still waits for the host to start it.
+        var lobby = State(ActivityPhases.Lobby, ("isAutoPlaying", true));
+        Assert.Null(Next(ActivityTypes.ImageReveal, lobby));
+    }
+
+    [Fact]
+    public void ARevealIsNotTreatedAsAnOrdinaryRound()
+    {
+        // It walks stages rather than collecting answers, so the generic round
+        // would try to lock a response window that was never open.
+        var playing = State(ActivityPhases.AcceptingResponses,
+            ("isAutoPlaying", true), ("revealed", false));
+
+        Assert.NotEqual("lock", Next(ActivityTypes.ImageReveal, playing)!.Action);
+    }
+
+    [Fact]
     public void ARoundRunsAllTheWayToTheNextOneWithoutTheHost()
     {
         Assert.Equal("open", Next(ActivityTypes.Trivia, State(ActivityPhases.RoundIntro))!.Action);
@@ -201,12 +252,17 @@ public sealed class ActivityAutoPilotTests
         {
             ActivityTypes.PhysicalRoom, ActivityTypes.StageChallenge,
             ActivityTypes.Bracket, ActivityTypes.Utility, ActivityTypes.Buzzer,
-            ActivityTypes.SurveyBoard, ActivityTypes.ImageReveal,
+            ActivityTypes.SurveyBoard,
         })
         {
             Assert.False(ActivityAutoPilot.Supports(type), type);
             Assert.Null(Next(type, State(ActivityPhases.RoundIntro)));
         }
+
+        // A staged reveal is paced now, but only once the host has asked for
+        // auto reveal. Left to itself it is still theirs to step through.
+        Assert.True(ActivityAutoPilot.Supports(ActivityTypes.ImageReveal));
+        Assert.Null(Next(ActivityTypes.ImageReveal, State(ActivityPhases.RoundIntro)));
     }
 
     // ---------------------------------------------------------------- live

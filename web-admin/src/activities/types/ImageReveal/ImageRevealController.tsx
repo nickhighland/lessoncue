@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import type { ActivityStateEnvelope } from '../../types';
 import { ActivityApi } from '../../api';
 
@@ -31,12 +31,10 @@ export const ImageRevealController: React.FC<{
     }
   }, [envelope.runId, isBusy, onCommandSent]);
 
-  useEffect(() => {
-    if (!state.isAutoPlaying || state.revealed || currentStage >= totalStages) return;
-    const intervalMs = Math.max(1, Number(config.autoIntervalSeconds || 3)) * 1000;
-    const timer = window.setInterval(() => { void sendAction('revealstage'); }, intervalMs);
-    return () => window.clearInterval(timer);
-  }, [config.autoIntervalSeconds, currentStage, sendAction, state.isAutoPlaying, state.revealed, totalStages]);
+  // The reveal used to be paced by an interval here, which meant it stopped
+  // whenever this page did -- a closed remote, a backgrounded tab, a sleeping
+  // phone. The server paces it now, on the same clock that runs every other
+  // game, so it keeps going while the host watches the room instead.
 
   return (
     <div className="act-ctrl-container">

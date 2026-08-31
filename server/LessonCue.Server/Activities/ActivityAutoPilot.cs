@@ -68,7 +68,12 @@ public static class ActivityAutoPilot
         ActivityTypes.Trivia, ActivityTypes.RapidFire, ActivityTypes.Poll, ActivityTypes.Prediction,
         ActivityTypes.Punchline, ActivityTypes.FakeOut, ActivityTypes.Drawing,
         ActivityTypes.Ordering, ActivityTypes.Word, ActivityTypes.MatchPlayer,
+        ActivityTypes.ImageReveal,
     };
+
+    /// <summary>Seconds between stages of a reveal, when the engine sets none.</summary>
+    public const int RevealStageSeconds = 3;
+    public const string RevealIntervalKey = "autoIntervalSeconds";
 
     /// <summary>
     /// Engines where the room votes on what everyone wrote. Their locked
@@ -138,6 +143,12 @@ public static class ActivityAutoPilot
 
         var phase = (state["phase"]?.GetValue<string>() ?? ActivityPhases.Lobby).Trim();
 
+        // A reveal is its own shape: it walks stages rather than collecting
+        // answers, so the generic round below would try to lock a window that
+        // was never open.
+        if (string.Equals(activityType, ActivityTypes.ImageReveal, StringComparison.OrdinalIgnoreCase))
+            return NextRevealStep(config, state, phase, now);
+
         return phase switch
         {
             // The one thing a host still does: decide when the room is ready.
@@ -169,6 +180,31 @@ public static class ActivityAutoPilot
             _ => null,
         };
     }
+
+    /// <summary>
+    /// The next stage of a staged reveal.
+    /// </summary>
+    /// <remarks>
+    /// This used to be a setInterval in the host's browser, so the reveal
+    /// stopped the moment they closed the remote, switched tabs or let the
+    /// phone sleep -- in the one flow where the host is meant to be watching
+    /// the room rather than the console. The server owns the clock now, and it
+    /// keeps time whatever the host's device is doing.
+    /// </remarks>
+    private static Step? NextRevealStep(JsonObject config, JsonObject state, string phase, DateTimeOffset now)
+    {
+        if (phase is ActivityPhases.Setup or ActivityPhases.Lobby) return null;
+        // Fully revealed, or the host paused it. Either way it is not ours.
+        if (BoolValue(state, "revealed")) return null;
+        if (!BoolValue(state, "isAutoPlaying")) return null;
+
+        var seconds = PacingSeconds(config, RevealIntervalKey, RevealStageSeconds);
+        return new Step("revealstage", now.AddSeconds(seconds));
+    }
+
+    private static bool BoolValue(JsonObject source, string key) =>
+        source.TryGetPropertyValue(key, out var node) && node is JsonValue value
+        && value.TryGetValue<bool>(out var flag) && flag;
 
     /// <summary>
     /// When the open response window should close: the round's own timer if the
