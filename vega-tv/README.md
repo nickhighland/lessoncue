@@ -26,8 +26,16 @@ The Vega Developer Tools are required, and are not on npm:
 
 ```
 curl -fsSL https://sdk-installer.vega.labcollab.net/get_vvm.sh | bash
-source ~/vega/env
-vega sdk install
+~/vega/bin/vega sdk install
+```
+
+The installer offers to put `vega` on your `PATH`, but only if you let it
+finish its questions. Run non-interactively and it installs the CLI and stops
+at the prompt, leaving no `~/vega/env` and nothing added to your shell — the
+full path above works regardless:
+
+```
+echo 'export PATH="$HOME/vega/bin:$PATH"' >> ~/.zshrc
 ```
 
 macOS 10.15+ or Ubuntu 20.04+ only, and about 20 GB. Then:
@@ -61,10 +69,19 @@ would have quietly stopped enforcing the rule rather than failing loudly.
 
 ## What is not here yet
 
-- Offline media caching. The Android app downloads media so a lesson survives a
-  dropped network; the player streams.
-- On-device verification. The package builds, but the Vega Virtual Device did
-  not stay up long enough here to install it. Nothing in this app has been seen
+- On-device verification. The package builds, but nothing here has been seen
   running on a Vega device.
+
+  The virtual device needs a shell that stays open — it exits with whatever
+  launched it — so start it in a terminal window and leave it there:
+
+  ```
+  ~/vega/bin/vega virtual-device start
+  ```
+
+  Close Android Studio and any Android emulator first. The Vega device adapter
+  is adb under another name, down to the server version and port 5037, and if
+  Android's adb owns that port the Vega device never appears in
+  `vega device list` even while the VM is plainly running.
 - Appstore submission. Vega apps do not self-update; they update through the
   Appstore, so no updater is needed, but nothing publishes the `.vpkg` yet.
