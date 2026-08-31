@@ -5,6 +5,9 @@ import { ActivityDisplay } from "./activities/ActivityDisplay";
 import "./signage-studio.css";
 
 const APP_VERSION = "0.46.0";
+/** Shared with public/sw.js, which answers media requests from it. */
+const MEDIA_CACHE = "lessoncue-media-v1";
+
 const IDENTITY_KEY = "lessoncue.web-player.identity.v1";
 
 type Identity = { screenId: string; token: string; deviceName: string };
@@ -203,7 +206,7 @@ export function WebPlayerApp() {
     history.replaceState(null, "", `${location.pathname}${query.size ? `?${query}` : ""}`);
   }, [identity]);
   const repeatProgressRef = useRef<{ itemId: string; completed: number }>({ itemId: "", completed: 0 });
-  useDurableSignageCache(manifest?.signageSchedule, identity, signageCacheRef, errorsRef);
+  useDurableMediaCache(manifest?.signageSchedule, manifest?.playlists, identity, signageCacheRef, errorsRef);
 
   useEffect(() => { statusRef.current = status; }, [status]);
   useEffect(() => { activeRef.current = active; }, [active]);
@@ -1512,13 +1515,29 @@ function useSignagePreload(signage?: Signage[]) {
   }, [signature]);
 }
 
-function useDurableSignageCache(
+/**
+ * Keep the media this screen will need on the device.
+ *
+ * Signage was cached from the start; a lesson was not, so a room that lost its
+ * network mid-service lost the lesson with it while the rota on the wall kept
+ * playing. Lessons are cached the same way now.
+ *
+ * Nothing else had to change for playback to use them. The service worker
+ * already answers any /api/v1/media request from this cache before going to the
+ * network, so a cached lesson simply plays.
+ */
+function useDurableMediaCache(
   signage: Signage[] | undefined,
+  playlists: Playlist[] | undefined,
   identity: Identity | null,
   inventoryRef: { current: { itemId: string; title: string; state: string; sizeBytes: number; expectedBytes?: number; error?: string }[] },
   errorsRef: { current: { timestamp: string; area: string; message: string; itemId?: string }[] },
 ) {
-  const signature = signage?.flatMap(signageMediaItems).map(item => `${item.itemId}:${item.downloadUrl || ""}:${item.sha256 || ""}`).join("|") || "";
+  const wanted = [
+    ...(signage || []).flatMap(signageMediaItems),
+    ...(playlists || []).flatMap(lessonMediaItems),
+  ];
+  const signature = wanted.map(item => `${item.itemId}:${item.downloadUrl || ""}:${item.sha256 || ""}`).join("|");
   useEffect(() => {
     if (!identity || !("caches" in window)) {
       inventoryRef.current = [];
@@ -1526,10 +1545,9 @@ function useDurableSignageCache(
     }
     let cancelled = false;
     void (async () => {
-      const cache = await caches.open("lessoncue-signage-v1");
+      const cache = await caches.open(MEDIA_CACHE);
       const media = [...new Map(
-        (signage || [])
-          .flatMap(signageMediaItems)
+        wanted
           .filter((item): item is CueItem => Boolean(item?.downloadUrl))
           .map(item => [item.itemId, item]),
       ).values()];
@@ -1546,7 +1564,7 @@ function useDurableSignageCache(
             inventory.push({ itemId: item.itemId, title: item.title, state: "downloading", sizeBytes: 0, expectedBytes: item.sizeBytes });
             if (!cancelled) inventoryRef.current = [...inventory];
             const downloaded = await fetch(url, { headers: { Authorization: `Bearer ${identity.token}` }, cache: "no-store" });
-            if (!downloaded.ok) throw new Error(`Signage cache request failed (${downloaded.status}).`);
+            if (!downloaded.ok) throw new Error(`Media cache request failed (${downloaded.status}).`);
             await cache.put(url, downloaded.clone());
             response = downloaded;
           }
@@ -1555,15 +1573,32 @@ function useDurableSignageCache(
         } catch (cause) {
           const message = errorText(cause);
           inventory.push({ itemId: item.itemId, title: item.title, state: "failed", sizeBytes: 0, expectedBytes: item.sizeBytes, error: message });
-          errorsRef.current = [{ timestamp: new Date().toISOString(), area: "signage-cache", message, itemId: item.itemId }, ...errorsRef.current].slice(0, 20);
+          errorsRef.current = [{ timestamp: new Date().toISOString(), area: "media-cache", message, itemId: item.itemId }, ...errorsRef.current].slice(0, 20);
         }
         if (!cancelled) inventoryRef.current = [...inventory];
       }
     })();
     return () => { cancelled = true; };
-    // Cache population is keyed to the full future-sign media signature and paired screen.
+    // Cache population is keyed to the media signature and paired screen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identity?.screenId, signature]);
+}
+
+/**
+ * The media a lesson will ask for, in the order it will ask.
+ *
+ * Only what the screen is allowed to keep: a cue marked offline-eligible with
+ * something to download. A linked video stays a link.
+ */
+function lessonMediaItems(playlist: Playlist): CueItem[] {
+  const items: Array<CueItem | null | undefined> = [
+    ...(playlist.preRoll?.items || []),
+    playlist.countdown?.item,
+    ...playlist.items,
+    ...(playlist.postLesson?.items || []),
+  ];
+  return items.filter((item): item is CueItem =>
+    Boolean(item && item.offlineEligible && item.downloadUrl));
 }
 
 function signageMediaItems(signage: Signage): CueItem[] {

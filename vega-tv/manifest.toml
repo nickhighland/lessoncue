@@ -1,0 +1,102 @@
+schema-version = 1
+
+[package]
+title = "LessonCue"
+version = "0.46.0"
+id = "com.lessoncue.tv"
+
+# LessonCue servers live on the local network and are reached over plain HTTP.
+# Vega blocks cleartext unless a domain is listed, so without this the app
+# cannot reach the very servers it exists to talk to.
+#
+# The list mirrors the app's own rule in protocol/serverUrl.ts: loopback, a
+# .local name, or a private address. Anything else already has to be HTTPS, so
+# there is nothing to allow here.
+[network-traffic-policy.cleartext]
+allowed-domains = [
+  "localhost",
+  "*.local",
+  "127.*",
+  "10.*",
+  "169.254.*",
+  "192.168.*",
+  "172.16.*", "172.17.*", "172.18.*", "172.19.*",
+  "172.20.*", "172.21.*", "172.22.*", "172.23.*",
+  "172.24.*", "172.25.*", "172.26.*", "172.27.*",
+  "172.28.*", "172.29.*", "172.30.*", "172.31.*",
+]
+
+[os.version]
+min = "1.2"
+target = "1.2"
+
+[needs]
+[[needs.module]]
+id = "/com.amazon.vega.os@IVega_1_2"
+
+[[needs.module]]
+id = "/com.amazon.kepler.keplerscript_4@IKeplerScript_0"
+
+[[needs.module]]
+id = "/com.amazon.kepler.webview_4@IWebview_4"
+
+
+
+[components]
+[[components.interactive]]
+id = "com.lessoncue.tv.main"
+runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
+launch-type = "singleton"
+categories = ["com.amazon.category.main"]
+
+[wants]
+# Web renderer service for rendering web content
+[[wants.service]]
+id = "com.amazon.webview.renderer_service"
+
+# If Web App needs keyboard support
+[[wants.service]]
+id = "com.amazon.inputmethod.service"
+
+# If Web App needs video playback
+[[wants.service]]
+id = "com.amazon.media.server"
+
+# Required for emitting metrics from video playback
+[[wants.service]]
+id = "com.amazon.mediametrics.service"
+
+# Required for video playback on stable APIs
+[[wants.service]]
+id = "com.amazon.mediabuffer.service"
+[[wants.service]]
+id = "com.amazon.mediatransform.service"
+
+# If Web App needs audio playback
+[[wants.service]]
+id = "com.amazon.audio.stream"
+
+# Required for audio management features to work in WebView, features like audio focus, volume control 
+[[wants.service]]
+id = "com.amazon.audio.control"
+
+# To enable accessibility support for your app, we recommend you add the UCC service with the Service Registrar
+[[wants.service]]
+id = "com.amazon.kepler.ucc.publisher"
+
+# Uncomment below section to enable encrypted media playback (DRM content)
+# [[wants.service]]
+# id = "com.amazon.drm.key"
+# [[wants.service]]
+# id = "com.amazon.drm.crypto"
+# [[needs.privilege]]
+# id = "com.amazon.privilege.security.file-sharing"
+
+# Enable Group-IPC to access media services
+[[wants.service]]
+id = "com.amazon.gipc.uuid.*"
+[offers]
+[[offers.service]]
+id = "com.amazon.gipc.uuid.*" 
+
+# You may add other services as needed

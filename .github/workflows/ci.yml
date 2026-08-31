@@ -25,6 +25,29 @@ jobs:
       - run: npm run test:protocol
       - run: npm run lint
       - run: npm test
+      - run: npm run test:units
+
+  # Vega, without the Vega toolchain.
+  #
+  # Packaging a .vpkg needs the Vega SDK, which is a twenty gigabyte install and
+  # will not fit a standard runner. What does fit is everything that decides
+  # whether the app is correct: the types, and the address policy that says when
+  # a plain http:// server is acceptable. That policy is the one piece of this
+  # app that can leak a device token, so it is checked on every push whether or
+  # not anything can be built here.
+  vega-tv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: vega-tv
+      - run: npm run typecheck
+        working-directory: vega-tv
+      - run: npm run test:units
+        working-directory: vega-tv
 
   server:
     runs-on: ubuntu-latest
