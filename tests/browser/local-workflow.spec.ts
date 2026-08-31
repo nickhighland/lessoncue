@@ -1309,6 +1309,35 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
   }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.46.0" });
+  // A lesson the screen is allowed to keep should end up on the device, not
+  // just signage. A room that loses its network mid-service used to lose the
+  // lesson with it while the rota on the wall carried on playing.
+  await expect.poll(async () => await page.evaluate(async screenId => {
+    if (!("caches" in window)) return "no cache api";
+    const identity = JSON.parse(localStorage.getItem("lessoncue.web-player.identity.v1") || "{}");
+    const manifest = await fetch(`/api/v1/screens/${screenId}/manifest`, {
+      headers: { Authorization: `Bearer ${identity.token}` },
+    }).then(response => response.json());
+
+    // What a lesson would need on a device with no network: its own cues, not
+    // the signage that was already being kept.
+    const lessonMedia: string[] = (manifest.playlists || []).flatMap((playlist: {
+      items?: Array<{ offlineEligible?: boolean; downloadUrl?: string }>;
+      preRoll?: { items?: Array<{ offlineEligible?: boolean; downloadUrl?: string }> };
+    }) => [...(playlist.preRoll?.items || []), ...(playlist.items || [])]
+      .filter(item => item.offlineEligible && item.downloadUrl)
+      .map(item => new URL(item.downloadUrl!, location.origin).toString()));
+    if (lessonMedia.length === 0) return "this lesson has nothing cacheable";
+
+    const cache = await caches.open("lessoncue-media-v1");
+    const cached = new Set((await cache.keys()).map(request => request.url));
+    return lessonMedia.filter(url => cached.has(url)).length;
+  }, browserPlayback.screenId), { timeout: 20_000 }).toBeGreaterThan(0);
+
+  // And the old signage-only cache is not left occupying space beside it.
+  expect(await page.evaluate(async () => (await caches.keys()).filter(name => name.startsWith("lessoncue-")))).
+    toEqual(["lessoncue-media-v1"]);
+
   await page.getByRole("button", { name: /Start browser playback/ }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Ready for a lesson" })).toBeVisible();
