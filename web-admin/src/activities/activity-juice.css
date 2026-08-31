@@ -12,6 +12,9 @@
 
 .activity-participant-page,
 .activity-display-root {
+  /* The persistent join badge is positioned against this. */
+  position: relative;
+
   /* Relaxed "thinking" phase. Falls back to the original green when a surface
      has not been given a per-game palette. */
   --lc-calm-edge: var(--act-stage-primary, #264d43);
@@ -961,3 +964,59 @@ body.lc-panic .activity-participant-page .participant-waiting .waiting-orb { ani
 .activity-score-race[data-lanes="11"] .activity-race-lane,
 .activity-score-race[data-lanes="12"] .activity-race-lane { --lc-lane-height: .82em; font-size: .9em; }
 .activity-race-rest { margin: .5rem 0 0; color: var(--act-stage-text, #fff); font-size: clamp(.7rem, 1vw, .92rem); font-weight: 700; opacity: .72; text-align: center; }
+
+/*
+  The join code, for the whole game rather than only the lobby. Bottom corner,
+  small, and never over the middle of the stage: it has to be readable from the
+  back of a room without competing with the question.
+*/
+.activity-join-corner {
+  position: absolute;
+  right: 1.5vw;
+  bottom: 1.5vw;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--activity-bg, #091c1d) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--activity-text, #fff) 18%, transparent);
+  backdrop-filter: blur(6px);
+  color: var(--activity-text, #fff);
+  pointer-events: none;
+}
+
+.activity-join-corner > div {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.activity-join-corner span {
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  opacity: 0.7;
+}
+
+.activity-join-corner-address {
+  font-size: 0.85rem;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.activity-join-corner b {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+/* Small screens: the code matters more than the QR a phone cannot scan. */
+@media (max-width: 700px) {
+  .activity-join-corner .activity-qr { display: none; }
+  .activity-join-corner b { font-size: 1.15rem; }
+}
+
+@media print {
+  .activity-join-corner { display: none; }
+}

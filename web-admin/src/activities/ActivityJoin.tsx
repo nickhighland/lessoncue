@@ -55,8 +55,12 @@ export interface ActivityJoinBannerProps {
   joinCode?: unknown;
   joinUrl?: unknown;
   participantCount?: unknown;
-  /** `prominent` is the lobby treatment; `compact` rides above live play. */
-  variant?: 'compact' | 'prominent';
+  /**
+   * `prominent` is the lobby treatment, `compact` rides above live play, and
+   * `corner` sits out of the way for the whole game so a latecomer always has
+   * something to join with.
+   */
+  variant?: 'compact' | 'prominent' | 'corner';
 }
 
 /**
@@ -88,6 +92,17 @@ export const ActivityJoinBanner: React.FC<ActivityJoinBannerProps> = ({
         <span>SCAN TO JOIN</span>
       </div>}
     </section>;
+  }
+
+  if (variant === 'corner') {
+    return <aside className="activity-join-corner" aria-label="Join this game on a phone">
+      {url && <ActivityQr value={url} size={64} label={`Scan to join at ${address}`} />}
+      <div>
+        <span>JOIN</span>
+        <strong className="activity-join-corner-address">{address}</strong>
+        <b aria-label={`Game code ${code.split('').join(' ')}`}>{code}</b>
+      </div>
+    </aside>;
   }
 
   return <div className="interactive-join-banner" aria-label="Join this activity on a phone">
