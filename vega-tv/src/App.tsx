@@ -4,6 +4,7 @@ import {View, StyleSheet} from 'react-native';
 import {WebView} from '@amazon-devices/webview';
 import {
   useHideSplashScreenCallback,
+  useKeplerBackHandler,
   usePreventHideSplashScreen,
 } from '@amazon-devices/react-native-kepler';
 import {AsyncStorage} from '@amazon-devices/react-native-kepler/Libraries/Storage/AsyncStorage';
@@ -55,6 +56,7 @@ export const App = () => {
   // The splash screen is held until something is on screen behind it. Without
   // this a server that never answers leaves the splash up indefinitely, which
   // reads as a hung television rather than one that cannot find its server.
+  const backHandler = useKeplerBackHandler();
   const splashHidden = useRef(false);
   const revealApp = useCallback(() => {
     if (splashHidden.current) return;
@@ -85,6 +87,20 @@ export const App = () => {
   useEffect(() => {
     void findServer();
   }, [findServer]);
+
+  // Back, while the player is up, goes to the address rather than out of the
+  // app. Without it a television whose server has moved to a new address has
+  // no way to be told: the player loads from somewhere that answers, so
+  // nothing fails, and there is nothing on screen to press. Everywhere else
+  // Back leaves, which is what a television remote is expected to do.
+  useEffect(() => {
+    const subscription = backHandler.addEventListener('hardwareBackPress', () => {
+      if (screen.kind !== 'player') return false;
+      setScreen({kind: 'connect', serverUrl: screen.serverUrl});
+      return true;
+    });
+    return () => subscription?.remove?.();
+  }, [backHandler, screen]);
 
   const useAddress = useCallback(async (entered: string) => {
     try {
