@@ -5,6 +5,27 @@ title = "LessonCue"
 version = "0.46.0"
 id = "com.lessoncue.tv"
 
+# LessonCue servers live on the local network and are reached over plain HTTP.
+# Vega blocks cleartext unless a domain is listed, so without this the app
+# cannot reach the very servers it exists to talk to.
+#
+# The list mirrors the app's own rule in protocol/serverUrl.ts: loopback, a
+# .local name, or a private address. Anything else already has to be HTTPS, so
+# there is nothing to allow here.
+[network-traffic-policy.cleartext]
+allowed-domains = [
+  "localhost",
+  "*.local",
+  "127.*",
+  "10.*",
+  "169.254.*",
+  "192.168.*",
+  "172.16.*", "172.17.*", "172.18.*", "172.19.*",
+  "172.20.*", "172.21.*", "172.22.*", "172.23.*",
+  "172.24.*", "172.25.*", "172.26.*", "172.27.*",
+  "172.28.*", "172.29.*", "172.30.*", "172.31.*",
+]
+
 [os.version]
 min = "1.2"
 target = "1.2"

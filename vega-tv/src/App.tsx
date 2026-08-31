@@ -23,6 +23,7 @@ import {
   probeServer,
   saveServerUrl,
 } from './serverAddress.ts';
+import {normalizeLessonCueServerUrl} from './protocol/serverUrl.ts';
 
 /**
  * LessonCue on Vega.
@@ -103,16 +104,23 @@ export const App = () => {
   }, [backHandler, screen]);
 
   const useAddress = useCallback(async (entered: string) => {
+    // An address that policy refuses is the operator's to correct, and they are
+    // told. An address that is fine but cannot be written down is not: the
+    // device still works this session, and refusing to use it would strand a
+    // television over a storage fault it cannot do anything about.
+    let normalized: string;
     try {
-      const saved = await saveServerUrl(AsyncStorage, entered);
-      await findServer(saved);
+      normalized = normalizeLessonCueServerUrl(entered);
     } catch (error) {
-      setScreen({
-        kind: 'connect',
-        serverUrl: entered,
-        message: (error as Error).message,
-      });
+      setScreen({kind: 'connect', serverUrl: entered, message: (error as Error).message});
+      return;
     }
+    try {
+      await saveServerUrl(AsyncStorage, normalized);
+    } catch {
+      // Remembered for this run only. It will be asked for again next launch.
+    }
+    await findServer(normalized);
   }, [findServer]);
 
   if (screen.kind === 'connect') {
