@@ -580,6 +580,15 @@ public sealed class ActivitySessionService(
         var result = await ExecuteHostActionAsync(runId, new ActivityCommandEnvelope(null, null, step.Action), ct);
         if (result.Success) return;
 
+        // Some steps are worth trying but not worth stopping for. A vote needs
+        // at least two answers to vote on; a round with fewer should reveal and
+        // carry on rather than park waiting for a host.
+        if (step.Fallback is { } fallback)
+        {
+            var recovered = await ExecuteHostActionAsync(runId, new ActivityCommandEnvelope(null, null, fallback), ct);
+            if (recovered.Success) return;
+        }
+
         // A refused action means this game needs a person. Park it rather than
         // retrying every second: a failed command never reaches CommitAsync, so
         // the due time would stay in the past and the service would spin on it

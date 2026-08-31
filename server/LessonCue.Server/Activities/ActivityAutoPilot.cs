@@ -70,6 +70,16 @@ public static class ActivityAutoPilot
         ActivityTypes.Ordering, ActivityTypes.Word, ActivityTypes.MatchPlayer,
     };
 
+    /// <summary>
+    /// Engines where the room votes on what everyone wrote. Their locked
+    /// answers go to a vote rather than straight to the reveal -- which is what
+    /// they did before, so nobody ever voted unless the host pressed for it.
+    /// </summary>
+    private static readonly HashSet<string> Votes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ActivityTypes.Punchline, ActivityTypes.FakeOut, ActivityTypes.Drawing,
+    };
+
     /// <summary>Engines where players compose rather than pick, so they get longer.</summary>
     private static readonly HashSet<string> Compose = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -98,7 +108,16 @@ public static class ActivityAutoPilot
         return true;
     }
 
-    public sealed record Step(string Action, DateTimeOffset DueAt);
+    /// <summary>
+    /// What to do next, and what to do instead if the game refuses it.
+    /// </summary>
+    /// <param name="Fallback">
+    /// A refused action parks the game for a person to rescue. Some steps are
+    /// worth trying but not worth stopping for -- a vote needs at least two
+    /// answers to vote on, and a round with fewer should simply reveal rather
+    /// than stall waiting for a host who was told they need not watch.
+    /// </param>
+    public sealed record Step(string Action, DateTimeOffset DueAt, string? Fallback = null);
 
     /// <summary>
     /// The next move for this phase, or null when the game should sit still —
@@ -136,7 +155,10 @@ public static class ActivityAutoPilot
 
             // Anonymous work waiting on a human decision. No timer rescues this.
             ActivityPhases.ResponsesLocked or ActivityPhases.Judging =>
-                moderationPending ? null : new Step("reveal", now.AddSeconds(1)),
+                moderationPending ? null
+                    : Votes.Contains(activityType ?? "")
+                        ? new Step("openvoting", now.AddSeconds(1), Fallback: "reveal")
+                        : new Step("reveal", now.AddSeconds(1)),
 
             ActivityPhases.Reveal or ActivityPhases.Scoring =>
                 new Step("showleaderboard", now.AddSeconds(PacingSeconds(config, RevealSecondsKey, RevealSeconds))),
