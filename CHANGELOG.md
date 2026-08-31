@@ -4,6 +4,62 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.0 — Games that run themselves, and a remote that flows
+
+### User changes
+
+- The remote is one downward flow instead of three tabs: choose the lesson,
+  choose the cue, control that cue. The cue list stays on screen throughout, and
+  a step whose turn has not come is dimmed rather than hidden, so the shape of
+  the job is visible at a glance.
+- The short domain is now a choice for the game join address rather than
+  something that quietly took over once the shortener was running. Games whose
+  code the shortener does not hold still get an ordinary address, so a wall
+  never carries a dead link.
+- The join code stays on screen for the whole game. Only five of the sixteen
+  stages showed it during play, so for most games a latecomer had nothing to
+  join with once the first question went up.
+- Games where the room votes on each other's answers now put it to the vote
+  without the host pressing for it.
+- Music plays during a game. There are four new optional sounds — a bed under
+  play, a bed while a clock runs, an announcement as it starts, and one for the
+  last five seconds, so a recorded count can be dropped in.
+- Round pacing is yours to set: how long to read the question, answer it, look
+  at the answer, and look at the scores. Empty means the shipped pace, which is
+  shown in the box.
+- The stage no longer prints the game's name twice, and a custom title is
+  honoured everywhere, including Mystery Image where it was ignored outright.
+- Image Reveal games can be created again. Their shipped settings were rejected
+  by the server, so the six games on that engine could not be made at all
+  without hand-writing a configuration.
+- A staged reveal keeps going when the host closes the remote or their phone
+  sleeps.
+- The television app answers the remote faster, launches in about a third of the
+  time, and no longer looks frozen when the server is off.
+
+### Developer changes
+
+- Reserved codes are covered end to end: a game takes a four-character code,
+  gives it back when the lobby is done, keeps it across a lesson, and never
+  hands one out when the shortener is not holding them. The session service now
+  takes a one-property interface, because the whole path was untested while it
+  depended on the concrete service.
+- Every engine is played on all three surfaces by `zz-activity-sweep`. That
+  found Image Reveal's default style was one validation rejects, and that
+  reading a JSON null through TryGetInt32 throws — a 500 with no message, at
+  thirty call sites, two of which had already been patched where they landed.
+- Beds and stings play on separate channels, so a sting no longer stops the
+  music; asking for the bed already playing does nothing.
+- The Android status loop no longer counts files and reads free space on the
+  main thread every two seconds, and signage remembers its file lookups instead
+  of repeating them each recomposition. R8 is on for release: 11.5 MB to 3.5 MB,
+  cold launch 485 ms to about 280 ms, UI-thread stalls 20 frames to 3.
+- Activity tests wait for the save to reach the server rather than for a banner
+  that was already showing those words from the previous save — the race that
+  failed two release builds and looked like the editor saving the wrong preset.
+- The web player reported version 0.45.4, twelve releases behind, which is what
+  screens displayed.
+
 ## v0.45.17 — Reliable activity sessions and public documentation
 
 ### User changes
