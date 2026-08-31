@@ -69,8 +69,12 @@ would have quietly stopped enforcing the rule rather than failing loudly.
 
 ## What is not here yet
 
-- On-device verification. The package builds, but nothing here has been seen
-  running on a Vega device.
+- Seeing it render. The package installs on a Vega Virtual Device and the app
+  launches — `Installing/Updating ... success`, then the launch accepted as
+  `Sending: pkg://com.lessoncue.tv.main`. What has not been seen is the screen
+  it draws, because the virtual device does not stay up long enough here to
+  photograph: it boots, answers for under a minute, and goes. A Fire TV Stick
+  in developer mode takes the same commands and would settle this.
 
   The virtual device needs a shell that stays open — it exits with whatever
   launched it — so start it in a terminal window and leave it there:
