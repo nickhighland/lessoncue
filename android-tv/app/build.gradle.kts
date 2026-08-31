@@ -68,7 +68,12 @@ android {
 
     buildTypes {
         getByName("release") {
-            isMinifyEnabled = false
+            // Shrunk and optimized. The app parses JSON by hand and has no
+            // JavaScript bridge, so nothing depends on a name surviving; our
+            // own names are kept anyway so a crash from a television is
+            // readable. Startup and input latency are both better for it.
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (releaseSigningConfigured) signingConfig = signingConfigs.getByName("lessoncueRelease")
         }
     }
