@@ -1150,7 +1150,6 @@ test("Activity controller shows live recovery state and command acknowledgements
 
   await openUniversalRemote(page, prepared.screenId);
   // The remote groups its controls into tabs; the Activity controls live in one.
-  await page.getByRole("tab", { name: "Activity" }).click();
   const activityController = page.locator(".activity-controller-shell");
   await expect(activityController.getByText("Browser Controller Recovery Activity", { exact: true })).toBeVisible();
   await expect(activityController.getByRole("button", { name: "Refresh activity controller" })).toBeVisible();

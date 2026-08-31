@@ -93,24 +93,24 @@ async function prepareHostedTrivia(page: Page, name: string, engine?: { type: st
   return prepared;
 }
 
-test("the remote tabs are named for what they do", async ({ page }) => {
+test("the remote reads as one flow rather than three tabs", async ({ page }) => {
   await authenticate(page);
   const prepared = await prepareHostedTrivia(page, "Host Tabs");
   await openUniversalRemote(page, prepared.screenId);
 
-  // Placeholder labels shipped as "Tab 1/2/3".
-  await expect(page.getByRole("tab", { name: /Tab \d/ })).toHaveCount(0);
-  await expect(page.getByRole("tab", { name: /Lesson/ })).toBeVisible();
-  await expect(page.getByRole("tab", { name: /Playlist/ })).toBeVisible();
-  await expect(page.getByRole("tab", { name: /Activity/ })).toBeVisible();
-  await expect(page.getByRole("tab", { name: /Quick tools/ })).toHaveCount(0);
+  // Tabs asked a teacher to know which of three panels held what they wanted,
+  // and said nothing about which to look in next. The work is a sequence, so
+  // the remote is one now: lesson, then cue, then that cue's controls.
+  await expect(page.getByRole("tab")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Lesson" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Cues" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Cue controls" })).toBeVisible();
   await expect(page.locator(".remote-header")).toHaveCount(0);
   await expect(page.locator(".remote-transport button")).toHaveCount(4);
   const transportHeights = await page.locator(".remote-transport button").evaluateAll(buttons =>
     buttons.map(button => Math.round(button.getBoundingClientRect().height)));
   expect(Math.max(...transportHeights) - Math.min(...transportHeights), "pause must share the remote control footprint").toBeLessThanOrEqual(1);
   await expect(page.getByText("Save this controller as an app", { exact: true })).toHaveCount(0);
-  await page.getByRole("tab", { name: /Playlist/ }).click();
   await expect(page.locator(".remote-run-summary")).toContainText("REMAINING");
   await expect(page.locator(".remote-run-summary")).toContainText("EST. FINISH");
 });
@@ -146,7 +146,6 @@ test("the compact remote keeps playback failures visible instead of saying Ready
 
   await openUniversalRemote(page, prepared.screenId);
   await expect(page.getByRole("alert")).toContainText("Decoder stopped while opening the activity.");
-  await page.getByRole("tab", { name: /Playlist/ }).click();
   await expect(page.locator(".remote-run-summary")).toContainText("REMAINING");
 });
 
@@ -154,7 +153,6 @@ test("the live console shows the join code, roster, and answers-in count", async
   await authenticate(page);
   const prepared = await prepareHostedTrivia(page, "Host Live Panel");
   await openUniversalRemote(page, prepared.screenId);
-  await page.getByRole("tab", { name: /Activity/ }).click();
 
   const panel = page.locator(".activity-live-host");
   await expect(panel).toBeVisible({ timeout: 20_000 });
@@ -225,7 +223,6 @@ test("when autonomy gives up, the console says so instead of looking frozen", as
   }, prepared.runId);
 
   await openUniversalRemote(page, prepared.screenId);
-  await page.getByRole("tab", { name: /Activity/ }).click();
 
   const panel = page.locator(".activity-live-host");
   await expect(panel).toBeVisible({ timeout: 20_000 });
@@ -258,7 +255,6 @@ test("a full class fits: everyone is listed, findable, and lockable mid-game", a
   }, prepared.joinCode);
 
   await openUniversalRemote(page, prepared.screenId);
-  await page.getByRole("tab", { name: /Activity/ }).click();
   const panel = page.locator(".activity-live-host");
   await expect(panel).toBeVisible({ timeout: 20_000 });
 

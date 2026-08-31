@@ -735,19 +735,36 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByRole("button", { name: "Stop playback" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Next cue" })).toBeVisible();
   await expect(page.locator(".app-shell.controller-mode > .mobile-shell-header")).toHaveCount(0);
-  await expect(page.getByRole("tab", { name: "Lesson" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("tab", { name: "Playlist" })).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Activity" })).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Quick tools" })).toHaveCount(0);
+  // The remote is one downward flow now: pick a lesson, pick a cue, control it.
+  // No tabs, and nothing to discover behind them.
+  await expect(page.getByRole("tab")).toHaveCount(0);
   await expect(page.locator(".remote-header")).toHaveCount(0);
+
+  const lessonStep = page.getByRole("region", { name: "Lesson" });
+  const controlStep = page.getByRole("region", { name: "Cue controls" });
+
+  // The paired screen already knows its lesson, so step one is answered on
+  // arrival and the list is folded away behind a way back to it.
+  await expect(lessonStep).toHaveAttribute("data-state", "done");
+  await expect(lessonStep).toContainText("Sample Lesson");
+  await expect(page.locator(".remote-lesson-list")).toHaveCount(0);
+
+  // The cues are on screen without going anywhere for them.
+  await expect(page.locator(".remote-cue-list")).toContainText("Pause for questions before continuing.");
+  await expect(page.locator(".remote-cue-list")).toContainText("Flexible");
+
+  // Changing lesson is one press, and puts the list back where it was.
+  await page.getByRole("button", { name: "Change lesson" }).click();
   await expect(page.locator(".remote-lesson-list")).toContainText("Sample Lesson");
-  await expect(page.locator(".controller-list")).toHaveCount(0);
-  await page.getByRole("tab", { name: "Playlist" }).click();
-  await page.getByRole("button", { name: "Open setup" }).click();
-  await expect(page.getByRole("button", { name: "Close setup" })).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByText("Check the room display before participants arrive.", { exact: true })).toBeVisible();
-  await expect(page.locator(".controller-list")).toContainText("Pause for questions before continuing.");
-  await expect(page.locator(".controller-list")).toContainText("Flexible");
+  await page.getByRole("button", { name: "Keep this lesson" }).click();
+  await expect(page.locator(".remote-lesson-list")).toHaveCount(0);
+
+  // The cue list does not go away when a cue is chosen: it is the thing a
+  // teacher reaches for most, and its controls appear beneath it.
+  await page.locator(".remote-cue-list > button").first().click();
+  await expect(page.locator(".remote-cue-list")).toBeVisible();
+  await expect(controlStep).toHaveAttribute("data-state", "current");
+
   await page.getByRole("button", { name: "Open monitor" }).click();
   await expect(page.locator(".pre-roll-monitor iframe")).toHaveAttribute("src", "https://example.org/private-monitor");
   await page.getByRole("button", { name: "Pause playback" }).click();
