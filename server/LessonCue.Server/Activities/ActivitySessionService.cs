@@ -22,7 +22,12 @@ public sealed class ActivitySessionService(
     ActivityJoinAddressService joinAddress,
     // Optional on purpose: an installation without the shortener, and every
     // test that predates it, constructs this service without one.
-    LessonCue.Server.Shortener.ShortenerService? shortener = null)
+    //
+    // An interface rather than the service itself. Handing out a reserved code
+    // is the one thing this needs from the shortener, and building a real
+    // ShortenerService takes a database and an HTTP client -- which is why the
+    // reserved-code path went untested until somebody asked whether it worked.
+    IReservedCodeSource? shortener = null)
 {
     private const string CodeAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static readonly TimeSpan SessionIdleLifetime = TimeSpan.FromHours(2);
@@ -4989,7 +4994,7 @@ public sealed class ActivitySessionService(
         // Only once the shortener has been shown to hold the whole reserved set.
         // Handing out a four-character code the shortener does not know would
         // put an unusable address on the wall.
-        if (shortener is { ShortLinksUsable: true } && shortener.Current is { Enabled: true, Domain.Length: > 0 })
+        if (shortener is { ReservedCodesUsable: true })
         {
             var pool = new ReservedGameCodePool(db, random);
             var available = (await pool.AvailableAsync(ct))

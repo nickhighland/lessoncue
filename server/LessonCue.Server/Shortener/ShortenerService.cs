@@ -32,7 +32,7 @@ public sealed class ShortenerService(
     // A separate client that does not follow redirects: seeing the redirect is
     // the whole point of probing a game code.
     HttpClient probes,
-    string dataPath) : IShortJoinAddress
+    string dataPath) : IShortJoinAddress, LessonCue.Server.Activities.IReservedCodeSource
 {
     /// <summary>
     /// The file the Linux updater looks for to decide whether this server wants
@@ -112,6 +112,10 @@ public sealed class ShortenerService(
     /// end. Null means "use LessonCue's own address", which is what happens
     /// whenever the integration is off, unconfigured, or unreachable.
     /// </summary>
+    /// <summary>Whether a game may take one of the reserved four-character codes.</summary>
+    public bool ReservedCodesUsable =>
+        ShortLinksUsable && Current is { Enabled: true, Domain.Length: > 0 };
+
     /// <summary>The short domain, but only once short links resolve.</summary>
     public string? ShortBaseUrl
     {
