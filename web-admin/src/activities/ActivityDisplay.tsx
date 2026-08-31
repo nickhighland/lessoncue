@@ -4,6 +4,9 @@ import { ActivityApi, activityHub } from './api';
 import { getActivityDescriptor } from './activityRegistry';
 import { activityThemeVariables, resolveActivityTheme } from './activityPalettes';
 import { playGameTheme, resolveGameAudioChain, stopGameTheme } from './audio/gameAudio';
+import { finalStretchDue, stageBedFor } from './audio/stageAudio';
+import { TIMED_PHASES } from './activityPhase';
+import { useActivityCountdown, useDeadlineCountdown } from './ActivityMotion';
 import { useAudioPreloader } from './audio/useAudioPreloader';
 import './activity.css';
 // The shared tactile/lobby layer must load on the stage too, not only on the
@@ -42,6 +45,27 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
     || envelope?.status === 'ended' || envelope?.status === 'completed';
   const previousPhase = useRef<string | null>(null);
 
+  // The same two clocks the stage draws. One of them running is what makes
+  // this a timed moment, and the remaining time is what the final-five cue
+  // waits for.
+  const state = (envelope?.state || {}) as Record<string, unknown>;
+  const timerDurationMs = typeof state.timerDurationMs === 'number' ? state.timerDurationMs : 0;
+  const timerRunning = state.timerRunning === true && timerDurationMs > 0;
+  const timerRemainingMs = useActivityCountdown({
+    durationMs: timerDurationMs,
+    startedAt: state.timerStartedAt,
+    pausedAt: state.timerPausedAt,
+    running: timerRunning,
+  });
+  const deadlineRemainingMs = useDeadlineCountdown(state.autoAdvanceAt);
+  const autoCounting = !timerRunning && deadlineRemainingMs !== null
+    && TIMED_PHASES.includes(phase);
+  const countingDown = !inLobby && !finished && (timerRunning || autoCounting);
+  const countdownRemainingMs = !countingDown
+    ? null
+    : timerRunning ? timerRemainingMs : deadlineRemainingMs;
+  const previousRemaining = useRef<number | null>(null);
+
   useEffect(() => {
     if (!envelope) return;
     const chain = audioChainKey.split('>');
@@ -52,15 +76,40 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
     // the optional `intro` phase still get their opening sting this way.
     const starting = previous !== null && (previous === 'lobby' || previous === 'setup') && !inLobby;
 
-    if (inLobby) playGameTheme('lobby', { chain });
-    else if (finished) playGameTheme('gameOutro', { chain });
+    // Stings mark the moments. They play over the bed now rather than
+    // replacing it, so the music no longer stops for each one.
+    if (finished) playGameTheme('gameOutro', { chain });
     else if (starting) playGameTheme('gameIntro', { chain });
-    else if (phase === 'roundIntro') playGameTheme('roundTransition', { chain });
-    else if (previous === phase) return; // ordinary in-round update: leave audio alone
-    else stopGameTheme();
+    else if (phase === 'roundIntro' && previous !== phase) playGameTheme('roundTransition', { chain });
     // Keyed on phase, not the envelope: state updates arrive constantly during
-    // a round and must not restart the music each time.
+    // a round and must not restart anything each time.
   }, [audioChainKey, envelope, finished, inLobby, phase]);
+
+  // The bed is a question about the game's state rather than about a moment,
+  // so it is set from that state on every render. Asking for the bed that is
+  // already playing does nothing.
+  useEffect(() => {
+    if (!envelope) return;
+    const chain = audioChainKey.split('>');
+    const bed = stageBedFor({ inLobby, finished, counting: countingDown });
+    if (bed) playGameTheme(bed, { chain });
+    else stopGameTheme();
+  }, [audioChainKey, envelope, inLobby, finished, countingDown]);
+
+  // An announcement as a timed window opens, and the last five seconds -- both
+  // one-shots, so a recording of a count can be dropped in for either.
+  useEffect(() => {
+    if (!envelope || !countingDown) return;
+    playGameTheme('countdownAnnounce', { chain: audioChainKey.split('>') });
+  }, [audioChainKey, envelope, countingDown]);
+
+  useEffect(() => {
+    if (!envelope) return;
+    if (finalStretchDue(previousRemaining.current, countdownRemainingMs)) {
+      playGameTheme('countdownFinalFive', { chain: audioChainKey.split('>') });
+    }
+    previousRemaining.current = countdownRemainingMs;
+  }, [audioChainKey, envelope, countdownRemainingMs]);
 
   useEffect(() => stopGameTheme, []);
 

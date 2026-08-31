@@ -39,10 +39,18 @@ export const GAME_SFX = {
 export const GAME_THEMES = {
   /** Looping lobby bed while players are joining. */
   lobby: 'themes/intro-theme.mp3',
+  /** Looping bed under ordinary play, once the game has started. */
+  gameplay: 'themes/gameplay-bed.mp3',
+  /** Looping bed under a timed phase, replacing the gameplay bed. */
+  countdown: 'themes/countdown-bed.mp3',
   /** One-shot sting the moment the game leaves the lobby. */
   gameIntro: 'themes/game-intro.mp3',
   /** One-shot sting between rounds. */
   roundTransition: 'themes/round-transition.mp3',
+  /** One-shot announcement as a timed phase begins. */
+  countdownAnnounce: 'themes/countdown-announce.mp3',
+  /** One-shot for the final five seconds, so a "5, 4, 3, 2, 1" recording fits. */
+  countdownFinalFive: 'themes/countdown-final-five.mp3',
   /** One-shot sting when the game finishes. */
   gameOutro: 'themes/game-outro.mp3',
 } as const;
@@ -50,8 +58,13 @@ export const GAME_THEMES = {
 export type GameSfxCue = keyof typeof GAME_SFX;
 export type GameThemeCue = keyof typeof GAME_THEMES;
 
-/** Only the lobby bed repeats; every other theme cue is a single sting. */
-const LOOPING_THEMES: ReadonlySet<GameThemeCue> = new Set<GameThemeCue>(['lobby']);
+/**
+ * The cues that repeat. These play on their own channel, so a sting no longer
+ * silences the music underneath it -- which is why nothing played during a
+ * round until now: every sting stopped the only element there was.
+ */
+const LOOPING_THEMES: ReadonlySet<GameThemeCue> =
+  new Set<GameThemeCue>(['lobby', 'gameplay', 'countdown']);
 
 /**
  * Original synthesized stand-in for each sampled effect. These are what
@@ -146,7 +159,9 @@ const resolvedSfx = new Map<string, string | null>();
 const resolvedTheme = new Map<string, string | null>();
 const themeProbes = new Map<string, Promise<boolean>>();
 const themeElements = new Map<string, HTMLAudioElement>();
-let activeTheme: HTMLAudioElement | null = null;
+/** The looping music, and the one-shot over the top of it. */
+let activeBed: { cue: GameThemeCue; element: HTMLAudioElement } | null = null;
+let activeSting: HTMLAudioElement | null = null;
 
 /**
  * Resume the shared context. Browsers keep audio suspended until a real user
@@ -314,35 +329,76 @@ export interface PlayThemeOptions {
 }
 
 /**
- * Start a bed or sting. Silently does nothing when no folder in the cascade
+ * Start a bed or a sting. Silently does nothing when no folder in the cascade
  * supplies the file, which is the default for a stock install.
+ *
+ * Looping cues take the bed channel and one-shots take the sting channel, so a
+ * round transition plays over the music rather than ending it.
  */
 export function playGameTheme(cue: GameThemeCue, options: PlayThemeOptions = {}): void {
   if (isAudioMuted()) return;
-  const { chain = [SHARED_GAME_AUDIO_ID], loop = LOOPING_THEMES.has(cue), volume = 0.4 } = options;
+  const loops = LOOPING_THEMES.has(cue);
+  const {
+    chain = [SHARED_GAME_AUDIO_ID],
+    loop = loops,
+    // Beds sit under the game and stings sit on top, so they are not mixed at
+    // the same level.
+    volume = loops ? 0.28 : 0.5,
+  } = options;
+
+  // Asking for the bed that is already playing must not restart it. Phase
+  // updates arrive constantly, and music that begins again every few seconds
+  // is worse than none.
+  if (loops && activeBed?.cue === cue) return;
+
   void resolveTheme(chain, cue).then(url => {
     if (!url || isAudioMuted()) return;
     const element = themeElement(url);
     if (!element) return;
-    stopGameTheme();
+    if (loops && activeBed?.cue === cue) return;
+
+    if (loops) stopGameBed(); else stopGameSting();
     element.loop = loop;
     element.volume = Math.min(1, Math.max(0, volume));
     element.currentTime = 0;
-    activeTheme = element;
+    if (loops) activeBed = { cue, element }; else activeSting = element;
     void element.play().catch(() => {
       // Autoplay refused before a gesture. Non-fatal.
-      if (activeTheme === element) activeTheme = null;
+      if (loops) { if (activeBed?.element === element) activeBed = null; }
+      else if (activeSting === element) activeSting = null;
     });
   });
 }
 
+/** Stop the looping music, leaving any sting to finish. */
+export function stopGameBed(): void {
+  if (!activeBed) return;
+  halt(activeBed.element);
+  activeBed = null;
+}
+
+/** Stop a one-shot early, leaving the music underneath alone. */
+export function stopGameSting(): void {
+  if (!activeSting) return;
+  halt(activeSting);
+  activeSting = null;
+}
+
+/** Which bed is playing, if any. Exposed for tests and for the display. */
+export function currentGameBed(): GameThemeCue | null {
+  return activeBed?.cue ?? null;
+}
+
 export function stopGameTheme(): void {
-  if (!activeTheme) return;
+  stopGameBed();
+  stopGameSting();
+}
+
+function halt(element: HTMLAudioElement): void {
   try {
-    activeTheme.pause();
-    activeTheme.currentTime = 0;
+    element.pause();
+    element.currentTime = 0;
   } catch { /* element already torn down */ }
-  activeTheme = null;
 }
 
 export interface GameAudioPreloadResult {
@@ -379,5 +435,6 @@ export function resetGameAudioCache(): void {
   resolvedTheme.clear();
   themeProbes.clear();
   themeElements.clear();
-  activeTheme = null;
+  activeBed = null;
+  activeSting = null;
 }

@@ -27,8 +27,12 @@ drop in an `.mp3` of the same base name; no code or configuration changes.
 
 ```
 assets/games/{gameId}/audio/themes/intro-theme.mp3        looping lobby bed
+assets/games/{gameId}/audio/themes/gameplay-bed.mp3       looping bed under play
+assets/games/{gameId}/audio/themes/countdown-bed.mp3      looping bed while a clock runs
 assets/games/{gameId}/audio/themes/game-intro.mp3         one-shot, game starts
 assets/games/{gameId}/audio/themes/round-transition.mp3   one-shot, round intro
+assets/games/{gameId}/audio/themes/countdown-announce.mp3 one-shot, a clock starts
+assets/games/{gameId}/audio/themes/countdown-final-five.mp3 one-shot, five seconds left
 assets/games/{gameId}/audio/themes/game-outro.mp3         one-shot, game ends
 assets/games/{gameId}/audio/sfx/ui-btn-hover.mp3          pointer hover
 assets/games/{gameId}/audio/sfx/ui-btn-select.mp3         every tap
@@ -37,6 +41,16 @@ assets/games/{gameId}/audio/sfx/game-timer-tick.mp3       final five seconds
 assets/games/{gameId}/audio/sfx/game-timer-alarm.mp3      window closes
 assets/games/{gameId}/audio/sfx/fx-confetti-pop.mp3       celebration
 ```
+
+Beds and stings play on separate channels. A sting sounds over the music rather
+than replacing it, and asking for the bed that is already playing does nothing —
+so a phase update arriving every second does not restart the music. Only one bed
+plays at a time: `countdown-bed` takes over from `gameplay-bed` while a clock is
+running and hands back when it stops.
+
+`countdown-final-five` starts once, as the clock crosses five seconds. A window
+shorter than that never crosses the mark from above, so the cue stays silent
+there rather than still playing after the game has moved on.
 
 Lookup cascades **preset → engine → shared**, per cue:
 

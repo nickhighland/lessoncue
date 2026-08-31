@@ -17,8 +17,8 @@ import { ActivityCountdown, useActivityCountdown, useDeadlineCountdown } from '.
  */
 const numberOf = (value: unknown, fallback = 0) => typeof value === 'number' ? value : fallback;
 
-/** Phases where a deadline is a countdown the room should see, not a scene change. */
-const TIMED_PHASES = ['acceptingResponses', 'voting', 'prompt'];
+export { TIMED_PHASES } from './activityPhase';
+import { TIMED_PHASES } from './activityPhase';
 
 export const ActivityStageClock: React.FC<{
   state: Record<string, unknown>;
