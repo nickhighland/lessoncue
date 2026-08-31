@@ -87,6 +87,65 @@ public sealed class ActivityAutoPilotTests
     }
 
     [Fact]
+    public void ALessonDesignerCanSetEveryBeatOfThePace()
+    {
+        // Defaults suit almost every room; a teacher who wants longer to talk
+        // over a reveal, or a faster run for older students, sets their own.
+        var config = new JsonObject
+        {
+            ["introSeconds"] = 10,
+            ["revealSeconds"] = 20,
+            ["standingsSeconds"] = 15,
+            ["responseSeconds"] = 45,
+        };
+
+        Assert.Equal(Now.AddSeconds(10), Next(ActivityTypes.Trivia, State(ActivityPhases.RoundIntro), config)!.DueAt);
+        Assert.Equal(Now.AddSeconds(20), Next(ActivityTypes.Trivia, State(ActivityPhases.Reveal), config)!.DueAt);
+        Assert.Equal(Now.AddSeconds(15), Next(ActivityTypes.Trivia, State(ActivityPhases.Leaderboard), config)!.DueAt);
+        Assert.Equal(Now.AddSeconds(45), Next(ActivityTypes.Trivia, State(ActivityPhases.AcceptingResponses), config)!.DueAt);
+    }
+
+    [Fact]
+    public void AnUnsetBeatKeepsTheShippedPace()
+    {
+        // Overriding one beat must not silently reset the others.
+        var config = new JsonObject { ["revealSeconds"] = 30 };
+
+        Assert.Equal(Now.AddSeconds(ActivityAutoPilot.RoundIntroSeconds),
+            Next(ActivityTypes.Trivia, State(ActivityPhases.RoundIntro), config)!.DueAt);
+        Assert.Equal(Now.AddSeconds(30), Next(ActivityTypes.Trivia, State(ActivityPhases.Reveal), config)!.DueAt);
+        Assert.Equal(Now.AddSeconds(ActivityAutoPilot.StandingsSeconds),
+            Next(ActivityTypes.Trivia, State(ActivityPhases.Leaderboard), config)!.DueAt);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    [InlineData(100000)]
+    public void APaceNobodyMeantToSetIsBroughtBackIntoRange(int authored)
+    {
+        // A beat of zero races past the room and one of a day looks like a hang.
+        // Neither is what was meant, whatever was typed.
+        var config = new JsonObject { ["revealSeconds"] = authored };
+        var due = Next(ActivityTypes.Trivia, State(ActivityPhases.Reveal), config)!.DueAt;
+        var seconds = (due - Now).TotalSeconds;
+
+        Assert.InRange(seconds, ActivityAutoPilot.MinPacingSeconds, ActivityAutoPilot.MaxPacingSeconds);
+    }
+
+    [Fact]
+    public void APaceWrittenAsTextIsStillAPace()
+    {
+        // A number field posts "12", and a config round-tripped through JSON can
+        // come back as a double. Both are the teacher setting twelve seconds.
+        foreach (JsonNode written in new JsonNode[] { "12", 12.0 })
+        {
+            var config = new JsonObject { ["revealSeconds"] = written };
+            Assert.Equal(Now.AddSeconds(12), Next(ActivityTypes.Trivia, State(ActivityPhases.Reveal), config)!.DueAt);
+        }
+    }
+
+    [Fact]
     public void ARoundRunsAllTheWayToTheNextOneWithoutTheHost()
     {
         Assert.Equal("open", Next(ActivityTypes.Trivia, State(ActivityPhases.RoundIntro))!.Action);

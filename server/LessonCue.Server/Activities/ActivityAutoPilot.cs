@@ -25,6 +25,43 @@ public static class ActivityAutoPilot
     public const int ChoiceResponseSeconds = 30;
     public const int ComposeResponseSeconds = 60;
 
+    /// <summary>
+    /// Config keys a lesson designer can set to override the defaults above.
+    /// Every one is optional: absent means the shipped pace, which is what
+    /// almost every game should run at.
+    /// </summary>
+    public const string IntroSecondsKey = "introSeconds";
+    public const string ResponseSecondsKey = "responseSeconds";
+    public const string RevealSecondsKey = "revealSeconds";
+    public const string StandingsSecondsKey = "standingsSeconds";
+
+    /// <summary>
+    /// Bounds on an authored pace. A beat of zero would race past the room, and
+    /// one of an hour would look like the game had hung -- neither is a pace a
+    /// teacher means to set, whatever they typed.
+    /// </summary>
+    public const int MinPacingSeconds = 1;
+    public const int MaxPacingSeconds = 300;
+    public const int MinResponseSeconds = 5;
+    public const int MaxResponseSeconds = 600;
+
+    /// <summary>Seconds for one paced beat, honouring an authored override.</summary>
+    public static int PacingSeconds(JsonObject config, string key, int fallback) =>
+        AuthoredSeconds(config, key) is { } authored
+            ? Math.Clamp(authored, MinPacingSeconds, MaxPacingSeconds)
+            : fallback;
+
+    private static int? AuthoredSeconds(JsonObject config, string key)
+    {
+        if (!config.TryGetPropertyValue(key, out var node) || node is not JsonValue value) return null;
+        // Numbers arrive as int or double depending on how they were written,
+        // and a form posts them as text.
+        if (value.TryGetValue<int>(out var whole) && whole > 0) return whole;
+        if (value.TryGetValue<double>(out var real) && real > 0) return (int)Math.Round(real);
+        if (value.TryGetValue<string>(out var text) && int.TryParse(text, out var parsed) && parsed > 0) return parsed;
+        return null;
+    }
+
     /// <summary>Engines whose rounds follow the shared collect-reveal shape.</summary>
     private static readonly HashSet<string> Supported = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -88,7 +125,7 @@ public static class ActivityAutoPilot
             ActivityPhases.Setup or ActivityPhases.Lobby => null,
 
             ActivityPhases.Intro or ActivityPhases.Instructions or ActivityPhases.RoundIntro or ActivityPhases.Prompt =>
-                new Step("open", now.AddSeconds(RoundIntroSeconds)),
+                new Step("open", now.AddSeconds(PacingSeconds(config, IntroSecondsKey, RoundIntroSeconds))),
 
             ActivityPhases.AcceptingResponses or ActivityPhases.Voting =>
                 everyoneAnswered
@@ -102,10 +139,10 @@ public static class ActivityAutoPilot
                 moderationPending ? null : new Step("reveal", now.AddSeconds(1)),
 
             ActivityPhases.Reveal or ActivityPhases.Scoring =>
-                new Step("showleaderboard", now.AddSeconds(RevealSeconds)),
+                new Step("showleaderboard", now.AddSeconds(PacingSeconds(config, RevealSecondsKey, RevealSeconds))),
 
             ActivityPhases.Leaderboard or ActivityPhases.RoundComplete =>
-                new Step("next", now.AddSeconds(StandingsSeconds)),
+                new Step("next", now.AddSeconds(PacingSeconds(config, StandingsSecondsKey, StandingsSeconds))),
 
             _ => null,
         };
@@ -130,12 +167,7 @@ public static class ActivityAutoPilot
             return startedAt.AddMilliseconds(durationMs);
         }
 
-        var seconds = config.TryGetPropertyValue("responseSeconds", out var authored)
-            && authored is JsonValue authoredValue
-            && authoredValue.TryGetValue<int>(out var authoredSeconds)
-            && authoredSeconds > 0
-                ? authoredSeconds
-                : DefaultResponseSeconds(activityType);
-        return now.AddSeconds(Math.Clamp(seconds, 5, 600));
+        var seconds = AuthoredSeconds(config, ResponseSecondsKey) ?? DefaultResponseSeconds(activityType);
+        return now.AddSeconds(Math.Clamp(seconds, MinResponseSeconds, MaxResponseSeconds));
     }
 }
