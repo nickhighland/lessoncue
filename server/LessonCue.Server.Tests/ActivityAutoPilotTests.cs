@@ -42,9 +42,10 @@ public sealed class ActivityAutoPilotTests
         var locked = State(ActivityPhases.ResponsesLocked);
         Assert.Null(Next(ActivityTypes.Punchline, locked, moderationPending: true));
 
-        // Once the queue is clear the game moves on by itself.
+        // Once the queue is clear the game moves on by itself -- to the vote,
+        // for an engine built around the room judging each other's work.
         var resumed = Next(ActivityTypes.Punchline, locked, moderationPending: false);
-        Assert.Equal("reveal", resumed!.Action);
+        Assert.Equal("openvoting", resumed!.Action);
     }
 
     [Fact]
@@ -84,6 +85,116 @@ public sealed class ActivityAutoPilotTests
             ("timerStartedAt", JsonValue.Create(Now.ToString("O"))),
             ("timerDurationMs", JsonValue.Create(45_000L)));
         Assert.Equal(Now.AddSeconds(45), Next(ActivityTypes.Trivia, state, config)!.DueAt);
+    }
+
+    [Fact]
+    public void ALessonDesignerCanSetEveryBeatOfThePace()
+    {
+        // Defaults suit almost every room; a teacher who wants longer to talk
+        // over a reveal, or a faster run for older students, sets their own.
+        var config = new JsonObject
+        {
+            ["introSeconds"] = 10,
+            ["revealSeconds"] = 20,
+            ["standingsSeconds"] = 15,
+            ["responseSeconds"] = 45,
+        };
+
+        Assert.Equal(Now.AddSeconds(10), Next(ActivityTypes.Trivia, State(ActivityPhases.RoundIntro), config)!.DueAt);
+        Assert.Equal(Now.AddSeconds(20), Next(ActivityTypes.Trivia, State(ActivityPhases.Reveal), config)!.DueAt);
+        Assert.Equal(Now.AddSeconds(15), Next(ActivityTypes.Trivia, State(ActivityPhases.Leaderboard), config)!.DueAt);
+        Assert.Equal(Now.AddSeconds(45), Next(ActivityTypes.Trivia, State(ActivityPhases.AcceptingResponses), config)!.DueAt);
+    }
+
+    [Fact]
+    public void AnUnsetBeatKeepsTheShippedPace()
+    {
+        // Overriding one beat must not silently reset the others.
+        var config = new JsonObject { ["revealSeconds"] = 30 };
+
+        Assert.Equal(Now.AddSeconds(ActivityAutoPilot.RoundIntroSeconds),
+            Next(ActivityTypes.Trivia, State(ActivityPhases.RoundIntro), config)!.DueAt);
+        Assert.Equal(Now.AddSeconds(30), Next(ActivityTypes.Trivia, State(ActivityPhases.Reveal), config)!.DueAt);
+        Assert.Equal(Now.AddSeconds(ActivityAutoPilot.StandingsSeconds),
+            Next(ActivityTypes.Trivia, State(ActivityPhases.Leaderboard), config)!.DueAt);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    [InlineData(100000)]
+    public void APaceNobodyMeantToSetIsBroughtBackIntoRange(int authored)
+    {
+        // A beat of zero races past the room and one of a day looks like a hang.
+        // Neither is what was meant, whatever was typed.
+        var config = new JsonObject { ["revealSeconds"] = authored };
+        var due = Next(ActivityTypes.Trivia, State(ActivityPhases.Reveal), config)!.DueAt;
+        var seconds = (due - Now).TotalSeconds;
+
+        Assert.InRange(seconds, ActivityAutoPilot.MinPacingSeconds, ActivityAutoPilot.MaxPacingSeconds);
+    }
+
+    [Fact]
+    public void APaceWrittenAsTextIsStillAPace()
+    {
+        // A number field posts "12", and a config round-tripped through JSON can
+        // come back as a double. Both are the teacher setting twelve seconds.
+        foreach (JsonNode written in new JsonNode[] { "12", 12.0 })
+        {
+            var config = new JsonObject { ["revealSeconds"] = written };
+            Assert.Equal(Now.AddSeconds(12), Next(ActivityTypes.Trivia, State(ActivityPhases.Reveal), config)!.DueAt);
+        }
+    }
+
+    [Fact]
+    public void AStagedRevealIsPacedByTheServerRatherThanTheHostsBrowser()
+    {
+        // The reveal used to be an interval in the host's controller page, so a
+        // closed remote or a sleeping phone stopped it mid-picture.
+        var playing = State(ActivityPhases.AcceptingResponses,
+            ("isAutoPlaying", true), ("revealed", false));
+
+        var step = Next(ActivityTypes.ImageReveal, playing);
+
+        Assert.Equal("revealstage", step!.Action);
+        Assert.Equal(Now.AddSeconds(ActivityAutoPilot.RevealStageSeconds), step.DueAt);
+    }
+
+    [Fact]
+    public void ARevealHonoursItsOwnInterval()
+    {
+        var playing = State(ActivityPhases.AcceptingResponses,
+            ("isAutoPlaying", true), ("revealed", false));
+        var config = new JsonObject { ["autoIntervalSeconds"] = 8 };
+
+        Assert.Equal(Now.AddSeconds(8), Next(ActivityTypes.ImageReveal, playing, config)!.DueAt);
+    }
+
+    [Fact]
+    public void ARevealTheHostIsDrivingByHandIsLeftAlone()
+    {
+        // Auto reveal off means the host is stepping through it themselves.
+        var manual = State(ActivityPhases.AcceptingResponses, ("isAutoPlaying", false));
+        Assert.Null(Next(ActivityTypes.ImageReveal, manual));
+
+        // And a finished picture is not revealed again for ever.
+        var done = State(ActivityPhases.Reveal, ("isAutoPlaying", true), ("revealed", true));
+        Assert.Null(Next(ActivityTypes.ImageReveal, done));
+
+        // Nor is a lobby, which still waits for the host to start it.
+        var lobby = State(ActivityPhases.Lobby, ("isAutoPlaying", true));
+        Assert.Null(Next(ActivityTypes.ImageReveal, lobby));
+    }
+
+    [Fact]
+    public void ARevealIsNotTreatedAsAnOrdinaryRound()
+    {
+        // It walks stages rather than collecting answers, so the generic round
+        // would try to lock a response window that was never open.
+        var playing = State(ActivityPhases.AcceptingResponses,
+            ("isAutoPlaying", true), ("revealed", false));
+
+        Assert.NotEqual("lock", Next(ActivityTypes.ImageReveal, playing)!.Action);
     }
 
     [Fact]
@@ -141,12 +252,17 @@ public sealed class ActivityAutoPilotTests
         {
             ActivityTypes.PhysicalRoom, ActivityTypes.StageChallenge,
             ActivityTypes.Bracket, ActivityTypes.Utility, ActivityTypes.Buzzer,
-            ActivityTypes.SurveyBoard, ActivityTypes.ImageReveal,
+            ActivityTypes.SurveyBoard,
         })
         {
             Assert.False(ActivityAutoPilot.Supports(type), type);
             Assert.Null(Next(type, State(ActivityPhases.RoundIntro)));
         }
+
+        // A staged reveal is paced now, but only once the host has asked for
+        // auto reveal. Left to itself it is still theirs to step through.
+        Assert.True(ActivityAutoPilot.Supports(ActivityTypes.ImageReveal));
+        Assert.Null(Next(ActivityTypes.ImageReveal, State(ActivityPhases.RoundIntro)));
     }
 
     // ---------------------------------------------------------------- live
@@ -265,6 +381,125 @@ public sealed class ActivityAutoPilotTests
             await sessions.AdvanceAutomaticallyAsync(run.Id, TestContext.Current.CancellationToken);
             var next = await db.ActivityRuns.SingleAsync(x => x.Id == run.Id, TestContext.Current.CancellationToken);
             Assert.Equal(1, JsonNode.Parse(next.StateJson)?["currentQuestionIndex"]?.GetValue<int>());
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
+    public async Task AGameRunsAllTheWayToItsWinnerWithoutTheHost()
+    {
+        // The host presses Start and nothing else. A game that paces itself
+        // through rounds but then parks before the result still needs somebody
+        // watching for the end, which is the thing autonomy is meant to remove.
+        var (db, activities, sessions, connection, dataPath) = await LiveAsync();
+        await using (connection)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput(
+                "One Question", ActivityTypes.Trivia, Config: JsonDocument.Parse("""
+                    {"title":"One Question","questions":[{"id":"q1","prompt":"Pick","options":["A","B"],"correctIndex":1}]}
+                    """).RootElement), "teacher", ct);
+            var run = await activities.GetOrCreateRunAsync(definition.Id, ct: ct);
+            run = await sessions.EnsureInteractiveRunAsync(run, ct);
+            var alex = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Alex"), ct);
+
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), ct);
+            await MakeDueAsync(db, run.Id);
+            await sessions.AdvanceAutomaticallyAsync(run.Id, ct);
+            await sessions.ExecuteParticipantActionAsync(run.Id,
+                new ActivityParticipantActionInput(alex.Token, "answer", JsonDocument.Parse("{\"optionIndex\":1}").RootElement), ct);
+
+            // Let the clock run. A bounded number of ticks, so a game that
+            // never finishes fails here rather than hanging the suite.
+            string phase = "";
+            for (var tick = 0; tick < 12; tick++)
+            {
+                await MakeDueAsync(db, run.Id);
+                await sessions.AdvanceAutomaticallyAsync(run.Id, ct);
+                phase = PhaseOf(await db.ActivityRuns.SingleAsync(x => x.Id == run.Id, ct));
+                if (phase is ActivityPhases.FinalResults or ActivityPhases.Complete) break;
+            }
+
+            Assert.True(phase is ActivityPhases.FinalResults or ActivityPhases.Complete,
+                $"the game stopped at {phase} instead of reaching its result");
+
+            // And the result is a real one: the player who answered is on the
+            // board with the point they earned, not an empty results screen.
+            var envelope = await sessions.GetDisplayEnvelopeAsync(run.Id, ct);
+            var board = JsonNode.Parse(JsonSerializer.Serialize(envelope!.State))?["leaderboard"] as JsonArray;
+            Assert.NotNull(board);
+            var top = Assert.Single(board!.Where(entry => entry?["name"]?.GetValue<string>() == "Alex"));
+            Assert.True(top!["score"]!.GetValue<int>() > 0, "the answer that was right scored nothing");
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
+    public void AVotingEngineOpensAVoteRatherThanRevealingStraightAway()
+    {
+        // Locked answers used to go straight to the reveal, so a game built
+        // around the room voting on each other's work never put it to a vote
+        // unless the host pressed for it.
+        var step = Next(ActivityTypes.Punchline, State(ActivityPhases.ResponsesLocked));
+
+        Assert.Equal("openvoting", step!.Action);
+        // And it is not a dead end: a round with too little to vote on reveals.
+        Assert.Equal("reveal", step.Fallback);
+    }
+
+    [Fact]
+    public void AnEngineWithNoVoteStillRevealsDirectly()
+    {
+        var step = Next(ActivityTypes.Trivia, State(ActivityPhases.ResponsesLocked));
+
+        Assert.Equal("reveal", step!.Action);
+        Assert.Null(step.Fallback);
+    }
+
+    [Fact]
+    public async Task AVotingRoundOpensAndClosesOnItsOwn()
+    {
+        // Games where the room votes on each other's answers have an extra
+        // phase, and it is the one most likely to sit waiting for a host who is
+        // busy watching the room rather than the console.
+        var (db, activities, sessions, connection, dataPath) = await LiveAsync();
+        await using (connection)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput(
+                "Caption Contest", ActivityTypes.Punchline, Config: JsonDocument.Parse("""
+                    {"title":"Caption Contest","requireModeration":false,"prompts":[{"id":"p1","prompt":"Finish this"}]}
+                    """).RootElement), "teacher", ct);
+            var run = await activities.GetOrCreateRunAsync(definition.Id, ct: ct);
+            run = await sessions.EnsureInteractiveRunAsync(run, ct);
+            var alex = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Alex"), ct);
+            var sam = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Sam"), ct);
+
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), ct);
+
+            var seenVoting = false;
+            string phase = "";
+            for (var tick = 0; tick < 16; tick++)
+            {
+                phase = PhaseOf(await db.ActivityRuns.SingleAsync(x => x.Id == run.Id, ct));
+                if (phase == ActivityPhases.AcceptingResponses)
+                {
+                    foreach (var player in new[] { alex, sam })
+                        await sessions.ExecuteParticipantActionAsync(run.Id,
+                            new ActivityParticipantActionInput(player.Token, "submit",
+                                JsonDocument.Parse("{\"text\":\"something funny\"}").RootElement), ct);
+                }
+                if (phase == ActivityPhases.Voting) seenVoting = true;
+                if (phase is ActivityPhases.FinalResults or ActivityPhases.Complete) break;
+                await MakeDueAsync(db, run.Id);
+                await sessions.AdvanceAutomaticallyAsync(run.Id, ct);
+            }
+
+            Assert.True(seenVoting, "the room was never given anything to vote on");
+            Assert.True(phase is ActivityPhases.FinalResults or ActivityPhases.Complete,
+                $"voting parked the game at {phase}");
         }
         Directory.Delete(dataPath, true);
     }

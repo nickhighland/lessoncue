@@ -49,7 +49,14 @@ public sealed class ActivitySessionGroupTests
         public HttpClient CreateClient(string name) => new();
     }
 
-    private static async Task<(LessonCueDb Db, ActivityService Activities, ActivitySessionService Sessions, SqliteConnection Connection, string DataPath)> CreateAsync()
+    /// <summary>A shortener that is holding the reserved codes and answering.</summary>
+    private sealed class RunningShortener : IReservedCodeSource
+    {
+        public bool ReservedCodesUsable { get; set; } = true;
+    }
+
+    private static async Task<(LessonCueDb Db, ActivityService Activities, ActivitySessionService Sessions, SqliteConnection Connection, string DataPath)> CreateAsync(
+        IReservedCodeSource? shortener = null)
     {
         var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync(TestContext.Current.CancellationToken);
@@ -64,7 +71,7 @@ public sealed class ActivitySessionGroupTests
         var joinAddress = new ActivityJoinAddressService(dataPath, localAddress, tunnel, httpPort);
         return (db,
             new ActivityService(db, new DeterministicRandomSource(7), new NullHubContext()),
-            new ActivitySessionService(db, new NullHubContext(), new DeterministicRandomSource(7), joinAddress),
+            new ActivitySessionService(db, new NullHubContext(), new DeterministicRandomSource(7), joinAddress, shortener),
             connection, dataPath);
     }
 
@@ -97,6 +104,102 @@ public sealed class ActivitySessionGroupTests
             "teacher", TestContext.Current.CancellationToken);
         var run = await activities.GetOrCreateRunAsync(definition.Id, lessonId, ct: TestContext.Current.CancellationToken);
         return await sessions.EnsureInteractiveRunAsync(run, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task WithTheShortenerRunningAGameTakesAReservedCode()
+    {
+        // The four-character codes are the ones the short domain can resolve.
+        // Until this test existed the session service was only ever built
+        // without a shortener, so nothing checked that a game used them at all.
+        var (db, activities, sessions, connection, dataPath) = await CreateAsync(new RunningShortener());
+        await using (connection)
+        await using (db)
+        {
+            var run = await StartGameAsync(activities, sessions, await NewLessonAsync(db, "Reserved Lesson"), "Reserved Game");
+
+            Assert.Equal(4, run.JoinCode!.Length);
+            Assert.True(ReservedGameCodes.IsReserved(run.JoinCode));
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
+    public async Task WithoutTheShortenerAGameNeverTakesAReservedCode()
+    {
+        // A four-character code on a wall the shortener cannot resolve is a
+        // dead address. Six characters on LessonCue's own host always works.
+        var (db, activities, sessions, connection, dataPath) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var run = await StartGameAsync(activities, sessions, await NewLessonAsync(db, "Plain Lesson"), "Plain Game");
+
+            Assert.Equal(6, run.JoinCode!.Length);
+            Assert.False(ReservedGameCodes.IsReserved(run.JoinCode));
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
+    public async Task ReservedCodesComeBackWhenTheLobbyIsDoneWithThem()
+    {
+        // A hundred codes is plenty, but only if finished lobbies give theirs
+        // up. Otherwise the hundred-and-first game silently drops to six
+        // characters and the short domain stops being used at all.
+        var (db, activities, sessions, connection, dataPath) = await CreateAsync(new RunningShortener());
+        await using (connection)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var first = await StartGameAsync(activities, sessions, await NewLessonAsync(db, "First Lesson"), "First Game");
+            var taken = first.JoinCode!;
+
+            var pool = new ReservedGameCodePool(db, new DeterministicRandomSource(7));
+            Assert.Contains(taken, await pool.InUseAsync(ct));
+            Assert.DoesNotContain(taken, await pool.AvailableAsync(ct));
+
+            // Finish the game and let the lobby go idle, the way a room does.
+            var group = await db.ActivitySessionGroups.SingleAsync(x => x.JoinCode == taken, ct);
+            foreach (var item in await db.ActivityRuns.Where(x => x.SessionGroupId == group.Id).ToListAsync(ct))
+            {
+                item.Status = ActivityRunStatuses.Ended;
+                item.EndedAt = DateTimeOffset.UtcNow.AddHours(-3);
+            }
+            group.UpdatedAt = DateTimeOffset.UtcNow.AddHours(-3);
+            await db.SaveChangesAsync(ct);
+
+            // A later game asks for a code, which is what reclaims dormant ones.
+            var second = await StartGameAsync(activities, sessions, await NewLessonAsync(db, "Second Lesson"), "Second Game");
+
+            Assert.Equal(4, second.JoinCode!.Length);
+            Assert.True(ReservedGameCodes.IsReserved(second.JoinCode));
+            Assert.DoesNotContain(taken, await pool.InUseAsync(ct));
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
+    public async Task ASecondGameInTheSameLessonKeepsTheReservedCode()
+    {
+        // Players are already looking at it. Rotating between games would send
+        // the room to a code nobody has, and burn a second reserved code.
+        var (db, activities, sessions, connection, dataPath) = await CreateAsync(new RunningShortener());
+        await using (connection)
+        await using (db)
+        {
+            var lessonId = await NewLessonAsync(db, "Back To Back");
+            var first = await StartGameAsync(activities, sessions, lessonId, "Game One");
+            var second = await StartGameAsync(activities, sessions, lessonId, "Game Two");
+
+            Assert.True(ReservedGameCodes.IsReserved(first.JoinCode!));
+            Assert.Equal(first.JoinCode, second.JoinCode);
+
+            var pool = new ReservedGameCodePool(db, new DeterministicRandomSource(7));
+            var inUse = await pool.InUseAsync(TestContext.Current.CancellationToken);
+            Assert.Single(inUse.Where(code => code == first.JoinCode));
+        }
+        Directory.Delete(dataPath, true);
     }
 
     [Fact]

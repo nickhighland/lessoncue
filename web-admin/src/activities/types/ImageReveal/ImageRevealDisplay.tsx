@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { ActivityStateEnvelope } from '../../types';
 import { playChimeSound, launchConfetti } from '../../effects';
+import { stageKicker } from '../../stageHeading';
 
 interface ImageRevealState {
   currentStage?: number;
@@ -76,8 +77,8 @@ export const ImageRevealDisplay: React.FC<{ envelope: ActivityStateEnvelope }> =
     <div ref={containerRef} className="activity-stage">
       <div className="activity-stage-content">
         <div className="activity-header">
-          <div className="stage-kicker">🔍 {config.presetLabel || 'MYSTERY IMAGE'} · {revealPercent}% REVEALED</div>
-          <h1 className="activity-title">{envelope.name || 'Mystery Image Reveal'}</h1>
+          <div className="stage-kicker">{stageKicker('🔍', config.presetLabel, 'MYSTERY IMAGE', `${revealPercent}% REVEALED`, config.title || envelope.name || 'Mystery Image Reveal')}</div>
+          <h1 className="activity-title">{config.title || envelope.name || 'Mystery Image Reveal'}</h1>
           <div className="activity-subtitle">
             {isRevealed ? (state.revealedAnswer || config.answer || 'Mystery solved!') : (config.prompt || 'Can you guess what it is?')}
           </div>
@@ -112,7 +113,7 @@ const DifferenceDisplay: React.FC<{ envelope: ActivityStateEnvelope; state: Imag
   const secondImage = config.comparisonImageUrl || firstImage;
   return <div className="activity-stage media-difference-stage">
     <div className="activity-stage-content">
-      <div className="activity-header"><div className="stage-kicker">🕵️ {config.presetLabel || "WHAT'S DIFFERENT?"} · OBSERVE CLOSELY</div><h1 className="activity-title">{config.title || envelope.name || "What's Different?"}</h1><div className="activity-subtitle">{revealed ? (state.revealedAnswer || config.answer || 'Difference revealed!') : (config.prompt || 'What changed between these two scenes?')}</div></div>
+      <div className="activity-header"><div className="stage-kicker">{stageKicker('🕵️', config.presetLabel, "WHAT'S DIFFERENT?", 'OBSERVE CLOSELY', config.title || envelope.name || "What's Different?")}</div><h1 className="activity-title">{config.title || envelope.name || "What's Different?"}</h1><div className="activity-subtitle">{revealed ? (state.revealedAnswer || config.answer || 'Difference revealed!') : (config.prompt || 'What changed between these two scenes?')}</div></div>
       <div className="difference-board" aria-label="Two images to compare"><div className="difference-card"><span>A</span><img src={firstImage} alt="First scene" /></div><div className="difference-versus" aria-hidden="true">VS</div><div className="difference-card"><span>B</span><img src={secondImage} alt="Second scene" /></div></div>
       <div className={`difference-answer ${revealed ? 'revealed' : ''}`}>{revealed ? <><span>THE CHANGE</span><strong>{state.revealedAnswer || config.answer || 'The host has not added the answer yet.'}</strong></> : <span>Spot the change, then wait for the reveal.</span>}</div>
     </div>
@@ -123,7 +124,7 @@ const EmojiDecodeDisplay: React.FC<{ envelope: ActivityStateEnvelope; state: Ima
   const revealed = state.revealed === true;
   return <div className="activity-stage media-emoji-stage">
     <div className="activity-stage-content">
-      <div className="activity-header"><div className="stage-kicker">😀 {config.presetLabel || 'EMOJI DECODE'} · CRACK THE CLUE</div><h1 className="activity-title">{config.title || envelope.name || 'Emoji Decode'}</h1><div className="activity-subtitle">{revealed ? (state.revealedAnswer || config.answer || 'Decoded!') : (config.prompt || 'What do these emojis mean?')}</div></div>
+      <div className="activity-header"><div className="stage-kicker">{stageKicker('😀', config.presetLabel, 'EMOJI DECODE', 'CRACK THE CLUE', config.title || envelope.name || 'Emoji Decode')}</div><h1 className="activity-title">{config.title || envelope.name || 'Emoji Decode'}</h1><div className="activity-subtitle">{revealed ? (state.revealedAnswer || config.answer || 'Decoded!') : (config.prompt || 'What do these emojis mean?')}</div></div>
       <div className="emoji-decode-card"><div className="emoji-decode-clue" aria-label="Emoji clue">{config.emojiClue || '❓'}</div><div className="emoji-decode-dots" aria-hidden="true">•••</div><div className={`emoji-decode-answer ${revealed ? 'revealed' : ''}`}>{revealed ? (state.revealedAnswer || config.answer || 'Add the answer in the editor') : '???'}</div></div>
       {!revealed && config.hint && <div className="media-clue-hint">Hint: {config.hint}</div>}
     </div>
@@ -134,7 +135,7 @@ const RebusRushDisplay: React.FC<{ envelope: ActivityStateEnvelope; state: Image
   const revealed = state.revealed === true;
   return <div className="activity-stage media-rebus-stage">
     <div className="activity-stage-content">
-      <div className="activity-header"><div className="stage-kicker">🧩 {config.presetLabel || 'REBUS RUSH'} · THINK SIDEWAYS</div><h1 className="activity-title">{config.title || envelope.name || 'Rebus Rush'}</h1><div className="activity-subtitle">{revealed ? (state.revealedAnswer || config.answer || 'Rebus solved!') : (config.prompt || 'Read the symbols as a phrase.')}</div></div>
+      <div className="activity-header"><div className="stage-kicker">{stageKicker('🧩', config.presetLabel, 'REBUS RUSH', 'THINK SIDEWAYS', config.title || envelope.name || 'Rebus Rush')}</div><h1 className="activity-title">{config.title || envelope.name || 'Rebus Rush'}</h1><div className="activity-subtitle">{revealed ? (state.revealedAnswer || config.answer || 'Rebus solved!') : (config.prompt || 'Read the symbols as a phrase.')}</div></div>
       <div className="rebus-rush-card"><div className="rebus-rush-clue" aria-label="Rebus clue">{config.rebusClue || '❓'}</div><div className="rebus-rush-rule" aria-hidden="true" /><div className={`rebus-rush-answer ${revealed ? 'revealed' : ''}`}>{revealed ? (state.revealedAnswer || config.answer || 'Add the answer in the editor') : 'What phrase is hiding here?'}</div></div>
       {!revealed && config.hint && <div className="media-clue-hint">Hint: {config.hint}</div>}
     </div>
@@ -228,7 +229,7 @@ const AudioClueDisplay: React.FC<{ envelope: ActivityStateEnvelope; state: Image
   }, [config.audioDurationSeconds]);
   return <div className="activity-stage media-audio-stage">
     <div className="activity-stage-content">
-      <div className="activity-header"><div className="stage-kicker">🔊 {config.presetLabel || 'SOUND CHECK'} · LISTEN CLOSELY</div><h1 className="activity-title">{config.title || envelope.name || 'Audio Challenge'}</h1><div className="activity-subtitle">{state.revealed ? (state.revealedAnswer || config.answer || 'Sound revealed!') : (config.prompt || 'What made that sound?')}</div></div>
+      <div className="activity-header"><div className="stage-kicker">{stageKicker('🔊', config.presetLabel, 'SOUND CHECK', 'LISTEN CLOSELY', config.title || envelope.name || 'Audio Challenge')}</div><h1 className="activity-title">{config.title || envelope.name || 'Audio Challenge'}</h1><div className="activity-subtitle">{state.revealed ? (state.revealedAnswer || config.answer || 'Sound revealed!') : (config.prompt || 'What made that sound?')}</div></div>
       <div className="audio-clue-panel"><div className="audio-clue-orb" aria-hidden="true">{config.audioTransform === 'reverse' ? '↶' : '♫'}</div><div className="audio-clue-copy"><span>{config.audioTransform === 'reverse' ? 'REVERSED AUDIO' : 'AUDIO CLUE'}</span><strong>{source ? reverseFallback ? 'Playing the original clip' : 'Ready to play' : 'Add an audio clip in the editor'}</strong><small>{config.audioDurationSeconds ? `${config.audioDurationSeconds} second${config.audioDurationSeconds === 1 ? '' : 's'} · ` : ''}The host controls the reveal.</small></div><audio ref={audioRef} className="audio-clue-player" src={playbackSource || undefined} controls preload="metadata" /></div>
       {!state.revealed && <div className="interactive-help">Listen, make your guess, and watch for the answer reveal.</div>}
     </div>
@@ -273,7 +274,7 @@ const MemoryGridDisplay: React.FC<{ envelope: ActivityStateEnvelope; state: Imag
   const visible = state.memoryCardsVisible === true;
   return <div className="activity-stage memory-grid-stage">
     <div className="activity-stage-content">
-      <div className="activity-header"><div className="stage-kicker">🧠 {config.presetLabel || 'MEMORY GRID'} · {visible ? 'MEMORIZE!' : 'FIND THE PAIRS'}</div><h1 className="activity-title">{config.title || envelope.name || 'Memory Grid'}</h1><div className="activity-subtitle">{config.prompt || 'Remember what you see, then find the matching card.'}</div></div>
+      <div className="activity-header"><div className="stage-kicker">{stageKicker('🧠', config.presetLabel, 'MEMORY GRID', visible ? 'MEMORIZE!' : 'FIND THE PAIRS', config.title || envelope.name || 'Memory Grid')}</div><h1 className="activity-title">{config.title || envelope.name || 'Memory Grid'}</h1><div className="activity-subtitle">{config.prompt || 'Remember what you see, then find the matching card.'}</div></div>
       <div className={`memory-grid-board ${visible ? 'memorize' : ''}`}>{cards.map((card, index) => { const isFaceUp = visible || revealed.has(card.id); return <div className={`memory-grid-card ${isFaceUp ? 'face-up' : ''} ${revealed.has(card.id) ? 'selected' : ''}`} key={card.id}><span>{isFaceUp ? card.label : '?'}</span><small>{isFaceUp ? `CARD ${index + 1}` : 'HIDDEN'}</small></div>; })}</div>
       {visible && <div className="memory-grid-callout">Look closely… the cards hide again when the host is ready.</div>}
       {!visible && !revealed.size && <div className="interactive-help">The host will reveal cards one at a time. Which two belong together?</div>}

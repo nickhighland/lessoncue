@@ -6,6 +6,29 @@ import { signInAsAdmin } from "./support/adminSession";
 // five minutes per IP, and every spec signing in separately exhausted it.
 const authenticate = (page: Page) => signInAsAdmin(page, "Activity Games Test");
 
+/**
+ * Save the open activity and wait for the server to have it.
+ *
+ * Waiting for "Activity saved." does not do that: the banner is still showing
+ * those words from the previous save, so the assertion passes at once and the
+ * test reads the activity back before this save has landed. That is a race the
+ * suite lost roughly one run in ten, always reporting it as the editor having
+ * saved the wrong thing.
+ */
+async function saveActivity(page: Page) {
+  const saved = page.waitForResponse(response =>
+    response.request().method() === "PUT"
+    && /\/api\/v1\/activities\/[0-9a-f-]+$/.test(new URL(response.url()).pathname)
+    && response.ok(),
+    // A loaded machine can take a while to answer, and a save that is merely
+    // slow is not a save that failed.
+    { timeout: 30_000 });
+  await page.getByRole("button", { name: "Save activity", exact: true }).click();
+  await saved;
+  // The banner still matters: it is what tells the teacher it worked.
+  await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+}
+
 async function createActivity(page: Page, presetName: string, activityName: string) {
   await page.getByRole("button", { name: /Activities$/ }).click();
   await expect(page.getByRole("heading", { name: "Activities Studio" })).toBeVisible();
@@ -16,7 +39,9 @@ async function createActivity(page: Page, presetName: string, activityName: stri
   // match and is the one this helper is meant to exercise.
   await chooser.getByText(presetName, { exact: true }).first().click();
   await page.locator('input[type="text"]').first().fill(activityName);
-  const saveResponse = page.waitForResponse(response => response.request().method() === "PUT" && response.url().includes("/api/v1/activities/") && response.ok());
+  const saveResponse = page.waitForResponse(
+    response => response.request().method() === "PUT" && response.url().includes("/api/v1/activities/") && response.ok(),
+    { timeout: 30_000 });
   page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "Save activity" }).click();
   const saved = await saveResponse;
@@ -1150,7 +1175,6 @@ test("Activity controller shows live recovery state and command acknowledgements
 
   await openUniversalRemote(page, prepared.screenId);
   // The remote groups its controls into tabs; the Activity controls live in one.
-  await page.getByRole("tab", { name: "Activity" }).click();
   const activityController = page.locator(".activity-controller-shell");
   await expect(activityController.getByText("Browser Controller Recovery Activity", { exact: true })).toBeVisible();
   await expect(activityController.getByRole("button", { name: "Refresh activity controller" })).toBeVisible();
@@ -1351,8 +1375,7 @@ test("Quiz and poll editors apply reusable named presets without changing engine
     await page.getByLabel("Quiz format preset").selectOption("factOrFiction");
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.locator("textarea").nth(1)).toHaveValue("A day on Venus is longer than a year on Venus.");
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
-    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    await saveActivity(page);
     const savedQuiz = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; questions: Array<{ options: string[] }> } }, quizId);
     expect(savedQuiz.presetType).toBe("factOrFiction");
     expect(savedQuiz.config.preset).toBe("factOrFiction");
@@ -1362,7 +1385,7 @@ test("Quiz and poll editors apply reusable named presets without changing engine
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.getByLabel("Answer format")).toHaveValue("number");
     await expect(page.getByLabel("Target number")).toHaveValue("42");
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await saveActivity(page);
     const savedNumberQuiz = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { config: { preset: string; questions: Array<{ answerMode: string; targetNumber: number }> } }, quizId);
     expect(savedNumberQuiz.config.preset).toBe("guessTheNumber");
     expect(savedNumberQuiz.config.questions[0].answerMode).toBe("number");
@@ -1374,8 +1397,7 @@ test("Quiz and poll editors apply reusable named presets without changing engine
     await page.getByLabel("Poll format preset").selectOption("wouldYouRather");
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.getByLabel("Poll question")).toHaveValue("Would you rather be 30 minutes early or 5 minutes late?");
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
-    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    await saveActivity(page);
     const savedPoll = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; options: string[] } }, pollId);
     expect(savedPoll.presetType).toBe("wouldYouRather");
     expect(savedPoll.config.preset).toBe("wouldYouRather");
@@ -1384,7 +1406,7 @@ test("Quiz and poll editors apply reusable named presets without changing engine
     await page.getByLabel("Poll format preset").selectOption("thisOrThatGauntlet");
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.getByRole("button", { name: "Round 3", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await saveActivity(page);
     const savedGauntlet = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; rounds: Array<{ options: string[] }> } }, pollId);
     expect(savedGauntlet.presetType).toBe("thisOrThatGauntlet");
     expect(savedGauntlet.config.preset).toBe("thisOrThatGauntlet");
@@ -1394,7 +1416,7 @@ test("Quiz and poll editors apply reusable named presets without changing engine
     await page.getByLabel("Poll format preset").selectOption("wouldYouRather");
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.getByRole("button", { name: "Round 3", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await saveActivity(page);
     const savedSingleRound = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { config: { preset: string; rounds?: unknown[] } }, pollId);
     expect(savedSingleRound.config.preset).toBe("wouldYouRather");
     expect(savedSingleRound.config.rounds).toBeUndefined();
@@ -1423,8 +1445,7 @@ test("Buzzer, creative, and bluffing editors reuse named engine presets", async 
     await page.getByLabel("Buzzer format preset").selectOption("clueLadder");
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.locator('input[placeholder="Clue text"]').first()).toHaveValue("This answer can be found in many kitchens.");
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
-    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    await saveActivity(page);
     const savedBuzzer = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; clues: Array<{ points: number }> } }, buzzerId);
     expect(savedBuzzer.presetType).toBe("clueLadder");
     expect(savedBuzzer.config.preset).toBe("clueLadder");
@@ -1436,8 +1457,7 @@ test("Buzzer, creative, and bluffing editors reuse named engine presets", async 
     await page.getByLabel("Creative format preset").selectOption("captionThis");
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.locator("textarea").nth(1)).toHaveValue("Write the caption this picture deserves.");
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
-    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    await saveActivity(page);
     const savedPunchline = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string } }, punchlineId);
     expect(savedPunchline.presetType).toBe("captionThis");
     expect(savedPunchline.config.preset).toBe("captionThis");
@@ -1447,8 +1467,7 @@ test("Buzzer, creative, and bluffing editors reuse named engine presets", async 
     await page.getByLabel("Bluffing format preset").selectOption("confessions");
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.locator('input[placeholder="The true answer"]')).toHaveValue("Add the real confession");
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
-    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    await saveActivity(page);
     const savedFakeOut = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string } }, fakeOutId);
     expect(savedFakeOut.presetType).toBe("confessions");
     expect(savedFakeOut.config.preset).toBe("confessions");
@@ -1474,8 +1493,7 @@ test("Drawing and survey editors apply creative board templates with editable en
     await page.getByLabel("Drawing format preset").selectOption("mascotMaker");
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.locator("textarea").nth(1)).toHaveValue("Design a mascot for a team that never gives up.");
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
-    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    await saveActivity(page);
     const savedDrawing = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; prompts: Array<{ prompt: string }> } }, drawingId);
     expect(savedDrawing.presetType).toBe("mascotMaker");
     expect(savedDrawing.config.preset).toBe("mascotMaker");
@@ -1487,8 +1505,7 @@ test("Drawing and survey editors apply creative board templates with editable en
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.getByLabel("Prompt")).toHaveValue("What are five things that help a team succeed?");
     await expect(page.getByRole("textbox", { name: "Answer 5" })).toHaveValue("Celebrate");
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
-    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    await saveActivity(page);
     const savedSurvey = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; questions: Array<{ answers: Array<unknown> }> } }, surveyId);
     expect(savedSurvey.presetType).toBe("topFive");
     expect(savedSurvey.config.preset).toBe("topFive");
@@ -1518,8 +1535,7 @@ test("Ordering, word, and match editors reuse named templates with flexible cont
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.locator("textarea").nth(1)).toHaveValue("Put these events in chronological order.");
     await expect(page.getByLabel("Item 4")).toHaveValue("Fourth event");
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
-    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    await saveActivity(page);
     const savedOrdering = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; rounds: Array<{ items: Array<unknown> }> } }, orderingId);
     expect(savedOrdering.presetType).toBe("timeline");
     expect(savedOrdering.config.preset).toBe("timeline");
@@ -1530,8 +1546,7 @@ test("Ordering, word, and match editors reuse named templates with flexible cont
     await page.getByLabel("Word format preset").selectOption("nameFive");
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.locator("textarea").nth(1)).toHaveValue("Name five examples that fit the prompt.");
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
-    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    await saveActivity(page);
     const savedWord = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; maxWords: number } }, wordId);
     expect(savedWord.presetType).toBe("nameFive");
     expect(savedWord.config.preset).toBe("nameFive");
@@ -1543,8 +1558,7 @@ test("Ordering, word, and match editors reuse named templates with flexible cont
     await page.getByRole("button", { name: "Apply preset template", exact: true }).click();
     await expect(page.locator("textarea").nth(1)).toHaveValue("Which option would your friend pick?");
     await expect(page.getByLabel("Choice 3")).toHaveValue("Option C");
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
-    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    await saveActivity(page);
     const savedMatch = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; rounds: Array<{ options: string[] }> } }, matchId);
     expect(savedMatch.presetType).toBe("friendMatch");
     expect(savedMatch.config.preset).toBe("friendMatch");
@@ -1571,8 +1585,7 @@ test("Media reveal editors apply named visual formats without changing the sourc
     await expect(page.getByLabel("Reveal style")).toHaveValue("silhouette");
     await expect(page.locator("#image-reveal-total-stages")).toHaveValue("5");
     await page.locator('input[placeholder="https://... or /api/v1/media/..."]').fill("/api/v1/media/example-image");
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
-    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    await saveActivity(page);
     const saved = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; style: string; imageUrl: string } }, definitionId);
     expect(saved.presetType).toBe("silhouette");
     expect(saved.config.preset).toBe("silhouette");
@@ -1608,8 +1621,7 @@ test("Adventure and observation presets expose their differentiated editor surfa
     await expect(page.getByLabel("Round 1 true destination")).toBeVisible();
     await page.getByLabel("Round 1 node type").selectOption("choice");
     await page.getByLabel("Round 1 choice 1 destination").selectOption("__end__");
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
-    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    await saveActivity(page);
     const savedAdventure = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { config: { adventure: boolean; rounds: Array<{ id: string; branches: Record<string, string> }> } }, adventureId);
     expect(savedAdventure.config.adventure).toBe(true);
     expect(savedAdventure.config.rounds[0].branches["0"]).toBe("__end__");
@@ -1619,7 +1631,7 @@ test("Adventure and observation presets expose their differentiated editor surfa
     await expect(page.getByText("What's Different? clue", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Media round type")).toHaveValue("difference");
     await page.getByLabel("Second image URL").fill("/api/v1/media/second-safari-scene");
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
+    await saveActivity(page);
     const savedDifference = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { config: { mediaMode: string; comparisonImageUrl: string } }, differenceId);
     expect(savedDifference.config.mediaMode).toBe("difference");
     expect(savedDifference.config.comparisonImageUrl).toBe("/api/v1/media/second-safari-scene");
@@ -1654,8 +1666,7 @@ test("Stage challenge editors apply host-led formats with editable timing and sc
     await expect(page.locator('input[placeholder="Build a paper tower"]')).toHaveValue("Explain one idea in 30 seconds");
     await expect(page.locator('textarea[placeholder="Challenge instructions"]')).toHaveValue("Teach the room the key idea using an example anyone can understand.");
     await expect(page.locator('input[type="number"]').first()).toHaveValue("30");
-    await page.getByRole("button", { name: "Save activity", exact: true }).click();
-    await expect(page.locator(".activity-library-status")).toContainText("Activity saved.");
+    await saveActivity(page);
     const saved = await page.evaluate(async id => (await fetch(`/api/v1/activities/${id}`)).json() as { presetType: string; config: { preset: string; challenges: Array<{ seconds: number; points: number }> } }, definitionId);
     expect(saved.presetType).toBe("teachItBack");
     expect(saved.config.preset).toBe("teachItBack");

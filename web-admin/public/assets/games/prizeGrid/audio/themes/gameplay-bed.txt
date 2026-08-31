@@ -1,0 +1,35 @@
+gameplay-bed.mp3 — Prize Grid
+=============================
+
+ROLE
+  Looping bed under ordinary play.
+
+REPLACE THIS FILE
+  Delete this .txt and drop in "gameplay-bed.mp3" in the same folder. The name must
+  match exactly. Nothing else needs to change — no code, no config.
+
+WHEN IT PLAYS
+  Loops quietly from the moment the game starts until it finishes,
+  underneath questions, answers and reveals. It steps aside for the
+  countdown bed during a timed window and returns afterwards.
+
+  Until this cue existed nothing played during a round at all: every
+  sting stopped the one piece of music there was.
+
+SUGGESTED CHARACTER
+  steady and unobtrusive: something a room can talk over for a whole game.
+
+SPEC
+  60-180 s, seamlessly loopable, mixed low (plays at 0.28 gain).
+
+IF THIS FILE IS ABSENT
+  Lookup cascades preset → engine → shared. If this file is absent,
+  LessonCue tries assets/games/shared/audio/themes/gameplay-bed.mp3, and if that is
+  also absent, no music plays for this cue. LessonCue synthesizes effects but not
+  music, so an absent bed or sting simply means silence. That is the shipped
+  default and is not an error.
+
+LICENSING
+  Any audio committed here is a bundled asset and needs a source note, a
+  licence/permission record, and an attribution entry before release. See
+  docs/activities-assets-and-sound.md.

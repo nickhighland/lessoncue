@@ -22,7 +22,12 @@ public sealed class ActivitySessionService(
     ActivityJoinAddressService joinAddress,
     // Optional on purpose: an installation without the shortener, and every
     // test that predates it, constructs this service without one.
-    LessonCue.Server.Shortener.ShortenerService? shortener = null)
+    //
+    // An interface rather than the service itself. Handing out a reserved code
+    // is the one thing this needs from the shortener, and building a real
+    // ShortenerService takes a database and an HTTP client -- which is why the
+    // reserved-code path went untested until somebody asked whether it worked.
+    IReservedCodeSource? shortener = null)
 {
     private const string CodeAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static readonly TimeSpan SessionIdleLifetime = TimeSpan.FromHours(2);
@@ -574,6 +579,15 @@ public sealed class ActivitySessionService(
         // never reach a transition the host could not have made themselves.
         var result = await ExecuteHostActionAsync(runId, new ActivityCommandEnvelope(null, null, step.Action), ct);
         if (result.Success) return;
+
+        // Some steps are worth trying but not worth stopping for. A vote needs
+        // at least two answers to vote on; a round with fewer should reveal and
+        // carry on rather than park waiting for a host.
+        if (step.Fallback is { } fallback)
+        {
+            var recovered = await ExecuteHostActionAsync(runId, new ActivityCommandEnvelope(null, null, fallback), ct);
+            if (recovered.Success) return;
+        }
 
         // A refused action means this game needs a person. Park it rather than
         // retrying every second: a failed command never reaches CommitAsync, so
@@ -4989,7 +5003,7 @@ public sealed class ActivitySessionService(
         // Only once the shortener has been shown to hold the whole reserved set.
         // Handing out a four-character code the shortener does not know would
         // put an unusable address on the wall.
-        if (shortener is { ShortLinksUsable: true } && shortener.Current is { Enabled: true, Domain.Length: > 0 })
+        if (shortener is { ReservedCodesUsable: true })
         {
             var pool = new ReservedGameCodePool(db, random);
             var available = (await pool.AvailableAsync(ct))

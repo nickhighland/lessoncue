@@ -7,6 +7,7 @@ import { isLobbyPhase } from '../../activityPhase';
 import { ActivityStageClock } from '../../ActivityStageClock';
 import { ActivityLeaderboard } from '../../ActivityLeaderboard';
 import { ActivityScoreRace } from '../../ActivityScoreRace';
+import { stageKicker } from '../../stageHeading';
 
 interface TriviaQuestion {
   id: string;
@@ -91,7 +92,7 @@ export const TriviaDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ e
       <div ref={containerRef} className="activity-stage">
         <div className="activity-stage-content">
           <div className="activity-header">
-            <div className="stage-kicker">❓ {config.presetLabel || 'TRIVIA SHOWDOWN'} · STANDINGS</div>
+            <div className="stage-kicker">{stageKicker('❓', config.presetLabel, 'TRIVIA SHOWDOWN', 'STANDINGS', config.title || envelope.name || 'Trivia Showdown')}</div>
             <h1 className="activity-title">{config.title || envelope.name || 'Trivia Showdown'}</h1>
           </div>
           {state.phase === 'leaderboard'
@@ -123,7 +124,7 @@ export const TriviaDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ e
     <div ref={containerRef} className="activity-stage">
       <div className="activity-stage-content">
         <div className="activity-header">
-          <div className="stage-kicker">❓ {config.presetLabel || 'TRIVIA SHOWDOWN'} · QUESTION {qIndex + 1} OF {questions.length}</div>
+          <div className="stage-kicker">{stageKicker('❓', config.presetLabel, 'TRIVIA SHOWDOWN', `QUESTION ${qIndex + 1} OF ${questions.length}`, config.title || envelope.name || 'Trivia Showdown')}</div>
           <h1 className="activity-title">{config.title || envelope.name || 'Trivia Showdown'}</h1>
           <div className="activity-subtitle">Choose your answer · the host controls the reveal</div>
         </div>

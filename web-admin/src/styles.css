@@ -1610,7 +1610,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   white-space: nowrap;
 }
 .remote-screen-picker select:focus { box-shadow: 0 0 0 3px #d8a34c55; }
-.remote-playback-fieldset, .remote-tab-commands { min-width: 0; margin: 0; border: 0; padding: 0; }
+.remote-playback-fieldset, .remote-flow { min-width: 0; margin: 0; border: 0; padding: 0; }
 .remote-playback-fieldset { grid-column: 2; min-width: 0; }
 .remote-playback-fieldset:disabled { opacity: .58; }
 .remote-playback {
@@ -1664,22 +1664,6 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .remote-run-summary-light.overrun { border-color: #d7a17f; background: #fff4eb; }
 .remote-run-summary-light p { color: #9a542f; }
 .remote-current-note { margin-top: 9px !important; }
-.remote-tab-commands { display: flex; flex: 1 1 auto; min-height: 0; overflow: hidden; }
-.remote-tab-commands:disabled { opacity: .68; }
-.remote-tab-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 7px 0 2px; }
-.remote-tabs { display: grid; grid-template-columns: repeat(3, 1fr); flex: 0 0 auto; margin-top: 5px; overflow: hidden; border: 1px solid #ffffff1d; border-radius: 12px 12px 0 0; background: #173b35; }
-.remote-tabs button { position: relative; display: grid; place-items: center; min-height: 50px; border: 0; border-right: 1px solid #ffffff15; color: #e2eee8; background: transparent; font-size: 11px; font-weight: 700; }
-.remote-tabs button:last-child { border-right: 0; }
-.remote-tabs button.active { color: var(--remote-ink); background: var(--remote-cream); }
-.remote-tabs button.active::after { position: absolute; right: 28%; bottom: 0; left: 28%; height: 4px; border-radius: 4px 4px 0 0; background: var(--green); content: ""; }
-.remote-tabs b { position: absolute; top: 6px; right: 22%; display: grid; place-items: center; min-width: 16px; height: 16px; border-radius: 50%; color: #fff; background: #51a981; font-size: 9px; }
-.remote-tab-panel { min-height: 100%; border-radius: 16px; padding: clamp(14px, 3vw, 24px); color: var(--remote-ink); background: var(--remote-cream); }
-.remote-tab-panel[hidden] { display: none; }
-.remote-tab-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-.remote-tab-heading > div { display: grid; min-width: 0; gap: 3px; }
-.remote-tab-heading strong { overflow: hidden; font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
-.remote-tab-heading small { color: #607169; font-size: 10px; }
-.remote-lesson-heading { align-items: end; }
 .remote-lesson-list { display: grid; gap: 8px; }
 .remote-lesson-list > button { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 58px; border: 1px solid #dfe2d9; border-radius: 12px; padding: 9px 12px; color: var(--remote-ink); background: #fff; text-align: left; }
 .remote-lesson-list > button:hover, .remote-lesson-list > button:focus-visible { border-color: #91c2aa; background: #fbfffb; }
@@ -1688,23 +1672,17 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .remote-lesson-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .remote-lesson-list small { color: #68766f; font-size: 9px; }
 .remote-lesson-list i { color: var(--green); font-size: 22px; font-style: normal; }
-.remote-kicker, .remote-setup-list > span { color: #b07722; font-size: 9px; font-weight: 900; letter-spacing: .12em; }
-.remote-setup-button { min-height: 36px; padding: 8px 11px; font-size: 10px; white-space: nowrap; }
+.remote-kicker{ color: #b07722; font-size: 9px; font-weight: 900; letter-spacing: .12em; }
 .remote-cue-list { display: grid; gap: 8px; }
 .remote-cue-list > button { display: grid; grid-template-columns: 30px minmax(0, 1fr) 20px; align-items: center; gap: 9px; min-height: 58px; border: 1px solid #dfe2d9; border-radius: 12px; padding: 8px 10px; color: var(--remote-ink); background: #fff; text-align: left; }
 .remote-cue-list > button.selected { border-color: var(--gold); background: #fff9ea; box-shadow: 0 0 0 2px #d88c1e19; }
-.remote-cue-list > button > b, .remote-setup-list b { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: var(--green); background: #e3f0e9; font-size: 10px; }
+.remote-cue-list > button > b{ display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: var(--green); background: #e3f0e9; font-size: 10px; }
 .remote-cue-list strong, .remote-cue-list small { display: block; }
 .remote-cue-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .remote-cue-list small { margin-top: 3px; color: #68766f; font-size: 9px; }
 .remote-cue-list i { color: var(--green); font-style: normal; }
-.remote-setup-panel { display: grid; gap: 12px; }
-.remote-setup-panel .field { color: var(--remote-ink); }
-.remote-setup-panel select { border-color: #d5dbd3; background: #fff; }
 .remote-setup-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .remote-setup-actions .button { flex: 1 1 140px; min-height: 42px; }
-.remote-setup-list { display: grid; gap: 8px; }
-.remote-setup-list button { min-height: 58px; }
 .remote-setup-seek { margin-top: 2px; border-top-color: #dfe2d9; }
 .remote-activity-panel { display: grid; align-content: start; gap: 12px; }
 .remote-focus-panel { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: center; gap: 12px; border: 1px solid #cbded1; border-radius: 12px; padding: 12px; background: #f0f8f2; }
@@ -1730,10 +1708,9 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   .remote-transport button > span { font-size: 25px; }
   .remote-transport button small { font-size: 8px; }
   .remote-lock-button { width: 32px; height: 32px; min-height: 32px; }
-  .remote-tabs { margin-top: 4px; border-radius: 11px 11px 0 0; }
-  .remote-tabs button { min-height: 48px; font-size: 10px; }
-  .remote-tab-icon { font-size: 20px; }
-  .remote-tab-panel { padding: 12px; border-radius: 13px; }
+  .remote-step { padding: 12px; border-radius: 13px; }
+  .remote-step-head { gap: 8px; margin-bottom: 10px; }
+  .remote-step-title strong { font-size: 15px; }
   .remote-focus-panel { grid-template-columns: 1fr 1fr; }
   .remote-focus-panel > div:first-child { grid-column: 1 / -1; }
   .remote-focus-panel > button { grid-column: 1 / -1; justify-self: start; }
@@ -3636,3 +3613,48 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .settings-route-table td { padding: .35rem .5rem; border-bottom: 1px solid var(--line); }
 .settings-route-table code { overflow-wrap: anywhere; font-size: .82rem; }
 .settings-config-preview { max-height: 260px; margin: .5rem 0 0; padding: .6rem .7rem; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2, #f5f7f6); font-size: .76rem; line-height: 1.4; }
+
+/* Four short numbers side by side: a pace is read across, not down. */
+.activity-pacing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.activity-pacing-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.activity-pacing-grid input {
+  width: 100%;
+}
+
+/*
+  The remote as a sequence rather than three tabs: choose a lesson, choose a
+  cue, control it. Each step carries its number and its state, so where you are
+  and what is left is visible without reading the labels.
+*/
+.remote-flow { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; gap: 10px; overflow-y: auto; overscroll-behavior: contain; padding: 7px 0 2px; }
+.remote-flow:disabled { opacity: .68; }
+.remote-step { border-radius: 16px; padding: clamp(12px, 2.6vw, 20px); color: var(--remote-ink); background: var(--remote-cream); }
+/* A step whose turn has not come is dimmed rather than hidden: the shape of
+   the whole job stays visible, which is what the tabs never showed. */
+.remote-step[data-state="waiting"] { opacity: .55; }
+.remote-step[data-state="current"] { box-shadow: 0 0 0 2px var(--green); }
+.remote-step-head { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-bottom: 12px; }
+.remote-step-mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; color: #fff; background: var(--green); font-size: 11px; font-weight: 800; }
+.remote-step[data-state="waiting"] .remote-step-mark { background: #9bada4; }
+.remote-step[data-state="done"] .remote-step-mark { background: var(--gold); }
+.remote-step-title { display: grid; min-width: 0; gap: 3px; }
+.remote-step-title strong { overflow: hidden; font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
+.remote-step-title small { color: #607169; font-size: 10px; }
+.remote-step-change, .remote-play-lesson { min-height: 36px; padding: 8px 11px; font-size: 10px; white-space: nowrap; }
+.remote-step-change { margin-bottom: 10px; }
+.remote-step-controls .remote-activity-panel { margin-top: 10px; }
+/* The cue that is actually on the screen, distinct from the one being edited. */
+.remote-cue-list > button.playing { border-color: var(--green); background: #f2fbf5; }
+.remote-cue-list > button.playing > b { color: #fff; background: var(--green); }

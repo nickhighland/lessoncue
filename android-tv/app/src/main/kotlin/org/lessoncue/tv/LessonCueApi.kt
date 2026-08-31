@@ -45,6 +45,19 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         DeviceIdentity(json.getString("screenId"), json.getString("deviceToken"), baseUrl)
     }
 
+    /**
+     * The manifest, with a short patience for the first try at start-up.
+     *
+     * A LAN server answers immediately or not at all, so the long timeouts buy
+     * nothing on launch and cost most of a minute when the server is off.
+     */
+    suspend fun manifestQuickly(identity: DeviceIdentity): ScreenManifest = withContext(Dispatchers.IO) {
+        val raw = request("/api/v1/screens/${identity.screenId}/manifest", token = identity.token,
+            connectTimeoutMillis = 2_500, readTimeoutMillis = 4_000)
+        manifestCache?.writeText(raw)
+        parseManifest(JSONObject(raw))
+    }
+
     suspend fun manifest(identity: DeviceIdentity): ScreenManifest = withContext(Dispatchers.IO) {
         val raw = request("/api/v1/screens/${identity.screenId}/manifest", token = identity.token)
         manifestCache?.writeText(raw)
@@ -385,12 +398,23 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         } ?: emptyList()
     )
 
-    private fun request(path: String, method: String = "GET", body: String? = null, token: String? = null): String {
+    private fun request(
+        path: String,
+        method: String = "GET",
+        body: String? = null,
+        token: String? = null,
+        // Startup uses a shorter pair. A server on the same LAN answers in
+        // milliseconds; waiting eight seconds to connect and fifteen more to
+        // read only matters when it is not going to answer at all, and that
+        // wait is spent on a still screen that looks like a hung app.
+        connectTimeoutMillis: Int = 8_000,
+        readTimeoutMillis: Int = 15_000,
+    ): String {
         val started = System.nanoTime()
         val connection = URL("$baseUrl$path").openConnection() as HttpURLConnection
         connection.requestMethod = method
-        connection.connectTimeout = 8_000
-        connection.readTimeout = 15_000
+        connection.connectTimeout = connectTimeoutMillis
+        connection.readTimeout = readTimeoutMillis
         connection.setRequestProperty("Accept", "application/json")
         token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
         if (body != null) {

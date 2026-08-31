@@ -22,7 +22,8 @@
     "test:bundle": "npm run build:admin && node scripts/check-bundle-budget.mjs",
     "lint": "eslint \"web-admin/**/*.{ts,tsx}\"",
     "db:generate": "drizzle-kit generate",
-    "test:shortener": "node scripts/check-shortener-compose.mjs"
+    "test:shortener": "node scripts/check-shortener-compose.mjs",
+    "test:units": "node --experimental-strip-types --test --test-reporter=spec 'web-admin/src/**/*.test.mjs'"
   },
   "dependencies": {
     "@microsoft/signalr": "^9.0.6",

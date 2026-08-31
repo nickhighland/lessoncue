@@ -235,8 +235,14 @@ fun LessonCueApp() {
         val identity = activeIdentity ?: return@LaunchedEffect
         val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
         while (true) {
-            val cachedItems = context.filesDir.resolve("media").listFiles()?.size ?: 0
-            runCatching { api.reportStatus(identity, activeManifestVersion, context.filesDir.usableSpace,
+            // Counting cached files and asking for free space are both disk
+            // work, and this loop runs every two seconds while a lesson plays.
+            // On a TV's flash that was enough to make the remote feel late,
+            // because it happened on the thread that draws and handles keys.
+            val (cachedItems, freeBytes) = withContext(Dispatchers.IO) {
+                (context.filesDir.resolve("media").listFiles()?.size ?: 0) to context.filesDir.usableSpace
+            }
+            runCatching { api.reportStatus(identity, activeManifestVersion, freeBytes,
                 acknowledgedControlVersion = acknowledgedControlVersion, playback = playbackTelemetry,
                 cachedItems = cachedItems, totalItems = totalManifestItems) }
             kotlinx.coroutines.delay(if (playbackTelemetry.state in setOf("playing", "loading", "buffering")) 2_000 else 30_000)
@@ -346,7 +352,7 @@ fun LessonCueApp() {
         Surface(modifier = Modifier.fillMaxSize(), colors = androidx.tv.material3.SurfaceDefaults.colors(containerColor = LessonCueTvColors.Background)) {
           Box(Modifier.fillMaxSize()) {
             when (val current = screen) {
-                AppScreen.Loading -> LoadingScreen()
+                AppScreen.Loading -> LoadingScreen(onEnterAddress = { screen = AppScreen.Connect() })
                 is AppScreen.Connect -> ConnectScreen(current.message) { address, deviceName ->
                     scope.launch {
                         runCatching {
@@ -603,8 +609,11 @@ private suspend fun findLessonCueServer(context: android.content.Context, addres
 
 private suspend fun reconnectSavedServer(context: android.content.Context, identity: DeviceIdentity, manifestCache: java.io.File):
     Pair<DeviceIdentity, ScreenManifest> {
+    // The saved address first, and briefly: it is either right, in which case
+    // it answers at once, or it is not, in which case waiting is time spent on
+    // a screen that looks frozen.
     val preferred = LessonCueApi(identity.serverUrl, manifestCache)
-    runCatching { preferred.manifest(identity) }.getOrNull()?.let { return identity to it }
+    runCatching { preferred.manifestQuickly(identity) }.getOrNull()?.let { return identity to it }
 
     val discoveredAddress = LessonCueDiscovery(context).findServer()
         ?: error("Automatic LessonCue discovery did not find a server.")
@@ -883,6 +892,20 @@ private fun formatLessonTime(value: Instant): String = DateTimeFormatter.ofPatte
 private fun cachedMediaFile(context: android.content.Context, item: CueItem): java.io.File? =
     context.filesDir.resolve("media").resolve(item.cacheFileName()).takeIf { it.exists() }
         ?: context.filesDir.resolve("media").resolve("${item.id}.bin").takeIf { it.exists() }
+
+/**
+ * The cached file for an item, looked up once per item rather than on every
+ * recomposition.
+ *
+ * Asking the filesystem whether a file exists is cheap once and expensive in a
+ * loop: signage redraws its zones on a timer, and each redraw was stat-ing
+ * every item again on the thread that also handles the remote.
+ */
+@Composable
+private fun rememberCachedMediaFile(item: CueItem): java.io.File? {
+    val context = LocalContext.current
+    return remember(context, item.id, item.cacheFileName()) { cachedMediaFile(context, item) }
+}
 
 private fun mediaReadiness(context: android.content.Context, playlist: LessonPlaylist): MediaReadiness {
     val items = playlist.timeline().map(TimelineCue::item)
@@ -1342,8 +1365,7 @@ private fun SignagePresentationZone(zone: SignageZone) {
 
 @Composable
 private fun SignageZoneMedia(item: CueItem, fit: String = "cover") {
-    val context = LocalContext.current
-    val cached = context.filesDir.resolve("media").resolve(item.cacheFileName()).takeIf { it.exists() }
+    val cached = rememberCachedMediaFile(item)
     val source = cached?.toURI()?.toString() ?: item.url ?: return
     if (item.type == "image" || item.contentType?.startsWith("image/") == true) {
         val scale = when (fit) { "contain" -> ContentScale.Fit; "fill" -> ContentScale.FillBounds; else -> ContentScale.Crop }
@@ -1362,7 +1384,7 @@ private fun SignageStreamMedia(id: String, source: String, fit: String) {
 @Composable
 private fun SignageBackgroundAudio(item: CueItem, volumePercent: Int) {
     val context = LocalContext.current
-    val cached = context.filesDir.resolve("media").resolve(item.cacheFileName()).takeIf { it.exists() }
+    val cached = rememberCachedMediaFile(item)
     val source = cached?.toURI()?.toString() ?: item.url ?: return
     val player = remember(item.id, source) { ExoPlayer.Builder(context).build().apply {
         setMediaItem(MediaItem.fromUri(source)); repeatMode = Player.REPEAT_MODE_ONE
@@ -1400,7 +1422,7 @@ private fun SignageVideo(id: String, source: String, fit: String, onAvailability
 @Composable
 private fun SignageBackdrop(item: CueItem) {
     val context = LocalContext.current
-    val cached = context.filesDir.resolve("media").resolve(item.cacheFileName()).takeIf { it.exists() }
+    val cached = rememberCachedMediaFile(item)
     val source = cached?.toURI()?.toString() ?: item.url ?: return
     if (item.type == "image" || item.contentType?.startsWith("image/") == true) {
         AsyncImage(model = source, contentDescription = null, contentScale = ContentScale.Crop,
@@ -1672,8 +1694,7 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         return
     }
     val context = LocalContext.current
-    val cached = context.filesDir.resolve("media").resolve(item.cacheFileName()).takeIf { it.exists() }
-        ?: context.filesDir.resolve("media").resolve("${item.id}.bin").takeIf { it.exists() }
+    val cached = rememberCachedMediaFile(item)
     var visualOpacity by remember(item.id) { mutableStateOf(if (item.fadeInMs > 0) 0f else 1f) }
     var visualSize by remember(item.id) { mutableStateOf(IntSize.Zero) }
     var repeatCompleted by remember(item.id) { mutableIntStateOf(0) }
@@ -2186,12 +2207,24 @@ internal fun LessonCueButton(
 }
 
 @Composable
-private fun LoadingScreen() {
+private fun LoadingScreen(onEnterAddress: (() -> Unit)? = null) {
     var dots by remember { mutableIntStateOf(1) }
+    var waitedSeconds by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(450)
             dots = dots % 3 + 1
+        }
+    }
+    // A first launch with nothing cached can spend the better part of a minute
+    // here: eight seconds to connect, twenty to read, then discovery, then the
+    // same again on whatever that finds. A still screen for that long is
+    // indistinguishable from a frozen one, so say how long it has been and
+    // offer the way out rather than making somebody guess.
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(1_000)
+            waitedSeconds += 1
         }
     }
     Column(
@@ -2202,11 +2235,20 @@ private fun LoadingScreen() {
         LessonCueWordmark()
         Spacer(Modifier.height(34.dp))
         Text("Connecting to LessonCue", fontSize = 32.sp, color = Cream, fontWeight = FontWeight.Bold)
-        Text("Searching for the local server${".".repeat(dots)}", fontSize = 18.sp, color = Muted,
-            modifier = Modifier.padding(top = 10.dp))
+        Text(
+            if (waitedSeconds >= 6) "Still searching for the local server (${waitedSeconds}s)${".".repeat(dots)}"
+            else "Searching for the local server${".".repeat(dots)}",
+            fontSize = 18.sp, color = Muted, modifier = Modifier.padding(top = 10.dp)
+        )
         Spacer(Modifier.height(26.dp))
         Box(Modifier.width(240.dp).height(5.dp).background(Slate, RoundedCornerShape(50))) {
             Box(Modifier.fillMaxWidth(dots / 3f).height(5.dp).background(Gold, RoundedCornerShape(50)))
+        }
+        if (onEnterAddress != null && waitedSeconds >= 6) {
+            Spacer(Modifier.height(26.dp))
+            LessonCueButton(onClick = onEnterAddress, modifier = Modifier.width(300.dp).height(56.dp)) {
+                Text("Enter the server address")
+            }
         }
     }
 }

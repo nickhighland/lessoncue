@@ -206,11 +206,11 @@ public static class ActivityValidation
                     if (buzzer.RootElement.TryGetProperty("clues", out var clues) && clues.ValueKind == JsonValueKind.Array && clues.GetArrayLength() is < 1 or > 100)
                         return "Buzzer Battle must contain between 1 and 100 clues.";
                     foreach (var property in new[] { "wrongPenalty" })
-                        if (buzzer.RootElement.TryGetProperty(property, out var penalty) && (!penalty.TryGetInt32(out var amount) || amount is < 0 or > 10000))
+                        if (BadNumber(buzzer.RootElement, property, 0, 10000))
                             return "Buzzer penalties must be between 0 and 10,000.";
                     if (buzzer.RootElement.TryGetProperty("clues", out var clueValues) && clueValues.ValueKind == JsonValueKind.Array)
                         foreach (var clue in clueValues.EnumerateArray())
-                            if (clue.ValueKind == JsonValueKind.Object && clue.TryGetProperty("points", out var points) && (!points.TryGetInt32(out var value) || value is < 0 or > 10000))
+                            if (clue.ValueKind == JsonValueKind.Object && BadNumber(clue, "points", 0, 10000))
                                 return "Buzzer clue points must be between 0 and 10,000.";
                     break;
                 }
@@ -222,7 +222,7 @@ public static class ActivityValidation
                         return "Punchline must contain between 1 and 100 prompts.";
                     if (punchline.RootElement.TryGetProperty("votingStyle", out var votingStyle) && votingStyle.ValueKind == JsonValueKind.String && !new[] { "gallery", "headToHead" }.Contains(votingStyle.GetString(), StringComparer.OrdinalIgnoreCase))
                         return "Punchline voting style must be gallery or head-to-head.";
-                    if (punchline.RootElement.TryGetProperty("headToHeadMatchPoints", out var matchPoints) && (!matchPoints.TryGetInt32(out var points) || points is < 0 or > 10_000))
+                    if (BadNumber(punchline.RootElement, "headToHeadMatchPoints", 0, 10_000))
                         return "Punchline matchup points must be between 0 and 10,000.";
                     break;
                 }
@@ -233,7 +233,7 @@ public static class ActivityValidation
                     if (fakeOut.RootElement.TryGetProperty("rounds", out var rounds) && rounds.ValueKind == JsonValueKind.Array && rounds.GetArrayLength() is < 1 or > 100)
                         return "Fake Out must contain between 1 and 100 rounds.";
                     foreach (var property in new[] { "truthPoints", "bluffPoints", "hostFavoritePoints" })
-                        if (fakeOut.RootElement.TryGetProperty(property, out var points) && (!points.TryGetInt32(out var value) || value is < 0 or > 10000))
+                        if (BadNumber(fakeOut.RootElement, property, 0, 10000))
                             return "Fake Out scoring values must be between 0 and 10,000.";
                     break;
                 }
@@ -262,11 +262,11 @@ public static class ActivityValidation
                         : "image";
                     if (mediaMode is not ("image" or "memorygrid" or "audio" or "difference" or "emoji" or "rebus"))
                         return "Image Reveal media mode must be image, memoryGrid, audio, difference, emoji, or rebus.";
-                    if (reveal.RootElement.TryGetProperty("totalStages", out var stages) && (!stages.TryGetInt32(out var count) || count is < 1 or > 24))
+                    if (BadNumber(reveal.RootElement, "totalStages", 1, 24))
                         return "Image Reveal must contain between 1 and 24 reveal stages.";
-                    if (reveal.RootElement.TryGetProperty("stages", out var legacyStages) && (!legacyStages.TryGetInt32(out var legacyCount) || legacyCount is < 1 or > 24))
+                    if (BadNumber(reveal.RootElement, "stages", 1, 24))
                         return "Image Reveal must contain between 1 and 24 reveal stages.";
-                    if (reveal.RootElement.TryGetProperty("autoIntervalSeconds", out var interval) && (!interval.TryGetInt32(out var seconds) || seconds is < 1 or > 60))
+                    if (BadNumber(reveal.RootElement, "autoIntervalSeconds", 1, 60))
                         return "Image Reveal auto-reveal must be between 1 and 60 seconds per stage.";
                     if (reveal.RootElement.TryGetProperty("style", out var style) && style.ValueKind == JsonValueKind.String && !new[] { "blur", "pixel", "zoom", "silhouette", "crop" }.Contains(style.GetString(), StringComparer.OrdinalIgnoreCase))
                         return "Image Reveal style is invalid.";
@@ -283,7 +283,7 @@ public static class ActivityValidation
                                 return "Memory Grid cards need visible labels or symbols.";
                         }
                     }
-                    if (mediaMode == "audio" && reveal.RootElement.TryGetProperty("audioDurationSeconds", out var audioDuration) && (!audioDuration.TryGetInt32(out var audioSeconds) || audioSeconds is < 1 or > 600))
+                    if (mediaMode == "audio" && BadNumber(reveal.RootElement, "audioDurationSeconds", 1, 600))
                         return "Audio clues must be between 1 second and 10 minutes.";
                     break;
                 }
@@ -341,7 +341,7 @@ public static class ActivityValidation
                             }
                             else if (round.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array && items.GetArrayLength() is < 2 or > 50)
                                 return "Ordering rounds must contain between 2 and 50 items.";
-                            if (round.TryGetProperty("points", out var points) && (!points.TryGetInt32(out var value) || value is < 0 or > 10000))
+                            if (BadNumber(round, "points", 0, 10000))
                                 return "Ordering round points must be between 0 and 10,000.";
                         }
                     }
@@ -349,9 +349,9 @@ public static class ActivityValidation
                     {
                         if (configJson.Length > 20000) return "Drawing activity configuration is too large.";
                         foreach (var property in new[] { "maxStrokes", "maxPointsPerStroke" })
-                            if (interactive.RootElement.TryGetProperty(property, out var limit) && (!limit.TryGetInt32(out var value) || value is < 1 or > 240))
+                            if (BadNumber(interactive.RootElement, property, 1, 240))
                                 return "Drawing limits must be between 1 and 240.";
-                        if (interactive.RootElement.TryGetProperty("votingSeconds", out var votingSeconds) && (!votingSeconds.TryGetInt32(out var seconds) || seconds is < 5 or > 600))
+                        if (BadNumber(interactive.RootElement, "votingSeconds", 5, 600))
                             return "Drawing voting time must be between 5 seconds and 10 minutes.";
                         if (interactive.RootElement.TryGetProperty("telephoneChain", out var telephoneChain) && telephoneChain.ValueKind == JsonValueKind.True)
                         {
@@ -368,13 +368,13 @@ public static class ActivityValidation
                     }
                     if (type == ActivityTypes.Word)
                     {
-                        if (interactive.RootElement.TryGetProperty("maxWords", out var maxWords) && (!maxWords.TryGetInt32(out var value) || value is < 1 or > 30))
+                        if (BadNumber(interactive.RootElement, "maxWords", 1, 30))
                             return "Word rounds may accept between 1 and 30 words per response.";
                         if (interactive.RootElement.TryGetProperty("turnBased", out var turnBased) && turnBased.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                             return "Word turn-based mode must be true or false.";
                         if (rounds.ValueKind == JsonValueKind.Array)
                             foreach (var round in rounds.EnumerateArray())
-                                if (round.TryGetProperty("seconds", out var seconds) && (!seconds.TryGetInt32(out var duration) || duration is < 5 or > 600))
+                                if (BadNumber(round, "seconds", 5, 600))
                                     return "Word round timers must be between 5 seconds and 10 minutes.";
                     }
                     if (type == ActivityTypes.MatchPlayer && rounds.ValueKind == JsonValueKind.Array)
@@ -385,7 +385,7 @@ public static class ActivityValidation
                             if (answerMode is not ("choice" or "text")) return "Match Minds answer mode must be choice or text.";
                             if (answerMode == "choice" && (!round.TryGetProperty("options", out var options) || options.ValueKind != JsonValueKind.Array || options.GetArrayLength() is < 2 or > 8))
                                 return "Choice-based Match Minds rounds must have between 2 and 8 options.";
-                            if (round.TryGetProperty("points", out var points) && (!points.TryGetInt32(out var value) || value is < 0 or > 10000))
+                            if (BadNumber(round, "points", 0, 10000))
                                 return "Match Minds round points must be between 0 and 10,000.";
                         }
                     }
@@ -393,11 +393,11 @@ public static class ActivityValidation
                     {
                         if (interactive.RootElement.TryGetProperty("audienceVoting", out var audienceVoting) && audienceVoting.ValueKind != JsonValueKind.True && audienceVoting.ValueKind != JsonValueKind.False)
                             return "Stage Challenge audienceVoting must be true or false.";
-                        if (interactive.RootElement.TryGetProperty("audienceVotePoints", out var audienceVotePoints) && (!audienceVotePoints.TryGetInt32(out var votePoints) || votePoints is < 0 or > 1000))
+                        if (BadNumber(interactive.RootElement, "audienceVotePoints", 0, 1000))
                             return "Stage Challenge audience vote points must be between 0 and 1,000.";
                         foreach (var challenge in rounds.EnumerateArray())
                         {
-                            if (challenge.TryGetProperty("seconds", out var seconds) && seconds.ValueKind == JsonValueKind.Number && (!seconds.TryGetInt32(out var duration) || duration is < 5 or > 3600))
+                            if (BadNumber(challenge, "seconds", 5, 3600))
                                 return "Stage Challenge timers must be between 5 seconds and 60 minutes.";
                         }
                     }
@@ -414,7 +414,7 @@ public static class ActivityValidation
                         ? selectionElement.GetString()
                         : "all";
                     if (selection is not ("all" or "random")) return "Bracket entrant selection must be all or random.";
-                    if (bracket.RootElement.TryGetProperty("randomEntrantCount", out var randomCount) && (!randomCount.TryGetInt32(out var count) || count is < 2 or > 32))
+                    if (BadNumber(bracket.RootElement, "randomEntrantCount", 2, 32))
                         return "Random bracket rosters must contain between 2 and 32 entrants.";
                     if (!bracket.RootElement.TryGetProperty("entrants", out var entrants) || entrants.ValueKind != JsonValueKind.Array)
                     {
@@ -464,14 +464,14 @@ public static class ActivityValidation
                             if (!ActivityAdventureNodeTypes.IsValid(nodeType))
                                 return $"Adventure node type '{nodeType}' is not supported.";
                         }
-                        if (round.TryGetProperty("seconds", out var seconds) && seconds.ValueKind == JsonValueKind.Number && (!seconds.TryGetInt32(out var duration) || duration is < 5 or > 3600))
+                        if (BadNumber(round, "seconds", 5, 3600))
                             return "Physical Room timers must be between 5 seconds and 60 minutes.";
                         var choiceCount = round.TryGetProperty("choices", out var choicesElement) && choicesElement.ValueKind == JsonValueKind.Array
                             ? choicesElement.GetArrayLength()
                             : 0;
                         if (adventure && nodeType is ActivityAdventureNodeTypes.Poll or ActivityAdventureNodeTypes.Quiz && choiceCount is < 2 or > 12)
                             return $"Adventure {nodeType} nodes need between 2 and 12 choices.";
-                        if (adventure && nodeType == ActivityAdventureNodeTypes.Quiz && round.TryGetProperty("correctIndex", out var correctIndex) && (!correctIndex.TryGetInt32(out var answerIndex) || answerIndex < 0 || answerIndex >= choiceCount))
+                        if (adventure && nodeType == ActivityAdventureNodeTypes.Quiz && BadNumber(round, "correctIndex", 0, Math.Max(0, choiceCount - 1)))
                             return "Adventure quiz correctIndex must point to a visible choice.";
                         if (adventure && nodeType == ActivityAdventureNodeTypes.End && choiceCount > 0)
                             return "Adventure end nodes cannot contain choices.";
@@ -485,7 +485,7 @@ public static class ActivityValidation
                         }
                         if (adventure && nodeType == ActivityAdventureNodeTypes.Score)
                         {
-                            if (round.TryGetProperty("scoreDelta", out var scoreDelta) && (!scoreDelta.TryGetInt32(out var delta) || delta is < -10000 or > 10000))
+                            if (BadNumber(round, "scoreDelta", -10000, 10000))
                                 return "Adventure scoreDelta must be between -10,000 and 10,000.";
                             if (round.TryGetProperty("scoreTarget", out var scoreTarget) && (scoreTarget.ValueKind != JsonValueKind.String || !new[] { "team", "allTeams", "participant", "none" }.Contains(scoreTarget.GetString(), StringComparer.OrdinalIgnoreCase)))
                                 return "Adventure scoreTarget must be team, allTeams, participant, or none.";
@@ -557,13 +557,13 @@ public static class ActivityValidation
                     }
                     if (utilityType.Equals(ActivityUtilityTypes.Dice, StringComparison.OrdinalIgnoreCase))
                     {
-                        if (utility.RootElement.TryGetProperty("diceSides", out var sides) && (!sides.TryGetInt32(out var sideCount) || sideCount is < 2 or > 1000))
+                        if (BadNumber(utility.RootElement, "diceSides", 2, 1000))
                             return "Dice must have between 2 and 1,000 sides.";
                     }
                     if (utilityType.Equals(ActivityUtilityTypes.RandomNumber, StringComparison.OrdinalIgnoreCase))
                     {
-                        var minimum = utility.RootElement.TryGetProperty("minimum", out var minimumElement) && minimumElement.TryGetInt32(out var min) ? min : 1;
-                        var maximum = utility.RootElement.TryGetProperty("maximum", out var maximumElement) && maximumElement.TryGetInt32(out var max) ? max : 100;
+                        var minimum = NumberOr(utility.RootElement, "minimum", 1);
+                        var maximum = NumberOr(utility.RootElement, "maximum", 100);
                         if (maximum < minimum || maximum - (long)minimum > 1_000_000) return "Random Number needs a range of at most one million values.";
                     }
                     if (utilityType.Equals(ActivityUtilityTypes.MysteryBoxes, StringComparison.OrdinalIgnoreCase))
@@ -578,16 +578,16 @@ public static class ActivityValidation
                     }
                     if (utilityType.Equals(ActivityUtilityTypes.TeamGenerator, StringComparison.OrdinalIgnoreCase))
                     {
-                        if (utility.RootElement.TryGetProperty("teamCount", out var teamCount) && (!teamCount.TryGetInt32(out var count) || count is < 2 or > 12))
+                        if (BadNumber(utility.RootElement, "teamCount", 2, 12))
                             return "Team Generator must create between 2 and 12 teams.";
                         if (utility.RootElement.TryGetProperty("teamAssignmentMode", out var assignmentMode) && (assignmentMode.ValueKind != JsonValueKind.String || !ActivityUtilityAssignmentModes.IsValid(assignmentMode.GetString() ?? "")))
                             return "Team Generator assignment mode must be manual, balanced, or random.";
                     }
                     if (utilityType.Equals(ActivityUtilityTypes.Countdown, StringComparison.OrdinalIgnoreCase))
                     {
-                        if (utility.RootElement.TryGetProperty("durationSeconds", out var duration) && (!duration.TryGetInt32(out var seconds) || seconds is < 1 or > 3600))
+                        if (BadNumber(utility.RootElement, "durationSeconds", 1, 3600))
                             return "Utility Countdown must be between 1 second and 60 minutes.";
-                        if (utility.RootElement.TryGetProperty("warningThresholdSeconds", out var warning) && (!warning.TryGetInt32(out var warningSeconds) || warningSeconds is < 0 or > 3600))
+                        if (BadNumber(utility.RootElement, "warningThresholdSeconds", 0, 3600))
                             return "Countdown warning time must be between 0 seconds and 60 minutes.";
                     }
                     break;
@@ -606,7 +606,8 @@ public static class ActivityValidation
     {
         if (target.ValueKind == JsonValueKind.Number)
         {
-            if (!target.TryGetInt32(out var targetIndex) || targetIndex < 0 || targetIndex >= roundCount)
+            if (target.ValueKind != JsonValueKind.Number
+                || !target.TryGetInt32(out var targetIndex) || targetIndex < 0 || targetIndex >= roundCount)
                 return $"{label} indexes must point to an existing node.";
             return null;
         }
@@ -624,26 +625,55 @@ public static class ActivityValidation
 
         if (modifiers.TryGetProperty("wager", out var wager) && wager.ValueKind == JsonValueKind.Object)
         {
-            var max = wager.TryGetProperty("maxPoints", out var maxElement) && maxElement.TryGetInt32(out var maxValue) ? maxValue : 500;
-            var defaultValue = wager.TryGetProperty("defaultPoints", out var defaultElement) && defaultElement.TryGetInt32(out var defaultPoints) ? defaultPoints : 0;
+            var max = NumberOr(wager, "maxPoints", 500);
+            var defaultValue = NumberOr(wager, "defaultPoints", 0);
             if (max is < 0 or > 10_000 || defaultValue is < 0 || defaultValue > max)
                 return $"{label} wager points must be between 0 and 10,000, with the default no higher than the maximum.";
         }
 
         if (modifiers.TryGetProperty("speedBonus", out var speed) && speed.ValueKind == JsonValueKind.Object)
         {
-            var max = speed.TryGetProperty("maxPoints", out var maxElement) && maxElement.TryGetInt32(out var maxValue) ? maxValue : 50;
-            var window = speed.TryGetProperty("windowSeconds", out var windowElement) && windowElement.TryGetInt32(out var windowValue) ? windowValue : 20;
+            var max = NumberOr(speed, "maxPoints", 50);
+            var window = NumberOr(speed, "windowSeconds", 20);
             if (max is < 0 or > 2_000 || window is < 1 or > 600)
                 return $"{label} speed bonuses must be at most 2,000 points and use a 1–600 second window.";
         }
 
         if (modifiers.TryGetProperty("lives", out var lives) && lives.ValueKind == JsonValueKind.Object)
         {
-            var startingLives = lives.TryGetProperty("startingLives", out var livesElement) && livesElement.TryGetInt32(out var lifeValue) ? lifeValue : 3;
+            var startingLives = NumberOr(lives, "startingLives", 3);
             if (startingLives is < 1 or > 9) return $"{label} must start with between 1 and 9 lives.";
         }
 
         return null;
     }
+
+    /// <summary>
+    /// Whether a numeric setting is present but not a whole number in range.
+    /// Absent counts as fine, and so does an explicit null: a nullable field
+    /// serializes to null, which is the model saying "not set".
+    /// </summary>
+    /// <remarks>
+    /// JsonElement.TryGetInt32 throws rather than returning false when the
+    /// element is not a number, so reading a null this way turned "create this
+    /// game from the library" into a 500 with no message. Two call sites had
+    /// already been patched with a local kind check; this is the same fix
+    /// everywhere, once.
+    /// </remarks>
+    private static bool BadNumber(JsonElement source, string name, int min, int max)
+    {
+        if (!source.TryGetProperty(name, out var element)) return false;
+        if (element.ValueKind == JsonValueKind.Null) return false;
+        if (element.ValueKind != JsonValueKind.Number) return true;
+        return !element.TryGetInt32(out var value) || value < min || value > max;
+    }
+
+    /// <summary>A numeric setting, or the shipped default when it is not set.</summary>
+    private static int NumberOr(JsonElement source, string name, int fallback) =>
+        source.TryGetProperty(name, out var element)
+        && element.ValueKind == JsonValueKind.Number
+        && element.TryGetInt32(out var value)
+            ? value
+            : fallback;
+
 }

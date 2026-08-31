@@ -44,3 +44,6 @@ server/LessonCue.Server/data/
 *.db-shm
 *.db-wal
 .DS_Store
+
+# Incremental typecheck state, not source.
+tsconfig.tsbuildinfo
