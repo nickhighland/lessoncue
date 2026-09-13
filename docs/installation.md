@@ -36,6 +36,8 @@ Permission enforcement happens on the server even if someone constructs an API r
 
 Native Linux installation configures `http://lessoncue.local` on standard HTTP port 80 automatically. A user with **Server settings** permission can change either `lessoncue` or the browser port under **Settings → Connection & pairing**. LessonCue applies the change and restarts itself; if a chosen port cannot be opened, it returns to the previous working port. Changing the name does not rename the Linux computer or SSH hostname. Keep the numeric address as a fallback for networks that block multicast DNS.
 
+Under **Settings → Server connection**, **Allow IPv6 for the local .local address** controls whether Avahi advertises the local name over IPv6. It is on by default to preserve existing installations. If a TV chooses an IPv6 address it cannot reach, turn it off and save the local address; this changes Avahi discovery for the whole server (including other Avahi services), not Linux networking or the Cloudflare Tunnel. Test the server's numeric IPv4 address on a failing TV first, and allow a few seconds for mDNS caches to refresh after changing the setting.
+
 ### Optional: use your own internet hostname with Cloudflare Tunnel
 
 LessonCue does not require remote access. If staff must reach it away from the local network, native Linux installations can configure an outbound-only, remotely managed Cloudflare Tunnel from **Settings → Optional remote access**. You need a domain managed in your own Cloudflare account. Protect the hostname with Cloudflare Access before inviting users; without Access, anyone on the internet can reach the LessonCue sign-in page.

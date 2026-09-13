@@ -23,6 +23,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:protocol
+      - run: npm run test:network-config
       - run: npm run lint
       - run: npm test
       - run: npm run test:units

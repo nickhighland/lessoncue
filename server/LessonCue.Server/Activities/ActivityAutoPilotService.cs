@@ -44,10 +44,10 @@ public sealed class ActivityAutoPilotService(
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
-        var sessions = scope.ServiceProvider.GetRequiredService<ActivitySessionService>();
 
         var now = DateTimeOffset.UtcNow;
         var due = await db.ActivityRuns
+            .AsNoTracking()
             .Include(x => x.ActivityDefinition)
             .Where(x => x.AutoAdvanceAt != null
                 && x.Status != ActivityRunStatuses.Ended
@@ -57,7 +57,18 @@ public sealed class ActivityAutoPilotService(
         foreach (var run in due.Where(x => x.AutoAdvanceAt <= now))
         {
             if (!ActivityAutoPilot.Supports(run.ActivityDefinition?.Type)) continue;
-            await sessions.AdvanceAutomaticallyAsync(run.Id, ct);
+            try
+            {
+                // Read fresh state only after taking the run gate. The discovery
+                // query must not seed a tracked, already-outdated snapshot.
+                using var runScope = scopeFactory.CreateScope();
+                var sessions = runScope.ServiceProvider.GetRequiredService<ActivitySessionService>();
+                await sessions.AdvanceAutomaticallyAsync(run.Id, ct);
+            }
+            catch (Exception error) when (error is not OperationCanceledException)
+            {
+                logger.LogError(error, "Activity auto-pilot failed for run {RunId}.", run.Id);
+            }
         }
     }
 }

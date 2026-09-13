@@ -4,7 +4,7 @@ import { WeatherConditionArtwork, WeatherDropArtwork, WeatherWindArtwork } from 
 import { ActivityDisplay } from "./activities/ActivityDisplay";
 import "./signage-studio.css";
 
-const APP_VERSION = "0.46.0";
+const APP_VERSION = "0.46.1";
 /** Shared with public/sw.js, which answers media requests from it. */
 const MEDIA_CACHE = "lessoncue-media-v1";
 
@@ -186,7 +186,8 @@ export function WebPlayerApp() {
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [interactionUnlocked, setInteractionUnlocked] = useState(false);
   const [unlockNonce, setUnlockNonce] = useState(0);
-  const [acknowledgedVersion, setAcknowledgedVersion] = useState(0);
+  const acknowledgedVersionRef = useRef(0);
+  const heartbeatWakeRef = useRef<(() => void) | undefined>(undefined);
   const [status, setStatus] = useState<PlaybackStatus>(idleStatus);
   const [controlsVisible, setControlsVisible] = useState(true);
   const requestedCueRef = useRef<string | null>(new URLSearchParams(location.search).get("cue"));
@@ -233,6 +234,7 @@ export function WebPlayerApp() {
     if (response.status === 401 || response.status === 404) throw new PairingExpiredError();
     if (!response.ok) throw new Error(`Manifest request failed (${response.status}).`);
     const next = await response.json() as Manifest;
+    if (signal?.aborted) throw new DOMException("Manifest request cancelled", "AbortError");
     setManifest(next);
     const requestedCue = requestedCueRef.current;
     if (requestedCue) {
@@ -374,6 +376,7 @@ export function WebPlayerApp() {
     async function refresh() {
       try {
         await loadManifest(identity!, controller.signal);
+        if (stopped || controller.signal.aborted) return;
         retryMs = 1_000;
         timer = window.setTimeout(refresh, 30_000);
       } catch (error) {
@@ -411,6 +414,12 @@ export function WebPlayerApp() {
 
   useEffect(() => {
     if (!identity) return;
+    acknowledgedVersionRef.current = 0;
+  }, [identity]);
+
+  useEffect(() => {
+    if (!identity) return;
+    const controller = new AbortController();
     let stopped = false;
     let version: number | undefined;
     let timer = 0;
@@ -421,48 +430,59 @@ export function WebPlayerApp() {
         const response = await fetch(`/api/v1/screens/${identity!.screenId}/control${query}`, {
           headers: { Authorization: `Bearer ${identity!.token}` },
           cache: "no-store",
+          signal: controller.signal,
         });
+        if (stopped || controller.signal.aborted) return;
         if (response.status === 401 || response.status === 404) throw new PairingExpiredError();
         if (!response.ok) throw new Error(`Controller request failed (${response.status}).`);
         const command = await response.json() as Command;
+        if (stopped || controller.signal.aborted) return;
         if (version == null) {
           version = command.version;
         } else if (command.changed) {
           let freshManifest = manifestRef.current;
-          if (command.action === "play") freshManifest = await loadManifest(identity!);
+          if (command.action === "play") freshManifest = await loadManifest(identity!, controller.signal);
+          if (stopped || controller.signal.aborted) return;
           applyCommand(command, freshManifest);
           version = command.version;
-          setAcknowledgedVersion(command.version);
+          acknowledgedVersionRef.current = command.version;
+          heartbeatWakeRef.current?.();
         } else {
           version = Math.max(version, command.version);
         }
         setConnection("online");
       } catch (error) {
-        if (stopped) return;
+        if (stopped || controller.signal.aborted) return;
         if (error instanceof PairingExpiredError) return forgetPairing("This browser was unpaired. Pair it again to continue.");
         setConnection(navigator.onLine ? "reconnecting" : "offline");
         setConnectionMessage(errorText(error));
         delay = 2_500;
       }
-      timer = window.setTimeout(poll, delay);
+      if (!stopped && !controller.signal.aborted) timer = window.setTimeout(poll, delay);
     }
     void poll();
-    return () => { stopped = true; window.clearTimeout(timer); };
+    return () => { stopped = true; controller.abort(); window.clearTimeout(timer); };
     // Command application intentionally reads the latest manifest/playback refs without restarting the long-poll loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identity]);
 
   useEffect(() => {
     if (!identity) return;
+    const controller = new AbortController();
     let stopped = false;
     let timer = 0;
+    let inFlight = false;
+    let pending = false;
     async function heartbeat() {
+      inFlight = true;
       const current = statusRef.current;
       try {
         const storage = await navigator.storage?.estimate?.().catch(() => undefined);
+        if (stopped || controller.signal.aborted) return;
         const response = await fetch("/api/v1/tv/status", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${identity!.token}` },
+          signal: controller.signal,
           body: JSON.stringify({
             screenId: identity!.screenId,
             appVersion: APP_VERSION,
@@ -470,7 +490,7 @@ export function WebPlayerApp() {
             freeBytes: Math.max(0, (storage?.quota || 0) - (storage?.usage || 0)),
             manifestVersion: manifestRef.current?.manifestVersion || 0,
             failedDownloads: errorsRef.current.length,
-            acknowledgedControlVersion: acknowledgedVersion,
+            acknowledgedControlVersion: acknowledgedVersionRef.current,
             playbackState: current.state,
             lessonId: current.lessonId,
             itemId: current.itemId,
@@ -494,19 +514,37 @@ export function WebPlayerApp() {
             signageError: errorsRef.current.find(error => error.area?.startsWith("signage"))?.message || null,
           }),
         });
+        if (stopped || controller.signal.aborted) return;
         if (response.status === 401 || response.status === 404) throw new PairingExpiredError();
         if (!response.ok) throw new Error(`Heartbeat failed (${response.status}).`);
         setConnection("online");
       } catch (error) {
-        if (stopped) return;
+        if (stopped || controller.signal.aborted) return;
         if (error instanceof PairingExpiredError) return forgetPairing("This browser was unpaired. Pair it again to continue.");
         setConnection(navigator.onLine ? "reconnecting" : "offline");
+      } finally {
+        inFlight = false;
+        if (!stopped && !controller.signal.aborted) {
+          timer = window.setTimeout(heartbeat, pending ? 0 : activeRef.current ? 2_000 : 10_000);
+          pending = false;
+        }
       }
-      timer = window.setTimeout(heartbeat, activeRef.current ? 2_000 : 10_000);
     }
+    const wake = () => {
+      if (stopped || controller.signal.aborted) return;
+      if (inFlight) { pending = true; return; }
+      window.clearTimeout(timer);
+      timer = window.setTimeout(heartbeat, 0);
+    };
+    heartbeatWakeRef.current = wake;
     void heartbeat();
-    return () => { stopped = true; window.clearTimeout(timer); };
-  }, [identity, acknowledgedVersion]);
+    return () => {
+      stopped = true;
+      if (heartbeatWakeRef.current === wake) heartbeatWakeRef.current = undefined;
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [identity]);
 
   useEffect(() => {
     const update = () => {

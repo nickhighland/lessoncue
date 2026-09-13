@@ -18,6 +18,10 @@ namespace LessonCue.Server;
 public static class AdminApi
 {
     private const string ControllerPinProtectionPurpose = "LessonCue.ControllerPin.v1";
+    // Bounded stripes serialize version allocation without retaining a lock
+    // forever for every screen a server has ever paired.
+    private static readonly SemaphoreSlim[] PlaybackControlGates =
+        Enumerable.Range(0, 128).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
 
     public static void MapLessonCueAdmin(this IEndpointRouteBuilder routes, string mediaPath, string dataPath,
         Guid serverId, string serverName)
@@ -590,7 +594,7 @@ public static class AdminApi
         // temporary-session paths scope the returned data; the universal path
         // returns only the PIN gate until the short-lived grant is presented.
         var publicController = api.MapGroup("/controller");
-        publicController.MapGet("/bootstrap", async (string? path, HttpContext context,
+        publicController.MapGet("/bootstrap", async (string? path, bool? liveOnly, HttpContext context,
             LessonCueDb db, ControllerSessionService controllerSessions, HttpPortService httpPort,
             CancellationToken ct) =>
         {
@@ -640,10 +644,13 @@ public static class AdminApi
             var grant = context.Request.Headers["X-LessonCue-Controller-Grant"].ToString();
             var grantValid = !universal || controllerSessions.IsUniversalGrantValid(grant);
             var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            // Playback acknowledgments need frequent refreshes, but the entire
+            // lesson library does not. Invalid grants still clear cached data.
+            var libraryIncluded = liveOnly != true || !grantValid;
 
             var classesQuery = db.Classes.AsNoTracking().AsQueryable();
             if (classId is Guid selectedClassId) classesQuery = classesQuery.Where(x => x.Id == selectedClassId);
-            var classes = grantValid
+            var classes = grantValid && libraryIncluded
                 ? (await classesQuery.OrderBy(x => x.Name).Select(x => new
                 {
                     x.Id,
@@ -660,7 +667,7 @@ public static class AdminApi
             var lessonsQuery = db.Lessons.AsNoTracking().Where(x => !x.Archived).AsQueryable();
             if (classId is Guid lessonClassId) lessonsQuery = lessonsQuery.Where(x => x.ClassId == lessonClassId);
             if (lessonId is Guid selectedLessonId) lessonsQuery = lessonsQuery.Where(x => x.Id == selectedLessonId);
-            var lessons = grantValid
+            var lessons = grantValid && libraryIncluded
                 ? (await lessonsQuery.OrderBy(x => x.Date).Select(x => new
                 {
                     x.Id,
@@ -794,6 +801,7 @@ public static class AdminApi
 
             return Results.Ok(new
             {
+                libraryIncluded,
                 classes,
                 lessons,
                 screens,
@@ -2808,83 +2816,89 @@ public static class AdminApi
             var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { "play", "pause", "resume", "stop", "next", "previous", "seek" };
             if (!allowed.Contains(action)) return Results.BadRequest(new { error = "Unsupported playback command." });
-            var screen = await db.Screens.SingleOrDefaultAsync(x => x.Id == id && !x.Revoked, ct);
-            if (screen is null) return Results.NotFound();
-            if (screen.SignageOnly)
-                return Results.Conflict(new { error = "This screen is assigned to signage only and cannot receive lesson playback commands." });
-            var controllerContext = context.Request.Headers["X-LessonCue-Controller"].ToString();
-            if (!controllerContext.StartsWith("room:", StringComparison.OrdinalIgnoreCase) &&
-                !controllerContext.StartsWith("session:", StringComparison.OrdinalIgnoreCase) &&
-                !controllerContext.Equals("universal", StringComparison.OrdinalIgnoreCase))
-                return Results.Forbid();
-            if (controllerContext.StartsWith("room:", StringComparison.OrdinalIgnoreCase) ||
-                controllerContext.StartsWith("session:", StringComparison.OrdinalIgnoreCase))
+            var gate = PlaybackControlGates[(uint)id.GetHashCode() % PlaybackControlGates.Length];
+            await gate.WaitAsync(ct);
+            try
             {
-                var requireLocal = await db.Organizations.AsNoTracking()
-                    .OrderBy(item => item.Id).Select(x => x.RequireLocalRoomControllers).FirstAsync(ct);
-                if (!ControllerAccessPolicy.CanUseRoomController(requireLocal, context.User, context.Request.Host.Host,
-                    context.Connection.RemoteIpAddress))
-                    return Results.Json(new
-                    {
-                        error = "This room controller is restricted to the campus network. Open it from the server's .local address."
-                    }, statusCode: StatusCodes.Status403Forbidden);
-            }
-            if (controllerContext.Equals("universal", StringComparison.OrdinalIgnoreCase))
-            {
-                var grant = context.Request.Headers["X-LessonCue-Controller-Grant"].ToString();
-                if (!controllerSessions.IsUniversalGrantValid(grant))
-                    return Results.Json(new { error = "Enter the current universal controller PIN." }, statusCode: StatusCodes.Status403Forbidden);
-            }
-            if (controllerContext.StartsWith("room:", StringComparison.OrdinalIgnoreCase))
-            {
-                if (!Guid.TryParse(controllerContext[5..], out var roomId) || screen.AssignedClassId != roomId)
+                var screen = await db.Screens.SingleOrDefaultAsync(x => x.Id == id && !x.Revoked, ct);
+                if (screen is null) return Results.NotFound();
+                if (screen.SignageOnly)
+                    return Results.Conflict(new { error = "This screen is assigned to signage only and cannot receive lesson playback commands." });
+                var controllerContext = context.Request.Headers["X-LessonCue-Controller"].ToString();
+                if (!controllerContext.StartsWith("room:", StringComparison.OrdinalIgnoreCase) &&
+                    !controllerContext.StartsWith("session:", StringComparison.OrdinalIgnoreCase) &&
+                    !controllerContext.Equals("universal", StringComparison.OrdinalIgnoreCase))
                     return Results.Forbid();
-                if (input.LessonId is Guid scopedLessonId && !await db.Lessons.AnyAsync(x => x.Id == scopedLessonId && x.ClassId == roomId, ct))
-                    return Results.Forbid();
+                if (controllerContext.StartsWith("room:", StringComparison.OrdinalIgnoreCase) ||
+                    controllerContext.StartsWith("session:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var requireLocal = await db.Organizations.AsNoTracking()
+                        .OrderBy(item => item.Id).Select(x => x.RequireLocalRoomControllers).FirstAsync(ct);
+                    if (!ControllerAccessPolicy.CanUseRoomController(requireLocal, context.User, context.Request.Host.Host,
+                        context.Connection.RemoteIpAddress))
+                        return Results.Json(new
+                        {
+                            error = "This room controller is restricted to the campus network. Open it from the server's .local address."
+                        }, statusCode: StatusCodes.Status403Forbidden);
+                }
+                if (controllerContext.Equals("universal", StringComparison.OrdinalIgnoreCase))
+                {
+                    var grant = context.Request.Headers["X-LessonCue-Controller-Grant"].ToString();
+                    if (!controllerSessions.IsUniversalGrantValid(grant))
+                        return Results.Json(new { error = "Enter the current universal controller PIN." }, statusCode: StatusCodes.Status403Forbidden);
+                }
+                if (controllerContext.StartsWith("room:", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!Guid.TryParse(controllerContext[5..], out var roomId) || screen.AssignedClassId != roomId)
+                        return Results.Forbid();
+                    if (input.LessonId is Guid scopedLessonId && !await db.Lessons.AnyAsync(x => x.Id == scopedLessonId && x.ClassId == roomId, ct))
+                        return Results.Forbid();
+                }
+                if (controllerContext.StartsWith("session:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var session = await ResolveControllerSessionAsync(controllerContext[8..], controllerSessions, db, ct);
+                    if (session is null || screen.AssignedClassId != session.ClassId ||
+                        session.LessonId is Guid restrictedCurrentLessonId && action != "play" && screen.PlaybackLessonId != restrictedCurrentLessonId ||
+                        input.LessonId is Guid sessionLessonId &&
+                        (session.LessonId is Guid restrictedLessonId && sessionLessonId != restrictedLessonId ||
+                         !await db.Lessons.AnyAsync(x => x.Id == sessionLessonId && x.ClassId == session.ClassId, ct)))
+                        return Results.Forbid();
+                }
+                if (action == "play")
+                {
+                    if (input.LessonId is not Guid lessonId)
+                        return Results.BadRequest(new { error = "Choose a lesson to play." });
+                    var lesson = await db.Lessons.Include(x => x.Items).SingleOrDefaultAsync(x => x.Id == lessonId && !x.Archived, ct);
+                    if (lesson is null) return Results.BadRequest(new { error = "The selected lesson is unavailable." });
+                    if (input.ItemId is Guid itemId && lesson.Items.All(x => x.Id != itemId))
+                        return Results.BadRequest(new { error = "The selected item is not in that lesson." });
+                }
+                screen.ControlVersion = screen.ControlVersion == int.MaxValue ? 1 : screen.ControlVersion + 1;
+                screen.ControlAction = action;
+                screen.ControlLessonId = input.LessonId;
+                screen.ControlItemId = input.ItemId;
+                screen.ControlPositionMs = input.PositionMs is null ? null : Math.Max(0, input.PositionMs.Value);
+                screen.ControlIssuedAt = DateTimeOffset.UtcNow;
+                db.PlaybackCommands.Add(new PlaybackCommandRecord
+                {
+                    ScreenId = screen.Id,
+                    Version = screen.ControlVersion,
+                    Action = action,
+                    LessonId = input.LessonId,
+                    ItemId = input.ItemId,
+                    PositionMs = screen.ControlPositionMs,
+                    IssuedAt = screen.ControlIssuedAt.Value
+                });
+                var oldestRetainedVersion = Math.Max(0, screen.ControlVersion - 1000);
+                var staleCommands = await db.PlaybackCommands.Where(x => x.ScreenId == id && x.Version < oldestRetainedVersion).ToListAsync(ct);
+                db.PlaybackCommands.RemoveRange(staleCommands);
+                Audit(db, "screen.control", screen.Id, $"{action}:{screen.ControlVersion}");
+                await db.SaveChangesAsync(ct);
+                await hub.Clients.Group($"screen:{id}").SendAsync("PlaybackCommand", new { screen.ControlVersion }, ct);
+                return Results.Accepted(value: new { version = screen.ControlVersion, action, lessonId = input.LessonId,
+                    itemId = input.ItemId, positionMs = screen.ControlPositionMs, issuedAt = screen.ControlIssuedAt, state = screen.PlaybackState });
             }
-            if (controllerContext.StartsWith("session:", StringComparison.OrdinalIgnoreCase))
-            {
-                var session = await ResolveControllerSessionAsync(controllerContext[8..], controllerSessions, db, ct);
-                if (session is null || screen.AssignedClassId != session.ClassId ||
-                    session.LessonId is Guid restrictedCurrentLessonId && action != "play" && screen.PlaybackLessonId != restrictedCurrentLessonId ||
-                    input.LessonId is Guid sessionLessonId &&
-                    (session.LessonId is Guid restrictedLessonId && sessionLessonId != restrictedLessonId ||
-                     !await db.Lessons.AnyAsync(x => x.Id == sessionLessonId && x.ClassId == session.ClassId, ct)))
-                    return Results.Forbid();
-            }
-            if (action == "play")
-            {
-                if (input.LessonId is not Guid lessonId)
-                    return Results.BadRequest(new { error = "Choose a lesson to play." });
-                var lesson = await db.Lessons.Include(x => x.Items).SingleOrDefaultAsync(x => x.Id == lessonId && !x.Archived, ct);
-                if (lesson is null) return Results.BadRequest(new { error = "The selected lesson is unavailable." });
-                if (input.ItemId is Guid itemId && lesson.Items.All(x => x.Id != itemId))
-                    return Results.BadRequest(new { error = "The selected item is not in that lesson." });
-            }
-            screen.ControlVersion = screen.ControlVersion == int.MaxValue ? 1 : screen.ControlVersion + 1;
-            screen.ControlAction = action;
-            screen.ControlLessonId = input.LessonId;
-            screen.ControlItemId = input.ItemId;
-            screen.ControlPositionMs = input.PositionMs is null ? null : Math.Max(0, input.PositionMs.Value);
-            screen.ControlIssuedAt = DateTimeOffset.UtcNow;
-            db.PlaybackCommands.Add(new PlaybackCommandRecord
-            {
-                ScreenId = screen.Id,
-                Version = screen.ControlVersion,
-                Action = action,
-                LessonId = input.LessonId,
-                ItemId = input.ItemId,
-                PositionMs = screen.ControlPositionMs,
-                IssuedAt = screen.ControlIssuedAt.Value
-            });
-            var oldestRetainedVersion = Math.Max(0, screen.ControlVersion - 1000);
-            var staleCommands = await db.PlaybackCommands.Where(x => x.ScreenId == id && x.Version < oldestRetainedVersion).ToListAsync(ct);
-            db.PlaybackCommands.RemoveRange(staleCommands);
-            Audit(db, "screen.control", screen.Id, $"{action}:{screen.ControlVersion}");
-            await db.SaveChangesAsync(ct);
-            await hub.Clients.Group($"screen:{id}").SendAsync("PlaybackCommand", new { screen.ControlVersion }, ct);
-            return Results.Accepted(value: new { version = screen.ControlVersion, action, lessonId = input.LessonId,
-                itemId = input.ItemId, positionMs = screen.ControlPositionMs, issuedAt = screen.ControlIssuedAt, state = screen.PlaybackState });
+            finally { gate.Release(); }
         }).AllowAnonymous();
 
         screens.MapPost("/screens/{id:guid}/assignment-check", async (Guid id, ScreenAssignmentCheckInput input,
@@ -3863,8 +3877,9 @@ public static class AdminApi
         {
             try
             {
-                var status = await localAddress.SetAsync(input.Hostname, ct);
-                Audit(db, "server.local-address.update", Guid.Empty, status.Address);
+                var status = await localAddress.SetAsync(input.Hostname, input.Ipv6Enabled, ct);
+                Audit(db, "server.local-address.update", Guid.Empty,
+                    $"{status.Address};local-ipv6:{status.Ipv6Enabled}");
                 await db.SaveChangesAsync(ct);
                 return Results.Ok(status);
             }
@@ -5180,7 +5195,7 @@ public static class AdminApi
         return null;
     }
 
-    private static async Task<TemporaryControllerSession?> ResolveControllerSessionAsync(string token,
+    internal static async Task<TemporaryControllerSession?> ResolveControllerSessionAsync(string token,
         ControllerSessionService controllerSessions, LessonCueDb db, CancellationToken ct)
     {
         var normalized = token.Trim().ToLowerInvariant();

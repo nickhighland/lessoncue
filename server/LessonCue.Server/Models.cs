@@ -830,7 +830,7 @@ public sealed record OrganizationInput(string Name, string SiteName, string Time
     List<string>? SignageSourceAllowlist = null, bool? SignageEnabled = null);
 public sealed record SignageAvailabilityInput(bool Enabled);
 public sealed record StorageLimitInput(long LimitBytes);
-public sealed record LocalHostnameInput(string Hostname);
+public sealed record LocalHostnameInput(string Hostname, bool? Ipv6Enabled = null);
 public sealed record HttpPortInput(int Port);
 public sealed record CloudflareTunnelInput(bool Enabled, string? PublicHostname, string? Token,
     bool AcknowledgedRemoteExposure = false);

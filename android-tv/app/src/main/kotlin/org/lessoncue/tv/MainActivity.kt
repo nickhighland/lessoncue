@@ -64,6 +64,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -1321,15 +1322,28 @@ private fun SignageClock(zone: SignageZone, designScale: Float) {
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun SignageWebZone(source: String) {
+    // Compare against the requested source, not WebView.url: a redirect or in-page
+    // navigation must not trigger a reload on every unrelated recomposition.
+    var lastRequestedSource by remember { mutableStateOf<String?>(null) }
     AndroidView(factory = { context ->
         WebView(context).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             webViewClient = WebViewClient()
             webChromeClient = WebChromeClient()
-            loadUrl(source)
         }
-    }, update = { if (it.url != source) it.loadUrl(source) }, modifier = Modifier.fillMaxSize())
+    }, update = { view ->
+        if (lastRequestedSource != source) {
+            lastRequestedSource = source
+            view.loadUrl(source)
+        }
+    }, onRelease = { view ->
+        view.stopLoading()
+        view.loadUrl("about:blank")
+        view.webChromeClient = null
+        view.webViewClient = WebViewClient()
+        view.destroy()
+    }, modifier = Modifier.fillMaxSize())
 }
 
 @Composable
@@ -1397,26 +1411,31 @@ private fun SignageBackgroundAudio(item: CueItem, volumePercent: Int) {
 @SuppressLint("UnsafeOptInUsageError")
 private fun SignageVideo(id: String, source: String, fit: String, onAvailabilityChange: ((Boolean) -> Unit)? = null) {
     val context = LocalContext.current
+    val currentAvailabilityChange by rememberUpdatedState(onAvailabilityChange)
     val player = remember(id, source) { ExoPlayer.Builder(context).build().apply {
         setMediaItem(MediaItem.fromUri(source)); repeatMode = Player.REPEAT_MODE_ONE; volume = 0f; prepare(); playWhenReady = true
     } }
-    DisposableEffect(player, onAvailabilityChange) {
+    DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_READY) onAvailabilityChange?.invoke(true)
-                else if (playbackState == Player.STATE_IDLE) onAvailabilityChange?.invoke(false)
+                if (playbackState == Player.STATE_READY) currentAvailabilityChange?.invoke(true)
+                else if (playbackState == Player.STATE_IDLE) currentAvailabilityChange?.invoke(false)
             }
-            override fun onPlayerError(error: PlaybackException) { onAvailabilityChange?.invoke(false) }
+            override fun onPlayerError(error: PlaybackException) { currentAvailabilityChange?.invoke(false) }
         }
         player.addListener(listener)
         onDispose {
-            onAvailabilityChange?.invoke(false)
+            currentAvailabilityChange?.invoke(false)
             player.removeListener(listener)
             player.release()
         }
     }
     val resizeMode = when (fit) { "contain" -> AspectRatioFrameLayout.RESIZE_MODE_FIT; "fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL; else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM }
-    AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = false; this.resizeMode = resizeMode } }, modifier = Modifier.fillMaxSize())
+    AndroidView(factory = { PlayerView(it).apply { useController = false } },
+        update = { view ->
+            if (view.player !== player) view.player = player
+            if (view.resizeMode != resizeMode) view.resizeMode = resizeMode
+        }, onRelease = { it.player = null }, modifier = Modifier.fillMaxSize())
 }
 
 @Composable
@@ -1440,8 +1459,9 @@ private fun SignageBackdrop(item: CueItem) {
         }
     }
     DisposableEffect(player) { onDispose { player.release() } }
-    AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = false } },
-        modifier = Modifier.fillMaxSize().graphicsLayer(alpha = .38f))
+    AndroidView(factory = { PlayerView(it).apply { useController = false } },
+        update = { view -> if (view.player !== player) view.player = player },
+        onRelease = { it.player = null }, modifier = Modifier.fillMaxSize().graphicsLayer(alpha = .38f))
 }
 
 private fun parseDisplayColor(value: String): Color = runCatching {

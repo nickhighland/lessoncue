@@ -107,6 +107,42 @@ public sealed class ActivitySessionGroupTests
     }
 
     [Fact]
+    public async Task ReadingAnOldRunDoesNotStealTheLobbyAndPhonesFollowTheCurrentGame()
+    {
+        var (db, activities, sessions, connection, dataPath) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var lessonId = await NewLessonAsync(db, "Follow the lesson");
+            var first = await StartGameAsync(activities, sessions, lessonId, "First");
+            var joined = await sessions.JoinAsync(first.JoinCode!, new ActivityParticipantJoinInput(null, "Carmen"), ct);
+            var second = await StartGameAsync(activities, sessions, lessonId, "Second");
+
+            await sessions.GetDisplayEnvelopeAsync(first.Id, ct);
+            await sessions.GetHostViewAsync(first.Id, ct);
+            await sessions.GetPublicViewAsync(first.Id, ct);
+            Assert.Equal(second.Id, (await sessions.FindByJoinCodeAsync(first.JoinCode!, ct))?.Id);
+
+            var phone = await sessions.GetParticipantViewAsync(first.Id, joined.Token, ct);
+            Assert.NotNull(phone);
+            Assert.Equal(second.Id, phone.State.RunId);
+            Assert.Equal(joined.Participant!.Id, phone.ParticipantId);
+
+            // A late response to the old question must not silently score it.
+            var late = await sessions.ExecuteParticipantActionAsync(first.Id,
+                new ActivityParticipantActionInput(joined.Token, "answer", JsonSerializer.SerializeToElement(new { optionIndex = 1 })), ct);
+            Assert.False(late.Success);
+
+            // Resetting the new lobby revokes the old identity, even when the
+            // phone is still polling its original run.
+            await sessions.ExecuteHostActionAsync(second.Id, new ActivityCommandEnvelope(null, null, "resetplayers"), ct);
+            Assert.Null(await sessions.GetParticipantViewAsync(first.Id, joined.Token, ct));
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
     public async Task WithTheShortenerRunningAGameTakesAReservedCode()
     {
         // The four-character codes are the ones the short domain can resolve.
@@ -120,6 +156,61 @@ public sealed class ActivitySessionGroupTests
 
             Assert.Equal(4, run.JoinCode!.Length);
             Assert.True(ReservedGameCodes.IsReserved(run.JoinCode));
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
+    public async Task ReusingARoundIdInTheNextGameStillAwardsPoints()
+    {
+        var (db, activities, sessions, connection, dataPath) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var lessonId = await NewLessonAsync(db, "Shared scores");
+            string? token = null;
+            for (var index = 0; index < 2; index++)
+            {
+                var run = await StartGameAsync(activities, sessions, lessonId, $"Game {index}");
+                token ??= (await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Carmen"), ct)).Token;
+                await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), ct);
+                Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id,
+                    new ActivityParticipantActionInput(token, "answer", JsonSerializer.SerializeToElement(new { optionIndex = 1 })), ct)).Success);
+                await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "reveal"), ct);
+                // Retrying a reveal must not award the same round twice.
+                await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "reveal"), ct);
+            }
+            Assert.Equal(2, await db.ActivityScoreEvents.CountAsync(ct));
+            Assert.Equal(200, await db.ActivityScoreEvents.SumAsync(x => x.Amount, ct));
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
+    public async Task TeamAssignmentFollowsTheLobbyButCannotCrossIntoAnotherLesson()
+    {
+        var (db, activities, sessions, connection, dataPath) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var lessonId = await NewLessonAsync(db, "Shared teams");
+            var first = await StartGameAsync(activities, sessions, lessonId, "First teams");
+            var joined = await sessions.JoinAsync(first.JoinCode!, new ActivityParticipantJoinInput(null, "Carmen"), ct);
+            Assert.True(await sessions.SetTeamsAsync(first.Id, [new ActivityTeamInput("Green")], ct));
+            var teamId = await db.ActivityTeams.Where(x => x.SessionGroupId == first.SessionGroupId).Select(x => x.Id).SingleAsync(ct);
+            var second = await StartGameAsync(activities, sessions, lessonId, "Next teams");
+            Assert.True(await sessions.AssignParticipantAsync(second.Id, joined.Participant!.Id, teamId, ct));
+            Assert.Equal(teamId, joined.Participant.TeamId);
+            Assert.True(await sessions.AssignParticipantAsync(second.Id, joined.Participant.Id, null, ct));
+            Assert.Null(joined.Participant.TeamId);
+
+            var other = await StartGameAsync(activities, sessions, await NewLessonAsync(db, "Other room"), "Other teams");
+            Assert.False(await sessions.AssignParticipantAsync(other.Id, joined.Participant.Id, teamId, ct));
+            Assert.True(await sessions.SetTeamsAsync(other.Id, [new ActivityTeamInput("Other team")], ct));
+            var otherTeam = await db.ActivityTeams.Where(x => x.SessionGroupId == other.SessionGroupId).Select(x => x.Id).SingleAsync(ct);
+            Assert.False(await sessions.AssignParticipantAsync(second.Id, joined.Participant.Id, otherTeam, ct));
         }
         Directory.Delete(dataPath, true);
     }

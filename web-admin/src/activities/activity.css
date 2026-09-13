@@ -2756,10 +2756,10 @@
 .drawing-input-card { text-align: left; }
 .drawing-canvas {
   display: block;
-  width: 100%;
-  height: min(72vw, 360px);
-  min-height: 220px;
-  margin: .9rem 0;
+  width: min(100%, 360px);
+  height: auto;
+  aspect-ratio: 1;
+  margin: .9rem auto;
   border: 2px dashed rgba(242,195,90,.65);
   border-radius: 18px;
   background: #172b2a;
@@ -3273,7 +3273,11 @@
 .participant-error { margin: .75rem 0; padding: .7rem .8rem; border-radius: 10px; background: rgba(211,72,67,.2); border: 1px solid rgba(255,145,125,.5); color: #ffd4cb; font-size: .86rem; }
 .participant-game-shell { padding-bottom: 1.5rem; }
 .participant-game-header { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; padding: 1rem 0 1.3rem; }
-.participant-identity { flex-shrink: 0; text-align: right; }
+.participant-game-header > div:first-child { flex: 1 1 0; min-width: 0; }
+.participant-game-header h1 { overflow-wrap: anywhere; }
+.participant-identity { flex-shrink: 0; max-width: 55%; overflow-wrap: anywhere; text-align: right; }
+.participant-identity-edit { max-width: 100%; }
+.participant-identity-edit > div { min-width: 0; }
 .participant-identity strong, .participant-identity small { display: block; }
 .participant-identity small { margin-top: .2rem; color: rgba(255,255,255,.58); font-size: .72rem; }
 .participant-waiting, .participant-input-card { margin-top: 1.5rem; padding: 1.25rem; border-radius: 22px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.17); text-align: center; }

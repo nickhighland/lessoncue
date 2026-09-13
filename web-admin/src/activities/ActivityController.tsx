@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { ActivityHostView, ActivityStateEnvelope } from './types';
 import { ActivityApi, activityHub, subscribeActivityCommandLifecycle, type ActivityConnectionState } from './api';
+import { latestActivityEnvelope } from './activityConnection';
 import { getActivityDescriptor } from './activityRegistry';
 import { QrCode } from '../admin/ui';
 import { getAudioVolume, isAudioMuted, setAudioMuted, setAudioVolume } from './effects';
@@ -73,7 +74,7 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
         });
       }
       if (activeRun) {
-        setEnvelope(activeRun);
+        setEnvelope(previous => latestActivityEnvelope(previous, activeRun!));
         setLoading(false);
       }
     } catch (err) {
@@ -98,7 +99,7 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
     setRefreshing(true);
     try {
       const activeRun = await ActivityApi.getRun(runId);
-      setEnvelope(activeRun);
+      setEnvelope(previous => latestActivityEnvelope(previous, activeRun!));
       setError(null);
       setLoading(false);
       if (INTERACTIVE_ACTIVITY_TYPES.includes(activeRun.type)) {
@@ -159,15 +160,16 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
         }
 
         if (isCancelled || !activeRun) return;
-        setEnvelope(activeRun);
+        setEnvelope(previous => latestActivityEnvelope(previous, activeRun!));
         setLoading(false);
         if (INTERACTIVE_ACTIVITY_TYPES.includes(activeRun.type)) {
           try { setHostView(await ActivityApi.getHostState(activeRun.runId)); } catch (err) { console.debug('Host state pending', err); }
         }
 
-        unsubscribe = await activityHub.subscribeRun(activeRun.runId, updated => {
+        if (isCancelled) return;
+        unsubscribe = activityHub.subscribeRun(activeRun.runId, updated => {
           if (!isCancelled) {
-            setEnvelope(updated);
+            setEnvelope(previous => latestActivityEnvelope(previous, updated));
           }
         });
       } catch (err) {

@@ -1,6 +1,10 @@
 import React, { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import type { ActivityParticipantView, ActivitySessionPublicView, ActivityStateEnvelope } from './types';
 import { ActivityApi, activityHub } from './api';
+import { ApiError } from '../admin/api';
+import { createRefreshLoop } from './refreshLoop';
+import { DrawingInput } from './DrawingInput';
+import { DrawingPreview } from './DrawingPreview';
 import { ActivityCountdown, useActivityCountdown, useDeadlineCountdown } from './ActivityMotion';
 import { GameAudioProvider, GameButton, idleWobbleStyle, useGamePanic } from './ActivityJuice';
 import { activityThemeVariables, resolveActivityTheme } from './activityPalettes';
@@ -62,6 +66,7 @@ export const ActivityParticipantApp: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const pendingJoinToken = useRef('');
   // Seed a look per device rather than sending the same default from every
   // phone, which made a whole room join in the same colour.
   const [avatar, setAvatar] = useState<string>(() => randomFrom(ACTIVITY_AVATARS, DEFAULT_ACTIVITY_AVATAR));
@@ -73,59 +78,80 @@ export const ActivityParticipantApp: React.FC = () => {
   const audioChain = resolveGameAudioChain(participant?.state || publicSession?.state);
   useAudioPreloader(audioChain, Boolean(publicSession));
 
-  const refresh = useCallback(async (runId?: string) => {
-    try {
-      const activeToken = token || (() => { try { return localStorage.getItem(participantTokenKey(code)) || ''; } catch { return ''; } })();
-      if (runId && activeToken) {
-        try {
-          const current = await ActivityApi.getParticipantState(runId, activeToken);
-          setParticipant(current);
-          setName(current.displayName);
-          setError('');
-        } catch (cause) {
-          setError((cause as Error).message || 'The game connection is waiting to recover.');
-        }
-        return;
-      }
-      const session = await ActivityApi.getPublicSession(code);
-      setPublicSession(session);
-      if (activeToken && (runId || session.state.runId)) {
-        try {
-          const current = await ActivityApi.getParticipantState(runId || session.state.runId, activeToken);
-          setParticipant(current);
-          setName(current.displayName);
-        } catch { setParticipant(null); }
-      }
-      setError('');
-    } catch (cause) {
-      setError((cause as Error).message || 'That game code is not active.');
-    } finally { setLoading(false); }
-  }, [code, token]);
-
-  useEffect(() => { void refresh(); }, [refresh]);
+  const refreshLoop = useRef<ReturnType<typeof createRefreshLoop> | null>(null);
+  const refresh = useCallback(async () => { await refreshLoop.current?.refresh(); }, []);
 
   useEffect(() => {
     const runId = participant?.state.runId || publicSession?.state.runId;
-    if (!runId || !token) return;
-    let active = true;
-    const poll = window.setInterval(() => { if (active) void refresh(runId); }, 5000);
-    let unsubscribe: (() => void) | undefined;
-    void activityHub.subscribeRun(runId, () => { if (active) void refresh(runId); }).then(stop => { unsubscribe = stop; });
-    return () => { active = false; window.clearInterval(poll); unsubscribe?.(); };
-  }, [participant?.state.runId, publicSession?.state.runId, refresh, token]);
-
+    const loop = createRefreshLoop(async signal => {
+      try {
+        let activeRunId = runId;
+        if (!activeRunId || !token) {
+          const session = await ActivityApi.getPublicSession(code, signal);
+          if (signal.aborted) return;
+          setPublicSession(session);
+          activeRunId = session.state.runId;
+        }
+        if (token && activeRunId) {
+          const current = await ActivityApi.getParticipantState(activeRunId, token, signal);
+          if (signal.aborted) return;
+          setParticipant(previous => previous?.state.runId === current.state.runId
+            && previous.state.revision > current.state.revision ? previous : current);
+          setName(current.displayName);
+          if (current.avatar) setAvatar(current.avatar);
+          if (current.color) setColor(current.color);
+        }
+        if (!signal.aborted) setError('');
+      } catch (cause) {
+        if (signal.aborted) return;
+        if (token && cause instanceof ApiError && cause.status === 404) {
+          setParticipant(null);
+          setToken('');
+          try { localStorage.removeItem(participantTokenKey(code)); } catch { /* private browsing */ }
+        }
+        setError((cause as Error).message || 'The game connection is waiting to recover.');
+      } finally { if (!signal.aborted) setLoading(false); }
+    }, () => document.hidden ? 15000 : 5000);
+    refreshLoop.current = loop;
+    void loop.refresh();
+    let pushTimer: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = runId && token ? activityHub.subscribeRun(runId, () => {
+      // A room joining/answering together produces a burst of pushes. Fetch
+      // private state once for that burst, never one overlapping GET per player.
+      clearTimeout(pushTimer);
+      pushTimer = setTimeout(() => { void loop.refresh(); }, 250);
+    }) : undefined;
+    const wake = () => { if (!document.hidden) void loop.refresh(); };
+    window.addEventListener('online', wake);
+    window.addEventListener('focus', wake);
+    document.addEventListener('visibilitychange', wake);
+    return () => {
+      loop.stop();
+      clearTimeout(pushTimer);
+      unsubscribe?.();
+      window.removeEventListener('online', wake);
+      window.removeEventListener('focus', wake);
+      document.removeEventListener('visibilitychange', wake);
+    };
+  }, [code, token, participant?.state.runId, publicSession?.state.runId]);
   const join = async (event: FormEvent) => {
     event.preventDefault();
     // The join tap is the gesture browsers require before audio may start.
     primeGameAudio();
     setBusy(true); setError('');
+    const request = new AbortController();
+    const timeout = setTimeout(() => request.abort(), 10000);
     try {
-      const result = await ActivityApi.joinSession(code, token || undefined, name.trim() || undefined, { avatar, color });
+      // Keep the same identity if the server accepts a join but its reply is
+      // lost. getRandomValues also works on the local HTTP phone address.
+      const joiningToken = token || pendingJoinToken.current || Array.from(crypto.getRandomValues(new Uint8Array(24)), value => value.toString(16).padStart(2, '0')).join('');
+      pendingJoinToken.current = joiningToken;
+      try { localStorage.setItem(participantTokenKey(code), joiningToken); } catch { /* private browsing */ }
+      const result = await ActivityApi.joinSession(code, joiningToken, name.trim() || undefined, { avatar, color }, request.signal);
       setToken(result.token); setParticipant(result.participant); setName(result.participant.displayName);
       try { localStorage.setItem(participantTokenKey(code), result.token); } catch { /* private browsing */ }
-      await refresh(result.participant.state.runId);
-    } catch (cause) { setError((cause as Error).message || 'Could not join this game.'); }
-    finally { setBusy(false); }
+    } catch (cause) { setError(request.signal.aborted ? 'Joining timed out. Try again; your player will not be duplicated.' : (cause as Error).message || 'Could not join this game.'); }
+    finally { clearTimeout(timeout); setBusy(false); }
   };
 
   /**
@@ -148,24 +174,33 @@ export const ActivityParticipantApp: React.FC = () => {
       if (next.color) setColor(next.color);
       setParticipant(result.participant);
       setName(result.participant.displayName);
-      await refresh(result.participant.state.runId);
+      await refresh();
     } catch (cause) { setError((cause as Error).message || 'That change could not be saved.'); }
     finally { setBusy(false); }
   };
 
   const action = async (name: string, payload?: JsonRecord) => {
-    if (!participant || busy) return;
+    if (!participant || busy) return false;
     setBusy(true); setError('');
-    try { await ActivityApi.participantAction(participant.state.runId, token, name, payload); await refresh(participant.state.runId); }
-    catch (cause) { setError((cause as Error).message || 'That response could not be sent.'); }
-    finally { setBusy(false); }
+    const request = new AbortController();
+    const timeout = setTimeout(() => request.abort(), 10000);
+    try {
+      await ActivityApi.participantAction(participant.state.runId, token, name, payload, request.signal);
+      await refresh();
+      return true;
+    }
+    catch (cause) {
+      setError(request.signal.aborted ? 'The connection timed out. Your response is still here; try sending it again.' : (cause as Error).message || 'That response could not be sent.');
+      return false;
+    }
+    finally { clearTimeout(timeout); setBusy(false); }
   };
 
   if (loading) return <main className="activity-participant-page"><div className="participant-card"><span className="participant-mark lc-idle-wobble" style={idleWobbleStyle('joining')}>⚡</span><h1>Joining the game…</h1></div></main>;
   if (error && !publicSession) return <main className="activity-participant-page"><div className="participant-card"><span className="participant-mark">⚠</span><h1>Game unavailable</h1><p>{error}</p></div></main>;
   if (!publicSession) return null;
   if (!participant) return <JoinCard title={textOf(publicSession.state.name, 'LessonCue Game')} code={code} name={name} setName={setName} onSubmit={join} busy={busy} error={error} envelope={publicSession.state} avatar={avatar} setAvatar={setAvatar} color={color} setColor={setColor} />;
-  return <ParticipantGame view={participant} token={token} busy={busy} error={error} onAction={action} onUpdateIdentity={updateIdentity} onLeave={() => { setParticipant(null); setToken(''); try { localStorage.removeItem(participantTokenKey(code)); } catch { /* ignore */ } }} />;
+  return <ParticipantGame view={participant} token={token} busy={busy} error={error} onAction={action} onUpdateIdentity={updateIdentity} onLeave={() => { refreshLoop.current?.stop(); pendingJoinToken.current = ''; setParticipant(null); setToken(''); setName(''); try { localStorage.removeItem(participantTokenKey(code)); } catch { /* ignore */ } }} />;
 };
 
 const JoinCard: React.FC<{ title: string; code: string; name: string; setName: (value: string) => void; onSubmit: (event: FormEvent) => void; busy: boolean; error: string; envelope: ActivityStateEnvelope; avatar: string; setAvatar: (value: string) => void; color: string; setColor: (value: string) => void }> = ({ title, code, name, setName, onSubmit, busy, error, envelope, avatar, setAvatar, color, setColor }) => (
@@ -181,7 +216,7 @@ const JoinCard: React.FC<{ title: string; code: string; name: string; setName: (
     </div>{error && <div className="participant-error" role="alert">{error}</div>}<GameButton className="participant-primary-button" lockIn disabled={busy}>{busy ? 'Joining…' : 'Join game'}</GameButton></form><small>No LessonCue account required.</small><div className="participant-join-sound"><MuteToggle /></div></div></main>
 );
 
-const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; busy: boolean; error: string; onAction: (action: string, payload?: JsonRecord) => void; onUpdateIdentity: (next: { displayName?: string; avatar?: string; color?: string }) => void; onLeave: () => void }> = ({ view, busy, error, onAction, onUpdateIdentity, onLeave }) => {
+const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; busy: boolean; error: string; onAction: (action: string, payload?: JsonRecord) => Promise<boolean>; onUpdateIdentity: (next: { displayName?: string; avatar?: string; color?: string }) => void; onLeave: () => void }> = ({ view, busy, error, onAction, onUpdateIdentity, onLeave }) => {
   const envelope = view.state;
   const state = objectOf(envelope.state);
   const config = objectOf(envelope.config);
@@ -271,18 +306,17 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
 
   if (view.status === 'locked') return <GameAudioProvider chain={audioChain}><main className="activity-participant-page" data-activity-type={envelope.type} style={themeVariables}><div className="participant-game-shell"><header className="participant-game-header"><div><h1>{title}</h1></div><div className="participant-identity"><MuteToggle /><span className="participant-identity-badge" style={{ background: textOf(view.color, '#f6c531'), color: inkOnPlayerColor(textOf(view.color, '#f6c531')) }} aria-hidden="true">{textOf(view.avatar, '🙂')}</span><div><strong>{view.displayName}</strong><small>Locked out</small></div></div></header>{error && <div className="participant-error" role="alert">{error}</div>}<section className="participant-waiting participant-locked" role="alert"><span className="waiting-orb" style={idleWobbleStyle(view.participantId, 2)}>🔒</span><h2>Locked out</h2><p>The host locked this player out of the game. Ask the host to unlock you, or switch player.</p></section><GameButton className="participant-leave-button" onClick={onLeave}>Switch player</GameButton></div></main></GameAudioProvider>;
 
-  const submitText = (event: FormEvent) => { event.preventDefault(); if (text.trim()) { onAction('submit', { text: text.trim() }); setText(''); } };
-  const submitQuizResponse = (event: FormEvent) => {
+  const submitText = async (event: FormEvent) => { event.preventDefault(); if (text.trim() && await onAction('submit', { text: text.trim() })) setText(''); };
+  const submitQuizResponse = async (event: FormEvent) => {
     event.preventDefault();
     if (!text.trim()) return;
     if (quizAnswerMode === 'number') {
       const number = Number(text.trim());
       if (!Number.isFinite(number)) return;
-      onAction('answer', { number, ...quizModifierPayload() });
+      if (await onAction('answer', { number, ...quizModifierPayload() })) setText('');
     } else {
-      onAction('answer', { text: text.trim(), ...quizModifierPayload() });
+      if (await onAction('answer', { text: text.trim(), ...quizModifierPayload() })) setText('');
     }
-    setText('');
   };
   const quizModifierPayload = () => ({
     ...(wagerEnabled ? { wager: Math.max(0, Math.round(Number(wager) || 0)) } : {}),
@@ -293,7 +327,7 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
     : undefined;
   const sendChoice = (index: number) => { setSelected(String(index)); onAction(envelope.type === 'trivia' || envelope.type === 'rapidFire' ? 'answer' : envelope.type === 'poll' && pollMode ? 'predict' : 'vote', { optionIndex: index, ...((envelope.type === 'trivia' || envelope.type === 'rapidFire') ? quizModifierPayload() : {}) }); };
   const sendMatchChoice = (index: number) => { setSelected(String(index)); onAction(state.isTarget === true ? 'answer' : 'predict', { optionIndex: index }); };
-  const sendMatchText = (event: FormEvent) => { event.preventDefault(); if (text.trim()) { onAction(state.isTarget === true ? 'answer' : 'predict', { text: text.trim() }); setText(''); } };
+  const sendMatchText = async (event: FormEvent) => { event.preventDefault(); if (text.trim() && await onAction(state.isTarget === true ? 'answer' : 'predict', { text: text.trim() })) setText(''); };
   const sendBracketChoice = (index: number) => { const entrantId = textOf(bracketOptions[index]?.entrantId); setSelected(entrantId); onAction('vote', { entrantId }); };
   const sendStageVote = (index: number) => { const outcome = index === 0 ? 'success' : 'fail'; setSelected(outcome); onAction('vote', { outcome }); };
   const submitVote = (id: string) => onAction('vote', { targetId: id });
@@ -315,12 +349,16 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
       <small className="participant-saved-note">Your score and place in the standings stay with you.</small>
     </section>}
     {timerRunning && phase === 'acceptingResponses' && envelope.type !== 'word' && <ActivityCountdown remainingMs={responseTimerRemainingMs} durationMs={timerDurationMs} label="TIME LEFT" compact />}
+    {telephoneChain && phase === 'acceptingResponses' && <aside className="participant-input-card telephone-source" aria-label="Passed to you">
+      {telephoneDescription && Array.isArray(state.telephoneSourceStrokes) ? <DrawingPreview strokes={state.telephoneSourceStrokes} />
+        : <p>{textOf(state.telephoneSourceText) || textOf(state.telephoneStepPhrase) || 'No response was passed along. Use the prompt below.'}</p>}
+    </aside>}
     {phase === 'lobby' || phase === 'setup' ? <section className="participant-waiting"><span className="waiting-orb" style={idleWobbleStyle(view.participantId, 1)}>✦</span><h2>You’re in.</h2><p>Waiting for the host to start the game.</p><div className="participant-count">{numberOf(state.participantCount)} players joined</div></section> :
       phase === 'acceptingResponses' && isChoice ? <ChoiceInput kicker={choiceKicker} prompt={prompt} options={options} selected={selected === null ? null : Number(selected)} disabled={busy || view.hasSubmitted} onSelect={sendChoice} modifierControls={quizModifierControls} /> :
       phase === 'acceptingResponses' && isQuizFreeResponse ? <TextResponse prompt={prompt} text={text} setText={setText} submit={submitQuizResponse} disabled={busy || view.hasSubmitted} inputType={quizAnswerMode === 'number' ? 'number' : 'text'} kicker={quizAnswerMode === 'number' ? 'NUMBER LOCK-IN' : 'SHORT ANSWER'} placeholder={quizAnswerMode === 'number' ? 'Type a number…' : 'Type your answer…'} submitLabel="Lock in answer" modifierControls={quizModifierControls} /> :
       phase === 'acceptingResponses' && envelope.type === 'buzzer' ? <section className="participant-buzzer-card"><h2>{prompt}</h2><GameButton className="participant-buzzer" lockIn disabled={busy || Boolean(state.buzzWinnerName) || state.isLockedOut === true} onClick={() => onAction('buzz')}>{state.isLockedOut === true ? 'LOCKED OUT' : state.buzzWinnerName ? `${textOf(state.buzzWinnerName)} buzzed first` : 'BUZZ'}</GameButton>{state.isLockedOut === true && <small className="participant-saved-note">You can watch this clue, but you cannot buzz again.</small>}</section> :
       phase === 'acceptingResponses' && telephoneDescription ? <TextResponse prompt={textOf(state.telephoneStepPrompt, prompt)} text={text} setText={setText} submit={submitText} disabled={busy || view.hasSubmitted} kicker="DESCRIBE THE DRAWING" placeholder="Describe what you see…" submitLabel="Pass it on" /> :
-      phase === 'acceptingResponses' && envelope.type === 'drawing' ? <DrawingInput prompt={telephoneChain ? textOf(state.telephoneStepPrompt, prompt) : prompt} disabled={busy || view.hasSubmitted} onSubmit={strokes => onAction('submit', { strokes })} /> :
+      phase === 'acceptingResponses' && envelope.type === 'drawing' ? <DrawingInput key={`${envelope.runId}:${promptIndex}:${numberOf(state.telephoneStepIndex)}`} prompt={telephoneChain ? textOf(state.telephoneStepPrompt, prompt) : prompt} config={config} disabled={busy || view.hasSubmitted} saved={view.hasSubmitted} onSubmit={strokes => onAction('submit', { strokes })} /> :
       phase === 'acceptingResponses' && envelope.type === 'ordering' && orderingMode === 'matching' ? <MatchingInput prompt={prompt} leftItems={matchingLeft} rightItems={matchingRight} disabled={busy || view.hasSubmitted} onSubmit={sendMatches} /> :
       phase === 'acceptingResponses' && envelope.type === 'ordering' && orderingMode === 'grouping' ? <GroupingInput prompt={prompt} items={groupingItems} groups={groupingGroups} disabled={busy || view.hasSubmitted} onSubmit={sendGroups} /> :
       phase === 'acceptingResponses' && envelope.type === 'ordering' ? <OrderingInput prompt={prompt} items={orderingItems} disabled={busy || view.hasSubmitted} onSubmit={order => onAction('sort', { order })} /> :
@@ -334,6 +372,7 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
       phase === 'voting' && envelope.type === 'stageChallenge' ? <ChoiceInput kicker="CALL THE CHALLENGE" prompt="Will the contestant succeed?" options={[{ value: 'Success' }, { value: 'Fail' }]} selected={selected === 'success' ? 0 : selected === 'fail' ? 1 : null} disabled={busy || view.hasSubmitted || state.audienceVotingOpen !== true} onSelect={sendStageVote} /> :
       phase === 'voting' && envelope.type === 'punchline' ? <VoteInput items={creativeVoteOptions} selected={selected} disabled={busy || view.hasSubmitted || creativeVoteOptions.length < 2} onSelect={id => { setSelected(id); submitVote(id); }} /> :
       phase === 'voting' && envelope.type === 'fakeOut' ? <VoteInput items={bluffOptions} selected={selected} disabled={busy || view.hasSubmitted} onSelect={id => { setSelected(id); submitVote(id); }} /> :
+      phase === 'voting' && envelope.type === 'drawing' ? <section className="participant-input-card"><h2>Vote for a drawing</h2><div className="drawing-response-grid">{listOf(state.drawings).filter(drawing => drawing.isOwn !== true).map((drawing, index) => <GameButton key={textOf(drawing.id)} className="drawing-card" aria-label={`Vote for drawing ${index + 1}`} disabled={busy || view.hasSubmitted} onClick={() => submitVote(textOf(drawing.id))}><DrawingPreview strokes={drawing.strokes} /><span>Drawing {index + 1}</span></GameButton>)}</div>{view.hasSubmitted ? <small className="participant-saved-note">Your vote is locked in.</small> : <small>Choose another player's drawing.</small>}</section> :
       phase === 'judging' || phase === 'responsesLocked' ? <section className="participant-waiting"><span className="waiting-orb" style={idleWobbleStyle('waiting', 2)}>⏳</span><h2>Locked in.</h2><p>The host is reviewing the room.</p></section> :
       (phase === 'reveal' || phase === 'leaderboard' || phase === 'finalResults') && personalResult ? <ActivityPlayerResult result={personalResult} color={textOf(view.color, '#f6c531')} chain={audioChain} /> :
       phase === 'reveal' || phase === 'leaderboard' || phase === 'finalResults' ? <section className="participant-waiting"><span className="waiting-orb" style={idleWobbleStyle('reveal', 3)}>✨</span><h2>Reveal time.</h2><p>Look up at the main display.</p></section> : <section className="participant-waiting"><h2>Watch the stage.</h2><p>Your next input will appear here.</p></section>}
@@ -350,79 +389,6 @@ const QuizModifierControls: React.FC<{ wagerEnabled: boolean; wager: string; set
   {speedBonusEnabled && <small>Fast correct answers earn a speed bonus.</small>}
   {livesEnabled && <small>Misses cost a life.</small>}
 </div>;
-
-type DrawingStroke = { points: Array<[number, number]>; color: string; width: number };
-
-const DrawingInput: React.FC<{ prompt: string; disabled: boolean; onSubmit: (strokes: DrawingStroke[]) => void }> = ({ prompt, disabled, onSubmit }) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [strokes, setStrokes] = useState<DrawingStroke[]>([]);
-  const [drawing, setDrawing] = useState(false);
-  const [tool, setTool] = useState<'pen' | 'eraser'>('pen');
-  const [color, setColor] = useState('#f8fafc');
-  const [width, setWidth] = useState(.012);
-  const palette = ['#f8fafc', '#f2c35a', '#ff6b8b', '#67e8f9', '#7cf29a'];
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const draw = () => {
-      const rect = canvas.getBoundingClientRect();
-      const ratio = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.max(1, Math.floor(rect.width * ratio));
-      canvas.height = Math.max(1, Math.floor(rect.height * ratio));
-      const context = canvas.getContext('2d');
-      if (!context) return;
-      context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      context.clearRect(0, 0, rect.width, rect.height);
-      context.lineCap = 'round';
-      context.lineJoin = 'round';
-      strokes.forEach(stroke => {
-        if (!stroke.points.length) return;
-        context.beginPath();
-        stroke.points.forEach(([x, y], index) => index === 0 ? context.moveTo(x * rect.width, y * rect.height) : context.lineTo(x * rect.width, y * rect.height));
-        context.strokeStyle = stroke.color;
-        context.lineWidth = stroke.width * rect.width;
-        context.stroke();
-      });
-    };
-    draw();
-    if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(draw);
-      observer.observe(canvas);
-      return () => observer.disconnect();
-    }
-    window.addEventListener('resize', draw);
-    return () => window.removeEventListener('resize', draw);
-  }, [strokes]);
-
-  const pointFor = (event: React.PointerEvent<HTMLCanvasElement>): [number, number] => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return [Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height))];
-  };
-  const begin = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (disabled) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    const point = pointFor(event);
-    if (tool === 'eraser') {
-      setStrokes(current => current.filter(stroke => !stroke.points.some(([x, y]) => Math.hypot(x - point[0], y - point[1]) <= Math.max(width * 2.5, .022))));
-      setDrawing(true);
-      return;
-    }
-    setDrawing(true);
-    setStrokes(current => [...current, { points: [point], color, width }]);
-  };
-  const move = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!drawing || disabled) return;
-    const point = pointFor(event);
-    if (tool === 'eraser') {
-      setStrokes(current => current.filter(stroke => !stroke.points.some(([x, y]) => Math.hypot(x - point[0], y - point[1]) <= Math.max(width * 2.5, .022))));
-      return;
-    }
-    setStrokes(current => { if (!current.length) return current; const next = [...current]; const last = next[next.length - 1]; next[next.length - 1] = { ...last, points: [...last.points, point] }; return next; });
-  };
-  const end = () => setDrawing(false);
-  return <section className="participant-input-card drawing-input-card"><span className="participant-kicker">SKETCH IT</span><h2>{prompt}</h2><canvas ref={canvasRef} className="drawing-canvas" aria-label="Draw your answer" style={{ touchAction: 'none' }} onPointerDown={begin} onPointerMove={move} onPointerUp={end} onPointerCancel={end} /><div className="drawing-tool-controls" role="toolbar" aria-label="Drawing tools"><GameButton type="button" className={`participant-secondary-button ${tool === 'pen' ? 'selected' : ''}`} aria-pressed={tool === 'pen'} disabled={disabled} onClick={() => setTool('pen')}>✎ Pen</GameButton><GameButton type="button" className={`participant-secondary-button ${tool === 'eraser' ? 'selected' : ''}`} aria-pressed={tool === 'eraser'} disabled={disabled} onClick={() => setTool('eraser')}>⌫ Eraser</GameButton><label>Size<select aria-label="Brush size" value={String(width)} disabled={disabled} onChange={event => setWidth(Number(event.target.value))}><option value="0.008">Fine</option><option value="0.012">Medium</option><option value="0.022">Bold</option><option value="0.04">Marker</option></select></label></div><div className="drawing-palette" role="toolbar" aria-label="Ink color">{palette.map(swatch => <GameButton key={swatch} type="button" className={color === swatch && tool === 'pen' ? 'selected' : ''} aria-label={`Use ${swatch} ink`} aria-pressed={color === swatch && tool === 'pen'} disabled={disabled} onClick={() => { setColor(swatch); setTool('pen'); }} style={{ background: swatch }} />)}</div><div className="drawing-tool-row"><GameButton type="button" className="participant-secondary-button" disabled={disabled || !strokes.length} onClick={() => setStrokes(current => current.slice(0, -1))}>Undo</GameButton><GameButton type="button" className="participant-secondary-button" disabled={disabled || !strokes.length} onClick={() => setStrokes([])}>Clear</GameButton><GameButton type="button" className="participant-primary-button" lockIn disabled={disabled || !strokes.length} onClick={() => onSubmit(strokes)}>{disabled ? 'Drawing saved' : 'Submit drawing'}</GameButton></div>{disabled && <small className="participant-saved-note">Your drawing is locked in.</small>}</section>;
-};
 
 /**
  * A stable key for a round's cards.

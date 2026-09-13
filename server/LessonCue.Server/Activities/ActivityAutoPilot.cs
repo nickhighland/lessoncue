@@ -149,6 +149,17 @@ public static class ActivityAutoPilot
         if (string.Equals(activityType, ActivityTypes.ImageReveal, StringComparison.OrdinalIgnoreCase))
             return NextRevealStep(config, state, phase, now);
 
+        // Telephone drawings are handed to the next step, not put to a vote
+        // after every sketch/description. Moderation still requires a person.
+        if (activityType == ActivityTypes.Drawing && BoolValue(config, "telephoneChain") &&
+            phase is ActivityPhases.ResponsesLocked or ActivityPhases.Judging)
+        {
+            if (moderationPending) return null;
+            var stepIndex = state["telephoneStepIndex"]?.GetValue<int>() ?? 0;
+            var last = stepIndex >= ((config["chainSteps"] as JsonArray)?.Count ?? 1) - 1;
+            return new Step(last ? "reveal" : "nextstep", now.AddSeconds(1));
+        }
+
         return phase switch
         {
             // The one thing a host still does: decide when the room is ready.
@@ -213,6 +224,11 @@ public static class ActivityAutoPilot
     private static DateTimeOffset ResponseDeadline(
         string? activityType, JsonObject config, JsonObject state, DateTimeOffset now)
     {
+        if (state["phase"]?.GetValue<string>() == ActivityPhases.Voting &&
+            DateTimeOffset.TryParse(state["votingStartedAt"]?.GetValue<string>(), out var voteStart) &&
+            state["votingDurationMs"] is JsonValue voteDuration && voteDuration.TryGetValue<long>(out var voteMs) && voteMs > 0)
+            return voteStart.AddMilliseconds(voteMs);
+
         if (state.TryGetPropertyValue("timerStartedAt", out var startedNode)
             && startedNode is JsonValue startedValue
             && startedValue.TryGetValue<string>(out var startedText)

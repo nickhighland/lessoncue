@@ -1794,4 +1794,28 @@ public sealed class ActivitySessionServiceTests
             Assert.Contains("A penguin dancing in the snow", replayJson, StringComparison.Ordinal);
         }
     }
+
+    [Theory]
+    [InlineData("{\"strokes\":[]}")]
+    [InlineData("{\"strokes\":[{\"points\":[[\"wrong type\",0.2]]}]}")]
+    [InlineData("{\"strokes\":[{\"points\":[[1e999,0.2]]}]}")]
+    [InlineData("{\"strokes\":[{\"points\":[[0.1,0.2]],\"color\":\"url(https://example.com)\"}]}")]
+    [InlineData("{\"strokes\":[{\"points\":[[0.1,0.2]],\"width\":\"big\"}]}")]
+    public async Task MalformedDrawingsReturnValidationErrorsInsteadOfCrashing(string payload)
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Safe sketches", ActivityTypes.Drawing), "teacher", ct);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: ct), ct);
+            var player = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Thea"), ct);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), ct);
+            var result = await sessions.ExecuteParticipantActionAsync(run.Id,
+                new ActivityParticipantActionInput(player.Token, "submit", JsonDocument.Parse(payload).RootElement), ct);
+            Assert.False(result.Success);
+            Assert.Empty(await db.ActivitySubmissions.ToListAsync(ct));
+        }
+    }
 }

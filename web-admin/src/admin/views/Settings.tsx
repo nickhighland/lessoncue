@@ -117,6 +117,7 @@ export function Settings({
   const [localHostname, setLocalHostname] = useState(
     bootstrap.localAddress.hostname,
   );
+  const [localIpv6Enabled, setLocalIpv6Enabled] = useState(bootstrap.localAddress.ipv6Enabled ?? true);
   const [httpPort, setHttpPort] = useState(String(bootstrap.httpPort.port));
   const [tunnelEnabled, setTunnelEnabled] = useState(
     bootstrap.cloudflareTunnel.enabled,
@@ -932,9 +933,10 @@ export function Settings({
     try {
       const status = await api<LocalAddressStatus>("/api/v1/local-address", {
         method: "PUT",
-        body: JSON.stringify({ hostname: localHostname }),
+        body: JSON.stringify({ hostname: localHostname, ipv6Enabled: localIpv6Enabled }),
       });
       setLocalHostname(status.hostname);
+      setLocalIpv6Enabled(status.ipv6Enabled);
       refresh();
       notify(
         status.pending
@@ -2204,6 +2206,12 @@ export function Settings({
                       <span>.local</span>
                     </div>
                   </Field>
+                  <label className="check-row">
+                    <input type="checkbox" checked={localIpv6Enabled}
+                      onChange={(event) => setLocalIpv6Enabled(event.target.checked)} />
+                    <span>Allow IPv6 for the local .local address</span>
+                  </label>
+                  <p className="field-help">Turn this off only if local devices choose an IPv6 address that they cannot reach. This changes Avahi discovery for this server, including any other Avahi services; it does not disable system-wide IPv6 or Cloudflare remote access. Save below to apply it.</p>
                   <button className="button primary">Save local address</button>
                 </form>
               )}

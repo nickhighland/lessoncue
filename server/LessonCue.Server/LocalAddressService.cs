@@ -6,7 +6,8 @@ public sealed record LocalAddressStatus(
     bool Supported,
     bool Pending,
     DateTimeOffset? AppliedAt,
-    string? Error);
+    string? Error,
+    bool Ipv6Enabled);
 
 public sealed class LocalAddressService : BackgroundService
 {
@@ -14,6 +15,8 @@ public sealed class LocalAddressService : BackgroundService
     private const string ProtectedRequestPath = "/var/lib/lessoncue/config/update-request";
     private readonly string _hostnamePath;
     private readonly string _resultPath;
+    private readonly string _ipv6Path;
+    private readonly string _ipv6ResultPath;
     private readonly ILogger<LocalAddressService> _logger;
     private readonly int _httpPort;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -27,6 +30,8 @@ public sealed class LocalAddressService : BackgroundService
         Directory.CreateDirectory(configPath);
         _hostnamePath = Path.Combine(configPath, "local-hostname");
         _resultPath = Path.Combine(configPath, "hostname-result");
+        _ipv6Path = Path.Combine(configPath, "local-ipv6-enabled");
+        _ipv6ResultPath = Path.Combine(configPath, "local-ipv6-result");
 
         var hostname = ReadHostname(_hostnamePath) ?? DefaultHostname;
         if (!File.Exists(_hostnamePath)) File.WriteAllText(_hostnamePath, hostname + Environment.NewLine);
@@ -42,17 +47,21 @@ public sealed class LocalAddressService : BackgroundService
         }
     }
 
-    public async Task<LocalAddressStatus> SetAsync(string value, CancellationToken ct = default)
+    public async Task<LocalAddressStatus> SetAsync(string value, bool? ipv6Enabled = null, CancellationToken ct = default)
     {
         var hostname = NormalizeHostname(value);
         await _gate.WaitAsync(ct);
         try
         {
+            var enableIpv6 = ipv6Enabled ?? ReadIpv6Enabled(_ipv6Path);
             var temporaryPath = _hostnamePath + ".tmp";
             await File.WriteAllTextAsync(temporaryPath, hostname + Environment.NewLine, ct);
             File.Move(temporaryPath, _hostnamePath, true);
+            var ipv6TemporaryPath = _ipv6Path + ".tmp";
+            await File.WriteAllTextAsync(ipv6TemporaryPath, enableIpv6 ? "true\n" : "false\n", ct);
+            File.Move(ipv6TemporaryPath, _ipv6Path, true);
             _status = BuildStatus(hostname);
-            await RequestApplyAsync(hostname, ct);
+            await RequestApplyAsync(hostname, enableIpv6, ct);
             return _status;
         }
         finally { _gate.Release(); }
@@ -76,7 +85,7 @@ public sealed class LocalAddressService : BackgroundService
             RefreshStatus();
             if (_status.Supported && _status.Pending)
             {
-                try { await RequestApplyAsync(_status.Hostname, stoppingToken); }
+                try { await RequestApplyAsync(_status.Hostname, _status.Ipv6Enabled, stoppingToken); }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 { _logger.LogWarning(ex, "Could not request the LessonCue local hostname"); }
             }
@@ -84,7 +93,7 @@ public sealed class LocalAddressService : BackgroundService
         }
     }
 
-    private async Task RequestApplyAsync(string hostname, CancellationToken ct)
+    private async Task RequestApplyAsync(string hostname, bool ipv6Enabled, CancellationToken ct)
     {
         if (!IsSupported())
         {
@@ -92,7 +101,8 @@ public sealed class LocalAddressService : BackgroundService
             return;
         }
 
-        await File.WriteAllTextAsync(ProtectedRequestPath, $"hostname:{hostname}{Environment.NewLine}", ct);
+        await File.WriteAllTextAsync(ProtectedRequestPath,
+            $"local-address:{hostname}:{(ipv6Enabled ? "true" : "false")}{Environment.NewLine}", ct);
         _status = _status with { Pending = true, Error = null };
     }
 
@@ -105,6 +115,10 @@ public sealed class LocalAddressService : BackgroundService
     private LocalAddressStatus BuildStatus(string hostname)
     {
         var applied = ReadHostname(_resultPath);
+        var ipv6Enabled = ReadIpv6Enabled(_ipv6Path);
+        // Before this setting existed, Avahi kept its normal IPv6 behavior.
+        var ipv6Applied = !File.Exists(_ipv6Path) && !File.Exists(_ipv6ResultPath)
+            ? true : ReadIpv6Result(_ipv6ResultPath);
         var supported = IsSupported();
         DateTimeOffset? appliedAt = applied == hostname && File.Exists(_resultPath)
             ? new DateTimeOffset(File.GetLastWriteTimeUtc(_resultPath), TimeSpan.Zero)
@@ -113,10 +127,18 @@ public sealed class LocalAddressService : BackgroundService
             hostname,
             HttpPortConfiguration.FormatAddress(hostname, _httpPort),
             supported,
-            supported && applied != hostname,
+            supported && (applied != hostname || ipv6Applied != ipv6Enabled),
             appliedAt,
-            supported ? null : "Custom .local addresses require a native Linux installation with the protected server service.");
+            supported ? null : "Custom .local addresses require a native Linux installation with the protected server service.",
+            ipv6Enabled);
     }
+
+    private static bool ReadIpv6Enabled(string path) =>
+        !File.Exists(path) || !string.Equals(File.ReadAllText(path).Trim(), "false", StringComparison.OrdinalIgnoreCase);
+
+    private static bool? ReadIpv6Result(string path) => File.Exists(path)
+        ? string.Equals(File.ReadAllText(path).Trim(), "true", StringComparison.OrdinalIgnoreCase)
+        : null;
 
     private static string? ReadHostname(string path)
     {
