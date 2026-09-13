@@ -33,7 +33,7 @@ public sealed class ActivitySessionService(
     private static readonly TimeSpan SessionIdleLifetime = TimeSpan.FromHours(2);
     private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> Locks = new();
 
-    public async Task<ActivityRun> EnsureInteractiveRunAsync(ActivityRun run, CancellationToken ct = default)
+    public async Task<ActivityRun> EnsureInteractiveRunAsync(ActivityRun run, CancellationToken ct = default, bool activate = true)
     {
         if (run.ActivityDefinition is null || !ActivityEngineCatalog.IsInteractive(run.ActivityDefinition)) return run;
 
@@ -63,7 +63,7 @@ public sealed class ActivitySessionService(
                 changed = true;
             }
 
-            if (current.Status != ActivityRunStatuses.Ended && await AttachSessionGroupAsync(current, ct)) changed = true;
+            if (current.Status != ActivityRunStatuses.Ended && await AttachSessionGroupAsync(current, activate, ct)) changed = true;
 
             var state = ParseObject(current.StateJson);
             if (!state.ContainsKey("phase"))
@@ -107,7 +107,7 @@ public sealed class ActivitySessionService(
     /// score history are backfilled into the group so nothing in flight breaks
     /// and no history is lost.
     /// </summary>
-    private async Task<bool> AttachSessionGroupAsync(ActivityRun run, CancellationToken ct)
+    private async Task<bool> AttachSessionGroupAsync(ActivityRun run, bool activate, CancellationToken ct)
     {
         if (run.SessionGroupId.HasValue)
         {
@@ -115,11 +115,14 @@ public sealed class ActivitySessionService(
                 .SingleOrDefaultAsync(x => x.Id == run.SessionGroupId.Value, ct);
             if (existing is not null)
             {
-                var moved = existing.CurrentRunId != run.Id;
+                // Only an explicit launch may change the game a lobby follows.
+                // A TV or phone polling an older run must never move it back.
+                var moved = activate && existing.CurrentRunId != run.Id;
+                var changed = moved;
                 if (!IsJoinCodeValid(existing.JoinCode))
                 {
                     await RotateGroupCodeAsync(existing, existing.JoinCode, ct);
-                    moved = true;
+                    changed = true;
                 }
                 run.JoinCode = existing.JoinCode;
                 if (moved)
@@ -127,7 +130,7 @@ public sealed class ActivitySessionService(
                     existing.CurrentRunId = run.Id;
                     existing.UpdatedAt = DateTimeOffset.UtcNow;
                 }
-                return moved;
+                return changed;
             }
             run.SessionGroupId = null;
         }
@@ -209,7 +212,7 @@ public sealed class ActivitySessionService(
         {
             if (IsSessionGroupExpired(group, DateTimeOffset.UtcNow)) return null;
             var current = await ResolveGroupRunAsync(group, ct);
-            if (current is not null) return await EnsureInteractiveRunAsync(current, ct);
+            if (current is not null) return await EnsureInteractiveRunAsync(current, ct, activate: false);
             // A completed activity may still own the group's code while the
             // lesson is between games. Do not fall through to the legacy run
             // lookup and accidentally reopen that completed activity.
@@ -219,7 +222,7 @@ public sealed class ActivitySessionService(
         var run = await db.ActivityRuns.Include(x => x.ActivityDefinition)
             .SingleOrDefaultAsync(x => x.JoinCode == normalized, ct);
         if (run is null || run.ActivityDefinition is null || run.Status == ActivityRunStatuses.Ended) return null;
-        return await EnsureInteractiveRunAsync(run, ct);
+        return await EnsureInteractiveRunAsync(run, ct, activate: false);
     }
 
     /// <summary>
@@ -235,12 +238,9 @@ public sealed class ActivitySessionService(
             if (current?.ActivityDefinition is not null && IsSessionRunActive(current)) return current;
         }
 
-        var runs = await db.ActivityRuns.Include(x => x.ActivityDefinition)
-            .Where(x => x.SessionGroupId == group.Id)
-            .ToListAsync(ct);
-        return runs.Where(IsSessionRunActive)
-            .OrderByDescending(x => x.UpdatedAt)
-            .FirstOrDefault();
+        // End/reset deliberately clear CurrentRunId. Do not resurrect an older
+        // unfinished activity while the class is between games.
+        return null;
     }
 
     public async Task<(ActivityRun? Run, ActivityParticipant? Participant, string Token, string? Error)> JoinAsync(
@@ -251,79 +251,95 @@ public sealed class ActivitySessionService(
         var run = await FindByJoinCodeAsync(code, ct);
         if (run?.ActivityDefinition is null) return (null, null, "", "That game code is not active.");
 
-        var token = (input.ParticipantToken ?? "").Trim();
-        if (token.Length is < 20 or > 200) token = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
-
-        // Identity belongs to the lobby, so a phone that joined an earlier game
-        // in this lesson is recognised rather than signed up again.
-        var groupId = run.SessionGroupId;
-        var hash = TokenHash(groupId ?? run.Id, token);
-        var participant = await FindParticipantAsync(run.Id, token, ct);
-        var isNewParticipant = participant is null;
-
-        var displayName = NormalizeDisplayName(input.DisplayName);
-        if (participant is null)
+        var gate = Locks.GetOrAdd(run.Id, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
         {
-            var count = groupId.HasValue
-                ? await db.ActivityParticipants.CountAsync(x => x.SessionGroupId == groupId.Value && x.Status != ActivityParticipantStatuses.Removed, ct)
-                : await db.ActivityParticipants.CountAsync(x => x.ActivityRunId == run.Id && x.Status != ActivityParticipantStatuses.Removed, ct);
-            // Unclaimed identities are spread by join order so a room that
-            // never touches the picker still looks varied on the stage.
-            var (defaultAvatar, defaultColor) = ActivityIdentity.ForIndex(count);
-            participant = new ActivityParticipant
+            await db.Entry(run).ReloadAsync(ct);
+            if (!IsSessionRunActive(run) || IsSessionRunExpired(run, DateTimeOffset.UtcNow))
+                return (null, null, "", "That game code is not active.");
+            if (run.SessionGroupId is Guid joiningGroupId)
             {
-                Id = Guid.NewGuid(),
-                ActivityRunId = run.Id,
-                SessionGroupId = groupId,
-                ParticipantTokenHash = hash,
-                DisplayName = string.IsNullOrWhiteSpace(displayName) ? $"Player {count + 1}" : displayName,
-                Avatar = string.IsNullOrWhiteSpace(input.Avatar) ? defaultAvatar : ActivityIdentity.NormalizeAvatar(input.Avatar),
-                Color = string.IsNullOrWhiteSpace(input.Color) ? defaultColor : ActivityIdentity.NormalizeColor(input.Color),
-                IsAnonymous = string.IsNullOrWhiteSpace(displayName),
-                JoinedAt = DateTimeOffset.UtcNow,
-                LastSeenAt = DateTimeOffset.UtcNow
-            };
-            db.ActivityParticipants.Add(participant);
-        }
-        else
-        {
-            if (participant.Status == ActivityParticipantStatuses.Removed)
-                return (run, null, token, "The host removed this player from the game.");
-            if (participant.Status == ActivityParticipantStatuses.Locked)
-                return (run, null, token, "The host locked this player out of the game.");
-            if (!string.IsNullOrWhiteSpace(displayName))
-            {
-                participant.DisplayName = displayName;
-                participant.IsAnonymous = false;
+                var currentGroup = await db.ActivitySessionGroups.AsNoTracking().SingleOrDefaultAsync(x => x.Id == joiningGroupId, ct);
+                if (currentGroup?.CurrentRunId != run.Id || currentGroup.JoinCode != NormalizeCode(code))
+                    return (null, null, "", "The game changed. Please try joining again.");
             }
-            // A reconnecting player may also be changing their look.
-            if (!string.IsNullOrWhiteSpace(input.Avatar)) participant.Avatar = ActivityIdentity.NormalizeAvatar(input.Avatar);
-            if (!string.IsNullOrWhiteSpace(input.Color)) participant.Color = ActivityIdentity.NormalizeColor(input.Color);
-            participant.LastSeenAt = DateTimeOffset.UtcNow;
-        }
 
-        if (isNewParticipant && run.ActivityDefinition.Type is (ActivityTypes.Trivia or ActivityTypes.RapidFire))
-        {
-            var quizModifiers = QuizModifierSettings.FromConfig(ParseConfig(run));
-            if (quizModifiers.LivesEnabled && StringValue(ParseObject(run.StateJson), "phase") != ActivityPhases.Lobby)
-                participant.Lives = quizModifiers.StartingLives;
-        }
+            var token = (input.ParticipantToken ?? "").Trim();
+            if (token.Length is < 20 or > 200) token = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
 
-        if (run.SessionGroupId is Guid joinedGroupId)
-        {
-            var group = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == joinedGroupId, ct);
-            if (group is not null) group.UpdatedAt = DateTimeOffset.UtcNow;
+            // Identity belongs to the lobby, so a phone that joined an earlier game
+            // in this lesson is recognised rather than signed up again.
+            var groupId = run.SessionGroupId;
+            var hash = TokenHash(groupId ?? run.Id, token);
+            var participant = await FindParticipantAsync(run.Id, token, ct);
+            var isNewParticipant = participant is null;
+
+            var displayName = NormalizeDisplayName(input.DisplayName);
+            if (participant is null)
+            {
+                var count = groupId.HasValue
+                    ? await db.ActivityParticipants.CountAsync(x => x.SessionGroupId == groupId.Value && x.Status != ActivityParticipantStatuses.Removed, ct)
+                    : await db.ActivityParticipants.CountAsync(x => x.ActivityRunId == run.Id && x.Status != ActivityParticipantStatuses.Removed, ct);
+                // Unclaimed identities are spread by join order so a room that
+                // never touches the picker still looks varied on the stage.
+                var (defaultAvatar, defaultColor) = ActivityIdentity.ForIndex(count);
+                participant = new ActivityParticipant
+                {
+                    Id = Guid.NewGuid(),
+                    ActivityRunId = run.Id,
+                    SessionGroupId = groupId,
+                    ParticipantTokenHash = hash,
+                    DisplayName = string.IsNullOrWhiteSpace(displayName) ? $"Player {count + 1}" : displayName,
+                    Avatar = string.IsNullOrWhiteSpace(input.Avatar) ? defaultAvatar : ActivityIdentity.NormalizeAvatar(input.Avatar),
+                    Color = string.IsNullOrWhiteSpace(input.Color) ? defaultColor : ActivityIdentity.NormalizeColor(input.Color),
+                    IsAnonymous = string.IsNullOrWhiteSpace(displayName),
+                    JoinedAt = DateTimeOffset.UtcNow,
+                    LastSeenAt = DateTimeOffset.UtcNow
+                };
+                db.ActivityParticipants.Add(participant);
+            }
+            else
+            {
+                if (participant.Status == ActivityParticipantStatuses.Removed)
+                    return (run, null, token, "The host removed this player from the game.");
+                if (participant.Status == ActivityParticipantStatuses.Locked)
+                    return (run, null, token, "The host locked this player out of the game.");
+                if (!string.IsNullOrWhiteSpace(displayName))
+                {
+                    participant.DisplayName = displayName;
+                    participant.IsAnonymous = false;
+                }
+                // A reconnecting player may also be changing their look.
+                if (!string.IsNullOrWhiteSpace(input.Avatar)) participant.Avatar = ActivityIdentity.NormalizeAvatar(input.Avatar);
+                if (!string.IsNullOrWhiteSpace(input.Color)) participant.Color = ActivityIdentity.NormalizeColor(input.Color);
+                participant.LastSeenAt = DateTimeOffset.UtcNow;
+            }
+
+            if (isNewParticipant && run.ActivityDefinition.Type is (ActivityTypes.Trivia or ActivityTypes.RapidFire))
+            {
+                var quizModifiers = QuizModifierSettings.FromConfig(ParseConfig(run));
+                if (quizModifiers.LivesEnabled && StringValue(ParseObject(run.StateJson), "phase") != ActivityPhases.Lobby)
+                    participant.Lives = quizModifiers.StartingLives;
+            }
+
+            if (run.SessionGroupId is Guid joinedGroupId)
+            {
+                var group = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == joinedGroupId, ct);
+                if (group is not null) group.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+            await db.SaveChangesAsync(ct);
+            await BroadcastDisplayAsync(run.Id, ct);
+            return (run, participant, token, null);
         }
-        await db.SaveChangesAsync(ct);
-        await BroadcastDisplayAsync(run.Id, ct);
-        return (run, participant, token, null);
+        finally { gate.Release(); }
     }
 
     public async Task<ActivitySessionPublicView?> GetPublicViewAsync(Guid runId, CancellationToken ct = default)
     {
         var run = await LoadRunAsync(runId, ct);
         if (run?.ActivityDefinition is null) return null;
-        run = await EnsureInteractiveRunAsync(run, ct);
+        run = await EnsureInteractiveRunAsync(run, ct, activate: false);
         run = await LoadRunAsync(run.Id, ct) ?? run;
         if (run.Status != ActivityRunStatuses.Ended)
         {
@@ -364,7 +380,7 @@ public sealed class ActivitySessionService(
     {
         var run = await LoadRunAsync(runId, ct);
         if (run?.ActivityDefinition is null || !ActivityEngineCatalog.IsInteractive(run.ActivityDefinition)) return null;
-        run = await EnsureInteractiveRunAsync(run, ct);
+        run = await EnsureInteractiveRunAsync(run, ct, activate: false);
         run = await LoadRunAsync(run.Id, ct) ?? run;
         if (run.Status != ActivityRunStatuses.Ended)
         {
@@ -387,10 +403,23 @@ public sealed class ActivitySessionService(
     {
         var run = await LoadRunAsync(runId, ct);
         if (run?.ActivityDefinition is null) return null;
-        run = await EnsureInteractiveRunAsync(run, ct);
-        if (run.Status == ActivityRunStatuses.Ended) return null;
         var participant = await FindParticipantAsync(runId, token, ct);
         if (participant is null || participant.Status == ActivityParticipantStatuses.Removed) return null;
+        if (run.SessionGroupId is Guid followingGroupId)
+        {
+            var group = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == followingGroupId, ct);
+            if (group is null || IsSessionGroupExpired(group, DateTimeOffset.UtcNow)) return null;
+            if (group.CurrentRunId is Guid currentRunId && currentRunId != runId)
+            {
+                var current = await LoadRunAsync(currentRunId, ct);
+                // Never carry an old token across a host's player reset.
+                if (current?.SessionGroupId != followingGroupId) return null;
+                run = current;
+                runId = currentRunId;
+            }
+        }
+        run = await EnsureInteractiveRunAsync(run, ct, activate: false);
+        if (run.Status == ActivityRunStatuses.Ended) return null;
         var participantSeenAt = DateTimeOffset.UtcNow;
         participant.LastSeenAt = participantSeenAt;
         run.UpdatedAt = participantSeenAt;
@@ -425,7 +454,8 @@ public sealed class ActivitySessionService(
         var hasSubmitted = isTurnBasedWord ? false : phase == ActivityPhases.Voting ? hasVote : hasSubmission || hasVote;
         var canRespond = participant.Status == ActivityParticipantStatuses.Active &&
             (phase is ActivityPhases.AcceptingResponses or ActivityPhases.Voting or ActivityPhases.Prompt);
-        if (isTurnBasedWord) canRespond = canRespond && isCurrentTurn && !isEliminated;
+        canRespond = canRespond && !isEliminated;
+        if (isTurnBasedWord) canRespond = canRespond && isCurrentTurn;
         return new ActivityParticipantView(envelope, participant.Id, participant.DisplayName, participant.TeamId?.ToString(), hasSubmitted, canRespond, participant.Avatar, participant.Color, participant.Status);
     }
 
@@ -433,7 +463,7 @@ public sealed class ActivitySessionService(
     {
         var run = await LoadRunAsync(runId, ct);
         if (run?.ActivityDefinition is null) return null;
-        run = await EnsureInteractiveRunAsync(run, ct);
+        run = await EnsureInteractiveRunAsync(run, ct, activate: false);
         run = await LoadRunAsync(run.Id, ct) ?? run;
         if (run.Status != ActivityRunStatuses.Ended)
         {
@@ -489,12 +519,14 @@ public sealed class ActivitySessionService(
                 return Fail("Participant session not found.", run);
             if (participant.Status == ActivityParticipantStatuses.Locked)
                 return Fail("The host locked this player out of the game.", run);
-            if (run.Status == ActivityRunStatuses.Ended)
+            if (run.Status == ActivityRunStatuses.Ended || IsSessionRunExpired(run, DateTimeOffset.UtcNow))
                 return Fail("This game session has expired.", run);
             participant.LastSeenAt = DateTimeOffset.UtcNow;
             if (run.SessionGroupId is Guid participantGroupId)
             {
                 var group = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == participantGroupId, ct);
+                if (group?.CurrentRunId != run.Id)
+                    return Fail("The class has moved to another game. Refresh before responding.", run);
                 if (group is not null) group.UpdatedAt = participant.LastSeenAt;
             }
             var config = ParseConfig(run);
@@ -523,88 +555,108 @@ public sealed class ActivitySessionService(
     /// </summary>
     public async Task AdvanceAutomaticallyAsync(Guid runId, CancellationToken ct = default)
     {
-        var run = await LoadRunAsync(runId, ct);
-        if (run?.ActivityDefinition is null) return;
-        if (run.Status is ActivityRunStatuses.Ended or ActivityRunStatuses.Paused) return;
-
-        var config = ParseConfig(run);
-        var state = ParseObject(run.StateJson);
-        var roundId = CurrentRoundId(run, config);
-
-        var eligible = run.Participants
-            .Where(x => x.Status == ActivityParticipantStatuses.Active)
-            .Select(x => x.Id)
-            .ToHashSet();
-        var answered = run.Submissions.Where(x => x.RoundId == roundId).Select(x => x.ParticipantId).ToHashSet();
-        answered.UnionWith(run.Votes.Where(x => x.RoundId == roundId).Select(x => x.VoterParticipantId));
-        // An empty room has not "all answered" — that would race the lobby.
-        var everyoneAnswered = eligible.Count > 0 && eligible.IsSubsetOf(answered);
-
-        var moderationPending = run.Submissions.Any(x =>
-            x.RoundId == roundId && x.ModerationStatus == "pending" && !x.Hidden);
-
-        var step = ActivityAutoPilot.Next(
-            run.ActivityDefinition.Type, config, state, DateTimeOffset.UtcNow, everyoneAnswered, moderationPending);
-        if (step is null)
+        var gate = Locks.GetOrAdd(runId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
         {
-            // Parked — most often waiting on the host to moderate.
-            if (run.AutoAdvanceAt is not null)
+            var run = await LoadRunAsync(runId, ct);
+            if (run?.ActivityDefinition is null) return;
+            if (run.Status is ActivityRunStatuses.Ended or ActivityRunStatuses.Paused) return;
+
+            var config = ParseConfig(run);
+            var state = ParseObject(run.StateJson);
+            var roundId = CurrentRoundId(run, config);
+
+            var eligible = run.Participants
+                .Where(x => x.Status == ActivityParticipantStatuses.Active)
+                .Select(x => x.Id)
+                .ToHashSet();
+            var voting = StringValue(state, "phase") == ActivityPhases.Voting;
+            var voteRoundId = run.ActivityDefinition.Type == ActivityTypes.Punchline
+                ? CreativeVoteRoundId(run, config, state) : roundId;
+            var answered = voting
+                ? run.Votes.Where(x => x.RoundId == voteRoundId).Select(x => x.VoterParticipantId).ToHashSet()
+                : run.Submissions.Where(x => x.RoundId == roundId).Select(x => x.ParticipantId).ToHashSet();
+            if (!voting)
+                answered.UnionWith(run.Votes.Where(x => x.RoundId == roundId).Select(x => x.VoterParticipantId));
+            // An empty room has not "all answered" — that would race the lobby.
+            var everyoneAnswered = eligible.Count > 0 && eligible.IsSubsetOf(answered);
+
+            var moderationPending = run.Submissions.Any(x =>
+                x.RoundId == roundId && x.ModerationStatus == "pending" && !x.Hidden);
+
+            var step = ActivityAutoPilot.Next(
+                run.ActivityDefinition.Type, config, state, DateTimeOffset.UtcNow, everyoneAnswered, moderationPending);
+            if (step is null)
             {
-                run.AutoAdvanceAt = null;
-                await db.SaveChangesAsync(ct);
+                // Parked — most often waiting on the host to moderate.
+                if (run.AutoAdvanceAt is not null)
+                {
+                    run.AutoAdvanceAt = null;
+                    state.Remove("autoAdvanceAt");
+                    state.Remove("autoAdvanceMs");
+                    run.StateJson = Serialize(state);
+                    await db.SaveChangesAsync(ct);
+                    await BroadcastDisplayAsync(runId, ct);
+                }
+                return;
             }
-            return;
-        }
 
-        // The stored due time is the anchor for "is it time yet". Next() always
-        // measures its dwell from the current instant, so re-deriving the
-        // deadline here would push it forward on every tick and the game would
-        // never move. Only an unconditional step — everyone answered, so the
-        // deadline is now — may act ahead of the stored time.
-        var now = DateTimeOffset.UtcNow;
-        var dueByStamp = run.AutoAdvanceAt is not null && run.AutoAdvanceAt <= now;
-        if (!dueByStamp && step.DueAt > now)
-        {
-            run.AutoAdvanceAt = step.DueAt;
+            // The stored due time is the anchor for "is it time yet". Next() always
+            // measures its dwell from the current instant, so re-deriving the
+            // deadline here would push it forward on every tick and the game would
+            // never move. Only an unconditional step — everyone answered, so the
+            // deadline is now — may act ahead of the stored time.
+            var now = DateTimeOffset.UtcNow;
+            var dueByStamp = run.AutoAdvanceAt is not null && run.AutoAdvanceAt <= now;
+            if (!dueByStamp && step.DueAt > now)
+            {
+                if (run.AutoAdvanceAt is null)
+                {
+                    await StampAutoAdvanceAsync(run, state, ct);
+                    run.StateJson = Serialize(state);
+                    await db.SaveChangesAsync(ct);
+                }
+                return;
+            }
+
+            // Some engines need a choice made before a round can open. Picking one is
+            // exactly the chore autonomy exists to remove, so make it rather than
+            // stalling and waiting for a host who was told they need not watch.
+            await PrepareForStepAsync(run, state, step.Action, ct);
+
+            // Goes through the same command path a host would use, so autonomy can
+            // never reach a transition the host could not have made themselves.
+            var result = await ExecuteHostActionLockedAsync(runId, new ActivityCommandEnvelope(null, null, step.Action), ct);
+            if (result.Success) return;
+
+            // Some steps are worth trying but not worth stopping for. A vote needs
+            // at least two answers to vote on; a round with fewer should reveal and
+            // carry on rather than park waiting for a host.
+            if (step.Fallback is { } fallback)
+            {
+                var recovered = await ExecuteHostActionLockedAsync(runId, new ActivityCommandEnvelope(null, null, fallback), ct);
+                if (recovered.Success) return;
+            }
+
+            // A refused action means this game needs a person. Park it rather than
+            // retrying every second: a failed command never reaches CommitAsync, so
+            // the due time would stay in the past and the service would spin on it
+            // forever while the game sat stuck.
+            var parked = await db.ActivityRuns.SingleOrDefaultAsync(x => x.Id == runId, ct);
+            if (parked is null) return;
+            parked.AutoAdvanceAt = null;
+            var parkedState = ParseObject(parked.StateJson);
+            // Clear the mirror too, or the stage and console keep counting down to a
+            // moment that will never arrive.
+            parkedState.Remove("autoAdvanceAt");
+            parkedState.Remove("autoAdvanceMs");
+            parkedState["autoBlockedReason"] = result.Error ?? "This game needs you to continue it.";
+            parked.StateJson = Serialize(parkedState);
             await db.SaveChangesAsync(ct);
-            return;
+            await BroadcastDisplayAsync(runId, ct);
         }
-
-        // Some engines need a choice made before a round can open. Picking one is
-        // exactly the chore autonomy exists to remove, so make it rather than
-        // stalling and waiting for a host who was told they need not watch.
-        await PrepareForStepAsync(run, state, step.Action, ct);
-
-        // Goes through the same command path a host would use, so autonomy can
-        // never reach a transition the host could not have made themselves.
-        var result = await ExecuteHostActionAsync(runId, new ActivityCommandEnvelope(null, null, step.Action), ct);
-        if (result.Success) return;
-
-        // Some steps are worth trying but not worth stopping for. A vote needs
-        // at least two answers to vote on; a round with fewer should reveal and
-        // carry on rather than park waiting for a host.
-        if (step.Fallback is { } fallback)
-        {
-            var recovered = await ExecuteHostActionAsync(runId, new ActivityCommandEnvelope(null, null, fallback), ct);
-            if (recovered.Success) return;
-        }
-
-        // A refused action means this game needs a person. Park it rather than
-        // retrying every second: a failed command never reaches CommitAsync, so
-        // the due time would stay in the past and the service would spin on it
-        // forever while the game sat stuck.
-        var parked = await db.ActivityRuns.SingleOrDefaultAsync(x => x.Id == runId, ct);
-        if (parked is null) return;
-        parked.AutoAdvanceAt = null;
-        var parkedState = ParseObject(parked.StateJson);
-        // Clear the mirror too, or the stage and console keep counting down to a
-        // moment that will never arrive.
-        parkedState.Remove("autoAdvanceAt");
-        parkedState.Remove("autoAdvanceMs");
-        parkedState["autoBlockedReason"] = result.Error ?? "This game needs you to continue it.";
-        parked.StateJson = Serialize(parkedState);
-        await db.SaveChangesAsync(ct);
-        await BroadcastDisplayAsync(runId, ct);
+        finally { gate.Release(); }
     }
 
     /// <summary>
@@ -627,7 +679,7 @@ public sealed class ActivitySessionService(
         var candidate = candidates[Math.Abs(IntValue(state, "currentRoundIndex")) % candidates.Count];
 
         var payload = new JsonObject { ["participantId"] = candidate.Id.ToString() };
-        await ExecuteHostActionAsync(run.Id,
+        await ExecuteHostActionLockedAsync(run.Id,
             new ActivityCommandEnvelope(null, null, "settarget", JsonSerializer.SerializeToElement(payload)),
             ct);
     }
@@ -641,30 +693,35 @@ public sealed class ActivitySessionService(
         await gate.WaitAsync(ct);
         try
         {
-            var run = await LoadRunAsync(runId, ct);
-            if (run?.ActivityDefinition is null || !ActivityEngineCatalog.IsInteractive(run.ActivityDefinition))
-                return Fail("Interactive game session not found.", run);
-            var config = ParseConfig(run);
-            var state = ParseObject(run.StateJson);
-            var action = command.Action.Trim().ToLowerInvariant();
-            if (run.Status == ActivityRunStatuses.Ended && action != "resetplayers")
-                return Fail("This game session has expired. Reset the players to start a fresh lobby.", run);
-            if (command.ExpectedRevision is > 0 && command.ExpectedRevision != run.Revision)
-                return new ActivityCommandResult(false, $"Revision mismatch. Server revision is {run.Revision}, expected {command.ExpectedRevision}.", run.Revision, run.Status, ParseUntyped(run.StateJson), DateTimeOffset.UtcNow);
+            return await ExecuteHostActionLockedAsync(runId, command, ct);
+        }
+        finally { gate.Release(); }
+    }
 
-            var result = action == "resetplayers"
-                ? await ResetPlayersAsync(run, ct)
-                : await HandleHostActionAsync(run, config, state, action, command.Payload, ct);
-            if (!result.Success) return new ActivityCommandResult(false, result.Error, run.Revision, run.Status, ParseUntyped(run.StateJson), DateTimeOffset.UtcNow);
-            if (action == "resetplayers") state = ParseObject(run.StateJson);
-            await CommitAsync(run, state, ct);
-            var display = await BuildEnvelopeAsync(run, ProjectionRole.Display, ct);
-            return new ActivityCommandResult(true, null, run.Revision, run.Status, display.State, DateTimeOffset.UtcNow);
-        }
-        finally
-        {
-            gate.Release();
-        }
+    // The caller holds the run gate across deciding, preparing and committing
+    // the action. Autonomy must not race a host's hold or next-round command.
+    private async Task<ActivityCommandResult> ExecuteHostActionLockedAsync(
+        Guid runId, ActivityCommandEnvelope command, CancellationToken ct)
+    {
+        var run = await LoadRunAsync(runId, ct);
+        if (run?.ActivityDefinition is null || !ActivityEngineCatalog.IsInteractive(run.ActivityDefinition))
+            return Fail("Interactive game session not found.", run);
+        var config = ParseConfig(run);
+        var state = ParseObject(run.StateJson);
+        var action = command.Action.Trim().ToLowerInvariant();
+        if (run.Status == ActivityRunStatuses.Ended && action != "resetplayers")
+            return Fail("This game session has expired. Reset the players to start a fresh lobby.", run);
+        if (command.ExpectedRevision is > 0 && command.ExpectedRevision != run.Revision)
+            return new ActivityCommandResult(false, $"Revision mismatch. Server revision is {run.Revision}, expected {command.ExpectedRevision}.", run.Revision, run.Status, ParseUntyped(run.StateJson), DateTimeOffset.UtcNow);
+
+        var result = action == "resetplayers"
+            ? await ResetPlayersAsync(run, ct)
+            : await HandleHostActionAsync(run, config, state, action, command.Payload, ct);
+        if (!result.Success) return new ActivityCommandResult(false, result.Error, run.Revision, run.Status, ParseUntyped(run.StateJson), DateTimeOffset.UtcNow);
+        if (action == "resetplayers") state = ParseObject(run.StateJson);
+        await CommitAsync(run, state, ct);
+        var display = await BuildEnvelopeAsync(run, ProjectionRole.Display, ct);
+        return new ActivityCommandResult(true, null, run.Revision, run.Status, display.State, DateTimeOffset.UtcNow);
     }
 
     public async Task<ActivityRun?> ResetAsync(Guid runId, CancellationToken ct = default)
@@ -732,6 +789,15 @@ public sealed class ActivitySessionService(
         {
             previousGroup.CurrentRunId = null;
             previousGroup.UpdatedAt = now;
+            // Other runs still belonging to this lobby must not accept its
+            // revoked tokens or bring its old code back to life.
+            var previousRuns = await db.ActivityRuns.Where(x => x.SessionGroupId == previousGroup.Id && x.Id != run.Id).ToListAsync(ct);
+            foreach (var previous in previousRuns)
+            {
+                previous.Status = ActivityRunStatuses.Ended;
+                previous.EndedAt = now;
+                previous.AutoAdvanceAt = null;
+            }
         }
         else
         {
@@ -823,13 +889,20 @@ public sealed class ActivitySessionService(
 
     public async Task<bool> AssignParticipantAsync(Guid runId, Guid participantId, Guid? teamId, CancellationToken ct = default)
     {
-        var participant = await db.ActivityParticipants.SingleOrDefaultAsync(x => x.ActivityRunId == runId && x.Id == participantId, ct);
-        if (participant is null) return false;
-        if (teamId.HasValue && !await db.ActivityTeams.AnyAsync(x => x.ActivityRunId == runId && x.Id == teamId.Value, ct)) return false;
-        participant.TeamId = teamId;
-        await db.SaveChangesAsync(ct);
-        await BroadcastDisplayAsync(runId, ct);
-        return true;
+        var gate = Locks.GetOrAdd(runId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            var run = await LoadRunAsync(runId, ct);
+            var participant = run?.Participants.FirstOrDefault(x => x.Id == participantId);
+            if (participant is null || run is null) return false;
+            if (teamId.HasValue && !run.Teams.Any(x => x.Id == teamId.Value && x.Active)) return false;
+            participant.TeamId = teamId;
+            await db.SaveChangesAsync(ct);
+            await BroadcastDisplayAsync(runId, ct);
+            return true;
+        }
+        finally { gate.Release(); }
     }
 
     public async Task<bool> RenameTeamAsync(Guid runId, Guid teamId, string? name, CancellationToken ct = default)
@@ -896,6 +969,10 @@ public sealed class ActivitySessionService(
                 state["telephoneStepIndex"] = 0;
                 state["telephoneStepKind"] = "drawing";
                 state["telephoneChainStarted"] = true;
+                state["telephoneParticipantOrder"] = new JsonArray(run.Participants
+                    .Where(player => player.Status == ActivityParticipantStatuses.Active)
+                    .OrderBy(player => player.JoinedAt).ThenBy(player => player.Id)
+                    .Select(player => (JsonNode)player.Id.ToString()).ToArray());
             }
             run.Status = ActivityRunStatuses.Live;
             run.StartedAt ??= DateTimeOffset.UtcNow;
@@ -913,10 +990,11 @@ public sealed class ActivitySessionService(
             }
             return (true, null);
         }
-        if (action is "resume")
+        if (action is "resume" && run.Status == ActivityRunStatuses.Paused)
         {
             run.Status = ActivityRunStatuses.Live;
             run.TimerPausedAt = null;
+            state["autoPaused"] = false;
             if (run.ActivityDefinition?.Type == ActivityTypes.RapidFire)
             {
                 var remainingMs = Math.Max(0, IntValue(state, "remainingMs"));
@@ -1494,6 +1572,7 @@ public sealed class ActivitySessionService(
             case "close": case "closeresponses": case "lock":
                 state["phase"] = ActivityPhases.ResponsesLocked; state["responsesOpen"] = false; state["responsesLocked"] = true; return (true, null);
             case "openvoting":
+                if (telephone) return (false, "Telephone rounds pass work to the next step instead of voting.");
                 var votingSeconds = Math.Clamp(IntValue(config, "votingSeconds", 30), 5, 600);
                 state["phase"] = ActivityPhases.Voting;
                 state["votingOpen"] = true;
@@ -3786,7 +3865,7 @@ public sealed class ActivitySessionService(
         var participant = participantId.HasValue ? run.Participants.FirstOrDefault(x => x.Id == participantId.Value) : null;
         var resolvedTeamId = teamId ?? participant?.TeamId;
         var team = resolvedTeamId.HasValue ? run.Teams.FirstOrDefault(x => x.Id == resolvedTeamId.Value) : null;
-        var already = run.ScoreEvents.Any(x => !x.IsUndone && x.ParticipantId == participantId && x.TeamId == resolvedTeamId && x.RoundId == roundId && x.Reason == reason);
+        var already = run.ScoreEvents.Any(x => x.ActivityRunId == run.Id && !x.IsUndone && x.ParticipantId == participantId && x.TeamId == resolvedTeamId && x.RoundId == roundId && x.Reason == reason);
         if (already) return;
         // Stamped with the lobby so totals carry across the lesson's games,
         // and with the run so a single game's points stay attributable.
@@ -3844,7 +3923,7 @@ public sealed class ActivitySessionService(
 
         // Moderation parks the game with no due time; the host's decision is
         // what restarts it.
-        if (step is null || run.Status == ActivityRunStatuses.Ended)
+        if (step is null || run.Status is ActivityRunStatuses.Ended or ActivityRunStatuses.Paused)
         {
             run.AutoAdvanceAt = null;
             state.Remove("autoAdvanceAt");
@@ -3852,6 +3931,17 @@ public sealed class ActivitySessionService(
             return;
         }
 
+        var previous = ParseObject(run.StateJson);
+        // Answers, votes, roster changes and score adjustments are commits too.
+        // Preserve a running deadline unless the timed beat itself changed.
+        string[] clockKeys = ["phase", "currentQuestionIndex", "currentRoundIndex", "currentPromptIndex",
+            "creativeCurrentMatchId", "telephoneStepIndex", "currentStage",
+            "timerStartedAt", "timerDurationMs", "responseWindowStartedAt", "targetAt"];
+        if (run.AutoAdvanceAt is not null && clockKeys.All(key => JsonNode.DeepEquals(previous[key], state[key])))
+        {
+            state["autoAdvanceAt"] = run.AutoAdvanceAt.Value.ToString("O");
+            return;
+        }
         run.AutoAdvanceAt = step.DueAt;
         // Mirrored into the projection so the stage can show the clock. The
         // window length goes with it: stamping happens at the transition, so
@@ -4183,6 +4273,7 @@ public sealed class ActivitySessionService(
     /// </summary>
     private async Task ApplyAutoAdvanceAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct)
     {
+        if (BoolValue(state, "autoPaused") || run.Status == ActivityRunStatuses.Paused) return;
         if (!SupportsAutoAdvance(run)) return;
         // The run-level toggle wins; a definition may pre-arm it; and a game
         // running itself closes on a full head count as a matter of course.
@@ -4191,6 +4282,20 @@ public sealed class ActivitySessionService(
             : BoolValue(config, "autoAdvance")
                 || ActivityAutoPilot.IsEnabled(run.ActivityDefinition?.Type, config, state);
         if (!enabled) return;
+        if (StringValue(state, "phase") == ActivityPhases.Voting &&
+            ActivityAutoPilot.IsEnabled(run.ActivityDefinition?.Type, config, state))
+        {
+            var voteRound = run.ActivityDefinition?.Type == ActivityTypes.Punchline
+                ? CreativeVoteRoundId(run, config, state) : CurrentRoundId(run, config);
+            var voters = db.ActivityVotes.Local.Where(vote => vote.ActivityRunId == run.Id && vote.RoundId == voteRound)
+                .Select(vote => vote.VoterParticipantId).ToHashSet();
+            voters.UnionWith(run.Votes.Where(vote => vote.RoundId == voteRound).Select(vote => vote.VoterParticipantId));
+            var active = run.Participants.Where(player => player.Status == ActivityParticipantStatuses.Active).ToArray();
+            // Persist the final vote before scoring it. The next background tick
+            // closes the vote under this same gate using the saved rows.
+            if (active.Length > 0 && active.All(player => voters.Contains(player.Id))) run.AutoAdvanceAt = DateTimeOffset.UtcNow;
+            return;
+        }
         if (StringValue(state, "phase") != ActivityPhases.AcceptingResponses) return;
         if (!BoolValue(state, "responsesOpen")) return;
 
@@ -4540,7 +4645,13 @@ public sealed class ActivitySessionService(
                 projected["telephoneStepCount"] = ArrayValue(config, "chainSteps").Count;
                 if (participantId.HasValue && stepIndex > 0)
                 {
-                    var previous = run.Submissions.FirstOrDefault(submission => submission.ParticipantId == participantId.Value && submission.Kind == "telephone" && submission.RoundId == $"telephone-step-{stepIndex - 1}" && submission.ModerationStatus == "approved" && !submission.Hidden);
+                    // Fix the seating order at Start so reconnecting/locking a
+                    // player cannot reshuffle everybody else's chain mid-game.
+                    var order = ReadStringArray(state, "telephoneParticipantOrder");
+                    if (order.Count == 0) order = run.Participants.OrderBy(player => player.JoinedAt).ThenBy(player => player.Id).Select(player => player.Id.ToString()).ToList();
+                    var seat = order.IndexOf(participantId.Value.ToString());
+                    var sourceId = seat >= 0 && order.Count > 0 ? order[(seat + order.Count - 1) % order.Count] : "";
+                    var previous = run.Submissions.FirstOrDefault(submission => submission.ParticipantId.ToString() == sourceId && submission.Kind == "telephone" && submission.RoundId == $"telephone-step-{stepIndex - 1}" && submission.ModerationStatus == "approved" && !submission.Hidden);
                     if (previous is not null)
                     {
                         var previousPayload = ParseObject(previous.PayloadJson);
@@ -4574,6 +4685,7 @@ public sealed class ActivitySessionService(
                     return (JsonNode)new JsonObject
                     {
                         ["id"] = submission.Id.ToString(),
+                        ["isOwn"] = participantId.HasValue && submission.ParticipantId == participantId.Value,
                         ["strokes"] = payload["strokes"] is JsonNode strokes ? JsonNode.Parse(strokes.ToJsonString(ActivityJsonDefaults.Options)) : new JsonArray()
                     };
                 }).ToArray());
@@ -4907,6 +5019,7 @@ public sealed class ActivitySessionService(
     private async Task<ActivityRun?> LoadRunAsync(Guid runId, CancellationToken ct)
     {
         var run = await db.ActivityRuns
+            .AsSplitQuery()
             .Include(x => x.ActivityDefinition)
             .Include(x => x.RunParticipants).ThenInclude(x => x.Team)
             .Include(x => x.RunTeams)
@@ -4915,6 +5028,10 @@ public sealed class ActivitySessionService(
             .Include(x => x.Votes).ThenInclude(x => x.VoterParticipant)
             .SingleOrDefaultAsync(x => x.Id == runId, ct);
         if (run is null) return null;
+
+        // A caller may have inspected the run before waiting for its gate.
+        // EF's identity map must not turn that snapshot into a lost update.
+        if (db.Entry(run).State == EntityState.Unchanged) await db.Entry(run).ReloadAsync(ct);
 
         // Start from this run's own rows, then widen to the lobby when there is
         // one. Submissions and votes stay per-run: they are this game's answers.
@@ -4925,6 +5042,7 @@ public sealed class ActivitySessionService(
         if (run.SessionGroupId is Guid groupId)
         {
             var group = await db.ActivitySessionGroups.SingleOrDefaultAsync(x => x.Id == groupId, ct);
+            if (group is not null && db.Entry(group).State == EntityState.Unchanged) await db.Entry(group).ReloadAsync(ct);
             // Ordering and the reset cut-off happen in memory: SQLite cannot
             // sort or compare DateTimeOffset in SQL, and these are classroom-
             // sized collections.
@@ -5417,7 +5535,7 @@ public sealed class ActivitySessionService(
         }
         var maxStrokes = Math.Clamp(IntValue(config, "maxStrokes", 80), 1, 240);
         var maxPointsPerStroke = Math.Clamp(IntValue(config, "maxPointsPerStroke", IntValue(config, "maxStrokePoints", 120)), 1, 240);
-        if (payload.Value.GetRawText().Length > 100_000 || strokes.GetArrayLength() > maxStrokes)
+        if (payload.Value.GetRawText().Length > 100_000 || strokes.GetArrayLength() == 0 || strokes.GetArrayLength() > maxStrokes)
         {
             error = "That drawing is too large.";
             return false;
@@ -5429,9 +5547,24 @@ public sealed class ActivitySessionService(
                 error = $"Each drawing stroke needs between 1 and {maxPointsPerStroke} points.";
                 return false;
             }
+            if (stroke.TryGetProperty("color", out var color) && (color.ValueKind != JsonValueKind.String ||
+                color.GetString() is not { Length: 7 } colorText || colorText[0] != '#' || !colorText[1..].All(Uri.IsHexDigit)))
+            {
+                error = "Choose a valid drawing ink color.";
+                return false;
+            }
+            if (stroke.TryGetProperty("width", out var width) && (width.ValueKind != JsonValueKind.Number ||
+                !width.TryGetDouble(out var widthValue) || !double.IsFinite(widthValue) || widthValue is < .002 or > .1))
+            {
+                error = "Choose a valid drawing brush size.";
+                return false;
+            }
             foreach (var point in points.EnumerateArray())
             {
-                if (point.ValueKind != JsonValueKind.Array || point.GetArrayLength() < 2 || !point[0].TryGetDouble(out var x) || !point[1].TryGetDouble(out var y) || x is < 0 or > 1 || y is < 0 or > 1)
+                if (point.ValueKind != JsonValueKind.Array || point.GetArrayLength() != 2 ||
+                    point[0].ValueKind != JsonValueKind.Number || point[1].ValueKind != JsonValueKind.Number ||
+                    !point[0].TryGetDouble(out var x) || !point[1].TryGetDouble(out var y) ||
+                    !double.IsFinite(x) || !double.IsFinite(y) || x is < 0 or > 1 || y is < 0 or > 1)
                 {
                     error = "Drawing points must be normalized coordinates between 0 and 1.";
                     return false;

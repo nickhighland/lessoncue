@@ -809,10 +809,21 @@ if [[ "${REQUEST}" == tunnel:enable ]]; then
   exit 0
 fi
 
-if [[ "${REQUEST}" == hostname:* ]]; then
-  LOCAL_HOSTNAME="${REQUEST#hostname:}"
+if [[ "${REQUEST}" == hostname:* || "${REQUEST}" == local-address:* ]]; then
+  if [[ "${REQUEST}" == local-address:* ]]; then
+    LOCAL_ADDRESS_REQUEST="${REQUEST#local-address:}"
+    LOCAL_HOSTNAME="${LOCAL_ADDRESS_REQUEST%%:*}"
+    LOCAL_IPV6="${LOCAL_ADDRESS_REQUEST#*:}"
+  else
+    LOCAL_HOSTNAME="${REQUEST#hostname:}"
+    LOCAL_IPV6="$(cat /var/lib/lessoncue/config/local-ipv6-enabled 2>/dev/null || printf 'true')"
+  fi
   if [[ ! "${LOCAL_HOSTNAME}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
     echo "LessonCue rejected an invalid local hostname."
+    exit 1
+  fi
+  if [[ "${LOCAL_IPV6}" != true && "${LOCAL_IPV6}" != false ]]; then
+    echo "LessonCue rejected an invalid local IPv6 setting."
     exit 1
   fi
   if [[ ! -f /etc/avahi/avahi-daemon.conf ]]; then
@@ -821,46 +832,70 @@ if [[ "${REQUEST}" == hostname:* ]]; then
   fi
 
   AVAHI_CONFIG="$(mktemp)"
-  trap 'rm -f "${AVAHI_CONFIG}"' EXIT
-  awk -v hostname="${LOCAL_HOSTNAME}" '
-    BEGIN { in_server = 0; server_found = 0; hostname_written = 0 }
-    /^\[server\][[:space:]]*$/ {
-      print
-      in_server = 1
-      server_found = 1
-      next
+  AVAHI_PREVIOUS="$(mktemp)"
+  trap 'rm -f "${AVAHI_CONFIG}" "${AVAHI_PREVIOUS}"' EXIT
+  cp /etc/avahi/avahi-daemon.conf "${AVAHI_PREVIOUS}"
+  awk -v hostname="${LOCAL_HOSTNAME}" -v ipv6="${LOCAL_IPV6}" '
+    function flush_section() {
+      if (in_server) {
+        if (!hostname_written) print "host-name=" hostname
+        if (!ipv6_written) print "use-ipv6=" (ipv6 == "true" ? "yes" : "no")
+      }
+      if (in_publish && !aaaa_written)
+        print "publish-aaaa-on-ipv4=" (ipv6 == "true" ? "yes" : "no")
     }
     /^\[/ {
-      if (in_server && !hostname_written) {
-        print "host-name=" hostname
-        hostname_written = 1
-      }
-      in_server = 0
+      flush_section()
+      in_server = $0 ~ /^\[server\][[:space:]]*$/
+      in_publish = $0 ~ /^\[publish\][[:space:]]*$/
+      if (in_server) server_found = 1
+      if (in_publish) publish_found = 1
+      print
+      next
     }
     in_server && /^[#[:space:]]*host-name[[:space:]]*=/ {
-      if (!hostname_written) {
-        print "host-name=" hostname
-        hostname_written = 1
-      }
+      if (!hostname_written) { print "host-name=" hostname; hostname_written = 1 }
+      next
+    }
+    in_server && /^[#[:space:]]*use-ipv6[[:space:]]*=/ {
+      if (!ipv6_written) { print "use-ipv6=" (ipv6 == "true" ? "yes" : "no"); ipv6_written = 1 }
+      next
+    }
+    in_publish && /^[#[:space:]]*publish-aaaa-on-ipv4[[:space:]]*=/ {
+      if (!aaaa_written) { print "publish-aaaa-on-ipv4=" (ipv6 == "true" ? "yes" : "no"); aaaa_written = 1 }
       next
     }
     { print }
     END {
-      if (in_server && !hostname_written) print "host-name=" hostname
+      flush_section()
       if (!server_found) {
         print ""
         print "[server]"
         print "host-name=" hostname
+        print "use-ipv6=" (ipv6 == "true" ? "yes" : "no")
+      }
+      if (!publish_found) {
+        print ""
+        print "[publish]"
+        print "publish-aaaa-on-ipv4=" (ipv6 == "true" ? "yes" : "no")
       }
     }
   ' /etc/avahi/avahi-daemon.conf > "${AVAHI_CONFIG}"
   install -m 0644 "${AVAHI_CONFIG}" /etc/avahi/avahi-daemon.conf
   HTTP_PORT="$(cat /var/lib/lessoncue/config/http-port 2>/dev/null || printf '8080')"
   set_avahi_port "${HTTP_PORT}"
-  systemctl restart avahi-daemon
+  if ! systemctl restart avahi-daemon; then
+    install -m 0644 "${AVAHI_PREVIOUS}" /etc/avahi/avahi-daemon.conf
+    systemctl restart avahi-daemon || true
+    echo "LessonCue restored the previous Avahi configuration after the new one failed."
+    exit 1
+  fi
   printf '%s\n' "${LOCAL_HOSTNAME}" > /var/lib/lessoncue/config/hostname-result
   chown lessoncue:lessoncue /var/lib/lessoncue/config/hostname-result
   chmod 0600 /var/lib/lessoncue/config/hostname-result
+  printf '%s\n' "${LOCAL_IPV6}" > /var/lib/lessoncue/config/local-ipv6-result
+  chown lessoncue:lessoncue /var/lib/lessoncue/config/local-ipv6-result
+  chmod 0600 /var/lib/lessoncue/config/local-ipv6-result
   echo "LessonCue is available at $(format_address "${LOCAL_HOSTNAME}" "${HTTP_PORT}")"
   exit 0
 fi

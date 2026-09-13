@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Lesson, LessonClass, Screen, TemporaryControllerSession } from "../models";
 import { BrandMark, Field, PageHead } from "../ui";
@@ -12,6 +12,8 @@ import {
   lessonPlannedDurationMs,
 } from "../utils";
 import { CompactRemoteShell } from "./CompactRemoteShell";
+import { createRefreshLoop } from "../../activities/refreshLoop";
+import { setActivityControllerHeaders } from "../../activities/api";
 
 export function ControllerView({
   screens,
@@ -109,6 +111,14 @@ export function ControllerView({
   const [universalGrant, setUniversalGrant] = useState(
     () => sessionStorage.getItem("lessoncue.universalGrant") || "",
   );
+  const commandQueue = useRef(Promise.resolve());
+  const controllerRoomId = room?.id;
+  useEffect(() => setActivityControllerHeaders(sessionToken
+    ? { "X-LessonCue-Controller": `session:${sessionToken}` }
+    : controllerRoomId
+      ? { "X-LessonCue-Controller": `room:${controllerRoomId}` }
+      : { "X-LessonCue-Controller": "universal", "X-LessonCue-Controller-Grant": universalGrant }),
+  [sessionToken, controllerRoomId, universalGrant]);
   const [universalUnlocked, setUniversalUnlocked] = useState(
     () => !!sessionStorage.getItem("lessoncue.universalGrant"),
   );
@@ -157,39 +167,43 @@ export function ControllerView({
       setCommandReceipt({ action, error: message });
       return notify(message);
     }
-    setCommandReceipt({ action });
-    try {
-      const controllerHeaders: Record<string, string> = sessionToken
-        ? { "X-LessonCue-Controller": `session:${sessionToken}` }
-        : room
-          ? { "X-LessonCue-Controller": `room:${room.id}` }
-          : {
-              "X-LessonCue-Controller": "universal",
-              "X-LessonCue-Controller-Grant": universalGrant,
-            };
-      const result = await api<{ version: number }>(
-        `/api/v1/screens/${screenId}/control`,
-        {
-          method: "POST",
-          headers: controllerHeaders,
-          body: JSON.stringify({ action, ...extras }),
-        },
-      );
-      setCommandReceipt({ version: result.version, action });
-      notify(
-        `Sending ${action} to ${selectedScreen?.name || "screen"}; waiting for its receipt.`,
-      );
-      refresh();
-    } catch (e) {
-      const message = errorText(e);
-      if (!room && !sessionToken && message.includes("controller PIN")) {
-        sessionStorage.removeItem("lessoncue.universalGrant");
-        setUniversalGrant("");
-        setUniversalUnlocked(false);
+    const send = async () => {
+      setCommandReceipt({ action });
+      try {
+        const controllerHeaders: Record<string, string> = sessionToken
+          ? { "X-LessonCue-Controller": `session:${sessionToken}` }
+          : room
+            ? { "X-LessonCue-Controller": `room:${room.id}` }
+            : {
+                "X-LessonCue-Controller": "universal",
+                "X-LessonCue-Controller-Grant": universalGrant,
+              };
+        const result = await api<{ version: number }>(
+          `/api/v1/screens/${screenId}/control`,
+          {
+            method: "POST",
+            headers: controllerHeaders,
+            body: JSON.stringify({ action, ...extras }),
+          },
+        );
+        setCommandReceipt({ version: result.version, action });
+        notify(
+          `Sending ${action} to ${selectedScreen?.name || "screen"}; waiting for its receipt.`,
+        );
+        refresh();
+      } catch (e) {
+        const message = errorText(e);
+        if (!room && !sessionToken && message.includes("controller PIN")) {
+          sessionStorage.removeItem("lessoncue.universalGrant");
+          setUniversalGrant("");
+          setUniversalUnlocked(false);
+        }
+        setCommandReceipt({ action, error: message });
+        notify(message);
       }
-      setCommandReceipt({ action, error: message });
-      notify(message);
-    }
+    };
+    commandQueue.current = commandQueue.current.then(send, send);
+    await commandQueue.current;
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const play = (itemId?: string) =>
@@ -443,6 +457,7 @@ export function ControllerView({
 }
 
 type PublicControllerBootstrap = {
+  libraryIncluded?: boolean;
   screens: Screen[];
   lessons: Lesson[];
   classes: LessonClass[];
@@ -461,33 +476,43 @@ export function PublicControllerApp() {
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
-    let cancelled = false;
     const grant = sessionStorage.getItem("lessoncue.universalGrant") || "";
     const headers = grant
       ? { "X-LessonCue-Controller-Grant": grant }
       : undefined;
-    api<PublicControllerBootstrap>(
-      `/api/v1/controller/bootstrap?path=${encodeURIComponent(location.pathname)}`,
-      { headers },
-    )
-      .then((value) => {
-        if (!cancelled) {
-          setBootstrap(value);
+    let libraryRefreshedAt = 0;
+    const loop = createRefreshLoop(async signal => {
+      try {
+        const liveOnly = Date.now() - libraryRefreshedAt < 60000;
+        const value = await api<PublicControllerBootstrap>(
+          `/api/v1/controller/bootstrap?path=${encodeURIComponent(location.pathname)}&liveOnly=${liveOnly}`,
+          { headers, signal },
+        );
+        if (!signal.aborted) {
+          if (value.libraryIncluded !== false) libraryRefreshedAt = Date.now();
+          setBootstrap(previous => value.libraryIncluded === false && previous
+            ? { ...value, classes: previous.classes, lessons: previous.lessons }
+            : value);
           setError("");
         }
-      })
-      .catch((cause) => {
-        if (!cancelled) {
-          setBootstrap(undefined);
+      } catch (cause) {
+        if (!signal.aborted) {
           setError(errorText(cause));
         }
-      });
+      }
+    }, () => document.hidden ? 15000 : 2000);
+    void loop.refresh();
+    const wake = () => { if (!document.hidden) void loop.refresh(); };
+    window.addEventListener("online", wake);
+    document.addEventListener("visibilitychange", wake);
     return () => {
-      cancelled = true;
+      loop.stop();
+      window.removeEventListener("online", wake);
+      document.removeEventListener("visibilitychange", wake);
     };
   }, [reload]);
 
-  if (error)
+  if (error && !bootstrap)
     return (
       <div className="controller-page">
         <PageHead eyebrow="CONTROLLER" title="Controller unavailable" detail={error} />
@@ -508,6 +533,7 @@ export function PublicControllerApp() {
         notify={setNotice}
         onUniversalUnlocked={() => setReload((value) => value + 1)}
       />
+      {error && <div className="remote-command-notice" role="status">Connection interrupted. Retrying…</div>}
       {notice && (
         <div className="remote-command-notice" role="status">
           {notice}

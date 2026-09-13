@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { ActivityStateEnvelope } from './types';
 import { ActivityApi, activityHub } from './api';
+import { latestActivityEnvelope } from './activityConnection';
 import { getActivityDescriptor } from './activityRegistry';
 import { activityThemeVariables, resolveActivityTheme } from './activityPalettes';
 import { playGameTheme, resolveGameAudioChain, stopGameTheme } from './audio/gameAudio';
@@ -139,14 +140,14 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
 
         if (isCancelled) return;
         if (!activeRun) throw new Error('Activity run is not available.');
-        setEnvelope(activeRun);
+        setEnvelope(previous => latestActivityEnvelope(previous, activeRun!));
         setLoading(false);
 
         // Subscribe to live SignalR updates
         const runId = activeRun.runId;
-        unsubscribe = await activityHub.subscribeRun(runId, updated => {
+        unsubscribe = activityHub.subscribeRun(runId, updated => {
           if (!isCancelled) {
-            setEnvelope(updated);
+            setEnvelope(previous => latestActivityEnvelope(previous, updated));
           }
         });
 
@@ -157,7 +158,7 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
         if (!isCancelled) {
           try {
             const current = await ActivityApi.getRun(runId);
-            if (!isCancelled) setEnvelope(current);
+            if (!isCancelled) setEnvelope(previous => latestActivityEnvelope(previous, current));
           } catch {
             // The subscription is live; the next push will carry the truth.
           }
@@ -181,7 +182,7 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
       const runId = propRunId || initialEnvelope?.runId;
       if (!runId || isCancelled) return;
       void ActivityApi.getRun(runId)
-        .then(current => { if (!isCancelled) setEnvelope(current); })
+        .then(current => { if (!isCancelled) setEnvelope(previous => latestActivityEnvelope(previous, current)); })
         .catch(() => { /* offline for a moment; the next tick tries again */ });
     }, 5_000);
 

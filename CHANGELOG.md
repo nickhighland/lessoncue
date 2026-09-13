@@ -4,6 +4,22 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.1 — More reliable games, displays, and local discovery
+
+### User changes
+
+- Games and phone remotes recover more reliably from lost replies and brief network interruptions. Joining again after a lost response does not create a duplicate player; drawing games retain work after a failed send.
+- Automatic game progression, shared-lobby scoring, and phone-host controls work consistently across more activity types.
+- Server connection settings now include an optional **Allow IPv6 for the local .local address** switch. It stays on by default. Turning it off suppresses Avahi's IPv6 discovery on the server without disabling Linux IPv6 or the Cloudflare Tunnel.
+- Browser and Android TV displays avoid several resource-lifecycle problems that could cause duplicate status traffic, frozen signage video, or stale signage WebViews.
+
+### Developer changes
+
+- Reworked activity join, push subscription, refresh, autopilot, drawing, and remote-control paths with server and browser regression coverage.
+- Added a guarded Avahi configuration update with rollback on restart failure and a test for both IPv6 modes.
+- Fixed browser display heartbeat and control-poll cleanup races, and Android signage player/WebView rebinding and cleanup.
+- Added an initial Amazon Vega client and CI type/address-policy checks. Vega packaging and device acceptance remain separate work; this release does not distribute a Vega package.
+
 ## v0.46.0 — Games that run themselves, and a remote that flows
 
 ### User changes

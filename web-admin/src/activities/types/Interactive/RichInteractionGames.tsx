@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DrawingPreview as DrawingSvg } from '../../DrawingPreview';
 import type { ActivityComponentProps, ActivityEditorProps } from '../../activityRegistry';
 import type { ActivityStateEnvelope } from '../../types';
 import { ActivityApi } from '../../api';
@@ -35,16 +36,6 @@ const RichStage: React.FC<{ children: React.ReactNode; title: string; kicker: st
       </>}
     </div>
   </div>
-);
-
-const DrawingSvg: React.FC<{ strokes: unknown; className?: string }> = ({ strokes, className = '' }) => (
-  <svg className={`drawing-svg ${className}`} viewBox="0 0 1 1" role="img" aria-label="Submitted drawing">
-    <rect width="1" height="1" rx=".035" fill="rgba(255,255,255,.06)" />
-    {listOf(strokes).map((stroke, index) => {
-      const points = Array.isArray(stroke.points) ? stroke.points.filter(point => Array.isArray(point) && point.length >= 2).map(point => `${Number(point[0])},${Number(point[1])}`).join(' ') : '';
-      return points ? <polyline key={index} points={points} fill="none" stroke={stringOf(stroke.color, '#f8fafc')} strokeWidth={numberOf(stroke.width, .008)} strokeLinecap="round" strokeLinejoin="round" /> : null;
-    })}
-  </svg>
 );
 
 export const DrawingDisplay: React.FC<ActivityComponentProps> = ({ envelope }) => {

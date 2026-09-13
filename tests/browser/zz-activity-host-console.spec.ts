@@ -93,6 +93,58 @@ async function prepareHostedTrivia(page: Page, name: string, engine?: { type: st
   return prepared;
 }
 
+test("a signed-out phone can host a game and receives the TV acknowledgment without another tap", async ({ page, browser }) => {
+  await authenticate(page);
+  const prepared = await prepareHostedTrivia(page, "Public remote", undefined, true);
+  await openUniversalRemote(page, prepared.screenId);
+  const grant = await page.evaluate(() => sessionStorage.getItem("lessoncue.universalGrant"));
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await context.addInitScript(value => sessionStorage.setItem("lessoncue.universalGrant", value!), grant);
+  const phone = await context.newPage();
+  try {
+    const concurrent = await Promise.all(Array.from({ length: 8 }, () => context.request.post(`/api/v1/screens/${prepared.screenId}/control`, {
+      headers: { 'X-LessonCue-Controller': 'universal', 'X-LessonCue-Controller-Grant': grant! }, data: { action: 'pause' },
+    })));
+    for (const result of concurrent) expect(result.status()).toBe(202);
+    const versions = await Promise.all(concurrent.map(result => result.json()));
+    expect(new Set(versions.map(result => result.version)).size).toBe(8);
+    await phone.goto(`/universalremote?lesson=${prepared.lessonId}`);
+    await phone.getByLabel("Control this screen").selectOption(prepared.screenId);
+    await expect(phone.getByRole("region", { name: "Live game controls" })).toBeVisible({ timeout: 20000 });
+    const sent = phone.waitForResponse(response => response.url().endsWith(`/activity-runs/${prepared.runId}/command`) && response.request().method() === 'POST');
+    await phone.getByRole('button', { name: 'Start the game', exact: true }).click();
+    expect((await sent).status()).toBe(200);
+
+    const receipt = phone.waitForResponse(response => response.url().endsWith(`/screens/${prepared.screenId}/control`) && response.request().method() === 'POST');
+    await phone.locator('.remote-transport').getByRole('button', { name: /Pause/ }).click();
+    const response = await receipt;
+    expect(response.status()).toBe(202);
+    const { version } = await response.json();
+    const status = await page.request.post('/api/v1/tv/status', {
+      headers: { Authorization: `Bearer ${prepared.deviceToken}` },
+      data: { screenId: prepared.screenId, appVersion: '0.46.1', online: true, freeBytes: 4e9,
+        manifestVersion: 1, failedDownloads: 0, acknowledgedControlVersion: version,
+        playbackState: 'paused', lessonId: prepared.lessonId, itemId: prepared.itemId, positionMs: 0, durationMs: 60000 },
+    });
+    expect(status.ok()).toBeTruthy();
+    await expect(phone.getByText('Received', { exact: true })).toBeVisible({ timeout: 10000 });
+    const liveRefresh = await phone.waitForResponse(response => response.url().includes('/controller/bootstrap?') && response.url().includes('liveOnly=true'));
+    const liveState = await liveRefresh.json();
+    expect(liveState.libraryIncluded).toBe(false);
+    expect(liveState.lessons).toEqual([]);
+    expect(liveState.classes).toEqual([]);
+    expect(liveState.screens.some((screen: { id: string }) => screen.id === prepared.screenId)).toBeTruthy();
+    await expect(phone.getByRole('region', { name: 'Live game controls' })).toBeVisible();
+
+    // An interrupted refresh retains the controls and recovers automatically.
+    await context.setOffline(true);
+    await expect(phone.getByText('Connection interrupted. Retrying…')).toBeVisible({ timeout: 12000 });
+    await expect(phone.locator('.remote-shell')).toBeVisible();
+    await context.setOffline(false);
+    await expect(phone.getByText('Connection interrupted. Retrying…')).toHaveCount(0, { timeout: 12000 });
+  } finally { await context.close(); }
+});
+
 test("the remote reads as one flow rather than three tabs", async ({ page }) => {
   await authenticate(page);
   const prepared = await prepareHostedTrivia(page, "Host Tabs");

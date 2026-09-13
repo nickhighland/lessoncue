@@ -295,7 +295,7 @@ public static class ActivityApi
             }
 
             return Results.Ok(result);
-        }).RequireAuthorization(LessonCuePermissions.Planning);
+        }).RequireAuthorization(policy => policy.RequireAssertion(ActivityControllerAccess.AuthorizeAsync));
 
         api.MapPost("/activity-runs/{id:guid}/reset", async (
             Guid id,
@@ -335,7 +335,7 @@ public static class ActivityApi
                 Theme: theme,
                 Config: config
             ));
-        }).RequireAuthorization(LessonCuePermissions.Planning);
+        }).RequireAuthorization(policy => policy.RequireAssertion(ActivityControllerAccess.AuthorizeAsync));
 
         api.MapPost("/activity-runs/{id:guid}/end", async (
             Guid id,
@@ -375,7 +375,7 @@ public static class ActivityApi
                 Theme: theme,
                 Config: config
             ));
-        }).RequireAuthorization(LessonCuePermissions.Planning);
+        }).RequireAuthorization(policy => policy.RequireAssertion(ActivityControllerAccess.AuthorizeAsync));
 
         // Phone participation stays anonymous and session-scoped. Host state and
         // team management are protected below; display state is public by run ID.
@@ -411,7 +411,8 @@ public static class ActivityApi
             return Results.Ok(result);
         }).RequireRateLimiting("activity-submit");
 
-        var hostSessions = api.MapGroup("/activity-sessions").RequireAuthorization(LessonCuePermissions.Planning);
+        var hostSessions = api.MapGroup("/activity-sessions")
+            .RequireAuthorization(policy => policy.RequireAssertion(ActivityControllerAccess.AuthorizeAsync));
         hostSessions.MapGet("/{id:guid}/host-state", async (Guid id, ActivitySessionService sessions, CancellationToken ct) =>
         {
             var view = await sessions.GetHostViewAsync(id, ct);
@@ -438,7 +439,7 @@ public static class ActivityApi
             return result.Success
                 ? Results.Ok(new { imported = result.Count, sourceRunId = input.SourceRunId })
                 : Results.BadRequest(new { error = result.Error ?? "Could not import finalists." });
-        });
+        }).RequireAuthorization(LessonCuePermissions.Planning);
     }
 
     private static object MapDefinitionSummary(ActivityDefinition item)

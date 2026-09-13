@@ -1,4 +1,5 @@
 import * as signalR from '@microsoft/signalr';
+import { ActivityHubClient } from './activityConnection';
 import { api } from '../admin/api';
 import type {
   ActivityDefinition,
@@ -11,6 +12,14 @@ import type {
   ActivityHostView,
   ActivityDefinitionPage
 } from './types';
+
+// The public remote already holds these grants for playback. Scope them to
+// hosting requests; never attach them to participant or activity-library APIs.
+let controllerHeaders: Record<string, string> | undefined;
+export function setActivityControllerHeaders(headers: Record<string, string>) {
+  controllerHeaders = headers;
+  return () => { if (controllerHeaders === headers) controllerHeaders = undefined; };
+}
 
 export class ActivityApi {
   static async listActivities(type?: string, search?: string, includeArchived?: boolean): Promise<ActivityDefinition[]> {
@@ -113,6 +122,7 @@ export class ActivityApi {
     try {
       const result = await api<ActivityCommandResult>(`/api/v1/activity-runs/${runId}/command`, {
         method: 'POST',
+        headers: controllerHeaders,
         body: JSON.stringify(command)
       });
       notifyActivityCommandLifecycle({
@@ -135,20 +145,21 @@ export class ActivityApi {
   }
 
   static async resetRun(runId: string): Promise<ActivityStateEnvelope> {
-    return api<ActivityStateEnvelope>(`/api/v1/activity-runs/${runId}/reset`, { method: 'POST', body: '{}' });
+    return api<ActivityStateEnvelope>(`/api/v1/activity-runs/${runId}/reset`, { method: 'POST', headers: controllerHeaders, body: '{}' });
   }
 
   static async endRun(runId: string): Promise<ActivityStateEnvelope> {
-    return api<ActivityStateEnvelope>(`/api/v1/activity-runs/${runId}/end`, { method: 'POST', body: '{}' });
+    return api<ActivityStateEnvelope>(`/api/v1/activity-runs/${runId}/end`, { method: 'POST', headers: controllerHeaders, body: '{}' });
   }
 
-  static async getPublicSession(code: string): Promise<ActivitySessionPublicView> {
-    return api<ActivitySessionPublicView>(`/api/v1/activity-sessions/join/${encodeURIComponent(code)}`);
+  static async getPublicSession(code: string, signal?: AbortSignal): Promise<ActivitySessionPublicView> {
+    return api<ActivitySessionPublicView>(`/api/v1/activity-sessions/join/${encodeURIComponent(code)}`, { signal });
   }
 
-  static async joinSession(code: string, participantToken?: string, displayName?: string, identity?: { avatar?: string; color?: string }): Promise<{ token: string; participant: ActivityParticipantView }> {
+  static async joinSession(code: string, participantToken?: string, displayName?: string, identity?: { avatar?: string; color?: string }, signal?: AbortSignal): Promise<{ token: string; participant: ActivityParticipantView }> {
     return api<{ token: string; participant: ActivityParticipantView }>(`/api/v1/activity-sessions/join/${encodeURIComponent(code)}`, {
       method: 'POST',
+      signal,
       body: JSON.stringify({
         participantToken: participantToken || null,
         displayName: displayName || null,
@@ -159,31 +170,32 @@ export class ActivityApi {
     });
   }
 
-  static async getParticipantState(runId: string, participantToken: string): Promise<ActivityParticipantView> {
-    return api<ActivityParticipantView>(`/api/v1/activity-sessions/${runId}/participant-state?participantToken=${encodeURIComponent(participantToken)}`);
+  static async getParticipantState(runId: string, participantToken: string, signal?: AbortSignal): Promise<ActivityParticipantView> {
+    return api<ActivityParticipantView>(`/api/v1/activity-sessions/${runId}/participant-state?participantToken=${encodeURIComponent(participantToken)}`, { signal });
   }
 
-  static async participantAction(runId: string, participantToken: string, action: string, payload?: Record<string, unknown>): Promise<ActivityCommandResult> {
+  static async participantAction(runId: string, participantToken: string, action: string, payload?: Record<string, unknown>, signal?: AbortSignal): Promise<ActivityCommandResult> {
     return api<ActivityCommandResult>(`/api/v1/activity-sessions/${runId}/participant-action`, {
       method: 'POST',
+      signal,
       body: JSON.stringify({ participantToken, action, payload: payload || null })
     });
   }
 
   static async getHostState(runId: string): Promise<ActivityHostView> {
-    return api<ActivityHostView>(`/api/v1/activity-sessions/${runId}/host-state`);
+    return api<ActivityHostView>(`/api/v1/activity-sessions/${runId}/host-state`, { headers: controllerHeaders });
   }
 
   static async setTeams(runId: string, teams: Array<{ name: string; color?: string; icon?: string }>): Promise<void> {
-    return api<void>(`/api/v1/activity-sessions/${runId}/teams`, { method: 'PUT', body: JSON.stringify(teams) });
+    return api<void>(`/api/v1/activity-sessions/${runId}/teams`, { method: 'PUT', headers: controllerHeaders, body: JSON.stringify(teams) });
   }
 
   static async renameTeam(runId: string, teamId: string, name: string): Promise<void> {
-    return api<void>(`/api/v1/activity-sessions/${runId}/teams/${teamId}`, { method: 'PUT', body: JSON.stringify({ name }) });
+    return api<void>(`/api/v1/activity-sessions/${runId}/teams/${teamId}`, { method: 'PUT', headers: controllerHeaders, body: JSON.stringify({ name }) });
   }
 
   static async assignParticipantTeam(runId: string, participantId: string, teamId?: string | null): Promise<void> {
-    return api<void>(`/api/v1/activity-sessions/${runId}/participants/team`, { method: 'POST', body: JSON.stringify({ participantId, teamId: teamId || null }) });
+    return api<void>(`/api/v1/activity-sessions/${runId}/participants/team`, { method: 'POST', headers: controllerHeaders, body: JSON.stringify({ participantId, teamId: teamId || null }) });
   }
 
   static async importBracketFinalists(runId: string, sourceRunId: string, limit?: number): Promise<{ imported: number; sourceRunId: string }> {
@@ -216,145 +228,12 @@ const notifyActivityCommandLifecycle = (event: ActivityCommandLifecycle) => {
   });
 };
 
-export type StateUpdateCallback = (envelope: ActivityStateEnvelope) => void;
-
-export type ActivityConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
-type ActivityConnectionCallback = (state: ActivityConnectionState) => void;
-
-export class ActivityHubClient {
-  private connection: signalR.HubConnection | null = null;
-  private currentRunId: string | null = null;
-  private subscribers = new Set<StateUpdateCallback>();
-  private connectionSubscribers = new Set<ActivityConnectionCallback>();
-  private isConnecting = false;
-  private connectionState: ActivityConnectionState = 'disconnected';
-
-  constructor() {
-    this.initConnection();
-  }
-
-  private initConnection() {
-    this.connection = new signalR.HubConnectionBuilder()
-      .withUrl('/hubs/activities')
-      .withAutomaticReconnect([0, 1000, 2000, 5000, 10000])
-      .configureLogging(signalR.LogLevel.Warning)
-      .build();
-
-    const handleStateUpdate = (envelope: ActivityStateEnvelope) => {
-      this.notifySubscribers(envelope);
-    };
-
-    // ActivityService broadcasts ReceiveState. Keep the older event name as a
-    // compatibility listener for already-running servers during upgrades.
-    this.connection.on('ReceiveState', handleStateUpdate);
-    this.connection.on('ActivityStateUpdated', handleStateUpdate);
-
-    this.connection.onreconnecting(() => {
-      this.setConnectionState('reconnecting');
-    });
-
-    this.connection.onreconnected(() => {
-      this.setConnectionState('connected');
-      if (this.currentRunId && this.connection?.state === signalR.HubConnectionState.Connected) {
-        this.connection.invoke('JoinRun', this.currentRunId).catch(() => {});
-      }
-    });
-
-    this.connection.onclose(() => {
-      this.setConnectionState('disconnected');
-    });
-  }
-
-  private setConnectionState(state: ActivityConnectionState) {
-    this.connectionState = state;
-    this.connectionSubscribers.forEach(callback => {
-      try { callback(state); } catch (error) { void error; }
-    });
-  }
-
-  subscribeConnectionStatus(callback: ActivityConnectionCallback): () => void {
-    this.connectionSubscribers.add(callback);
-    callback(this.connectionState);
-    return () => this.connectionSubscribers.delete(callback);
-  }
-
-  private notifySubscribers(envelope: ActivityStateEnvelope) {
-    this.subscribers.forEach(cb => {
-      try { cb(envelope); } catch (err) { void err; }
-    });
-  }
-
-  /**
-   * Joining a SignalR group is asynchronous. A command can legitimately land
-   * between the display's initial GET and the completed JoinRun invocation,
-   * which means the display would otherwise miss that broadcast forever. Read
-   * the authoritative state once after subscribing so the live surface starts
-   * from the same revision as the server, even when the first command wins the
-   * race.
-   */
-  private async refreshRun(runId: string, callback: StateUpdateCallback): Promise<void> {
-    try {
-      const latest = await ActivityApi.getRun(runId);
-      if (this.currentRunId === runId && this.subscribers.has(callback)) callback(latest);
-    } catch (err) {
-      // SignalR remains the live transport; a failed refresh is recoverable on
-      // the next reconnect and should not turn a working display into an error
-      // screen.
-      console.debug('Could not refresh activity state after subscribing.', err);
-    }
-  }
-
-  async subscribeRun(runId: string, callback: StateUpdateCallback): Promise<() => void> {
-    this.subscribers.add(callback);
-
-    if (this.currentRunId !== runId) {
-      if (this.currentRunId && this.connection?.state === signalR.HubConnectionState.Connected) {
-        try { await this.connection.invoke('LeaveRun', this.currentRunId); } catch (err) { void err; }
-      }
-      this.currentRunId = runId;
-    }
-
-    if (this.connection?.state === signalR.HubConnectionState.Disconnected && !this.isConnecting) {
-      this.isConnecting = true;
-      this.setConnectionState('connecting');
-      try {
-        await this.connection.start();
-        this.setConnectionState('connected');
-        if (this.currentRunId) {
-          await this.connection.invoke('JoinRun', this.currentRunId);
-        }
-      } catch (err) {
-        console.warn('SignalR activity connection failed, fallback to polling:', err);
-        this.setConnectionState('disconnected');
-      } finally {
-        this.isConnecting = false;
-      }
-    } else if (this.connection?.state === signalR.HubConnectionState.Connected && this.currentRunId) {
-      try {
-        await this.connection.invoke('JoinRun', this.currentRunId);
-      } catch (err) { void err; }
-    }
-
-    // The initial GET may have completed before a command or before the hub
-    // group was joined. Reconcile once after either path above.
-    await this.refreshRun(runId, callback);
-
-    return () => {
-      this.subscribers.delete(callback);
-      if (this.subscribers.size === 0 && this.currentRunId && this.connection?.state === signalR.HubConnectionState.Connected) {
-        this.connection.invoke('LeaveRun', this.currentRunId).catch(() => {});
-        this.currentRunId = null;
-      }
-    };
-  }
-
-  async stop(): Promise<void> {
-    if (this.connection) {
-      try {
-        await this.connection.stop();
-      } catch (err) { void err; }
-    }
-  }
-}
-
-export const activityHub = new ActivityHubClient();
+export type { ActivityConnectionState, StateUpdateCallback } from './activityConnection';
+export const activityHub = new ActivityHubClient(
+  new signalR.HubConnectionBuilder()
+    .withUrl('/hubs/activities')
+    .withAutomaticReconnect([0, 1000, 2000, 5000, 10000])
+    .configureLogging(signalR.LogLevel.Warning)
+    .build(),
+  runId => ActivityApi.getRun(runId),
+);

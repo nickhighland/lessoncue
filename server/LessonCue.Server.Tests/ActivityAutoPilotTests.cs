@@ -333,6 +333,80 @@ public sealed class ActivityAutoPilotTests
         JsonNode.Parse(run.StateJson)?["phase"]?.GetValue<string>() ?? "";
 
     [Fact]
+    public async Task ResponsesAndEarlyTicksDoNotExtendTheWindowAndHoldStopsLastAnswerAdvance()
+    {
+        var (db, activities, sessions, connection, dataPath) = await LiveAsync();
+        await using (connection)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput(
+                "Stable clock", ActivityTypes.Trivia, Config: JsonSerializer.SerializeToElement(new
+                {
+                    questions = new[] { new { id = "q1", prompt = "Pick", options = new[] { "A", "B" }, correctIndex = 1 } }
+                })), "teacher", ct);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: ct), ct);
+            var carmen = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Carmen"), ct);
+            var letty = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Letty"), ct);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), ct);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), ct);
+            var deadline = run.AutoAdvanceAt;
+            Assert.NotNull(deadline);
+            var response = JsonSerializer.SerializeToElement(new { optionIndex = 1 });
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id,
+                new ActivityParticipantActionInput(carmen.Token, "answer", response), ct)).Success);
+            Assert.Equal(deadline, run.AutoAdvanceAt);
+            await sessions.AdvanceAutomaticallyAsync(run.Id, ct);
+            Assert.Equal(deadline, run.AutoAdvanceAt);
+
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id,
+                new ActivityCommandEnvelope(null, null, "hold"), ct)).Success);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id,
+                new ActivityParticipantActionInput(letty.Token, "answer", response), ct)).Success);
+            Assert.Equal(ActivityPhases.AcceptingResponses, PhaseOf(run));
+            Assert.Null(run.AutoAdvanceAt);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id,
+                new ActivityCommandEnvelope(null, null, "resume"), ct)).Success);
+            Assert.False(JsonNode.Parse(run.StateJson)!["autoPaused"]!.GetValue<bool>());
+            Assert.NotNull(run.AutoAdvanceAt);
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
+    public async Task WritingAnAnswerDoesNotCountAsVoting()
+    {
+        var (db, activities, sessions, connection, dataPath) = await LiveAsync();
+        await using (connection)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput(
+                "Vote for a caption", ActivityTypes.Punchline, Config: JsonDocument.Parse("""
+                    {"requireModeration":false,"prompts":[{"id":"p1","prompt":"Finish this"}]}
+                    """).RootElement), "teacher", ct);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: ct), ct);
+            var players = new[] {
+                await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Carmen"), ct),
+                await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Letty"), ct)
+            };
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), ct);
+            await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), ct);
+            foreach (var player in players)
+                Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id,
+                    new ActivityParticipantActionInput(player.Token, "submit", JsonSerializer.SerializeToElement(new { text = player.Participant!.DisplayName })), ct)).Success);
+            await MakeDueAsync(db, run.Id);
+            await sessions.AdvanceAutomaticallyAsync(run.Id, ct);
+            Assert.Equal(ActivityPhases.Voting, PhaseOf(run));
+            var deadline = run.AutoAdvanceAt;
+            await sessions.AdvanceAutomaticallyAsync(run.Id, ct);
+            Assert.Equal(ActivityPhases.Voting, PhaseOf(run));
+            Assert.Equal(deadline, run.AutoAdvanceAt);
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
     public async Task AQuizRunsItselfFromStartToStandingsWithoutTheHost()
     {
         var (db, activities, sessions, connection, dataPath) = await LiveAsync();

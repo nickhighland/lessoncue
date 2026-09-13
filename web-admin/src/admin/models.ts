@@ -231,6 +231,7 @@ export type UpdateStatus = {
 export type LocalAddressStatus = {
   hostname: string;
   address: string;
+  ipv6Enabled: boolean;
   supported: boolean;
   pending: boolean;
   appliedAt?: string;

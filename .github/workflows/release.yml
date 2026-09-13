@@ -29,6 +29,7 @@ jobs:
         run: sudo install -D -m 0755 installers/linux/lessoncue-media-worker /usr/local/libexec/lessoncue-media-worker
       - run: npm ci
       - run: npm run test:protocol
+      - run: npm run test:network-config
       - run: npm run lint
       - run: npm test
       - run: dotnet restore server/LessonCue.Server.Tests/LessonCue.Server.Tests.csproj
