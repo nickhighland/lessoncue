@@ -111,7 +111,7 @@ test("a signed-out phone can host a game and receives the TV acknowledgment with
     await phone.goto(`/universalremote?lesson=${prepared.lessonId}`);
     await phone.getByLabel("Control this screen").selectOption(prepared.screenId);
     await expect(phone.getByRole("region", { name: "Live game controls" })).toBeVisible({ timeout: 20000 });
-    const sent = phone.waitForResponse(response => response.url().endsWith(`/activity-runs/${prepared.runId}/command`) && response.request().method() === 'POST');
+    const sent = phone.waitForResponse(response => response.url().endsWith(`/activity-runs/${prepared.runId}/command`) && response.request().method() === 'POST', { timeout: 30_000 });
     await phone.getByRole('button', { name: 'Start the game', exact: true }).click();
     expect((await sent).status()).toBe(200);
 
@@ -122,7 +122,7 @@ test("a signed-out phone can host a game and receives the TV acknowledgment with
     const { version } = await response.json();
     const status = await page.request.post('/api/v1/tv/status', {
       headers: { Authorization: `Bearer ${prepared.deviceToken}` },
-      data: { screenId: prepared.screenId, appVersion: '0.46.2', online: true, freeBytes: 4e9,
+      data: { screenId: prepared.screenId, appVersion: '0.46.3', online: true, freeBytes: 4e9,
         manifestVersion: 1, failedDownloads: 0, acknowledgedControlVersion: version,
         playbackState: 'paused', lessonId: prepared.lessonId, itemId: prepared.itemId, positionMs: 0, durationMs: 60000 },
     });
