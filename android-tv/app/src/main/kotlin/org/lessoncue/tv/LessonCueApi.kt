@@ -8,6 +8,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Instant
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import android.media.MediaCodecList
 
 private val suspiciousZeroOffset = Regex("""([+-])([0O)])([0O)]):([0O)])([0O)])$""")
@@ -23,7 +26,11 @@ internal fun parseOptionalInstant(value: String?): Instant? {
     return repaired.takeIf { it != text }?.let { runCatching { Instant.parse(it) }.getOrNull() }
 }
 
-class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
+class LessonCueApi(
+    serverUrl: String,
+    private val manifestCache: File? = null,
+    private val openConnection: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection },
+) {
     val baseUrl = normalizeLessonCueServerUrl(serverUrl)
 
     suspend fun discover(): String = withContext(Dispatchers.IO) {
@@ -54,14 +61,12 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
     suspend fun manifestQuickly(identity: DeviceIdentity): ScreenManifest = withContext(Dispatchers.IO) {
         val raw = request("/api/v1/screens/${identity.screenId}/manifest", token = identity.token,
             connectTimeoutMillis = 2_500, readTimeoutMillis = 4_000)
-        manifestCache?.writeText(raw)
-        parseManifest(JSONObject(raw))
+        parseAndCacheManifest(raw)
     }
 
     suspend fun manifest(identity: DeviceIdentity): ScreenManifest = withContext(Dispatchers.IO) {
         val raw = request("/api/v1/screens/${identity.screenId}/manifest", token = identity.token)
-        manifestCache?.writeText(raw)
-        parseManifest(JSONObject(raw))
+        parseAndCacheManifest(raw)
     }
 
     suspend fun reportStatus(identity: DeviceIdentity, manifestVersion: Int, freeBytes: Long, failedDownloads: Int = 0,
@@ -147,22 +152,45 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
     }
 
     suspend fun uploadDiagnosticScreenshot(identity: DeviceIdentity, requestId: String, jpeg: ByteArray) = withContext(Dispatchers.IO) {
-        val connection = URL("$baseUrl/api/v1/tv/screens/${identity.screenId}/diagnostics/screenshot/$requestId").openConnection() as HttpURLConnection
-        connection.requestMethod = "PUT"
-        connection.connectTimeout = 8_000
-        connection.readTimeout = 20_000
-        connection.doOutput = true
-        connection.setFixedLengthStreamingMode(jpeg.size)
-        connection.setRequestProperty("Content-Type", "image/jpeg")
-        connection.setRequestProperty("Authorization", "Bearer ${identity.token}")
-        connection.outputStream.use { it.write(jpeg) }
-        val status = connection.responseCode
-        val response = (if (status in 200..299) connection.inputStream else connection.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
-        connection.disconnect()
-        if (status !in 200..299) error("LessonCue returned HTTP $status: $response")
+        val connection = openConnection(URL("$baseUrl/api/v1/tv/screens/${identity.screenId}/diagnostics/screenshot/$requestId"))
+        try {
+            connection.requestMethod = "PUT"
+            connection.connectTimeout = 8_000
+            connection.readTimeout = 20_000
+            connection.doOutput = true
+            connection.setFixedLengthStreamingMode(jpeg.size)
+            connection.setRequestProperty("Content-Type", "image/jpeg")
+            connection.setRequestProperty("Authorization", "Bearer ${identity.token}")
+            connection.outputStream.use { it.write(jpeg) }
+            val status = connection.responseCode
+            val response = (if (status in 200..299) connection.inputStream else connection.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (status !in 200..299) error("LessonCue returned HTTP $status: $response")
+        } finally {
+            connection.disconnect()
+        }
     }
 
     fun cachedManifest(): ScreenManifest? = runCatching { manifestCache?.takeIf(File::exists)?.readText()?.let { parseManifest(JSONObject(it)) } }.getOrNull()
+
+    private fun parseAndCacheManifest(raw: String): ScreenManifest {
+        // A proxy error or incompatible response must not destroy the last offline copy.
+        val manifest = parseManifest(JSONObject(raw))
+        manifestCache?.let { cache ->
+            val target = cache.toPath().toAbsolutePath()
+            val temporary = Files.createTempFile(target.parent, "manifest-", ".pending")
+            try {
+                Files.write(temporary, raw.toByteArray(Charsets.UTF_8))
+                try {
+                    Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+                } catch (_: AtomicMoveNotSupportedException) {
+                    Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING)
+                }
+            } finally {
+                Files.deleteIfExists(temporary)
+            }
+        }
+        return manifest
+    }
 
     private fun parseManifest(payload: JSONObject): ScreenManifest {
         val screen = payload.getJSONObject("screen")
@@ -411,24 +439,27 @@ class LessonCueApi(serverUrl: String, private val manifestCache: File? = null) {
         readTimeoutMillis: Int = 15_000,
     ): String {
         val started = System.nanoTime()
-        val connection = URL("$baseUrl$path").openConnection() as HttpURLConnection
-        connection.requestMethod = method
-        connection.connectTimeout = connectTimeoutMillis
-        connection.readTimeout = readTimeoutMillis
-        connection.setRequestProperty("Accept", "application/json")
-        token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
-        if (body != null) {
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.outputStream.bufferedWriter().use { it.write(body) }
+        val connection = openConnection(URL("$baseUrl$path"))
+        try {
+            connection.requestMethod = method
+            connection.connectTimeout = connectTimeoutMillis
+            connection.readTimeout = readTimeoutMillis
+            connection.setRequestProperty("Accept", "application/json")
+            token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
+            if (body != null) {
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.outputStream.bufferedWriter().use { it.write(body) }
+            }
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val response = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            lastLatencyMs = ((System.nanoTime() - started) / 1_000_000).coerceIn(0, 120_000)
+            if (status !in 200..299) error("LessonCue returned HTTP $status: $response")
+            return response
+        } finally {
+            connection.disconnect()
         }
-        val status = connection.responseCode
-        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-        val response = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-        connection.disconnect()
-        lastLatencyMs = ((System.nanoTime() - started) / 1_000_000).coerceIn(0, 120_000)
-        if (status !in 200..299) error("LessonCue returned HTTP $status: $response")
-        return response
     }
 
     private fun codecCapabilities(): JSONArray = JSONArray(codecCapabilitiesJson)

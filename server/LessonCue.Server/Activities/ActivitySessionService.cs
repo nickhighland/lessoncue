@@ -3283,6 +3283,7 @@ public sealed class ActivitySessionService(
             if (allowTruth && string.Equals(target, "truth", StringComparison.OrdinalIgnoreCase))
             {
                 // The truth is a valid anonymous option for bluffing rounds.
+                target = "truth";
             }
             else if (!Guid.TryParse(target, out var submissionId))
             {
@@ -3296,6 +3297,7 @@ public sealed class ActivitySessionService(
                 var submission = run.Submissions.FirstOrDefault(item => item.Id == submissionId && item.RoundId == submissionRoundId && item.Kind == submissionKind && item.ModerationStatus == "approved" && !item.Hidden);
                 if (submission is null) return (false, "That response is not available for voting.");
                 if (preventSelfVote && submission.ParticipantId == participant.Id) return (false, "Choose another player's response.");
+                target = submission.Id.ToString();
             }
         }
         var existing = await db.ActivityVotes.SingleOrDefaultAsync(x => x.ActivityRunId == run.Id && x.VoterParticipantId == participant.Id && x.RoundId == roundId, ct);
@@ -3528,10 +3530,12 @@ public sealed class ActivitySessionService(
     private async Task ScoreCreativeAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct)
     {
         var roundId = CurrentRoundId(run, config);
-        var counts = run.Votes.Where(x => x.RoundId == roundId).GroupBy(x => x.TargetId).OrderByDescending(x => x.Count()).ThenBy(x => x.Key, StringComparer.Ordinal).ToList();
+        var eligible = run.Submissions.Where(x => x.RoundId == roundId && x.Kind == "creative" && x.ModerationStatus == "approved" && !x.Hidden)
+            .ToDictionary(x => x.Id.ToString(), StringComparer.OrdinalIgnoreCase);
+        var counts = run.Votes.Where(x => x.RoundId == roundId && eligible.ContainsKey(x.TargetId))
+            .GroupBy(x => eligible[x.TargetId].Id.ToString()).OrderByDescending(x => x.Count()).ThenBy(x => x.Key, StringComparer.Ordinal).ToList();
         if (counts.Count == 0) return;
-        var winner = run.Submissions.FirstOrDefault(x => x.Id.ToString() == counts[0].Key);
-        if (winner is null) return;
+        var winner = eligible[counts[0].Key];
         var points = IntValue(ArrayValue(config, "prompts").Count > IntValue(state, "currentPromptIndex") ? ArrayValue(config, "prompts")[IntValue(state, "currentPromptIndex")] as JsonObject : null, "points", 100);
         await AwardScoreAsync(run, winner.ParticipantId, null, points, "Audience favorite", roundId, ct);
         state["winningSubmissionId"] = winner.Id.ToString(); state["winningVoteCount"] = counts[0].Count();
@@ -3703,10 +3707,11 @@ public sealed class ActivitySessionService(
         var truthPoints = IntValue(config, "truthPoints", 100); var bluffPoints = IntValue(config, "bluffPoints", 50);
         foreach (var vote in run.Votes.Where(x => x.RoundId == roundId))
         {
-            if (vote.TargetId == "truth") await AwardScoreAsync(run, vote.VoterParticipantId, null, truthPoints, "Found the truth", roundId, ct);
+            if (string.Equals(vote.TargetId, "truth", StringComparison.OrdinalIgnoreCase)) await AwardScoreAsync(run, vote.VoterParticipantId, null, truthPoints, "Found the truth", roundId, ct);
             else if (Guid.TryParse(vote.TargetId, out var submissionId))
             {
-                var submission = run.Submissions.FirstOrDefault(x => x.Id == submissionId); if (submission is not null) await AwardScoreAsync(run, submission.ParticipantId, null, bluffPoints, "A player chose your bluff", roundId, ct);
+                var submission = run.Submissions.FirstOrDefault(x => x.Id == submissionId && x.RoundId == roundId && x.Kind == "bluff" && x.ModerationStatus == "approved" && !x.Hidden);
+                if (submission is not null) await AwardScoreAsync(run, submission.ParticipantId, null, bluffPoints, "A player chose your bluff", roundId, ct);
             }
         }
         var favoriteId = StringValue(state, "hostFavoriteSubmissionId");
@@ -3724,11 +3729,16 @@ public sealed class ActivitySessionService(
     private async Task ScoreDrawingAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct)
     {
         var roundId = CurrentRoundId(run, config);
-        var counts = run.Votes.Where(x => x.RoundId == roundId).GroupBy(x => x.TargetId).OrderByDescending(x => x.Count()).ThenBy(x => x.Key, StringComparer.Ordinal).ToList();
+        // Moderation can remove work after phones have voted. Count only work
+        // still eligible for this round so a hidden favorite cannot suppress
+        // every remaining artist's result.
+        var eligible = run.Submissions.Where(x => x.RoundId == roundId && x.Kind == "drawing" && x.ModerationStatus == "approved" && !x.Hidden)
+            .ToDictionary(x => x.Id.ToString(), StringComparer.OrdinalIgnoreCase);
+        var counts = run.Votes.Where(x => x.RoundId == roundId && eligible.ContainsKey(x.TargetId))
+            .GroupBy(x => eligible[x.TargetId].Id.ToString()).OrderByDescending(x => x.Count()).ThenBy(x => x.Key, StringComparer.Ordinal).ToList();
         state["drawingVoteCounts"] = new JsonArray(counts.Select(item => (JsonNode)new JsonObject { ["submissionId"] = item.Key, ["votes"] = item.Count() }).ToArray());
         if (counts.Count == 0) return;
-        var winner = run.Submissions.FirstOrDefault(x => x.Id.ToString() == counts[0].Key && x.Kind == "drawing" && x.ModerationStatus == "approved" && !x.Hidden);
-        if (winner is null) return;
+        var winner = eligible[counts[0].Key];
         var prompts = ArrayValue(config, "prompts"); var index = IntValue(state, "currentPromptIndex");
         var points = IntValue(prompts.Count > index ? prompts[index] as JsonObject : null, "points", 100);
         await AwardScoreAsync(run, winner.ParticipantId, null, points, "Audience drawing favorite", roundId, ct);

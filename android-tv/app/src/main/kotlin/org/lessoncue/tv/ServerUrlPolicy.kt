@@ -36,8 +36,9 @@ internal fun normalizeLessonCueServerUrl(value: String): String {
 internal fun isTrustedLocalHttpHost(hostValue: String): Boolean {
     val host = hostValue.trim().trim('[', ']').substringBefore('%').lowercase()
     if (host == "localhost" || host.endsWith(".local")) return true
-    val octets = host.split('.').mapNotNull(String::toIntOrNull)
-    if (octets.size == 4 && octets.all { it in 0..255 }) {
+    val labels = host.split('.')
+    val octets = labels.mapNotNull(String::toIntOrNull)
+    if (labels.size == 4 && octets.size == 4 && octets.all { it in 0..255 }) {
         return octets[0] == 10 ||
             octets[0] == 127 ||
             octets[0] == 169 && octets[1] == 254 ||

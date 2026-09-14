@@ -25,7 +25,6 @@ internal class LessonCueDiscovery(context: Context) {
     @Suppress("DEPRECATION")
     private suspend fun browse(): String? = suspendCancellableCoroutine { continuation ->
         val completed = AtomicBoolean(false)
-        val resolving = AtomicBoolean(false)
         val handler = Handler(Looper.getMainLooper())
         val multicastLock = runCatching {
             wifiManager?.createMulticastLock("lessoncue-discovery")?.apply {
@@ -35,11 +34,16 @@ internal class LessonCueDiscovery(context: Context) {
         }.getOrNull()
         lateinit var discoveryListener: NsdManager.DiscoveryListener
         lateinit var timeout: Runnable
+        lateinit var resolutions: ServiceResolutionQueue<NsdServiceInfo>
 
         fun releaseResources() {
-            handler.removeCallbacks(timeout)
-            runCatching { nsdManager.stopServiceDiscovery(discoveryListener) }
-            runCatching { multicastLock?.takeIf { it.isHeld }?.release() }
+            resolutions.close()
+            // Start and stop share the main queue, including cancellation before start.
+            handler.post {
+                handler.removeCallbacks(timeout)
+                runCatching { nsdManager.stopServiceDiscovery(discoveryListener) }
+                runCatching { multicastLock?.takeIf { it.isHeld }?.release() }
+            }
         }
 
         fun complete(serverUrl: String?) {
@@ -48,18 +52,25 @@ internal class LessonCueDiscovery(context: Context) {
             if (continuation.isActive) continuation.resume(serverUrl)
         }
 
-        val resolveListener = object : NsdManager.ResolveListener {
-            override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
-                resolving.set(false)
-            }
+        resolutions = ServiceResolutionQueue(
+            key = { "${it.serviceName}|${it.serviceType}" },
+            resolve = { service, resolved ->
+                nsdManager.resolveService(service, object : NsdManager.ResolveListener {
+                    override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = resolved(null)
 
-            override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
-                val secure = serviceInfo.attributes["secure"]
-                    ?.toString(StandardCharsets.UTF_8)
-                    ?.equals("true", ignoreCase = true) == true
-                lessonCueServiceUrl(serviceInfo.host.hostAddress, serviceInfo.port, secure)?.let(::complete)
-            }
-        }
+                    override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
+                        val address = runCatching {
+                            val secure = serviceInfo.attributes["secure"]
+                                ?.toString(StandardCharsets.UTF_8)
+                                ?.equals("true", ignoreCase = true) == true
+                            lessonCueServiceUrl(serviceInfo.host?.hostAddress, serviceInfo.port, secure)
+                        }.getOrNull()
+                        resolved(address)
+                    }
+                })
+            },
+            found = ::complete,
+        )
 
         discoveryListener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) = Unit
@@ -69,10 +80,8 @@ internal class LessonCueDiscovery(context: Context) {
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
-                if (serviceInfo.serviceType.trimEnd('.').equals(SERVICE_TYPE.trimEnd('.'), ignoreCase = true)
-                    && resolving.compareAndSet(false, true)) {
-                    runCatching { nsdManager.resolveService(serviceInfo, resolveListener) }
-                        .onFailure { resolving.set(false) }
+                if (serviceInfo.serviceType.trimEnd('.').equals(SERVICE_TYPE.trimEnd('.'), ignoreCase = true)) {
+                    resolutions.offer(serviceInfo)
                 }
             }
         }
@@ -81,10 +90,14 @@ internal class LessonCueDiscovery(context: Context) {
         continuation.invokeOnCancellation {
             if (completed.compareAndSet(false, true)) releaseResources()
         }
-        handler.postDelayed(timeout, 5_500)
-        runCatching {
-            nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
-        }.onFailure { complete(null) }
+        handler.post {
+            if (!completed.get()) {
+                handler.postDelayed(timeout, 5_500)
+                runCatching {
+                    nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
+                }.onFailure { complete(null) }
+            }
+        }
     }
 
     private companion object {

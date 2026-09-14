@@ -120,10 +120,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.MultiFormatWriter
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONArray
-import java.io.ByteArrayOutputStream
-import kotlin.coroutines.resume
 import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -165,13 +162,14 @@ fun LessonCueApp() {
     }
     var screen by remember { mutableStateOf<AppScreen>(AppScreen.Loading) }
     var activeIdentity by remember { mutableStateOf<DeviceIdentity?>(null) }
+    val heartbeatWake = remember(activeIdentity) { HeartbeatWake() }
     var activeManifestVersion by remember { mutableStateOf(0) }
     var playbackControl by remember { mutableStateOf<ControlCommand?>(null) }
     var acknowledgedControlVersion by remember { mutableStateOf(0) }
     var playbackTelemetry by remember { mutableStateOf(PlaybackTelemetry()) }
+    var playbackCommandError by remember { mutableStateOf<String?>(null) }
     var totalManifestItems by remember { mutableStateOf(0) }
     var diagnosticCaptureVisible by remember { mutableStateOf(false) }
-    var handledScreenshotRequest by remember { mutableStateOf<String?>(null) }
     var interruptedPlayer by remember { mutableStateOf<AppScreen.Player?>(null) }
     var connectionMode by remember { mutableStateOf(ConnectionMode.Offline) }
 
@@ -209,7 +207,7 @@ fun LessonCueApp() {
             screen = AppScreen.Library(identity, cached)
         }
 
-        runCatching { reconnectSavedServer(context, identity, manifestCache) }
+        cancellableResult { reconnectSavedServer(context, identity, manifestCache) }
             .onSuccess { (resolvedIdentity, manifest) ->
                 if (resolvedIdentity.serverUrl != identity.serverUrl) store.save(resolvedIdentity)
                 connectionMode = ConnectionMode.Online
@@ -232,7 +230,7 @@ fun LessonCueApp() {
             }
     }
 
-    LaunchedEffect(activeIdentity?.screenId) {
+    LaunchedEffect(activeIdentity) {
         val identity = activeIdentity ?: return@LaunchedEffect
         val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
         while (true) {
@@ -243,37 +241,45 @@ fun LessonCueApp() {
             val (cachedItems, freeBytes) = withContext(Dispatchers.IO) {
                 (context.filesDir.resolve("media").listFiles()?.size ?: 0) to context.filesDir.usableSpace
             }
-            runCatching { api.reportStatus(identity, activeManifestVersion, freeBytes,
-                acknowledgedControlVersion = acknowledgedControlVersion, playback = playbackTelemetry,
+            cancellableResult { api.reportStatus(identity, activeManifestVersion, freeBytes,
+                acknowledgedControlVersion = acknowledgedControlVersion,
+                playback = playbackCommandError?.let { playbackTelemetry.copy(state = "error", error = it) } ?: playbackTelemetry,
                 cachedItems = cachedItems, totalItems = totalManifestItems) }
-            kotlinx.coroutines.delay(if (playbackTelemetry.state in setOf("playing", "loading", "buffering")) 2_000 else 30_000)
+            heartbeatWake.awaitNext(if (playbackTelemetry.state in setOf("playing", "loading", "buffering")) 2_000 else 30_000)
         }
     }
 
-    LaunchedEffect(activeIdentity?.screenId) {
+    LaunchedEffect(activeIdentity) {
         val identity = activeIdentity ?: return@LaunchedEffect
         val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
-        var controlVersion = runCatching { api.control(identity).version }.getOrDefault(0)
+        var controlVersion = cancellableResult { api.control(identity).version }.getOrDefault(0)
+        val diagnosticCapture = DiagnosticCaptureTask(this) { diagnosticCaptureVisible = it }
+        playbackCommandError = null
         while (true) {
-            runCatching { api.control(identity, controlVersion) }.getOrNull()?.let { command ->
-                if (command.screenshotRequestId != null && command.screenshotRequestId != handledScreenshotRequest &&
+            cancellableResult { api.control(identity, controlVersion) }.getOrNull()?.let { command ->
+                if (command.screenshotRequestId != null &&
                     (command.screenshotExpiresAt == null || command.screenshotExpiresAt.isAfter(Instant.now()))) {
-                    handledScreenshotRequest = command.screenshotRequestId
-                    diagnosticCaptureVisible = true
-                    kotlinx.coroutines.delay(2_500)
-                    val activity = context as? ComponentActivity
-                    val jpeg = activity?.let { captureDiagnosticScreenshot(it) }
-                    if (jpeg != null) runCatching { api.uploadDiagnosticScreenshot(identity, command.screenshotRequestId, jpeg) }
-                    diagnosticCaptureVisible = false
+                    diagnosticCapture.submit(command.screenshotRequestId) {
+                        kotlinx.coroutines.delay(2_500)
+                        if (command.screenshotExpiresAt == null || command.screenshotExpiresAt.isAfter(Instant.now())) {
+                            val activity = context as? ComponentActivity
+                            val jpeg = activity?.let { captureDiagnosticScreenshot(it) }
+                            if (jpeg != null) api.uploadDiagnosticScreenshot(identity, command.screenshotRequestId, jpeg)
+                        }
+                    }
                 }
                 if (command.changed) {
                     playbackControl = command
                     var applied = false
+                    var commandError: String? = null
                     when (command.action) {
-                        "play" -> runCatching { api.manifest(identity) }.getOrNull()?.let { manifest ->
+                        "play" -> cancellableResult { api.manifest(identity) }.getOrNull()?.let { manifest ->
                             activeManifestVersion = manifest.version
                             totalManifestItems = manifest.itemCount()
-                            val playlist = manifest.playlists.firstOrNull { it.id == command.lessonId }
+                            val resolution = resolveRemotePlay(manifest, command.lessonId)
+                            val playlist = resolution.playlist
+                            applied = resolution.consume
+                            commandError = resolution.error
                             if (playlist != null) {
                             val allItems = playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) + playlist.items + playlist.postLesson?.items.orEmpty()
                                 val selected = command.itemId?.let { id -> allItems.indexOfFirst { it.id == id } }?.takeIf { it >= 0 }
@@ -287,26 +293,27 @@ fun LessonCueApp() {
                             }
                         }
                         "stop" -> {
-                            runCatching { api.manifest(identity) }.getOrNull()?.let { manifest ->
-                                interruptedPlayer = null
-                                screen = AppScreen.Library(identity, manifest)
-                                applied = true
-                            }
-                        }
-                        "next" -> (screen as? AppScreen.Player)?.let { current ->
-                            if (current.itemIndex + 1 < current.items.size) { screen = current.copy(itemIndex = current.itemIndex + 1, seekMs = 0); applied = true }
-                        }
-                        "previous" -> (screen as? AppScreen.Player)?.let { current ->
-                            screen = current.copy(itemIndex = (current.itemIndex - 1).coerceAtLeast(0), seekMs = 0); applied = true
-                        }
-                        "seek" -> (screen as? AppScreen.Player)?.let { current ->
-                            screen = current.copy(seekMs = command.positionMs ?: 0); applied = true
+                            // Stop must not depend on another successful network request.
+                            // The background manifest loop refreshes this library when online.
+                            val manifest = resolveRemoteStop(withContext(Dispatchers.IO) { api.cachedManifest() })
+                            interruptedPlayer = null
+                            screen = AppScreen.Library(identity, manifest)
+                            applied = true
                         }
                         "pause", "resume" -> { applied = true }
+                        else -> {
+                            val current = screen as? AppScreen.Player
+                            applied = applyRemoteNavigation(command.action, current?.itemIndex,
+                                current?.items?.size ?: 0, command.positionMs) { index, seek ->
+                                if (current != null) screen = current.copy(itemIndex = index, seekMs = seek)
+                            }
+                        }
                     }
                     if (applied) {
+                        playbackCommandError = commandError
                         controlVersion = command.version
                         acknowledgedControlVersion = command.version
+                        heartbeatWake.request()
                     }
                 } else controlVersion = maxOf(controlVersion, command.version)
             }
@@ -314,11 +321,11 @@ fun LessonCueApp() {
         }
     }
 
-    LaunchedEffect(activeIdentity?.screenId) {
+    LaunchedEffect(activeIdentity) {
         val identity = activeIdentity ?: return@LaunchedEffect
         val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
         while (true) {
-            val refresh = runCatching { api.manifest(identity) }
+            val refresh = cancellableResult { api.manifest(identity) }
             refresh.onFailure { connectionMode = ConnectionMode.Cached }
             refresh.getOrNull()?.let { latest ->
                 connectionMode = ConnectionMode.Online
@@ -356,7 +363,7 @@ fun LessonCueApp() {
                 AppScreen.Loading -> LoadingScreen(onEnterAddress = { screen = AppScreen.Connect() })
                 is AppScreen.Connect -> ConnectScreen(current.message) { address, deviceName ->
                     scope.launch {
-                        runCatching {
+                        cancellableResult {
                             val (api, name) = findLessonCueServer(
                                 context, address, context.filesDir.resolve("manifest.json")
                             )
@@ -370,7 +377,7 @@ fun LessonCueApp() {
                     onBack = { screen = AppScreen.Connect() }
                 ) { pin ->
                     scope.launch {
-                        runCatching {
+                        cancellableResult {
                             val identity = current.api.confirmPairing(current.requestId, pin)
                             store.save(identity)
                             val manifest = current.api.manifest(identity)
@@ -459,7 +466,7 @@ fun LessonCueApp() {
                     onTelemetry = { playbackTelemetry = it },
                     onExit = { scope.launch { store.load()?.let { identity ->
                         val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
-                        val manifest = runCatching { api.manifest(identity) }.getOrElse {
+                        val manifest = cancellableResult { api.manifest(identity) }.getOrElse {
                             api.cachedManifest() ?: ScreenManifest(1, "LessonCue", emptyList(), listOf(current.playlist))
                         }
                         screen = AppScreen.LessonDetail(identity, manifest,
@@ -468,7 +475,7 @@ fun LessonCueApp() {
                     onFinished = { scope.launch {
                         val identity = activeIdentity ?: return@launch
                         val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
-                        val manifest = runCatching { api.manifest(identity) }.getOrElse {
+                        val manifest = cancellableResult { api.manifest(identity) }.getOrElse {
                             api.cachedManifest() ?: ScreenManifest(1, "LessonCue", emptyList(), listOf(current.playlist))
                         }
                         playbackTelemetry = PlaybackTelemetry()
@@ -529,19 +536,13 @@ fun LessonCueApp() {
     }
 }
 
-private suspend fun captureDiagnosticScreenshot(activity: ComponentActivity): ByteArray? = suspendCancellableCoroutine { continuation ->
+private suspend fun captureDiagnosticScreenshot(activity: ComponentActivity): ByteArray? {
     val width = activity.window.decorView.width.coerceAtLeast(1)
     val height = activity.window.decorView.height.coerceAtLeast(1)
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-    PixelCopy.request(activity.window, bitmap, { result ->
-        if (!continuation.isActive) return@request
-        if (result == PixelCopy.SUCCESS) {
-            val output = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output)
-            continuation.resume(output.toByteArray())
-        } else continuation.resume(null)
-        bitmap.recycle()
-    }, Handler(Looper.getMainLooper()))
+    return captureDiagnosticBitmap(bitmap) { target, finished ->
+        PixelCopy.request(activity.window, target, finished, Handler(Looper.getMainLooper()))
+    }
 }
 
 @Composable
@@ -600,7 +601,7 @@ private fun ConnectScreen(message: String?, onConnect: (String, String) -> Unit)
 private suspend fun findLessonCueServer(context: android.content.Context, address: String, manifestCache: java.io.File):
     Pair<LessonCueApi, String> {
     val preferred = LessonCueApi(address, manifestCache)
-    runCatching { preferred.discover() }.getOrNull()?.let { return preferred to it }
+    cancellableResult { preferred.discover() }.getOrNull()?.let { return preferred to it }
 
     val discoveredAddress = LessonCueDiscovery(context).findServer()
         ?: error("Could not reach $address or find LessonCue automatically. Enter the numeric server address, such as http://192.168.1.25.")
@@ -614,7 +615,7 @@ private suspend fun reconnectSavedServer(context: android.content.Context, ident
     // it answers at once, or it is not, in which case waiting is time spent on
     // a screen that looks frozen.
     val preferred = LessonCueApi(identity.serverUrl, manifestCache)
-    runCatching { preferred.manifestQuickly(identity) }.getOrNull()?.let { return identity to it }
+    cancellableResult { preferred.manifestQuickly(identity) }.getOrNull()?.let { return identity to it }
 
     val discoveredAddress = LessonCueDiscovery(context).findServer()
         ?: error("Automatic LessonCue discovery did not find a server.")

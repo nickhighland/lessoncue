@@ -27,7 +27,8 @@ class UpdateClient(
     private val expectedChannel: String,
     private val allowedHosts: Set<String>,
     private val connectTimeoutMillis: Int = 10_000,
-    private val readTimeoutMillis: Int = 30_000
+    private val readTimeoutMillis: Int = 30_000,
+    private val openConnection: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection },
 ) : UpdateSource {
     override suspend fun cleanInterruptedDownloads(directory: File) {
         withContext(Dispatchers.IO) {
@@ -127,39 +128,40 @@ class UpdateClient(
     private fun openFollowingRedirects(initialUrl: String, accept: String): OpenResponse {
         var current = UpdateManifestParser.validateHttpsUrl(initialUrl, allowedHosts)
         repeat(MAX_REDIRECTS + 1) { redirectCount ->
-            val connection = (current.toURL().openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = false
-                connectTimeout = connectTimeoutMillis
-                readTimeout = readTimeoutMillis
-                requestMethod = "GET"
-                setRequestProperty("Accept", accept)
-                setRequestProperty("Accept-Encoding", "identity")
-                setRequestProperty("User-Agent", "LessonCue-AndroidTV/${BuildConfig.VERSION_NAME}")
-            }
-            val status = connection.responseCode
-            if (status in REDIRECT_CODES) {
-                if (redirectCount >= MAX_REDIRECTS) {
-                    connection.disconnect()
-                    throw UpdateValidationException("The update request exceeded the redirect limit.")
-                }
-                val location = connection.getHeaderField("Location")
-                    ?: run {
-                        connection.disconnect()
-                        throw UpdateValidationException("The update server returned a redirect without a destination.")
+            val connection = openConnection(current.toURL())
+            var handedOff = false
+            try {
+                connection.instanceFollowRedirects = false
+                connection.connectTimeout = connectTimeoutMillis
+                connection.readTimeout = readTimeoutMillis
+                connection.requestMethod = "GET"
+                connection.setRequestProperty("Accept", accept)
+                connection.setRequestProperty("Accept-Encoding", "identity")
+                connection.setRequestProperty("User-Agent", "LessonCue-AndroidTV/${BuildConfig.VERSION_NAME}")
+                val status = connection.responseCode
+                if (status in REDIRECT_CODES) {
+                    if (redirectCount >= MAX_REDIRECTS)
+                        throw UpdateValidationException("The update request exceeded the redirect limit.")
+                    val location = connection.getHeaderField("Location")
+                        ?: throw UpdateValidationException("The update server returned a redirect without a destination.")
+                    current = UpdateManifestParser.validateHttpsUrl(current.resolve(location).toString(), allowedHosts)
+                } else {
+                    if (status !in 200..299) {
+                        val detail = connection.errorStream?.reader()?.use { reader ->
+                            val buffer = CharArray(300)
+                            val count = reader.read(buffer)
+                            if (count > 0) String(buffer, 0, count) else ""
+                        }.orEmpty()
+                        throw UpdateValidationException(
+                            "The update server returned HTTP $status${detail.takeIf(String::isNotBlank)?.let { ": $it" } ?: "."}"
+                        )
                     }
-                val redirected = current.resolve(location)
-                connection.disconnect()
-                UpdateManifestParser.validateHttpsUrl(redirected.toString(), allowedHosts)
-                current = redirected
-            } else {
-                if (status !in 200..299) {
-                    val detail = connection.errorStream?.bufferedReader()?.use { it.readText().take(300) }.orEmpty()
-                    connection.disconnect()
-                    throw UpdateValidationException(
-                        "The update server returned HTTP $status${detail.takeIf(String::isNotBlank)?.let { ": $it" } ?: "."}"
-                    )
+                    handedOff = true
+                    return OpenResponse(connection, current)
                 }
-                return OpenResponse(connection, current)
+            } finally {
+                // Successful responses are closed by fetchManifest/download after reading.
+                if (!handedOff) connection.disconnect()
             }
         }
         throw UpdateValidationException("The update request could not be completed.")

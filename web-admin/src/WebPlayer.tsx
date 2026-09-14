@@ -4,7 +4,7 @@ import { WeatherConditionArtwork, WeatherDropArtwork, WeatherWindArtwork } from 
 import { ActivityDisplay } from "./activities/ActivityDisplay";
 import "./signage-studio.css";
 
-const APP_VERSION = "0.46.3";
+const APP_VERSION = "0.46.4";
 /** Shared with public/sw.js, which answers media requests from it. */
 const MEDIA_CACHE = "lessoncue-media-v1";
 
@@ -187,6 +187,7 @@ export function WebPlayerApp() {
   const [interactionUnlocked, setInteractionUnlocked] = useState(false);
   const [unlockNonce, setUnlockNonce] = useState(0);
   const acknowledgedVersionRef = useRef(0);
+  const commandErrorRef = useRef<string | null>(null);
   const heartbeatWakeRef = useRef<(() => void) | undefined>(undefined);
   const [status, setStatus] = useState<PlaybackStatus>(idleStatus);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -214,6 +215,7 @@ export function WebPlayerApp() {
   useEffect(() => { manifestRef.current = manifest; }, [manifest]);
 
   function forgetPairing(message = "") {
+    commandErrorRef.current = null;
     localStorage.removeItem(IDENTITY_KEY);
     setIdentity(null);
     setManifest(undefined);
@@ -415,6 +417,7 @@ export function WebPlayerApp() {
   useEffect(() => {
     if (!identity) return;
     acknowledgedVersionRef.current = 0;
+    commandErrorRef.current = null;
   }, [identity]);
 
   useEffect(() => {
@@ -443,7 +446,14 @@ export function WebPlayerApp() {
           let freshManifest = manifestRef.current;
           if (command.action === "play") freshManifest = await loadManifest(identity!, controller.signal);
           if (stopped || controller.signal.aborted) return;
-          applyCommand(command, freshManifest);
+          if (command.action === "play" && !freshManifest?.playlists.some(item => item.playlistId === command.lessonId)) {
+            // A successful fresh manifest definitively rejects this command.
+            // Report it, but do not poison the queue or interrupt current media.
+            commandErrorRef.current = "The requested lesson is not available to this screen.";
+          } else {
+            applyCommand(command, freshManifest);
+            commandErrorRef.current = null;
+          }
           version = command.version;
           acknowledgedVersionRef.current = command.version;
           heartbeatWakeRef.current?.();
@@ -491,13 +501,13 @@ export function WebPlayerApp() {
             manifestVersion: manifestRef.current?.manifestVersion || 0,
             failedDownloads: errorsRef.current.length,
             acknowledgedControlVersion: acknowledgedVersionRef.current,
-            playbackState: current.state,
+            playbackState: commandErrorRef.current ? "error" : current.state,
             lessonId: current.lessonId,
             itemId: current.itemId,
             positionMs: current.positionMs,
             durationMs: current.durationMs,
             volumePercent: current.volumePercent,
-            playbackError: current.error,
+            playbackError: commandErrorRef.current || current.error,
             cachedItems: signageCacheRef.current.filter(item => item.state === "ready").length,
             totalItems: manifestItemCount(manifestRef.current),
             deviceModel: browserName(),

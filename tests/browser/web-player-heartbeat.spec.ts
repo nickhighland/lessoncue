@@ -3,6 +3,31 @@ import { readFileSync } from "node:fs";
 
 test.use({ serviceWorkers: "block" });
 
+test("an unavailable lesson reports failure and does not block later remote commands", async ({ page }) => {
+  const manifest = JSON.parse(readFileSync(new URL("../../protocol/fixtures/manifest-v1-current.json", import.meta.url), "utf8"));
+  manifest.screen = { ...manifest.screen, id: 'missing-lesson', name: 'Missing lesson' };
+  const reports: Array<{ acknowledgedControlVersion: number; playbackError?: string }> = [];
+  await page.route('**/api/v1/screens/missing-lesson/manifest', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify(manifest),
+  }));
+  await page.route('**/api/v1/screens/missing-lesson/control**', route => {
+    const after = new URL(route.request().url()).searchParams.get('after');
+    const command = after === null ? { changed: false, version: 0, action: 'none' }
+      : after === '0' ? { changed: true, version: 1, action: 'play', lessonId: 'deleted-lesson' }
+      : after === '1' && reports.some(report => report.acknowledgedControlVersion === 1)
+        ? { changed: true, version: 2, action: 'pause' }
+        : { changed: false, version: Number(after), action: 'none' };
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(command) });
+  });
+  await page.route('**/api/v1/tv/status', route => {
+    reports.push(route.request().postDataJSON());
+    return route.fulfill({ status: 204, body: '' });
+  });
+  await page.goto('/display?screenId=missing-lesson&token=test-token&name=Missing%20lesson');
+  await expect.poll(() => reports.find(report => report.acknowledgedControlVersion === 1)?.playbackError).toContain('not available');
+  await expect.poll(() => reports.some(report => report.acknowledgedControlVersion === 2 && !report.playbackError)).toBe(true);
+});
+
 test("a delayed heartbeat does not create another loop when a command is acknowledged", async ({ page }) => {
   const manifest = JSON.parse(readFileSync(
     new URL("../../protocol/fixtures/manifest-v1-current.json", import.meta.url), "utf8",

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { ActivityHostView, ActivityStateEnvelope } from './types';
 import { ActivityApi, activityHub, subscribeActivityCommandLifecycle, type ActivityConnectionState } from './api';
-import { latestActivityEnvelope } from './activityConnection';
+import { latestActivityEnvelope, latestActivityHostView } from './activityConnection';
+import { createRefreshLoop } from './refreshLoop';
 import { getActivityDescriptor } from './activityRegistry';
 import { QrCode } from '../admin/ui';
 import { getAudioVolume, isAudioMuted, setAudioMuted, setAudioVolume } from './effects';
@@ -38,7 +39,16 @@ export interface ActivityControllerProps {
   showSessionSetup?: boolean;
 }
 
-export const ActivityController: React.FC<ActivityControllerProps> = ({
+// A new cue owns a new controller lifetime. Pending requests from the previous
+// game must not replace its host view or direct buttons at the old run.
+export const ActivityController: React.FC<ActivityControllerProps> = props => (
+  <ActivityControllerSession
+    key={JSON.stringify([props.runId, props.definitionId, props.lessonId, props.lessonItemId, props.initialEnvelope?.runId])}
+    {...props}
+  />
+);
+
+const ActivityControllerSession: React.FC<ActivityControllerProps> = ({
   runId: propRunId,
   definitionId,
   initialEnvelope,
@@ -84,28 +94,34 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
     }
   };
 
-  const fetchHostView = useCallback(async (runId: string, activityType: string | undefined) => {
+  const fetchHostView = useCallback(async (runId: string, activityType: string | undefined, signal?: AbortSignal) => {
     if (!INTERACTIVE_ACTIVITY_TYPES.includes(activityType || '')) return;
     try {
-      setHostView(await ActivityApi.getHostState(runId));
+      const incoming = await ActivityApi.getHostState(runId, signal);
+      if (!signal?.aborted) setHostView(previous => latestActivityHostView(previous, incoming));
     } catch (err) {
       // Legacy activities and a just-created run may not have a session row yet.
       console.debug('Activity host state is not available yet', err);
     }
   }, []);
 
-  const refreshControllerState = useCallback(async (runId: string | undefined, hasLoadedEnvelope: boolean) => {
+  const refreshControllerState = useCallback(async (runId: string | undefined, hasLoadedEnvelope: boolean, signal?: AbortSignal) => {
     if (!runId) return;
-    setRefreshing(true);
+    if (!signal) setRefreshing(true);
     try {
-      const activeRun = await ActivityApi.getRun(runId);
+      const activeRun = await ActivityApi.getRun(runId, signal);
+      if (signal?.aborted) return;
       setEnvelope(previous => latestActivityEnvelope(previous, activeRun!));
       setError(null);
       setLoading(false);
       if (INTERACTIVE_ACTIVITY_TYPES.includes(activeRun.type)) {
-        try { setHostView(await ActivityApi.getHostState(activeRun.runId)); } catch (err) { console.debug('Host state refresh is not available yet', err); }
+        try {
+          const incoming = await ActivityApi.getHostState(activeRun.runId, signal);
+          if (!signal?.aborted) setHostView(previous => latestActivityHostView(previous, incoming));
+        } catch (err) { console.debug('Host state refresh is not available yet', err); }
       }
     } catch (err) {
+      if (signal?.aborted) return;
       const message = err instanceof Error ? err.message : 'The controller could not refresh.';
       if (!hasLoadedEnvelope) {
         setError(message);
@@ -114,7 +130,7 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
         setCommandNotice({ id: Date.now(), tone: 'error', message: `Refresh failed: ${message}` });
       }
     } finally {
-      setRefreshing(false);
+      if (!signal) setRefreshing(false);
     }
   }, []);
 
@@ -163,7 +179,10 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
         setEnvelope(previous => latestActivityEnvelope(previous, activeRun!));
         setLoading(false);
         if (INTERACTIVE_ACTIVITY_TYPES.includes(activeRun.type)) {
-          try { setHostView(await ActivityApi.getHostState(activeRun.runId)); } catch (err) { console.debug('Host state pending', err); }
+          try {
+            const incoming = await ActivityApi.getHostState(activeRun.runId);
+            if (!isCancelled) setHostView(previous => latestActivityHostView(previous, incoming));
+          } catch (err) { console.debug('Host state pending', err); }
         }
 
         if (isCancelled) return;
@@ -190,14 +209,19 @@ export const ActivityController: React.FC<ActivityControllerProps> = ({
 
   useEffect(() => {
     if (!hasEnvelope || !isInteractive || !currentRunId) return;
-    const timer = window.setInterval(() => { void fetchHostView(currentRunId, currentActivityType); }, 2000);
-    return () => window.clearInterval(timer);
+    const loop = createRefreshLoop(signal => fetchHostView(currentRunId, currentActivityType, signal), () => 2000);
+    void loop.refresh();
+    return () => loop.stop();
   }, [currentActivityType, currentRunId, fetchHostView, hasEnvelope, isInteractive]);
 
   useEffect(() => {
     if (!hasEnvelope || connectionState === 'connected') return;
-    const timer = window.setInterval(() => { void refreshControllerState(currentRunId, hasEnvelope); }, connectionState === 'reconnecting' ? 1500 : 3000);
-    return () => window.clearInterval(timer);
+    const loop = createRefreshLoop(
+      signal => refreshControllerState(currentRunId, hasEnvelope, signal),
+      () => connectionState === 'reconnecting' ? 1500 : 3000,
+    );
+    void loop.refresh();
+    return () => loop.stop();
   }, [connectionState, currentRunId, hasEnvelope, refreshControllerState]);
 
   useEffect(() => {

@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { prepareDrawing, samplePoints, drawingLimit } from './drawingData.ts';
+import { prepareDrawing, samplePoints, drawingLimit, strokeTouchesPoint } from './drawingData.ts';
+
+test('eraser intersects complete segments while preserving nearby unrelated strokes', () => {
+  const stroke = points => ({ points, color: '#ffffff', width: .012 });
+  assert.equal(strokeTouchesPoint(stroke([[.1, .5], [.9, .5]]), [.5, .5], .03), true);
+  assert.equal(strokeTouchesPoint(stroke([[.1, .1], [.9, .9]]), [.5, .52], .03), true);
+  assert.equal(strokeTouchesPoint(stroke([[.1, .5], [.9, .5]]), [.5, .6], .03), false);
+  assert.equal(strokeTouchesPoint(stroke([[.1, .1], [.4, .4]]), [.9, .9], .03), false);
+  assert.equal(strokeTouchesPoint(stroke([[.5, .5]]), [.5, .51], .03), true);
+  assert.equal(strokeTouchesPoint(stroke([[.5, .5], [.5, .5]]), [.5, .51], .03), true);
+  assert.equal(strokeTouchesPoint(stroke([]), [.5, .5], .03), false);
+});
 
 test('long touch strokes preserve their endpoints within the configured point limit', () => {
   const points = Array.from({ length: 1000 }, (_, i) => [i / 999, Math.sin(i) / 2 + .5]);

@@ -1,4 +1,4 @@
-import type { ActivityStateEnvelope } from './types';
+import type { ActivityHostView, ActivityStateEnvelope } from './types';
 
 export type ActivityConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 export type StateUpdateCallback = (envelope: ActivityStateEnvelope) => void;
@@ -23,6 +23,11 @@ export function latestActivityEnvelope(previous: ActivityStateEnvelope | null, i
   if (previous.revision > incoming.revision || previous.revision === incoming.revision &&
       Date.parse(previous.serverTime) > Date.parse(incoming.serverTime)) return previous;
   return incoming;
+}
+
+/** Host projections carry the same ordering metadata as public snapshots. */
+export function latestActivityHostView(previous: ActivityHostView | null, incoming: ActivityHostView): ActivityHostView {
+  return previous && latestActivityEnvelope(previous.state, incoming.state) === previous.state ? previous : incoming;
 }
 
 export class ActivityHubClient {
