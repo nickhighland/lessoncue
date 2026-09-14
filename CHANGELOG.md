@@ -4,6 +4,20 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.4 — Classroom reliability
+
+### User changes
+
+- TV remote commands acknowledge promptly, including while the TV is idle.
+- Stop commands work from the local cached library when the server connection is temporarily unavailable.
+- Diagnostic screenshot capture no longer blocks remote controls or retains canceled image buffers.
+- Phone joining, activity progression, drawing games, host controls, and shared-player recovery received additional reliability fixes and regression coverage.
+
+### Developer changes
+
+- Added bounded classroom reliability validation across server, web, Android TV, joining, games, drawing, remote control, updates, and backups.
+- Hardened Android TV request cancellation, manifest caching, media downloads, local discovery, update checks, and command navigation.
+
 ## v0.46.2 — Security maintenance
 
 ### User changes

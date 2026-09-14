@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GameButton } from './ActivityJuice';
-import { drawingLimit, prepareDrawing, samplePoints, type DrawingStroke } from './drawingData';
+import { drawingLimit, prepareDrawing, samplePoints, strokeTouchesPoint, type DrawingStroke } from './drawingData';
 
 export const DrawingInput: React.FC<{
   prompt: string; disabled: boolean; saved: boolean; config: Record<string, unknown>;
@@ -78,7 +78,7 @@ export const DrawingInput: React.FC<{
     return [Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width))), Math.max(0, Math.min(1, (event.clientY - rect.top) / Math.max(1, rect.height)))];
   };
   const erase = (point: [number, number]) => replace(strokesRef.current.filter(stroke =>
-    !stroke.points.some(([x, y]) => Math.hypot(x - point[0], y - point[1]) <= Math.max(width * 2.5, .022))));
+    !strokeTouchesPoint(stroke, point, Math.max(width * 2.5, .022))));
   const begin = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (disabled || pointer.current !== null || !event.isPrimary || event.button !== 0) return;
     if (tool === 'pen' && strokesRef.current.length >= maxStrokes) {

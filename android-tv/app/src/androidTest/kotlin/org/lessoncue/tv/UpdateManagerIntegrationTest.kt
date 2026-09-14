@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -18,6 +19,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 
 @RunWith(AndroidJUnit4::class)
 class UpdateManagerIntegrationTest {
@@ -53,6 +57,29 @@ class UpdateManagerIntegrationTest {
         assertTrue(available.manualPresentation)
         assertEquals(BuildConfig.VERSION_CODE + 1L, available.manifest.versionCode)
         assertEquals(2, source.checkCount)
+    }
+
+    @Test
+    fun canceledOlderCheckCannotReplaceNewerAvailableUpdate() = runBlocking {
+        val firstRequest = CompletableDeferred<Continuation<UpdateManifest>>()
+        val source = FakeSource(manifest())
+        source.fetchOverride = {
+            if (source.checkCount == 1) suspendCoroutine { firstRequest.complete(it) }
+            else source.manifest
+        }
+        val subject = manager(source = source)
+        subject.checkManually()
+        val delayed = withTimeout(5_000) { firstRequest.await() }
+        try {
+            subject.checkManually()
+            subject.awaitState<UpdateUiState.Available>()
+        } finally {
+            // Simulate an uncancellable network operation returning after its
+            // caller was canceled. It must not erase the newer result.
+            delayed.resume(manifest(versionCode = BuildConfig.VERSION_CODE.toLong()))
+        }
+        delay(100)
+        assertTrue(subject.state.value is UpdateUiState.Available)
     }
 
     @Test
@@ -194,11 +221,13 @@ class UpdateManagerIntegrationTest {
     ) : UpdateSource {
         var checkCount = 0
         var downloadCanceled = false
+        var fetchOverride: (suspend () -> UpdateManifest)? = null
 
         override suspend fun cleanInterruptedDownloads(directory: File) = Unit
 
         override suspend fun fetchManifest(): UpdateManifest {
             checkCount += 1
+            fetchOverride?.let { return it() }
             fetchFailure?.let { throw UpdateValidationException(it) }
             return manifest
         }

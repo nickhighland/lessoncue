@@ -1,10 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ActivityHubClient, latestActivityEnvelope } from './activityConnection.ts';
+import { ActivityHubClient, latestActivityEnvelope, latestActivityHostView } from './activityConnection.ts';
 import { createRefreshLoop } from './refreshLoop.ts';
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const state = (runId, revision) => ({ runId, revision, serverTime: new Date().toISOString() });
+test('host snapshots preserve the newest revision and same-revision roster timestamp', () => {
+  const current = { state: { ...state('game', 3), serverTime: '2026-09-14T12:00:02Z' }, participants: ['Carmen'] };
+  assert.equal(latestActivityHostView(current, { state: state('game', 2), participants: [] }), current);
+  assert.equal(latestActivityHostView(current, { state: { ...current.state, serverTime: '2026-09-14T12:00:01Z' }, participants: [] }), current);
+  const newer = { ...current, state: { ...current.state, serverTime: '2026-09-14T12:00:03Z' }, participants: ['Carmen', 'Letty'] };
+  assert.equal(latestActivityHostView(current, newer), newer);
+  assert.equal(latestActivityHostView(null, current), current);
+});
 test('a slow polling snapshot cannot undo a newer pushed revision', () => {
   const current = state('game', 3);
   assert.equal(latestActivityEnvelope(current, state('game', 2)), current);

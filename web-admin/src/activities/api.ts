@@ -113,8 +113,8 @@ export class ActivityApi {
     });
   }
 
-  static async getRun(runId: string): Promise<ActivityStateEnvelope> {
-    return api<ActivityStateEnvelope>(`/api/v1/activity-runs/${runId}`);
+  static async getRun(runId: string, signal?: AbortSignal): Promise<ActivityStateEnvelope> {
+    return api<ActivityStateEnvelope>(`/api/v1/activity-runs/${runId}`, { signal });
   }
 
   static async executeCommand(runId: string, command: ActivityCommandEnvelope): Promise<ActivityCommandResult> {
@@ -182,8 +182,8 @@ export class ActivityApi {
     });
   }
 
-  static async getHostState(runId: string): Promise<ActivityHostView> {
-    return api<ActivityHostView>(`/api/v1/activity-sessions/${runId}/host-state`, { headers: controllerHeaders });
+  static async getHostState(runId: string, signal?: AbortSignal): Promise<ActivityHostView> {
+    return api<ActivityHostView>(`/api/v1/activity-sessions/${runId}/host-state`, { headers: controllerHeaders, signal });
   }
 
   static async setTeams(runId: string, teams: Array<{ name: string; color?: string; icon?: string }>): Promise<void> {

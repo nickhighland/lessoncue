@@ -4,6 +4,38 @@ import { DRAWING_PRESETS } from '../../web-admin/src/activities/activityPresetRe
 
 test.use({ serviceWorkers: 'block' });
 
+test('the eraser removes the middle of a sparse stroke, not just its recorded endpoints', async ({ page, browser }) => {
+  await signInAsAdmin(page, 'Drawing eraser');
+  const run = await launch(page, 'Sparse stroke eraser', { maxPointsPerStroke: 2, autoPilot: false });
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const phone = await context.newPage();
+  try {
+    await phone.goto(`/play/${run.state.joinCode}`);
+    await phone.getByLabel('Display name').fill('Thea');
+    await phone.getByRole('button', { name: 'Join game' }).click();
+    await expect(phone.getByText('You’re in.')).toBeVisible();
+    await command(page, run.runId, 'start');
+    await command(page, run.runId, 'open');
+    const canvas = phone.getByLabel('Draw your answer');
+    await canvas.scrollIntoViewIfNeeded();
+    const rect = (await canvas.boundingBox())!;
+    const session = await context.newCDPSession(phone);
+    try {
+      await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: rect.x + rect.width * .2, y: rect.y + rect.height * .5 }] });
+      await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: rect.x + rect.width * .8, y: rect.y + rect.height * .5 }] });
+      await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    } finally { await session.detach(); }
+    await expect(phone.getByRole('button', { name: 'Submit drawing' })).toBeEnabled();
+    const eraser = phone.getByRole('button', { name: 'Eraser' });
+    await eraser.scrollIntoViewIfNeeded();
+    await eraser.click();
+    await expect(eraser).toHaveAttribute('aria-pressed', 'true');
+    const currentRect = (await canvas.boundingBox())!;
+    await canvas.tap({ position: { x: currentRect.width * .5, y: currentRect.height * .5 } });
+    await expect(phone.getByRole('button', { name: 'Submit drawing' })).toBeDisabled();
+  } finally { await context.close(); }
+});
+
 for (const preset of DRAWING_PRESETS) {
   test(`drawing preset ${preset.label} opens and accepts a phone sketch`, async ({ page, browser }) => {
     await signInAsAdmin(page, 'Drawing presets');

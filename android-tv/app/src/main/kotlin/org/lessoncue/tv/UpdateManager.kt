@@ -58,7 +58,7 @@ class UpdateManager(
 
     private suspend fun performCheck(manual: Boolean) {
         if (manual) mutableState.value = UpdateUiState.Checking(installedVersionName)
-        runCatching { client.fetchManifest() }
+        cancellableResult { client.fetchManifest() }
             .onSuccess { manifest ->
                 if (!manual) store.recordSuccessfulAutomaticCheck()
                 activeManifest = manifest

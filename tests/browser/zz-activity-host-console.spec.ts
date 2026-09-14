@@ -10,7 +10,181 @@ test.use({ serviceWorkers: "block" });
 
 const authenticate = (page: Page) => signInAsAdmin(page, "Host Console");
 
+test("an older host snapshot cannot restore an obsolete player roster", async ({ page }) => {
+  await authenticate(page);
+  const prepared = await prepareHostedTrivia(page, "Host snapshot ordering", undefined, true);
+  let staleResponses = 0;
+  let replayOld = false;
+  let oldBody: string | undefined;
+  await page.route(`**/activity-sessions/${prepared.runId}/host-state`, async route => {
+    if (replayOld && oldBody) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: oldBody });
+      staleResponses++;
+      return;
+    }
+    const response = await route.fetch();
+    oldBody ??= await response.text();
+    await route.fulfill({ response });
+  });
+  await openUniversalRemote(page, prepared.screenId);
+  const panel = page.getByRole("region", { name: "Live game controls" });
+  await expect(panel).toContainText("No phones have joined yet.");
+  const joined = await page.request.post(`/api/v1/activity-sessions/join/${prepared.joinCode}`, {
+    data: { participantToken: null, displayName: "Carmen", avatar: "🦊", color: "#4ecdc4" },
+  });
+  expect(joined.ok()).toBeTruthy();
+  await expect(panel).toContainText("Carmen");
+  replayOld = true;
+  await expect.poll(() => staleResponses).toBeGreaterThanOrEqual(2);
+  await expect(panel).toContainText("Carmen");
+});
+
 let pairedScreen: { screenId: string; deviceToken: string } | null = null;
+
+test("the host counts votes separately from drawings already submitted", async ({ page }) => {
+  await authenticate(page);
+  const prepared = await prepareHostedTrivia(page, "Host voting count", { type: 'drawing', config: {
+    title: 'Host voting count', autoPilot: false, requireModeration: false,
+    prompts: [{ id: 'p1', prompt: 'Draw a penguin', points: 100 }],
+  } }, true);
+  const tokens: string[] = [];
+  for (const name of ['Carmen', 'Letty']) {
+    const response = await page.request.post(`/api/v1/activity-sessions/join/${prepared.joinCode}`, { data: { displayName: name } });
+    expect(response.ok()).toBeTruthy();
+    tokens.push((await response.json()).token);
+  }
+  const host = async (action: string) => {
+    expect((await page.request.post(`/api/v1/activity-runs/${prepared.runId}/command`, { data: { action } })).ok()).toBeTruthy();
+  };
+  await host('start');
+  await host('open');
+  for (const token of tokens) {
+    expect((await page.request.post(`/api/v1/activity-sessions/${prepared.runId}/participant-action`, {
+      data: { participantToken: token, action: 'submit', payload: { strokes: [{ color: '#f8fafc', width: .012, points: [[.5, .5]] }] } },
+    })).ok()).toBeTruthy();
+  }
+  await openUniversalRemote(page, prepared.screenId);
+  const panel = page.getByRole('region', { name: 'Live game controls' });
+  await expect(panel).toContainText('2 of 2');
+  await host('openvoting');
+  await expect(panel).toContainText('0 of 2');
+  const snapshot = await (await page.request.get(`/api/v1/activity-sessions/${prepared.runId}/host-state`)).json();
+  const target = snapshot.submissions.find((entry: { participantName: string }) => entry.participantName === 'Letty');
+  expect((await page.request.post(`/api/v1/activity-sessions/${prepared.runId}/participant-action`, {
+    data: { participantToken: tokens[0], action: 'vote', payload: { targetId: target.id } },
+  })).ok()).toBeTruthy();
+  await expect(panel).toContainText('1 of 2');
+});
+
+test("a failed host command is explained without an unhandled browser exception", async ({ page }) => {
+  await authenticate(page);
+  const prepared = await prepareHostedTrivia(page, "Host command failure", undefined, true);
+  await openUniversalRemote(page, prepared.screenId);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route(`**/activity-runs/${prepared.runId}/command`, route => route.fulfill({
+    status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Game server temporarily unavailable.' }),
+  }));
+  await page.getByRole('button', { name: 'Start the game', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Game server temporarily unavailable.');
+  await expect(page.getByRole('button', { name: 'Start the game', exact: true })).toBeEnabled();
+  await page.waitForTimeout(100); // Allow the rejected event-handler promise to settle.
+  expect(errors).toEqual([]);
+});
+
+test("a stalled fallback snapshot does not accumulate requests while live connection is pending", async ({ page }) => {
+  await authenticate(page);
+  const prepared = await prepareHostedTrivia(page, "Fallback stalled polling", undefined, true);
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/hubs/activities/negotiate?**', async route => {
+    await held;
+    await route.abort();
+  });
+  let requests = 0;
+  try {
+    await openUniversalRemote(page, prepared.screenId);
+    await expect(page.getByRole("region", { name: "Live game controls" })).toContainText(prepared.joinCode);
+    await page.route(`**/api/v1/activity-runs/${prepared.runId}`, async route => {
+      requests++;
+      await held;
+      await route.abort();
+    });
+    await expect.poll(() => requests).toBeGreaterThan(0);
+    await page.waitForTimeout(4500);
+    expect(requests).toBe(1);
+  } finally { release(); }
+});
+
+test("a stalled host refresh does not accumulate polling requests", async ({ page }) => {
+  await authenticate(page);
+  const prepared = await prepareHostedTrivia(page, "Host stalled polling", undefined, true);
+  await openUniversalRemote(page, prepared.screenId);
+  await expect(page.getByRole("region", { name: "Live game controls" })).toContainText(prepared.joinCode);
+  let requests = 0;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`**/activity-sessions/${prepared.runId}/host-state`, async route => {
+    requests++;
+    await held;
+    await route.abort();
+  });
+  try {
+    await expect.poll(() => requests).toBeGreaterThan(0);
+    await page.waitForTimeout(4500); // More than two polling intervals with no response.
+    expect(requests).toBe(1);
+  } finally { release(); }
+});
+
+test("switching the live cue ignores delayed host responses from the previous game", async ({ page }) => {
+  await authenticate(page);
+  const first = await prepareHostedTrivia(page, "Previous host game", undefined, true);
+  const second = await prepareHostedTrivia(page, "Next host game", undefined, true);
+  const report = async (input: typeof first) => {
+    const response = await page.request.post('/api/v1/tv/status', {
+      headers: { Authorization: `Bearer ${input.deviceToken}` },
+        data: { screenId: input.screenId, appVersion: '0.46.4', online: true, freeBytes: 4e9,
+        manifestVersion: 1, failedDownloads: 0, playbackState: 'playing',
+        lessonId: input.lessonId, itemId: input.itemId, positionMs: 0, durationMs: 60000 },
+    });
+    expect(response.status()).toBe(202);
+  };
+  await report(first);
+  await openUniversalRemote(page, first.screenId);
+  const panel = page.getByRole("region", { name: "Live game controls" });
+  await expect(panel).toContainText(first.joinCode);
+  let heldResponses = 0;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`**/activity-sessions/${first.runId}/host-state`, async route => {
+    const response = await route.fetch();
+    heldResponses++;
+    await held;
+    await route.fulfill({ response });
+  });
+  try {
+    await expect.poll(() => heldResponses).toBeGreaterThan(0);
+    await report(second);
+    expect(second.joinCode).not.toBe(first.joinCode);
+    await expect(panel).toContainText(second.joinCode, { timeout: 20000 });
+    await page.evaluate(() => {
+      const observed: string[] = [];
+      Object.assign(window, { auditHostCodes: observed });
+      new MutationObserver(() => {
+        const code = document.querySelector('.activity-live-host-join strong')?.textContent;
+        if (code) observed.push(code);
+      }).observe(document.body, { subtree: true, childList: true, characterData: true });
+    });
+    release();
+    // Wait until the delayed old response has been rendered or discarded.
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => (window as unknown as { auditHostCodes: string[] }).auditHostCodes)).not.toContain(first.joinCode);
+    await expect(panel).toContainText(second.joinCode);
+    const sent = page.waitForResponse(response => response.url().endsWith(`/activity-runs/${second.runId}/command`) && response.request().method() === "POST");
+    await panel.getByRole("button", { name: "Start the game", exact: true }).click();
+    expect((await sent).status()).toBe(200);
+  } finally { release(); }
+});
 
 async function prepareHostedTrivia(page: Page, name: string, engine?: { type: string; config: Record<string, unknown> }, ownLesson = false) {
   const prepared = await page.evaluate(async input => {
@@ -122,7 +296,7 @@ test("a signed-out phone can host a game and receives the TV acknowledgment with
     const { version } = await response.json();
     const status = await page.request.post('/api/v1/tv/status', {
       headers: { Authorization: `Bearer ${prepared.deviceToken}` },
-      data: { screenId: prepared.screenId, appVersion: '0.46.3', online: true, freeBytes: 4e9,
+      data: { screenId: prepared.screenId, appVersion: '0.46.4', online: true, freeBytes: 4e9,
         manifestVersion: 1, failedDownloads: 0, acknowledgedControlVersion: version,
         playbackState: 'paused', lessonId: prepared.lessonId, itemId: prepared.itemId, positionMs: 0, durationMs: 60000 },
     });

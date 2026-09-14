@@ -32,6 +32,17 @@ class ServerUrlPolicyTest {
     }
 
     @Test
+    fun rejectsDnsNamesContainingFourPrivateIpNumbers() {
+        for (host in listOf("10.0.0.1.example.org", "192.168.example.1.2.org", "127.0.0.1.example.org")) {
+            assertFalse(host, isTrustedLocalHttpHost(host))
+            assertThrows(IllegalArgumentException::class.java) {
+                normalizeLessonCueServerUrl("http://$host")
+            }
+            assertEquals("https://$host", normalizeLessonCueServerUrl("https://$host"))
+        }
+    }
+
+    @Test
     fun rejectsCredentialsAndNonOriginInput() {
         assertThrows(IllegalArgumentException::class.java) {
             normalizeLessonCueServerUrl("https://user:secret@lesson.example.org")

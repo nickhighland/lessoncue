@@ -36,9 +36,10 @@ export const ActivityLiveHostPanel: React.FC<{
   const shownPlayers = needle
     ? players.filter(player => player.displayName.toLowerCase().includes(needle))
     : players;
-  // A player counts as in once they have submitted or voted this round.
+  // Some engines save responses as votes. During a distinct voting phase,
+  // however, earlier drawings/text are not evidence that a phone has voted.
   const answeredIds = new Set<string>([
-    ...hostView.submissions.filter(item => !roundId || item.roundId === roundId).map(item => item.participantId),
+    ...hostView.submissions.filter(item => phase !== 'voting' && (!roundId || item.roundId === roundId)).map(item => item.participantId),
     ...hostView.votes.filter(item => !roundId || item.roundId === roundId).map(item => item.voterParticipantId),
   ]);
   const answered = activePlayers.filter(player => answeredIds.has(player.id)).length;
@@ -62,42 +63,32 @@ export const ActivityLiveHostPanel: React.FC<{
   const step = hostStepFor(phase, pending.length, autoPaused, blockedReason);
   const countdown = useAutoAdvanceCountdown(state.autoAdvanceAt, autoPaused || pending.length > 0);
 
+  const send = async (action: string, label: string, payload?: Record<string, unknown>) => {
+    setBusy(label);
+    try {
+      await ActivityApi.executeCommand(hostView.state.runId, { action, payload });
+      onRefresh();
+    } catch {
+      // ActivityApi already publishes the failure to the controller's visible
+      // command notice. Consume the event-handler rejection, not the notice.
+    } finally { setBusy(''); }
+  };
+
   // A lock is reversible, so a teacher can handle a disruptive or shared
   // device without destroying the player's identity and score history.
   const setPlayerLock = async (participantId: string, displayName: string, locked: boolean) => {
     if (locked && !window.confirm(`Lock ${displayName} out of the game?\n\nTheir phone will stop receiving prompts until you unlock them.`)) return;
     const action = locked ? 'lockparticipant' : 'unlockparticipant';
-    setBusy(`${action}:${participantId}`);
-    try {
-      await ActivityApi.executeCommand(hostView.state.runId, { action, payload: { participantId } });
-      onRefresh();
-    } finally { setBusy(''); }
+    await send(action, `${action}:${participantId}`, { participantId });
   };
 
   const resetPlayers = async () => {
     if (!window.confirm('Reset all players?\n\nEveryone will need to join again with the new code. Scores and the old player tokens will no longer be used for this lobby.')) return;
-    setBusy('resetplayers');
-    try {
-      await ActivityApi.executeCommand(hostView.state.runId, { action: 'resetplayers' });
-      onRefresh();
-    } finally { setBusy(''); }
+    await send('resetplayers', 'resetplayers');
   };
 
-  const send = async (action: string, label: string) => {
-    setBusy(label);
-    try {
-      await ActivityApi.executeCommand(hostView.state.runId, { action });
-      onRefresh();
-    } finally { setBusy(''); }
-  };
-
-  const moderate = async (submissionId: string, status: 'approved' | 'rejected') => {
-    setBusy(submissionId);
-    try {
-      await ActivityApi.executeCommand(hostView.state.runId, { action: 'moderate', payload: { submissionId, status } });
-      onRefresh();
-    } finally { setBusy(''); }
-  };
+  const moderate = (submissionId: string, status: 'approved' | 'rejected') =>
+    send('moderate', submissionId, { submissionId, status });
 
   return <section className="activity-live-host" aria-label="Live game controls">
     {joinCode && <div className="activity-live-host-join">
@@ -111,7 +102,7 @@ export const ActivityLiveHostPanel: React.FC<{
 
     <div className="activity-live-host-progress">
       <div className="activity-live-host-progress-head">
-        <span className="controller-eyebrow">{collecting ? 'ANSWERS IN' : 'PLAYERS'}</span>
+        <span className="controller-eyebrow">{phase === 'voting' ? 'VOTES IN' : collecting ? 'ANSWERS IN' : 'PLAYERS'}</span>
         <strong>{collecting ? `${answered} of ${activePlayers.length}` : String(players.length)}</strong>
       </div>
       {collecting && activePlayers.length > 0 && <div
@@ -233,14 +224,7 @@ export const ActivityLiveHostPanel: React.FC<{
           type="checkbox"
           checked={autoAdvance}
           disabled={busy !== ''}
-          onChange={async event => {
-            const enabled = event.target.checked;
-            setBusy('auto');
-            try {
-              await ActivityApi.executeCommand(hostView.state.runId, { action: 'autoadvance', payload: { enabled } });
-              onRefresh();
-            } finally { setBusy(''); }
-          }}
+          onChange={event => { void send('autoadvance', 'auto', { enabled: event.target.checked }); }}
         />
         <span>Close the window automatically once everyone has answered</span>
       </label>}

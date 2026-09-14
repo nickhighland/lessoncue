@@ -1,5 +1,18 @@
 export type DrawingStroke = { points: Array<[number, number]>; color: string; width: number };
 
+/** Hit the visible polyline, including sparse gestures and single-point dots. */
+export function strokeTouchesPoint(stroke: DrawingStroke, point: [number, number], radius: number): boolean {
+  return stroke.points.some(([x, y], index) => {
+    const [endX, endY] = stroke.points[index + 1] ?? [x, y];
+    const dx = endX - x;
+    const dy = endY - y;
+    const lengthSquared = dx * dx + dy * dy;
+    const progress = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1,
+      ((point[0] - x) * dx + (point[1] - y) * dy) / lengthSquared));
+    return Math.hypot(point[0] - (x + progress * dx), point[1] - (y + progress * dy)) <= radius;
+  });
+}
+
 export function drawingLimit(value: unknown, fallback: number) {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(1, Math.min(240, Math.floor(value))) : fallback;
 }

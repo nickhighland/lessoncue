@@ -498,8 +498,10 @@ public sealed class ActivitySessionServiceTests
         }
     }
 
-    [Fact]
-    public async Task FakeOutKeepsTruthUnmarkedUntilRevealAndScoresTheFinder()
+    [Theory]
+    [InlineData("truth")]
+    [InlineData("TRUTH")]
+    public async Task FakeOutKeepsTruthUnmarkedUntilRevealAndScoresTheFinder(string truthTarget)
     {
         var (db, activities, sessions, connection) = await CreateAsync();
         await using (connection)
@@ -525,12 +527,51 @@ public sealed class ActivitySessionServiceTests
             Assert.Contains("A real answer", optionsBeforeReveal, StringComparison.Ordinal);
             Assert.DoesNotContain("\"isTruth\":true", optionsBeforeReveal, StringComparison.OrdinalIgnoreCase);
 
-            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(finder.Token, "vote", JsonDocument.Parse("{\"targetId\":\"truth\"}").RootElement), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(finder.Token, "vote", JsonSerializer.SerializeToElement(new { targetId = truthTarget })), TestContext.Current.CancellationToken)).Success);
             await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "reveal"), TestContext.Current.CancellationToken);
             var displayAfterReveal = await sessions.GetDisplayEnvelopeAsync(run.Id, TestContext.Current.CancellationToken);
             Assert.Contains("\"isTruth\":true", JsonSerializer.Serialize(displayAfterReveal!.State, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase);
             var hostAfterReveal = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
             Assert.Contains("\"amount\":100", JsonSerializer.Serialize(hostAfterReveal!.ScoreEvents, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FakeOutAwardsBluffPointsForEveryEligibleVoteOnlyOnce(bool rejectBeforeReveal)
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Bluff tally", ActivityTypes.FakeOut,
+                Config: JsonSerializer.SerializeToElement(new { title = "Bluff tally", autoPilot = false, requireModeration = false,
+                    bluffPoints = 50, rounds = new[] { new { id = "r1", prompt = "Find the truth", truth = "The real answer" } } })), "teacher", ct);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: ct), ct);
+            var writer = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Carmen"), ct);
+            var first = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Letty"), ct);
+            var second = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Thea"), ct);
+            async Task Host(string action) => Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, action), ct)).Success);
+            await Host("start");
+            await Host("open");
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(writer.Token, "submit",
+                JsonSerializer.SerializeToElement(new { text = "A convincing fake" })), ct)).Success);
+            var submission = await db.ActivitySubmissions.SingleAsync(x => x.ActivityRunId == run.Id, ct);
+            await Host("openvoting");
+            foreach (var token in new[] { first.Token, second.Token })
+                Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(token, "vote",
+                    JsonSerializer.SerializeToElement(new { targetId = submission.Id.ToString().ToUpperInvariant() })), ct)).Success);
+            if (rejectBeforeReveal)
+                Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "moderate",
+                    JsonSerializer.SerializeToElement(new { submissionId = submission.Id, status = "rejected" })), ct)).Success);
+            await Host("reveal");
+            var scores = await db.ActivityScoreEvents.Where(x => x.ActivityRunId == run.Id).ToListAsync(ct);
+            Assert.Equal(rejectBeforeReveal ? 0 : 100, scores.Sum(x => x.Amount));
+            Assert.All(scores, score => Assert.Equal(submission.ParticipantId, score.ParticipantId));
+            await Host("reveal");
+            Assert.Equal(scores.Count, await db.ActivityScoreEvents.CountAsync(x => x.ActivityRunId == run.Id, ct));
         }
     }
 
@@ -672,6 +713,53 @@ public sealed class ActivitySessionServiceTests
             Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "matchanswer", JsonDocument.Parse("{\"rank\":2}").RootElement), TestContext.Current.CancellationToken)).Success);
             var scoredHost = await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken);
             Assert.Contains("\"amount\":40", JsonSerializer.Serialize(scoredHost!.ScoreEvents, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Theory]
+    [InlineData(ActivityTypes.Drawing)]
+    [InlineData(ActivityTypes.Punchline)]
+    public async Task VotesForRejectedWorkDoNotDisqualifyTheRemainingWinner(string activityType)
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Moderated winner", activityType,
+                Config: JsonSerializer.SerializeToElement(new { title = "Moderated winner", autoPilot = false, requireModeration = false,
+                    prompts = new[] { new { id = "p1", prompt = "Draw an animal", points = 75 } } })), "teacher", ct);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: ct), ct);
+            var carmen = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Carmen"), ct);
+            var letty = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Letty"), ct);
+            var thea = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Thea"), ct);
+            async Task Host(string action, object? payload = null) => Assert.True((await sessions.ExecuteHostActionAsync(run.Id,
+                new ActivityCommandEnvelope(null, null, action, payload is null ? null : JsonSerializer.SerializeToElement(payload)), ct)).Success);
+            async Task Player(string token, string action, object payload) => Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id,
+                new ActivityParticipantActionInput(token, action, JsonSerializer.SerializeToElement(payload)), ct)).Success);
+            await Host("start");
+            await Host("open");
+            object drawing = activityType == ActivityTypes.Drawing
+                ? new { strokes = new[] { new { color = "#f8fafc", width = .012, points = new[] { new[] { .5, .5 } } } } }
+                : new { text = "A classroom-friendly answer" };
+            await Player(carmen.Token, "submit", drawing);
+            await Player(letty.Token, "submit", drawing);
+            var carmenId = (await db.ActivityParticipants.SingleAsync(x => x.DisplayName == "Carmen", ct)).Id;
+            var lettyId = (await db.ActivityParticipants.SingleAsync(x => x.DisplayName == "Letty", ct)).Id;
+            var first = await db.ActivitySubmissions.SingleAsync(x => x.ActivityRunId == run.Id && x.ParticipantId == carmenId, ct);
+            var second = await db.ActivitySubmissions.SingleAsync(x => x.ActivityRunId == run.Id && x.ParticipantId == lettyId, ct);
+            await Host("openvoting");
+            await Player(letty.Token, "vote", new { targetId = first.Id });
+            await Player(thea.Token, "vote", new { targetId = first.Id });
+            await Player(carmen.Token, "vote", new { targetId = second.Id });
+            await Host("moderate", new { submissionId = first.Id, status = "rejected" });
+            await Host("reveal");
+            var score = Assert.Single(await db.ActivityScoreEvents.Where(x => x.ActivityRunId == run.Id).ToListAsync(ct));
+            Assert.Equal(lettyId, score.ParticipantId);
+            Assert.Equal(75, score.Amount);
+            // Retried reveal must not award the same winning drawing twice.
+            await Host("reveal");
+            Assert.Single(await db.ActivityScoreEvents.Where(x => x.ActivityRunId == run.Id).ToListAsync(ct));
         }
     }
 
