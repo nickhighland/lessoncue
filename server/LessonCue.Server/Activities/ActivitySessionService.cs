@@ -1399,7 +1399,7 @@ public sealed class ActivitySessionService(
             case "next": case "nextround":
                 var prompts = ArrayValue(config, "prompts"); var promptIndex = IntValue(state, "currentPromptIndex");
                 if (promptIndex >= Math.Max(0, prompts.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
-            state["currentPromptIndex"] = promptIndex + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["votingOpen"] = false; state["resultsVisible"] = false; state.Remove("creativeMatches"); state.Remove("creativeCurrentMatchId"); state.Remove("creativeChampionId"); state.Remove("creativeChampionScoreApplied"); state.Remove("winningSubmissionId"); state.Remove("winningPoints"); state.Remove("revealedWinnerId"); return (true, null);
+            state["currentPromptIndex"] = promptIndex + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["votingOpen"] = false; state["resultsVisible"] = false; state["scoresApplied"] = false; state.Remove("creativeMatches"); state.Remove("creativeCurrentMatchId"); state.Remove("creativeChampionId"); state.Remove("creativeChampionScoreApplied"); state.Remove("winningSubmissionId"); state.Remove("winningPoints"); state.Remove("revealedWinnerId"); return (true, null);
             case "showleaderboard": state["phase"] = ActivityPhases.Leaderboard; return (true, null);
             default: return (false, $"Unrecognized creative action '{action}'.");
         }
@@ -1588,7 +1588,7 @@ public sealed class ActivitySessionService(
                 {
                 var prompts = ArrayValue(config, "prompts"); var index = IntValue(state, "currentPromptIndex");
                 if (index >= Math.Max(0, prompts.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
-                state["currentPromptIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["votingOpen"] = false; state["votingTimerRunning"] = false; state["resultsVisible"] = false; return (true, null);
+                state["currentPromptIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["votingOpen"] = false; state["votingTimerRunning"] = false; state["resultsVisible"] = false; state["scoresApplied"] = false; return (true, null);
                 }
                 goto case "nextstep";
             case "nextstep":
@@ -3529,16 +3529,18 @@ public sealed class ActivitySessionService(
 
     private async Task ScoreCreativeAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct)
     {
+        if (BoolValue(state, "scoresApplied")) return;
         var roundId = CurrentRoundId(run, config);
         var eligible = run.Submissions.Where(x => x.RoundId == roundId && x.Kind == "creative" && x.ModerationStatus == "approved" && !x.Hidden)
             .ToDictionary(x => x.Id.ToString(), StringComparer.OrdinalIgnoreCase);
         var counts = run.Votes.Where(x => x.RoundId == roundId && eligible.ContainsKey(x.TargetId))
             .GroupBy(x => eligible[x.TargetId].Id.ToString()).OrderByDescending(x => x.Count()).ThenBy(x => x.Key, StringComparer.Ordinal).ToList();
-        if (counts.Count == 0) return;
+        if (counts.Count == 0) { state["scoresApplied"] = true; return; }
         var winner = eligible[counts[0].Key];
         var points = IntValue(ArrayValue(config, "prompts").Count > IntValue(state, "currentPromptIndex") ? ArrayValue(config, "prompts")[IntValue(state, "currentPromptIndex")] as JsonObject : null, "points", 100);
         await AwardScoreAsync(run, winner.ParticipantId, null, points, "Audience favorite", roundId, ct);
         state["winningSubmissionId"] = winner.Id.ToString(); state["winningVoteCount"] = counts[0].Count();
+        state["scoresApplied"] = true;
     }
 
     private async Task EnsureCreativeHeadToHeadStateAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct)
@@ -3728,6 +3730,7 @@ public sealed class ActivitySessionService(
 
     private async Task ScoreDrawingAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct)
     {
+        if (BoolValue(state, "scoresApplied")) return;
         var roundId = CurrentRoundId(run, config);
         // Moderation can remove work after phones have voted. Count only work
         // still eligible for this round so a hidden favorite cannot suppress
@@ -3737,12 +3740,13 @@ public sealed class ActivitySessionService(
         var counts = run.Votes.Where(x => x.RoundId == roundId && eligible.ContainsKey(x.TargetId))
             .GroupBy(x => eligible[x.TargetId].Id.ToString()).OrderByDescending(x => x.Count()).ThenBy(x => x.Key, StringComparer.Ordinal).ToList();
         state["drawingVoteCounts"] = new JsonArray(counts.Select(item => (JsonNode)new JsonObject { ["submissionId"] = item.Key, ["votes"] = item.Count() }).ToArray());
-        if (counts.Count == 0) return;
+        if (counts.Count == 0) { state["scoresApplied"] = true; return; }
         var winner = eligible[counts[0].Key];
         var prompts = ArrayValue(config, "prompts"); var index = IntValue(state, "currentPromptIndex");
         var points = IntValue(prompts.Count > index ? prompts[index] as JsonObject : null, "points", 100);
         await AwardScoreAsync(run, winner.ParticipantId, null, points, "Audience drawing favorite", roundId, ct);
         state["winningSubmissionId"] = winner.Id.ToString(); state["winningVoteCount"] = counts[0].Count();
+        state["scoresApplied"] = true;
     }
 
     private async Task ScoreOrderingAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct)
@@ -4249,6 +4253,7 @@ public sealed class ActivitySessionService(
     {
         var config = ParseConfig(run);
         var state = ParseObject(run.StateJson);
+        if (role == ProjectionRole.Host) state["currentRoundId"] = CurrentRoundId(run, config);
         if (role == ProjectionRole.Display || role == ProjectionRole.Participant) state = await ProjectDisplayStateAsync(run, config, state, ct, participantId);
         var projectedConfig = role == ProjectionRole.Host ? config : ProjectPublicConfig(run.ActivityDefinition!.Type, config, state);
         return new ActivityStateEnvelope(run.Id, run.ActivityDefinitionId, run.ActivityDefinition!.Type, run.Revision, run.Status, ParseUntyped(Serialize(state))!, DateTimeOffset.UtcNow, run.ActivityDefinition.Name, ParseUntyped(run.ActivityDefinition.ThemeJson), ParseUntyped(Serialize(projectedConfig)));

@@ -5,7 +5,7 @@ import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.coroutineContext
 
 /** A cancelled screen/request must not turn into an error or update stale UI. */
-internal suspend inline fun <T> cancellableResult(block: () -> T): Result<T> {
+internal suspend inline fun <T> cancellableResult(block: suspend () -> T): Result<T> {
     coroutineContext.ensureActive()
     return try {
         val value = block()
