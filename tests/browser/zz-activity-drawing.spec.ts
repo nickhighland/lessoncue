@@ -26,8 +26,10 @@ test('the eraser removes the middle of a sparse stroke, not just its recorded en
       await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     } finally { await session.detach(); }
     await expect(phone.getByRole('button', { name: 'Submit drawing' })).toBeEnabled();
-    await phone.getByRole('button', { name: 'Eraser' }).tap();
-    await expect(phone.getByRole('button', { name: 'Eraser' })).toHaveAttribute('aria-pressed', 'true');
+    const eraser = phone.getByRole('button', { name: 'Eraser' });
+    await eraser.scrollIntoViewIfNeeded();
+    await eraser.click();
+    await expect(eraser).toHaveAttribute('aria-pressed', 'true');
     const currentRect = (await canvas.boundingBox())!;
     await canvas.tap({ position: { x: currentRect.width * .5, y: currentRect.height * .5 } });
     await expect(phone.getByRole('button', { name: 'Submit drawing' })).toBeDisabled();
