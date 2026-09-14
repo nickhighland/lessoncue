@@ -122,7 +122,7 @@ test("a signed-out phone can host a game and receives the TV acknowledgment with
     const { version } = await response.json();
     const status = await page.request.post('/api/v1/tv/status', {
       headers: { Authorization: `Bearer ${prepared.deviceToken}` },
-      data: { screenId: prepared.screenId, appVersion: '0.46.1', online: true, freeBytes: 4e9,
+      data: { screenId: prepared.screenId, appVersion: '0.46.2', online: true, freeBytes: 4e9,
         manifestVersion: 1, failedDownloads: 0, acknowledgedControlVersion: version,
         playbackState: 'paused', lessonId: prepared.lessonId, itemId: prepared.itemId, positionMs: 0, durationMs: 60000 },
     });

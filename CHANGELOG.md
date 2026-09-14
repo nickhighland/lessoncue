@@ -4,6 +4,18 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.2 — Security maintenance
+
+### User changes
+
+- Updated the Vega TV package dependencies to include the latest compatible
+  security fixes.
+
+### Developer changes
+
+- Updated release metadata consistently across the server, browser player,
+  Android TV, and Vega TV packages.
+
 ## v0.46.1 — More reliable games, displays, and local discovery
 
 ### User changes
