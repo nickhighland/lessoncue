@@ -2,7 +2,7 @@ schema-version = 1
 
 [package]
 title = "LessonCue"
-version = "0.46.2"
+version = "0.46.3"
 id = "com.lessoncue.tv"
 
 # LessonCue servers live on the local network and are reached over plain HTTP.

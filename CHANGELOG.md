@@ -16,6 +16,18 @@ administrator installs an update.
 - Updated release metadata consistently across the server, browser player,
   Android TV, and Vega TV packages.
 
+## v0.46.3 — Release validation reliability
+
+### User changes
+
+- No functional changes. This patch release improves the reliability of the
+  release validation around activity host controls.
+
+### Developer changes
+
+- Allow the activity host browser check enough time for a busy CI runner to
+  receive its command response.
+
 ## v0.46.1 — More reliable games, displays, and local discovery
 
 ### User changes
