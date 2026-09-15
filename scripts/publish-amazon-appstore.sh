@@ -80,7 +80,11 @@ call() {
   echo "Amazon Appstore: ${what} succeeded (HTTP ${status})"
 }
 
-etag_of() { grep -i '^etag:' "${WORK}/head" | tail -1 | sed 's/^[Ee][Tt][Aa][Gg]:[[:space:]]*//' | tr -d '\r'; }
+# The active-edit endpoint may legitimately omit ETag when no edit exists.
+# Keep that an empty value instead of letting grep's status trip pipefail.
+etag_of() {
+  awk '{ if (tolower($0) ~ /^etag:/) { sub(/^[^:]*:[[:space:]]*/, ""); value = $0 } } END { gsub(/\r/, "", value); print value }' "${WORK}/head"
+}
 
 # ----------------------------------------------------------------------- edit
 #

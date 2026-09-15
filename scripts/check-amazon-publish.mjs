@@ -64,7 +64,7 @@ async function publish({ existingApks, editAlreadyOpen = false }) {
       if (url === base && method === "GET") {
         return editAlreadyOpen || seen.some(call => call.url === base && call.method === "POST")
           ? send(200, { id: "edit-1", status: "IN_PROGRESS" }, { ETag: "edit-etag-2" })
-          : send(200, {}, { ETag: "edit-etag-0" });
+          : send(200, {});
       }
       if (url === base && method === "POST") return send(200, { id: "edit-1", status: "IN_PROGRESS" }, { ETag: "edit-etag-1" });
       if (url === `${base}/edit-1/apks` && method === "GET") return send(200, existingApks);
