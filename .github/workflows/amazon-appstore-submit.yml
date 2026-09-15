@@ -16,7 +16,13 @@ jobs:
   submit:
     runs-on: ubuntu-latest
     environment: production-release
+    concurrency:
+      group: amazon-appstore-publish
+      cancel-in-progress: false
     steps:
+      - name: Require the trusted main branch
+        run: test "${GITHUB_REF}" = 'refs/heads/main'
+
       - uses: actions/checkout@v4
 
       - name: Download the selected release APK

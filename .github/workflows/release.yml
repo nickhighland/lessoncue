@@ -286,6 +286,9 @@ jobs:
 
   publish:
     needs: [server-linux, server-windows, android]
+    concurrency:
+      group: amazon-appstore-publish
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     environment: production-release
     permissions:
