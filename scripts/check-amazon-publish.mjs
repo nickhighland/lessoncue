@@ -9,13 +9,25 @@
 // This is not proof it works against Amazon. It is proof the script does what
 // the documented API asks, which is the part that is ours to get right.
 import { createServer } from "node:http";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const failures = [];
 const check = (ok, message) => { if (!ok) failures.push(message); };
+
+function runPublisher(apk, env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("bash", ["scripts/publish-amazon-appstore.sh", apk], { env });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", chunk => { stdout += chunk; });
+    child.stderr.on("data", chunk => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", status => resolve({ status, stdout, stderr }));
+  });
+}
 
 const APP_ID = "amzn1.devportal.mobileapp.test";
 const APK_BYTES = Buffer.from("PK pretend this is a signed apk");
@@ -52,7 +64,7 @@ async function publish({ existingApks, editAlreadyOpen = false }) {
       if (url === base && method === "GET") {
         return editAlreadyOpen || seen.some(call => call.url === base && call.method === "POST")
           ? send(200, { id: "edit-1", status: "IN_PROGRESS" }, { ETag: "edit-etag-2" })
-          : send(200, "", { ETag: "edit-etag-0" });
+          : send(200, {}, { ETag: "edit-etag-0" });
       }
       if (url === base && method === "POST") return send(200, { id: "edit-1", status: "IN_PROGRESS" }, { ETag: "edit-etag-1" });
       if (url === `${base}/edit-1/apks` && method === "GET") return send(200, existingApks);
@@ -84,16 +96,13 @@ async function publish({ existingApks, editAlreadyOpen = false }) {
   const apk = join(work, "LessonCue-TV-store.apk");
   writeFileSync(apk, APK_BYTES);
 
-  const run = spawnSync("bash", ["scripts/publish-amazon-appstore.sh", apk], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      AMAZON_CLIENT_ID: "client",
-      AMAZON_CLIENT_SECRET: "secret",
-      AMAZON_APP_ID: APP_ID,
-      AMAZON_API_BASE: `http://127.0.0.1:${port}/api/appstore/v1`,
-      AMAZON_TOKEN_URL: `http://127.0.0.1:${port}/auth/o2/token`,
-    },
+  const run = await runPublisher(apk, {
+    ...process.env,
+    AMAZON_CLIENT_ID: "client",
+    AMAZON_CLIENT_SECRET: "secret",
+    AMAZON_APP_ID: APP_ID,
+    AMAZON_API_BASE: `http://127.0.0.1:${port}/api/appstore/v1`,
+    AMAZON_TOKEN_URL: `http://127.0.0.1:${port}/auth/o2/token`,
   });
 
   rmSync(work, { recursive: true, force: true });
