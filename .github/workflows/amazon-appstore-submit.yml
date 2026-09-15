@@ -1,0 +1,44 @@
+name: Submit Amazon Appstore APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag whose signed TV APK should be submitted
+        required: true
+        default: v0.46.4
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    environment: production-release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the selected release APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          case "${RELEASE_TAG}" in
+            v*) ;;
+            *) echo 'The release tag must start with v.' >&2; exit 64 ;;
+          esac
+          mkdir -p release
+          gh release download "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern 'LessonCue-TV-store.apk' \
+            --dir release \
+            --clobber
+
+      - name: Submit APK to Amazon Appstore
+        env:
+          AMAZON_APP_ID: ${{ secrets.AMAZON_APP_ID }}
+          AMAZON_CLIENT_ID: ${{ secrets.AMAZON_CLIENT_ID }}
+          AMAZON_CLIENT_SECRET: ${{ secrets.AMAZON_CLIENT_SECRET }}
+        run: bash scripts/publish-amazon-appstore.sh release/LessonCue-TV-store.apk
