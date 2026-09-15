@@ -90,6 +90,7 @@ async function publish({ existingApks, editAlreadyOpen = false }) {
         return send(200, listingUpdated, { ETag: "listing-etag-2" });
       }
       if (url === `${base}/edit-1/commit` && method === "POST") {
+        if (listingUpdated === null) return send(400, { error: "release notes not updated" });
         // Amazon refuses a commit carrying an ETag from before the upload.
         if (request.headers["if-match"] !== "edit-etag-2") return send(412, { error: "stale edit etag" });
         committed = true;

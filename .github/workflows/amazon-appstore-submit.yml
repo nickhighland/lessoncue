@@ -39,6 +39,7 @@ jobs:
           gh release download "${RELEASE_TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
             --pattern 'LessonCue-TV-store.apk' \
+            --pattern 'RELEASE-NOTES.md' \
             --dir release \
             --clobber
 
