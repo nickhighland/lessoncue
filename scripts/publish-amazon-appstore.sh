@@ -62,8 +62,14 @@ auth=(-H "Authorization: Bearer ${TOKEN}")
 call() {
   local what="$1" method="$2" url="$3"; shift 3
   local status
-  status="$(curl --silent --show-error --output "${WORK}/body" --dump-header "${WORK}/head" \
-    --write-out '%{http_code}' -X "${method}" "${auth[@]}" "$@" "${url}")"
+  # Do not use curl --fail here. With set -e, a non-2xx response inside a
+  # command substitution exits before the diagnostic below can report the
+  # HTTP status and response body.
+  if ! status="$(curl --silent --show-error --output "${WORK}/body" --dump-header "${WORK}/head" \
+    --write-out '%{http_code}' -X "${method}" "${auth[@]}" "$@" "${url}")"; then
+    echo "::error::${what} request failed before receiving an HTTP response." >&2
+    return 1
+  fi
   if [ "${status}" -lt 200 ] || [ "${status}" -ge 300 ]; then
     echo "::error::${what} failed (HTTP ${status}): $(head -c 400 "${WORK}/body")" >&2
     return 1
@@ -107,7 +113,7 @@ if [ -n "${APK_ID}" ]; then
   call "Reading the APK's ETag" GET "${APP}/edits/${EDIT_ID}/apks/${APK_ID}" || exit 1
   APK_ETAG="$(etag_of)"
   call "Replacing the APK" PUT "${APP}/edits/${EDIT_ID}/apks/${APK_ID}/replace" \
-    -H "Content-Type: application/octet-stream" \
+    -H "Content-Type: application/vnd.android.package-archive" \
     -H "fileName: $(basename "${APK}")" \
     -H "If-Match: ${APK_ETAG}" \
     --data-binary "@${APK}" || exit 1

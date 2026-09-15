@@ -44,7 +44,7 @@ async function publish({ existingApks, editAlreadyOpen = false }) {
     request.on("data", chunk => chunks.push(chunk));
     request.on("end", () => {
       const body = Buffer.concat(chunks);
-      seen.push({ method, url, ifMatch: request.headers["if-match"], fileName: request.headers["filename"] });
+      seen.push({ method, url, ifMatch: request.headers["if-match"], fileName: request.headers["filename"], contentType: request.headers["content-type"] });
       const send = (status, payload, headers = {}) => {
         response.writeHead(status, { "Content-Type": "application/json", ...headers });
         response.end(payload === undefined ? "" : JSON.stringify(payload));
@@ -126,6 +126,8 @@ async function publish({ existingApks, editAlreadyOpen = false }) {
     "nothing should be uploaded as a new APK when one is already there");
   check(seen.some(call => call.fileName === "LessonCue-TV-store.apk"),
     "the upload must name the file, which is what appears in the Console");
+  check(seen.some(call => call.url.endsWith("/apks/apk-9/replace") && call.contentType === "application/vnd.android.package-archive"),
+    "APK replacement must use Amazon's Android package content type");
   check(!/Atc\|stub|secret/.test(`${run.stdout}${run.stderr}`),
     "the token or the client secret was printed");
 }
