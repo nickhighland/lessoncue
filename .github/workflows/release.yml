@@ -30,6 +30,7 @@ jobs:
       - run: npm ci
       - run: npm run test:protocol
       - run: npm run test:network-config
+      - run: npm run test:amazon
       - run: npm run lint
       - run: npm test
       - run: dotnet restore server/LessonCue.Server.Tests/LessonCue.Server.Tests.csproj
@@ -406,6 +407,12 @@ jobs:
           tracks: "tv:production"
           releaseName: ${{ github.ref_name }}
           status: completed
+      - name: Publish Amazon Appstore
+        env:
+          AMAZON_APP_ID: ${{ secrets.AMAZON_APP_ID }}
+          AMAZON_CLIENT_ID: ${{ secrets.AMAZON_CLIENT_ID }}
+          AMAZON_CLIENT_SECRET: ${{ secrets.AMAZON_CLIENT_SECRET }}
+        run: bash scripts/publish-amazon-appstore.sh release/LessonCue-TV-store.apk
       - uses: softprops/action-gh-release@v2
         with:
           body_path: release/RELEASE-NOTES.md

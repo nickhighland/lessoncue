@@ -1,0 +1,57 @@
+name: Verify Amazon Appstore credentials
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    environment: production-release
+    steps:
+      - name: Verify App Submission API access
+        env:
+          AMAZON_APP_ID: ${{ secrets.AMAZON_APP_ID }}
+          AMAZON_CLIENT_ID: ${{ secrets.AMAZON_CLIENT_ID }}
+          AMAZON_CLIENT_SECRET: ${{ secrets.AMAZON_CLIENT_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${AMAZON_APP_ID:?AMAZON_APP_ID is not configured}"
+          : "${AMAZON_CLIENT_ID:?AMAZON_CLIENT_ID is not configured}"
+          : "${AMAZON_CLIENT_SECRET:?AMAZON_CLIENT_SECRET is not configured}"
+
+          work="$(mktemp -d)"
+          trap 'rm -rf "${work}"' EXIT
+
+          token_status="$(curl --silent --show-error \
+            --output "${work}/token.json" \
+            --write-out '%{http_code}' \
+            --data-urlencode 'grant_type=client_credentials' \
+            --data-urlencode "client_id=${AMAZON_CLIENT_ID}" \
+            --data-urlencode "client_secret=${AMAZON_CLIENT_SECRET}" \
+            --data-urlencode 'scope=appstore::apps:readwrite' \
+            'https://api.amazon.com/auth/o2/token')"
+          test "${token_status}" = 200 || {
+            echo "Amazon rejected the security profile credentials (HTTP ${token_status})."
+            exit 1
+          }
+          token="$(jq -r '.access_token // empty' "${work}/token.json")"
+          test -n "${token}" || {
+            echo 'Amazon returned no access token.'
+            exit 1
+          }
+
+          edit_status="$(curl --silent --show-error \
+            --output "${work}/edit.json" \
+            --write-out '%{http_code}' \
+            --header "Authorization: Bearer ${token}" \
+            "https://developer.amazon.com/api/appstore/v1/applications/${AMAZON_APP_ID}/edits")"
+          test "${edit_status}" -ge 200 -a "${edit_status}" -lt 300 || {
+            echo "Amazon rejected the App ID or API association (HTTP ${edit_status})."
+            exit 1
+          }
+          jq -e 'type == "object"' "${work}/edit.json" >/dev/null
+          echo 'Amazon Appstore credentials and App ID verified; no edit was created and no binary was submitted.'
