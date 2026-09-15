@@ -37,6 +37,7 @@ async function publish({ existingApks, editAlreadyOpen = false }) {
   const seen = [];
   let committed = null;
   let uploadedBytes = null;
+  let listingUpdated = null;
 
   const server = createServer((request, response) => {
     const { method, url } = request;
@@ -80,7 +81,16 @@ async function publish({ existingApks, editAlreadyOpen = false }) {
         uploadedBytes = body;
         return send(200, { id: "apk-new", versionCode: 140 });
       }
+      if (url === `${base}/edit-1/listings/en-US` && method === "GET") {
+        return send(200, { language: "en-US", title: "LessonCue", fullDescription: "Classroom display", shortDescription: "Classroom display", recentChanges: null, featureBullets: [], keywords: [] }, { ETag: "listing-etag-1" });
+      }
+      if (url === `${base}/edit-1/listings/en-US` && method === "PUT") {
+        if (request.headers["if-match"] !== "listing-etag-1") return send(412, { error: "stale listing etag" });
+        listingUpdated = JSON.parse(body.toString());
+        return send(200, listingUpdated, { ETag: "listing-etag-2" });
+      }
       if (url === `${base}/edit-1/commit` && method === "POST") {
+        if (listingUpdated === null) return send(400, { error: "release notes not updated" });
         // Amazon refuses a commit carrying an ETag from before the upload.
         if (request.headers["if-match"] !== "edit-etag-2") return send(412, { error: "stale edit etag" });
         committed = true;
@@ -95,24 +105,27 @@ async function publish({ existingApks, editAlreadyOpen = false }) {
   const work = mkdtempSync(join(tmpdir(), "amazon-publish-"));
   const apk = join(work, "LessonCue-TV-store.apk");
   writeFileSync(apk, APK_BYTES);
+  const notes = join(work, "RELEASE-NOTES.md");
+  writeFileSync(notes, "Updated classroom controls and reliability.\n");
 
   const run = await runPublisher(apk, {
     ...process.env,
     AMAZON_CLIENT_ID: "client",
     AMAZON_CLIENT_SECRET: "secret",
     AMAZON_APP_ID: APP_ID,
+    AMAZON_RELEASE_NOTES_FILE: notes,
     AMAZON_API_BASE: `http://127.0.0.1:${port}/api/appstore/v1`,
     AMAZON_TOKEN_URL: `http://127.0.0.1:${port}/auth/o2/token`,
   });
 
   rmSync(work, { recursive: true, force: true });
   await new Promise(resolve => server.close(resolve));
-  return { run, seen, committed, uploadedBytes };
+  return { run, seen, committed, uploadedBytes, listingUpdated };
 }
 
 // ── A version going out over an app that already has one.
 {
-  const { run, seen, committed, uploadedBytes } = await publish({
+  const { run, seen, committed, uploadedBytes, listingUpdated } = await publish({
     existingApks: [{ id: "apk-9", versionCode: 139, name: "old.apk" }],
   });
   check(run.status === 0, `publishing failed: ${run.stderr || run.stdout}`);
@@ -128,6 +141,8 @@ async function publish({ existingApks, editAlreadyOpen = false }) {
     "the upload must name the file, which is what appears in the Console");
   check(seen.some(call => call.url.endsWith("/apks/apk-9/replace") && call.contentType === "application/vnd.android.package-archive"),
     "APK replacement must use Amazon's Android package content type");
+  check(listingUpdated?.recentChanges.includes("Updated classroom controls"),
+    "the en-US listing must receive release notes before commit");
   check(!/Atc\|stub|secret/.test(`${run.stdout}${run.stderr}`),
     "the token or the client secret was printed");
 }

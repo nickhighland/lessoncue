@@ -18,6 +18,7 @@
 #   AMAZON_CLIENT_ID       from the security profile's Web Settings tab
 #   AMAZON_CLIENT_SECRET   likewise
 #   AMAZON_APP_ID          the app's identifier in the Developer Console
+#   AMAZON_RELEASE_NOTES_FILE optional plain-text release notes for en-US
 #   AMAZON_API_BASE        optional, for testing against a stand-in
 set -euo pipefail
 
@@ -132,6 +133,28 @@ else
     -H "fileName: $(basename "${APK}")" \
     --data-binary "@${APK}" || exit 1
   echo "Uploaded the first APK for this edit"
+fi
+
+# --------------------------------------------------------------- release notes
+# Amazon requires recentChanges for the default listing on binary submissions.
+# Update the whole listing with its current ETag, as required by the API.
+if [ -n "${AMAZON_RELEASE_NOTES_FILE:-}" ]; then
+  [ -f "${AMAZON_RELEASE_NOTES_FILE}" ] || {
+    echo "::error::The Amazon release notes file does not exist: ${AMAZON_RELEASE_NOTES_FILE}" >&2
+    exit 1
+  }
+  call "Reading the en-US listing" GET "${APP}/edits/${EDIT_ID}/listings/en-US" || exit 1
+  LISTING_ETAG="$(etag_of)"
+  [ -n "${LISTING_ETAG}" ] || {
+    echo "::error::Amazon returned no ETag for the en-US listing." >&2
+    exit 1
+  }
+  jq --rawfile recentChanges "${AMAZON_RELEASE_NOTES_FILE}" \
+    '.recentChanges = $recentChanges' "${WORK}/body" > "${WORK}/listing.json"
+  call "Updating the en-US release notes" PUT "${APP}/edits/${EDIT_ID}/listings/en-US" \
+    -H "Content-Type: application/json" \
+    -H "If-Match: ${LISTING_ETAG}" \
+    --data-binary "@${WORK}/listing.json" || exit 1
 fi
 
 # --------------------------------------------------------------------- commit

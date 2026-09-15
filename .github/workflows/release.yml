@@ -415,6 +415,7 @@ jobs:
           AMAZON_APP_ID: ${{ secrets.AMAZON_APP_ID }}
           AMAZON_CLIENT_ID: ${{ secrets.AMAZON_CLIENT_ID }}
           AMAZON_CLIENT_SECRET: ${{ secrets.AMAZON_CLIENT_SECRET }}
+          AMAZON_RELEASE_NOTES_FILE: release/RELEASE-NOTES.md
         run: bash scripts/publish-amazon-appstore.sh release/LessonCue-TV-store.apk
       - uses: softprops/action-gh-release@v2
         with:
