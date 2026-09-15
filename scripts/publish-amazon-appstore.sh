@@ -43,17 +43,19 @@ trap 'rm -rf "${WORK}"' EXIT
 # The token is written to a file rather than passed on a command line, where it
 # would be visible to anything that can list processes. Nothing here echoes it.
 umask 077
-curl --silent --show-error --fail-with-body \
-  --data-urlencode "grant_type=client_credentials" \
-  --data-urlencode "client_id=${AMAZON_CLIENT_ID}" \
-  --data-urlencode "client_secret=${AMAZON_CLIENT_SECRET}" \
-  --data-urlencode "scope=appstore::apps:readwrite" \
-  "${TOKEN_URL}" > "${WORK}/token.json" || {
+echo "Amazon Appstore: requesting OAuth token"
+if ! curl --silent --show-error --fail-with-body \
+    --data-urlencode "grant_type=client_credentials" \
+    --data-urlencode "client_id=${AMAZON_CLIENT_ID}" \
+    --data-urlencode "client_secret=${AMAZON_CLIENT_SECRET}" \
+    --data-urlencode "scope=appstore::apps:readwrite" \
+    "${TOKEN_URL}" > "${WORK}/token.json"; then
     echo "::error::Amazon refused the credentials. Check the client ID and secret in the security profile." >&2
     exit 1
-  }
+fi
 TOKEN="$(jq -r '.access_token // empty' < "${WORK}/token.json")"
 [ -n "${TOKEN}" ] || { echo "::error::Amazon returned no access token." >&2; exit 1; }
+echo "Amazon Appstore: OAuth token received"
 
 auth=(-H "Authorization: Bearer ${TOKEN}")
 
@@ -62,6 +64,7 @@ auth=(-H "Authorization: Bearer ${TOKEN}")
 call() {
   local what="$1" method="$2" url="$3"; shift 3
   local status
+  echo "Amazon Appstore: ${what}"
   # Do not use curl --fail here. With set -e, a non-2xx response inside a
   # command substitution exits before the diagnostic below can report the
   # HTTP status and response body.
@@ -74,6 +77,7 @@ call() {
     echo "::error::${what} failed (HTTP ${status}): $(head -c 400 "${WORK}/body")" >&2
     return 1
   fi
+  echo "Amazon Appstore: ${what} succeeded (HTTP ${status})"
 }
 
 etag_of() { grep -i '^etag:' "${WORK}/head" | tail -1 | sed 's/^[Ee][Tt][Aa][Gg]:[[:space:]]*//' | tr -d '\r'; }
