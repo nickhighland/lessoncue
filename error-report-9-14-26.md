@@ -620,3 +620,16 @@ publishes the signed GitHub/Google artifacts, and leaves the Amazon APK
 unchanged. Once Amazon completes the review, the standalone **Submit Amazon
 Appstore APK** workflow can retry the same release tag without rebuilding or
 changing the APK.
+
+### Hosted release follow-up — 2026-09-20
+
+The first v0.46.6 release-validation run passed the complete browser regression, server tests,
+Trivy scan, Linux x64/arm64 packaging, Windows packaging, and signed Android packaging. Its
+publish job uploaded the Google Play bundle, then stopped only because Amazon returned
+`error_apk_cannot_be_modified` while the app was under review. A later clean validation rerun
+reproduced an unrelated activity-lobby layout assertion once, then passed all 176 browser tests
+on retry. Two subsequent attempts to rebuild Android on fresh hosted runners remained in the
+Gradle packaging step without a failure or transition and were cancelled as infrastructure
+stalls. The already-successful signed artifacts from the first validation run are therefore the
+verified source for the release publish retry; no code or artifact was changed to bypass
+validation.

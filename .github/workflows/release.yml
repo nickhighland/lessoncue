@@ -10,6 +10,11 @@ on:
         required: true
         default: v0.46.6
         type: string
+      reuse_run_id:
+        description: Completed release-validation run whose artifacts should be published
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -22,6 +27,7 @@ env:
 
 jobs:
   release-validation:
+    if: ${{ inputs.reuse_run_id == '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -85,6 +91,7 @@ jobs:
 
   server-linux:
     needs: release-validation
+    if: ${{ inputs.reuse_run_id == '' }}
     strategy:
       matrix:
         runtime: [linux-x64, linux-arm64]
@@ -146,6 +153,7 @@ jobs:
 
   server-windows:
     needs: release-validation
+    if: ${{ inputs.reuse_run_id == '' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -192,6 +200,7 @@ jobs:
 
   android:
     needs: release-validation
+    if: ${{ inputs.reuse_run_id == '' }}
     runs-on: ubuntu-latest
     env:
       LESSONCUE_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEYSTORE_PASSWORD }}
@@ -296,6 +305,7 @@ jobs:
 
   publish:
     needs: [server-linux, server-windows, android]
+    if: ${{ always() && (inputs.reuse_run_id != '' || (needs.server-linux.result == 'success' && needs.server-windows.result == 'success' && needs.android.result == 'success')) }}
     concurrency:
       group: amazon-appstore-publish
       cancel-in-progress: false
@@ -308,10 +318,20 @@ jobs:
       artifact-metadata: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - name: Download artifacts from this run
+        if: ${{ inputs.reuse_run_id == '' }}
+        uses: actions/download-artifact@v4
         with:
           path: release
           merge-multiple: true
+      - name: Download artifacts from completed run
+        if: ${{ inputs.reuse_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+          run-id: ${{ inputs.reuse_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Prepare user-facing release notes
         run: |
           case "${RELEASE_TAG}" in
@@ -412,6 +432,7 @@ jobs:
           subject-path: release/*
           sbom-path: release/LessonCue-SBOM.spdx.json
       - name: Publish Google Play internal test
+        if: ${{ inputs.reuse_run_id == '' }}
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
         with:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
