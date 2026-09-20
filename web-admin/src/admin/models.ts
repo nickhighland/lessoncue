@@ -521,6 +521,7 @@ export type Screen = {
   downloadQueueJson: string;
   codecCapabilitiesJson: string;
   recentErrorsJson: string;
+  connectionDiagnosticsJson: string;
   clockOffsetMs?: number;
   networkLatencyMs?: number;
   networkQuality: string;
@@ -590,6 +591,13 @@ export type ErrorDiagnostic = {
   area?: string;
   message?: string;
   itemId?: string;
+};
+export type ConnectionDiagnostic = {
+  endpoint?: string;
+  source?: string;
+  addressFamily?: string;
+  outcome?: string;
+  reason?: string;
 };
 export type User = {
   id: string;
@@ -903,6 +911,9 @@ export type TroubleshootingLog = {
   generatedAt: string;
   runtime: TroubleshootingEntry[];
   audit: Audit[];
+  media?: unknown[];
+  mediaDependencies?: unknown;
+  screens?: unknown[];
   retention: { runtimeEntries: number; failureRetentionDays: number; file: string };
 };
 export type View =

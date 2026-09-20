@@ -56,6 +56,8 @@ public sealed class TroubleshootingLog : ILoggerProvider
     {
         if (level < LogLevel.Information || category.StartsWith("Microsoft.", StringComparison.Ordinal) && level < LogLevel.Warning)
             return;
+        if (level == LogLevel.Information && IsRoutineHttpInformation(category, message))
+            return;
 
         var isFailure = IsFailure(level, exception);
         var entry = new TroubleshootingLogEntry(
@@ -181,6 +183,20 @@ public sealed class TroubleshootingLog : ILoggerProvider
 
     private static bool IsFailure(LogLevel level, Exception? exception) =>
         level >= LogLevel.Error || exception is not null;
+
+    private static bool IsRoutineHttpInformation(string category, string message)
+    {
+        if (!category.StartsWith("System.Net.Http.HttpClient.", StringComparison.Ordinal) &&
+            !category.StartsWith("Microsoft.Extensions.Http.Logging.", StringComparison.Ordinal))
+            return false;
+
+        // Keep non-success response lines: they are often the only clue that
+        // an integration is failing. The request-start/request-end lines for
+        // ordinary 2xx traffic are routine and drown out the useful log.
+        var status = Regex.Match(message, @"(?:-\s*|status(?: code)?\s*[:=]?\s*)(?<status>[3-5]\d{2})\b",
+            RegexOptions.IgnoreCase);
+        return !status.Success || int.Parse(status.Groups["status"].Value) < 300;
+    }
 
     private static string FailureKey(TroubleshootingLogEntry entry) =>
         $"{entry.Timestamp:O}|{entry.Category}|{entry.Event}|{entry.Message}";

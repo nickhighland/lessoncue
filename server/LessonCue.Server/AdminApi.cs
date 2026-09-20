@@ -784,6 +784,7 @@ public static class AdminApi
                     x.DownloadQueueJson,
                     x.CodecCapabilitiesJson,
                     x.RecentErrorsJson,
+                    x.ConnectionDiagnosticsJson,
                     x.ClockOffsetMs,
                     x.NetworkLatencyMs,
                     x.NetworkQuality,
@@ -1937,6 +1938,7 @@ public static class AdminApi
             {
                 x.Id,
                 x.FileName,
+                x.RelativePath,
                 x.ContentType,
                 x.SizeBytes,
                 x.DurationMs,
@@ -1950,13 +1952,18 @@ public static class AdminApi
                 x.Width,
                 x.Height,
                 x.LoudnessLufs,
+                x.ThumbnailPath,
+                x.FilmstripPath,
+                x.WaveformPath,
                 x.CompatibilityStatus,
                 x.CompatibilityError,
+                x.CompatibilityPath,
+                x.CompatibilitySha256,
                 x.CompatibilityTranscodedAt,
                 x.CompatibilitySizeBytes,
                 transcodes = x.TranscodeVariants.OrderBy(v => v.Profile).Select(v => new
                 {
-                    v.Id, v.Profile, v.Status, v.SizeBytes, v.Width, v.Height, v.VideoBitrateKbps,
+                    v.Id, v.Profile, v.Status, v.RelativePath, v.Sha256, v.SizeBytes, v.Width, v.Height, v.VideoBitrateKbps,
                     v.SourceVersion, v.Error, v.QueuedAt, v.StartedAt, v.CompletedAt
                 }).ToArray(),
                 x.SourceKind,
@@ -2066,6 +2073,18 @@ public static class AdminApi
                 return Results.BadRequest(new { error = "Online-only media does not have a local file to reprocess." });
             if (media.ProcessingStatus is "processing" or "downloading")
                 return Results.Conflict(new { error = "This media is already being processed." });
+            var source = await MediaRecovery.ValidateOriginalAsync(media, paths, ct);
+            if (!source.Valid)
+                return Results.UnprocessableEntity(new
+                {
+                    error = source.Error ?? "The original file cannot be safely reprocessed.",
+                    mediaId = media.Id,
+                    recoverable = false,
+                    originalFileExists = source.Exists,
+                    originalDiskSizeBytes = source.DiskSizeBytes,
+                    originalSha256Matches = source.Sha256Matches,
+                    action = "Restore the intact original file or remove the damaged asset; do not re-upload over this asset."
+                });
             var derivatives = ResetMediaProcessing(media);
             db.AuditEvents.Add(new AuditEvent { Actor = context.User.Identity?.Name ?? "admin", Action = "media.reprocess",
                 Object = media.Id.ToString(), Summary = media.FileName });
@@ -2762,6 +2781,7 @@ public static class AdminApi
                 x.DownloadQueueJson,
                 x.CodecCapabilitiesJson,
                 x.RecentErrorsJson,
+                x.ConnectionDiagnosticsJson,
                 x.ClockOffsetMs,
                 x.NetworkLatencyMs,
                 x.NetworkQuality,
@@ -3056,7 +3076,7 @@ public static class AdminApi
             await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct));
 
         settings.MapGet("/troubleshooting-log", async (int? limit, bool? failuresOnly, LessonCueDb db, TroubleshootingLog log,
-            CancellationToken ct) =>
+            MediaStoragePaths paths, CancellationToken ct) =>
         {
             var failureFilter = failuresOnly == true;
             var safeLimit = Math.Clamp(limit ?? (failureFilter ? 10_000 : 500), 1, failureFilter ? 10_000 : 2_000);
@@ -3072,11 +3092,28 @@ public static class AdminApi
                     (EF.Functions.Like(item.Summary, "%fail%") || EF.Functions.Like(item.Summary, "%error%")));
             }
             var audit = await auditQuery.OrderByDescending(x => x.Id).Take(safeLimit).ToListAsync(ct);
+            var media = await MediaDiagnostics.BuildAsync(db, paths, Math.Min(safeLimit, 100), ct);
+            // SQLite cannot translate DateTimeOffset ordering reliably. The
+            // screen table is intentionally small, so order the projected
+            // diagnostic rows in .NET just like the media evidence above.
+            var screens = (await db.Screens.AsNoTracking().Select(x => new
+                {
+                    x.Id, x.Name, x.Platform, x.AppVersion, x.DeviceModel, x.OsVersion, x.LastSeenAt,
+                    x.LastIpAddress, x.FailedDownloads, x.CachedItems, x.TotalItems, x.PlaybackState,
+                    x.PlaybackError, x.CacheInventoryJson, x.DownloadQueueJson, x.RecentErrorsJson,
+                    x.ConnectionDiagnosticsJson, x.DiagnosticsUpdatedAt
+                }).ToListAsync(ct))
+                .OrderByDescending(x => x.LastSeenAt)
+                .Take(100)
+                .ToList();
             return Results.Ok(new
             {
                 generatedAt = DateTimeOffset.UtcNow,
                 runtime = log.GetRecent(safeLimit, failureFilter),
                 audit = audit.OrderByDescending(x => x.Timestamp),
+                media,
+                mediaDependencies = MediaDependencyDiagnostics.Build(paths),
+                screens,
                 retention = new
                 {
                     runtimeEntries = 2_000,

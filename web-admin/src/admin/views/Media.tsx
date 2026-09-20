@@ -1588,7 +1588,7 @@ export function MediaManagerModal({
           </button>
           {media.sourceKind !== "link" && (
             <button className="button" onClick={onReprocess} disabled={busy}>
-              Reprocess metadata
+              Retry processing
             </button>
           )}
         </div>

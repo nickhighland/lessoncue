@@ -2,7 +2,26 @@ package org.lessoncue.tv
 
 import java.time.Instant
 
-data class DeviceIdentity(val screenId: String, val token: String, val serverUrl: String)
+data class EndpointAttempt(
+    val endpoint: String,
+    val source: String,
+    val addressFamily: String,
+    val outcome: String,
+    val reason: String? = null,
+)
+
+data class ConnectionDiagnostics(
+    val requestedServerUrl: String,
+    val selectedEndpoint: String? = null,
+    val candidates: List<EndpointAttempt> = emptyList(),
+)
+
+data class DeviceIdentity(
+    val screenId: String,
+    val token: String,
+    val serverUrl: String,
+    val connectionDiagnostics: ConnectionDiagnostics? = null,
+)
 
 data class CuePoint(val name: String, val positionMs: Long)
 

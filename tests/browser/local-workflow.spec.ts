@@ -55,6 +55,14 @@ function incompatibleVideo() {
   } finally { rmSync(path, { force: true }); }
 }
 
+function freshJpeg() {
+  const path = join(tmpdir(), `lessoncue-fresh-${Date.now()}.jpg`);
+  try {
+    execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=0x336699:size=160x90", "-frames:v", "1", path]);
+    return readFileSync(path);
+  } finally { rmSync(path, { force: true }); }
+}
+
 test("fresh local server supports setup, direct lesson upload, retention, and online media", async ({ page }) => {
   const scheduleStart = dateDaysFromNow(7);
   const scheduleDate = dateDaysFromNow(14);
@@ -135,7 +143,35 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const items = await fetch("/api/v1/media").then(response => response.json());
     const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
     return `${item?.processingStatus}:${item?.compatibilityStatus}`;
+  }), { timeout: 60_000 }).toMatch(/^ready:/);
+  const originalPlayback = await page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
+    const response = await fetch(item.playbackUrl);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return { status: response.status, contentType: response.headers.get("content-type"), signature: String.fromCharCode(...bytes.slice(4, 8)) };
+  });
+  expect(originalPlayback).toEqual({ status: 200, contentType: "video/mp4", signature: "ftyp" });
+  await expect.poll(async () => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
+    return `${item?.processingStatus}:${item?.compatibilityStatus}`;
   }), { timeout: 60_000 }).toBe("ready:ready");
+
+  await page.locator(".playlist-heading-actions").getByRole("button", { name: /Add media/ }).click();
+  await page.getByRole("button", { name: "Upload new media" }).click();
+  const imageUploadForm = page.locator("form").filter({ has: page.getByLabel("Media files") });
+  await imageUploadForm.getByLabel("Media files").setInputFiles({
+    name: "fresh-upload.jpg", mimeType: "image/jpeg", buffer: freshJpeg(),
+  });
+  await imageUploadForm.getByLabel("Display title").fill("Fresh Upload Image");
+  await imageUploadForm.getByRole("button", { name: "Upload and add" }).click();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "Fresh Upload Image" })).toBeVisible();
+  await expect.poll(async () => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    const item = items.find((value: { fileName: string }) => value.fileName === "fresh-upload.jpg");
+    return `${item?.processingStatus}:${item?.compatibilityStatus}:${Boolean(item?.thumbnailUrl)}`;
+  }), { timeout: 60_000 }).toBe("ready:not-needed:true");
   await page.reload();
   await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
@@ -704,8 +740,49 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((item: { id: string }) => item.id === identity.screenId);
     const manifest = await fetch(`/api/v1/screens/${identity.screenId}/manifest`, { headers: { Authorization: `Bearer ${identity.deviceToken}` } }).then(response => response.json());
-    const adaptiveItem = manifest.playlists.flatMap((playlist: { items: unknown[] }) => playlist.items)
+    const manifestItems = manifest.playlists.flatMap((playlist: { items: Array<{
+      mediaId?: string; title: string; downloadUrl?: string; sha256?: string; sizeBytes?: number; renderSupport?: string;
+    }> }) => playlist.items);
+    const adaptiveItem = manifestItems
       .find((item: { title: string }) => item.title === "Browser Compatibility Video");
+    const mediaRows = await fetch("/api/v1/media").then(response => response.json());
+    async function verifyManifestMedia(fileName: string) {
+      const row = mediaRows.find((item: {
+        id: string; fileName: string; sha256?: string; compatibilitySha256?: string;
+        transcodes?: Array<{ sha256?: string }>;
+      }) => item.fileName === fileName);
+      const manifestItem = manifestItems.find((item: { mediaId?: string }) => item.mediaId === row?.id);
+      if (!row || !manifestItem?.downloadUrl) throw new Error(`Manifest did not publish ${fileName}`);
+      const normal = await fetch(manifestItem.downloadUrl);
+      const bytes = new Uint8Array(await normal.arrayBuffer());
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const checksum = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, "0")).join("");
+      const range = await fetch(manifestItem.downloadUrl, { headers: { Range: "bytes=0-31" } });
+      const rangeBytes = new Uint8Array(await range.arrayBuffer());
+      return {
+        status: normal.status,
+        contentType: normal.headers.get("content-type"),
+        contentLength: normal.headers.get("content-length"),
+        acceptRanges: normal.headers.get("accept-ranges"),
+        etag: normal.headers.get("etag"),
+        byteCount: bytes.byteLength,
+        contentLengthMatches: Number(normal.headers.get("content-length")) === bytes.byteLength,
+        etagPresent: Boolean(normal.headers.get("etag")),
+        checksumMatches: checksum === manifestItem.sha256,
+        assetHashMatches: [row.sha256, row.compatibilitySha256, ...(row.transcodes || []).map(item => item.sha256)].includes(checksum),
+        renderSupport: manifestItem.renderSupport,
+        rangeStatus: range.status,
+        rangeLength: rangeBytes.byteLength,
+        contentRange: range.headers.get("content-range"),
+        rangeContentRangeMatches: range.headers.get("content-range")?.startsWith("bytes 0-31/"),
+      };
+    }
+    const manifestMedia = {
+      image: await verifyManifestMedia("fresh-upload.jpg"),
+      video: await verifyManifestMedia("needs-tv-conversion.mp4"),
+    };
+    const troubleshooting = await fetch("/api/v1/troubleshooting-log?limit=10").then(response => response.json());
+    const diagnosticImage = troubleshooting.media?.find((item: { fileName: string }) => item.fileName === "fresh-upload.jpg");
     await fetch(`/api/v1/screens/${identity.screenId}`, { method: "PATCH", headers: jsonHeaders,
       body: JSON.stringify({ signageOnly: true, permanentPairing: true }) });
     const signageOnlyManifest = await fetch(`/api/v1/screens/${identity.screenId}/manifest`,
@@ -723,11 +800,27 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     return { upload: upload.status, screenshot: screenshot.status, requestMatches: control.screenshotRequestId === screenshotRequest.requestId,
       cache: JSON.parse(screen.cacheInventoryJson)[0]?.title, quality: screen.networkQuality, screenshotAvailable: screen.screenshotAvailable,
       requestedProfile: adaptiveItem?.requestedProfile, selectedProfile: adaptiveItem?.selectedProfile,
+      manifestMedia,
+      troubleshootingMedia: {
+        processingStatus: diagnosticImage?.processingStatus,
+        compatibilityStatus: diagnosticImage?.compatibilityStatus,
+        originalExists: diagnosticImage?.originalFile?.exists,
+        originalMatches: diagnosticImage?.originalFile?.sizeAndSha256Match,
+      },
       signageOnlyPlaylists: signageOnlyManifest.playlists.length, blockedControl: blockedControl.status,
       browserLinkPath: browserUrl.pathname, directManifest: directManifest.status };
   });
   expect(diagnostics).toEqual({ upload: 202, screenshot: 200, requestMatches: true, cache: "Cached welcome", quality: "poor", screenshotAvailable: true,
     requestedProfile: "h264-480", selectedProfile: "h264-480", signageOnlyPlaylists: 0, blockedControl: 409,
+    manifestMedia: {
+      image: expect.objectContaining({ status: 200, contentType: "image/jpeg", acceptRanges: "bytes", contentLengthMatches: true,
+        etagPresent: true, checksumMatches: true, assetHashMatches: true, renderSupport: "supported", rangeStatus: 206, rangeLength: 32,
+        rangeContentRangeMatches: true }),
+      video: expect.objectContaining({ status: 200, contentType: "video/mp4", acceptRanges: "bytes", contentLengthMatches: true,
+        etagPresent: true, checksumMatches: true, assetHashMatches: true, renderSupport: "supported", rangeStatus: 206, rangeLength: 32,
+        rangeContentRangeMatches: true }),
+    },
+    troubleshootingMedia: { processingStatus: "ready", compatibilityStatus: "not-needed", originalExists: true, originalMatches: true },
     browserLinkPath: "/display", directManifest: 200 });
 
   await page.getByRole("button", { name: /Screens$/ }).click();
@@ -1322,7 +1415,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.46.5" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.46.6" });
   // A lesson the screen is allowed to keep should end up on the device, not
   // just signage. A room that loses its network mid-service used to lose the
   // lesson with it while the rota on the wall carried on playing.

@@ -211,7 +211,7 @@ fun LessonCueApp() {
 
         cancellableResult { reconnectSavedServer(context, identity, manifestCache) }
             .onSuccess { (resolvedIdentity, manifest) ->
-                if (resolvedIdentity.serverUrl != identity.serverUrl) store.save(resolvedIdentity)
+                if (resolvedIdentity != identity) store.save(resolvedIdentity)
                 connectionMode = ConnectionMode.Online
                 activeIdentity = resolvedIdentity
                 activeManifestVersion = manifest.version
@@ -234,7 +234,8 @@ fun LessonCueApp() {
 
     LaunchedEffect(activeIdentity) {
         val identity = activeIdentity ?: return@LaunchedEffect
-        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
+        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"),
+            connectionDiagnostics = identity.connectionDiagnostics)
         while (true) {
             // Counting cached files and asking for free space are both disk
             // work, and this loop runs every two seconds while a lesson plays.
@@ -259,7 +260,8 @@ fun LessonCueApp() {
 
     LaunchedEffect(activeIdentity) {
         val identity = activeIdentity ?: return@LaunchedEffect
-        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
+        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"),
+            connectionDiagnostics = identity.connectionDiagnostics)
         var controlVersion = cancellableResult { api.control(identity).version }.getOrDefault(0)
         val diagnosticCapture = DiagnosticCaptureTask(this) { diagnosticCaptureVisible = it }
         playbackCommandError = null
@@ -331,7 +333,8 @@ fun LessonCueApp() {
 
     LaunchedEffect(activeIdentity) {
         val identity = activeIdentity ?: return@LaunchedEffect
-        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
+        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"),
+            connectionDiagnostics = identity.connectionDiagnostics)
         while (true) {
             val refresh = cancellableResult { api.manifest(identity) }
             refresh.onFailure { connectionMode = ConnectionMode.Cached }
@@ -474,7 +477,8 @@ fun LessonCueApp() {
                     PlayerScreen(current.playlist, current.items, current.itemIndex, current.seekMs, playbackControl, activeIdentity,
                     onTelemetry = { playbackTelemetry = it },
                     onExit = { scope.launch { store.load()?.let { identity ->
-                        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
+                        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"),
+                            connectionDiagnostics = identity.connectionDiagnostics)
                         val manifest = cancellableResult { api.manifest(identity) }.getOrElse {
                             api.cachedManifest() ?: ScreenManifest(1, "LessonCue", emptyList(), listOf(current.playlist))
                         }
@@ -483,7 +487,8 @@ fun LessonCueApp() {
                     } } },
                     onFinished = { scope.launch {
                         val identity = activeIdentity ?: return@launch
-                        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
+                        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"),
+                            connectionDiagnostics = identity.connectionDiagnostics)
                         val manifest = cancellableResult { api.manifest(identity) }.getOrElse {
                             api.cachedManifest() ?: ScreenManifest(1, "LessonCue", emptyList(), listOf(current.playlist))
                         }
@@ -609,28 +614,60 @@ private fun ConnectScreen(message: String?, onConnect: (String, String) -> Unit)
 
 private suspend fun findLessonCueServer(context: android.content.Context, address: String, manifestCache: java.io.File):
     Pair<LessonCueApi, String> {
-    val preferred = LessonCueApi(address, manifestCache)
-    cancellableResult { preferred.discover() }.getOrNull()?.let { return preferred to it }
+    val resolution = withContext(Dispatchers.IO) { ServerEndpointSelection.resolve(address) }
+    val attempts = resolution.rejected.toMutableList()
+    val tried = mutableSetOf<String>()
 
-    val discoveredAddress = LessonCueDiscovery(context).findServer()
-        ?: error("Could not reach $address or find LessonCue automatically. Enter the numeric server address, such as http://192.168.1.25.")
-    val discovered = LessonCueApi(discoveredAddress, manifestCache)
-    return discovered to discovered.discover()
+    suspend fun tryCandidates(candidates: List<ServerEndpointCandidate>): Pair<LessonCueApi, String>? {
+      val verified = firstVerifiedServerEndpoint(candidates, tried, attempts) { candidate ->
+        val api = LessonCueApi(candidate.endpoint, manifestCache)
+        api to (api.discoverQuickly())
+      } ?: return null
+      val (candidate, result) = verified
+      val diagnostics = ConnectionDiagnostics(address, candidate.endpoint, attempts.toList())
+      return result.first.withConnectionDiagnostics(diagnostics) to result.second
+    }
+
+    tryCandidates(resolution.candidates)?.let { return it }
+    val discovered = LessonCueDiscovery(context).findServers()
+    val discoveredResolution = withContext(Dispatchers.IO) { ServerEndpointSelection.resolve(address, discovered) }
+    attempts += discoveredResolution.rejected.filter { rejected -> attempts.none { it.endpoint == rejected.endpoint && it.reason == rejected.reason } }
+    tryCandidates(discoveredResolution.candidates)?.let { return it }
+    error("Could not verify LessonCue at $address or any discovered endpoint. ${attemptSummary(attempts)}")
 }
 
 private suspend fun reconnectSavedServer(context: android.content.Context, identity: DeviceIdentity, manifestCache: java.io.File):
     Pair<DeviceIdentity, ScreenManifest> {
-    // The saved address first, and briefly: it is either right, in which case
-    // it answers at once, or it is not, in which case waiting is time spent on
-    // a screen that looks frozen.
-    val preferred = LessonCueApi(identity.serverUrl, manifestCache)
-    cancellableResult { preferred.manifestQuickly(identity) }.getOrNull()?.let { return identity to it }
+    // Expand the saved hostname and every NSD result into concrete candidates.
+    // Each candidate is verified with the authenticated manifest endpoint, so
+    // a dead AAAA result cannot prevent a working A result from being used.
+    val attempts = withContext(Dispatchers.IO) {
+        ServerEndpointSelection.resolve(identity.serverUrl).rejected.toMutableList()
+    }
+    val tried = mutableSetOf<String>()
 
-    val discoveredAddress = LessonCueDiscovery(context).findServer()
-        ?: error("Automatic LessonCue discovery did not find a server.")
-    val discoveredIdentity = identity.copy(serverUrl = discoveredAddress)
-    val manifest = LessonCueApi(discoveredAddress, manifestCache).manifest(discoveredIdentity)
-    return discoveredIdentity to manifest
+    suspend fun tryCandidates(candidates: List<ServerEndpointCandidate>): Pair<DeviceIdentity, ScreenManifest>? {
+      val verified = firstVerifiedServerEndpoint(candidates, tried, attempts) { candidate ->
+        val candidateIdentity = identity.copy(serverUrl = candidate.endpoint)
+        val api = LessonCueApi(candidate.endpoint, manifestCache,
+            connectionDiagnostics = identity.connectionDiagnostics)
+        candidateIdentity to api.manifestQuickly(candidateIdentity)
+      } ?: return null
+      val (candidate, result) = verified
+      val diagnostics = ConnectionDiagnostics(identity.serverUrl, candidate.endpoint, attempts.toList())
+      return result.first.copy(connectionDiagnostics = diagnostics) to result.second
+    }
+
+    tryCandidates(withContext(Dispatchers.IO) { ServerEndpointSelection.resolve(identity.serverUrl).candidates })?.let { return it }
+    val discovered = LessonCueDiscovery(context).findServers()
+    val resolution = withContext(Dispatchers.IO) { ServerEndpointSelection.resolve(identity.serverUrl, discovered) }
+    attempts += resolution.rejected.filter { rejected -> attempts.none { it.endpoint == rejected.endpoint && it.reason == rejected.reason } }
+    tryCandidates(resolution.candidates)?.let { return it }
+    error("Automatic LessonCue discovery did not find a verified server. ${attemptSummary(attempts)}")
+}
+
+private fun attemptSummary(attempts: List<EndpointAttempt>): String = attempts.takeLast(8).joinToString("; ") { attempt ->
+    "${attempt.endpoint} -> ${attempt.outcome}${attempt.reason?.let { " ($it)" }.orEmpty()}"
 }
 
 @Composable

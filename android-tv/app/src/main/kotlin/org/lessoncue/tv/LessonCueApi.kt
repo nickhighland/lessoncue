@@ -30,6 +30,7 @@ class LessonCueApi(
     serverUrl: String,
     private val manifestCache: File? = null,
     private val openConnection: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection },
+    private val connectionDiagnostics: ConnectionDiagnostics? = null,
 ) {
     val baseUrl = normalizeLessonCueServerUrl(serverUrl)
 
@@ -37,6 +38,14 @@ class LessonCueApi(
         val json = request("/.well-known/lessoncue")
         JSONObject(json).getString("serverName")
     }
+
+    suspend fun discoverQuickly(): String = withContext(Dispatchers.IO) {
+        val json = request("/.well-known/lessoncue", connectTimeoutMillis = 1_500, readTimeoutMillis = 2_500)
+        JSONObject(json).getString("serverName")
+    }
+
+    fun withConnectionDiagnostics(value: ConnectionDiagnostics): LessonCueApi =
+        LessonCueApi(baseUrl, manifestCache, openConnection, value)
 
     suspend fun requestPairing(deviceName: String): String = withContext(Dispatchers.IO) {
         val body = JSONObject()
@@ -49,7 +58,7 @@ class LessonCueApi(
     suspend fun confirmPairing(requestId: String, pin: String): DeviceIdentity = withContext(Dispatchers.IO) {
         val body = JSONObject().put("requestId", requestId).put("pin", pin)
         val json = JSONObject(request("/api/v1/pairing/confirm", "POST", body.toString()))
-        DeviceIdentity(json.getString("screenId"), json.getString("deviceToken"), baseUrl)
+        DeviceIdentity(json.getString("screenId"), json.getString("deviceToken"), baseUrl, connectionDiagnostics)
     }
 
     /**
@@ -126,6 +135,17 @@ class LessonCueApi(
             .put("downloadQueue", queue)
             .put("codecCapabilities", codecs)
             .put("recentErrors", errors)
+            .put("serverHostRequested", connectionDiagnostics?.requestedServerUrl ?: identity.serverUrl)
+            .put("selectedServerEndpoint", identity.serverUrl)
+            .put("connectionCandidates", JSONArray().apply {
+                connectionDiagnostics?.candidates.orEmpty().forEach { candidate ->
+                    put(JSONObject().put("endpoint", candidate.endpoint)
+                        .put("source", candidate.source)
+                        .put("addressFamily", candidate.addressFamily)
+                        .put("outcome", candidate.outcome)
+                        .put("reason", candidate.reason))
+                }
+            })
         manifest?.signage?.firstOrNull()?.let { signage ->
             body.put("signageId", signage.id)
                 .put("signageVersion", signage.publishedVersion)

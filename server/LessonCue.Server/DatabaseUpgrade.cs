@@ -581,6 +581,7 @@ public static class DatabaseUpgrade
             ["Screens.DownloadQueueJson"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"DownloadQueueJson\" TEXT NOT NULL DEFAULT '[]'"),
             ["Screens.CodecCapabilitiesJson"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"CodecCapabilitiesJson\" TEXT NOT NULL DEFAULT '[]'"),
             ["Screens.RecentErrorsJson"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"RecentErrorsJson\" TEXT NOT NULL DEFAULT '[]'"),
+            ["Screens.ConnectionDiagnosticsJson"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ConnectionDiagnosticsJson\" TEXT NOT NULL DEFAULT '{}'"),
             ["Screens.ClockOffsetMs"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ClockOffsetMs\" INTEGER NULL"),
             ["Screens.NetworkLatencyMs"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"NetworkLatencyMs\" INTEGER NULL"),
             ["Screens.NetworkQuality"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"NetworkQuality\" TEXT NOT NULL DEFAULT 'unknown'"),

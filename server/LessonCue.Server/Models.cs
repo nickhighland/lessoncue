@@ -455,6 +455,7 @@ public sealed class Screen
     public string DownloadQueueJson { get; set; } = "[]";
     public string CodecCapabilitiesJson { get; set; } = "[]";
     public string RecentErrorsJson { get; set; } = "[]";
+    public string ConnectionDiagnosticsJson { get; set; } = "{}";
     public long? ClockOffsetMs { get; set; }
     public int? NetworkLatencyMs { get; set; }
     [MaxLength(24)] public string NetworkQuality { get; set; } = "unknown";
@@ -749,13 +750,17 @@ public sealed record TvStatusInput(Guid ScreenId, string AppVersion, bool Online
     int? NetworkLatencyMs = null, string? NetworkQuality = null,
     List<TvCacheItemInput>? CacheInventory = null, List<TvDownloadItemInput>? DownloadQueue = null,
     List<TvCodecCapabilityInput>? CodecCapabilities = null, List<TvDiagnosticErrorInput>? RecentErrors = null,
-    Guid? SignageId = null, int? SignageVersion = null, string? SignageName = null, string? SignageError = null);
+    Guid? SignageId = null, int? SignageVersion = null, string? SignageName = null, string? SignageError = null,
+    string? ServerHostRequested = null, string? SelectedServerEndpoint = null,
+    List<TvEndpointCandidateInput>? ConnectionCandidates = null);
 public sealed record TvCacheItemInput(string ItemId, string Title, string State, long SizeBytes,
     long? ExpectedBytes = null, string? Error = null);
 public sealed record TvDownloadItemInput(string ItemId, string Title, string State, long BytesDownloaded = 0,
     long? ExpectedBytes = null, string? Error = null);
 public sealed record TvCodecCapabilityInput(string Kind, string Codec, bool Supported, string? Detail = null);
 public sealed record TvDiagnosticErrorInput(DateTimeOffset Timestamp, string Area, string Message, string? ItemId = null);
+public sealed record TvEndpointCandidateInput(string Endpoint, string Source, string AddressFamily,
+    string Outcome, string? Reason = null);
 public sealed record AdminSetupInput(string OrganizationName, string Username, string Password,
     string? DisplayName = null, string? TimeZone = null, string? Email = null,
     string? SiteName = null, string? WeekStartsOn = null);

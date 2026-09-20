@@ -179,6 +179,9 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
             item.ProcessingError = null;
             item.OfflineEligible = !isVideo || item.CompatibilityStatus is "native" or "ready";
             await db.SaveChangesAsync(ct);
+            logger.LogInformation(
+                "MediaAsset {MediaAssetId} reached ready state. FileName {FileName}; RelativePath {RelativePath}; ProcessingStatus {ProcessingStatus}; CompatibilityStatus {CompatibilityStatus}; OfflineEligible {OfflineEligible}",
+                item.Id, item.FileName, item.RelativePath, item.ProcessingStatus, item.CompatibilityStatus, item.OfflineEligible);
 
             // Start the compatibility copy immediately after the thumbnail.
             // The playback endpoint serves the original while this optional
@@ -218,10 +221,48 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            item.ProcessingStatus = "failed";
-            item.ProcessingError = Concise(ex.Message);
-            item.OfflineEligible = false;
-            logger.LogWarning(ex, "Could not process {MediaFile}", item.FileName);
+            if (IsRecoverableInfrastructureFailure(ex) && SourceStillIntact(item, fullPath))
+            {
+                // Upload completion already validated the source signature and
+                // checksum. A missing worker/sandbox must not turn that intact
+                // source into an unavailable lesson. Keep it playable now,
+                // leave compatibility pending for the worker to retry, and
+                // retain the exact dependency error for diagnostics.
+                var isVideo = IsVideo(Path.GetExtension(item.RelativePath).ToLowerInvariant(), item.ContentType);
+                item.ProcessingStatus = "ready";
+                item.ProcessingError = "Media analysis is waiting for the processing runtime. " + Concise(ex.Message, 700);
+                item.CompatibilityStatus = isVideo ? "pending" : "not-needed";
+                item.CompatibilityError = null;
+                item.OfflineEligible = !isVideo;
+                db.AuditEvents.Add(new AuditEvent
+                {
+                    Actor = "system",
+                    Action = "media.processing.deferred",
+                    Object = item.Id.ToString(),
+                    Result = "deferred",
+                    Summary = $"{item.FileName}: {item.ProcessingError}"
+                });
+                logger.LogError(ex,
+                    "MediaAsset {MediaAssetId} is playable from its original but processing was deferred. FileName {FileName}; RelativePath {RelativePath}; ExpectedSizeBytes {ExpectedSizeBytes}; ExpectedSha256 {ExpectedSha256}; ProcessingError {ProcessingError}",
+                    item.Id, item.FileName, item.RelativePath, item.SizeBytes, item.Sha256, item.ProcessingError);
+            }
+            else
+            {
+                item.ProcessingStatus = "failed";
+                item.ProcessingError = Concise(ex.Message);
+                item.OfflineEligible = false;
+                db.AuditEvents.Add(new AuditEvent
+                {
+                    Actor = "system",
+                    Action = "media.processing.failed",
+                    Object = item.Id.ToString(),
+                    Result = "failed",
+                    Summary = $"{item.FileName}: {item.ProcessingError}"
+                });
+                logger.LogError(ex,
+                    "MediaAsset {MediaAssetId} failed processing. FileName {FileName}; RelativePath {RelativePath}; ExpectedSizeBytes {ExpectedSizeBytes}; ExpectedSha256 {ExpectedSha256}; ProcessingError {ProcessingError}",
+                    item.Id, item.FileName, item.RelativePath, item.SizeBytes, item.Sha256, item.ProcessingError);
+            }
         }
         await db.SaveChangesAsync(ct);
     }
@@ -248,8 +289,18 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
             item.CompatibilityStatus = "failed";
             item.CompatibilityError = "LessonCue could not create a TV-compatible H.264/AAC copy. " + Concise(ex.Message, 700);
             item.OfflineEligible = false;
+            db.AuditEvents.Add(new AuditEvent
+            {
+                Actor = "system",
+                Action = "media.compatibility.failed",
+                Object = item.Id.ToString(),
+                Result = "failed",
+                Summary = $"{item.FileName}: {item.CompatibilityError}"
+            });
             await db.SaveChangesAsync(ct);
-            logger.LogWarning(ex, "Could not create compatibility copy for {MediaFile}", item.FileName);
+            logger.LogError(ex,
+                "MediaAsset {MediaAssetId} compatibility processing failed. FileName {FileName}; CompatibilityStatus {CompatibilityStatus}; CompatibilityError {CompatibilityError}",
+                item.Id, item.FileName, item.CompatibilityStatus, item.CompatibilityError);
         }
     }
 
@@ -313,6 +364,28 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
 
     private static bool IsVideo(string extension, string contentType) =>
         MediaFormatCatalog.IsVideo(extension, contentType);
+
+    internal static bool IsRecoverableInfrastructureFailure(Exception error)
+    {
+        if (error is InvalidDataException) return false;
+        if (error is UnauthorizedAccessException or IOException) return true;
+        var message = error.ToString().ToLowerInvariant();
+        return message.Contains("media worker") || message.Contains("sandbox") ||
+            message.Contains("bwrap") || message.Contains("namespace") ||
+            message.Contains("setpriv") || message.Contains("capability isolation") ||
+            message.Contains("permission denied") || message.Contains("no such file or directory") ||
+            message.Contains("exceeded its") || message.Contains("timed out");
+    }
+
+    private static bool SourceStillIntact(MediaAsset item, string path)
+    {
+        try
+        {
+            return File.Exists(path) && new FileInfo(path).Length == item.SizeBytes;
+        }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+    }
 
     private Task<string> RunAsync(string fileName, string arguments, CancellationToken ct)
     {

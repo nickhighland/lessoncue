@@ -74,7 +74,12 @@ public sealed class ScreenTelemetryTests
             CacheInventory: [new("item-1", "Welcome video", "cached", 1_024, 2_048)],
             DownloadQueue: [new("item-2", "Lesson video", "downloading", 512, 4_096)],
             CodecCapabilities: [new("video", "H.264 / AVC", true, "video/avc")],
-            RecentErrors: [new(now.AddMinutes(-1), "download", new string('x', 700), "item-2")]);
+            RecentErrors: [new(now.AddMinutes(-1), "download", new string('x', 700), "item-2")],
+            ServerHostRequested: "http://lessoncue.local",
+            SelectedServerEndpoint: "http://192.168.1.20",
+            ConnectionCandidates: [
+                new("http://[fe80::20]", "dns", "ipv6", "failed", "missing interface scope"),
+                new("http://192.168.1.20", "dns", "ipv4", "verified")]);
 
         ScreenTelemetry.Apply(screen, input, now);
 
@@ -86,6 +91,10 @@ public sealed class ScreenTelemetryTests
         Assert.Equal("downloading", JsonDocument.Parse(screen.DownloadQueueJson).RootElement[0].GetProperty("state").GetString());
         Assert.True(JsonDocument.Parse(screen.CodecCapabilitiesJson).RootElement[0].GetProperty("supported").GetBoolean());
         Assert.Equal(500, JsonDocument.Parse(screen.RecentErrorsJson).RootElement[0].GetProperty("message").GetString()?.Length);
+        var connection = JsonDocument.Parse(screen.ConnectionDiagnosticsJson).RootElement;
+        Assert.Equal("http://lessoncue.local", connection.GetProperty("requestedServerUrl").GetString());
+        Assert.Equal("http://192.168.1.20", connection.GetProperty("selectedEndpoint").GetString());
+        Assert.Equal("missing interface scope", connection.GetProperty("candidates")[0].GetProperty("reason").GetString());
     }
 
     [Fact]
@@ -113,6 +122,7 @@ public sealed class ScreenTelemetryTests
         Assert.Contains("NetworkLatencyMs", columns);
         Assert.Contains("AllowDiagnosticScreenshots", columns);
         Assert.Contains("ScreenshotRelativePath", columns);
+        Assert.Contains("ConnectionDiagnosticsJson", columns);
     }
 
     [Fact]

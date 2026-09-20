@@ -21,5 +21,6 @@ class LessonCueDiscoveryTest {
         assertNull(lessonCueServiceUrl(null, 80, secure = false))
         assertNull(lessonCueServiceUrl("", 80, secure = false))
         assertNull(lessonCueServiceUrl("192.168.4.75", 0, secure = false))
+        assertNull(lessonCueServiceUrl("fe80::1", 80, secure = false))
     }
 }

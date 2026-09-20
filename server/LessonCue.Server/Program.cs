@@ -44,9 +44,18 @@ var troubleshootingLog = new TroubleshootingLog(dataPath);
 builder.Logging.AddProvider(troubleshootingLog);
 
 var port = HttpPortConfiguration.Resolve(dataPath);
-if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
-    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
-builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 20L * 1024 * 1024 * 1024);
+var useDefaultHttpBinding = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS"));
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = 20L * 1024 * 1024 * 1024;
+    // Avahi publishes both address families when IPv6 is enabled. Binding the
+    // native appliance to 0.0.0.0 only advertised an IPv6 endpoint that
+    // Kestrel could never serve, which made some Android TV NSD clients stop
+    // before they tried the working IPv4 address. ListenAnyIP creates the
+    // dual-stack listener for the default appliance path; deployments that set
+    // ASPNETCORE_URLS retain control of their explicit binding.
+    if (useDefaultHttpBinding) options.ListenAnyIP(port);
+});
 builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = 20L * 1024 * 1024 * 1024);
 
 builder.Services.AddDbContext<LessonCueDb>(options =>

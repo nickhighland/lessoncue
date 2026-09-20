@@ -4,6 +4,21 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.6 — Media recovery and dual-stack discovery
+
+### User changes
+
+- New JPG and MP4 uploads remain playable from the intact original while optional TV compatibility processing runs or needs a runtime retry.
+- Media Library troubleshooting now shows processing state, original/derived file checks, worker dependencies, and a safe **Retry processing** action.
+- Android TV verifies discovered LessonCue endpoints and automatically falls back from an unusable IPv6 address to a working IPv4 address, including `.local` link-local scope handling.
+
+### Developer changes
+
+- Added end-to-end media manifest, HTTP Range, ETag, checksum, and troubleshooting regression coverage.
+- Added dual-stack endpoint candidate diagnostics and persisted the endpoint that actually verified.
+- Default native and recovery-mode server bindings now match Avahi's dual-stack advertisement.
+- Reduced routine HttpClient troubleshooting noise and canonicalized Shlink lookups.
+
 ## v0.46.5 — Immediate media playback
 
 ### User changes

@@ -35,7 +35,7 @@ class ServiceResolutionQueueTest {
         h.callbacks.getValue("B")("current")
         h.callbacks.getValue("B")("duplicate")
         h.queue.offer("C")
-        assertEquals(listOf("A", "B"), h.started)
+        assertEquals(listOf("A", "B", "C"), h.started)
         assertEquals(listOf("current"), h.found)
     }
 

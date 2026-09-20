@@ -11,7 +11,7 @@ class ServerUrlPolicyTest {
     fun acceptsLocalHttpAndNormalizesDefaultPorts() {
         assertEquals("http://lessoncue.local", normalizeLessonCueServerUrl("lessoncue.local"))
         assertEquals("http://192.168.4.75", normalizeLessonCueServerUrl("http://192.168.4.75:80/"))
-        assertEquals("http://[fe80::1]", normalizeLessonCueServerUrl("http://[fe80::1]"))
+        assertEquals("http://[fe80::1%25wlan0]", normalizeLessonCueServerUrl("http://[fe80::1%25wlan0]"))
         assertTrue(isTrustedLocalHttpHost("10.2.3.4"))
         assertTrue(isTrustedLocalHttpHost("172.31.4.8"))
         assertTrue(isTrustedLocalHttpHost("169.254.10.5"))
@@ -49,6 +49,9 @@ class ServerUrlPolicyTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             normalizeLessonCueServerUrl("https://lesson.example.org/admin")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            normalizeLessonCueServerUrl("http://[fe80::1]")
         }
     }
 }

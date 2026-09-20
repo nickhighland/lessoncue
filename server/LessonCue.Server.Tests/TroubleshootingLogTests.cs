@@ -59,6 +59,11 @@ public sealed class TroubleshootingLogTests
         {
             using var log = new TroubleshootingLog(root);
             log.CreateLogger("Microsoft.Hosting").LogInformation("Routine framework event");
+            log.CreateLogger("System.Net.Http.HttpClient.ShlinkClient.ClientHandler").LogInformation(
+                "Sending HTTP request GET http://127.0.0.1:8081/rest/v3/short-urls/abc");
+            log.CreateLogger("Microsoft.Extensions.Http.Logging.HttpClient").LogInformation("Request ended 200");
+            log.CreateLogger("System.Net.Http.HttpClient.ShlinkClient.ClientHandler").LogInformation(
+                "Received HTTP response headers after 18ms - 404");
             log.CreateLogger("LessonCue.Server.Worker").LogDebug("Debug detail");
             log.CreateLogger("Microsoft.Hosting").LogWarning("Framework warning");
             log.CreateLogger("LessonCue.Server.Worker").LogWarning(
@@ -66,10 +71,11 @@ public sealed class TroubleshootingLogTests
             log.CreateLogger("LessonCue.Server.Worker").LogInformation("Application event");
 
             var entries = log.GetRecent(10);
-            Assert.Equal(3, entries.Count);
+            Assert.Equal(4, entries.Count);
             Assert.Contains(entries, entry => entry.Message == "Framework warning");
             Assert.Contains(entries, entry => entry.Message == "Application event");
             Assert.Contains(entries, entry => entry.Message == "Conversion warning" && entry.IsFailure);
+            Assert.Contains(entries, entry => entry.Message.Contains("404", StringComparison.Ordinal));
             Assert.Single(log.GetRecent(10, failuresOnly: true));
         }
         finally

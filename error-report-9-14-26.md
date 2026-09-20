@@ -509,4 +509,100 @@ permitted`. The failure was a hosted nested-user/network-namespace limitation,
 not a media-worker assertion. The test harness now probes both the root and
 production-like service-account launch paths, skips only when Bubblewrap emits
 known namespace-permission errors, and still fails on unexpected probe errors.
-The unpublished `v0.46.5` tag is being rerun with that harness correction.
+That harness correction was subsequently validated and published in `v0.46.5`;
+the new media/IPv6 corrections documented below are the follow-up release.
+
+## Production bundle review and corrective work — 2026-09-20
+
+The attached bundle `lessoncue-troubleshooting-2026-09-20T16-12-52.998Z.json`
+was reviewed before treating the new-media and IPv6 reports as proven facts.
+It was generated at `2026-09-20T16:12:30Z` and contained 1,000 runtime entries
+and 897 audit entries. It contained `runtime`, `audit`, and `retention`, but no
+`media`, `mediaDependencies`, or `screens` sections. It therefore proves the
+upload and update events below, but it does not prove the exact MediaAsset
+processing state, on-disk hashes, manifest decision, HTTP response, Android
+cache rejection, or the TV's selected IPv6 address.
+
+### Accuracy of the new findings
+
+- **New media unavailable — operational symptom confirmed, exact production
+  failure not yet directly observable from this bundle.** The audit records a
+  successful update from `0.46.0` to `0.46.4` at `13:32:46Z`, followed by the
+  affected-day uploads: MP4 assets `868985f9-c52d-4fdd-9926-42a51b812e2e`,
+  `701499ec-5089-421c-bd41-6e80a3a8240d`, `e56ff277-76e4-448c-ba52-1184eafb7bf8`,
+  `5d2a735b-5616-46b7-a13b-13539b37dbc9`, and
+  `4a4a8508-6eec-4211-a2a4-ffad243aa1e5`, plus the ten JPG assets uploaded at
+  `13:44:20Z`–`13:44:27Z`. Upload completion was successful for all of them,
+  but the export has no subsequent processing/compatibility evidence. The
+  source review confirmed that `0.46.4` made compatibility conversion part of
+  the path that reached `ready`; a shared ffmpeg/ffprobe/worker/sandbox failure
+  could therefore leave new uploads unavailable while older ready rows kept
+  working. The exact production error remains **unverified**, rather than
+  being invented from the upload audit.
+- **IPv6 `.local` failure — cause confirmed in source; affected-TV address not
+  present in this bundle.** The native server previously listened on
+  `0.0.0.0` while the updater configured Avahi to advertise IPv6 by default.
+  Android NSD then accepted the first resolved address without probing it and
+  could retain a bare `fe80::` address without an interface scope. That fully
+  explains why IPv4-only mode and a direct IPv4 address worked, but the bundle
+  does not contain the TV's A/AAAA/DNS-SD trace or its connection error.
+- **Troubleshooting noise — confirmed.** The runtime was dominated by 498
+  `LogicalHandler` and 498 `ClientHandler` Shlink information entries. The
+  entries show the uppercase lookup and lowercase fallback pattern, including
+  404/200 pairs such as `Z9Y5`/`z9y5`. This was a real canonicalization and
+  retention problem, not merely harmless display noise.
+
+### Implemented corrections
+
+- Native and recovery-mode Kestrel now use `ListenAnyIP` for the default
+  appliance binding, so Avahi's dual-stack advertisement matches the server's
+  reachable address families. Explicit `ASPNETCORE_URLS` bindings remain
+  authoritative, and the administrator's IPv4-only setting remains an
+  override.
+- Android now expands requested hostnames into concrete IPv4/IPv6 candidates,
+  rejects unusable bare link-local IPv6 results, preserves valid interface
+  scopes and custom ports, probes each candidate with a short LessonCue health
+  or authenticated-manifest request, falls back automatically, and persists
+  the endpoint that actually verified. It also records rejected/failed/selected
+  candidates in TV status diagnostics.
+- Media processing now publishes the intact original as soon as source
+  inspection and the first derivative complete, then starts compatibility
+  conversion immediately. Compatibility failure no longer hides the original.
+  Infrastructure/runtime failures leave an intact source playable and retain
+  the dependency error; malformed or missing sources are not silently marked
+  ready. The admin **Retry processing** action validates the original's path,
+  size, SHA-256, and content before requeueing it without changing its ID,
+  references, metadata, or retention fields.
+- Troubleshooting exports now include recent MediaAsset state, transcode
+  variants, original/derived file existence and size/SHA checks, dependency
+  availability and storage probes, and recent TV cache/download/playback and
+  endpoint diagnostics. Routine successful `System.Net.Http.HttpClient.*`
+  information entries are excluded while warnings, errors, HTTP failures, and
+  meaningful state changes remain. Shlink canonical lowercase lookup is now
+  attempted first.
+
+### Regression coverage
+
+- Server tests cover physical media/hash evidence, safe retry rejection after an
+  original changes, infrastructure-versus-malformed classification, screen
+  diagnostic persistence, HTTP-noise filtering, and canonical Shlink lookup.
+- The browser workflow uploads a fresh JPG and an incompatible MP4, verifies
+  the original playback path, manifest support, exact media responses, full
+  SHA-256, ETag/content length, and Range 206 behavior, and checks the exported
+  troubleshooting evidence.
+- Android tests cover IPv4, IPv6 scope policy, custom ports, DNS-SD candidates,
+  bare link-local rejection, the broken-IPv6/working-IPv4 fallback, and the
+  existing IPv4-only behavior.
+
+The attached bundle is consequently sufficient to confirm the timing and
+diagnostic shortcomings, but not to claim the exact production worker error.
+The next bundle generated after this release will contain the missing evidence
+needed for a definitive per-asset disposition.
+
+### Reasoning-model assessment
+
+No higher-reasoning model is needed for these bounded fixes. They are supported
+by source evidence and regression coverage. A real post-release TV status bundle
+and media diagnostics export may still be needed to identify the exact deployed
+worker/permission failure if it recurs; that is an environment observation,
+not a model-reasoning limitation.

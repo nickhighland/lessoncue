@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Release tag whose signed TV APK should be submitted
         required: true
-        default: v0.46.5
+        default: v0.46.6
         type: string
 
 permissions:
