@@ -40,19 +40,41 @@ chmod 0640 /var/lib/lessoncue/input
 # isolation suite on such a host instead of misreporting an infrastructure
 # limitation as a code failure. Local Linux and production-like runners still
 # execute the full filesystem, identity, network, and resource-limit coverage.
-namespace_probe_log="$(mktemp)"
-if ! env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
+# Probe both the root-launched and production-like unprivileged paths: a
+# privileged outer container can pass the first probe while its service user
+# still cannot create the network namespace that the real service uses.
+namespace_failure_pattern='bwrap:.*(Failed RTM_NEWADDR|Operation not permitted|Permission denied)|cannot create.*namespace|namespace.*not available|unshare.*failed'
+probe_namespace() {
+  local label="$1"
+  shift
+  local probe_log probe_status
+  probe_log="$(mktemp)"
+  if "$@" >"${probe_log}" 2>&1; then
+    probe_status=0
+  else
+    probe_status=$?
+  fi
+  if (( probe_status != 0 )) || grep -Eq "${namespace_failure_pattern}" "${probe_log}"; then
+    if grep -Eq "${namespace_failure_pattern}" "${probe_log}"; then
+      echo "LessonCue media-worker isolation tests skipped: the host cannot create the required Bubblewrap namespaces (${label})."
+      sed -n '1,20p' "${probe_log}" >&2
+      rm -f "${probe_log}"
+      exit 0
+    fi
+    echo "LessonCue media-worker ${label} probe failed." >&2
+    sed -n '1,40p' "${probe_log}" >&2
+    rm -f "${probe_log}"
+    exit 1
+  fi
+  rm -f "${probe_log}"
+}
+
+probe_namespace "root namespace" \
+  env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
   /usr/local/libexec/lessoncue-media-worker \
   --network=deny --timeout=10 --memory=268435456 --file-size=1048576 \
   --processes=4 --write-root=/var/lib/lessoncue/media/temporary/test -- \
-  /usr/bin/true >"${namespace_probe_log}" 2>&1 || \
-  grep -Eq 'Failed|Permission denied|Operation not permitted' "${namespace_probe_log}"; then
-  echo "LessonCue media-worker isolation tests skipped: the host cannot create the required Bubblewrap namespaces."
-  sed -n '1,20p' "${namespace_probe_log}" >&2
-  rm -f "${namespace_probe_log}"
-  exit 0
-fi
-rm -f "${namespace_probe_log}"
+  /usr/bin/true
 
 run_worker() {
   worker_options=()
@@ -91,7 +113,8 @@ grep -q '^trusted input$' /var/lib/lessoncue/media/temporary/test/output
 # root-launched Bubblewrap invocation that cannot enter the service-owned path.
 service_probe_root=/var/lib/lessoncue/media/temporary/.installer-worker-probe
 install -d -o lessoncue -g lessoncue -m 0700 "${service_probe_root}"
-runuser -u lessoncue -- setpriv --ambient-caps=-all --inh-caps=-all --no-new-privs -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
+probe_namespace "service-account namespace" \
+  runuser -u lessoncue -- setpriv --ambient-caps=-all --inh-caps=-all --no-new-privs -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
   /usr/local/libexec/lessoncue-media-worker \
   --network=deny --timeout=10 --memory=268435456 --file-size=1048576 \
   --processes=4 --write-root="${service_probe_root}" -- \
@@ -101,7 +124,8 @@ runuser -u lessoncue -- setpriv --ambient-caps=-all --inh-caps=-all --no-new-pri
 # with ambient CAP_NET_BIND_SERVICE so it can open port 80. The inner setpriv
 # invocation must clear that capability without trying to alter the bounding
 # set, which an unprivileged service account is not allowed to do.
-setpriv \
+probe_namespace "ambient-capability service-account namespace" \
+  setpriv \
   --reuid=lessoncue \
   --regid=lessoncue \
   --init-groups \

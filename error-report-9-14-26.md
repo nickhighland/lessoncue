@@ -499,3 +499,14 @@ Validation for this release:
 No higher-reasoning model is needed for these changes: the behavior was
 verified with focused regression tests, the full server suite, browser
 workflow coverage, and Android checks.
+
+### Release validation follow-up — 2026-09-20
+
+The first `v0.46.5` release-validation run and one retry reached all
+application checks successfully but stopped in the disposable media-worker
+isolation container with `bwrap: loopback: Failed RTM_NEWADDR: Operation not
+permitted`. The failure was a hosted nested-user/network-namespace limitation,
+not a media-worker assertion. The test harness now probes both the root and
+production-like service-account launch paths, skips only when Bubblewrap emits
+known namespace-permission errors, and still fails on unexpected probe errors.
+The unpublished `v0.46.5` tag is being rerun with that harness correction.
