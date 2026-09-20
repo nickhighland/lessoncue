@@ -305,7 +305,7 @@ jobs:
 
   publish:
     needs: [server-linux, server-windows, android]
-    if: ${{ always() && (inputs.reuse_run_id != '' || (needs.server-linux.result == 'success' && needs.server-windows.result == 'success' && needs.android.result == 'success')) }}
+    if: ${{ always() && (inputs.reuse_run_id != '' || (needs['server-linux'].result == 'success' && needs['server-windows'].result == 'success' && needs.android.result == 'success')) }}
     concurrency:
       group: amazon-appstore-publish
       cancel-in-progress: false
