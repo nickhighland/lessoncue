@@ -606,3 +606,17 @@ by source evidence and regression coverage. A real post-release TV status bundle
 and media diagnostics export may still be needed to identify the exact deployed
 worker/permission failure if it recurs; that is an environment observation,
 not a model-reasoning limitation.
+
+### Release publication follow-up — 2026-09-20
+
+The v0.46.6 build, package-validation, and Google Play publication completed
+successfully. Amazon Appstore returned
+`error_apk_cannot_be_modified` while the publisher was replacing the APK.
+Amazon's published submission guidance says an app cannot be updated while it
+is in the review process, which matches the response and means this is an
+external submission-state constraint rather than a LessonCue packaging error.
+The release workflow now records this as an explicit deferred status, still
+publishes the signed GitHub/Google artifacts, and leaves the Amazon APK
+unchanged. Once Amazon completes the review, the standalone **Submit Amazon
+Appstore APK** workflow can retry the same release tag without rebuilding or
+changing the APK.

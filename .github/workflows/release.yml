@@ -3,6 +3,13 @@ name: Package release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to build and publish
+        required: true
+        default: v0.46.6
+        type: string
 
 permissions:
   contents: read
@@ -11,6 +18,7 @@ env:
   YT_DLP_VERSION: 2026.07.04
   TRIVY_VERSION: 0.72.0
   TRIVY_LINUX_X64_SHA256: bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
 jobs:
   release-validation:
@@ -252,8 +260,8 @@ jobs:
           test -n "${version_name}" || { echo "::error::Unable to read the APK version name"; exit 1; }
           apk_sha256="$(sha256sum lessoncue-tv.apk | awk '{print $1}')"
           apk_size="$(stat -c '%s' lessoncue-tv.apk)"
-          apk_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/lessoncue-tv.apk"
-          release_notes="$(bash scripts/extract-release-notes.sh --user "${GITHUB_REF_NAME}")"
+          apk_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/lessoncue-tv.apk"
+          release_notes="$(bash scripts/extract-release-notes.sh --user "${RELEASE_TAG}")"
           jq -n \
             --arg channel "stable" \
             --arg versionName "${version_name}" \
@@ -306,7 +314,11 @@ jobs:
           merge-multiple: true
       - name: Prepare user-facing release notes
         run: |
-          bash scripts/extract-release-notes.sh "${GITHUB_REF_NAME}" > release/RELEASE-NOTES.md
+          case "${RELEASE_TAG}" in
+            v*) ;;
+            *) echo "::error::RELEASE_TAG must start with v."; exit 64 ;;
+          esac
+          bash scripts/extract-release-notes.sh "${RELEASE_TAG}" > release/RELEASE-NOTES.md
           cp CHANGELOG.md release/CHANGELOG.md
           cp installers/linux/install-latest.sh release/install-lessoncue.sh
           # The optional URL shortener is a container stack, while the server
@@ -410,17 +422,33 @@ jobs:
           # Production publishes the TV-only app to all eligible Google TV /
           # Android TV users through Play's normal review and rollout checks.
           tracks: "tv:production"
-          releaseName: ${{ github.ref_name }}
+          releaseName: ${{ env.RELEASE_TAG }}
           status: completed
       - name: Publish Amazon Appstore
+        id: amazon
         env:
           AMAZON_APP_ID: ${{ secrets.AMAZON_APP_ID }}
           AMAZON_CLIENT_ID: ${{ secrets.AMAZON_CLIENT_ID }}
           AMAZON_CLIENT_SECRET: ${{ secrets.AMAZON_CLIENT_SECRET }}
           AMAZON_RELEASE_NOTES_FILE: release/RELEASE-NOTES.md
         run: bash scripts/publish-amazon-appstore.sh release/LessonCue-TV-store.apk
+      - name: Document deferred Amazon Appstore submission
+        if: steps.amazon.outputs.status == 'deferred'
+        run: |
+          cat >> release/RELEASE-NOTES.md <<'EOF'
+
+          ### Amazon Appstore
+
+          The APK is included in this release, but Amazon deferred the upload because the app is currently in review. Amazon does not allow an app to be modified during review. Re-run the **Submit Amazon Appstore APK** workflow for this tag after the review completes.
+          EOF
+          {
+            echo '# Amazon Appstore status'
+            echo
+            printf 'The %s APK was not changed in Amazon because the app is currently in review. Amazon’s App Submission API returned error_apk_cannot_be_modified. Retry the **Submit Amazon Appstore APK** workflow after Amazon completes that review.\n' "${RELEASE_TAG}"
+          } > release/AMAZON-APPSTORE-STATUS.md
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           body_path: release/RELEASE-NOTES.md
           generate_release_notes: false
           files: release/*

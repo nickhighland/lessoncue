@@ -32,6 +32,13 @@ fi
 : "${AMAZON_CLIENT_SECRET:?AMAZON_CLIENT_SECRET is not set}"
 : "${AMAZON_APP_ID:?AMAZON_APP_ID is not set}"
 
+set_publish_status() {
+  local status="$1"
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    printf 'status=%s\n' "${status}" >> "${GITHUB_OUTPUT}"
+  fi
+}
+
 API_BASE="${AMAZON_API_BASE:-https://developer.amazon.com/api/appstore/v1}"
 TOKEN_URL="${AMAZON_TOKEN_URL:-https://api.amazon.com/auth/o2/token}"
 APP="${API_BASE}/applications/${AMAZON_APP_ID}"
@@ -121,11 +128,23 @@ if [ -n "${APK_ID}" ]; then
   # second APK instead would leave the old one live alongside it.
   call "Reading the APK's ETag" GET "${APP}/edits/${EDIT_ID}/apks/${APK_ID}" || exit 1
   APK_ETAG="$(etag_of)"
-  call "Replacing the APK" PUT "${APP}/edits/${EDIT_ID}/apks/${APK_ID}/replace" \
-    -H "Content-Type: application/vnd.android.package-archive" \
-    -H "fileName: $(basename "${APK}")" \
-    -H "If-Match: ${APK_ETAG}" \
-    --data-binary "@${APK}" || exit 1
+  if ! call "Replacing the APK" PUT "${APP}/edits/${EDIT_ID}/apks/${APK_ID}/replace" \
+      -H "Content-Type: application/vnd.android.package-archive" \
+      -H "fileName: $(basename "${APK}")" \
+      -H "If-Match: ${APK_ETAG}" \
+      --data-binary "@${APK}"; then
+    # Amazon locks an app's edit while an earlier submission is in review. It
+    # is safe to defer in this specific case: the APK was not changed and the
+    # same release can be submitted after Amazon finishes its review. Any other
+    # API failure remains fatal so credentials, signing, and API regressions do
+    # not get mistaken for a successful publish.
+    if jq -e 'any(.. | objects; .errorCode? == "error_apk_cannot_be_modified")' "${WORK}/body" >/dev/null 2>&1; then
+      echo "::warning::Amazon has locked this app while a submission is in review; the APK was not changed. Retry the Amazon submission after the review completes." >&2
+      set_publish_status "deferred"
+      exit 0
+    fi
+    exit 1
+  fi
   echo "Replaced APK ${APK_ID}"
 else
   call "Uploading the APK" POST "${APP}/edits/${EDIT_ID}/apks/upload" \
@@ -168,4 +187,5 @@ call "Committing the edit" POST "${APP}/edits/${EDIT_ID}/commit" \
   -H "If-Match: ${EDIT_ETAG}" \
   -H "Content-Length: 0" || exit 1
 
+set_publish_status "submitted"
 echo "Submitted to the Amazon Appstore. It now goes through Amazon's review."
