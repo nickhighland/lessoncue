@@ -475,7 +475,7 @@ jobs:
           files: release/*
 
   publish-reused:
-    if: ${{ inputs.reuse_run_id != '' }}
+    if: ${{ github.event.inputs.reuse_run_id != '' }}
     runs-on: ubuntu-latest
     environment: production-release
     permissions:
