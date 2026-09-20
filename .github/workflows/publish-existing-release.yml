@@ -1,0 +1,166 @@
+name: Publish existing release artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to publish
+        required: true
+        type: string
+      source_run_id:
+        description: Completed release run containing the verified artifacts
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  YT_DLP_VERSION: 2026.07.04
+  TRIVY_VERSION: 0.72.0
+  TRIVY_LINUX_X64_SHA256: bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea
+  RELEASE_TAG: ${{ inputs.release_tag }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Prepare user-facing release notes
+        run: |
+          case "${RELEASE_TAG}" in
+            v*) ;;
+            *) echo "::error::RELEASE_TAG must start with v."; exit 64 ;;
+          esac
+          bash scripts/extract-release-notes.sh "${RELEASE_TAG}" > release/RELEASE-NOTES.md
+          cp CHANGELOG.md release/CHANGELOG.md
+          cp installers/linux/install-latest.sh release/install-lessoncue.sh
+          mkdir -p release/shortener
+          cp compose.yaml release/shortener/compose.yaml
+          cp scripts/shortener-install.sh release/shortener/install.sh
+          cp scripts/shortener-update.sh release/shortener/update.sh
+          cp scripts/remove-shlink-web-client.sh release/shortener/remove-shlink-web-client.sh
+          cp docs/url-shortener.md release/shortener/README.md
+          cp -R shortener-companion release/shortener/shortener-companion
+          tar -czf release/LessonCue-URL-Shortener.tar.gz -C release shortener
+          rm -rf release/shortener
+      - name: Install checksum-pinned Trivy
+        run: bash scripts/install-trivy.sh "${RUNNER_TEMP}/lessoncue-security"
+      - name: Generate release SBOM and third-party inventory
+        run: |
+          "${RUNNER_TEMP}/lessoncue-security/trivy" fs \
+            --scanners vuln,license \
+            --format spdx-json \
+            --output release/LessonCue-SBOM.spdx.json \
+            release
+          python3 scripts/generate-third-party-notices.py \
+            release/LessonCue-SBOM.spdx.json \
+            release/THIRD-PARTY-NOTICES.txt
+      - name: Require and validate the offline release-signing key
+        env:
+          RELEASE_SIGNING_KEY_BASE64: ${{ secrets.LESSONCUE_RELEASE_SIGNING_KEY_BASE64 }}
+        run: |
+          test -n "${RELEASE_SIGNING_KEY_BASE64}" || {
+            echo "::error::LESSONCUE_RELEASE_SIGNING_KEY_BASE64 is not configured"
+            exit 1
+          }
+          printf '%s' "${RELEASE_SIGNING_KEY_BASE64}" |
+            base64 --decode > "${RUNNER_TEMP}/lessoncue-release-signing-private.pem"
+          chmod 0600 "${RUNNER_TEMP}/lessoncue-release-signing-private.pem"
+          openssl pkey -in "${RUNNER_TEMP}/lessoncue-release-signing-private.pem" \
+            -pubout -out "${RUNNER_TEMP}/lessoncue-release-signing-public.pem"
+          expected_fingerprint="dda6fcd087b5b37576aa8d0d84594478103a62aa2e072297b43270fa1908b3e5"
+          actual_fingerprint="$(
+            openssl pkey -pubin \
+              -in "${RUNNER_TEMP}/lessoncue-release-signing-public.pem" \
+              -outform DER |
+              sha256sum |
+              awk '{print $1}'
+          )"
+          test "${actual_fingerprint}" = "${expected_fingerprint}" || {
+            echo "::error::The configured release-signing key does not match LessonCue's pinned public key"
+            exit 1
+          }
+          cmp \
+            "${RUNNER_TEMP}/lessoncue-release-signing-public.pem" \
+            installers/release-signing-public.pem
+      - name: Sign and immediately verify the complete release manifest
+        run: |
+          (
+            cd release
+            find . -maxdepth 1 -type f \
+              ! -name 'SHA256SUMS' \
+              ! -name 'SHA256SUMS.sig' \
+              -printf '%f\n' |
+              LC_ALL=C sort |
+              xargs sha256sum > SHA256SUMS
+          )
+          openssl pkeyutl -sign \
+            -inkey "${RUNNER_TEMP}/lessoncue-release-signing-private.pem" \
+            -rawin \
+            -in release/SHA256SUMS \
+            -out release/SHA256SUMS.sig
+          openssl pkeyutl -verify \
+            -pubin \
+            -inkey installers/release-signing-public.pem \
+            -rawin \
+            -in release/SHA256SUMS \
+            -sigfile release/SHA256SUMS.sig
+          (
+            cd release
+            sha256sum -c SHA256SUMS
+          )
+      - name: Attest release provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: release/*
+      - name: Attest release SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: release/*
+          sbom-path: release/LessonCue-SBOM.spdx.json
+      - name: Record previously completed Google Play publication
+        run: echo "Google Play publication already completed by source run ${SOURCE_RUN_ID}."
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      - name: Publish Amazon Appstore
+        id: amazon
+        env:
+          AMAZON_APP_ID: ${{ secrets.AMAZON_APP_ID }}
+          AMAZON_CLIENT_ID: ${{ secrets.AMAZON_CLIENT_ID }}
+          AMAZON_CLIENT_SECRET: ${{ secrets.AMAZON_CLIENT_SECRET }}
+          AMAZON_RELEASE_NOTES_FILE: release/RELEASE-NOTES.md
+        run: bash scripts/publish-amazon-appstore.sh release/LessonCue-TV-store.apk
+      - name: Document deferred Amazon Appstore submission
+        if: steps.amazon.outputs.status == 'deferred'
+        run: |
+          cat >> release/RELEASE-NOTES.md <<'EOF'
+
+          ### Amazon Appstore
+
+          The APK is included in this release, but Amazon deferred the upload because the app is currently in review. Amazon does not allow an app to be modified during review. Re-run the **Submit Amazon Appstore APK** workflow for this tag after the review completes.
+          EOF
+          {
+            echo '# Amazon Appstore status'
+            echo
+            printf 'The %s APK was not changed in Amazon because the app is currently in review. Amazon’s App Submission API returned error_apk_cannot_be_modified. Retry the **Submit Amazon Appstore APK** workflow after Amazon completes that review.\n' "${RELEASE_TAG}"
+          } > release/AMAZON-APPSTORE-STATUS.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          body_path: release/RELEASE-NOTES.md
+          generate_release_notes: false
+          files: release/*
