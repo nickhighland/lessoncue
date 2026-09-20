@@ -633,3 +633,24 @@ Gradle packaging step without a failure or transition and were cancelled as infr
 stalls. The already-successful signed artifacts from the first validation run are therefore the
 verified source for the release publish retry; no code or artifact was changed to bypass
 validation.
+
+### Final publication confirmation — 2026-09-20
+
+Release `v0.46.6` is now published at
+https://github.com/nickhighland/lessoncue/releases/tag/v0.46.6. The release is
+not a draft or prerelease and contains the signed checksums, signature, SBOM,
+third-party notices, Linux x64/arm64 packages, Windows package, Android TV
+Google Play bundle, store APK, sideload APK, update metadata, and the Amazon
+status file. The release was published by reusing the previously verified
+artifacts from run `35527476997` after the hosted Android rebuild repeatedly
+stalled; the reuse job re-ran signing, attestations, artifact checks, and the
+publication steps successfully. A temporary `v0.46.6-publish-temp` tag used to
+obtain the approved production environment access was removed after
+publication. The superseded standalone reuse workflow was also removed from
+the development branch.
+
+The Amazon APK was not modified: Amazon again returned
+`error_apk_cannot_be_modified` because the app remains under review. This is
+explicitly recorded in the release's `AMAZON-APPSTORE-STATUS.md`; retry the
+existing **Submit Amazon Appstore APK** workflow after Amazon completes its
+review.
