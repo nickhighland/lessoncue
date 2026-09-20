@@ -152,3 +152,5 @@ LessonCue is free to use, modify, and self-host for non-commercial purposes unde
 This is not an OSI-approved open-source license. The full license—not this summary—controls.
 
 Tagged downloads also include an exact SPDX software bill of materials and generated third-party notices. Release archives are authenticated by a pinned Ed25519 key and GitHub provenance attestations; verification and signing-key recovery procedures are documented in [docs/release-signing.md](docs/release-signing.md).
+
+Release scope is detected automatically: server-only changes do not rebuild or publish the TV app. See [docs/release-scope.md](docs/release-scope.md).

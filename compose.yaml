@@ -32,12 +32,6 @@ services:
       # keeps the documented 10001:10001 default.
       LESSONCUE_UID: "${LESSONCUE_UID:-10001}"
       LESSONCUE_GID: "${LESSONCUE_GID:-10001}"
-      # Docker's default seccomp profile commonly blocks the nested user and
-      # mount namespaces Bubblewrap needs. The outer container already supplies
-      # the isolation boundary, so Docker defaults to the constrained worker
-      # fallback; set LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX=0 only on a host that
-      # has explicitly enabled nested namespaces.
-      LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX: "${LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX:-1}"
       LESSONCUE_SERVER_NAME: "${LESSONCUE_SERVER_NAME:-LessonCue}"
       # Passed in so the tunnel instructions name the ports actually published,
       # rather than the defaults this file happens to use.

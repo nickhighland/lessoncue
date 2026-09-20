@@ -39,7 +39,7 @@ public static class ConstrainedProcessRunner
         var linuxWorker = OperatingSystem.IsLinux() ? ResolveLinuxMediaWorkerPath() : null;
         var start = BuildStartInfo(executable, arguments, options, linuxWorker);
         using var process = new Process { StartInfo = start };
-        if (!ShouldSkipLinuxSandbox() && linuxWorker is not null && !File.Exists(linuxWorker))
+        if (linuxWorker is not null && !File.Exists(linuxWorker))
             throw new InvalidOperationException(
                 $"The LessonCue media worker is missing at '{linuxWorker}'. Run the current Linux installer or install the latest LessonCue update to repair the server.");
         try
@@ -82,7 +82,7 @@ public static class ConstrainedProcessRunner
             var detail = string.IsNullOrWhiteSpace(errors) ? output : errors;
             if (process.ExitCode == 78)
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
-                    ? "The required LessonCue media sandbox is unavailable."
+                    ? "The required LessonCue media worker is unavailable."
                     : detail.Trim());
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
                 ? $"The media worker stopped with code {process.ExitCode}."
@@ -137,29 +137,26 @@ public static class ConstrainedProcessRunner
         ConstrainedProcessOptions options, string? linuxWorker)
     {
         executable = ResolveRestrictedWindowsTool(executable);
-        var skipSandbox = ShouldSkipLinuxSandbox();
-        var useSandbox = OperatingSystem.IsLinux() && !skipSandbox && linuxWorker is not null;
-        var useWorkerFallback = OperatingSystem.IsLinux() && skipSandbox && linuxWorker is not null && File.Exists(linuxWorker);
+        var useWorker = OperatingSystem.IsLinux() && linuxWorker is not null && File.Exists(linuxWorker);
         var start = new ProcessStartInfo(
-            useSandbox
+            useWorker
                 ? ResolveLinuxCapabilityDropperPath()
-                : useWorkerFallback ? linuxWorker! : executable)
+                : executable)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
-        if (useSandbox)
+        if (useWorker)
         {
             // The systemd service keeps CAP_NET_BIND_SERVICE for port 80.
             // Clear the ambient and inheritable sets before exec so the worker
-            // starts without effective or permitted capabilities and
-            // Bubblewrap takes its normal unprivileged user-namespace path.
-            // An unprivileged service process cannot modify the kernel
-            // capability bounding set, even to remove entries, so asking
-            // setpriv to do that aborts before the worker can start.
-            // --no-new-privs prevents the worker or bwrap from regaining a
+            // starts without effective or permitted capabilities. An
+            // unprivileged service process cannot modify the kernel capability
+            // bounding set, even to remove entries, so asking setpriv to do
+            // that aborts before the worker can start.
+            // --no-new-privs prevents the worker or converter from regaining a
             // capability through a setuid bit or stale file capabilities.
             start.ArgumentList.Add("--ambient-caps=-all");
             start.ArgumentList.Add("--inh-caps=-all");
@@ -171,20 +168,6 @@ public static class ConstrainedProcessRunner
             start.ArgumentList.Add($"--memory={options.MemoryBytes}");
             start.ArgumentList.Add($"--file-size={options.MaximumOutputFileBytes}");
             start.ArgumentList.Add($"--processes={options.MaximumProcesses}");
-            foreach (var root in options.WritableRoots ?? [])
-                start.ArgumentList.Add($"--write-root={Path.GetFullPath(root)}");
-            start.ArgumentList.Add("--");
-            start.ArgumentList.Add(executable);
-        }
-        else if (useWorkerFallback)
-        {
-            // Docker hosts commonly block nested user and mount namespaces.
-            // Keep the worker's timeout, memory, and file-size limits while
-            // letting the outer container provide the isolation boundary.
-            start.ArgumentList.Add(options.AllowNetwork ? "--network=allow" : "--network=deny");
-            start.ArgumentList.Add($"--timeout={Math.Max(1, (int)Math.Ceiling(options.Timeout.TotalSeconds))}");
-            start.ArgumentList.Add($"--memory={options.MemoryBytes}");
-            start.ArgumentList.Add($"--file-size={options.MaximumOutputFileBytes}");
             foreach (var root in options.WritableRoots ?? [])
                 start.ArgumentList.Add($"--write-root={Path.GetFullPath(root)}");
             start.ArgumentList.Add("--");
@@ -208,15 +191,6 @@ public static class ConstrainedProcessRunner
         var bundledHelper = Path.Combine(AppContext.BaseDirectory, "lessoncue-media-worker");
         return !File.Exists(helper) && File.Exists(bundledHelper) ? bundledHelper : helper;
     }
-
-    private static bool ShouldSkipLinuxSandbox() =>
-        // CI and container deployments can explicitly opt out on hosts where
-        // the outer runtime blocks nested user and mount namespaces. Native
-        // Linux installations keep the protected worker boundary by default.
-        string.Equals(
-            Environment.GetEnvironmentVariable("LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX"),
-            "1",
-            StringComparison.Ordinal);
 
     private static string ResolveLinuxCapabilityDropperPath() =>
         LinuxCapabilityDropperPaths.FirstOrDefault(File.Exists) ??

@@ -1553,6 +1553,11 @@ export function Settings({
                   {diagnosticsError}
                 </div>
               )}
+              {diagnostics?.diagnosticErrors?.length ? (
+                <div className="alert warning" role="status">
+                  Some diagnostics could not be collected: {diagnostics.diagnosticErrors.join(" · ")}. The remaining checks are still available, and the downloaded bundle includes this partial-failure record.
+                </div>
+              ) : null}
               {diagnostics ? (
                 <>
                   <div className="diagnostic-grid">

@@ -71,6 +71,30 @@ public sealed class AccountEmailServiceTests : IDisposable
         else Assert.Equal(key, handler.ApiKey);
     }
 
+    [Theory]
+    [InlineData("resend")]
+    [InlineData("brevo")]
+    public async Task SendsTheDailyReportAsAnAttachment(string provider)
+    {
+        var handler = new CapturingHandler();
+        var protection = DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(root, $"keys-attachment-{provider}")));
+        var service = CreateService(protection, handler);
+        await service.ConfigureAsync(provider, "email-example-key", TestContext.Current.CancellationToken);
+        var organization = new Organization
+        {
+            Name = "LessonCue Test",
+            EmailProvider = provider,
+            EmailFromName = "LessonCue Test",
+            EmailFromAddress = "accounts@example.org"
+        };
+
+        await service.SendAsync(organization, "diagnostics@example.org", "Daily report", "<p>Report</p>",
+            TestContext.Current.CancellationToken, [new EmailAttachment("report.json.gz", [1, 2])]);
+
+        Assert.Contains("report.json.gz", handler.Body);
+        Assert.Contains("AQI=", handler.Body);
+    }
+
     private AccountEmailService CreateService(IDataProtectionProvider protection, HttpMessageHandler handler) =>
         new(root, protection, new TestHttpClientFactory(handler), NullLogger<AccountEmailService>.Instance);
 

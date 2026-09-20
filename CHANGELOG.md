@@ -4,6 +4,30 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.7 — Reliable server processing and diagnostics
+
+### User changes
+
+- Linux media processing no longer depends on Bubblewrap, so uploads and Intel
+  Quick Sync are not blocked by host namespace restrictions. The service still
+  runs the bounded unprivileged worker with resource limits and local-input
+  validation.
+- System diagnostics now returns the usable parts of a support bundle when one
+  check fails, identifies the unavailable component, and remains downloadable
+  instead of becoming a generic 502 error.
+- Service Admins can opt in to a daily failures-only troubleshooting report at
+  a chosen address and local time, with a **Send now** check.
+- The phone remote now uses a recognizable open/closed lock icon, while its
+  existing lock behavior and pinned top controls remain unchanged.
+
+### Developer changes
+
+- Added direct-worker regression coverage, partial support-bundle diagnostics,
+  persisted daily email failure state, and a release-scope guard that prevents
+  server-only changes from publishing TV artifacts.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
 ## v0.46.6 — Media recovery and dual-stack discovery
 
 ### User changes

@@ -1623,11 +1623,12 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   position: sticky;
   z-index: 10;
   top: 0;
+  isolation: isolate;
   border: 0;
   border-radius: 0;
-  padding: 2px 0 0;
-  background: transparent;
-  box-shadow: none;
+  padding: 2px 0 10px;
+  background: linear-gradient(180deg, var(--remote-bg) 0%, var(--remote-bg) 84%, transparent 100%);
+  box-shadow: 0 8px 18px #061c1440;
 }
 .remote-control-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: clamp(7px, 2vw, 14px); }
 .remote-transport { display: grid; grid-column: 2; grid-template-columns: repeat(4, minmax(44px, 58px)); justify-content: center; align-items: center; gap: clamp(5px, 1.2vw, 10px); margin: 0; }
@@ -1653,9 +1654,9 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .remote-transport .stop-transport { color: #9c3e3e; }
 .remote-lock-button { grid-column: 3; justify-self: end; display: grid; place-items: center; width: 34px; height: 34px; min-height: 34px; border: 1px solid #ffffff2d; border-radius: 10px; padding: 0; color: #c7ddd4; background: #ffffff0d; }
 .remote-lock-button:hover, .remote-lock-button.locked { border-color: #d9b461; color: #fff2cf; background: #d88c1e22; }
-.remote-lock-glyph { position: relative; display: block; width: 14px; height: 11px; border-radius: 2px; background: currentColor; }
-.remote-lock-glyph::before { position: absolute; top: -8px; left: 3px; width: 6px; height: 8px; border: 2px solid currentColor; border-bottom: 0; border-radius: 7px 7px 0 0; content: ""; }
-.remote-lock-button:not(.locked) .remote-lock-glyph::before { left: 6px; transform: rotate(24deg); transform-origin: left bottom; }
+.remote-lock-icon { display: block; width: 21px; height: 21px; overflow: visible; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.remote-lock-icon rect { fill: none; stroke: currentColor; }
+.remote-lock-icon circle { fill: currentColor; stroke: none; }
 .remote-command-status { min-height: 0; }
 .remote-playback-error, .remote-offline-warning { margin-top: 8px; border-radius: 9px; padding: 9px 11px; font-size: 9px; line-height: 1.4; }
 .remote-playback-error { color: #ffd7d1; background: #9e403c66; }
@@ -3686,7 +3687,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   cue, control it. Each step carries its number and its state, so where you are
   and what is left is visible without reading the labels.
 */
-.remote-flow { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; gap: 10px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 7px 0 2px; }
+.remote-flow { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; gap: 10px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 7px 0 2px; }
 .remote-flow:disabled { opacity: .68; }
 .remote-step { border-radius: 16px; padding: clamp(12px, 2.6vw, 20px); color: var(--remote-ink); background: var(--remote-cream); }
 /* A step whose turn has not come is dimmed rather than hidden: the shape of

@@ -98,6 +98,11 @@ export type Organization = {
   emailFromAddress: string;
   emailFromName: string;
   emailProvider: "none" | "resend" | "brevo";
+  dailyTroubleshootingEmailEnabled: boolean;
+  dailyTroubleshootingEmailRecipient: string;
+  dailyTroubleshootingEmailTime: string;
+  dailyTroubleshootingEmailLastSentAt?: string;
+  dailyTroubleshootingEmailLastError?: string;
   signageSourceAllowlistJson: string;
   signageEnabled: boolean;
 };
@@ -210,6 +215,7 @@ export type SupportBundle = {
   };
   backup: BackupPolicyStatus;
   update: UpdateStatus;
+  diagnosticErrors?: string[];
 };
 export type UpdateStatus = {
   currentVersion: string;
@@ -646,6 +652,20 @@ export type RegistrationSettings = {
   emailFromName: string;
   emailProvider: "none" | "resend" | "brevo";
   emailConfigured: boolean;
+  dailyTroubleshootingEmailEnabled: boolean;
+  dailyTroubleshootingEmailRecipient: string;
+  dailyTroubleshootingEmailTime: string;
+  dailyTroubleshootingEmailLastSentAt?: string;
+  dailyTroubleshootingEmailLastError?: string;
+};
+export type TroubleshootingEmailStatus = {
+  enabled: boolean;
+  recipient: string;
+  timeLocal: string;
+  providerConfigured: boolean;
+  lastSentAt?: string;
+  lastError?: string;
+  nextRunAt?: string;
 };
 export type RegistrationCode = {
   id: string;

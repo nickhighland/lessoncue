@@ -17,7 +17,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0
 ARG TARGETARCH
 ARG YT_DLP_VERSION=2026.07.04
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-draw poppler-utils ca-certificates curl bubblewrap util-linux coreutils \
+    && apt-get install -y --no-install-recommends ffmpeg libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-draw poppler-utils ca-certificates curl util-linux coreutils \
         fonts-liberation \
     && optional_packages="" \
     && for candidate in libavcodec-extra libavcodec-extra59 libavcodec-extra60 libavcodec-extra61; do if apt-cache show "$candidate" >/dev/null 2>&1; then optional_packages="$optional_packages $candidate"; break; fi; done \
@@ -51,7 +51,6 @@ COPY installers/linux/lessoncue-media-worker /usr/local/libexec/lessoncue-media-
 RUN chmod 0755 /usr/local/libexec/lessoncue-media-worker
 ENV LESSONCUE_DATA_PATH=/data \
     LESSONCUE_HTTP_PORT=8080 \
-    LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX=1 \
     HOME=/data \
     XDG_CACHE_HOME=/data/.cache
 EXPOSE 8080

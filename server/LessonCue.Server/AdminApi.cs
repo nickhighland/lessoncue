@@ -821,78 +821,10 @@ public static class AdminApi
 
         // A redacted, operator-downloadable snapshot for support tickets. It intentionally
         // omits account names, IP addresses, media paths, URLs, secrets, and response text.
-        admin.MapGet("/support/bundle", async (LessonCueDb db, StorageService storage,
-            BackupPolicyService backupPolicy, UpdateService updates, CancellationToken ct) =>
+        admin.MapGet("/support/bundle", async (LessonCueDb db, SupportBundleBuilder support,
+            CancellationToken ct) =>
         {
-            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
-            var storageStatus = await storage.GetSnapshotAsync(db, ct);
-            var converter = MediaConverterCapabilities.Snapshot();
-            var media = await db.MediaAssets.AsNoTracking().Where(x => x.DeletedAt == null)
-                .Select(x => new { x.ProcessingStatus, x.CompatibilityStatus, x.ConversionStatus, x.SizeBytes })
-                .ToListAsync(ct);
-            var activeUploadStates = new[]
-            {
-                UploadSessionStates.Active,
-                UploadSessionStates.Paused,
-                UploadSessionStates.Failed,
-                UploadSessionStates.Completing
-            };
-            var uploadSnapshotTime = DateTimeOffset.UtcNow;
-            var uploads = (await db.UploadSessions.AsNoTracking()
-                .Select(x => new { x.State, x.ExpectedLength, x.ReceivedBytes, x.UpdatedAt, x.ExpiresAt })
-                .ToListAsync(ct))
-                .Where(x => x.ExpiresAt > uploadSnapshotTime && activeUploadStates.Contains(x.State))
-                .ToList();
-            var screens = await db.Screens.AsNoTracking().Where(x => !x.Revoked)
-                .Select(x => new
-                {
-                    platform = x.Platform,
-                    online = x.LastSeenAt != null && x.LastSeenAt >= DateTimeOffset.UtcNow.AddMinutes(-2),
-                    lastSeenAt = x.LastSeenAt,
-                    x.FailedDownloads,
-                    x.PlaybackError,
-                    x.NetworkQuality,
-                    x.AcknowledgedControlVersion,
-                    x.ControlVersion
-                }).ToListAsync(ct);
-            var bundle = new
-            {
-                schemaVersion = 1,
-                generatedAt = DateTimeOffset.UtcNow,
-                server = new { serverId, serverName, version = updates.Status.CurrentVersion,
-                    timeZone = organization.TimeZone },
-                storage = new { storageStatus.UsedBytes, storageStatus.AllocationBytes,
-                    storageStatus.RemainingBytes, storageStatus.ReservedBytes,
-                    storageStatus.DiskAvailableBytes },
-                converters = new { converter.Ffmpeg, converter.Ffprobe, converter.LibreOffice,
-                    converter.Poppler, converter.WebpEncoder, converter.TheoraEncoder,
-                    converter.Missing, converter.CheckedAt },
-                queue = new
-                {
-                    activeUploads = uploads.Count,
-                    reservedBytes = uploads.Sum(x => Math.Max(0, x.ExpectedLength - x.ReceivedBytes)),
-                    states = uploads.GroupBy(x => x.State).ToDictionary(g => g.Key, g => g.Count())
-                },
-                media = new
-                {
-                    count = media.Count,
-                    bytes = media.Sum(x => x.SizeBytes),
-                    processing = media.GroupBy(x => x.ProcessingStatus).ToDictionary(g => g.Key, g => g.Count()),
-                    compatibility = media.GroupBy(x => x.CompatibilityStatus).ToDictionary(g => g.Key, g => g.Count()),
-                    conversion = media.GroupBy(x => x.ConversionStatus).ToDictionary(g => g.Key, g => g.Count())
-                },
-                screens = new
-                {
-                    count = screens.Count,
-                    online = screens.Count(x => x.online),
-                    failedDownloads = screens.Sum(x => x.FailedDownloads),
-                    playbackErrors = screens.Count(x => !string.IsNullOrWhiteSpace(x.PlaybackError)),
-                    commandsAwaitingReceipt = screens.Count(x => x.ControlVersion > x.AcknowledgedControlVersion),
-                    networkQuality = screens.GroupBy(x => x.NetworkQuality).ToDictionary(g => g.Key, g => g.Count())
-                },
-                backup = backupPolicy.GetStatus(organization.TimeZone),
-                update = updates.Status
-            };
+            var bundle = await support.BuildAsync(db, serverId, serverName, ct);
             var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(bundle, new JsonSerializerOptions
             {
                 WriteIndented = true,
@@ -939,7 +871,12 @@ public static class AdminApi
                     PublicBaseUrl = canManageService ? organization.PublicBaseUrl : "",
                     EmailFromAddress = canManageService ? organization.EmailFromAddress : "",
                     EmailFromName = canManageService ? organization.EmailFromName : "",
-                    EmailProvider = canManageService ? organization.EmailProvider : "none"
+                    EmailProvider = canManageService ? organization.EmailProvider : "none",
+                    DailyTroubleshootingEmailEnabled = canManageService && organization.DailyTroubleshootingEmailEnabled,
+                    DailyTroubleshootingEmailRecipient = canManageService ? organization.DailyTroubleshootingEmailRecipient : "",
+                    DailyTroubleshootingEmailTime = canManageService ? organization.DailyTroubleshootingEmailTime : "07:00",
+                    DailyTroubleshootingEmailLastSentAt = canManageService ? organization.DailyTroubleshootingEmailLastSentAt : null,
+                    DailyTroubleshootingEmailLastError = canManageService ? organization.DailyTroubleshootingEmailLastError : null
                 },
                 organization.TimeZone,
                 pairingPin = canPair ? pairing.Current : null,
@@ -3075,52 +3012,12 @@ public static class AdminApi
         settings.MapGet("/organization", async (LessonCueDb db, CancellationToken ct) =>
             await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct));
 
-        settings.MapGet("/troubleshooting-log", async (int? limit, bool? failuresOnly, LessonCueDb db, TroubleshootingLog log,
-            MediaStoragePaths paths, CancellationToken ct) =>
+        settings.MapGet("/troubleshooting-log", async (int? limit, bool? failuresOnly, LessonCueDb db,
+            TroubleshootingReportBuilder reports, CancellationToken ct) =>
         {
             var failureFilter = failuresOnly == true;
             var safeLimit = Math.Clamp(limit ?? (failureFilter ? 10_000 : 500), 1, failureFilter ? 10_000 : 2_000);
-            var auditQuery = db.AuditEvents.AsNoTracking();
-            if (failureFilter)
-            {
-                auditQuery = auditQuery.Where(item =>
-                    EF.Functions.Like(item.Result, "%fail%") ||
-                    EF.Functions.Like(item.Result, "%error%") ||
-                    EF.Functions.Like(item.Action, "%fail%") ||
-                    EF.Functions.Like(item.Action, "%error%") ||
-                    item.Summary != null &&
-                    (EF.Functions.Like(item.Summary, "%fail%") || EF.Functions.Like(item.Summary, "%error%")));
-            }
-            var audit = await auditQuery.OrderByDescending(x => x.Id).Take(safeLimit).ToListAsync(ct);
-            var media = await MediaDiagnostics.BuildAsync(db, paths, Math.Min(safeLimit, 100), ct);
-            // SQLite cannot translate DateTimeOffset ordering reliably. The
-            // screen table is intentionally small, so order the projected
-            // diagnostic rows in .NET just like the media evidence above.
-            var screens = (await db.Screens.AsNoTracking().Select(x => new
-                {
-                    x.Id, x.Name, x.Platform, x.AppVersion, x.DeviceModel, x.OsVersion, x.LastSeenAt,
-                    x.LastIpAddress, x.FailedDownloads, x.CachedItems, x.TotalItems, x.PlaybackState,
-                    x.PlaybackError, x.CacheInventoryJson, x.DownloadQueueJson, x.RecentErrorsJson,
-                    x.ConnectionDiagnosticsJson, x.DiagnosticsUpdatedAt
-                }).ToListAsync(ct))
-                .OrderByDescending(x => x.LastSeenAt)
-                .Take(100)
-                .ToList();
-            return Results.Ok(new
-            {
-                generatedAt = DateTimeOffset.UtcNow,
-                runtime = log.GetRecent(safeLimit, failureFilter),
-                audit = audit.OrderByDescending(x => x.Timestamp),
-                media,
-                mediaDependencies = MediaDependencyDiagnostics.Build(paths),
-                screens,
-                retention = new
-                {
-                    runtimeEntries = 2_000,
-                    failureRetentionDays = 7,
-                    file = "routine events: last 4 MB plus the prior rotated file; failures: separate seven-day store"
-                }
-            });
+            return Results.Ok(await reports.BuildAsync(db, safeLimit, failureFilter, ct));
         });
 
         settings.MapGet("/registration/settings", async (LessonCueDb db, AccountEmailService email,
@@ -3279,6 +3176,53 @@ public static class AdminApi
                 });
                 await db.SaveChangesAsync(ct);
                 return Results.Json(new { error = $"The provider could not deliver the test: {error.Message}" }, statusCode: 502);
+            }
+        });
+
+        settings.MapGet("/troubleshooting-email", async (LessonCueDb db, AccountEmailService email,
+            CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            return Results.Ok(TroubleshootingEmailService.Status(
+                organization, email.Status(organization.EmailProvider).Configured, DateTimeOffset.UtcNow));
+        });
+
+        settings.MapPut("/troubleshooting-email", async (TroubleshootingEmailSettingsInput input,
+            LessonCueDb db, AccountEmailService email, CancellationToken ct) =>
+        {
+            var recipient = input.Recipient?.Trim().ToLowerInvariant() ?? "";
+            if (recipient.Length > 200 || !string.IsNullOrWhiteSpace(recipient) && !TroubleshootingEmailSchedule.IsEmail(recipient))
+                return Results.BadRequest(new { error = "Enter a valid daily troubleshooting recipient email address." });
+            if (!TroubleshootingEmailSchedule.TryNormalizeTime(input.TimeLocal, out var time))
+                return Results.BadRequest(new { error = "Choose a daily delivery time in HH:mm format." });
+
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+            if (input.Enabled)
+            {
+                if (!TroubleshootingEmailSchedule.IsEmail(recipient))
+                    return Results.BadRequest(new { error = "A recipient is required when daily troubleshooting email is enabled." });
+                if (!email.Status(organization.EmailProvider).Configured)
+                    return Results.Conflict(new { error = "Configure Resend or Brevo account email before enabling daily troubleshooting delivery." });
+            }
+
+            organization.DailyTroubleshootingEmailEnabled = input.Enabled;
+            organization.DailyTroubleshootingEmailRecipient = recipient;
+            organization.DailyTroubleshootingEmailTime = time;
+            organization.DailyTroubleshootingEmailLastError = null;
+            Audit(db, "troubleshooting.email-settings.update", organization.Id,
+                input.Enabled ? $"enabled:{time}" : "disabled");
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(TroubleshootingEmailService.Status(
+                organization, email.Status(organization.EmailProvider).Configured, DateTimeOffset.UtcNow));
+        });
+
+        settings.MapPost("/troubleshooting-email/send-now", async (TroubleshootingEmailService dailyEmail,
+            CancellationToken ct) =>
+        {
+            try { return Results.Ok(await dailyEmail.SendNowAsync(ct)); }
+            catch (Exception error) when (error is InvalidOperationException or HttpRequestException)
+            {
+                return Results.Json(new { error = error.Message }, statusCode: 502);
             }
         });
 

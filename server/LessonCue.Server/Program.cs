@@ -110,6 +110,9 @@ builder.Services.AddSingleton(services => new BackupPolicyService(
 builder.Services.AddHostedService(services =>
     services.GetRequiredService<BackupPolicyService>());
 builder.Services.AddSingleton(new MediaStoragePaths(dataPath));
+builder.Services.AddSingleton(services => new TroubleshootingReportBuilder(
+    services.GetRequiredService<TroubleshootingLog>(),
+    services.GetRequiredService<MediaStoragePaths>()));
 builder.Services.AddSingleton(new StorageService(dataPath));
 builder.Services.AddSingleton<UploadSessionService>();
 builder.Services.AddHostedService(services => services.GetRequiredService<UploadSessionService>());
@@ -138,6 +141,7 @@ builder.Services.AddHttpClient("updates", client =>
 });
 builder.Services.AddSingleton<UpdateService>();
 builder.Services.AddHostedService(services => services.GetRequiredService<UpdateService>());
+builder.Services.AddSingleton<SupportBundleBuilder>();
 builder.Services.AddHttpClient("cloudflare-tunnel", client => client.Timeout = TimeSpan.FromSeconds(2));
 builder.Services.AddHttpClient("account-email", client => client.Timeout = TimeSpan.FromSeconds(20));
 builder.Services.AddHttpClient("presentation-import", client =>
@@ -160,6 +164,12 @@ builder.Services.AddHostedService(services => services.GetRequiredService<LiveSt
 builder.Services.AddSingleton(services => new AccountEmailService(dataPath,
     services.GetRequiredService<IDataProtectionProvider>(), services.GetRequiredService<IHttpClientFactory>(),
     services.GetRequiredService<ILogger<AccountEmailService>>()));
+builder.Services.AddSingleton(services => new TroubleshootingEmailService(
+    services.GetRequiredService<IServiceScopeFactory>(),
+    services.GetRequiredService<AccountEmailService>(),
+    services.GetRequiredService<TroubleshootingReportBuilder>(),
+    services.GetRequiredService<ILogger<TroubleshootingEmailService>>()));
+builder.Services.AddHostedService(services => services.GetRequiredService<TroubleshootingEmailService>());
 builder.Services.AddSingleton(services => new CloudflareTunnelService(dataPath,
     services.GetRequiredService<HttpPortService>(), services.GetRequiredService<IHttpClientFactory>(),
     services.GetRequiredService<ILogger<CloudflareTunnelService>>()));

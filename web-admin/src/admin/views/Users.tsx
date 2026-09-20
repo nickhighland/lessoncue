@@ -2,7 +2,7 @@ import { confirmAction } from "../../AccessibleDialogs";
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import { permissionOptions } from "../constants";
-import { Bootstrap, Permission, RegistrationCode, RegistrationSettings, TroubleshootingLog, User } from "../models";
+import { Bootstrap, Permission, RegistrationCode, RegistrationSettings, TroubleshootingEmailStatus, TroubleshootingLog, User } from "../models";
 import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead } from "../ui";
 import { errorText, initials, isServiceAdminRole, localDateTimeValue, timeAgo } from "../utils";
 
@@ -647,10 +647,21 @@ export function RegistrationSettingsPanel({
     emailFromName: bootstrap.settings.emailFromName,
     emailProvider: bootstrap.settings.emailProvider,
     emailConfigured: bootstrap.accountEmail.configured,
+    dailyTroubleshootingEmailEnabled:
+      bootstrap.settings.dailyTroubleshootingEmailEnabled,
+    dailyTroubleshootingEmailRecipient:
+      bootstrap.settings.dailyTroubleshootingEmailRecipient,
+    dailyTroubleshootingEmailTime:
+      bootstrap.settings.dailyTroubleshootingEmailTime,
+    dailyTroubleshootingEmailLastSentAt:
+      bootstrap.settings.dailyTroubleshootingEmailLastSentAt,
+    dailyTroubleshootingEmailLastError:
+      bootstrap.settings.dailyTroubleshootingEmailLastError,
   });
   const [apiKey, setApiKey] = useState("");
   const [testRecipient, setTestRecipient] = useState("");
   const [testingEmail, setTestingEmail] = useState(false);
+  const [sendingTroubleshootingEmail, setSendingTroubleshootingEmail] = useState(false);
   const [codes, setCodes] = useState<RegistrationCode[]>([]);
   const [revealedCode, setRevealedCode] = useState("");
   const [editingCode, setEditingCode] = useState<RegistrationCode>();
@@ -743,6 +754,56 @@ export function RegistrationSettingsPanel({
       notify(errorText(cause));
     } finally {
       setTestingEmail(false);
+    }
+  }
+  async function saveTroubleshootingEmail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const result = await api<TroubleshootingEmailStatus>(
+        "/api/v1/troubleshooting-email",
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            enabled: settings.dailyTroubleshootingEmailEnabled,
+            recipient: settings.dailyTroubleshootingEmailRecipient,
+            timeLocal: settings.dailyTroubleshootingEmailTime,
+          }),
+        },
+      );
+      setSettings((current) => ({
+        ...current,
+        dailyTroubleshootingEmailEnabled: result.enabled,
+        dailyTroubleshootingEmailRecipient: result.recipient,
+        dailyTroubleshootingEmailTime: result.timeLocal,
+        dailyTroubleshootingEmailLastSentAt: result.lastSentAt,
+        dailyTroubleshootingEmailLastError: result.lastError,
+      }));
+      refresh();
+      notify("Daily troubleshooting email settings saved.");
+    } catch (cause) {
+      notify(errorText(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function sendTroubleshootingEmailNow() {
+    setSendingTroubleshootingEmail(true);
+    try {
+      const result = await api<TroubleshootingEmailStatus>(
+        "/api/v1/troubleshooting-email/send-now",
+        { method: "POST" },
+      );
+      setSettings((current) => ({
+        ...current,
+        dailyTroubleshootingEmailLastSentAt: result.lastSentAt,
+        dailyTroubleshootingEmailLastError: result.lastError,
+      }));
+      notify("Daily troubleshooting report sent.");
+    } catch (cause) {
+      notify(errorText(cause));
+    } finally {
+      setSendingTroubleshootingEmail(false);
     }
   }
   async function createCode(event: FormEvent<HTMLFormElement>) {
@@ -1182,6 +1243,82 @@ export function RegistrationSettingsPanel({
                   ? "Send test email"
                   : "Save provider first"}
             </button>
+          </form>
+          <form
+            className="settings-subsection email-test-form"
+            onSubmit={saveTroubleshootingEmail}
+          >
+            <div>
+              <h3>Daily troubleshooting report</h3>
+              <p>
+                Send a redacted failures-only JSON bundle each day so it can be
+                reviewed by an administrator or AI. The server sends it through
+                the provider above; TV apps are not involved.
+              </p>
+            </div>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={settings.dailyTroubleshootingEmailEnabled}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    dailyTroubleshootingEmailEnabled: event.target.checked,
+                  }))
+                }
+              />
+              <span>Enable daily delivery</span>
+            </label>
+            <div className="two-fields">
+              <Field label="Report recipient">
+                <input
+                  type="email"
+                  value={settings.dailyTroubleshootingEmailRecipient}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      dailyTroubleshootingEmailRecipient: event.target.value,
+                    }))
+                  }
+                  required={settings.dailyTroubleshootingEmailEnabled}
+                  placeholder="diagnostics@example.org"
+                />
+              </Field>
+              <Field label="Daily time (server time zone)">
+                <input
+                  type="time"
+                  value={settings.dailyTroubleshootingEmailTime}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      dailyTroubleshootingEmailTime: event.target.value,
+                    }))
+                  }
+                  required
+                />
+              </Field>
+            </div>
+            {settings.dailyTroubleshootingEmailLastSentAt && (
+              <small>
+                Last sent {new Date(settings.dailyTroubleshootingEmailLastSentAt).toLocaleString()}.
+              </small>
+            )}
+            {settings.dailyTroubleshootingEmailLastError && (
+              <div className="alert error">{settings.dailyTroubleshootingEmailLastError}</div>
+            )}
+            <div className="row-actions">
+              <button className="button primary" disabled={busy}>
+                {busy ? "Saving…" : "Save daily report"}
+              </button>
+              <button
+                className="button"
+                type="button"
+                disabled={!settings.emailConfigured || sendingTroubleshootingEmail}
+                onClick={() => void sendTroubleshootingEmailNow()}
+              >
+                {sendingTroubleshootingEmail ? "Sending…" : "Send now"}
+              </button>
+            </div>
           </form>
         </CollapsibleSettingsSection>
       )}

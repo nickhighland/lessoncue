@@ -165,7 +165,7 @@ public static class MediaDependencyDiagnostics
             "/usr/local/libexec/lessoncue-media-worker",
             Path.Combine(AppContext.BaseDirectory, "lessoncue-media-worker")
         }.Distinct(StringComparer.Ordinal);
-        var commands = new[] { "ffmpeg", "ffprobe", "bwrap", "setpriv" }
+        var commands = new[] { "ffmpeg", "ffprobe", "setpriv" }
             .Select(command => new { command, path = FindOnPath(command), available = FindOnPath(command) is not null })
             .ToArray();
         var worker = workerCandidates.Select(path => new
@@ -189,10 +189,15 @@ public static class MediaDependencyDiagnostics
                 transcodes = DirectoryState(paths.Transcodes),
                 temporary = DirectoryState(paths.Temporary)
             },
-            sandbox = new
+            workerRuntime = new
             {
                 linux = OperatingSystem.IsLinux(),
-                skipSandbox = Environment.GetEnvironmentVariable("LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX") == "1"
+                mode = OperatingSystem.IsLinux() ? "direct-systemd-bounded-worker" : "platform-native",
+                worker = "/usr/local/libexec/lessoncue-media-worker",
+                limits = new[] { "wall-time", "CPU", "address-space", "output-file-size", "process-count", "open-files", "captured-output" },
+                serviceBoundary = "lessoncue service account, NoNewPrivileges, ProtectSystem=strict, ProtectHome, PrivateTmp, capability bounding set",
+                localConverterProtocols = "file,pipe,crypto,data",
+                networkNote = "The direct worker does not create a network namespace. FFmpeg/FFprobe media inputs are restricted to local protocols; deployments should keep the LessonCue service network policy unchanged for server features that require outbound access."
             }
         };
     }

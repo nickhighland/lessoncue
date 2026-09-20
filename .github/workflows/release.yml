@@ -8,13 +8,19 @@ on:
       release_tag:
         description: Existing release tag to build and publish
         required: true
-        default: v0.46.6
+        default: v0.46.7
         type: string
       reuse_run_id:
         description: Completed release-validation run whose artifacts should be published
         required: false
         default: ''
         type: string
+      release_scope:
+        description: Automatically detect whether this release needs TV artifacts; server-only is allowed only when no TV paths changed
+        required: false
+        default: auto
+        type: choice
+        options: [auto, server-only, tv]
 
 permissions:
   contents: read
@@ -26,8 +32,66 @@ env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
 jobs:
+  release-scope:
+    runs-on: ubuntu-latest
+    outputs:
+      tv_app_required: ${{ steps.scope.outputs.tv_app_required }}
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify release scope
+        id: scope
+        env:
+          RELEASE_SCOPE_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.release_scope || 'auto' }}
+        run: |
+          current_tag="${RELEASE_TAG}"
+          base_tag="$(git tag --sort=-version:refname | awk -v current="${current_tag}" '$0 != current && $0 ~ /^v[0-9]/ { print; exit }')"
+          if [ -z "${base_tag}" ]; then
+            echo "::error::Could not find a previous version tag to classify the release against."
+            exit 1
+          fi
+          result="$(node scripts/release-scope.mjs "${base_tag}" "${GITHUB_SHA}")"
+          echo "${result}" | jq .
+          detected_tv="$(echo "${result}" | jq -r '.tvAppRequired')"
+          requested="${RELEASE_SCOPE_INPUT:-auto}"
+          case "${requested}" in
+            auto)
+              tv_required="${detected_tv}"
+              resolved_scope="$([ "${tv_required}" = true ] && echo tv || echo server-only)"
+              ;;
+            server-only)
+              if [ "${detected_tv}" = true ]; then
+                echo "::error::release_scope=server-only is unsafe because TV-app or protocol paths changed."
+                exit 1
+              fi
+              tv_required=false
+              resolved_scope=server-only
+              ;;
+            tv)
+              tv_required=true
+              resolved_scope=tv
+              ;;
+            *)
+              echo "::error::Unknown release scope: ${requested}"
+              exit 64
+              ;;
+          esac
+          echo "tv_app_required=${tv_required}" >> "${GITHUB_OUTPUT}"
+          echo "scope=${resolved_scope}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "### Release scope"
+            echo
+            echo "- Previous tag: \`${base_tag}\`"
+            echo "- Requested scope: \`${requested}\`"
+            echo "- Resolved scope: \`${resolved_scope}\`"
+            echo "- TV artifact required: \`${tv_required}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   release-validation:
-    if: ${{ inputs.reuse_run_id == '' }}
+    needs: release-scope
+    if: ${{ needs['release-scope'].result == 'success' && inputs.reuse_run_id == '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,8 +131,6 @@ jobs:
           bash /workspace/tests/linux-media-worker.sh /workspace
       - run: npx playwright install --with-deps chromium
       - name: Run browser tests
-        env:
-          LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX: "1"
         run: npm run test:e2e
       - run: docker build -f server/LessonCue.Server/Dockerfile -t lessoncue/server:release-validation .
       - name: Install checksum-pinned Trivy
@@ -90,8 +152,8 @@ jobs:
             lessoncue/server:release-validation
 
   server-linux:
-    needs: release-validation
-    if: ${{ inputs.reuse_run_id == '' }}
+    needs: [release-scope, release-validation]
+    if: ${{ needs['release-scope'].result == 'success' && needs['release-validation'].result == 'success' && inputs.reuse_run_id == '' }}
     strategy:
       matrix:
         runtime: [linux-x64, linux-arm64]
@@ -152,8 +214,8 @@ jobs:
           path: LessonCue-Server-${{ matrix.runtime }}.tar.gz
 
   server-windows:
-    needs: release-validation
-    if: ${{ inputs.reuse_run_id == '' }}
+    needs: [release-scope, release-validation]
+    if: ${{ needs['release-scope'].result == 'success' && needs['release-validation'].result == 'success' && inputs.reuse_run_id == '' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -199,8 +261,8 @@ jobs:
           path: LessonCue-Server-Windows-x64.zip
 
   android:
-    needs: release-validation
-    if: ${{ inputs.reuse_run_id == '' }}
+    needs: [release-scope, release-validation]
+    if: ${{ needs['release-scope'].result == 'success' && needs['release-validation'].result == 'success' && needs['release-scope'].outputs.tv_app_required == 'true' && inputs.reuse_run_id == '' }}
     runs-on: ubuntu-latest
     env:
       LESSONCUE_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEYSTORE_PASSWORD }}
@@ -304,8 +366,8 @@ jobs:
             LessonCue-TV-Google-Play.aab
 
   publish:
-    needs: [server-linux, server-windows, android]
-    if: ${{ always() && inputs.reuse_run_id == '' && needs['server-linux'].result == 'success' && needs['server-windows'].result == 'success' && needs.android.result == 'success' }}
+    needs: [release-scope, server-linux, server-windows, android]
+    if: ${{ always() && inputs.reuse_run_id == '' && needs['release-scope'].result == 'success' && needs['server-linux'].result == 'success' && needs['server-windows'].result == 'success' && (needs['release-scope'].outputs.tv_app_required == 'false' || needs.android.result == 'success') }}
     concurrency:
       group: amazon-appstore-publish
       cancel-in-progress: false
@@ -332,6 +394,16 @@ jobs:
           merge-multiple: true
           run-id: ${{ inputs.reuse_run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Remove TV artifacts from server-only release
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'false' }}
+        run: |
+          rm -f \
+            release/LessonCue-AndroidTV-sideload-debug.apk \
+            release/LessonCue-TV-Google-Play.aab \
+            release/LessonCue-TV-store.apk \
+            release/lessoncue-tv.apk \
+            release/lessoncue-tv.apk.sha256 \
+            release/update.json
       - name: Prepare user-facing release notes
         run: |
           case "${RELEASE_TAG}" in
@@ -432,7 +504,7 @@ jobs:
           subject-path: release/*
           sbom-path: release/LessonCue-SBOM.spdx.json
       - name: Publish Google Play internal test
-        if: ${{ inputs.reuse_run_id == '' }}
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' && inputs.reuse_run_id == '' }}
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
         with:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
@@ -447,6 +519,7 @@ jobs:
           status: completed
       - name: Publish Amazon Appstore
         id: amazon
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' }}
         env:
           AMAZON_APP_ID: ${{ secrets.AMAZON_APP_ID }}
           AMAZON_CLIENT_ID: ${{ secrets.AMAZON_CLIENT_ID }}
@@ -454,7 +527,7 @@ jobs:
           AMAZON_RELEASE_NOTES_FILE: release/RELEASE-NOTES.md
         run: bash scripts/publish-amazon-appstore.sh release/LessonCue-TV-store.apk
       - name: Document deferred Amazon Appstore submission
-        if: steps.amazon.outputs.status == 'deferred'
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' && steps.amazon.outputs.status == 'deferred' }}
         run: |
           cat >> release/RELEASE-NOTES.md <<'EOF'
 
@@ -475,7 +548,8 @@ jobs:
           files: release/*
 
   publish-reused:
-    if: ${{ github.event.inputs.reuse_run_id != '' }}
+    needs: release-scope
+    if: ${{ needs['release-scope'].result == 'success' && github.event.inputs.reuse_run_id != '' }}
     runs-on: ubuntu-latest
     environment: production-release
     permissions:
@@ -492,6 +566,16 @@ jobs:
           merge-multiple: true
           run-id: ${{ inputs.reuse_run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Remove TV artifacts from server-only release
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'false' }}
+        run: |
+          rm -f \
+            release/LessonCue-AndroidTV-sideload-debug.apk \
+            release/LessonCue-TV-Google-Play.aab \
+            release/LessonCue-TV-store.apk \
+            release/lessoncue-tv.apk \
+            release/lessoncue-tv.apk.sha256 \
+            release/update.json
       - name: Prepare user-facing release notes
         run: |
           case "${RELEASE_TAG}" in
@@ -586,11 +670,13 @@ jobs:
           subject-path: release/*
           sbom-path: release/LessonCue-SBOM.spdx.json
       - name: Record previously completed Google Play publication
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' }}
         run: echo "Google Play publication already completed by source run ${SOURCE_RUN_ID}."
         env:
           SOURCE_RUN_ID: ${{ inputs.reuse_run_id }}
       - name: Publish Amazon Appstore
         id: amazon
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' }}
         env:
           AMAZON_APP_ID: ${{ secrets.AMAZON_APP_ID }}
           AMAZON_CLIENT_ID: ${{ secrets.AMAZON_CLIENT_ID }}
@@ -598,7 +684,7 @@ jobs:
           AMAZON_RELEASE_NOTES_FILE: release/RELEASE-NOTES.md
         run: bash scripts/publish-amazon-appstore.sh release/LessonCue-TV-store.apk
       - name: Document deferred Amazon Appstore submission
-        if: steps.amazon.outputs.status == 'deferred'
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' && steps.amazon.outputs.status == 'deferred' }}
         run: |
           cat >> release/RELEASE-NOTES.md <<'EOF'
 

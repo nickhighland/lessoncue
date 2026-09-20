@@ -10,6 +10,8 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
     StorageService storage, HardwareAccelerationService hardware,
     ILogger<MediaProcessingService> logger) : BackgroundService
 {
+    private const string LocalMediaProtocols = "-protocol_whitelist file,pipe,crypto,data";
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try
@@ -97,7 +99,7 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
                 return;
             }
 
-            var json = await RunAsync("ffprobe", $"-v error -show_streams -show_format -of json \"{Escape(fullPath)}\"", ct);
+            var json = await RunAsync("ffprobe", $"{LocalMediaProtocols} -v error -show_streams -show_format -of json \"{Escape(fullPath)}\"", ct);
             using var document = JsonDocument.Parse(json);
             string? pixelFormat = null;
             string? formatName = null;
@@ -168,7 +170,7 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
                 var relative = item.Id + ".jpg";
                 var output = Path.Combine(paths.Thumbnails, relative);
                 var seek = item.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ? "" : "-ss 0.1 ";
-                await RunDerivativeAsync("ffmpeg", $"-nostdin -y {seek}-i \"{Escape(fullPath)}\" -frames:v 1 -vf scale=640:-2:out_range=full -pix_fmt yuvj420p \"{Escape(output)}\"", item.FileName, ct);
+                await RunDerivativeAsync("ffmpeg", $"-nostdin -y {LocalMediaProtocols} {seek}-i \"{Escape(fullPath)}\" -frames:v 1 -vf scale=640:-2:out_range=full -pix_fmt yuvj420p \"{Escape(output)}\"", item.FileName, ct);
                 if (File.Exists(output)) item.ThumbnailPath = relative;
             }
 
@@ -196,21 +198,21 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
                 var filmstripRelative = item.Id + "-filmstrip.jpg";
                 var filmstripOutput = Path.Combine(paths.Thumbnails, filmstripRelative);
                 var interval = Math.Max(.1, item.DurationMs.Value / 6000d).ToString("0.###", CultureInfo.InvariantCulture);
-                await RunDerivativeAsync("ffmpeg", $"-nostdin -y -i \"{Escape(fullPath)}\" -vf \"fps=1/{interval},scale=160:90:force_original_aspect_ratio=decrease,pad=160:90:(ow-iw)/2:(oh-ih)/2,tile=6x1\" -frames:v 1 -q:v 3 \"{Escape(filmstripOutput)}\"", item.FileName, ct);
+                await RunDerivativeAsync("ffmpeg", $"-nostdin -y {LocalMediaProtocols} -i \"{Escape(fullPath)}\" -vf \"fps=1/{interval},scale=160:90:force_original_aspect_ratio=decrease,pad=160:90:(ow-iw)/2:(oh-ih)/2,tile=6x1\" -frames:v 1 -q:v 3 \"{Escape(filmstripOutput)}\"", item.FileName, ct);
                 if (File.Exists(filmstripOutput)) item.FilmstripPath = filmstripRelative;
             }
             if (item.AudioCodec is not null)
             {
                 try
                 {
-                    var loudness = await RunAsync("ffmpeg", $"-nostdin -hide_banner -nostats -i \"{Escape(fullPath)}\" -af loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json -f null -", ct);
+                    var loudness = await RunAsync("ffmpeg", $"-nostdin -hide_banner -nostats {LocalMediaProtocols} -i \"{Escape(fullPath)}\" -af loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json -f null -", ct);
                     var match = Regex.Match(loudness, "\\\"input_i\\\"\\s*:\\s*\\\"(?<value>-?[0-9.]+)\\\"");
                     if (match.Success && double.TryParse(match.Groups["value"].Value,
                         NumberStyles.Float, CultureInfo.InvariantCulture, out var lufs)) item.LoudnessLufs = lufs;
                     Directory.CreateDirectory(paths.Thumbnails);
                     var waveformRelative = item.Id + "-waveform.png";
                     var waveformOutput = Path.Combine(paths.Thumbnails, waveformRelative);
-                    await RunDerivativeAsync("ffmpeg", $"-nostdin -y -i \"{Escape(fullPath)}\" -filter_complex \"aformat=channel_layouts=mono,showwavespic=s=1200x140:colors=#d89127\" -frames:v 1 \"{Escape(waveformOutput)}\"", item.FileName, ct);
+                    await RunDerivativeAsync("ffmpeg", $"-nostdin -y {LocalMediaProtocols} -i \"{Escape(fullPath)}\" -filter_complex \"aformat=channel_layouts=mono,showwavespic=s=1200x140:colors=#d89127\" -frames:v 1 \"{Escape(waveformOutput)}\"", item.FileName, ct);
                     if (File.Exists(waveformOutput)) item.WaveformPath = waveformRelative;
                 }
                 catch (Exception ex) { logger.LogWarning(ex, "Could not analyze audio for {MediaFile}", item.FileName); }
@@ -314,7 +316,7 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
         {
             if (remuxOnly)
             {
-                await RunAsync("ffmpeg", $"-nostdin -hide_banner -loglevel error -nostats -y -i \"{Escape(source)}\" " +
+                await RunAsync("ffmpeg", $"-nostdin -hide_banner -loglevel error -nostats -y {LocalMediaProtocols} -i \"{Escape(source)}\" " +
                     $"-map 0:v:0 -map 0:a:0? -c copy -sn -dn -movflags +faststart \"{Escape(work)}\"", ct);
                 await HardwareAccelerationService.ValidateMp4Async(work, ct);
                 item.CompatibilityTranscodeEngine = "Remux";
@@ -323,12 +325,12 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
             {
                 const string filter = "scale=w='min(1920,iw)':h='min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2";
                 var ending = $"-c:a aac -b:a 192k -ar 48000 -ac 2 -sn -dn -movflags +faststart \"{Escape(work)}\"";
-                var hardwareArgs = "-nostdin -hide_banner -loglevel error -nostats -y " +
+                var hardwareArgs = $"-nostdin -hide_banner -loglevel error -nostats -y {LocalMediaProtocols} " +
                     $"{hardware.DeviceArguments} " +
                     $"-i \"{Escape(source)}\" -map 0:v:0 -map 0:a:0? " +
                     $"{hardware.BuildHardwareVideoArguments(filter, 20)} " +
                     $"-profile:v high -level:v 4.1 {ending}";
-                var softwareArgs = $"-nostdin -hide_banner -loglevel error -nostats -y -i \"{Escape(source)}\" " +
+                var softwareArgs = $"-nostdin -hide_banner -loglevel error -nostats -y {LocalMediaProtocols} -i \"{Escape(source)}\" " +
                     $"-map 0:v:0 -map 0:a:0? -vf \"{filter}\" -c:v libx264 -preset medium -crf 20 " +
                     $"-profile:v high -level:v 4.1 -pix_fmt yuv420p -tag:v avc1 {ending}";
                 var accelerationEnabled = await db.Organizations.AsNoTracking()

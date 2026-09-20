@@ -40,6 +40,12 @@ public sealed class Organization
     [MaxLength(200)] public string EmailFromAddress { get; set; } = "";
     [MaxLength(120)] public string EmailFromName { get; set; } = "LessonCue";
     [MaxLength(16)] public string EmailProvider { get; set; } = "none";
+    /// <summary>Opt-in daily failures-only troubleshooting report.</summary>
+    public bool DailyTroubleshootingEmailEnabled { get; set; }
+    [MaxLength(200)] public string DailyTroubleshootingEmailRecipient { get; set; } = "";
+    [MaxLength(5)] public string DailyTroubleshootingEmailTime { get; set; } = "07:00";
+    public DateTimeOffset? DailyTroubleshootingEmailLastSentAt { get; set; }
+    [MaxLength(1000)] public string? DailyTroubleshootingEmailLastError { get; set; }
     [MaxLength(24000)] public string UploadQuotaPolicyJson { get; set; } = "{}";
 
     // The optional self-hosted URL shortener. Every value here is an
@@ -785,6 +791,7 @@ public sealed record RegistrationSectionInput(string Mode, string PublicBaseUrl)
 public sealed record EmailSettingsInput(string EmailProvider, string EmailFromAddress,
     string EmailFromName, string? ApiKey);
 public sealed record TestAccountEmailInput(string Recipient);
+public sealed record TroubleshootingEmailSettingsInput(bool Enabled, string Recipient, string TimeLocal);
 public sealed record RegistrationCodeInput(string Label, DateTimeOffset? ExpiresAt, int? MaxUses);
 public sealed record AudienceSessionInput(string Title, bool ShowLiveResults = false,
     bool AllowResponseChanges = true, int RetentionDays = 7, List<AudienceQuestionInput>? Questions = null);

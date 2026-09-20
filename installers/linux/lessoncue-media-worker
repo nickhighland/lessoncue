@@ -7,7 +7,6 @@ memory_bytes=2147483648
 file_bytes=21474836480
 processes=32
 write_roots=()
-skip_sandbox="${LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX:-0}"
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -34,17 +33,12 @@ if [[ ! "${timeout_seconds}" =~ ^[1-9][0-9]{0,5}$ ]] ||
   echo "LessonCue worker limits are invalid." >&2
   exit 64
 fi
-if [[ "${skip_sandbox}" != 0 && "${skip_sandbox}" != 1 ]]; then
-  echo "LessonCue worker sandbox override is invalid." >&2
-  exit 64
-fi
-
 # The service needs CAP_NET_BIND_SERVICE to open port 80, but media tools must
 # never inherit a usable capability. ConstrainedProcessRunner clears the
 # ambient and inheritable sets before exec; a normal exec then clears effective
-# and permitted capabilities too. Keep this assertion next to the sandbox so a
+# and permitted capabilities too. Keep this assertion next to the worker so a
 # future service or launcher change fails closed instead of running a privileged
-# converter. The root-only isolation harness is intentionally exempt.
+# converter. The root-only installer probe is intentionally exempt.
 if [[ "${EUID}" -ne 0 && -r /proc/self/status ]]; then
   for capability_set in CapInh CapPrm CapEff CapAmb; do
     capability_value="$(awk -v name="${capability_set}:" '$1 == name { print $2 }' /proc/self/status)"
@@ -54,95 +48,12 @@ if [[ "${EUID}" -ne 0 && -r /proc/self/status ]]; then
     fi
   done
 fi
-if [[ "${skip_sandbox}" == 0 ]] && ! command -v bwrap >/dev/null 2>&1; then
-  echo "The required LessonCue media sandbox is unavailable. Install bubblewrap and run the current LessonCue installer." >&2
-  exit 78
-fi
 
 data_path="${LESSONCUE_DATA_PATH:-/var/lib/lessoncue}"
 data_path="$(readlink -f "${data_path}")"
 if [[ ! -d "${data_path}" ]]; then
   echo "LessonCue media storage is unavailable." >&2
   exit 78
-fi
-
-sandbox=(
-  bwrap
-  --die-with-parent
-  --new-session
-  --unshare-user-try
-  --unshare-pid
-  --unshare-ipc
-  --unshare-uts
-  --unshare-cgroup-try
-  # Keep the sandbox payload capability-free even if bwrap was installed with
-  # stale file capabilities by an older package or hardening recipe.
-  --cap-drop ALL
-  --clearenv
-  --setenv PATH /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-  --setenv LC_ALL C
-  --setenv LANG C
-  --dir /etc
-  --dir /opt
-  --dir /sys
-  --dir /sys/class
-  --dir /sys/dev
-  --dir /var
-  --dir /var/lib
-  --ro-bind /usr /usr
-  --symlink usr/bin /bin
-  --symlink usr/sbin /sbin
-  --symlink usr/lib /lib
-  --ro-bind-try /usr/lib64 /usr/lib64
-  --symlink usr/lib64 /lib64
-  --ro-bind-try /etc/fonts /etc/fonts
-  # Debian and Ubuntu libraries may resolve through /etc/alternatives (for
-  # example libblas.so.3, which FFmpeg can load through libswscale).
-  --ro-bind-try /etc/alternatives /etc/alternatives
-  --ro-bind-try /etc/passwd /etc/passwd
-  --ro-bind-try /etc/group /etc/group
-  --ro-bind-try /etc/ld.so.cache /etc/ld.so.cache
-  --ro-bind-try /etc/localtime /etc/localtime
-  # libva follows DRM sysfs links from /sys/class/drm into /sys/devices. Bind
-  # only those read-only topology paths instead of exposing all of sysfs.
-  --ro-bind-try /sys/class /sys/class
-  --ro-bind-try /sys/dev /sys/dev
-  --ro-bind-try /sys/devices /sys/devices
-  --proc /proc
-  --dev /dev
-  --dev-bind-try /dev/dri /dev/dri
-  # An unprivileged user namespace cannot map the host's video/render group
-  # IDs. Namespace root maps back to the invoking service account, so it can
-  # open the bound DRM node without granting host root privileges.
-  --uid 0
-  --gid 0
-  --tmpfs /tmp
-  --ro-bind "${data_path}" "${data_path}"
-)
-
-# The legacy i965 path is required by Haswell and earlier Intel graphics. The
-# parent process may select it for the probe and real conversion; preserve the
-# VA-API selection after Bubblewrap's --clearenv instead of silently falling
-# back to the newer iHD driver.
-if [[ -n "${LIBVA_DRIVER_NAME:-}" ]]; then
-  sandbox+=(--setenv LIBVA_DRIVER_NAME "${LIBVA_DRIVER_NAME}")
-fi
-if [[ -n "${LIBVA_DRIVERS_PATH:-}" ]]; then
-  sandbox+=(--setenv LIBVA_DRIVERS_PATH "${LIBVA_DRIVERS_PATH}")
-fi
-
-if [[ -d /opt/lessoncue ]]; then
-  sandbox+=(--ro-bind /opt/lessoncue /opt/lessoncue)
-fi
-if [[ "${network}" == allow ]]; then
-  sandbox+=(
-    --ro-bind-try /etc/ssl /etc/ssl
-    --ro-bind-try /etc/resolv.conf /etc/resolv.conf
-    --ro-bind-try /etc/hosts /etc/hosts
-    --ro-bind-try /etc/nsswitch.conf /etc/nsswitch.conf
-  )
-else
-  sandbox+=(--unshare-net)
 fi
 
 first_write=
@@ -157,15 +68,18 @@ if ((${#write_roots[@]} > 0)); then
       echo "LessonCue media-worker write path does not exist." >&2
       exit 64
     fi
-    sandbox+=(--bind "${canonical}" "${canonical}")
     if [[ -z "${first_write}" ]]; then first_write="${canonical}"; fi
   done
 fi
 
 if [[ -n "${first_write}" ]]; then
-  sandbox+=(--setenv HOME "${first_write}" --setenv XDG_CACHE_HOME "${first_write}" --chdir "${first_write}")
+  export HOME="${first_write}"
+  export XDG_CACHE_HOME="${first_write}"
+  cd "${first_write}"
 else
-  sandbox+=(--setenv HOME /tmp --setenv XDG_CACHE_HOME /tmp --chdir /tmp)
+  export HOME=/tmp
+  export XDG_CACHE_HOME=/tmp
+  cd /tmp
 fi
 
 worker=(
@@ -176,15 +90,11 @@ worker=(
   "--fsize=${file_bytes}"
   --nofile=256
 )
-if [[ "${skip_sandbox}" == 1 ]]; then
-  # Some container runtimes reject the user-namespace and mount operations
-  # required by Bubblewrap. This explicit fallback relies on the outer
-  # container or CI runner as the isolation boundary while retaining the
-  # timeout, address-space, and output-file limits below. Do not apply the
-  # per-user process limit here: the fallback shares the process table with
-  # the server itself.
-  worker+=(-- "$@")
-  exec "${worker[@]}"
-fi
+# Native Linux intentionally uses the same direct worker path everywhere. The
+# old Bubblewrap namespace made ordinary media processing depend on kernel
+# user/mount namespace policy and was the source of repeated production
+# failures. The systemd service supplies the OS boundary (unprivileged user,
+# read-only system, private /tmp, no-new-privileges, capability restrictions,
+# and data-root write access); this helper retains per-process resource limits.
 worker+=("--nproc=${processes}" -- "$@")
-exec "${sandbox[@]}" -- "${worker[@]}"
+exec "${worker[@]}"

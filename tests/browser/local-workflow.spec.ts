@@ -841,6 +841,8 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByRole("button", { name: "Pause playback" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Stop playback" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Next cue" })).toBeVisible();
+  await expect(page.locator(".remote-lock-icon")).toHaveAttribute("viewBox", "0 0 24 24");
+  await expect(page.locator(".remote-flow")).toHaveCSS("overflow-y", "auto");
   await expect(page.locator(".app-shell.controller-mode > .mobile-shell-header")).toHaveCount(0);
   // The remote is one downward flow now: pick a lesson, pick a cue, control it.
   // No tabs, and nothing to discover behind them.
@@ -1415,7 +1417,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.46.6" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.46.7" });
   // A lesson the screen is allowed to keep should end up on the device, not
   // just signage. A room that loses its network mid-service used to lose the
   // lesson with it while the rota on the wall carried on playing.

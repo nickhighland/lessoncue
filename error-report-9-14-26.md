@@ -654,3 +654,67 @@ The Amazon APK was not modified: Amazon again returned
 explicitly recorded in the release's `AMAZON-APPSTORE-STATUS.md`; retry the
 existing **Submit Amazon Appstore APK** workflow after Amazon completes its
 review.
+
+## Direct worker and diagnostics follow-up — 2026-09-20
+
+The later production observation supplied after the bundle review was:
+
+`Playable now · original only — Media analysis is waiting for the processing runtime. bwrap: Can't mount proc on /newroot/proc: Operation not permitted`
+
+This is the concrete evidence that the earlier shared-worker hypothesis was
+correct. It is a Bubblewrap namespace/mount-permission failure before the
+converter could finish analysis or reach the Intel Quick Sync encoder; it is
+not evidence of a corrupt JPG/MP4, a bad checksum, or a Quick Sync codec
+failure. The original-only fallback was working as designed, but the
+compatibility path could not start. The original remained intact and playable.
+
+### Findings verified and corrected
+
+- **Bubblewrap dependency — confirmed and fixed.** The Linux media worker no
+  longer creates a user/mount/PID namespace or mounts `/proc`. Native Linux
+  processing now runs through the unprivileged systemd service boundary and
+  `setpriv`, with timeout, CPU, address-space, output-size, process-count,
+  open-file, and captured-output limits. Local FFmpeg/FFprobe inputs are
+  restricted to `file`, `pipe`, `crypto`, and `data` protocols. Installers,
+  Docker, CI, diagnostics, and documentation no longer require Bubblewrap.
+  This preserves Intel Quick Sync access to `/dev/dri` instead of presenting a
+  failing namespace as a hardware-encoder failure.
+- **System diagnostics 502 — source-confirmed and fixed.** The support bundle
+  endpoint previously allowed one storage, converter, database, backup, or
+  update exception to abort the entire response. It now returns the healthy
+  sections plus a named `diagnosticErrors` entry for each unavailable
+  component, and the Settings panel explains that the bundle is partial rather
+  than remaining stuck at “Collecting system diagnostics…”.
+- **Remote lock icon — visual issue confirmed and fixed.** The lock/unlock
+  state and button behavior were already correct. The CSS pseudo-element did
+  not read as an unlocked lock, so it was replaced with an explicit SVG whose
+  shackle is visibly open or closed. No control logic changed. The playback
+  bar remains fixed above the independently scrolling remote flow.
+- **Daily AI-readable report — implemented.** Service Admins can opt in to a
+  recipient and local delivery time. The server sends a compressed,
+  failures-only report containing runtime/audit failures, MediaAsset state,
+  original/derived file checks, converter dependencies, TV cache/download/
+  playback diagnostics, and named partial-diagnostic failures. Provider
+  credentials and tokens remain protected and are not included.
+- **Server-only release rule — implemented.** Release scope now classifies
+  Android/Google TV, Vega TV, and protocol changes as TV-impacting. A
+  server/web-only change skips TV packaging and publication. This follow-up
+  changes no Android, Vega TV, or tvOS source.
+
+### Validation for this follow-up
+
+- `dotnet test server/LessonCue.Server.Tests/LessonCue.Server.Tests.csproj --no-restore` — 564/564 passed.
+- `npm run build:admin`, `npm run typecheck:admin`, `npm run lint`, protocol,
+  shortener, network-config, web-unit, and release-scope checks passed; lint
+  retains only the repository's existing 15 hook-dependency warnings.
+- The browser local workflow passed, including fresh JPG/MP4 processing,
+  media diagnostics, exact media responses, the remote controls, and the
+  new lock-icon/top-scroll assertions.
+- The local Docker worker exercise was not runnable because the Docker daemon
+  was not running on this workstation; CI/release validation still exercises
+  the Linux worker in Debian for both the service-account and resource-limit
+  paths.
+
+No higher-reasoning model is needed for these fixes. The decisive worker error,
+the diagnostics failure mode, and the icon-only UI change were all directly
+verified in the code or the supplied production observation.
