@@ -153,6 +153,17 @@ public sealed class ManifestService(LessonCueDb db)
         var useVariant = variant is not null;
         var useNative = requestedProfile == "native";
         var selectedProfile = useVariant ? variant!.Profile : useNative ? "native" : compatible ? AdaptiveTranscodeProfiles.Universal1080 : media?.CompatibilityStatus == "native" ? "native" : "original";
+        var sha256 = useVariant ? variant!.Sha256 : compatible && !useNative ? media?.CompatibilitySha256 : media?.Sha256;
+        var cacheVersion = string.IsNullOrWhiteSpace(sha256)
+            ? media?.Version.ToString()
+            : sha256[..Math.Min(12, sha256.Length)];
+        string? VersionLocalMedia(string? url) => url is null || cacheVersion is null
+            ? url
+            : $"{url}?v={Uri.EscapeDataString(cacheVersion)}";
+        var localDownloadUrl = useVariant ? $"/api/v1/media/{media!.Id}/transcodes/{variant!.Profile}" :
+            useNative ? $"/api/v1/media/{media!.Id}/file" :
+            item.MediaAssetId is { } mediaId && media?.SourceKind != "link" && !string.IsNullOrWhiteSpace(media?.RelativePath)
+                ? $"/api/v1/media/{mediaId}/playback" : null;
         return new
         {
             itemId = item.Id,
@@ -163,16 +174,13 @@ public sealed class ManifestService(LessonCueDb db)
             fallbackMessage = render.Message,
             downloadUrl = !render.CanRender ? null :
                 media is { SourceKind: "link", LinkKind: "direct" } linked ? linked.SourceUrl :
-                useVariant ? $"/api/v1/media/{media!.Id}/transcodes/{variant!.Profile}" :
-                useNative ? $"/api/v1/media/{media!.Id}/file" :
-                item.MediaAssetId is { } mediaId && media?.SourceKind != "link" && !string.IsNullOrWhiteSpace(media?.RelativePath)
-                    ? $"/api/v1/media/{mediaId}/playback" : null,
+                VersionLocalMedia(localDownloadUrl),
             playbackUrl = render.CanRender && media is { SourceKind: "link" } online
                 ? YouTubeMedia.EmbedUrl(online.SourceUrl) ?? online.SourceUrl
                 : (render.CanRender && item.ActivityDefinitionId is { } definitionId
                     ? $"/activity-display?definitionId={definitionId}&lessonId={lessonId}&lessonItemId={item.Id}"
                     : null),
-            sha256 = useVariant ? variant!.Sha256 : compatible && !useNative ? media?.CompatibilitySha256 : media?.Sha256,
+            sha256,
             sizeBytes = useVariant ? variant!.SizeBytes : compatible && !useNative ? media?.CompatibilitySizeBytes : media?.SizeBytes,
             contentType = useVariant || compatible && !useNative ? "video/mp4" : media?.ContentType,
             fileExtension = useVariant || compatible && !useNative ? "mp4" : Path.GetExtension(media?.RelativePath ?? "").TrimStart('.').ToLowerInvariant(),
@@ -540,9 +548,9 @@ public sealed class ManifestService(LessonCueDb db)
     private static string SignageReadiness(MediaAsset? media)
     {
         if (media is null) return "ready";
-        if (media.ProcessingStatus is "pending" or "processing" || media.CompatibilityStatus is "pending" or "processing")
+        if (media.ProcessingStatus is "pending" or "processing")
             return "preparing";
-        if (media.ProcessingStatus == "failed" || media.CompatibilityStatus == "failed") return "failed";
+        if (media.ProcessingStatus == "failed") return "failed";
         if (media.SourceKind != "link" && string.IsNullOrWhiteSpace(media.RelativePath)) return "missing";
         return "ready";
     }

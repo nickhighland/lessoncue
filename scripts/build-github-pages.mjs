@@ -11,7 +11,9 @@ if (!outputArgument) {
 }
 
 const outputDirectory = path.resolve(outputArgument);
-if (outputDirectory === repositoryRoot || outputDirectory === path.parse(repositoryRoot).root) {
+const filesystemRoot = path.parse(repositoryRoot).root;
+const isWithin = (candidate, parent) => candidate === parent || candidate.startsWith(`${parent}${path.sep}`);
+if (outputDirectory === filesystemRoot || isWithin(outputDirectory, repositoryRoot) || isWithin(repositoryRoot, outputDirectory)) {
   throw new Error("Refusing to replace the repository or filesystem root.");
 }
 

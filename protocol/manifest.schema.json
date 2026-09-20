@@ -170,6 +170,7 @@
         "richTextJson": { "type": ["string", "null"], "maxLength": 12000 },
         "fontFamily": { "type": ["string", "null"] },
         "fontSize": { "type": "integer", "minimum": 8, "maximum": 300 },
+        "fontScalePercent": { "type": "integer", "minimum": 1, "maximum": 40 },
         "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
         "italic": { "type": "boolean" },
         "underline": { "type": "boolean" },
@@ -291,6 +292,7 @@
         "preRollStartsAt": { "type": ["string", "null"], "format": "date-time" },
         "countdown": { "$ref": "#/$defs/countdown" },
         "preRoll": { "$ref": "#/$defs/preRoll" },
+        "postLesson": { "$ref": "#/$defs/preRoll" },
         "items": { "type": "array", "items": { "$ref": "#/$defs/item" } }
       }
     },
@@ -341,6 +343,7 @@
         "configuredVolumePercent": { "type": "integer", "minimum": 0, "maximum": 150 },
         "muted": { "type": "boolean" },
         "imageDurationSeconds": { "type": ["integer", "null"], "minimum": 1 },
+        "estimatedDurationSeconds": { "type": ["integer", "null"], "minimum": 1 },
         "endBehavior": { "enum": ["advance", "pause", "loop", "menu", "stop"] },
         "allowSkip": { "type": "boolean", "default": true },
         "offlineEligible": { "type": "boolean" },

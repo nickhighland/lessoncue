@@ -93,7 +93,7 @@ function pdfBuffer(label) {
   const pages = [1, 2, 3].map(page => `BT /F1 24 Tf 72 700 Td (${safeLabel} — page ${page}) Tj ET\n`);
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>",
+    "<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R] /Count 3 >>",
     ...pages.flatMap((content, index) => [
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 9 0 R >> >> /Contents ${4 + index * 2} 0 R >>`,
       `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}endstream`,

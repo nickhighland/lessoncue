@@ -504,8 +504,9 @@ api.MapGet("/media/{mediaId:guid}/file", async (Guid mediaId, LessonCueDb db, Ca
 {
     var media = await db.MediaAssets.AsNoTracking().SingleOrDefaultAsync(x => x.Id == mediaId, ct);
     if (media is null || media.SourceKind == "link") return Results.NotFound();
+    var normalizedRoot = Path.GetFullPath(mediaPath) + Path.DirectorySeparatorChar;
     var path = Path.GetFullPath(Path.Combine(mediaPath, media.RelativePath));
-    if (!path.StartsWith(Path.GetFullPath(mediaPath), StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
+    if (!path.StartsWith(normalizedRoot, StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
     return Results.File(path, media.ContentType, media.FileName, enableRangeProcessing: true,
         entityTag: media.Sha256 is null ? null : new Microsoft.Net.Http.Headers.EntityTagHeaderValue($"\"{media.Sha256}\""));
 });
@@ -547,7 +548,8 @@ api.MapGet("/media/{mediaId:guid}/thumbnail", async (Guid mediaId, LessonCueDb d
     if (media?.ThumbnailPath is null) return Results.NotFound();
     var thumbnails = Path.Combine(dataPath, "media", "thumbnails");
     var path = Path.GetFullPath(Path.Combine(thumbnails, media.ThumbnailPath));
-    if (!path.StartsWith(Path.GetFullPath(thumbnails), StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
+    var normalizedRoot = Path.GetFullPath(thumbnails) + Path.DirectorySeparatorChar;
+    if (!path.StartsWith(normalizedRoot, StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
     return Results.File(path, "image/jpeg", enableRangeProcessing: true);
 });
 
@@ -656,24 +658,45 @@ api.MapPost("/pairing/request", async (PairingRequestInput input, LessonCueDb db
 api.MapPost("/pairing/confirm", async (PairingConfirmInput input, LessonCueDb db,
     IPasswordHasher<PairingAttempt> hasher, CancellationToken ct) =>
 {
-    var attempt = await db.PairingAttempts.SingleOrDefaultAsync(x => x.Id == input.RequestId, ct);
-    if (attempt is null || attempt.Completed || attempt.ExpiresAt <= DateTimeOffset.UtcNow || attempt.FailedAttempts >= 5)
+    await using var transaction = await db.Database.BeginTransactionAsync(ct);
+    var now = DateTimeOffset.UtcNow;
+    var attempt = await db.PairingAttempts.AsNoTracking()
+        .SingleOrDefaultAsync(x => x.Id == input.RequestId, ct);
+    if (attempt is null || attempt.Completed || attempt.ExpiresAt <= now || attempt.FailedAttempts >= 5)
         return Results.BadRequest(new { error = "Pairing request expired or locked." });
     var result = hasher.VerifyHashedPassword(attempt, attempt.PinHash, input.Pin);
     if (result == PasswordVerificationResult.Failed)
     {
-        attempt.FailedAttempts++;
-        await db.SaveChangesAsync(ct);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE "PairingAttempts"
+            SET "FailedAttempts" = "FailedAttempts" + 1
+            WHERE "Id" = {input.RequestId}
+              AND "Completed" = 0
+              AND "ExpiresAt" > {now}
+              AND "FailedAttempts" < 5
+            """, ct);
+        await transaction.CommitAsync(ct);
         return Results.BadRequest(new { error = "Incorrect PIN." });
     }
+
+    var claimed = await db.Database.ExecuteSqlInterpolatedAsync($"""
+        UPDATE "PairingAttempts"
+        SET "Completed" = 1
+        WHERE "Id" = {input.RequestId}
+          AND "Completed" = 0
+          AND "ExpiresAt" > {now}
+          AND "FailedAttempts" < 5
+        """, ct);
+    if (claimed != 1)
+        return Results.BadRequest(new { error = "Pairing request expired or locked." });
 
     var screen = new Screen { Name = attempt.DeviceName, Platform = attempt.Platform };
     var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
     db.Screens.Add(screen);
     db.DeviceCredentials.Add(new DeviceCredential { ScreenId = screen.Id, TokenHash = HashToken(token) });
-    attempt.Completed = true;
     db.AuditEvents.Add(new AuditEvent { Actor = attempt.DeviceName, Action = "screen.pair.complete", Object = screen.Id.ToString() });
     await db.SaveChangesAsync(ct);
+    await transaction.CommitAsync(ct);
     return Results.Ok(new { screenId = screen.Id, deviceToken = token, apiVersion = 1, serverPublicKey = (string?)null });
 }).RequireRateLimiting("pairing");
 

@@ -716,8 +716,17 @@ if [[ "${REQUEST}" == shortener:install ]]; then
 
   # Checked against the signed checksums, the same as every other download.
   if ! curl -fL "${BASE}/${BUNDLE}" -o "${SHORTENER_WORK}/${BUNDLE}" 2>/dev/null ||
-     ! curl -fL "${BASE}/SHA256SUMS" -o "${SHORTENER_WORK}/SHA256SUMS" 2>/dev/null; then
+     ! curl -fL "${BASE}/SHA256SUMS" -o "${SHORTENER_WORK}/SHA256SUMS" 2>/dev/null ||
+     ! curl -fL "${BASE}/SHA256SUMS.sig" -o "${SHORTENER_WORK}/SHA256SUMS.sig" 2>/dev/null; then
     write_shortener_result false "${SHORT_DOMAIN}" "This release does not carry the URL shortener bundle."
+    exit 1
+  fi
+  SHORTENER_PUBLIC_KEY="${LESSONCUE_RELEASE_PUBLIC_KEY:-/etc/lessoncue/release-signing-public.pem}"
+  if [[ ! -f "${SHORTENER_PUBLIC_KEY}" ]] ||
+     ! openssl pkeyutl -verify -pubin -inkey "${SHORTENER_PUBLIC_KEY}" \
+       -rawin -in "${SHORTENER_WORK}/SHA256SUMS" \
+       -sigfile "${SHORTENER_WORK}/SHA256SUMS.sig" >/dev/null 2>&1; then
+    write_shortener_result false "${SHORT_DOMAIN}" "LessonCue rejected this release because its checksum signature is missing or invalid."
     exit 1
   fi
   if ! grep -F "  ${BUNDLE}" "${SHORTENER_WORK}/SHA256SUMS" > "${SHORTENER_WORK}/bundle.sha256" ||

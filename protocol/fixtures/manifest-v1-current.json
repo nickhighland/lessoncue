@@ -1367,7 +1367,7 @@
           "title": "Generated presentation slide",
           "renderSupport": "supported",
           "fallbackMessage": null,
-          "downloadUrl": "/api/v1/media/10000000-0000-0000-0000-000000000004/playback",
+          "downloadUrl": "/api/v1/media/10000000-0000-0000-0000-000000000004/playback?v=aaaaaaaaaaaa",
           "playbackUrl": null,
           "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "sizeBytes": 4096,

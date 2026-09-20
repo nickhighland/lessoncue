@@ -1366,7 +1366,7 @@ export function MediaView({
                 <span>
                   <i className="available-dot" />{" "}
                   {m.processingStatus === "pending" || m.processingStatus === "processing"
-                    ? m.compatibilityStatus === "converting" ? "Making TV copy · stage 3/4" : "Inspecting file · stage 1/4"
+                    ? "Preparing upload · playable when ready"
                     : m.processingStatus === "failed" ? "Processing failed"
                     : isConvertibleDocument(m)
                       ? m.conversionStatus === "failed" ? "Slide conversion failed"
@@ -1374,7 +1374,10 @@ export function MediaView({
                           : m.conversionStatus === "ready" && convertedSlideCount(m) > 0 ? "Slides ready"
                             : "Needs slide conversion"
                       : m.compatibilityStatus === "ready" ? "TV copy ready"
-                        : m.offlineEligible ? "TV ready" : "Internet required"}
+                        : m.compatibilityStatus === "converting" ? "Playable now · making TV copy"
+                          : m.compatibilityStatus === "pending" ? "Playable now · TV copy queued"
+                            : m.compatibilityStatus === "failed" ? "Playable now · original only"
+                              : m.offlineEligible ? "TV ready" : "Internet required"}
                 </span>
                 {(m.processingError || m.compatibilityError || m.conversionError) && (
                   <small className="media-remediation">
@@ -1500,7 +1503,11 @@ export function MediaManagerModal({
                   {media.compatibilityError ||
                     (media.compatibilityStatus === "ready"
                       ? `LessonCue kept the original and serves a ${formatBytes(media.compatibilitySizeBytes || 0)} MP4 fallback to every TV${media.compatibilityTranscodeEngine ? `, created with ${media.compatibilityTranscodeEngine}` : ""}.`
-                      : "LessonCue checks every upload locally and converts only when the original may not play reliably on Android TV, Google TV, or Fire TV.")}
+                      : media.compatibilityStatus === "pending"
+                        ? "The original upload is available immediately while LessonCue queues a compatibility copy for Android TV, Google TV, and Fire TV."
+                        : media.compatibilityStatus === "converting"
+                          ? "The original upload is available immediately while LessonCue creates a compatibility copy for Android TV, Google TV, and Fire TV."
+                          : "LessonCue checks every upload locally and converts only when the original may not play reliably on Android TV, Google TV, or Fire TV.")}
                 </p>
               </div>
               {media.compatibilityTranscodedAt && (

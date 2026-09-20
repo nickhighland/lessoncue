@@ -12,6 +12,13 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        try
+        {
+            await RecoverInterruptedAsync(stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
+        catch (Exception ex) { logger.LogError(ex, "Could not recover interrupted media processing"); }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -33,9 +40,36 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
         }
     }
 
+    private async Task RecoverInterruptedAsync(CancellationToken ct)
+    {
+        using var scope = scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
+        var interrupted = await db.MediaAssets
+            .Where(x => x.ProcessingStatus == "processing" || x.CompatibilityStatus == "converting")
+            .ToListAsync(ct);
+        foreach (var item in interrupted)
+        {
+            if (item.ProcessingStatus == "processing") item.ProcessingStatus = "pending";
+            if (item.CompatibilityStatus == "converting") item.CompatibilityStatus = "pending";
+            item.ProcessingError = null;
+            item.CompatibilityError = null;
+        }
+        if (interrupted.Count > 0) await db.SaveChangesAsync(ct);
+    }
+
     private async Task ProcessAsync(MediaAsset item, LessonCueDb db, CancellationToken ct)
     {
         var fullPath = Path.GetFullPath(Path.Combine(paths.Originals, item.RelativePath));
+
+        // A source that has already been inspected and had its derivatives made
+        // is playable now.  Compatibility conversion is deliberately a second
+        // phase so a slow or unavailable encoder never hides the original file.
+        if (item.ProcessingStatus == "ready" && item.CompatibilityStatus == "pending")
+        {
+            await ProcessCompatibilityAsync(item, db, fullPath, remuxOnly: false, ct);
+            return;
+        }
+
         item.ProcessingStatus = "processing";
         await db.SaveChangesAsync(ct);
         try
@@ -104,18 +138,19 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
             }
 
             var isVideo = IsVideo(extension, item.ContentType);
-            var playbackPath = fullPath;
+            var needsCompatibility = false;
+            var remuxOnly = false;
             if (isVideo)
             {
                 var nativeEncoding = PlaybackCompatibility.HasUniversalEncoding(item.VideoCodec, item.AudioCodec,
                     pixelFormat, h264Level, item.Width, item.Height);
                 var nativeContainer = PlaybackCompatibility.HasMp4Container(formatName);
-                if (!nativeEncoding || !nativeContainer)
+                needsCompatibility = !nativeEncoding || !nativeContainer;
+                remuxOnly = nativeEncoding && !nativeContainer;
+                if (needsCompatibility)
                 {
-                    item.CompatibilityStatus = "converting";
+                    item.CompatibilityStatus = "pending";
                     item.CompatibilityError = null;
-                    await db.SaveChangesAsync(ct);
-                    playbackPath = await CreateCompatibilityCopyAsync(item, db, fullPath, nativeEncoding, ct);
                 }
                 else
                 {
@@ -133,50 +168,89 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
                 var relative = item.Id + ".jpg";
                 var output = Path.Combine(paths.Thumbnails, relative);
                 var seek = item.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ? "" : "-ss 0.1 ";
-                await RunDerivativeAsync("ffmpeg", $"-nostdin -y {seek}-i \"{Escape(playbackPath)}\" -frames:v 1 -vf scale=640:-2:out_range=full -pix_fmt yuvj420p \"{Escape(output)}\"", item.FileName, ct);
+                await RunDerivativeAsync("ffmpeg", $"-nostdin -y {seek}-i \"{Escape(fullPath)}\" -frames:v 1 -vf scale=640:-2:out_range=full -pix_fmt yuvj420p \"{Escape(output)}\"", item.FileName, ct);
                 if (File.Exists(output)) item.ThumbnailPath = relative;
-                if (item.DurationMs is > 0)
-                {
-                    var filmstripRelative = item.Id + "-filmstrip.jpg";
-                    var filmstripOutput = Path.Combine(paths.Thumbnails, filmstripRelative);
-                    var interval = Math.Max(.1, item.DurationMs.Value / 6000d).ToString("0.###", CultureInfo.InvariantCulture);
-                    await RunDerivativeAsync("ffmpeg", $"-nostdin -y -i \"{Escape(playbackPath)}\" -vf \"fps=1/{interval},scale=160:90:force_original_aspect_ratio=decrease,pad=160:90:(ow-iw)/2:(oh-ih)/2,tile=6x1\" -frames:v 1 -q:v 3 \"{Escape(filmstripOutput)}\"", item.FileName, ct);
-                    if (File.Exists(filmstripOutput)) item.FilmstripPath = filmstripRelative;
-                }
+            }
+
+            // Thumbnail generation is the first derivative and the only one
+            // required before the original can be used in a lesson. Persist
+            // that ready state before starting any lower-priority analysis.
+            item.ProcessingStatus = "ready";
+            item.ProcessingError = null;
+            item.OfflineEligible = !isVideo || item.CompatibilityStatus is "native" or "ready";
+            await db.SaveChangesAsync(ct);
+
+            // Start the compatibility copy immediately after the thumbnail.
+            // The playback endpoint serves the original while this optional
+            // copy is being made, so upload latency is not encoder latency.
+            if (needsCompatibility)
+                await ProcessCompatibilityAsync(item, db, fullPath, remuxOnly, ct);
+
+            // Filmstrips and waveform/loudness data improve the editor but are
+            // intentionally after the ready state and compatibility trigger.
+            if (item.VideoCodec is not null && item.DurationMs is > 0)
+            {
+                var filmstripRelative = item.Id + "-filmstrip.jpg";
+                var filmstripOutput = Path.Combine(paths.Thumbnails, filmstripRelative);
+                var interval = Math.Max(.1, item.DurationMs.Value / 6000d).ToString("0.###", CultureInfo.InvariantCulture);
+                await RunDerivativeAsync("ffmpeg", $"-nostdin -y -i \"{Escape(fullPath)}\" -vf \"fps=1/{interval},scale=160:90:force_original_aspect_ratio=decrease,pad=160:90:(ow-iw)/2:(oh-ih)/2,tile=6x1\" -frames:v 1 -q:v 3 \"{Escape(filmstripOutput)}\"", item.FileName, ct);
+                if (File.Exists(filmstripOutput)) item.FilmstripPath = filmstripRelative;
             }
             if (item.AudioCodec is not null)
             {
                 try
                 {
-                    var loudness = await RunAsync("ffmpeg", $"-nostdin -hide_banner -nostats -i \"{Escape(playbackPath)}\" -af loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json -f null -", ct);
+                    var loudness = await RunAsync("ffmpeg", $"-nostdin -hide_banner -nostats -i \"{Escape(fullPath)}\" -af loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json -f null -", ct);
                     var match = Regex.Match(loudness, "\\\"input_i\\\"\\s*:\\s*\\\"(?<value>-?[0-9.]+)\\\"");
                     if (match.Success && double.TryParse(match.Groups["value"].Value,
                         NumberStyles.Float, CultureInfo.InvariantCulture, out var lufs)) item.LoudnessLufs = lufs;
                     Directory.CreateDirectory(paths.Thumbnails);
                     var waveformRelative = item.Id + "-waveform.png";
                     var waveformOutput = Path.Combine(paths.Thumbnails, waveformRelative);
-                    await RunDerivativeAsync("ffmpeg", $"-nostdin -y -i \"{Escape(playbackPath)}\" -filter_complex \"aformat=channel_layouts=mono,showwavespic=s=1200x140:colors=#d89127\" -frames:v 1 \"{Escape(waveformOutput)}\"", item.FileName, ct);
+                    await RunDerivativeAsync("ffmpeg", $"-nostdin -y -i \"{Escape(fullPath)}\" -filter_complex \"aformat=channel_layouts=mono,showwavespic=s=1200x140:colors=#d89127\" -frames:v 1 \"{Escape(waveformOutput)}\"", item.FileName, ct);
                     if (File.Exists(waveformOutput)) item.WaveformPath = waveformRelative;
                 }
                 catch (Exception ex) { logger.LogWarning(ex, "Could not analyze audio for {MediaFile}", item.FileName); }
             }
-            item.ProcessingStatus = "ready";
-            item.ProcessingError = null;
-            item.OfflineEligible = !isVideo || item.CompatibilityStatus is "native" or "ready";
+            await db.SaveChangesAsync(ct);
+            return;
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             item.ProcessingStatus = "failed";
             item.ProcessingError = Concise(ex.Message);
-            if (item.CompatibilityStatus == "converting")
-            {
-                item.CompatibilityStatus = "failed";
-                item.CompatibilityError = "LessonCue could not create a TV-compatible H.264/AAC copy. " + Concise(ex.Message, 700);
-            }
             item.OfflineEligible = false;
             logger.LogWarning(ex, "Could not process {MediaFile}", item.FileName);
         }
         await db.SaveChangesAsync(ct);
+    }
+
+    private async Task ProcessCompatibilityAsync(MediaAsset item, LessonCueDb db, string source,
+        bool remuxOnly, CancellationToken ct)
+    {
+        if (item.ProcessingStatus != "ready" || item.CompatibilityStatus != "pending") return;
+
+        item.CompatibilityStatus = "converting";
+        item.CompatibilityError = null;
+        await db.SaveChangesAsync(ct);
+        try
+        {
+            await CreateCompatibilityCopyAsync(item, db, source, remuxOnly, ct);
+            item.OfflineEligible = true;
+            await db.SaveChangesAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            // The original remains a valid playback source even when the
+            // optional compatibility copy cannot be created.
+            item.CompatibilityStatus = "failed";
+            item.CompatibilityError = "LessonCue could not create a TV-compatible H.264/AAC copy. " + Concise(ex.Message, 700);
+            item.OfflineEligible = false;
+            await db.SaveChangesAsync(ct);
+            logger.LogWarning(ex, "Could not create compatibility copy for {MediaFile}", item.FileName);
+        }
     }
 
     private async Task<string> CreateCompatibilityCopyAsync(MediaAsset item, LessonCueDb db, string source,

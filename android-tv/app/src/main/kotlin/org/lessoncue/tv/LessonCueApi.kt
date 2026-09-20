@@ -442,6 +442,9 @@ class LessonCueApi(
         val connection = openConnection(URL("$baseUrl$path"))
         try {
             connection.requestMethod = method
+            // Never let a server redirect an authenticated device request to a
+            // different host (or from HTTPS to cleartext) implicitly.
+            connection.instanceFollowRedirects = false
             connection.connectTimeout = connectTimeoutMillis
             connection.readTimeout = readTimeoutMillis
             connection.setRequestProperty("Accept", "application/json")
@@ -480,8 +483,8 @@ class LessonCueApi(
     }
 }
 
-private fun ScreenManifest.allItems(): List<CueItem> = (playlists.flatMap {
-    it.items + it.preRoll?.items.orEmpty() + listOfNotNull(it.countdown?.item)
+internal fun ScreenManifest.allItems(): List<CueItem> = (playlists.flatMap {
+    it.items + it.preRoll?.items.orEmpty() + listOfNotNull(it.countdown?.item) + it.postLesson?.items.orEmpty()
 } + signageSchedule.flatMap { sign -> listOfNotNull(sign.media, sign.backgroundAudio) + sign.zones.mapNotNull { it.media } +
     sign.contentPlaylist?.items.orEmpty().flatMap { entry ->
         listOfNotNull(entry.media, entry.layout?.backgroundAudio) + entry.layout?.zones.orEmpty().mapNotNull { it.media }

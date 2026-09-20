@@ -125,7 +125,7 @@ async function loadManifest(): Promise<Record<string, string[]> | null> {
   if (manifestRequest) return manifestRequest;
   manifestRequest = (async () => {
     try {
-      const response = await fetch('/assets/games/manifest.json', { cache: 'force-cache' });
+      const response = await fetch('/assets/games/manifest.json', { cache: 'no-cache' });
       if (!response.ok) return null;
       const body = await response.json() as { packs?: Record<string, string[]> };
       return body && typeof body === 'object' && body.packs ? body.packs : {};
@@ -181,7 +181,7 @@ async function loadSfxBuffer(url: string): Promise<AudioBuffer | null> {
     try {
       const ctx = getSharedAudioContext();
       if (!ctx) return null;
-      const response = await fetch(url, { cache: 'force-cache' });
+      const response = await fetch(url, { cache: 'no-cache' });
       // A missing pack is the normal case, not an error worth logging.
       if (!response.ok) return null;
       const bytes = await response.arrayBuffer();
@@ -222,7 +222,7 @@ async function resolveSfx(chain: string[], cue: GameSfxCue): Promise<AudioBuffer
 async function themeExists(url: string): Promise<boolean> {
   const probe = themeProbes.get(url);
   if (probe) return probe;
-  const request = fetch(url, { method: 'GET', cache: 'force-cache' })
+  const request = fetch(url, { method: 'GET', cache: 'no-cache' })
     .then(response => response.ok)
     .catch(() => false);
   themeProbes.set(url, request);

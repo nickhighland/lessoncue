@@ -1320,12 +1320,16 @@ public static class AdminApi
         {
             var source = await db.Lessons.AsNoTracking().Include(x => x.Items).SingleOrDefaultAsync(x => x.Id == id, ct);
             if (source is null) return Results.NotFound();
+            var timeZone = await db.Organizations.AsNoTracking().OrderBy(item => item.Id)
+                .Select(item => item.TimeZone).FirstOrDefaultAsync(ct) ?? "UTC";
             var copy = new Lesson
             {
                 ClassId = source.ClassId, Date = source.Date.AddDays(7), Title = source.Title + " copy",
-                AvailableFrom = source.AvailableFrom?.AddDays(7), ExpiresAt = source.ExpiresAt?.AddDays(7),
-                DesignatedStartAt = source.DesignatedStartAt?.AddDays(7), PreRollEnabled = source.PreRollEnabled,
-                PreRollStartsAt = source.PreRollStartsAt?.AddDays(7),
+                AvailableFrom = LessonScheduleService.ShiftWallClock(source.AvailableFrom, 7, timeZone),
+                ExpiresAt = LessonScheduleService.ShiftWallClock(source.ExpiresAt, 7, timeZone),
+                DesignatedStartAt = LessonScheduleService.ShiftWallClock(source.DesignatedStartAt, 7, timeZone),
+                PreRollEnabled = source.PreRollEnabled,
+                PreRollStartsAt = LessonScheduleService.ShiftWallClock(source.PreRollStartsAt, 7, timeZone),
                 KeepOffline = source.KeepOffline, DownloadDaysBefore = source.DownloadDaysBefore,
                 VolumePercent = source.VolumePercent, Muted = source.Muted,
                 SubstituteNotes = source.SubstituteNotes, PreRollMonitorUrl = source.PreRollMonitorUrl
@@ -1347,7 +1351,8 @@ public static class AdminApi
                     CropBottomPercent = sourceItem.CropBottomPercent, Muted = sourceItem.Muted,
                     PlaybackRatePercent = sourceItem.PlaybackRatePercent, RepeatCount = sourceItem.RepeatCount,
                     BackgroundColor = sourceItem.BackgroundColor, TransitionStyle = sourceItem.TransitionStyle,
-                    TransitionDurationMs = sourceItem.TransitionDurationMs, FlexibleTime = sourceItem.FlexibleTime
+                    TransitionDurationMs = sourceItem.TransitionDurationMs, FlexibleTime = sourceItem.FlexibleTime,
+                    ActivityDefinitionId = sourceItem.ActivityDefinitionId
                 };
                 copy.Items.Add(clone);
                 if (sourceItem.Id == source.CountdownItemId || sourceItem.Role == "countdown") copy.CountdownItemId = clone.Id;
@@ -1368,16 +1373,18 @@ public static class AdminApi
             if (!await db.Classes.AnyAsync(x => x.Id == input.ClassId, ct)) return Results.BadRequest(new { error = "Choose an existing destination class." });
             var source = await db.Lessons.Include(x => x.Items).SingleOrDefaultAsync(x => x.Id == id, ct);
             if (source is null) return Results.NotFound();
+            var timeZone = await db.Organizations.AsNoTracking().OrderBy(item => item.Id)
+                .Select(item => item.TimeZone).FirstOrDefaultAsync(ct) ?? "UTC";
             var title = string.IsNullOrWhiteSpace(input.Title) ? source.Title : input.Title.Trim();
             if (title.Length > 160) return Results.BadRequest(new { error = "Lesson title may contain at most 160 characters." });
             var shiftDays = input.Date.DayNumber - source.Date.DayNumber;
             if (action == "move")
             {
                 source.ClassId = input.ClassId; source.Date = input.Date; source.Title = title;
-                source.AvailableFrom = source.AvailableFrom?.AddDays(shiftDays);
-                source.ExpiresAt = source.ExpiresAt?.AddDays(shiftDays);
-                source.DesignatedStartAt = source.DesignatedStartAt?.AddDays(shiftDays);
-                source.PreRollStartsAt = source.PreRollStartsAt?.AddDays(shiftDays);
+                source.AvailableFrom = LessonScheduleService.ShiftWallClock(source.AvailableFrom, shiftDays, timeZone);
+                source.ExpiresAt = LessonScheduleService.ShiftWallClock(source.ExpiresAt, shiftDays, timeZone);
+                source.DesignatedStartAt = LessonScheduleService.ShiftWallClock(source.DesignatedStartAt, shiftDays, timeZone);
+                source.PreRollStartsAt = LessonScheduleService.ShiftWallClock(source.PreRollStartsAt, shiftDays, timeZone);
                 source.GeneratedByScheduleId = null; source.Version++;
                 var mediaIds = source.Items.Where(x => x.MediaAssetId != null).Select(x => x.MediaAssetId!.Value).Distinct().ToList();
                 var media = await db.MediaAssets.Where(x => mediaIds.Contains(x.Id) && x.StoragePolicy == MediaRetention.LessonScoped).ToListAsync(ct);
@@ -1390,8 +1397,10 @@ public static class AdminApi
             var copy = new Lesson
             {
                 ClassId = input.ClassId, Date = input.Date, Title = title,
-                AvailableFrom = source.AvailableFrom?.AddDays(shiftDays), ExpiresAt = source.ExpiresAt?.AddDays(shiftDays),
-                DesignatedStartAt = source.DesignatedStartAt?.AddDays(shiftDays), PreRollStartsAt = source.PreRollStartsAt?.AddDays(shiftDays),
+                AvailableFrom = LessonScheduleService.ShiftWallClock(source.AvailableFrom, shiftDays, timeZone),
+                ExpiresAt = LessonScheduleService.ShiftWallClock(source.ExpiresAt, shiftDays, timeZone),
+                DesignatedStartAt = LessonScheduleService.ShiftWallClock(source.DesignatedStartAt, shiftDays, timeZone),
+                PreRollStartsAt = LessonScheduleService.ShiftWallClock(source.PreRollStartsAt, shiftDays, timeZone),
                 PreRollEnabled = source.PreRollEnabled, KeepOffline = source.KeepOffline, DownloadDaysBefore = source.DownloadDaysBefore,
                 VolumePercent = source.VolumePercent, Muted = source.Muted, SubstituteNotes = source.SubstituteNotes,
                 PreRollMonitorUrl = source.PreRollMonitorUrl
@@ -1447,13 +1456,15 @@ public static class AdminApi
                 case "shift":
                     if (input.ShiftDays is not int shiftDays || shiftDays is < -3650 or > 3650 || shiftDays == 0)
                         return Results.BadRequest(new { error = "Enter a non-zero date shift between -3650 and 3650 days." });
+                    var timeZone = await db.Organizations.AsNoTracking().OrderBy(item => item.Id)
+                        .Select(item => item.TimeZone).FirstOrDefaultAsync(ct) ?? "UTC";
                     foreach (var lesson in lessons)
                     {
                         lesson.Date = lesson.Date.AddDays(shiftDays);
-                        lesson.AvailableFrom = lesson.AvailableFrom?.AddDays(shiftDays);
-                        lesson.ExpiresAt = lesson.ExpiresAt?.AddDays(shiftDays);
-                        lesson.DesignatedStartAt = lesson.DesignatedStartAt?.AddDays(shiftDays);
-                        lesson.PreRollStartsAt = lesson.PreRollStartsAt?.AddDays(shiftDays);
+                        lesson.AvailableFrom = LessonScheduleService.ShiftWallClock(lesson.AvailableFrom, shiftDays, timeZone);
+                        lesson.ExpiresAt = LessonScheduleService.ShiftWallClock(lesson.ExpiresAt, shiftDays, timeZone);
+                        lesson.DesignatedStartAt = LessonScheduleService.ShiftWallClock(lesson.DesignatedStartAt, shiftDays, timeZone);
+                        lesson.PreRollStartsAt = LessonScheduleService.ShiftWallClock(lesson.PreRollStartsAt, shiftDays, timeZone);
                         lesson.GeneratedByScheduleId = null;
                         lesson.Version++;
                     }
@@ -1833,7 +1844,8 @@ public static class AdminApi
             var lesson = await db.Lessons.Include(x => x.Items).SingleOrDefaultAsync(x => x.Id == lessonId, ct);
             if (lesson is null) return Results.NotFound();
             var byId = lesson.Items.ToDictionary(x => x.Id);
-            if (input.ItemIds.Count != byId.Count || input.ItemIds.Distinct().Count() != byId.Count || input.ItemIds.Any(id => !byId.ContainsKey(id)))
+            if (input.ItemIds is null || input.ItemIds.Count != byId.Count ||
+                input.ItemIds.Distinct().Count() != byId.Count || input.ItemIds.Any(id => !byId.ContainsKey(id)))
                 return Results.BadRequest(new { error = "Reorder list must contain every playlist item exactly once." });
             for (var index = 0; index < input.ItemIds.Count; index++) byId[input.ItemIds[index]].Position = (index + 1) * 1000;
             lesson.Version++;
@@ -3862,12 +3874,19 @@ public static class AdminApi
                 input.RoleDailyBytes?.Values.Any(value => value <= 0) == true ||
                 input.ClassDailyBytes?.Values.Any(value => value <= 0) == true)
                 return Results.BadRequest(new { error = "Per-user, role, and class limits must be greater than zero." });
-            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
-            UploadQuotaPolicy.Store(organization, input);
-            Audit(db, "storage.upload-policy.update", organization.Id,
-                $"file:{input.MaxFileBytes};day:{input.MaxDailyBytes};active:{input.MaxActiveSessionsPerUser}");
-            await db.SaveChangesAsync(ct);
-            return Results.Ok(UploadQuotaPolicy.Read(organization));
+            try
+            {
+                var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+                UploadQuotaPolicy.Store(organization, input);
+                Audit(db, "storage.upload-policy.update", organization.Id,
+                    $"file:{input.MaxFileBytes};day:{input.MaxDailyBytes};active:{input.MaxActiveSessionsPerUser}");
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(UploadQuotaPolicy.Read(organization));
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
         });
 
         settings.MapGet("/local-address", (LocalAddressService localAddress) => Results.Ok(localAddress.Status));
@@ -4766,6 +4785,8 @@ public static class AdminApi
                 return "The ending date must be on or after the starting date.";
             if (input.StartMinutes is < 0 or > 1439 || input.EndMinutes is < 1 or > 1440)
                 return "Recurring start and end times are invalid.";
+            if (input.StartMinutes is int startMinutes && input.EndMinutes is int endMinutes && startMinutes == endMinutes)
+                return "Recurring signage start and end times must be different.";
             if (recurrence == "weekly" && !(input.DaysOfWeek?.Any(day => day is >= 0 and <= 6) ?? false))
                 return "Choose at least one weekday for weekly signage.";
             if ((input.ExcludedDates?.Count ?? 0) > 366) return "Signage supports at most 366 excluded dates.";

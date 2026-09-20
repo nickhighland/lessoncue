@@ -57,6 +57,7 @@ esac
 
 DATA_DIR="${SHORTENER_DATA_DIR:-./shortener-data}"
 DB_PASSWORD_FILE="${SHORTENER_DB_PASSWORD_FILE:-${DATA_DIR}/db-password}"
+export SHORTENER_DATA_DIR="$DATA_DIR"
 
 # The protected Linux updater runs with ProtectHome enabled, so Docker cannot
 # create its default /root/.docker directory there. Keep Compose's transient
@@ -179,7 +180,7 @@ export SHORT_DOMAIN_ROOT_REDIRECT
 # restart, an operator reading logs -- runs without this shell, and a variable
 # that lived only here made all of them fail on a missing SHORT_DOMAIN.
 # Anything the operator set themselves (ports, bind addresses) is kept.
-OWNED='^(SHORT_DOMAIN|SHORT_DOMAIN_ROOT_REDIRECT|LESSONCUE_DATA_PATH|LESSONCUE_UID|LESSONCUE_GID|SHORTENER_DB_PASSWORD_FILE|SHORTENER_INTEGRATION_KEY_FILE|SHORTENER_CONSOLE_KEY_FILE|SHORTENER_COMPANION_DATA_PATH|SHORTENER_COMPANION_CONTROL_PATH|SHORTENER_UI_IMAGE|SHORTENER_UI_UID|SHORTENER_UI_GID)='
+OWNED='^(SHORT_DOMAIN|SHORT_DOMAIN_ROOT_REDIRECT|LESSONCUE_DATA_PATH|LESSONCUE_UID|LESSONCUE_GID|SHORTENER_DATA_DIR|SHORTENER_DB_PASSWORD_FILE|SHORTENER_INTEGRATION_KEY_FILE|SHORTENER_CONSOLE_KEY_FILE|SHORTENER_COMPANION_DATA_PATH|SHORTENER_COMPANION_CONTROL_PATH|SHORTENER_UI_IMAGE|SHORTENER_UI_UID|SHORTENER_UI_GID)='
 KEPT=""
 if [ -f .env ]; then
   KEPT="$(grep -v -E "$OWNED" .env || true)"
@@ -189,6 +190,7 @@ fi
   printf 'SHORT_DOMAIN=%s\n' "$SHORT_DOMAIN"
   printf 'SHORT_DOMAIN_ROOT_REDIRECT="%s"\n' "$SHORT_DOMAIN_ROOT_REDIRECT"
   printf 'LESSONCUE_DATA_PATH=%s\n' "$LESSONCUE_DATA_PATH"
+  printf 'SHORTENER_DATA_DIR=%s\n' "$DATA_DIR"
   printf 'LESSONCUE_UID=%s\n' "$UI_UID"
   printf 'LESSONCUE_GID=%s\n' "$UI_GID"
   printf 'SHORTENER_DB_PASSWORD_FILE=%s\n' "$DB_PASSWORD_FILE"
@@ -261,9 +263,17 @@ fi
 if [ "$CONSOLE_KEY_NEEDS_MINT" -eq 0 ]; then
   echo "Keeping the existing console key in ${CONSOLE_KEY_FILE}"
 else
-  MINTED="$("${COMPOSE[@]}" exec -T shlink \
-    shlink api-key:generate --name=lessoncue-console --author-only 2>/dev/null \
-    | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)"
+  MINTED=""
+  if command_output="$("${COMPOSE[@]}" exec -T shlink \
+      shlink api-key:generate --name=lessoncue-console --author-only 2>/dev/null)"; then
+    while IFS= read -r line; do
+      if [[ "$line" =~ ([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}) ]]; then
+        MINTED="${BASH_REMATCH[1]}"
+        break
+      fi
+    done <<< "$command_output"
+  fi
+  unset command_output
   if [ -n "$MINTED" ]; then
     printf '%s' "$MINTED" > "$CONSOLE_KEY_FILE"
     echo "Generated a console key that cannot see the reserved game codes"
@@ -301,7 +311,7 @@ The Link Shortener Companion never answered.
 
 Look at what it said:
 
-  "${COMPOSE[@]}" logs link-shortener-companion
+  docker compose --profile shortener logs link-shortener-companion
 FAILED_UI
   exit 1
 fi

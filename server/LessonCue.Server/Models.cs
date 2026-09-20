@@ -26,7 +26,10 @@ public sealed class Organization
     [MaxLength(12000)] public string SignageSourceAllowlistJson { get; set; } = "[]";
     // Retained for database and API compatibility. Signage is now always live.
     public bool SignageEnabled { get; set; } = true;
-    public int SignageModelVersion { get; set; }
+    // New databases already contain the current signage model. Legacy
+    // databases are deliberately created at 0 by DatabaseUpgrade so the
+    // one-time compatibility purge still runs before being promoted to 1.
+    public int SignageModelVersion { get; set; } = 1;
     [JsonIgnore] public string? ControllerPinHash { get; set; }
     [JsonIgnore, MaxLength(2048)] public string? ControllerPinProtected { get; set; }
     public bool RequireLocalRoomControllers { get; set; }
@@ -803,7 +806,7 @@ public sealed record PlaylistItemUpdateInput(string? Title, string? Type, string
     int? RepeatCount = null, string? BackgroundColor = null, string? TransitionStyle = null,
     int? TransitionDurationMs = null, bool? FlexibleTime = null, Guid? ActivityDefinitionId = null);
 public sealed record CuePointInput(string Name, long PositionMs);
-public sealed record PlaylistReorderInput(List<Guid> ItemIds);
+public sealed record PlaylistReorderInput(List<Guid>? ItemIds);
 public sealed record LessonBulkInput(List<Guid> LessonIds, string Action, Guid? ClassId = null,
     int? ShiftDays = null, string? TitlePrefix = null);
 public sealed record LessonRelocateInput(string Action, Guid ClassId, DateOnly Date, string? Title = null);

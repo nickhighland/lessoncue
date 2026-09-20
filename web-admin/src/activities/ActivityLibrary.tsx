@@ -71,6 +71,7 @@ export const ActivityLibrary: React.FC = () => {
   const [savedDraftSnapshot, setSavedDraftSnapshot] = useState('');
   const [pendingEditorClose, setPendingEditorClose] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const fetchRequestRef = useRef(0);
 
   const draftDefinition = useMemo<ActivityDefinition | null>(() => selectedActivity ? {
     ...selectedActivity,
@@ -124,16 +125,19 @@ export const ActivityLibrary: React.FC = () => {
   ) !== savedDraftSnapshot);
 
   const fetchActivities = useCallback(async () => {
+    const requestId = ++fetchRequestRef.current;
     try {
       setLoading(true);
       const result = await ActivityApi.listActivityPage(undefined, searchQuery.trim() || undefined, showArchived, libraryPage, libraryPageSize);
+      if (requestId !== fetchRequestRef.current) return;
       setActivities(result.items);
       setLibraryTotalCount(result.totalCount);
     } catch (err) {
+      if (requestId !== fetchRequestRef.current) return;
       console.error('Failed to load activities:', err);
       setStatusMessage(`Could not load activities: ${(err as Error).message}`);
     } finally {
-      setLoading(false);
+      if (requestId === fetchRequestRef.current) setLoading(false);
     }
   }, [libraryPage, searchQuery, showArchived]);
 

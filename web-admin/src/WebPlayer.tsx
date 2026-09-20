@@ -4,7 +4,7 @@ import { WeatherConditionArtwork, WeatherDropArtwork, WeatherWindArtwork } from 
 import { ActivityDisplay } from "./activities/ActivityDisplay";
 import "./signage-studio.css";
 
-const APP_VERSION = "0.46.4";
+const APP_VERSION = "0.46.5";
 /** Shared with public/sw.js, which answers media requests from it. */
 const MEDIA_CACHE = "lessoncue-media-v1";
 
@@ -1587,6 +1587,10 @@ function useDurableMediaCache(
   ];
   const signature = wanted.map(item => `${item.itemId}:${item.downloadUrl || ""}:${item.sha256 || ""}`).join("|");
   useEffect(() => {
+    // `undefined` means the manifest has not arrived yet. An empty, loaded
+    // array is meaningful and should prune the cache; an unloaded manifest is
+    // not permission to delete media that may be needed offline.
+    if (signage === undefined || playlists === undefined) return;
     if (!identity || !("caches" in window)) {
       inventoryRef.current = [];
       return;
@@ -1594,6 +1598,7 @@ function useDurableMediaCache(
     let cancelled = false;
     void (async () => {
       const cache = await caches.open(MEDIA_CACHE);
+      if (cancelled) return;
       const media = [...new Map(
         wanted
           .filter((item): item is CueItem => Boolean(item?.downloadUrl))
@@ -1601,24 +1606,30 @@ function useDurableMediaCache(
       ).values()];
       const desired = new Set(media.map(item => new URL(item.downloadUrl!, location.origin).toString()));
       for (const request of await cache.keys()) {
+        if (cancelled) return;
         if (!desired.has(request.url)) await cache.delete(request);
       }
       const inventory: typeof inventoryRef.current = [];
       for (const item of media) {
+        if (cancelled) return;
         const url = new URL(item.downloadUrl!, location.origin).toString();
         try {
           let response = await cache.match(url);
+          if (cancelled) return;
           if (!response) {
             inventory.push({ itemId: item.itemId, title: item.title, state: "downloading", sizeBytes: 0, expectedBytes: item.sizeBytes });
             if (!cancelled) inventoryRef.current = [...inventory];
             const downloaded = await fetch(url, { headers: { Authorization: `Bearer ${identity.token}` }, cache: "no-store" });
+            if (cancelled) return;
             if (!downloaded.ok) throw new Error(`Media cache request failed (${downloaded.status}).`);
             await cache.put(url, downloaded.clone());
             response = downloaded;
           }
+          if (cancelled) return;
           const bytes = Number(response.headers.get("content-length")) || item.sizeBytes || 0;
           inventory.push({ itemId: item.itemId, title: item.title, state: "ready", sizeBytes: bytes, expectedBytes: item.sizeBytes });
         } catch (cause) {
+          if (cancelled) return;
           const message = errorText(cause);
           inventory.push({ itemId: item.itemId, title: item.title, state: "failed", sizeBytes: 0, expectedBytes: item.sizeBytes, error: message });
           errorsRef.current = [{ timestamp: new Date().toISOString(), area: "media-cache", message, itemId: item.itemId }, ...errorsRef.current].slice(0, 20);

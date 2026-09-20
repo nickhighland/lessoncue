@@ -2,12 +2,15 @@ package org.lessoncue.tv
 
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class UpdateManager(
     context: Context,
@@ -111,7 +114,7 @@ class UpdateManager(
                         totalBytes
                     )
                 }
-                runCatching { verifier.verify(downloaded.file, manifest) }
+                runCatching { withContext(Dispatchers.IO) { verifier.verify(downloaded.file, manifest) } }
                     .getOrElse { error ->
                         downloaded.file.delete()
                         throw error
@@ -167,15 +170,7 @@ class UpdateManager(
         when {
             state.value is UpdateUiState.PermissionRequired -> onPermissionSettingsReturned()
             state.value is UpdateUiState.Error && errorManifest == null -> checkManually()
-            errorManifest != null && downloadedApk != null -> scope.launch {
-                runCatching { beginInstallation() }.onFailure { error ->
-                    mutableState.value = UpdateUiState.Error(
-                        installedVersionName,
-                        error.message ?: "LessonCue could not resume the installation.",
-                        activeManifest
-                    )
-                }
-            }
+            errorManifest != null && downloadedApk != null -> installAsync(errorManifest)
             errorManifest != null -> downloadAndInstall()
             else -> checkManually()
         }
@@ -184,7 +179,7 @@ class UpdateManager(
     fun onPermissionSettingsReturned() {
         val manifest = activeManifest ?: return
         if (installer.canRequestPackageInstalls()) {
-            scope.launch { beginInstallation() }
+            installAsync(manifest)
         } else {
             mutableState.value = UpdateUiState.PermissionRequired(
                 installedVersionName,
@@ -209,7 +204,7 @@ class UpdateManager(
         val manifest = activeManifest ?: return
         val downloaded = downloadedApk
             ?: throw UpdateValidationException("Download the update again before installing it.")
-        verifier.verify(downloaded.file, manifest)
+        withContext(Dispatchers.IO) { verifier.verify(downloaded.file, manifest) }
         if (!installer.canRequestPackageInstalls()) {
             mutableState.value = UpdateUiState.PermissionRequired(installedVersionName, manifest)
             return
@@ -220,6 +215,22 @@ class UpdateManager(
             "Preparing Android's installation confirmation…"
         )
         installer.install(downloaded.file)
+    }
+
+    private fun installAsync(manifest: UpdateManifest) {
+        scope.launch {
+            try {
+                beginInstallation()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                mutableState.value = UpdateUiState.Error(
+                    installedVersionName,
+                    error.message ?: "LessonCue could not resume the installation.",
+                    manifest
+                )
+            }
+        }
     }
 
     private fun handleInstallEvent(event: InstallEvent) {

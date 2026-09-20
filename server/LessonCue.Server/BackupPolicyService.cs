@@ -116,6 +116,9 @@ public sealed class BackupPolicyService : BackgroundService
         string timeZone,
         CancellationToken ct)
     {
+        await gate.WaitAsync(ct);
+        try
+        {
         var current = Read();
         var frequency = input.Frequency.Trim().ToLowerInvariant();
         if (frequency is not ("daily" or "weekly"))
@@ -224,15 +227,13 @@ public sealed class BackupPolicyService : BackgroundService
         return Public(
             revised,
             revised.Enabled ? Schedule(revised, timeZone, DateTimeOffset.UtcNow) : null);
+        }
+        finally { gate.Release(); }
     }
 
     public async Task<BackupPolicyStatus> RunNowAsync(string timeZone, CancellationToken ct)
     {
-        var policy = Read();
-        if (string.IsNullOrEmpty(policy.ProtectedBackupPassword))
-            throw new InvalidOperationException(
-                "Save a scheduled-backup password before running the policy.");
-        await RunPolicyAsync(policy, ct);
+        await RunPolicyAsync(timeZone, ct, force: true);
         return GetStatus(timeZone);
     }
 
@@ -258,7 +259,7 @@ public sealed class BackupPolicyService : BackgroundService
                                             policy.LastAttemptAt > DateTimeOffset.UtcNow.AddHours(-1);
                     if (!recentlyAttempted &&
                         (policy.LastSucceededAt is null || policy.LastSucceededAt < boundary))
-                        await RunPolicyAsync(policy, stoppingToken);
+                        await RunPolicyAsync(timeZone, stoppingToken);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -272,91 +273,109 @@ public sealed class BackupPolicyService : BackgroundService
         } while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
-    private async Task RunPolicyAsync(StoredBackupPolicy requested, CancellationToken ct)
+    private async Task RunPolicyAsync(string timeZone, CancellationToken ct, bool force = false)
     {
         if (!await gate.WaitAsync(0, ct))
             throw new InvalidOperationException("A scheduled backup is already running.");
-        running = true;
-        var policy = requested with { LastAttemptAt = DateTimeOffset.UtcNow, LastError = null };
-        await WriteAsync(policy, ct);
         try
         {
-            var password = protector.Unprotect(
-                policy.ProtectedBackupPassword ??
-                throw new InvalidOperationException("The scheduled backup password is missing."));
-            await using var scope = scopes.CreateAsyncScope();
-            var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
-            var record = await backups.CreateAsync(
-                db,
-                policy.IncludeMedia,
-                "scheduled-backup",
-                ct,
-                password,
-                policy.SecretHandling);
-            var verification = await backups.VerifyStoredAsync(record, ct, password);
-            var verifiedAt = DateTimeOffset.UtcNow;
+            // Re-read after taking the same gate used by UpdateAsync. A policy
+            // snapshot obtained by the scheduler or RunNow before the lock is
+            // not authoritative and must never be written back over a newer
+            // administrator change.
+            var policy = Read();
+            var now = DateTimeOffset.UtcNow;
+            var boundary = LatestBoundary(policy, timeZone, now);
+            var recentlyAttempted = policy.LastAttemptAt is not null &&
+                                    policy.LastAttemptAt > now.AddHours(-1);
+            if (!force && (!policy.Enabled || recentlyAttempted ||
+                policy.LastSucceededAt is not null && policy.LastSucceededAt >= boundary)) return;
+            if (string.IsNullOrEmpty(policy.ProtectedBackupPassword))
+                throw new InvalidOperationException("Save a scheduled-backup password before running the policy.");
 
-            var remoteErrors = new List<string>();
-            var destinations = policy.Destinations?.ToList() ?? [];
-            for (var index = 0; index < destinations.Count; index++)
+            running = true;
+            policy = policy with { LastAttemptAt = now, LastError = null };
+            try
             {
-                var destination = destinations[index];
-                try
+                await WriteAsync(policy, ct);
+                var password = protector.Unprotect(policy.ProtectedBackupPassword);
+                await using var scope = scopes.CreateAsyncScope();
+                var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
+                var record = await backups.CreateAsync(
+                    db,
+                    policy.IncludeMedia,
+                    "scheduled-backup",
+                    ct,
+                    password,
+                    policy.SecretHandling);
+                var verification = await backups.VerifyStoredAsync(record, ct, password);
+                var verifiedAt = DateTimeOffset.UtcNow;
+
+                var remoteErrors = new List<string>();
+                var destinations = policy.Destinations?.ToList() ?? [];
+                for (var index = 0; index < destinations.Count; index++)
                 {
-                    await UploadRemoteAsync(destination, record, ct);
-                    var remaining = await PruneRemoteAsync(destination, ct);
-                    destinations[index] = destination with
+                    var destination = destinations[index];
+                    try
                     {
-                        LastUploadedAt = DateTimeOffset.UtcNow,
-                        LastUploadedFileName = record.FileName,
-                        RemoteBackupCount = remaining,
-                        LastError = null
-                    };
+                        await UploadRemoteAsync(destination, record, ct);
+                        var remaining = await PruneRemoteAsync(destination, ct);
+                        destinations[index] = destination with
+                        {
+                            LastUploadedAt = DateTimeOffset.UtcNow,
+                            LastUploadedFileName = record.FileName,
+                            RemoteBackupCount = remaining,
+                            LastError = null
+                        };
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        var safeError = SafeError(ex);
+                        destinations[index] = destination with { LastError = safeError };
+                        remoteErrors.Add($"{destination.Provider}: {safeError}");
+                    }
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    var safeError = SafeError(ex);
-                    destinations[index] = destination with { LastError = safeError };
-                    remoteErrors.Add($"{destination.Provider}: {safeError}");
-                }
-            }
-            policy = policy with { Destinations = destinations };
-            await WriteAsync(policy, ct);
-            if (remoteErrors.Count > 0)
-                throw new IOException($"One or more off-site backup destinations failed: {string.Join("; ", remoteErrors)}");
+                policy = policy with { Destinations = destinations };
+                await WriteAsync(policy, ct);
+                if (remoteErrors.Count > 0)
+                    throw new IOException($"One or more off-site backup destinations failed: {string.Join("; ", remoteErrors)}");
 
-            db.AuditEvents.Add(new AuditEvent
-            {
-                Actor = "system",
-                Action = "backup.schedule.run",
-                Object = record.Id.ToString(),
-                Summary = JsonSerializer.Serialize(new
+                db.AuditEvents.Add(new AuditEvent
                 {
-                    record.FileName,
-                    remote = destinations.Count,
-                    verification.FileCount
-                })
-            });
-            await PruneAsync(db, policy, record.Id, ct);
-            await db.SaveChangesAsync(ct);
-            policy = policy with
+                    Actor = "system",
+                    Action = "backup.schedule.run",
+                    Object = record.Id.ToString(),
+                    Summary = JsonSerializer.Serialize(new
+                    {
+                        record.FileName,
+                        remote = destinations.Count,
+                        verification.FileCount
+                    })
+                });
+                await PruneAsync(db, policy, record.Id, ct);
+                await db.SaveChangesAsync(ct);
+                policy = policy with
+                {
+                    LastSucceededAt = DateTimeOffset.UtcNow,
+                    LastVerifiedAt = verifiedAt,
+                    LastBackupFileName = record.FileName,
+                    LastError = null
+                };
+                await WriteAsync(policy, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                LastSucceededAt = DateTimeOffset.UtcNow,
-                LastVerifiedAt = verifiedAt,
-                LastBackupFileName = record.FileName,
-                LastError = null
-            };
-            await WriteAsync(policy, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            policy = policy with { LastError = SafeError(ex) };
-            await WriteAsync(policy, CancellationToken.None);
-            throw;
+                policy = policy with { LastError = SafeError(ex) };
+                await WriteAsync(policy, CancellationToken.None);
+                throw;
+            }
+            finally
+            {
+                running = false;
+            }
         }
         finally
         {
-            running = false;
             gate.Release();
         }
     }

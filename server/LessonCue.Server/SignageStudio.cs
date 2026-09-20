@@ -18,7 +18,7 @@ public static class SignageStudio
     public static List<SignageContentPlaylistItemInput> ParseItems(string? json)
     {
         try { return JsonSerializer.Deserialize<List<SignageContentPlaylistItemInput>>(json ?? "[]", JsonOptions) ?? []; }
-        catch (JsonException) { return []; }
+        catch (Exception ex) when (ex is JsonException or ArgumentException) { return []; }
     }
 
     public static string StoreItems(IEnumerable<SignageContentPlaylistItemInput>? items) =>
@@ -32,14 +32,22 @@ public static class SignageStudio
                 .Where(entry => !string.IsNullOrWhiteSpace(entry.Key) && entry.Value != Guid.Empty)
                 .ToDictionary(entry => entry.Key.Trim(), entry => entry.Value, StringComparer.OrdinalIgnoreCase);
         }
-        catch (JsonException) { return []; }
+        catch (Exception ex) when (ex is JsonException or ArgumentException) { return []; }
     }
 
-    public static string StorePlaylistAssignments(IReadOnlyDictionary<string, Guid>? assignments) =>
-        JsonSerializer.Serialize((assignments ?? new Dictionary<string, Guid>())
-            .Where(entry => !string.IsNullOrWhiteSpace(entry.Key) && entry.Value != Guid.Empty)
-            .Take(100).ToDictionary(entry => entry.Key.Trim(), entry => entry.Value,
-                StringComparer.OrdinalIgnoreCase), JsonOptions);
+    public static string StorePlaylistAssignments(IReadOnlyDictionary<string, Guid>? assignments)
+    {
+        var normalized = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in assignments ?? new Dictionary<string, Guid>())
+        {
+            if (string.IsNullOrWhiteSpace(entry.Key) || entry.Value == Guid.Empty) continue;
+            var key = entry.Key.Trim();
+            if (!normalized.TryAdd(key, entry.Value))
+                throw new ArgumentException("Each signage element can have only one playlist assignment.");
+            if (normalized.Count == 100) break;
+        }
+        return JsonSerializer.Serialize(normalized, JsonOptions);
+    }
 
     public static bool ReferencesLayout(string? draftItemsJson, string? publishedItemsJson, Guid layoutId) =>
         ParseItems(draftItemsJson).Concat(ParseItems(publishedItemsJson))

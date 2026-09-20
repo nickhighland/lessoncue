@@ -219,7 +219,8 @@ public static class LessonScheduleService
         CropBottomPercent = source.CropBottomPercent, Muted = source.Muted,
         PlaybackRatePercent = source.PlaybackRatePercent, RepeatCount = source.RepeatCount,
         BackgroundColor = source.BackgroundColor, TransitionStyle = source.TransitionStyle,
-        TransitionDurationMs = source.TransitionDurationMs, FlexibleTime = source.FlexibleTime
+        TransitionDurationMs = source.TransitionDurationMs, FlexibleTime = source.FlexibleTime,
+        ActivityDefinitionId = source.ActivityDefinitionId
     };
 
     private static async Task PreserveTemplateMediaAsync(LessonCueDb db, IEnumerable<PlaylistItem> items, CancellationToken ct)
@@ -248,7 +249,8 @@ public static class LessonScheduleService
         CropBottomPercent = source.CropBottomPercent, Muted = source.Muted,
         PlaybackRatePercent = source.PlaybackRatePercent, RepeatCount = source.RepeatCount,
         BackgroundColor = source.BackgroundColor, TransitionStyle = source.TransitionStyle,
-        TransitionDurationMs = source.TransitionDurationMs, FlexibleTime = source.FlexibleTime
+        TransitionDurationMs = source.TransitionDurationMs, FlexibleTime = source.FlexibleTime,
+        ActivityDefinitionId = source.ActivityDefinitionId
     };
 
     private static int? MinutesOfDay(DateTimeOffset? value) => value is null ? null : value.Value.Hour * 60 + value.Value.Minute;
@@ -258,11 +260,26 @@ public static class LessonScheduleService
     private static DateTimeOffset? LocalDateTime(DateOnly date, int? minutes, string timeZoneId)
     {
         if (minutes is not >= 0 or > 1439) return null;
-        TimeZoneInfo zone;
-        try { zone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId); }
-        catch { zone = TimeZoneInfo.Local; }
+        var zone = ResolveTimeZone(timeZoneId);
         var local = date.ToDateTime(new TimeOnly(minutes.Value / 60, minutes.Value % 60), DateTimeKind.Unspecified);
+        if (zone.IsInvalidTime(local)) local = local.AddHours(1);
         return new DateTimeOffset(local, zone.GetUtcOffset(local));
+    }
+
+    /// <summary>Shift a scheduled timestamp by calendar days in the organization's local time.</summary>
+    public static DateTimeOffset? ShiftWallClock(DateTimeOffset? value, int days, string timeZoneId)
+    {
+        if (value is null || days == 0) return value;
+        var zone = ResolveTimeZone(timeZoneId);
+        var local = TimeZoneInfo.ConvertTime(value.Value, zone).DateTime.AddDays(days);
+        if (zone.IsInvalidTime(local)) local = local.AddHours(1);
+        return new DateTimeOffset(local, zone.GetUtcOffset(local));
+    }
+
+    private static TimeZoneInfo ResolveTimeZone(string timeZoneId)
+    {
+        try { return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId); }
+        catch { return TimeZoneInfo.Local; }
     }
 
     private static string FormatTitle(string pattern, string template, string className, DateOnly date) =>

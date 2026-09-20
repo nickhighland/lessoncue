@@ -89,10 +89,10 @@ internal fun formatDuration(durationMs: Long?): String {
 
 internal fun beginsInLabel(playlist: LessonPlaylist, now: Instant): String =
     playlist.designatedStartAt?.let { start ->
-        val minutes = Duration.between(now, start).toMinutes()
+        val seconds = Duration.between(now, start).seconds
         when {
-            minutes > 0 -> "BEGINS IN $minutes MIN"
-            minutes >= -1 -> "IN PROGRESS"
+            seconds > 0 -> "BEGINS IN ${((seconds + 59) / 60)} MIN"
+            seconds >= -60 -> "IN PROGRESS"
             else -> "AVAILABLE"
         }
     } ?: "AVAILABLE"

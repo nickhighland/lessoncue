@@ -42,7 +42,7 @@ running_version() {
 }
 
 health() {
-  "${COMPOSE[@]}" exec -T shlink curl --fail --silent http://localhost:8080/rest/health >/dev/null 2>&1
+  "${COMPOSE[@]}" exec -T shlink curl --fail --silent http://127.0.0.1:8080/rest/health >/dev/null 2>&1
 }
 
 ui_port() {

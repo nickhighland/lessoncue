@@ -35,7 +35,10 @@ jobs:
       - run: npm test
       - run: dotnet restore server/LessonCue.Server.Tests/LessonCue.Server.Tests.csproj
       - run: dotnet test server/LessonCue.Server.Tests/LessonCue.Server.Tests.csproj -c Release --no-restore
-      - run: bash -n installers/linux/install-latest.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue-update installers/linux/repair-updater.sh scripts/remove-shlink-web-client.sh tests/linux-updater-transaction.sh
+      - run: |
+          for script in installers/linux/install-latest.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue-update installers/linux/repair-updater.sh scripts/remove-shlink-web-client.sh tests/linux-updater-transaction.sh; do
+            bash -n "$script"
+          done
       - name: Exercise transactional Linux updates before packaging
         run: >-
           docker run --rm
@@ -45,7 +48,6 @@ jobs:
       - name: Exercise media-worker isolation before packaging
         run: >-
           docker run --rm --privileged
-          -e LESSONCUE_MEDIA_WORKER_TEST_SKIP=1
           -v "${PWD}:/workspace:ro"
           debian:trixie-slim
           bash /workspace/tests/linux-media-worker.sh /workspace

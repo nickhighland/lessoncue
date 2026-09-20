@@ -38,7 +38,7 @@ import { ImageShuffleDisplay } from './types/ImageShuffle/ImageShuffleDisplay';
 import { ImageShuffleController } from './types/ImageShuffle/ImageShuffleController';
 import { ImageShuffleEditor } from './types/ImageShuffle/ImageShuffleEditor';
 
-import { PollDisplay, PollController, PollEditor, ResponsesDisplay, ResponsesController } from './types/Audience/AudienceComponents';
+import { PollDisplay, PollController, PollEditor, ResponsesDisplay, ResponsesController, ResponsesEditor } from './types/Audience/AudienceComponents';
 import {
   RapidFireDisplay,
   RapidFireController,
@@ -754,7 +754,7 @@ export const ACTIVITY_REGISTRY: Record<string, ActivityTypeEntry> = {
     }),
     displayComponent: ResponsesDisplay,
     controllerComponent: ResponsesController,
-    editorComponent: PickerEditor
+    editorComponent: ResponsesEditor
   }
 };
 

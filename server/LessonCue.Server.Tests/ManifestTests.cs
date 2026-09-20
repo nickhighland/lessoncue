@@ -57,6 +57,58 @@ public sealed class ManifestTests
     }
 
     [Fact]
+    public async Task ReadyOriginalIsPublishedBeforeCompatibilityCopyFinishes()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(cancellationToken);
+        var options = new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options;
+        await using var db = new LessonCueDb(options);
+        await db.Database.EnsureCreatedAsync(cancellationToken);
+
+        var lessonClass = new LessonClass { Name = "Immediate Playback" };
+        var screen = new Screen { Name = "Immediate Playback TV", AssignedClassId = lessonClass.Id };
+        var lesson = new Lesson
+        {
+            ClassId = lessonClass.Id,
+            Date = DateOnly.FromDateTime(DateTime.UtcNow),
+            Title = "Immediate upload",
+            AvailableFrom = DateTimeOffset.UtcNow.AddMinutes(-5),
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1)
+        };
+        var media = new MediaAsset
+        {
+            FileName = "original.mp4",
+            ContentType = "video/mp4",
+            RelativePath = "original.mp4",
+            Sha256 = "original-sha",
+            SizeBytes = 100,
+            VideoCodec = "h264",
+            ProcessingStatus = "ready",
+            CompatibilityStatus = "converting",
+            OfflineEligible = false
+        };
+        lesson.Items.Add(new PlaylistItem
+        {
+            Title = "Play immediately",
+            Type = "video",
+            MediaAsset = media
+        });
+        db.AddRange(new Organization { Name = "Test" }, lessonClass, screen, lesson, media);
+        await db.SaveChangesAsync(cancellationToken);
+
+        var manifest = await new ManifestService(db).BuildAsync(screen.Id, cancellationToken);
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(manifest));
+        var cue = document.RootElement.GetProperty("playlists")[0].GetProperty("items")[0];
+
+        Assert.Equal("supported", cue.GetProperty("renderSupport").GetString());
+        Assert.Equal("converting", cue.GetProperty("compatibilityStatus").GetString());
+        Assert.Equal($"/api/v1/media/{media.Id}/playback?v=original-sha", cue.GetProperty("downloadUrl").GetString());
+        Assert.Equal("original-sha", cue.GetProperty("sha256").GetString());
+        Assert.Equal("video/mp4", cue.GetProperty("contentType").GetString());
+    }
+
+    [Fact]
     public async Task BuildsScheduledManifestOnSqlite()
     {
         var cancellationToken = TestContext.Current.CancellationToken;

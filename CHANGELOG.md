@@ -4,6 +4,19 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.5 — Immediate media playback
+
+### User changes
+
+- Uploaded lessons become playable as soon as the original file is inspected and its thumbnail is created; the broader TV compatibility copy is made immediately afterward without blocking playback.
+- The lesson builder shows each cue's preview while it is being dragged, and cues can be reordered by mouse, touch, or trackpad drag and drop.
+- The phone remote keeps stop, play/pause, previous, and next controls pinned above its scrollable workflow and no longer opens zoomed on iPhone.
+
+### Developer changes
+
+- Separated source readiness from optional compatibility conversion and kept original-file manifest delivery available while conversion is pending or fails.
+- Added manifest and display-capability regression coverage for immediate source playback.
+
 ## v0.46.4 — Classroom reliability
 
 ### User changes

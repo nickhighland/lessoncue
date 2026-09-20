@@ -110,6 +110,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import androidx.work.ExistingWorkPolicy
+import androidx.work.Constraints
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -239,7 +241,13 @@ fun LessonCueApp() {
             // On a TV's flash that was enough to make the remote feel late,
             // because it happened on the thread that draws and handles keys.
             val (cachedItems, freeBytes) = withContext(Dispatchers.IO) {
-                (context.filesDir.resolve("media").listFiles()?.size ?: 0) to context.filesDir.usableSpace
+                val expected = api.cachedManifest()?.allItems().orEmpty().filter { it.offlineEligible }
+                val mediaDirectory = context.filesDir.resolve("media")
+                val cached = expected.count { item ->
+                    mediaDirectory.resolve(item.cacheFileName()).exists() ||
+                        mediaDirectory.resolve("${item.id}.bin").exists()
+                }
+                cached to context.filesDir.usableSpace
             }
             cancellableResult { api.reportStatus(identity, activeManifestVersion, freeBytes,
                 acknowledgedControlVersion = acknowledgedControlVersion,
@@ -393,6 +401,7 @@ fun LessonCueApp() {
                     LaunchedEffect(current.manifest.version) { playbackTelemetry = PlaybackTelemetry() }
                     LaunchedEffect(current.manifest.version) { scheduleMediaCaches(context, current.identity, current.manifest) }
                     LaunchedEffect(current.manifest.version, current.manifest.playlists.size) {
+                        if (current.manifest.signage.any { it.mode == "emergency" }) return@LaunchedEffect
                         while (true) {
                             val scheduled = current.manifest.playlists.map { it to ScheduleCoordinator.phase(it, Instant.now()) }
                                 .firstOrNull { (_, phase) -> phase is PlaybackPhase.Countdown || phase is PlaybackPhase.PreRoll }
@@ -1733,7 +1742,7 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         }
     }
     if (item.type == "image") {
-        val duration = item.imageDurationSeconds?.coerceAtLeast(1)?.times(1_000L) ?: Long.MAX_VALUE
+        val duration = item.effectiveDurationMs()?.coerceAtLeast(1_000L) ?: Long.MAX_VALUE
         var position by remember(item.id, seekMs) { mutableLongStateOf(seekMs.coerceIn(0, duration)) }
         var playing by remember(item.id) { mutableStateOf(true) }
         LaunchedEffect(control?.version) {
@@ -1897,14 +1906,21 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         onDispose { player.removeListener(listener); player.release() }
     }
     Box(Modifier.fillMaxSize().background(cueBackground(item)).then(remoteModifier)) {
-        AndroidView(factory = { PlayerView(it).apply {
-                this.player = player
-                useController = false
-                isFocusable = false
-                isFocusableInTouchMode = false
-                resizeMode = if (item.fitMode == "fill") AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
-            } },
-            modifier = Modifier.fillMaxSize().onSizeChanged { visualSize = it }.cueVisual(item, visualOpacity, visualSize))
+        key(item.id) {
+            AndroidView(factory = { PlayerView(it).apply {
+                    this.player = player
+                    useController = false
+                    isFocusable = false
+                    isFocusableInTouchMode = false
+                    resizeMode = if (item.fitMode == "fill") AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+                } },
+                update = { view ->
+                    view.player = player
+                    view.resizeMode = if (item.fitMode == "fill") AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+                },
+                onRelease = { it.player = null },
+                modifier = Modifier.fillMaxSize().onSizeChanged { visualSize = it }.cueVisual(item, visualOpacity, visualSize))
+        }
         PlaybackOverlay(
             visible = shouldShowPlaybackOverlay(
                 lastOverlayInteraction,
@@ -2286,11 +2302,14 @@ private fun scheduleMediaCaches(context: android.content.Context, identity: Devi
     }
     val items = (lessonMedia + signageMedia)
         .distinctBy { it.id }.filter { it.offlineEligible && it.url != null }
+    val constraints = Constraints.Builder()
+        .setRequiredNetworkType(NetworkType.CONNECTED)
+        .build()
     items.forEach { item ->
         val request = OneTimeWorkRequestBuilder<MediaCacheWorker>().setInputData(workDataOf(
             "url" to item.url, "fileName" to item.cacheFileName(), "token" to identity.token,
             "serverHost" to java.net.URL(identity.serverUrl).host, "sha256" to item.sha256
-        )).build()
+        )).setConstraints(constraints).build()
         manager.enqueueUniqueWork("lessoncue-media-${item.id}-${item.sha256?.take(12) ?: "current"}",
             ExistingWorkPolicy.KEEP, request)
     }

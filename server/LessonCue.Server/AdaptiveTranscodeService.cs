@@ -57,6 +57,13 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        try
+        {
+            await RecoverInterruptedAsync(stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
+        catch (Exception ex) { logger.LogError(ex, "Could not recover interrupted adaptive transcoding"); }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -78,6 +85,23 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
             }
         }
+    }
+
+    private async Task RecoverInterruptedAsync(CancellationToken ct)
+    {
+        using var scope = scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
+        var interrupted = await db.MediaTranscodeVariants
+            .Where(x => x.Status == "converting")
+            .ToListAsync(ct);
+        foreach (var variant in interrupted)
+        {
+            variant.Status = "pending";
+            variant.StartedAt = null;
+            variant.Error = null;
+            variant.QueuedAt = DateTimeOffset.UtcNow;
+        }
+        if (interrupted.Count > 0) await db.SaveChangesAsync(ct);
     }
 
     public static async Task<MediaTranscodeVariant> QueueAsync(LessonCueDb db, MediaAsset media, string profile,

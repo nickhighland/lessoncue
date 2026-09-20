@@ -105,8 +105,10 @@ test.describe("every game works on every surface", () => {
         await phone.goto(`/play/${prepared.joinCode}`);
         // Either the join form or an already-joined surface, but something a
         // thumb can act on rather than a blank screen.
-        await expect(phone.locator("body"), `${type}: the player screen was empty`)
-          .not.toBeEmpty();
+        await expect.poll(async () => (await phone.locator("body").innerText()).trim(), {
+          message: `${type}: the player screen was empty`,
+          timeout: 20_000,
+        }).not.toBe("");
         await phone.waitForTimeout(500);
         problems.push(...phoneProblems.map(problem => `phone: ${problem}`));
         await phone.close();

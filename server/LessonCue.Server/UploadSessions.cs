@@ -40,7 +40,7 @@ public sealed record UploadQuotaPolicy(
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
             return Normalize(input);
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or ArgumentException)
         {
             return Normalize(null);
         }
@@ -263,7 +263,9 @@ public sealed class UploadSessionService(
             ChunkSize = chunkSize,
             ChunkCount = chunkCount,
             ChunkBitmap = UploadChunkBitmap.Empty(chunkCount),
-            ExpectedSha256 = input.ExpectedSha256?.Trim().ToLowerInvariant(),
+            ExpectedSha256 = string.IsNullOrWhiteSpace(input.ExpectedSha256)
+                ? null
+                : input.ExpectedSha256.Trim().ToLowerInvariant(),
             ReservedBytes = input.TotalBytes,
             Persistent = input.Persistent,
             LessonId = lesson?.Id,

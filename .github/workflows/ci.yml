@@ -61,7 +61,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:admin
-      - run: bash -n installers/linux/install-latest.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue-update installers/linux/repair-updater.sh
+      - run: |
+          for script in installers/linux/install-latest.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue-update installers/linux/repair-updater.sh; do
+            bash -n "$script"
+          done
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -91,7 +94,6 @@ jobs:
       - name: Exercise filesystem, network, and time isolation
         run: >-
           docker run --rm --privileged
-          -e LESSONCUE_MEDIA_WORKER_TEST_SKIP=1
           -v "${PWD}:/workspace:ro"
           debian:trixie-slim
           bash /workspace/tests/linux-media-worker.sh /workspace

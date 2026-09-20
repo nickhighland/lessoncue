@@ -46,6 +46,7 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
   const finished = phase === 'finalResults' || phase === 'complete'
     || envelope?.status === 'ended' || envelope?.status === 'completed';
   const previousPhase = useRef<string | null>(null);
+  const resolvedRunIdRef = useRef<string | null>(propRunId || initialEnvelope?.runId || null);
 
   // The same two clocks the stage draws. One of them running is what makes
   // this a timed moment, and the remaining time is what the final-five cue
@@ -121,6 +122,7 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
 
     const initRun = async () => {
       try {
+        resolvedRunIdRef.current = propRunId || initialEnvelope?.runId || null;
         setError(null);
         setLoading(!initialEnvelope);
         if (!initialEnvelope) setEnvelope(null);
@@ -140,6 +142,7 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
 
         if (isCancelled) return;
         if (!activeRun) throw new Error('Activity run is not available.');
+        resolvedRunIdRef.current = activeRun.runId;
         setEnvelope(previous => latestActivityEnvelope(previous, activeRun!));
         setLoading(false);
 
@@ -179,7 +182,7 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
     // rather than leaving the room looking at a stale screen until somebody
     // reloads the browser.
     const heal = window.setInterval(() => {
-      const runId = propRunId || initialEnvelope?.runId;
+      const runId = resolvedRunIdRef.current;
       if (!runId || isCancelled) return;
       void ActivityApi.getRun(runId)
         .then(current => { if (!isCancelled) setEnvelope(previous => latestActivityEnvelope(previous, current)); })

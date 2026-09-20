@@ -149,6 +149,20 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const ordered = [...lesson.items].sort((a: { position: number }, b: { position: number }) => a.position - b.position);
     return `${ordered[0]?.title}:${ordered.filter((item: { title: string }) => item.title === "needs-tv-conversion.mp4").length}`;
   })).toBe("needs-tv-conversion.mp4:1");
+  const reorderSource = page.locator('[aria-label$="playback sequence"] .playlist-item').filter({ hasText: "needs-tv-conversion.mp4" });
+  const reorderTarget = page.locator('[aria-label$="playback sequence"] .playlist-item').filter({ hasText: "Welcome Loop" });
+  await expect(reorderSource.locator(".cue-drag-grip")).toBeVisible();
+  await expect(reorderSource).toHaveAttribute("draggable", "true");
+  await reorderSource.dragTo(reorderTarget, { targetPosition: { x: 140, y: 80 } });
+  await expect.poll(() => page.evaluate(async () => {
+    const lessons = await fetch("/api/v1/lessons").then(response => response.json());
+    const lesson = lessons.find((item: { title: string }) => item.title === "Sample Lesson");
+    return [...lesson.items]
+      .sort((a: { position: number }, b: { position: number }) => a.position - b.position)
+      .filter((item: { role: string }) => item.role === "preRoll")
+      .map((item: { title: string }) => item.title)
+      .join(",");
+  })).toBe("Welcome Loop,needs-tv-conversion.mp4");
   const playbackDelivery = await page.evaluate(async () => {
     const items = await fetch("/api/v1/media").then(response => response.json());
     const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
@@ -1057,9 +1071,9 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   expect(Date.parse(simpleSignage.containment?.[5] || "")).not.toBeNaN();
   expect(Date.parse(simpleSignage.containment?.[6] || "")).not.toBeNaN();
 
-  // Retained legacy assertions are intentionally unreachable while the replacement
-  // data model settles; they document the removed schedule/publish/emergency workflow.
-  if (false) {
+  // Retained legacy assertions are opt-in while the replacement data model
+  // settles; they document the removed schedule/publish/emergency workflow.
+  if (process.env.LESSONCUE_LEGACY_WORKFLOW_TESTS === "1") {
   await page.evaluate(() => Object.defineProperty(globalThis.crypto, "randomUUID", { configurable: true, value: undefined }));
   await page.getByRole("button", { name: "New schedule" }).click();
   const signageDialog = page.getByRole("dialog", { name: "Create signage" });
@@ -1308,7 +1322,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.46.4" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.46.5" });
   // A lesson the screen is allowed to keep should end up on the device, not
   // just signage. A room that loses its network mid-service used to lose the
   // lesson with it while the rota on the wall carried on playing.

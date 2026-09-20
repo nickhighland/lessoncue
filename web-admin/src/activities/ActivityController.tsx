@@ -322,9 +322,13 @@ const ActivitySoundControls: React.FC = () => {
   useEffect(() => {
     try {
       const storedMuted = localStorage.getItem('lessoncue.activityMuted');
-      const storedVolume = Number(localStorage.getItem('lessoncue.activityVolume'));
+      const storedVolumeText = localStorage.getItem('lessoncue.activityVolume');
+      const storedVolume = storedVolumeText === null ? null : Number(storedVolumeText);
       if (storedMuted !== null) { const nextMuted = storedMuted === 'true'; setMuted(nextMuted); setAudioMuted(nextMuted); }
-      if (Number.isFinite(storedVolume)) { setVolume(storedVolume); setAudioVolume(storedVolume); }
+      if (storedVolume !== null && Number.isFinite(storedVolume)) {
+        const nextVolume = Math.min(1, Math.max(0, storedVolume));
+        setVolume(nextVolume); setAudioVolume(nextVolume);
+      }
     } catch { /* private browsing */ }
   }, []);
   return <div className="activity-sound-controls" aria-label="Activity sound controls">

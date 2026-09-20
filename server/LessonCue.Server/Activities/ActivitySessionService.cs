@@ -1116,6 +1116,7 @@ public sealed class ActivitySessionService(
                     state["isRunning"] = false;
                 }
                 state["phase"] = ActivityPhases.Reveal; state["responsesOpen"] = false; state["responsesLocked"] = true; state["answerRevealed"] = true;
+                state["explanationRevealed"] = false;
                 var question = questions.Count == 0 ? null : questions[index] as JsonObject;
                 var answerMode = QuizAnswerMode(question);
                 if (answerMode == "choice") state["revealedCorrectIndex"] = IntValue(question, "correctIndex");
@@ -1125,6 +1126,7 @@ public sealed class ActivitySessionService(
                 else state.Remove("revealedAnswer");
                 var explanation = StringValue(question, "explanation");
                 if (!string.IsNullOrWhiteSpace(explanation)) state["revealedExplanation"] = explanation;
+                else state.Remove("revealedExplanation");
                 if (!BoolValue(state, "scoresApplied"))
                 {
                     await ScoreQuizAsync(run, questions, index, state, ct);
@@ -1132,20 +1134,23 @@ public sealed class ActivitySessionService(
                 }
                 return (true, null);
             case "hideanswer":
-                state["answerRevealed"] = false; state.Remove("revealedCorrectIndex"); state.Remove("revealedAnswer"); return (true, null);
+                ResetQuizRevealState(state); return (true, null);
+            case "showexplanation":
             case "revealexplanation":
                 state["explanationRevealed"] = true; return (true, null);
+            case "hideexplanation":
+                state["explanationRevealed"] = false; return (true, null);
             case "nextquestion":
             case "nextround":
             case "next":
-                if (index >= Math.Max(0, questions.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
+                if (index >= Math.Max(0, questions.Count - 1)) { ResetQuizRevealState(state); state["phase"] = ActivityPhases.FinalResults; return (true, null); }
                 state["currentQuestionIndex"] = index + 1; state["roundIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro;
-                state["responsesOpen"] = false; state["responsesLocked"] = false; state["answerRevealed"] = false; state.Remove("revealedCorrectIndex"); state.Remove("revealedAnswer"); state.Remove("revealedExplanation"); state["scoresApplied"] = false; state.Remove("responseWindowStartedAt"); state["targetAt"] = null; state["remainingMs"] = null; state["isRunning"] = false; return (true, null);
+                state["responsesOpen"] = false; state["responsesLocked"] = false; ResetQuizRevealState(state); state["scoresApplied"] = false; state.Remove("responseWindowStartedAt"); state["targetAt"] = null; state["remainingMs"] = null; state["isRunning"] = false; return (true, null);
             case "prevquestion":
             case "previous":
-                state["currentQuestionIndex"] = Math.Max(0, index - 1); state["roundIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["answerRevealed"] = false; state.Remove("revealedCorrectIndex"); state.Remove("revealedAnswer"); state.Remove("responseWindowStartedAt"); state["targetAt"] = null; state["remainingMs"] = null; state["isRunning"] = false; return (true, null);
+                state["currentQuestionIndex"] = Math.Max(0, index - 1); state["roundIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; ResetQuizRevealState(state); state.Remove("responseWindowStartedAt"); state["targetAt"] = null; state["remainingMs"] = null; state["isRunning"] = false; return (true, null);
             case "showleaderboard": state["phase"] = ActivityPhases.Leaderboard; return (true, null);
-            case "finish": state["phase"] = ActivityPhases.FinalResults; return (true, null);
+            case "finish": ResetQuizRevealState(state); state["phase"] = ActivityPhases.FinalResults; return (true, null);
             default: return (false, $"Unrecognized quiz action '{action}'.");
         }
     }
@@ -1220,7 +1225,8 @@ public sealed class ActivitySessionService(
                     var correct = IntValue(rounds[index] as JsonObject, "correctIndex");
                     state["revealedCorrectIndex"] = correct;
                     state["revealedExplanation"] = StringValue(rounds[index] as JsonObject, "explanation");
-                    await ScorePredictionAsync(run, CurrentRoundId(run, config), correct, ct);
+                    var points = IntValue(rounds[index] as JsonObject, "points", IntValue(config, "points", 100));
+                    await ScorePredictionAsync(run, CurrentRoundId(run, config), correct, points, ct);
                     state["scoresApplied"] = true;
                 }
                 else if (run.ActivityDefinition!.Type == ActivityTypes.Poll && pollMode.Length > 0 && !BoolValue(state, "scoresApplied"))
@@ -1230,14 +1236,14 @@ public sealed class ActivitySessionService(
                 }
                 return (true, null);
             case "hideresults": state["resultsVisible"] = false; return (true, null);
-            case "hideanswer": state["answerRevealed"] = false; state["resultsVisible"] = false; state.Remove("revealedCorrectIndex"); return (true, null);
+            case "hideanswer": ResetPollRevealState(state); return (true, null);
             case "showexplanation": state["explanationRevealed"] = true; return (true, null);
             case "hideexplanation": state["explanationRevealed"] = false; return (true, null);
             case "next": case "nextround":
-                if (index >= rounds.Count - 1) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
-                state["currentRoundIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["resultsVisible"] = false; state["votes"] = new JsonObject(); state["totalVotes"] = 0; state["scoresApplied"] = false; return (true, null);
+                if (index >= rounds.Count - 1) { ResetPollRevealState(state); state["phase"] = ActivityPhases.FinalResults; return (true, null); }
+                state["currentRoundIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; ResetPollRevealState(state); state["votes"] = new JsonObject(); state["totalVotes"] = 0; state["scoresApplied"] = false; return (true, null);
             case "prev": case "previous":
-                state["currentRoundIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["resultsVisible"] = false; state["answerRevealed"] = false; return (true, null);
+                state["currentRoundIndex"] = Math.Max(0, index - 1); state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; ResetPollRevealState(state); return (true, null);
             case "showleaderboard": state["phase"] = ActivityPhases.Leaderboard; return (true, null);
             default: return (false, $"Unrecognized poll action '{action}'.");
         }
@@ -3487,12 +3493,33 @@ public sealed class ActivitySessionService(
         }
     }
 
-    private async Task ScorePredictionAsync(ActivityRun run, string roundId, int correct, CancellationToken ct)
+    private static void ResetQuizRevealState(JsonObject state)
+    {
+        state["answerRevealed"] = false;
+        state["explanationRevealed"] = false;
+        state.Remove("revealedCorrectIndex");
+        state.Remove("revealedAnswer");
+        state.Remove("revealedExplanation");
+    }
+
+    private static void ResetPollRevealState(JsonObject state)
+    {
+        state["answerRevealed"] = false;
+        state["explanationRevealed"] = false;
+        state["resultsVisible"] = false;
+        state.Remove("revealedCorrectIndex");
+        state.Remove("revealedExplanation");
+        state.Remove("winningOptionIndex");
+        state.Remove("winningOptionIndices");
+        state.Remove("winningVoteCount");
+        state.Remove("scoringMode");
+    }
+
+    private async Task ScorePredictionAsync(ActivityRun run, string roundId, int correct, int points, CancellationToken ct)
     {
         foreach (var vote in run.Votes.Where(x => x.RoundId == roundId))
-        {
-            if (int.TryParse(vote.TargetId, out var option) && option == correct) await AwardScoreAsync(run, vote.VoterParticipantId, null, 100, "Accurate prediction", roundId, ct);
-        }
+            if (int.TryParse(vote.TargetId, out var option) && option == correct && points != 0)
+                await AwardScoreAsync(run, vote.VoterParticipantId, null, points, "Accurate prediction", roundId, ct);
     }
 
     private async Task ScorePollOutcomeAsync(ActivityRun run, JsonObject config, JsonObject state, JsonObject round, string roundId, string mode, CancellationToken ct)
@@ -3583,10 +3610,11 @@ public sealed class ActivitySessionService(
         var firstId = StringValue(current, "entrantAId") ?? "";
         var secondId = StringValue(current, "entrantBId") ?? "";
         var winnerId = ReadString(payload, "winnerId").Trim();
+        var voteRoundId = CreativeVoteRoundId(run, config, state);
         if (winnerId.Length == 0)
         {
             var counts = run.Votes
-                .Where(vote => vote.RoundId == currentId && (vote.TargetId == firstId || vote.TargetId == secondId))
+                .Where(vote => vote.RoundId == voteRoundId && (vote.TargetId == firstId || vote.TargetId == secondId))
                 .GroupBy(vote => vote.TargetId)
                 .Select(group => new { Id = group.Key, Count = group.Count() })
                 .OrderByDescending(group => group.Count)
@@ -3603,7 +3631,7 @@ public sealed class ActivitySessionService(
         state["revealedWinnerId"] = winnerId;
         state["votingOpen"] = false;
         state["phase"] = ActivityPhases.Reveal;
-        await AwardCreativeMatchAsync(run, config, current, winnerId, currentId!, ct);
+        await AwardCreativeMatchAsync(run, config, current, winnerId, voteRoundId, ct);
 
         if (advance) AdvanceCreativeHeadToHead(state);
         else

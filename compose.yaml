@@ -71,7 +71,7 @@ services:
     expose:
       - "5432"
     volumes:
-      - "${SHORTENER_DB_PATH:-./shortener-data/postgres}:/var/lib/postgresql/data"
+      - "${SHORTENER_DB_PATH:-${SHORTENER_DATA_DIR:-./shortener-data}/postgres}:/var/lib/postgresql/data"
     environment:
       POSTGRES_DB: shlink
       POSTGRES_USER: shlink

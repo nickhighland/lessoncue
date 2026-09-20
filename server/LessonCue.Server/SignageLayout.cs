@@ -42,13 +42,20 @@ public static class SignageLayout
     public static SignageZoneInput Normalize(SignageZoneInput zone)
     {
         var type = ZoneTypes.Contains(zone.Type) ? zone.Type : "text";
+        var weatherProvider = type == "weather"
+            ? WeatherProviders.Contains(zone.WeatherProvider) ? zone.WeatherProvider
+                : string.IsNullOrWhiteSpace(zone.SourceUrl) ? "open-meteo" : "custom"
+            : null;
         return zone with
         {
             Id = string.IsNullOrWhiteSpace(zone.Id) ? Guid.NewGuid().ToString("N") : zone.Id.Trim()[..Math.Min(64, zone.Id.Trim().Length)],
             Type = type,
             Title = Truncate(zone.Title, 160),
             Content = Truncate(zone.Content, zone.Type == "customHtml" ? 50000 : 4000),
-            SourceUrl = Truncate(zone.SourceUrl, 2000),
+            // A preset provider must never retain a caller-supplied endpoint.
+            // Preset requests are generated from coordinates below; retaining
+            // this value would let the fetcher fall back to an arbitrary URL.
+            SourceUrl = weatherProvider is "open-meteo" or "nws" ? null : Truncate(zone.SourceUrl, 2000),
             X = Math.Clamp(zone.X, 0, 90),
             Y = Math.Clamp(zone.Y, 0, 90),
             Width = Math.Clamp(zone.Width, 2, 100),
@@ -94,10 +101,7 @@ public static class SignageLayout
             ClockOrder = zone.ClockOrder is "date-time" or "inline" ? zone.ClockOrder : "time-date",
             ClockTimeFontSize = Math.Clamp(zone.ClockTimeFontSize, 8, 300),
             ClockDateFontSize = Math.Clamp(zone.ClockDateFontSize, 8, 300),
-            WeatherProvider = zone.Type == "weather"
-                ? WeatherProviders.Contains(zone.WeatherProvider) ? zone.WeatherProvider
-                    : string.IsNullOrWhiteSpace(zone.SourceUrl) ? "open-meteo" : "custom"
-                : null,
+            WeatherProvider = weatherProvider,
             WeatherLocation = type == "weather" ? Truncate(zone.WeatherLocation, 160) : null,
             WeatherLatitude = type == "weather" && zone.WeatherLatitude is { } latitude ? Math.Clamp(latitude, -90, 90) : null,
             WeatherLongitude = type == "weather" && zone.WeatherLongitude is { } longitude ? Math.Clamp(longitude, -180, 180) : null,
@@ -167,6 +171,8 @@ public static class SignageLayout
             {
                 var provider = WeatherProviders.Contains(raw.WeatherProvider) ? raw.WeatherProvider
                     : string.IsNullOrWhiteSpace(raw.SourceUrl) ? "open-meteo" : "custom";
+                if (provider is "open-meteo" or "nws" && !string.IsNullOrWhiteSpace(raw.SourceUrl))
+                    return "Preset weather elements cannot use a custom source URL.";
                 var coordinatesValid = raw.WeatherLatitude is >= -90 and <= 90 &&
                     raw.WeatherLongitude is >= -180 and <= 180;
                 var postalCodeValid = !string.IsNullOrWhiteSpace(raw.WeatherPostalCode) &&
