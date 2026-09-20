@@ -477,6 +477,7 @@ jobs:
   publish-reused:
     if: ${{ github.event.inputs.reuse_run_id != '' }}
     runs-on: ubuntu-latest
+    environment: production-release
     permissions:
       contents: write
       id-token: write
