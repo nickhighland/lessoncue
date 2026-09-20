@@ -51,7 +51,6 @@ run_worker \
   --timeout=10 \
   --memory=268435456 \
   --file-size=1048576 \
-  --processes=4 \
   --write-root=/var/lib/lessoncue/media/temporary/test \
   -- \
   /bin/sh -c \
@@ -64,7 +63,6 @@ driver_environment="$(
     --timeout=10 \
     --memory=268435456 \
     --file-size=1048576 \
-    --processes=4 \
     --write-root=/var/lib/lessoncue/media/temporary/test \
     -- \
     /usr/bin/env
@@ -76,7 +74,6 @@ run_worker \
   --timeout=10 \
   --memory=2147483648 \
   --file-size=1048576 \
-  --processes=32 \
   --write-root=/var/lib/lessoncue/media/temporary/test \
   -- \
   /usr/bin/ffmpeg -hide_banner -loglevel error -f lavfi \
@@ -87,7 +84,6 @@ if run_worker \
   --timeout=1 \
   --memory=268435456 \
   --file-size=1048576 \
-  --processes=4 \
   --write-root=/var/lib/lessoncue/media/temporary/test \
   -- \
   /bin/sh -c 'sleep 3'; then
@@ -100,7 +96,6 @@ if run_worker \
   --timeout=10 \
   --memory=268435456 \
   --file-size=1048576 \
-  --processes=4 \
   --write-root=/etc \
   -- \
   /usr/bin/true; then

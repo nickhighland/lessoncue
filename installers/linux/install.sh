@@ -115,7 +115,7 @@ install -d -o lessoncue -g lessoncue -m 0700 "${MEDIA_WORKER_PROBE_ROOT}"
 if ! runuser -u lessoncue -- setpriv --ambient-caps=-all --inh-caps=-all --no-new-privs -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
   /usr/local/libexec/lessoncue-media-worker \
   --network=deny --timeout=10 --memory=268435456 --file-size=1048576 \
-  --processes=4 --write-root="${MEDIA_WORKER_PROBE_ROOT}" -- \
+  --write-root="${MEDIA_WORKER_PROBE_ROOT}" -- \
   /usr/bin/true >"${MEDIA_WORKER_PROBE_LOG}" 2>&1; then
   echo "The installed LessonCue media worker could not start. The previous service was left recoverable; inspect the installer output below." >&2
   sed -n '1,120p' "${MEDIA_WORKER_PROBE_LOG}" >&2
@@ -136,7 +136,7 @@ if command -v runuser >/dev/null 2>&1 && command -v ffmpeg >/dev/null 2>&1; then
     if ! runuser -u lessoncue -- setpriv --ambient-caps=-all --inh-caps=-all --no-new-privs -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
       /usr/local/libexec/lessoncue-media-worker \
       --network=deny --timeout=30 --memory=2147483648 --file-size=1048576 \
-      --processes=32 --write-root="${MEDIA_WORKER_PROBE_ROOT}" -- \
+      --write-root="${MEDIA_WORKER_PROBE_ROOT}" -- \
       /usr/bin/ffmpeg -hide_banner -loglevel error -y \
       -vaapi_device "${MEDIA_RENDER_NODE}" \
       -f lavfi -i color=size=64x64:rate=1:duration=1 \

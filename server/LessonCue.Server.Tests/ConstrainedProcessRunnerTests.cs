@@ -26,7 +26,7 @@ public sealed class ConstrainedProcessRunnerTests
     }
 
     [Fact]
-    public void LinuxWorkerArgumentsCarryAllLimits()
+    public void LinuxWorkerArgumentsCarryResourceLimitsWithoutPerUserProcessLimit()
     {
         var root = Path.Combine(Path.GetTempPath(), "lessoncue-worker-test");
         var options = new ConstrainedProcessOptions(
@@ -50,7 +50,7 @@ public sealed class ConstrainedProcessRunnerTests
             Assert.Contains("--timeout=42", start.ArgumentList);
             Assert.Contains("--memory=123000000", start.ArgumentList);
             Assert.Contains("--file-size=456000000", start.ArgumentList);
-            Assert.Contains("--processes=7", start.ArgumentList);
+            Assert.DoesNotContain("--processes=7", start.ArgumentList);
             Assert.Contains("--write-root=" + Path.GetFullPath(root), start.ArgumentList);
             Assert.DoesNotContain("-c", start.ArgumentList);
         }

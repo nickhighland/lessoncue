@@ -718,3 +718,30 @@ compatibility path could not start. The original remained intact and playable.
 No higher-reasoning model is needed for these fixes. The decisive worker error,
 the diagnostics failure mode, and the icon-only UI change were all directly
 verified in the code or the supplied production observation.
+
+## Hosted validation correction — 2026-09-20
+
+The first server-only v0.46.7 candidate was not published. Its hosted browser
+regression found one real Linux worker defect after 175 browser tests had
+passed: the incompatible MP4 reached `ProcessingStatus=ready` but its
+compatibility job failed with `pthread_create() failed: Resource temporarily
+unavailable`, followed by FFmpeg decoder/filter initialization failures. The
+failure was caused by the new direct worker applying `prlimit --nproc=32`.
+`RLIMIT_NPROC` is scoped to the real service user, not to one worker process,
+so it also counted the LessonCue server's .NET and FFmpeg threads. This was a
+new regression in the Bubblewrap-removal change, not a corrupt upload or a
+hardware-encoder failure.
+
+The correction removes the Linux `RLIMIT_NPROC` flag and keeps the existing
+deployment-level task limits (`TasksMax=160` for systemd and `pids_limit=160`
+for Compose). CPU time, address space, output size, open files, no-new-privs,
+capability clearing, read-only system, and storage-root validation remain in
+place. Windows retains its per-job active-process limit. The Linux worker and
+installer probes no longer pass the misleading per-user process limit, and a
+regression assertion ensures it is not reintroduced. This specifically allows
+FFmpeg and Intel Quick Sync to create the threads they need while retaining the
+actual production process/task boundary.
+
+The failed candidate was not released. The correction must pass the complete
+hosted browser suite and packaging checks before the server-only tag is
+published.

@@ -167,7 +167,6 @@ public static class ConstrainedProcessRunner
             start.ArgumentList.Add($"--timeout={Math.Max(1, (int)Math.Ceiling(options.Timeout.TotalSeconds))}");
             start.ArgumentList.Add($"--memory={options.MemoryBytes}");
             start.ArgumentList.Add($"--file-size={options.MaximumOutputFileBytes}");
-            start.ArgumentList.Add($"--processes={options.MaximumProcesses}");
             foreach (var root in options.WritableRoots ?? [])
                 start.ArgumentList.Add($"--write-root={Path.GetFullPath(root)}");
             start.ArgumentList.Add("--");

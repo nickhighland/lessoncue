@@ -5,7 +5,6 @@ network=deny
 timeout_seconds=14400
 memory_bytes=2147483648
 file_bytes=21474836480
-processes=32
 write_roots=()
 
 while [[ "$#" -gt 0 ]]; do
@@ -15,7 +14,6 @@ while [[ "$#" -gt 0 ]]; do
     --timeout=*) timeout_seconds="${1#*=}"; shift ;;
     --memory=*) memory_bytes="${1#*=}"; shift ;;
     --file-size=*) file_bytes="${1#*=}"; shift ;;
-    --processes=*) processes="${1#*=}"; shift ;;
     --write-root=*) write_roots+=("${1#*=}"); shift ;;
     --) shift; break ;;
     *) echo "Unknown LessonCue worker option: $1" >&2; exit 64 ;;
@@ -28,8 +26,7 @@ if [[ "$#" -lt 1 ]]; then
 fi
 if [[ ! "${timeout_seconds}" =~ ^[1-9][0-9]{0,5}$ ]] ||
    [[ ! "${memory_bytes}" =~ ^[1-9][0-9]{6,}$ ]] ||
-   [[ ! "${file_bytes}" =~ ^[1-9][0-9]{6,}$ ]] ||
-   [[ ! "${processes}" =~ ^[1-9][0-9]{0,2}$ ]]; then
+   [[ ! "${file_bytes}" =~ ^[1-9][0-9]{6,}$ ]]; then
   echo "LessonCue worker limits are invalid." >&2
   exit 64
 fi
@@ -93,8 +90,9 @@ worker=(
 # Native Linux intentionally uses the same direct worker path everywhere. The
 # old Bubblewrap namespace made ordinary media processing depend on kernel
 # user/mount namespace policy and was the source of repeated production
-# failures. The systemd service supplies the OS boundary (unprivileged user,
-# read-only system, private /tmp, no-new-privileges, capability restrictions,
-# and data-root write access); this helper retains per-process resource limits.
-worker+=("--nproc=${processes}" -- "$@")
+# failures. The systemd service or container supplies the process/task boundary
+# (TasksMax/pids_limit), while this helper retains per-process resource limits.
+# Do not use prlimit --nproc here: RLIMIT_NPROC is per real UID, not per worker,
+# so a low value also limits the LessonCue server's .NET and FFmpeg threads.
+worker+=(-- "$@")
 exec "${worker[@]}"
