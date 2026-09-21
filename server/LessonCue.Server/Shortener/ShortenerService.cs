@@ -567,28 +567,28 @@ public sealed class ShortenerService(
         if (!settings.Configured)
             return [new Check("Configured", false, "Set the short domain and where the shortener is reachable first.")];
 
-        var checks = new List<Check>
+        var checks = new List<Task<Check>>
         {
-            await ProbeOneAsync("The shortener answers locally", $"{settings.Upstream.TrimEnd('/')}/{ShlinkClient.HealthPath}",
+            ProbeOneAsync("The shortener answers locally", $"{settings.Upstream.TrimEnd('/')}/{ShlinkClient.HealthPath}",
                 "LessonCue can reach it inside the deployment.", ct),
         };
 
         // Through the tunnel now, on the hostnames the room will actually use.
-        checks.Add(await ProbeOneAsync($"{settings.Domain} reaches the shortener",
+        checks.Add(ProbeOneAsync($"{settings.Domain} reaches the shortener",
             $"{settings.PublicUrl}/{ShlinkClient.HealthPath}",
             "The short domain is routed to the shortener.", ct));
 
         if (settings.AdminHost.Length > 0)
-            checks.Add(await ProbeOneAsync($"{settings.AdminHost} serves the console",
+            checks.Add(ProbeOneAsync($"{settings.AdminHost} serves the console",
                 settings.AdminUrl, "The management address is routed to the web client.", ct));
 
         // And a reserved code, because that is the path a phone takes.
         var sample = ReservedGameCodes.All.FirstOrDefault();
         if (sample is not null)
-            checks.Add(await ProbeOneAsync($"A game code resolves on {settings.Domain}",
+            checks.Add(ProbeOneAsync($"A game code resolves on {settings.Domain}",
                 settings.ShortLinkFor(sample), "A reserved code redirects rather than 404s.", ct, expectRedirect: true));
 
-        return checks;
+        return await Task.WhenAll(checks);
     }
 
     private async Task<Check> ProbeOneAsync(string name, string url, string good, CancellationToken ct, bool expectRedirect = false)

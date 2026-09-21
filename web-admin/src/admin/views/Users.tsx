@@ -799,7 +799,7 @@ export function RegistrationSettingsPanel({
         dailyTroubleshootingEmailLastSentAt: result.lastSentAt,
         dailyTroubleshootingEmailLastError: result.lastError,
       }));
-      notify("Daily troubleshooting report sent.");
+      notify("Daily troubleshooting report queued. Delivery status will appear here when it finishes.");
     } catch (cause) {
       notify(errorText(cause));
     } finally {

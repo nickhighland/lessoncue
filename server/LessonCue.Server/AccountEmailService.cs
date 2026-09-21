@@ -71,7 +71,15 @@ public sealed class AccountEmailService
             var detail = await response.Content.ReadAsStringAsync(ct);
             logger.LogWarning("Account email provider returned {Status}: {Detail}", (int)response.StatusCode,
                 detail.Length > 500 ? detail[..500] : detail);
-            throw new InvalidOperationException($"Email provider rejected the request ({(int)response.StatusCode}).");
+            detail = string.Join(' ', detail.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            if (detail.Length > 500) detail = detail[..500] + "…";
+            var attachmentBytes = attachments?.Sum(item => (long)item.Content.Length) ?? 0;
+            var attachmentDetail = attachmentBytes > 0
+                ? $" Attachment bytes: {attachmentBytes:N0}."
+                : "";
+            var providerDetail = string.IsNullOrWhiteSpace(detail) ? "" : $" Details: {detail}";
+            throw new InvalidOperationException(
+                $"Email provider rejected the request ({(int)response.StatusCode}).{providerDetail}{attachmentDetail}");
         }
     }
 

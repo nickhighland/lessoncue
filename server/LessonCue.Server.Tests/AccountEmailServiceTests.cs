@@ -95,6 +95,29 @@ public sealed class AccountEmailServiceTests : IDisposable
         Assert.Contains("AQI=", handler.Body);
     }
 
+    [Fact]
+    public async Task ProviderAttachmentFailureIncludesProviderDetailAndSize()
+    {
+        var handler = new CapturingHandler(HttpStatusCode.BadRequest, "attachment is too large");
+        var protection = DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(root, "keys-rejection")));
+        var service = CreateService(protection, handler);
+        await service.ConfigureAsync("resend", "email-example-key", TestContext.Current.CancellationToken);
+        var organization = new Organization
+        {
+            Name = "LessonCue Test",
+            EmailProvider = "resend",
+            EmailFromName = "LessonCue Test",
+            EmailFromAddress = "accounts@example.org"
+        };
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.SendAsync(
+            organization, "diagnostics@example.org", "Daily report", "<p>Report</p>",
+            TestContext.Current.CancellationToken, [new EmailAttachment("report.json.gz", [1, 2, 3])]));
+
+        Assert.Contains("attachment is too large", error.Message, StringComparison.Ordinal);
+        Assert.Contains("Attachment bytes: 3", error.Message, StringComparison.Ordinal);
+    }
+
     private AccountEmailService CreateService(IDataProtectionProvider protection, HttpMessageHandler handler) =>
         new(root, protection, new TestHttpClientFactory(handler), NullLogger<AccountEmailService>.Instance);
 
@@ -108,7 +131,9 @@ public sealed class AccountEmailServiceTests : IDisposable
         public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
     }
 
-    private sealed class CapturingHandler : HttpMessageHandler
+    private sealed class CapturingHandler(
+        HttpStatusCode responseStatus = HttpStatusCode.Created,
+        string responseBody = "") : HttpMessageHandler
     {
         public string Address { get; private set; } = "";
         public string Body { get; private set; } = "";
@@ -121,7 +146,7 @@ public sealed class AccountEmailServiceTests : IDisposable
             Body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
             Authorization = request.Headers.Authorization?.ToString() ?? "";
             ApiKey = request.Headers.TryGetValues("api-key", out var values) ? values.Single() : "";
-            return new HttpResponseMessage(HttpStatusCode.Created);
+            return new HttpResponseMessage(responseStatus) { Content = new StringContent(responseBody) };
         }
     }
 }

@@ -15,6 +15,7 @@ public sealed class TroubleshootingReportBuilder(
     MediaStoragePaths paths,
     ShortenerService shortener)
 {
+    private static readonly TimeSpan ShortenerDiagnosticBudget = TimeSpan.FromSeconds(10);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true
@@ -93,10 +94,12 @@ public sealed class TroubleshootingReportBuilder(
         }
 
         object shortenerDiagnostics;
+        using var shortenerBudget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        shortenerBudget.CancelAfter(ShortenerDiagnosticBudget);
         try
         {
-            var status = await shortener.StatusAsync(ct);
-            var checks = await shortener.ProbeAsync(ct);
+            var status = await shortener.StatusAsync(shortenerBudget.Token);
+            var checks = await shortener.ProbeAsync(shortenerBudget.Token);
             shortenerDiagnostics = new
             {
                 state = status.State.ToString(),
@@ -113,6 +116,12 @@ public sealed class TroubleshootingReportBuilder(
                 failures = status.Failures,
                 checks,
             };
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            var timeout = new TimeoutException($"shortener diagnostics exceeded {ShortenerDiagnosticBudget.TotalSeconds:0} seconds");
+            RecordIssue("shortener", timeout, diagnosticErrors);
+            shortenerDiagnostics = new { state = "unavailable", error = "timeout" };
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {

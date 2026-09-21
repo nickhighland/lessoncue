@@ -128,30 +128,41 @@ public sealed class ReservedCodeProvisioner(ShlinkClient shlink)
     public async Task<ReservationAudit> AuditAsync(
         string upstream, string apiKey, string domain, CancellationToken ct = default)
     {
-        var missing = new List<string>();
-        var conflicts = new List<string>();
-        var failures = new List<string>();
-        var present = 0;
-        foreach (var code in ReservedGameCodes.All)
+        // A status/diagnostic read must not spend twelve seconds per code when
+        // the optional shortener is down. A small amount of bounded parallelism
+        // keeps the audit responsive while avoiding an unbounded burst against
+        // the shortener or its reverse proxy.
+        using var limiter = new SemaphoreSlim(8);
+        var outcomes = await Task.WhenAll(ReservedGameCodes.All.Select(async code =>
         {
-            ct.ThrowIfCancellationRequested();
+            await limiter.WaitAsync(ct);
             try
             {
                 var existing = await shlink.FindAsync(upstream, apiKey, code, domain, ct);
-                if (existing is null) missing.Add(code);
-                else if (!IsOurs(existing)) conflicts.Add(code);
-                else present++;
+                return new AuditOutcome(code, existing, null);
             }
             catch (ShlinkException error)
             {
                 // A 401, 403, 5xx, or transport failure is not evidence that
                 // the slug is absent or owned by another user. Preserve the
                 // code and the shortener's reason for the diagnostic UI.
-                failures.Add($"{code}: {error.Message}");
+                return new AuditOutcome(code, null, $"{code}: {error.Message}");
             }
-        }
+            finally { limiter.Release(); }
+        }));
+
+        var missing = outcomes.Where(item => item.Existing is null && item.Failure is null)
+            .Select(item => item.Code).ToArray();
+        var conflicts = outcomes.Where(item => item.Existing is not null && !IsOurs(item.Existing))
+            .Select(item => item.Code).ToArray();
+        var failures = outcomes.Where(item => item.Failure is not null)
+            .Select(item => item.Failure!)
+            .ToArray();
+        var present = outcomes.Count(item => item.Existing is not null && IsOurs(item.Existing));
         return new ReservationAudit(ReservedGameCodes.All.Count, present, missing, conflicts, failures);
     }
+
+    private sealed record AuditOutcome(string Code, ShlinkShortUrl? Existing, string? Failure);
 
     /// <summary>Authored by us, as far as the shortener's tags are concerned.</summary>
     private static bool IsOurs(ShlinkShortUrl url) =>

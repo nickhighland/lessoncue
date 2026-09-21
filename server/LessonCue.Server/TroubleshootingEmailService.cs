@@ -26,10 +26,34 @@ public sealed class TroubleshootingEmailService(
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(5);
     private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly SemaphoreSlim sendNowSignal = new(0);
+    private int sendNowQueued;
 
-    public async Task<DailyTroubleshootingEmailStatus> SendNowAsync(CancellationToken ct)
+    /// <summary>
+    /// Queue a manual delivery and return immediately. Building the diagnostic
+    /// bundle can inspect large media files and probe optional integrations, so
+    /// doing that work in the browser request made a successful email provider
+    /// look like a 502 from the reverse proxy.
+    /// </summary>
+    public async Task<DailyTroubleshootingEmailStatus> QueueSendNowAsync(CancellationToken ct)
     {
-        return await RunAsync(force: true, DateTimeOffset.UtcNow, ct);
+        await using var scope = scopes.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
+        var organization = await db.Organizations.OrderBy(item => item.Id).FirstOrDefaultAsync(ct);
+        if (organization is null)
+            throw new InvalidOperationException("The LessonCue organization has not been initialized.");
+
+        var providerConfigured = email.Status(organization.EmailProvider).Configured;
+        var recipient = organization.DailyTroubleshootingEmailRecipient.Trim().ToLowerInvariant();
+        if (!TroubleshootingEmailSchedule.IsEmail(recipient))
+            throw new InvalidOperationException("Set a valid daily troubleshooting recipient before sending delivery.");
+        if (!providerConfigured)
+            throw new InvalidOperationException(
+                "Configure Resend or Brevo account email before sending daily troubleshooting delivery.");
+
+        if (Interlocked.Exchange(ref sendNowQueued, 1) == 0)
+            sendNowSignal.Release();
+        return Status(organization, providerConfigured, DateTimeOffset.UtcNow);
     }
 
     public static DailyTroubleshootingEmailStatus Status(
@@ -58,21 +82,35 @@ public sealed class TroubleshootingEmailService(
         catch (OperationCanceledException) { return; }
 
         using var timer = new PeriodicTimer(PollInterval);
-        do
+        while (!stoppingToken.IsCancellationRequested)
         {
-            try { await RunAsync(force: false, DateTimeOffset.UtcNow, stoppingToken); }
+            using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            var tickTask = timer.WaitForNextTickAsync(waitCts.Token).AsTask();
+            var sendNowTask = sendNowSignal.WaitAsync(waitCts.Token);
+            var completed = await Task.WhenAny(tickTask, sendNowTask);
+            waitCts.Cancel();
+            try { await tickTask; } catch (OperationCanceledException) { }
+            try { await sendNowTask; } catch (OperationCanceledException) { }
+
+            // If the timer and manual signal complete together, WhenAny may
+            // return either task. Do not lose a queued manual delivery in
+            // that race.
+            var manual = sendNowTask.Status == TaskStatus.RanToCompletion;
+            if (manual) Interlocked.Exchange(ref sendNowQueued, 0);
+            try { await RunAsync(force: manual, DateTimeOffset.UtcNow, stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
             catch (Exception exception)
             {
                 logger.LogError(exception, "Scheduled troubleshooting email failed");
             }
-        } while (await timer.WaitForNextTickAsync(stoppingToken));
+        }
     }
 
     private async Task<DailyTroubleshootingEmailStatus> RunAsync(
         bool force, DateTimeOffset now, CancellationToken ct)
     {
         await gate.WaitAsync(ct);
+        Guid? organizationId = null;
         try
         {
             await using var scope = scopes.CreateAsyncScope();
@@ -80,6 +118,7 @@ public sealed class TroubleshootingEmailService(
             var organization = await db.Organizations.OrderBy(item => item.Id).FirstOrDefaultAsync(ct);
             if (organization is null)
                 throw new InvalidOperationException("The LessonCue organization has not been initialized.");
+            organizationId = organization.Id;
 
             var providerConfigured = email.Status(organization.EmailProvider).Configured;
             if (!force && !organization.DailyTroubleshootingEmailEnabled)
@@ -141,7 +180,50 @@ public sealed class TroubleshootingEmailService(
             await db.SaveChangesAsync(ct);
             return Status(organization, providerConfigured, now);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception error)
+        {
+            if (organizationId is { } id)
+            {
+                try
+                {
+                    await using var failureScope = scopes.CreateAsyncScope();
+                    var failureDb = failureScope.ServiceProvider.GetRequiredService<LessonCueDb>();
+                    var failureOrganization = await failureDb.Organizations
+                        .SingleOrDefaultAsync(item => item.Id == id, CancellationToken.None);
+                    if (failureOrganization is not null)
+                    {
+                        var failure = FailureText(error);
+                        failureOrganization.DailyTroubleshootingEmailLastError = failure;
+                        failureDb.AuditEvents.Add(new AuditEvent
+                        {
+                            Actor = "system",
+                            Action = "troubleshooting.email.failed",
+                            Object = id.ToString(),
+                            Result = "failed",
+                            Summary = failure,
+                        });
+                        await failureDb.SaveChangesAsync(CancellationToken.None);
+                    }
+                }
+                catch (Exception saveError)
+                {
+                    logger.LogWarning(saveError, "Could not save the troubleshooting email failure state.");
+                }
+            }
+            logger.LogError(error, "Troubleshooting email delivery failed.");
+            throw;
+        }
         finally { gate.Release(); }
+    }
+
+    private static string FailureText(Exception error)
+    {
+        var message = error.Message.Trim();
+        return message.Length <= 500 ? message : message[..500] + "…";
     }
 
     private static async Task<DailyTroubleshootingEmailStatus> HandleUnavailableAsync(
@@ -150,10 +232,7 @@ public sealed class TroubleshootingEmailService(
     {
         organization.DailyTroubleshootingEmailLastError = error;
         await db.SaveChangesAsync(ct);
-        if (force)
-        {
-            throw new InvalidOperationException(error);
-        }
+        if (force) throw new InvalidOperationException(error);
         return Status(organization, providerConfigured, now);
     }
 }

@@ -801,3 +801,43 @@ not failures, is a deletion/rename candidate.
 - Server build: passed with 0 warnings and 0 errors.
 - Admin typecheck: passed.
 - Shortener compose validation: passed.
+
+## Daily troubleshooting report 502 — 2026-09-21
+
+The finding that the daily troubleshooting report could fail with HTTP 502
+while the email test succeeded was verified in the source. The two requests
+did not exercise the same path: the email test sent a small message directly,
+while **Send now** synchronously built the full failures-only report, checked
+recent media files, gathered converter diagnostics, probed the optional
+shortener, compressed the attachment, and only then called the email
+provider. That work could exceed the reverse-proxy request timeout and be
+reported as 502 even when the provider credentials and simple email path were
+healthy. The report builder's shortener work could also spend too long on a
+degraded shortener.
+
+### Correction
+
+Manual report delivery now validates the recipient/provider and returns an
+accepted/queued response immediately. The background troubleshooting worker
+performs report generation and delivery outside the HTTP request, so large
+media diagnostics cannot turn a successful queue request into a proxy 502.
+The manual-send race with the periodic scheduler is covered so a simultaneous
+timer tick cannot discard the queued delivery.
+
+If background delivery fails, LessonCue persists the failure in the service
+settings and audit log, including the provider response detail (when supplied)
+and the compressed attachment byte count. Shortener status/probes are bounded
+to ten seconds and reserved-code audit lookups use bounded parallelism, so an
+optional shortener outage cannot hold the report indefinitely.
+
+No evidence showed that the provider configuration itself was invalid; the
+simple provider test passed. A provider-side attachment rejection remains a
+separate possible failure and is now recorded with enough detail to diagnose
+it without exposing credentials or tokens.
+
+### Validation
+
+- Account email, shortener, and troubleshooting schedule tests passed.
+- Full server test suite: 585 tests passed.
+- Admin typecheck, admin build, lint, protocol, network, shortener, and
+  release-scope checks passed.

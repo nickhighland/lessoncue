@@ -3219,7 +3219,7 @@ public static class AdminApi
         settings.MapPost("/troubleshooting-email/send-now", async (TroubleshootingEmailService dailyEmail,
             CancellationToken ct) =>
         {
-            try { return Results.Ok(await dailyEmail.SendNowAsync(ct)); }
+            try { return Results.Accepted("/api/v1/troubleshooting-email", await dailyEmail.QueueSendNowAsync(ct)); }
             catch (Exception error) when (error is InvalidOperationException or HttpRequestException)
             {
                 return Results.Json(new { error = error.Message }, statusCode: 502);

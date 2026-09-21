@@ -4,6 +4,24 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.15 — reliable daily troubleshooting delivery
+
+### User changes
+
+- Sending a daily troubleshooting report now queues the work immediately
+  instead of waiting for the full diagnostic bundle inside the browser request.
+- Delivery failures remain visible in service settings with the email
+  provider's response detail and attachment size when available.
+
+### Developer changes
+
+- Manual troubleshooting delivery runs in the background and records a
+  durable failure/audit entry if report generation or email delivery fails.
+- Shortener diagnostics are bounded and reserved-code checks use bounded
+  parallelism so an unavailable optional integration cannot block a report.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
 ## v0.46.14 — Shortener diagnostics correction
 
 ### User changes
