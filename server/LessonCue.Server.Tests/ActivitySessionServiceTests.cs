@@ -784,14 +784,19 @@ public sealed class ActivitySessionServiceTests
             Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(artist.Token, "submit", drawingPayload), TestContext.Current.CancellationToken)).Success);
 
             var beforeApproval = await sessions.GetDisplayEnvelopeAsync(run.Id, TestContext.Current.CancellationToken);
-            Assert.DoesNotContain("0.1", JsonSerializer.Serialize(beforeApproval!.State, ActivityJsonDefaults.Options), StringComparison.Ordinal);
+            var privateState = Assert.IsType<JsonElement>(beforeApproval!.State);
+            Assert.False(privateState.TryGetProperty("drawings", out _));
             var pending = Assert.Single((await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken))!.Submissions);
             var submissionId = pending.GetType().GetProperty("id")!.GetValue(pending)!.ToString();
             Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "moderate", JsonDocument.Parse($"{{\"submissionId\":\"{submissionId}\",\"status\":\"approved\"}}").RootElement), TestContext.Current.CancellationToken)).Success);
             await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "openvoting"), TestContext.Current.CancellationToken);
             var votingState = await sessions.GetParticipantViewAsync(run.Id, voter.Token, TestContext.Current.CancellationToken);
-            Assert.Contains("0.1", JsonSerializer.Serialize(votingState!.State.State, ActivityJsonDefaults.Options), StringComparison.Ordinal);
-            Assert.Contains("votingTimerRemainingMs", JsonSerializer.Serialize(votingState.State.State, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase);
+            var publicState = Assert.IsType<JsonElement>(votingState!.State.State);
+            var publicDrawing = Assert.Single(publicState.GetProperty("drawings").EnumerateArray());
+            var firstStroke = Assert.Single(publicDrawing.GetProperty("strokes").EnumerateArray());
+            var firstPoint = firstStroke.GetProperty("points").EnumerateArray().First();
+            Assert.Equal(0.1, firstPoint.EnumerateArray().First().GetDouble(), 3);
+            Assert.True(publicState.TryGetProperty("votingTimerRemainingMs", out _));
             var selfVote = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(artist.Token, "vote", JsonDocument.Parse($"{{\"targetId\":\"{submissionId}\"}}").RootElement), TestContext.Current.CancellationToken);
             Assert.False(selfVote.Success);
             Assert.Contains("another", selfVote.Error ?? "", StringComparison.OrdinalIgnoreCase);
