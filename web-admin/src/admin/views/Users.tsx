@@ -2,7 +2,7 @@ import { confirmAction } from "../../AccessibleDialogs";
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import { permissionOptions } from "../constants";
-import { Bootstrap, Permission, RegistrationCode, RegistrationSettings, TroubleshootingEmailStatus, TroubleshootingLog, User } from "../models";
+import { Bootstrap, Permission, RegistrationCode, RegistrationSettings, TroubleshootingEmailStatus, TroubleshootingLog, TroubleshootingReviewStatus, User } from "../models";
 import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead } from "../ui";
 import { errorText, initials, isServiceAdminRole, localDateTimeValue, timeAgo } from "../utils";
 
@@ -662,6 +662,24 @@ export function RegistrationSettingsPanel({
   const [testRecipient, setTestRecipient] = useState("");
   const [testingEmail, setTestingEmail] = useState(false);
   const [sendingTroubleshootingEmail, setSendingTroubleshootingEmail] = useState(false);
+  const [review, setReview] = useState<TroubleshootingReviewStatus>(
+    bootstrap.settings.troubleshootingReview ?? {
+      enabled: false,
+      provider: "codex",
+      frequency: "daily",
+      timeLocal: "07:30",
+      weeklyDay: 1,
+      monthlyDay: 1,
+      customInterval: 1,
+      customUnit: "days",
+      providerConfigured: true,
+      lastStatus: "never",
+      reportPullConfigured: false,
+      reportPullPath: "/report.log",
+      reportPullUrl: "/report.log",
+    },
+  );
+  const [runningReview, setRunningReview] = useState(false);
   const [codes, setCodes] = useState<RegistrationCode[]>([]);
   const [revealedCode, setRevealedCode] = useState("");
   const [editingCode, setEditingCode] = useState<RegistrationCode>();
@@ -675,6 +693,12 @@ export function RegistrationSettingsPanel({
       .then(setCodes)
       .catch((cause) => notify(errorText(cause)));
   }, [notify]);
+  useEffect(() => {
+    if (!canServiceSettings) return;
+    void api<TroubleshootingReviewStatus>("/api/v1/troubleshooting-review")
+      .then(setReview)
+      .catch((cause) => notify(errorText(cause)));
+  }, [canServiceSettings, notify]);
   async function saveRegistration(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -804,6 +828,50 @@ export function RegistrationSettingsPanel({
       notify(errorText(cause));
     } finally {
       setSendingTroubleshootingEmail(false);
+    }
+  }
+  async function saveTroubleshootingReview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const result = await api<TroubleshootingReviewStatus>(
+        "/api/v1/troubleshooting-review",
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            enabled: review.enabled,
+            provider: review.provider,
+            frequency: review.frequency,
+            timeLocal: review.timeLocal,
+            weeklyDay: review.weeklyDay,
+            monthlyDay: review.monthlyDay,
+            customInterval: review.customInterval,
+            customUnit: review.customUnit,
+          }),
+        },
+      );
+      setReview(result);
+      refresh();
+      notify("AI troubleshooting review settings saved.");
+    } catch (cause) {
+      notify(errorText(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function runTroubleshootingReviewNow() {
+    setRunningReview(true);
+    try {
+      const result = await api<TroubleshootingReviewStatus>(
+        "/api/v1/troubleshooting-review/run-now",
+        { method: "POST" },
+      );
+      setReview(result);
+      notify("AI troubleshooting review queued. Its result will appear here when it finishes.");
+    } catch (cause) {
+      notify(errorText(cause));
+    } finally {
+      setRunningReview(false);
     }
   }
   async function createCode(event: FormEvent<HTMLFormElement>) {
@@ -1317,6 +1385,214 @@ export function RegistrationSettingsPanel({
                 onClick={() => void sendTroubleshootingEmailNow()}
               >
                 {sendingTroubleshootingEmail ? "Sending…" : "Send now"}
+              </button>
+            </div>
+          </form>
+          <form
+            className="settings-subsection email-test-form"
+            onSubmit={saveTroubleshootingReview}
+          >
+            <div>
+              <h3>AI troubleshooting review</h3>
+              <p>
+                Build a redacted review package on a schedule. Codex creates a
+                subscription-ready package; DeepSeek performs the review on the
+                server when its API key is configured. The review never changes
+                code or deploys automatically.
+              </p>
+            </div>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={review.enabled}
+                onChange={(event) =>
+                  setReview((current) => ({ ...current, enabled: event.target.checked }))
+                }
+              />
+              <span>Enable scheduled AI review</span>
+            </label>
+            <div className="two-fields">
+              <Field label="Review provider">
+                <select
+                  value={review.provider}
+                  onChange={(event) =>
+                    setReview((current) => ({
+                      ...current,
+                      provider: event.target.value as TroubleshootingReviewStatus["provider"],
+                    }))
+                  }
+                >
+                  <option value="codex">Codex subscription package</option>
+                  <option value="deepseek">DeepSeek API</option>
+                </select>
+              </Field>
+              <Field label="Interval">
+                <select
+                  value={review.frequency}
+                  onChange={(event) =>
+                    setReview((current) => ({
+                      ...current,
+                      frequency: event.target.value as TroubleshootingReviewStatus["frequency"],
+                    }))
+                  }
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </Field>
+            </div>
+            <div className="two-fields">
+              <Field label="Review time (server time zone)">
+                <input
+                  type="time"
+                  value={review.timeLocal}
+                  onChange={(event) =>
+                    setReview((current) => ({ ...current, timeLocal: event.target.value }))
+                  }
+                  required
+                />
+              </Field>
+              {review.frequency === "weekly" && (
+                <Field label="Day of week">
+                  <select
+                    value={review.weeklyDay}
+                    onChange={(event) =>
+                      setReview((current) => ({
+                        ...current,
+                        weeklyDay: Number(event.target.value),
+                      }))
+                    }
+                  >
+                    <option value={0}>Sunday</option>
+                    <option value={1}>Monday</option>
+                    <option value={2}>Tuesday</option>
+                    <option value={3}>Wednesday</option>
+                    <option value={4}>Thursday</option>
+                    <option value={5}>Friday</option>
+                    <option value={6}>Saturday</option>
+                  </select>
+                </Field>
+              )}
+              {review.frequency === "monthly" && (
+                <Field label="Day of month">
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={review.monthlyDay}
+                    onChange={(event) =>
+                      setReview((current) => ({
+                        ...current,
+                        monthlyDay: Number(event.target.value),
+                      }))
+                    }
+                    required
+                  />
+                </Field>
+              )}
+              {review.frequency === "custom" && (
+                <Field label="Every">
+                  <div className="two-fields">
+                    <input
+                      type="number"
+                      min={1}
+                      max={3650}
+                      value={review.customInterval}
+                      onChange={(event) =>
+                        setReview((current) => ({
+                          ...current,
+                          customInterval: Number(event.target.value),
+                        }))
+                      }
+                      required
+                    />
+                    <select
+                      value={review.customUnit}
+                      onChange={(event) =>
+                        setReview((current) => ({
+                          ...current,
+                          customUnit: event.target.value as TroubleshootingReviewStatus["customUnit"],
+                        }))
+                      }
+                    >
+                      <option value="hours">hours</option>
+                      <option value="days">days</option>
+                      <option value="weeks">weeks</option>
+                      <option value="months">months</option>
+                    </select>
+                  </div>
+                </Field>
+              )}
+            </div>
+            <small>
+              {review.provider === "deepseek"
+                ? review.providerConfigured
+                  ? "DeepSeek API key detected on the server."
+                  : "Set LESSONCUE_DEEPSEEK_API_KEY on the server before running DeepSeek reviews."
+                : "Codex uses a generated package; run the scheduled Codex task from the LessonCue project."}
+            </small>
+            <small>
+              If the existing daily troubleshooting recipient is configured, the review result and
+              compressed report are delivered there too.
+            </small>
+            <div className="settings-subsection">
+              <h4>Live Codex report</h4>
+              <p>
+                Codex can fetch the current redacted report at any time, independently of the email
+                schedule.
+              </p>
+              <code>{review.reportPullUrl}</code>
+              <small>
+                {review.reportPullConfigured
+                  ? "A read-only bearer token is configured on the server."
+                  : "Set LESSONCUE_TROUBLESHOOTING_REPORT_TOKEN on the server before allowing pulls."}
+              </small>
+              <a
+                className="button"
+                href="/api/v1/troubleshooting-review/codex-pull-prompt"
+              >
+                Download Codex pull routine
+              </a>
+            </div>
+            {review.nextRunAt && (
+              <small>Next review: {new Date(review.nextRunAt).toLocaleString()}.</small>
+            )}
+            {review.lastRunAt && (
+              <small>
+                Last review {new Date(review.lastRunAt).toLocaleString()} — {review.lastStatus}.
+              </small>
+            )}
+            {review.lastError && <div className="alert error">{review.lastError}</div>}
+            {review.lastArtifact && (
+              <div className="row-actions">
+                {review.provider === "deepseek" && (
+                  <a className="button" href="/api/v1/troubleshooting-review/artifact?kind=review">
+                    Download latest review
+                  </a>
+                )}
+                {review.provider === "codex" && (
+                  <a className="button" href="/api/v1/troubleshooting-review/artifact?kind=prompt">
+                    Download Codex prompt
+                  </a>
+                )}
+                <a className="button" href="/api/v1/troubleshooting-review/artifact?kind=report">
+                  Download report JSON
+                </a>
+              </div>
+            )}
+            <div className="row-actions">
+              <button className="button primary" disabled={busy}>
+                {busy ? "Saving…" : "Save AI review settings"}
+              </button>
+              <button
+                className="button"
+                type="button"
+                disabled={runningReview}
+                onClick={() => void runTroubleshootingReviewNow()}
+              >
+                {runningReview ? "Queuing…" : "Run now"}
               </button>
             </div>
           </form>

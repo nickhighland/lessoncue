@@ -36,10 +36,14 @@ public sealed class TroubleshootingReportBuilder(
                 auditQuery = auditQuery.Where(item =>
                     EF.Functions.Like(item.Result, "%fail%") ||
                     EF.Functions.Like(item.Result, "%error%") ||
+                    EF.Functions.Like(item.Result, "%defer%") ||
                     EF.Functions.Like(item.Action, "%fail%") ||
                     EF.Functions.Like(item.Action, "%error%") ||
+                    EF.Functions.Like(item.Action, "%defer%") ||
                     item.Summary != null &&
-                    (EF.Functions.Like(item.Summary, "%fail%") || EF.Functions.Like(item.Summary, "%error%")));
+                    (EF.Functions.Like(item.Summary, "%fail%") ||
+                     EF.Functions.Like(item.Summary, "%error%") ||
+                     EF.Functions.Like(item.Summary, "%defer%")));
             }
 
             audit = (await auditQuery.OrderByDescending(x => x.Id).Take(limit).ToListAsync(ct))
@@ -129,9 +133,13 @@ public sealed class TroubleshootingReportBuilder(
             shortenerDiagnostics = new { state = "unavailable", error = error.GetType().Name };
         }
 
+        var runtime = log.GetRecent(limit, failuresOnly);
+        var issues = TroubleshootingIssueBuilder.Build(
+            runtime, audit, media, screens, diagnosticErrors);
+
         return new TroubleshootingReport(
             DateTimeOffset.UtcNow,
-            log.GetRecent(limit, failuresOnly),
+            runtime,
             audit,
             media,
             mediaDependencies,
@@ -140,7 +148,8 @@ public sealed class TroubleshootingReportBuilder(
             new TroubleshootingRetentionDiagnostic(
                 2_000, 7,
                 "routine events: last 4 MB plus the prior rotated file; failures: separate seven-day store"),
-            diagnosticErrors);
+            diagnosticErrors,
+            issues);
     }
 
     private static void RecordIssue(string component, Exception error, List<string> issues)
@@ -169,11 +178,14 @@ public sealed record TroubleshootingReport(
     object Shortener,
     IReadOnlyList<TroubleshootingScreenDiagnostic> Screens,
     TroubleshootingRetentionDiagnostic Retention,
-    IReadOnlyList<string> DiagnosticErrors)
+    IReadOnlyList<string> DiagnosticErrors,
+    IReadOnlyList<TroubleshootingIssue> Issues)
 {
     public int MediaAttentionCount => Media.Count(item =>
         !string.Equals(item.ProcessingStatus, "ready", StringComparison.OrdinalIgnoreCase) ||
+        !string.IsNullOrWhiteSpace(item.ProcessingError) ||
         string.Equals(item.CompatibilityStatus, "failed", StringComparison.OrdinalIgnoreCase) ||
+        !string.IsNullOrWhiteSpace(item.CompatibilityError) ||
         item.OriginalFile?.SizeAndSha256Match == false ||
         item.CompatibilityFile?.SizeAndSha256Match == false ||
         item.Transcodes.Any(variant => string.Equals(variant.Status, "failed", StringComparison.OrdinalIgnoreCase)));
@@ -207,3 +219,239 @@ public sealed record TroubleshootingRetentionDiagnostic(
     int RuntimeEntries,
     int FailureRetentionDays,
     string File);
+
+public sealed record TroubleshootingIssue(
+    string Code,
+    string Severity,
+    string Component,
+    string Summary,
+    string Description,
+    string RecommendedAction,
+    string Evidence,
+    int Occurrences,
+    DateTimeOffset? FirstSeenAt,
+    DateTimeOffset? LastSeenAt);
+
+public static class TroubleshootingIssueBuilder
+{
+    private sealed record Draft(
+        string Code,
+        string Severity,
+        string Component,
+        string Summary,
+        string Description,
+        string RecommendedAction,
+        string Evidence,
+        DateTimeOffset? FirstSeenAt,
+        DateTimeOffset? LastSeenAt);
+
+    public static IReadOnlyList<TroubleshootingIssue> Build(
+        IReadOnlyList<TroubleshootingLogEntry> runtime,
+        IReadOnlyList<AuditEvent> audit,
+        IReadOnlyList<MediaDiagnosticSnapshot> media,
+        IReadOnlyList<TroubleshootingScreenDiagnostic> screens,
+        IReadOnlyList<string> diagnosticErrors)
+    {
+        var drafts = new List<Draft>();
+        foreach (var entry in runtime.Where(item => item.IsFailure))
+        {
+            var definition = string.IsNullOrWhiteSpace(entry.ErrorCode)
+                ? TroubleshootingErrorCatalog.ForRuntime(entry.Category, entry.Event, entry.Message)
+                : new TroubleshootingErrorDefinition(
+                    entry.ErrorCode!,
+                    entry.ErrorDescription ?? "A runtime failure was recorded; inspect the attached evidence.",
+                    "Inspect the recorded evidence and reproduce the failing subsystem before changing code or configuration.");
+            var evidence = $"{entry.Timestamp:O} {entry.Category}/{entry.Event}: {entry.Message}"
+                + (string.IsNullOrWhiteSpace(entry.Exception) ? "" : $" Exception: {entry.Exception}");
+            drafts.Add(new Draft(
+                definition.Code, Severity(entry.Level), entry.Category, entry.Message,
+                definition.Description, definition.RecommendedAction, Limit(evidence, 4_000),
+                entry.Timestamp, entry.Timestamp));
+        }
+
+        foreach (var entry in audit.Where(IsProblem))
+        {
+            var definition = TroubleshootingErrorCatalog.ForAudit(entry.Action, entry.Summary, entry.Result);
+            drafts.Add(new Draft(
+                definition.Code, entry.Result.Contains("defer", StringComparison.OrdinalIgnoreCase) ? "warning" : "error",
+                "Audit", entry.Summary ?? entry.Action, definition.Description, definition.RecommendedAction,
+                Limit($"{entry.Timestamp:O} {entry.Action} ({entry.Result}): {entry.Summary}", 4_000),
+                entry.Timestamp, entry.Timestamp));
+        }
+
+        foreach (var error in diagnosticErrors)
+        {
+            var component = error.Split(':', 2)[0].Trim();
+            drafts.Add(new Draft(
+                $"LC.DIAGNOSTICS.{TroubleshootingErrorCatalog.ComponentSlug(component)}_UNAVAILABLE",
+                "error", component, error,
+                "A troubleshooting component could not collect its evidence, so the report may be incomplete.",
+                "Repair the named diagnostic dependency or inspect the corresponding service journal before trusting an absence of evidence.",
+                error, null, null));
+        }
+
+        foreach (var asset in media) AddMediaIssues(drafts, asset);
+        foreach (var screen in screens) AddScreenIssues(drafts, screen);
+
+        return drafts
+            .GroupBy(item => $"{item.Code}|{item.Summary}", StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var ordered = group.OrderBy(item => item.FirstSeenAt).ToArray();
+                var latest = ordered[^1];
+                return new TroubleshootingIssue(
+                    latest.Code, latest.Severity, latest.Component, latest.Summary,
+                    latest.Description, latest.RecommendedAction, latest.Evidence,
+                    ordered.Length, ordered[0].FirstSeenAt, latest.LastSeenAt);
+            })
+            .OrderByDescending(item => SeverityRank(item.Severity))
+            .ThenByDescending(item => item.LastSeenAt)
+            .ThenBy(item => item.Code, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static void AddMediaIssues(List<Draft> drafts, MediaDiagnosticSnapshot asset)
+    {
+        var label = $"{asset.FileName} ({asset.Id})";
+        if (asset.OriginalFile is { Exists: false } original)
+        {
+            Add(drafts, "LC.MEDIA.ORIGINAL.MISSING", "error", "Media", label,
+                "The recorded original file does not exist at the expected path.",
+                "Restore or repair the storage path only after preserving the MediaAsset record and checking the configured originals directory.",
+                $"RelativePath={original.RelativePath}; ProcessingStatus={asset.ProcessingStatus}; ExpectedSizeBytes={asset.SizeBytes}; ExpectedSha256={asset.Sha256}", asset.CreatedAt);
+        }
+        else if (asset.OriginalFile?.SizeAndSha256Match == false)
+        {
+            Add(drafts, "LC.MEDIA.ORIGINAL.INTEGRITY_MISMATCH", "error", "Media", label,
+                "The original file exists but its recorded size or SHA-256 does not match the database.",
+                "Do not overwrite the file or re-upload automatically; preserve the evidence and determine whether storage or the upload pipeline changed it.",
+                $"RelativePath={asset.RelativePath}; DiskSizeBytes={asset.OriginalFile.DiskSizeBytes}; ExpectedSizeBytes={asset.SizeBytes}; DiskSha256={asset.OriginalFile.DiskSha256}; ExpectedSha256={asset.Sha256}", asset.CreatedAt);
+        }
+        else if (!string.IsNullOrWhiteSpace(asset.OriginalFile?.CheckError))
+        {
+            Add(drafts, "LC.MEDIA.ORIGINAL.UNREADABLE", "error", "Media", label,
+                "LessonCue could not read or verify the original file.",
+                "Check service-user permissions, storage readability, and the exact file-system error before changing the asset.",
+                $"RelativePath={asset.RelativePath}; CheckError={asset.OriginalFile.CheckError}", asset.CreatedAt);
+        }
+
+        if (string.Equals(asset.ProcessingStatus, "failed", StringComparison.OrdinalIgnoreCase))
+        {
+            Add(drafts, "LC.MEDIA.PROCESSING.FAILED", "error", "Media", label,
+                "Media processing is marked failed.",
+                "Use the stored ProcessingError and original-file checks to distinguish corrupt media from a worker/runtime failure, then retry only if recoverable.",
+                $"ProcessingStatus={asset.ProcessingStatus}; ProcessingError={asset.ProcessingError}; SourceKind={asset.SourceKind}", asset.CreatedAt);
+        }
+        else if (!string.IsNullOrWhiteSpace(asset.ProcessingError))
+        {
+            Add(drafts, "LC.MEDIA.PROCESSING.DEFERRED", "warning", "Media", label,
+                "Media processing has a recorded error even though the asset may remain playable from its original.",
+                "Read the exact ProcessingError and worker diagnostics; preserve the intact original and retry after infrastructure problems are corrected.",
+                $"ProcessingStatus={asset.ProcessingStatus}; ProcessingError={asset.ProcessingError}; OfflineEligible={asset.OfflineEligible}", asset.CreatedAt);
+        }
+        else if (!string.Equals(asset.ProcessingStatus, "ready", StringComparison.OrdinalIgnoreCase))
+        {
+            Add(drafts, "LC.MEDIA.PROCESSING.NOT_READY", "warning", "Media", label,
+                "Media processing has not reached the ready state.",
+                "Check whether the worker is running, whether the job is queued or stuck, and whether the original file is readable.",
+                $"ProcessingStatus={asset.ProcessingStatus}; CreatedAt={asset.CreatedAt:O}", asset.CreatedAt);
+        }
+
+        if (string.Equals(asset.CompatibilityStatus, "failed", StringComparison.OrdinalIgnoreCase) ||
+            !string.IsNullOrWhiteSpace(asset.CompatibilityError))
+        {
+            Add(drafts, "LC.MEDIA.COMPATIBILITY.FAILED", "error", "Media", label,
+                "Compatibility processing is marked failed or has a recorded conversion error.",
+                "Confirm the original is still playable, inspect converter/runtime diagnostics, and use the retry action for infrastructure failures.",
+                $"CompatibilityStatus={asset.CompatibilityStatus}; CompatibilityError={asset.CompatibilityError}; CompatibilityPath={asset.CompatibilityPath}", asset.CreatedAt);
+        }
+        else if (asset.CompatibilityStatus is "pending" or "converting")
+        {
+            Add(drafts, "LC.MEDIA.COMPATIBILITY.NOT_READY", "warning", "Media", label,
+                "Optional compatibility processing has not completed.",
+                "The original may still be playable; inspect the queue and worker state before treating this as an upload failure.",
+                $"CompatibilityStatus={asset.CompatibilityStatus}; CompatibilityPath={asset.CompatibilityPath}; OfflineEligible={asset.OfflineEligible}", asset.CreatedAt);
+        }
+
+        if (asset.CompatibilityFile?.SizeAndSha256Match == false)
+        {
+            Add(drafts, "LC.MEDIA.COMPATIBILITY.INTEGRITY_MISMATCH", "error", "Media", label,
+                "The recorded compatibility file exists but its size or SHA-256 does not match.",
+                "Discard only the derived copy through the existing retry/rebuild path; preserve the original and compare the recorded hashes first.",
+                $"CompatibilityPath={asset.CompatibilityFile.RelativePath}; DiskSizeBytes={asset.CompatibilityFile.DiskSizeBytes}; ExpectedSizeBytes={asset.CompatibilitySizeBytes}; DiskSha256={asset.CompatibilityFile.DiskSha256}; ExpectedSha256={asset.CompatibilitySha256}", asset.CreatedAt);
+        }
+
+        foreach (var variant in asset.Transcodes.Where(item =>
+                     string.Equals(item.Status, "failed", StringComparison.OrdinalIgnoreCase)))
+        {
+            Add(drafts, "LC.MEDIA.TRANSCODE.VARIANT_FAILED", "error", "Media", label,
+                $"The {variant.Profile} compatibility variant failed.",
+                "Inspect the variant error and source version, then retry the variant after repairing the converter dependency.",
+                $"VariantId={variant.Id}; Profile={variant.Profile}; Status={variant.Status}; Error={variant.Error}; Engine={variant.TranscodeEngine}",
+                variant.QueuedAt);
+        }
+    }
+
+    private static void AddScreenIssues(List<Draft> drafts, TroubleshootingScreenDiagnostic screen)
+    {
+        var label = $"{screen.Name} ({screen.Id})";
+        if (screen.FailedDownloads > 0)
+            Add(drafts, "LC.TV.DOWNLOADS.FAILED", "error", "TV", label,
+                $"The TV reports {screen.FailedDownloads} failed media download(s).",
+                "Compare the failed item IDs, exact media URL responses, cache state, checksum, and selected server endpoint.",
+                $"AppVersion={screen.AppVersion}; Platform={screen.Platform}; FailedDownloads={screen.FailedDownloads}; DownloadQueue={Limit(screen.DownloadQueueJson, 2_000)}",
+                screen.DiagnosticsUpdatedAt ?? screen.LastSeenAt);
+        if (!string.IsNullOrWhiteSpace(screen.PlaybackError))
+            Add(drafts, "LC.TV.PLAYBACK.FAILED", "error", "TV", label,
+                "The TV reports a playback error.",
+                "Compare the manifest support decision, selected URL, cached file checksum, codec capability, and playback error timestamp.",
+                $"AppVersion={screen.AppVersion}; PlaybackState={screen.PlaybackState}; PlaybackError={screen.PlaybackError}",
+                screen.DiagnosticsUpdatedAt ?? screen.LastSeenAt);
+        if (!string.IsNullOrWhiteSpace(screen.RecentErrorsJson) && screen.RecentErrorsJson != "[]")
+            Add(drafts, "LC.TV.DIAGNOSTICS.RECENT_ERRORS", "warning", "TV", label,
+                "The TV has recent diagnostic errors.",
+                "Inspect the structured recent errors alongside the selected endpoint, cache inventory, and server manifest.",
+                $"AppVersion={screen.AppVersion}; RecentErrors={Limit(screen.RecentErrorsJson, 3_000)}",
+                screen.DiagnosticsUpdatedAt ?? screen.LastSeenAt);
+        if (ContainsConnectionFailure(screen.ConnectionDiagnosticsJson))
+            Add(drafts, "LC.TV.DISCOVERY.OR_CONNECTION_FAILED", "error", "TV", label,
+                "The TV diagnostics contain a discovery or connection failure.",
+                "Compare every IPv4/IPv6 candidate, rejection reason, selected endpoint, and health verification result; an unusable IPv6 candidate must not block IPv4 fallback.",
+                $"AppVersion={screen.AppVersion}; ConnectionDiagnostics={Limit(screen.ConnectionDiagnosticsJson, 3_000)}",
+                screen.DiagnosticsUpdatedAt ?? screen.LastSeenAt);
+    }
+
+    private static void Add(List<Draft> drafts, string code, string severity, string component,
+        string summary, string description, string action, string evidence, DateTimeOffset? at)
+    {
+        drafts.Add(new Draft(code, severity, component, summary, description, action, Limit(evidence, 4_000), at, at));
+    }
+
+    private static bool IsProblem(AuditEvent item) =>
+        item.Result.Contains("fail", StringComparison.OrdinalIgnoreCase) ||
+        item.Result.Contains("error", StringComparison.OrdinalIgnoreCase) ||
+        item.Result.Contains("defer", StringComparison.OrdinalIgnoreCase) ||
+        item.Action.Contains("fail", StringComparison.OrdinalIgnoreCase) ||
+        item.Action.Contains("error", StringComparison.OrdinalIgnoreCase) ||
+        item.Action.Contains("defer", StringComparison.OrdinalIgnoreCase) ||
+        item.Summary?.Contains("fail", StringComparison.OrdinalIgnoreCase) == true ||
+        item.Summary?.Contains("error", StringComparison.OrdinalIgnoreCase) == true ||
+        item.Summary?.Contains("defer", StringComparison.OrdinalIgnoreCase) == true;
+
+    private static bool ContainsConnectionFailure(string? value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        (value.Contains("fail", StringComparison.OrdinalIgnoreCase) ||
+         value.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
+         value.Contains("rejected", StringComparison.OrdinalIgnoreCase) ||
+         value.Contains("unreachable", StringComparison.OrdinalIgnoreCase));
+
+    private static string Severity(string level) =>
+        level.Equals("Critical", StringComparison.OrdinalIgnoreCase) || level.Equals("Error", StringComparison.OrdinalIgnoreCase)
+            ? "error"
+            : "warning";
+
+    private static int SeverityRank(string severity) => severity == "error" ? 2 : 1;
+
+    private static string Limit(string? value, int maximum) =>
+        string.IsNullOrWhiteSpace(value) ? "" : value.Length <= maximum ? value : value[..maximum] + "…";
+}

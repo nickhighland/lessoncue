@@ -103,6 +103,7 @@ export type Organization = {
   dailyTroubleshootingEmailTime: string;
   dailyTroubleshootingEmailLastSentAt?: string;
   dailyTroubleshootingEmailLastError?: string;
+  troubleshootingReview?: TroubleshootingReviewStatus | null;
   signageSourceAllowlistJson: string;
   signageEnabled: boolean;
 };
@@ -666,6 +667,25 @@ export type TroubleshootingEmailStatus = {
   lastSentAt?: string;
   lastError?: string;
   nextRunAt?: string;
+};
+export type TroubleshootingReviewStatus = {
+  enabled: boolean;
+  provider: "codex" | "deepseek";
+  frequency: "daily" | "weekly" | "monthly" | "custom";
+  timeLocal: string;
+  weeklyDay: number;
+  monthlyDay: number;
+  customInterval: number;
+  customUnit: "hours" | "days" | "weeks" | "months";
+  providerConfigured: boolean;
+  lastRunAt?: string;
+  lastStatus: "never" | "running" | "package-ready" | "completed" | "failed" | string;
+  lastError?: string;
+  lastArtifact?: string;
+  nextRunAt?: string;
+  reportPullConfigured: boolean;
+  reportPullPath: string;
+  reportPullUrl: string;
 };
 export type RegistrationCode = {
   id: string;

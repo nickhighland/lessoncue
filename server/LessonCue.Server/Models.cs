@@ -46,6 +46,12 @@ public sealed class Organization
     [MaxLength(5)] public string DailyTroubleshootingEmailTime { get; set; } = "07:00";
     public DateTimeOffset? DailyTroubleshootingEmailLastSentAt { get; set; }
     [MaxLength(1000)] public string? DailyTroubleshootingEmailLastError { get; set; }
+    /// <summary>Opt-in provider-neutral AI troubleshooting review configuration.</summary>
+    [MaxLength(24000)] public string TroubleshootingReviewSettingsJson { get; set; } = "{}";
+    public DateTimeOffset? TroubleshootingReviewLastRunAt { get; set; }
+    [MaxLength(24)] public string TroubleshootingReviewLastStatus { get; set; } = "never";
+    [MaxLength(1000)] public string? TroubleshootingReviewLastError { get; set; }
+    [MaxLength(512)] public string? TroubleshootingReviewLastArtifact { get; set; }
     [MaxLength(24000)] public string UploadQuotaPolicyJson { get; set; } = "{}";
 
     // The optional self-hosted URL shortener. Every value here is an
@@ -792,6 +798,9 @@ public sealed record EmailSettingsInput(string EmailProvider, string EmailFromAd
     string EmailFromName, string? ApiKey);
 public sealed record TestAccountEmailInput(string Recipient);
 public sealed record TroubleshootingEmailSettingsInput(bool Enabled, string Recipient, string TimeLocal);
+public sealed record TroubleshootingReviewSettingsInput(bool Enabled, string Provider, string Frequency,
+    string TimeLocal, int WeeklyDay = 1, int MonthlyDay = 1, int CustomInterval = 1,
+    string CustomUnit = "days");
 public sealed record RegistrationCodeInput(string Label, DateTimeOffset? ExpiresAt, int? MaxUses);
 public sealed record AudienceSessionInput(string Title, bool ShowLiveResults = false,
     bool AllowResponseChanges = true, int RetentionDays = 7, List<AudienceQuestionInput>? Questions = null);

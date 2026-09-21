@@ -876,7 +876,10 @@ public static class AdminApi
                     DailyTroubleshootingEmailRecipient = canManageService ? organization.DailyTroubleshootingEmailRecipient : "",
                     DailyTroubleshootingEmailTime = canManageService ? organization.DailyTroubleshootingEmailTime : "07:00",
                     DailyTroubleshootingEmailLastSentAt = canManageService ? organization.DailyTroubleshootingEmailLastSentAt : null,
-                    DailyTroubleshootingEmailLastError = canManageService ? organization.DailyTroubleshootingEmailLastError : null
+                    DailyTroubleshootingEmailLastError = canManageService ? organization.DailyTroubleshootingEmailLastError : null,
+                    troubleshootingReview = canManageService
+                        ? TroubleshootingReviewService.Status(organization, DateTimeOffset.UtcNow)
+                        : null
                 },
                 organization.TimeZone,
                 pairingPin = canPair ? pairing.Current : null,
@@ -3224,6 +3227,55 @@ public static class AdminApi
             {
                 return Results.Json(new { error = error.Message }, statusCode: 502);
             }
+        });
+
+        settings.MapGet("/troubleshooting-review", async (LessonCueDb db, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            return Results.Ok(TroubleshootingReviewService.Status(organization, DateTimeOffset.UtcNow));
+        });
+
+        settings.MapPut("/troubleshooting-review", async (TroubleshootingReviewSettingsInput input,
+            LessonCueDb db, CancellationToken ct) =>
+        {
+            var candidate = new TroubleshootingReviewConfig(
+                input.Enabled, input.Provider, input.Frequency, input.TimeLocal,
+                input.WeeklyDay, input.MonthlyDay, input.CustomInterval, input.CustomUnit);
+            if (!TroubleshootingReviewSchedule.TryNormalize(candidate, out var normalized, out var error))
+                return Results.BadRequest(new { error });
+
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+            organization.TroubleshootingReviewSettingsJson =
+                TroubleshootingReviewConfiguration.Serialize(normalized);
+            organization.TroubleshootingReviewLastError = null;
+            Audit(db, "troubleshooting.review-settings.update", organization.Id,
+                normalized.Enabled ? $"{normalized.Provider}:{normalized.Frequency}" : "disabled");
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(TroubleshootingReviewService.Status(organization, DateTimeOffset.UtcNow));
+        });
+
+        settings.MapPost("/troubleshooting-review/run-now", async (TroubleshootingReviewService review,
+            CancellationToken ct) => Results.Accepted(
+                "/api/v1/troubleshooting-review", await review.QueueRunNowAsync(ct)));
+
+        settings.MapGet("/troubleshooting-review/artifact", async (string? kind, LessonCueDb db,
+            TroubleshootingReviewService review, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            var artifact = await review.ReadArtifactAsync(organization, kind ?? "review", ct);
+            return artifact is null
+                ? Results.NotFound(new { error = "No troubleshooting review artifact is available." })
+                : Results.File(artifact.Value.Content, artifact.Value.ContentType, artifact.Value.FileName);
+        });
+
+        settings.MapGet("/troubleshooting-review/codex-pull-prompt", async (LessonCueDb db,
+            CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            return Results.Text(
+                TroubleshootingReviewService.CodexPullPrompt(organization),
+                "text/markdown",
+                Encoding.UTF8);
         });
 
         appSettings.MapGet("/registration/codes", async (LessonCueDb db, CancellationToken ct) =>

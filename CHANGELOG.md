@@ -4,6 +4,34 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.17 — live troubleshooting reports
+
+### User changes
+
+- Service Admins can schedule a redacted troubleshooting review daily, weekly,
+  monthly, or on a custom hour/day/week/month interval.
+- Codex creates a subscription-ready report and prompt package without putting
+  a ChatGPT credential on the server. DeepSeek can complete the review on the
+  server when `LESSONCUE_DEEPSEEK_API_KEY` is configured.
+- Review artifacts can be downloaded from Service Admin settings or delivered
+  through the existing troubleshooting-report recipient.
+- A protected live report endpoint at /report.log can be pulled by Codex at
+  any time, independently of the email schedule, with ETag change detection.
+- Added a repository pull helper that persists the ETag and only hands Codex a
+  changed report for evaluation.
+
+### Developer changes
+
+- Added a provider-neutral scheduled review worker, persisted schedule/status,
+  redacted artifact storage, DeepSeek adapter, Codex prompt package, and
+  migration-safe database fields.
+- Added time-zone-aware schedule coverage for daily, weekly, monthly, custom,
+  and invalid-setting cases.
+- Added stable issue codes/descriptions and detailed media/TV evidence to the
+  live and scheduled reports.
+- This is a server/web-only change; Android/Google TV and Vega TV artifacts do
+  not need to be rebuilt.
+
 ## v0.46.16 — reliable YouTube local imports
 
 ### User changes

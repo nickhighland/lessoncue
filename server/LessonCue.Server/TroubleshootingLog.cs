@@ -60,6 +60,9 @@ public sealed class TroubleshootingLog : ILoggerProvider
             return;
 
         var isFailure = IsFailure(level, exception);
+        var error = isFailure
+            ? TroubleshootingErrorCatalog.ForRuntime(category, eventId.Name ?? eventId.Id.ToString(), message, exception)
+            : null;
         var entry = new TroubleshootingLogEntry(
             DateTimeOffset.UtcNow,
             level.ToString(),
@@ -69,7 +72,9 @@ public sealed class TroubleshootingLog : ILoggerProvider
             exception is null ? null : Redact(exception.Message),
             exception?.GetType().FullName,
             exception is null ? null : Redact(exception.ToString(), MaximumDetailsLength),
-            isFailure);
+            isFailure,
+            error?.Code,
+            error?.Description);
         entries.Enqueue(entry);
         while (entries.Count > MaximumEntries && entries.TryDequeue(out _)) { }
 
@@ -225,4 +230,6 @@ public sealed record TroubleshootingLogEntry(
     string? Exception,
     string? ExceptionType = null,
     string? Details = null,
-    bool IsFailure = false);
+    bool IsFailure = false,
+    string? ErrorCode = null,
+    string? ErrorDescription = null);

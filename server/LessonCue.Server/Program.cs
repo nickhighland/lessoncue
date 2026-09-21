@@ -145,6 +145,11 @@ builder.Services.AddHostedService(services => services.GetRequiredService<Update
 builder.Services.AddSingleton<SupportBundleBuilder>();
 builder.Services.AddHttpClient("cloudflare-tunnel", client => client.Timeout = TimeSpan.FromSeconds(2));
 builder.Services.AddHttpClient("account-email", client => client.Timeout = TimeSpan.FromSeconds(20));
+builder.Services.AddHttpClient("deepseek-review", client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(2);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("LessonCue-Troubleshooting-Review/1.0");
+});
 builder.Services.AddHttpClient("presentation-import", client =>
 {
     client.Timeout = TimeSpan.FromMinutes(3);
@@ -171,6 +176,17 @@ builder.Services.AddSingleton(services => new TroubleshootingEmailService(
     services.GetRequiredService<TroubleshootingReportBuilder>(),
     services.GetRequiredService<ILogger<TroubleshootingEmailService>>()));
 builder.Services.AddHostedService(services => services.GetRequiredService<TroubleshootingEmailService>());
+builder.Services.AddSingleton(services => new TroubleshootingReviewService(
+    dataPath,
+    services.GetRequiredService<IServiceScopeFactory>(),
+    services.GetRequiredService<TroubleshootingReportBuilder>(),
+    services.GetRequiredService<AccountEmailService>(),
+    services.GetRequiredService<IHttpClientFactory>(),
+    services.GetRequiredService<ILogger<TroubleshootingReviewService>>()));
+builder.Services.AddHostedService(services => services.GetRequiredService<TroubleshootingReviewService>());
+builder.Services.AddSingleton(services => new TroubleshootingReportPullService(
+    services.GetRequiredService<IServiceScopeFactory>(),
+    services.GetRequiredService<TroubleshootingReportBuilder>()));
 builder.Services.AddSingleton(services => new CloudflareTunnelService(dataPath,
     services.GetRequiredService<HttpPortService>(), services.GetRequiredService<IHttpClientFactory>(),
     services.GetRequiredService<ILogger<CloudflareTunnelService>>()));
@@ -333,6 +349,14 @@ builder.Services.AddRateLimiter(options =>
             Window = TimeSpan.FromHours(1),
             QueueLimit = 0
         }));
+    options.AddPolicy("report-pull", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 30,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
 });
 
 var app = builder.Build();
@@ -490,6 +514,49 @@ Func<LessonCueDb, CancellationToken, Task<IResult>> readiness = async (db, ct) =
 };
 app.MapGet("/health/ready", readiness);
 app.MapGet("/health", readiness);
+
+app.MapGet(TroubleshootingReportPullService.EndpointPath, async (
+    HttpRequest request,
+    HttpResponse response,
+    TroubleshootingReportPullService pull,
+    CancellationToken ct) =>
+{
+    if (!TroubleshootingReportPullService.IsConfigured)
+        return Results.NotFound();
+    if (!TroubleshootingReportPullService.Authorize(request))
+    {
+        response.Headers.WWWAuthenticate = "Bearer";
+        return Results.Unauthorized();
+    }
+
+    try
+    {
+        var result = await pull.GetAsync(request.Headers.IfNoneMatch.ToString(), ct);
+        response.Headers.ETag = result.ETag;
+        response.Headers["Last-Modified"] = result.GeneratedAt.ToUniversalTime().ToString("R");
+        response.Headers.CacheControl = "no-store";
+        response.Headers.Vary = "Authorization";
+        response.Headers["X-Robots-Tag"] = "noindex, noarchive";
+        response.Headers["X-LessonCue-Report-Generated-At"] = result.GeneratedAt.ToUniversalTime().ToString("O");
+        if (result.NotModified) return Results.StatusCode(StatusCodes.Status304NotModified);
+        return Results.Bytes(result.Content!, "application/json");
+    }
+    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception error)
+    {
+        app.Logger.LogError(error, "Live troubleshooting report generation failed");
+        return Results.Problem(
+            "The live troubleshooting report is temporarily unavailable.",
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            extensions: new Dictionary<string, object?>
+            {
+                ["code"] = "LC.REPORT.GENERATION.UNAVAILABLE"
+            });
+    }
+}).AllowAnonymous().RequireRateLimiting("report-pull");
 
 var api = app.MapGroup("/api/v1");
 

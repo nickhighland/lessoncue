@@ -6,6 +6,57 @@ A **Service Admin** can open **Settings → Data & recovery → Troubleshooting 
 
 The browser log supplements—rather than replaces—the operating-system journal. For startup failures or problems before sign-in, use `sudo journalctl -u lessoncue -n 200 --no-pager` over SSH.
 
+## Scheduled AI troubleshooting reviews
+
+Service Admins can open **Settings → Email settings → AI troubleshooting review**. The review uses the same redacted failures-only evidence as the troubleshooting export and can run **daily**, **weekly**, **monthly**, or on a **custom** interval. Weekly and monthly schedules use the organization's configured server time zone; custom schedules support hours, days, weeks, or months.
+
+The **Codex subscription package** provider creates `report.json` and a copyable `codex-prompt.md`. It does not call an API or modify the server. Download the prompt/report or use the configured troubleshooting recipient to move the package into the scheduled Codex task. The Codex task should remain read-only and should be allowed to recommend changes only.
+
+The **DeepSeek API** provider runs on the LessonCue server and sends the redacted evidence to a DeepSeek-compatible chat-completions endpoint. Configure the key outside the database so it is never returned by the admin API:
+
+```bash
+sudo systemctl edit lessoncue
+```
+
+```ini
+[Service]
+Environment=LESSONCUE_DEEPSEEK_API_KEY=replace-with-the-provider-key
+# Optional:
+# Environment=LESSONCUE_DEEPSEEK_BASE_URL=https://api.deepseek.com
+# Environment=LESSONCUE_DEEPSEEK_MODEL=deepseek-chat
+```
+
+Then run `sudo systemctl daemon-reload` and `sudo systemctl restart lessoncue`. The settings page reports whether the key is detected. If DeepSeek is unavailable, the raw redacted report remains available and the failure is recorded; the review worker never blocks normal LessonCue playback or media processing.
+
+The report and review artifacts are stored below `diagnostics/troubleshooting-reviews` inside the LessonCue data directory. They contain no credentials or tokens, but they can still contain operational details; share them only with a provider you trust.
+
+### Pull-based Codex review
+
+The live report endpoint is independent of the email/review interval. It rebuilds the redacted report on demand, with a short server-side cache, so a Codex task can inspect current evidence whenever it runs:
+
+~~~text
+https://your-public-lessoncue-host/report.log
+~~~
+
+Set the server's **Public base URL** to the public host shown above, then configure a separate read-only bearer token outside the database:
+
+~~~ini
+[Service]
+Environment=LESSONCUE_TROUBLESHOOTING_REPORT_TOKEN=replace-with-a-long-random-token
+~~~
+
+Restart LessonCue after changing the environment. The endpoint requires an Authorization: Bearer header, returns structured JSON despite the .log path, supports ETag/304 Not Modified, and is rate-limited. It returns 404 until a token is configured. Never put the token in the URL; query strings are commonly retained by proxy and access logs.
+
+The Service Admin page provides **Download Codex pull routine**, which can be used as the prompt for a Codex desktop scheduled task. The repository also includes scripts/pull-troubleshooting-report.mjs. Set LESSONCUE_REPORT_URL and the same token in the Codex task environment, then run:
+
+~~~bash
+node scripts/pull-troubleshooting-report.mjs
+~~~
+
+The helper persists the ETag in .lessoncue-report/state.json and writes changed evidence to .lessoncue-report/report.json. It prints status=unchanged when Codex does not need to review anything. Codex desktop scheduled tasks that inspect the LessonCue repository require the computer and Codex app to remain available.
+
+Every report includes an issues collection with stable error codes, severity, exact evidence, first/last timestamps, occurrence counts, and a recommended read-only verification path. Media issues include original/compatibility existence, recorded and on-disk sizes, SHA-256 values, processing state/errors, codec metadata, and transcode state. TV issues include app/version, endpoint candidates, failed downloads, cache state, playback errors, and discovery diagnostics.
+
 ## An update or rollback did not complete
 
 Open **Settings → Software updates** as a Service Admin. LessonCue records the last protected operation's completion time, target version, success or failure, and whether a last-known-good snapshot remains available. The rollback control is intentionally unavailable to App Admins because it replaces the application database and protected server configuration.

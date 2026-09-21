@@ -117,4 +117,25 @@ public sealed class TroubleshootingLogTests
             if (Directory.Exists(root)) Directory.Delete(root, true);
         }
     }
+
+    [Fact]
+    public void AssignsStableCodesAndDescriptionsToKnownRuntimeFailures()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"lessoncue-troubleshooting-code-{Guid.NewGuid():N}");
+        try
+        {
+            using var log = new TroubleshootingLog(root);
+            log.CreateLogger("LessonCue.Server.MediaProcessingService").LogError(
+                new InvalidOperationException("bwrap: Can't mount proc on /newroot/proc: Operation not permitted"),
+                "Media processing failed");
+
+            var entry = Assert.Single(log.GetRecent(10, failuresOnly: true));
+            Assert.Equal("LC.MEDIA.WORKER.BWRAP_PROC_MOUNT", entry.ErrorCode);
+            Assert.Contains("host sandbox-permission", entry.ErrorDescription, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
 }
