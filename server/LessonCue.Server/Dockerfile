@@ -55,7 +55,7 @@ RUN case "$TARGETARCH" in \
     && unzip -p /tmp/deno.zip deno > /usr/local/bin/deno \
     && rm /tmp/deno.zip \
     && chmod 0755 /usr/local/bin/deno \
-    && test "$(/usr/local/bin/deno --version | sed -n '1s/^deno //p')" = "${DENO_VERSION}"
+    && test "$(/usr/local/bin/deno --version | sed -n '1s/^deno \([^ ]*\).*/\1/p')" = "${DENO_VERSION}"
 RUN groupadd --gid 10001 lessoncue \
     && useradd --uid 10001 --gid 10001 --home-dir /data --shell /usr/sbin/nologin lessoncue \
     && install -d -o lessoncue -g lessoncue -m 0750 /data

@@ -203,7 +203,7 @@ jobs:
           if [ "${{ matrix.runtime }}" = "linux-arm64" ]; then
             file package/payload/deno | grep -Eq 'ELF 64-bit.*ARM aarch64'
           else
-            test "$(package/payload/deno --version | sed -n '1s/^deno //p')" = "${DENO_VERSION}"
+            test "$(package/payload/deno --version | sed -n '1s/^deno \([^ ]*\).*/\1/p')" = "${DENO_VERSION}"
           fi
       - run: |
           cp installers/linux/install.sh installers/linux/uninstall.sh installers/linux/repair-updater.sh installers/linux/lessoncue.service installers/linux/lessoncue-cloudflared.service installers/linux/lessoncue-update installers/linux/lessoncue-update.service installers/linux/lessoncue-update.path installers/linux/lessoncue-update-recovery.service installers/linux/lessoncue-media-worker installers/linux/lessoncue-render.rules installers/release-signing-public.pem package/
@@ -278,7 +278,8 @@ jobs:
           Move-Item package/deno-extracted/deno.exe package/payload/deno.exe
           Remove-Item package/deno.zip -Force
           Remove-Item package/deno-extracted -Recurse -Force
-          if (((& package/payload/deno.exe --version | Select-Object -First 1) -ne "deno $env:DENO_VERSION")) { throw "Deno version mismatch" }
+          $denoVersion = ((& package/payload/deno.exe --version | Select-Object -First 1) -split '\s+')[1]
+          if ($denoVersion -ne $env:DENO_VERSION) { throw "Deno version mismatch" }
           Copy-Item installers/windows/Install-LessonCue.ps1 package/
           Copy-Item installers/windows/Uninstall-LessonCue.ps1 package/
           Compress-Archive -Path package/* -DestinationPath LessonCue-Server-Windows-x64.zip
