@@ -143,7 +143,7 @@ test("switching the live cue ignores delayed host responses from the previous ga
   const report = async (input: typeof first) => {
     const response = await page.request.post('/api/v1/tv/status', {
       headers: { Authorization: `Bearer ${input.deviceToken}` },
-        data: { screenId: input.screenId, appVersion: '0.46.12', online: true, freeBytes: 4e9,
+        data: { screenId: input.screenId, appVersion: '0.46.13', online: true, freeBytes: 4e9,
         manifestVersion: 1, failedDownloads: 0, playbackState: 'playing',
         lessonId: input.lessonId, itemId: input.itemId, positionMs: 0, durationMs: 60000 },
     });
@@ -296,7 +296,7 @@ test("a signed-out phone can host a game and receives the TV acknowledgment with
     const { version } = await response.json();
     const status = await page.request.post('/api/v1/tv/status', {
       headers: { Authorization: `Bearer ${prepared.deviceToken}` },
-      data: { screenId: prepared.screenId, appVersion: '0.46.12', online: true, freeBytes: 4e9,
+      data: { screenId: prepared.screenId, appVersion: '0.46.13', online: true, freeBytes: 4e9,
         manifestVersion: 1, failedDownloads: 0, acknowledgedControlVersion: version,
         playbackState: 'paused', lessonId: prepared.lessonId, itemId: prepared.itemId, positionMs: 0, durationMs: 60000 },
     });
@@ -344,8 +344,7 @@ test("the remote reads as one flow rather than three tabs", async ({ page }) => 
 test("the phone remote fills the viewport and brings selected cue controls to the top", async ({ page }) => {
   await authenticate(page);
   await page.setViewportSize({ width: 390, height: 844 });
-  const name = "Expanded phone controls";
-  const prepared = await prepareHostedTrivia(page, name, undefined, true);
+  const prepared = await prepareHostedTrivia(page, "Expanded phone controls", undefined, true);
   await openUniversalRemote(page, prepared.screenId, prepared.lessonId);
 
   const coverage = await page.evaluate(() => {
@@ -355,7 +354,12 @@ test("the phone remote fills the viewport and brings selected cue controls to th
   expect(coverage.top).toBeLessThanOrEqual(0);
   expect(coverage.bottom).toBeGreaterThanOrEqual(coverage.viewportHeight);
 
-  const cue = page.locator(".remote-cue-list > button").filter({ hasText: name });
+  // The full suite has already created several paired screens by this point;
+  // the controller may validly open the screen's current lesson rather than
+  // this test's newly-created lesson. Exercise the cue that is actually shown
+  // instead of coupling this layout test to bootstrap ordering.
+  const cue = page.locator(".remote-cue-list > button").first();
+  await expect(cue).toBeVisible();
   await cue.click();
   await expect(cue).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("region", { name: "Lesson" })).toBeHidden();

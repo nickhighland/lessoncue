@@ -4,7 +4,7 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
-## v0.46.12 — Phone controller layout hotfix
+## v0.46.13 — Phone controller layout hotfix
 
 ### User changes
 
@@ -21,6 +21,8 @@ administrator installs an update.
   selected-cue expansion, and returning to the cue list.
 - Updated the full local workflow test to enforce the expanded selected-cue
   interaction instead of the superseded always-visible cue list.
+- Made the layout regression independent of lesson ordering when the complete
+  browser suite has multiple paired screens.
 - Replaced a timestamp-sensitive drawing-privacy assertion with a structural
   state check so release validation tests the intended privacy boundary.
 - This is a server/web release only; Android/Google TV and Vega TV artifacts
