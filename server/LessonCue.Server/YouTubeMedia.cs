@@ -129,6 +129,11 @@ public sealed class YouTubeImportService(
     [
         "--no-config", "--no-playlist", "--newline", "--restrict-filenames",
         "--js-runtimes", $"deno:{denoExecutable}",
+        // YouTube's default client can expose SABR-backed URLs that return 403
+        // when yt-dlp downloads them. The Android player client still exposes
+        // a directly downloadable MP4 for ordinary public videos.
+        "--extractor-args", "youtube:player_client=android",
+        "--retries", "3", "--fragment-retries", "3",
         "--max-filesize", availableBytes.ToString(CultureInfo.InvariantCulture),
         "-f", "best[ext=mp4]", "-o", outputTemplate,
         "--print", "after_move:filepath", sourceUrl

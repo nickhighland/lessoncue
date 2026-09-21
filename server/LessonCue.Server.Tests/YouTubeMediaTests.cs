@@ -41,4 +41,19 @@ public sealed class YouTubeMediaTests
         Assert.Contains("--no-config", arguments);
         Assert.Contains("--no-playlist", arguments);
     }
+
+    [Fact]
+    public void DownloadArgumentsUseTheAndroidPlayerClientToAvoidSabred403Urls()
+    {
+        var arguments = YouTubeImportService.BuildDownloadArguments(
+            "/var/lib/lessoncue/temporary/%(id)s.%(ext)s",
+            123456,
+            "https://www.youtube.com/watch?v=c4PmpM058is",
+            "/opt/lessoncue/deno");
+
+        var extractorIndex = Array.IndexOf(arguments.ToArray(), "--extractor-args");
+        Assert.True(extractorIndex >= 0);
+        Assert.Equal("youtube:player_client=android", arguments[extractorIndex + 1]);
+        Assert.Contains("3", arguments);
+    }
 }

@@ -20,7 +20,7 @@ const PIN = "482731";
 let granted: string | null = null;
 
 /** Open the universal remote, spending an unlock only when this worker has no grant. */
-export async function openUniversalRemote(page: Page, screenId: string, lessonId?: string) {
+export async function openUniversalRemote(page: Page, screenId: string, lessonId?: string, cueId?: string, selectCue = false) {
   if (!granted) {
     const status = await page.evaluate(async pin => (await fetch("/api/v1/controller-pin", {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }),
@@ -47,9 +47,32 @@ export async function openUniversalRemote(page: Page, screenId: string, lessonId
   }
 
   const selector = page.getByLabel("Control this screen");
+  const roomSelector = page.getByLabel("Choose a room");
+  if (await roomSelector.count()) {
+    const roomIds = await roomSelector.locator("option").evaluateAll(options =>
+      options.map(option => (option as HTMLOptionElement).value).filter(Boolean),
+    );
+    for (const roomId of roomIds) {
+      if (await selector.locator(`option[value="${screenId}"]`).count()) break;
+      await roomSelector.selectOption(roomId);
+      try {
+        await expect(selector.locator(`option[value="${screenId}"]`)).toHaveCount(1, { timeout: 2_000 });
+        break;
+      } catch {
+        // Try the next room when this room does not contain the requested TV.
+      }
+    }
+  }
   await expect(selector.locator(`option[value="${screenId}"]`)).toHaveCount(1, { timeout: 30_000 });
   // Selecting the already-selected screen fires the real change handler, which
   // intentionally clears a requested lesson. Preserve ?lesson= test setup when
   // the bootstrap already chose the requested screen.
   if (await selector.inputValue() !== screenId) await selector.selectOption(screenId);
+  if (selectCue) {
+    const cue = cueId
+      ? page.locator(`[data-cue-id="${cueId}"] .remote-cue-select`)
+      : page.locator(".remote-cue-list .remote-cue-select").last();
+    await expect(cue).toBeVisible({ timeout: 30_000 });
+    await cue.click();
+  }
 }

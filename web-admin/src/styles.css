@@ -1532,14 +1532,14 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .controller-play-all { min-height: 54px; margin: 5px 0 20px; }
 .controller-list { display: grid; gap: 8px; }
 .controller-list > span { margin: 3px 2px; color: var(--muted); font-size: 8px; font-weight: 800; letter-spacing: 0.11em; }
-.controller-list button { display: grid; grid-template-columns: 34px 1fr 25px; align-items: center; gap: 10px; min-height: 62px; border: 1.5px solid var(--line); border-radius: 10px; padding: 9px 11px; color: var(--ink); background: #fff; text-align: left; touch-action: manipulation; transition: all 0.12s ease; }
-.controller-list button:hover { border-color: #cdd3cd; box-shadow: var(--shadow-sm); }
-.controller-list button.selected { border-color: var(--gold); background: #fffaf0; box-shadow: 0 0 0 2px #d88c1e18; }
-.controller-list b { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: var(--green); background: var(--mint); font-size: 10px; }
-.controller-list strong, .controller-list small { display: block; }
-.controller-list strong { font-size: 12px; }
-.controller-list small { margin-top: 4px; color: var(--muted); font-size: 9px; }
-.controller-list i { color: var(--green); font-style: normal; font-weight: 700; }
+.controller-list > button { display: grid; grid-template-columns: 34px 1fr 25px; align-items: center; gap: 10px; min-height: 62px; border: 1.5px solid var(--line); border-radius: 10px; padding: 9px 11px; color: var(--ink); background: #fff; text-align: left; touch-action: manipulation; transition: all 0.12s ease; }
+.controller-list > button:hover { border-color: #cdd3cd; box-shadow: var(--shadow-sm); }
+.controller-list > button.selected { border-color: var(--gold); background: #fffaf0; box-shadow: 0 0 0 2px #d88c1e18; }
+.controller-list > button > b { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: var(--green); background: var(--mint); font-size: 10px; }
+.controller-list > button strong, .controller-list > button small { display: block; }
+.controller-list > button strong { font-size: 12px; }
+.controller-list > button small { margin-top: 4px; color: var(--muted); font-size: 9px; }
+.controller-list > button i { color: var(--green); font-style: normal; font-weight: 700; }
 .controller-seek { display: grid; gap: 10px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
 .controller-seek label { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; }
 .controller-seek input { width: 100%; padding: 0; accent-color: var(--gold); }
@@ -1631,7 +1631,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   isolation: isolate;
   border: 0;
   border-radius: 0;
-  padding: 2px 0 10px;
+  padding: 8px 0 12px;
   background: linear-gradient(180deg, var(--remote-bg) 0%, var(--remote-bg) 84%, transparent 100%);
   box-shadow: 0 8px 18px #061c1440;
 }
@@ -1688,13 +1688,23 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .remote-lesson-list i { color: var(--green); font-size: 22px; font-style: normal; }
 .remote-kicker{ color: #b07722; font-size: 9px; font-weight: 900; letter-spacing: .12em; }
 .remote-cue-list { display: grid; gap: 8px; }
-.remote-cue-list > button { display: grid; grid-template-columns: 30px minmax(0, 1fr) 20px; align-items: center; gap: 9px; min-height: 58px; border: 1px solid #dfe2d9; border-radius: 12px; padding: 8px 10px; color: var(--remote-ink); background: #fff; text-align: left; }
-.remote-cue-list > button.selected { border-color: var(--gold); background: #fff9ea; box-shadow: 0 0 0 2px #d88c1e19; }
-.remote-cue-list > button > b{ display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: var(--green); background: #e3f0e9; font-size: 10px; }
+.remote-cue { overflow: hidden; border: 1px solid #dfe2d9; border-radius: 12px; color: var(--remote-ink); background: #fff; text-align: left; }
+.remote-cue.selected { border-color: var(--gold); background: #fff9ea; box-shadow: 0 0 0 2px #d88c1e19; }
+.remote-cue.playing { border-color: var(--green); background: #f2fbf5; }
+.remote-cue-row { display: grid; grid-template-columns: minmax(0, 1fr) 42px; align-items: stretch; min-height: 58px; }
+.remote-cue-list .remote-cue-select { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 9px; min-width: 0; min-height: 58px; border: 0; border-radius: 0; padding: 8px 10px; color: var(--remote-ink); background: transparent; text-align: left; }
+.remote-cue-list .remote-cue-select:hover, .remote-cue-list .remote-cue-select:focus-visible { background: #ffffff88; }
+.remote-cue-toggle { display: grid; place-items: center; min-height: 58px; border: 0; border-left: 1px solid #dfe2d9; border-radius: 0; padding: 0; color: var(--green); background: transparent; font-size: 19px; font-weight: 900; line-height: 1; }
+.remote-cue-toggle:hover, .remote-cue-toggle:focus-visible { background: #e3f0e966; }
+.remote-cue-list .remote-cue-select > b { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: var(--green); background: #e3f0e9; font-size: 10px; }
+.remote-cue.playing .remote-cue-select > b { color: #fff; background: var(--green); }
+.remote-cue-controls { margin: 0 8px 8px; border: 1px solid #cbded1; border-radius: 10px; padding: 11px; background: #f0f8f2; }
+.remote-cue-controls .remote-focus-panel { margin-top: 10px; }
+.remote-cue-controls .remote-empty-state { background: #f7fbf7; }
+.remote-cue-controls .controller-seek { margin-top: 10px; padding-top: 10px; }
 .remote-cue-list strong, .remote-cue-list small { display: block; }
 .remote-cue-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .remote-cue-list small { margin-top: 3px; color: #68766f; font-size: 9px; }
-.remote-cue-list i { color: var(--green); font-style: normal; }
 .remote-setup-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .remote-setup-actions .button { flex: 1 1 140px; min-height: 42px; }
 .remote-setup-seek { margin-top: 2px; border-top-color: #dfe2d9; }
@@ -1710,13 +1720,13 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .remote-empty-icon { color: var(--green); font-size: 42px; }
 .remote-shell .controller-note { margin: 0; border-color: var(--gold); border-radius: 9px; padding: 10px 12px; color: var(--remote-ink); background: #fff9ea; }
 .remote-shell .pre-roll-monitor { margin-top: 0; border-top-color: #dfe2d9; }
-.remote-shell .controller-list button { border-color: #dfe2d9; }
-.remote-shell .controller-list button.selected { border-color: var(--gold); }
+.remote-shell .controller-list > button { border-color: #dfe2d9; }
+.remote-shell .controller-list > button.selected { border-color: var(--gold); }
 
 @media (max-width: 620px) {
   .controller-page.remote-shell { padding-inline: max(10px, env(safe-area-inset-left)) max(10px, env(safe-area-inset-right)); }
   .remote-screen-picker select { max-width: 42vw; font-size: 10px; }
-  .remote-playback { padding-top: 1px; }
+  .remote-playback { padding-top: 7px; }
   .remote-transport { gap: 6px; }
   .remote-transport button { min-height: 48px; border-radius: 11px; }
   .remote-transport button > span { font-size: 25px; }
@@ -1725,6 +1735,9 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   .remote-step { padding: 12px; border-radius: 13px; }
   .remote-step-head { gap: 8px; margin-bottom: 10px; }
   .remote-step-title strong { font-size: 15px; }
+  .remote-cue-controls { margin-inline: 6px; padding: 9px; }
+  .remote-cue-controls-head { gap: 7px; }
+  .remote-cue-controls-head .button { padding-inline: 8px; }
   .remote-focus-panel { grid-template-columns: 1fr 1fr; }
   .remote-focus-panel > div:first-child { grid-column: 1 / -1; }
   .remote-focus-panel > button { grid-column: 1 / -1; justify-self: start; }
@@ -3694,9 +3707,6 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 */
 .remote-flow { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; gap: 10px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 7px 0 2px; }
 .remote-flow:disabled { opacity: .68; }
-.remote-flow.controls-expanded { gap: 0; }
-.remote-flow.controls-expanded > .remote-step:not(.remote-step-controls) { display: none; }
-.remote-flow.controls-expanded > .remote-step-controls { min-height: 100%; }
 .remote-step { border-radius: 16px; padding: clamp(12px, 2.6vw, 20px); color: var(--remote-ink); background: var(--remote-cream); }
 /* A step whose turn has not come is dimmed rather than hidden: the shape of
    the whole job stays visible, which is what the tabs never showed. */
@@ -3711,8 +3721,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .remote-step-title small { color: #607169; font-size: 10px; }
 .remote-step-change, .remote-play-lesson { min-height: 36px; padding: 8px 11px; font-size: 10px; white-space: nowrap; }
 .remote-step-change { margin-bottom: 10px; }
-.remote-controls-back { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; margin-bottom: 10px; padding: 8px 11px; font-size: 10px; }
-.remote-step-controls .remote-activity-panel { margin-top: 10px; }
+.remote-cue-controls-head { display: flex; align-items: start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.remote-cue-controls-head .button { flex: 0 0 auto; min-height: 34px; padding: 7px 10px; font-size: 9px; }
+.remote-cue-controls .remote-activity-panel { margin-top: 10px; }
 /* The cue that is actually on the screen, distinct from the one being edited. */
-.remote-cue-list > button.playing { border-color: var(--green); background: #f2fbf5; }
-.remote-cue-list > button.playing > b { color: #fff; background: var(--green); }

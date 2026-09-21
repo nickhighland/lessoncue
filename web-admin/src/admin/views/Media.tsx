@@ -1588,7 +1588,9 @@ export function MediaManagerModal({
           </button>
           {media.sourceKind !== "link" && (
             <button className="button" onClick={onReprocess} disabled={busy}>
-              Retry processing
+              {media.sourceKind === "youtube-download" && !media.relativePath
+                ? "Retry YouTube download"
+                : "Retry processing"}
             </button>
           )}
         </div>

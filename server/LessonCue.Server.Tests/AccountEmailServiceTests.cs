@@ -89,9 +89,9 @@ public sealed class AccountEmailServiceTests : IDisposable
         };
 
         await service.SendAsync(organization, "diagnostics@example.org", "Daily report", "<p>Report</p>",
-            TestContext.Current.CancellationToken, [new EmailAttachment("report.json.gz", [1, 2])]);
+            TestContext.Current.CancellationToken, [new EmailAttachment("report.json", [1, 2])]);
 
-        Assert.Contains("report.json.gz", handler.Body);
+        Assert.Contains("report.json", handler.Body);
         Assert.Contains("AQI=", handler.Body);
     }
 
@@ -112,7 +112,7 @@ public sealed class AccountEmailServiceTests : IDisposable
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.SendAsync(
             organization, "diagnostics@example.org", "Daily report", "<p>Report</p>",
-            TestContext.Current.CancellationToken, [new EmailAttachment("report.json.gz", [1, 2, 3])]));
+            TestContext.Current.CancellationToken, [new EmailAttachment("report.json", [1, 2, 3])]));
 
         Assert.Contains("attachment is too large", error.Message, StringComparison.Ordinal);
         Assert.Contains("Attachment bytes: 3", error.Message, StringComparison.Ordinal);

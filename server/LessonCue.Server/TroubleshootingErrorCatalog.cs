@@ -29,11 +29,18 @@ public static class TroubleshootingErrorCatalog
                 "YouTube extraction could not find a supported JavaScript runtime, so yt-dlp may return incomplete formats or an HTTP 403.",
                 "Verify the bundled or configured Deno executable, its permissions, and the yt-dlp runtime arguments before retrying the import.");
 
+        if (ContainsAll(text, "unsupported file format", "gz") ||
+            ContainsAll(text, "invalid_parameter", "gz"))
+            return new(
+                "LC.TROUBLESHOOTING.EMAIL_ATTACHMENT_FORMAT_UNSUPPORTED",
+                "The configured email provider rejected the troubleshooting attachment because it was sent as a gzip file.",
+                "Send the redacted troubleshooting report as a plain JSON attachment; keep the compressed copy only in server-side artifacts.");
+
         if (ContainsAll(text, "youtube", "403") || ContainsAll(text, "youtube", "forbidden"))
             return new(
                 "LC.YOUTUBE.DOWNLOAD_FORBIDDEN",
-                "YouTube rejected the media request. The failure may be caused by the extractor runtime, yt-dlp version, cookies, or upstream access.",
-                "Check the full yt-dlp error, JavaScript runtime diagnostics, and upstream reachability; do not classify this as a LessonCue media-file failure without evidence.");
+                "YouTube rejected the selected media request. The default player client can expose SABR-backed URLs that return HTTP 403 even when the public video is downloadable.",
+                "Retry with the explicit Android player client, then inspect yt-dlp/Deno versions and server egress if the request still fails; do not classify this as a LessonCue media-file failure without evidence.");
 
         if (ContainsAny(text, "ffprobe", "show_streams"))
             return new(

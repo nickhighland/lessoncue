@@ -12,6 +12,10 @@ import {
 
 type CompactRemoteShellProps = {
   room?: LessonClass;
+  universalRooms?: LessonClass[];
+  universalRoomId?: string;
+  setUniversalRoomId?: Dispatch<SetStateAction<string>>;
+  universalRemote?: boolean;
   liveScreens: Screen[];
   screenId: string;
   onScreenChange: (value: string) => void;
@@ -57,13 +61,17 @@ type CompactRemoteShellProps = {
  * choose the cue, control the cue — so it reads as one now, with each step
  * opening as the one before it is answered.
  *
- * The cue list stays in the same downward flow until a teacher chooses a cue.
- * The chosen cue then becomes the working surface, so game and media controls
- * start at the top of the scroll area instead of below the whole lesson. A
- * single back button restores the lesson and cue list.
+ * The cue list stays in the same downward flow while the chosen cue becomes
+ * its own working surface. Expanding a cue puts game and media controls right
+ * below that cue, so the teacher can see what they are controlling without
+ * losing the surrounding lesson sequence.
  */
 export function CompactRemoteShell({
   room,
+  universalRooms = [],
+  universalRoomId = "",
+  setUniversalRoomId,
+  universalRemote = false,
   liveScreens,
   screenId,
   onScreenChange,
@@ -103,9 +111,14 @@ export function CompactRemoteShell({
   // is open regardless, because that is the only thing left to do.
   const [changingLesson, setChangingLesson] = useState(false);
   const [controlsExpanded, setControlsExpanded] = useState(false);
-  const flowRef = useRef<HTMLFieldSetElement>(null);
-  const controllerStyle = room
-    ? ({ "--room-color": room.controllerColor } as CSSProperties)
+  const expandedCueRef = useRef<HTMLElement>(null);
+  const isUniversalRemote = universalRemote && !room;
+  const roomChosen = Boolean(universalRoomId);
+  const activeThemeRoom = room || (isUniversalRemote
+    ? universalRooms.find((item) => item.id === universalRoomId)
+    : undefined);
+  const controllerStyle = activeThemeRoom
+    ? ({ "--room-color": activeThemeRoom.controllerColor } as CSSProperties)
     : undefined;
   const isPaused = selectedScreen?.playbackState === "paused";
   const failedDownloads = selectedScreen?.failedDownloads || 0;
@@ -116,21 +129,181 @@ export function CompactRemoteShell({
   // the screen reports it is playing, so the controls are never empty during a
   // lesson somebody else started.
   const controlledItem = selectedItem || reportedItem;
-  const activityItem = liveActivityItem
-    || (setupActivityItem?.id === controlledItem?.id ? setupActivityItem : undefined);
+  const previousReportedItemId = useRef(reportedItem?.id);
 
   useEffect(() => {
     if (!controlsExpanded) return;
-    const frame = requestAnimationFrame(() => flowRef.current?.scrollTo({ top: 0 }));
+    const frame = requestAnimationFrame(() =>
+      expandedCueRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
+    );
     return () => cancelAnimationFrame(frame);
-  }, [controlsExpanded, controlledItem?.id]);
+  }, [controlsExpanded, lesson?.id, reportedItem?.id, selectedItemId]);
 
   useEffect(() => {
     if (!controlledItem) setControlsExpanded(false);
   }, [controlledItem]);
 
+  // A screen that is already playing has an implicit selection. Keep its live
+  // game controls available on arrival, while still letting an explicit cue
+  // choice take over without reopening the previous item. The selection stays
+  // implicit so the panel follows a screen when it advances to another cue.
+  useEffect(() => {
+    if (selectedItemId || controlsExpanded || !reportedItem) return;
+    if (!orderedItems.some((item) => item.id === reportedItem.id)) return;
+    setControlsExpanded(true);
+  }, [controlsExpanded, orderedItems, reportedItem, selectedItemId, setSelectedItemId]);
+
+  // If the screen moves on from the cue the remote was implicitly following,
+  // follow the new live activity instead of leaving the old game's controls
+  // mounted. This also updates the visible lesson when the screen starts a
+  // different lesson, but preserves a deliberately selected cue.
+  useEffect(() => {
+    const previousId = previousReportedItemId.current;
+    previousReportedItemId.current = reportedItem?.id;
+    if (!reportedItem?.id || !previousId || previousId === reportedItem.id) return;
+    if (selectedItemId && selectedItemId !== previousId) return;
+    setSelectedItemId("");
+    setControlsExpanded(true);
+    if (timingLesson?.id && timingLesson.id !== lesson?.id) {
+      setLessonId(timingLesson.id);
+    }
+  }, [lesson?.id, reportedItem?.id, selectedItemId, setLessonId, setSelectedItemId, timingLesson?.id]);
+
+  const renderCueControls = (item: PlaylistItem) => {
+    const activityItem = liveActivityItem?.id === item.id
+      ? liveActivityItem
+      : setupActivityItem?.id === item.id
+        ? setupActivityItem
+        : undefined;
+    const nextTitle = nextCueTitle(orderedItems, item);
+    const itemDurationSeconds = item.id === selectedItem?.id
+      ? durationSeconds
+      : Math.max(1, Math.round(cuePlannedDuration(item) / 1000));
+
+    return (
+      <>
+        <div className="remote-cue-controls-head">
+          <div className="remote-step-title">
+            <span className="remote-kicker">CONTROLS</span>
+            <strong>Cue controls</strong>
+            <small>
+              {roleName(item.role)} · {nextTitle ? `next: ${nextTitle}` : "last in the lesson"}
+            </small>
+          </div>
+          <button
+            type="button"
+            className={`button ${focusMode ? "primary" : ""}`}
+            aria-pressed={focusMode}
+            onClick={() => setFocusMode((current) => !current)}
+          >
+            {focusMode ? "Exit focus" : "Display focus"}
+          </button>
+        </div>
+
+        {focusMode && (
+          <section className="remote-focus-panel" aria-label="Display focus mode">
+            <div>
+              <span className="remote-kicker">DISPLAY</span>
+              <strong>{selectedScreen?.name || "Choose a screen"}</strong>
+              <small>{selectedScreenOnline ? "Connected" : "Offline · commands disabled"}</small>
+            </div>
+            <div>
+              <span className="remote-kicker">NOW</span>
+              <strong>{reportedItem?.title || "Nothing playing"}</strong>
+            </div>
+            <div>
+              <span className="remote-kicker">NEXT</span>
+              <strong>{nextCueTitle(orderedItems, reportedItem) || "End of sequence"}</strong>
+            </div>
+          </section>
+        )}
+
+        {reportedItem?.id === item.id && reportedItem.notes && (
+          <aside className="controller-note remote-current-note">
+            <strong>Current cue notes</strong>
+            <p>{reportedItem.notes}</p>
+          </aside>
+        )}
+
+        {activityItem?.activityDefinitionId ? (
+          <div className="remote-activity-panel">
+            <ActivityController
+              definitionId={activityItem.activityDefinitionId}
+              lessonId={timingLesson?.id || lesson?.id}
+              lessonItemId={item.id}
+              showSessionSetup={showOnTheFlySetup || activityItem.id !== liveActivityItem?.id}
+            />
+          </div>
+        ) : item.activityDefinitionId ? (
+          <div className="remote-empty-state compact">
+            <strong>Activity not started</strong>
+            <small>Play this cue to open its live controls.</small>
+            <button
+              type="button"
+              className="button primary"
+              onClick={() => {
+                setSelectedItemId(item.id);
+                setShowOnTheFlySetup(true);
+                setControlsExpanded(true);
+                play(item.id);
+              }}
+              disabled={!selectedScreenOnline}
+            >
+              Start activity
+            </button>
+          </div>
+        ) : (
+          <div className="controller-seek remote-setup-seek">
+            <label>
+              <span>Seek within {item.title}</span>
+              <strong>{formatDuration(seekSeconds * 1000)}</strong>
+            </label>
+            <input
+              type="range"
+              min="0"
+              max={itemDurationSeconds}
+              value={seekSeconds}
+              onChange={(event) => setSeekSeconds(Number(event.target.value))}
+              disabled={!selectedScreenOnline}
+            />
+            {cuePoints(item).length > 0 && (
+              <div className="controller-markers" aria-label="Jump to named cue">
+                <span>JUMP TO CUE</span>
+                {cuePoints(item).map((marker, index) => {
+                  const relativeMs = Math.max(0, marker.positionMs - item.startMs);
+                  return (
+                    <button
+                      type="button"
+                      key={`${marker.positionMs}-${index}`}
+                      disabled={!selectedScreenOnline}
+                      onClick={() => {
+                        setSeekSeconds(Math.round(relativeMs / 1000));
+                        void command("seek", { positionMs: relativeMs });
+                      }}
+                    >
+                      <strong>{marker.name}</strong>
+                      <small>{formatDuration(relativeMs)}</small>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <button
+              type="button"
+              className="button"
+              onClick={() => void command("seek", { positionMs: seekSeconds * 1000 })}
+              disabled={!selectedScreenOnline}
+            >
+              Go to position
+            </button>
+          </div>
+        )}
+      </>
+    );
+  };
+
   return (
-    <div className={`controller-page remote-shell ${controlsExpanded ? "controls-expanded" : ""} ${room ? "room-themed" : ""}`} style={controllerStyle}>
+    <div className={`controller-page remote-shell ${activeThemeRoom ? "room-themed" : ""}`} style={controllerStyle}>
       <section className="remote-playback" aria-label="Playback controller">
         <div className="remote-control-row">
           <fieldset className="remote-playback-fieldset" disabled={controlsLocked}>
@@ -211,14 +384,47 @@ export function CompactRemoteShell({
         )}
       </section>
 
-      <fieldset
-        ref={flowRef}
-        className={`remote-flow ${controlsExpanded ? "controls-expanded" : ""}`}
-        disabled={controlsLocked}
-      >
-        <section className="remote-step" aria-label="Lesson" data-state={lessonChosen ? "done" : "current"}>
+      <fieldset className="remote-flow" disabled={controlsLocked}>
+        {isUniversalRemote && (
+          <section className="remote-step remote-room-step" aria-label="Room" data-state={roomChosen ? "done" : "current"}>
+            <div className="remote-step-head">
+              <span className="remote-step-mark" aria-hidden="true">1</span>
+              <div className="remote-step-title">
+                <span className="remote-kicker">ROOM</span>
+                <strong>{roomChosen ? universalRooms.find((item) => item.id === universalRoomId)?.name : "Choose a room"}</strong>
+                <small>{roomChosen ? "Universal remote scope" : "Choose a classroom before choosing a lesson"}</small>
+              </div>
+              <label className="remote-screen-picker remote-room-picker">
+                <span>ROOM</span>
+                <select
+                  aria-label="Choose a room"
+                  value={universalRoomId}
+                  onChange={(event) => {
+                    setUniversalRoomId?.(event.target.value);
+                    setSelectedItemId("");
+                    setShowOnTheFlySetup(false);
+                    setMonitorOpen(false);
+                    setControlsExpanded(false);
+                  }}
+                >
+                  <option value="">Choose a room</option>
+                  {universalRooms.map((item) => (
+                    <option value={item.id} key={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </section>
+        )}
+        <section
+          className="remote-step"
+          aria-label="Lesson"
+          data-state={lessonChosen ? "done" : isUniversalRemote && !roomChosen ? "waiting" : "current"}
+        >
           <div className="remote-step-head">
-            <span className="remote-step-mark" aria-hidden="true">1</span>
+            <span className="remote-step-mark" aria-hidden="true">{isUniversalRemote ? "2" : "1"}</span>
             <div className="remote-step-title">
               <span className="remote-kicker">LESSON</span>
               <strong>{lesson?.title || "Choose a lesson"}</strong>
@@ -302,7 +508,7 @@ export function CompactRemoteShell({
           data-state={!lessonChosen ? "waiting" : controlledItem ? "done" : "current"}
         >
           <div className="remote-step-head">
-            <span className="remote-step-mark" aria-hidden="true">2</span>
+            <span className="remote-step-mark" aria-hidden="true">{isUniversalRemote ? "3" : "2"}</span>
             <div className="remote-step-title">
               <span className="remote-kicker">CUE</span>
               <strong>{controlledItem?.title || (lessonChosen ? "Choose a cue" : "Choose a lesson first")}</strong>
@@ -362,30 +568,72 @@ export function CompactRemoteShell({
               {orderedItems.length ? (
                 orderedItems.map((item, index) => {
                   const isPlaying = reportedItem?.id === item.id;
+                  const isSelected = selectedItemId === item.id
+                    || (!selectedItemId && isPlaying);
+                  const isExpanded = isSelected && controlsExpanded;
+                  const controlsId = `remote-cue-controls-${item.id}`;
                   return (
-                    <button
-                      type="button"
+                    <article
                       key={item.id}
-                      className={`${selectedItemId === item.id ? "selected" : ""} ${isPlaying ? "playing" : ""}`}
-                      disabled={!selectedScreenOnline}
-                      aria-current={isPlaying ? "true" : undefined}
-                      aria-expanded={selectedItemId === item.id ? controlsExpanded : false}
-                      aria-controls={selectedItemId === item.id ? "remote-cue-controls" : undefined}
-                      onClick={() => {
-                        setSelectedItemId(item.id);
-                        setSeekSeconds(0);
-                        setControlsExpanded(true);
-                        play(item.id);
-                      }}
+                      ref={isExpanded ? expandedCueRef : undefined}
+                      className={`remote-cue ${isSelected ? "selected" : ""} ${isPlaying ? "playing" : ""}`}
+                      data-cue-id={item.id}
                     >
-                      <b>{index + 1}</b>
-                      <span>
-                        <strong>{item.title}{item.flexibleTime ? " · Flexible" : ""}</strong>
-                        <small>{roleName(item.role)} · {formatDuration(cuePlannedDuration(item))}</small>
-                        {item.notes && <em>{item.notes}</em>}
-                      </span>
-                      <i aria-hidden="true">{isPlaying ? "▮▮" : "▶"}</i>
-                    </button>
+                      <div className="remote-cue-row">
+                        <button
+                          type="button"
+                          className="remote-cue-select"
+                          disabled={!selectedScreenOnline}
+                          aria-current={isPlaying ? "true" : undefined}
+                          aria-expanded={isExpanded}
+                          aria-controls={isExpanded ? controlsId : undefined}
+                          onClick={() => {
+                            setSelectedItemId(item.id);
+                            setSeekSeconds(0);
+                            setControlsExpanded(true);
+                            play(item.id);
+                          }}
+                        >
+                          <b>{index + 1}</b>
+                          <span>
+                            <strong>{item.title}{item.flexibleTime ? " · Flexible" : ""}</strong>
+                            <small>{roleName(item.role)} · {formatDuration(cuePlannedDuration(item))}</small>
+                            {item.notes && <em>{item.notes}</em>}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className="remote-cue-toggle"
+                          disabled={!selectedScreenOnline}
+                          aria-expanded={isExpanded}
+                          aria-controls={isExpanded ? controlsId : undefined}
+                          aria-label={`${isExpanded ? "Collapse" : "Expand"} controls for ${item.title}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (isExpanded) {
+                              setControlsExpanded(false);
+                              return;
+                            }
+                            setSelectedItemId(item.id);
+                            setSeekSeconds(0);
+                            setControlsExpanded(true);
+                            play(item.id);
+                          }}
+                        >
+                          <span aria-hidden="true">{isExpanded ? "⌃" : "⌄"}</span>
+                        </button>
+                      </div>
+                      {isExpanded && (
+                        <div
+                          id={controlsId}
+                          className="remote-cue-controls"
+                          role="region"
+                          aria-label="Cue controls"
+                        >
+                          {renderCueControls(item)}
+                        </div>
+                      )}
+                    </article>
                   );
                 })
               ) : (
@@ -396,154 +644,6 @@ export function CompactRemoteShell({
               )}
             </div>
           )}
-        </section>
-
-        <section
-          id="remote-cue-controls"
-          className="remote-step remote-step-controls"
-          aria-label="Cue controls"
-          data-state={controlledItem ? "current" : "waiting"}
-        >
-          {controlsExpanded && (
-            <button
-              type="button"
-              className="button remote-controls-back"
-              onClick={() => setControlsExpanded(false)}
-            >
-              <span aria-hidden="true">←</span> All lesson cues
-            </button>
-          )}
-          <div className="remote-step-head">
-            <span className="remote-step-mark" aria-hidden="true">3</span>
-            <div className="remote-step-title">
-              <span className="remote-kicker">CONTROLS</span>
-              <strong>{controlledItem ? controlledItem.title : "Choose a cue"}</strong>
-              <small>
-                {controlledItem
-                  ? `${roleName(controlledItem.role)} · ${nextCueTitle(orderedItems, reportedItem)
-                      ? `next: ${nextCueTitle(orderedItems, reportedItem)}`
-                      : "last in the lesson"}`
-                  : "Controls for a cue appear here once you pick one."}
-              </small>
-            </div>
-            <button
-              type="button"
-              className={`button ${focusMode ? "primary" : ""}`}
-              aria-pressed={focusMode}
-              onClick={() => setFocusMode((current) => !current)}
-            >
-              {focusMode ? "Exit focus" : "Display focus"}
-            </button>
-          </div>
-
-          {focusMode && (
-            <section className="remote-focus-panel" aria-label="Display focus mode">
-              <div>
-                <span className="remote-kicker">DISPLAY</span>
-                <strong>{selectedScreen?.name || "Choose a screen"}</strong>
-                <small>{selectedScreenOnline ? "Connected" : "Offline · commands disabled"}</small>
-              </div>
-              <div>
-                <span className="remote-kicker">NOW</span>
-                <strong>{reportedItem?.title || "Nothing playing"}</strong>
-              </div>
-              <div>
-                <span className="remote-kicker">NEXT</span>
-                <strong>{nextCueTitle(orderedItems, reportedItem) || "End of sequence"}</strong>
-              </div>
-            </section>
-          )}
-
-          {!controlledItem && !focusMode && (
-            <div className="remote-empty-state compact">
-              <strong>Nothing selected</strong>
-              <small>Pick a cue above and its controls appear here.</small>
-            </div>
-          )}
-
-          {reportedItem?.notes && (
-            <aside className="controller-note remote-current-note">
-              <strong>Current cue notes</strong>
-              <p>{reportedItem.notes}</p>
-            </aside>
-          )}
-
-          {activityItem?.activityDefinitionId ? (
-            <div className="remote-activity-panel">
-              <ActivityController
-                definitionId={activityItem.activityDefinitionId}
-                lessonId={timingLesson?.id || lesson?.id}
-                lessonItemId={activityItem.id}
-                showSessionSetup={showOnTheFlySetup || !liveActivityItem}
-              />
-            </div>
-          ) : controlledItem?.activityDefinitionId ? (
-            <div className="remote-empty-state compact">
-              <strong>Activity not started</strong>
-              <small>Play this cue to open its live controls.</small>
-              <button
-                type="button"
-                className="button primary"
-                onClick={() => {
-                  setSelectedItemId(controlledItem.id);
-                  setShowOnTheFlySetup(true);
-                  setControlsExpanded(true);
-                  play(controlledItem.id);
-                }}
-                disabled={!selectedScreenOnline}
-              >
-                Start activity
-              </button>
-            </div>
-          ) : null}
-
-          {controlledItem && !controlledItem.activityDefinitionId && (
-            <div className="controller-seek remote-setup-seek">
-              <label>
-                <span>Seek within {controlledItem.title}</span>
-                <strong>{formatDuration(seekSeconds * 1000)}</strong>
-              </label>
-              <input
-                type="range"
-                min="0"
-                max={durationSeconds}
-                value={seekSeconds}
-                onChange={(event) => setSeekSeconds(Number(event.target.value))}
-                disabled={!selectedScreenOnline}
-              />
-              {cuePoints(controlledItem).length > 0 && (
-                <div className="controller-markers" aria-label="Jump to named cue">
-                  <span>JUMP TO CUE</span>
-                  {cuePoints(controlledItem).map((marker, index) => {
-                    const relativeMs = Math.max(0, marker.positionMs - controlledItem.startMs);
-                    return (
-                      <button
-                        type="button"
-                        key={`${marker.positionMs}-${index}`}
-                        disabled={!selectedScreenOnline}
-                        onClick={() => {
-                          setSeekSeconds(Math.round(relativeMs / 1000));
-                          void command("seek", { positionMs: relativeMs });
-                        }}
-                      >
-                        <strong>{marker.name}</strong>
-                        <small>{formatDuration(relativeMs)}</small>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              <button
-                type="button"
-                className="button"
-                onClick={() => void command("seek", { positionMs: seekSeconds * 1000 })}
-                disabled={!selectedScreenOnline}
-              >
-                Go to position
-              </button>
-            </div>
-          )}
-
           {lesson?.preRollMonitorUrl && (
             <section className="pre-roll-monitor">
               <div>

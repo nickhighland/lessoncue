@@ -145,8 +145,8 @@ public sealed class TroubleshootingEmailService(
             var report = await reports.BuildAsync(db, failuresOnly: true, ct: ct);
             var localDate = TroubleshootingEmailSchedule.LocalDate(now, organization.TimeZone);
             var attachment = new EmailAttachment(
-                $"lessoncue-troubleshooting-{localDate:yyyy-MM-dd}.json.gz",
-                TroubleshootingReportBuilder.ToGzip(report));
+                $"lessoncue-troubleshooting-{localDate:yyyy-MM-dd}.json",
+                TroubleshootingReportBuilder.ToJson(report));
             var safeName = System.Net.WebUtility.HtmlEncode(organization.Name);
             var html = $"<p>Daily LessonCue troubleshooting report for <strong>{safeName}</strong>.</p>" +
                        "<ul>" +
@@ -156,7 +156,7 @@ public sealed class TroubleshootingEmailService(
                        $"<li>TVs needing attention: {report.ScreenAttentionCount}</li>" +
                        $"<li>Diagnostic components unavailable: {report.DiagnosticErrors.Count}</li>" +
                        "</ul>" +
-                       "<p>The attached compressed JSON contains the redacted failures-only runtime/audit log, " +
+                       "<p>The attached JSON contains the redacted failures-only runtime/audit log, " +
                        "recent media state and file checks, converter dependencies, and TV diagnostics. " +
                        "Routine successful HTTP request entries and credentials/tokens are excluded. " +
                        "Any partial diagnostic failures are listed in the JSON so they can be fixed on the next review.</p>";

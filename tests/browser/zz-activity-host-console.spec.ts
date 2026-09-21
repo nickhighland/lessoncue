@@ -26,7 +26,7 @@ test("an older host snapshot cannot restore an obsolete player roster", async ({
     oldBody ??= await response.text();
     await route.fulfill({ response });
   });
-  await openUniversalRemote(page, prepared.screenId);
+  await openUniversalRemote(page, prepared.screenId, prepared.lessonId, prepared.itemId, true);
   const panel = page.getByRole("region", { name: "Live game controls" });
   await expect(panel).toContainText("No phones have joined yet.");
   const joined = await page.request.post(`/api/v1/activity-sessions/join/${prepared.joinCode}`, {
@@ -63,7 +63,7 @@ test("the host counts votes separately from drawings already submitted", async (
       data: { participantToken: token, action: 'submit', payload: { strokes: [{ color: '#f8fafc', width: .012, points: [[.5, .5]] }] } },
     })).ok()).toBeTruthy();
   }
-  await openUniversalRemote(page, prepared.screenId);
+  await openUniversalRemote(page, prepared.screenId, prepared.lessonId, prepared.itemId, true);
   const panel = page.getByRole('region', { name: 'Live game controls' });
   await expect(panel).toContainText('2 of 2');
   await host('openvoting');
@@ -79,7 +79,7 @@ test("the host counts votes separately from drawings already submitted", async (
 test("a failed host command is explained without an unhandled browser exception", async ({ page }) => {
   await authenticate(page);
   const prepared = await prepareHostedTrivia(page, "Host command failure", undefined, true);
-  await openUniversalRemote(page, prepared.screenId);
+  await openUniversalRemote(page, prepared.screenId, prepared.lessonId, prepared.itemId, true);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.route(`**/activity-runs/${prepared.runId}/command`, route => route.fulfill({
@@ -103,7 +103,7 @@ test("a stalled fallback snapshot does not accumulate requests while live connec
   });
   let requests = 0;
   try {
-    await openUniversalRemote(page, prepared.screenId);
+    await openUniversalRemote(page, prepared.screenId, prepared.lessonId, prepared.itemId, true);
     await expect(page.getByRole("region", { name: "Live game controls" })).toContainText(prepared.joinCode);
     await page.route(`**/api/v1/activity-runs/${prepared.runId}`, async route => {
       requests++;
@@ -119,7 +119,7 @@ test("a stalled fallback snapshot does not accumulate requests while live connec
 test("a stalled host refresh does not accumulate polling requests", async ({ page }) => {
   await authenticate(page);
   const prepared = await prepareHostedTrivia(page, "Host stalled polling", undefined, true);
-  await openUniversalRemote(page, prepared.screenId);
+  await openUniversalRemote(page, prepared.screenId, prepared.lessonId, prepared.itemId, true);
   await expect(page.getByRole("region", { name: "Live game controls" })).toContainText(prepared.joinCode);
   let requests = 0;
   let release!: () => void;
@@ -150,7 +150,7 @@ test("switching the live cue ignores delayed host responses from the previous ga
     expect(response.status()).toBe(202);
   };
   await report(first);
-  await openUniversalRemote(page, first.screenId);
+  await openUniversalRemote(page, first.screenId, first.lessonId, first.itemId, true);
   const panel = page.getByRole("region", { name: "Live game controls" });
   await expect(panel).toContainText(first.joinCode);
   let heldResponses = 0;
@@ -270,7 +270,7 @@ async function prepareHostedTrivia(page: Page, name: string, engine?: { type: st
 test("a signed-out phone can host a game and receives the TV acknowledgment without another tap", async ({ page, browser }) => {
   await authenticate(page);
   const prepared = await prepareHostedTrivia(page, "Public remote", undefined, true);
-  await openUniversalRemote(page, prepared.screenId);
+  await openUniversalRemote(page, prepared.screenId, prepared.lessonId, prepared.itemId, true);
   const grant = await page.evaluate(() => sessionStorage.getItem("lessoncue.universalGrant"));
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await context.addInitScript(value => sessionStorage.setItem("lessoncue.universalGrant", value!), grant);
@@ -283,7 +283,25 @@ test("a signed-out phone can host a game and receives the TV acknowledgment with
     const versions = await Promise.all(concurrent.map(result => result.json()));
     expect(new Set(versions.map(result => result.version)).size).toBe(8);
     await phone.goto(`/universalremote?lesson=${prepared.lessonId}`);
+    const phoneRoom = phone.getByLabel("Choose a room");
+    if (await phoneRoom.count()) {
+      const roomIds = await phoneRoom.locator("option").evaluateAll(options =>
+        options.map(option => (option as HTMLOptionElement).value).filter(Boolean),
+      );
+      const phoneScreen = phone.getByLabel("Control this screen");
+      for (const roomId of roomIds) {
+        if (await phoneScreen.locator(`option[value="${prepared.screenId}"]`).count()) break;
+        await phoneRoom.selectOption(roomId);
+        try {
+          await expect(phoneScreen.locator(`option[value="${prepared.screenId}"]`)).toHaveCount(1, { timeout: 2_000 });
+          break;
+        } catch {
+          // Try the next room when this room does not contain the requested TV.
+        }
+      }
+    }
     await phone.getByLabel("Control this screen").selectOption(prepared.screenId);
+    await phone.locator(`[data-cue-id="${prepared.itemId}"] .remote-cue-select`).click();
     await expect(phone.getByRole("region", { name: "Live game controls" })).toBeVisible({ timeout: 20000 });
     const sent = phone.waitForResponse(response => response.url().endsWith(`/activity-runs/${prepared.runId}/command`) && response.request().method() === 'POST', { timeout: 30_000 });
     await phone.getByRole('button', { name: 'Start the game', exact: true }).click();
@@ -322,7 +340,7 @@ test("a signed-out phone can host a game and receives the TV acknowledgment with
 test("the remote reads as one flow rather than three tabs", async ({ page }) => {
   await authenticate(page);
   const prepared = await prepareHostedTrivia(page, "Host Tabs");
-  await openUniversalRemote(page, prepared.screenId);
+  await openUniversalRemote(page, prepared.screenId, prepared.lessonId, prepared.itemId, true);
 
   // Tabs asked a teacher to know which of three panels held what they wanted,
   // and said nothing about which to look in next. The work is a sequence, so
@@ -330,6 +348,8 @@ test("the remote reads as one flow rather than three tabs", async ({ page }) => 
   await expect(page.getByRole("tab")).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Lesson" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Cues" })).toBeVisible();
+  // The screen is already playing a cue, so that cue is implicitly selected
+  // and its controls are available without making the host hunt for it.
   await expect(page.getByRole("region", { name: "Cue controls" })).toBeVisible();
   await expect(page.locator(".remote-header")).toHaveCount(0);
   await expect(page.locator(".remote-transport button")).toHaveCount(4);
@@ -341,7 +361,7 @@ test("the remote reads as one flow rather than three tabs", async ({ page }) => 
   await expect(page.locator(".remote-run-summary")).toContainText("EST. FINISH");
 });
 
-test("the phone remote fills the viewport and brings selected cue controls to the top", async ({ page }) => {
+test("the phone remote fills the viewport and expands selected cue controls inline", async ({ page }) => {
   await authenticate(page);
   await page.setViewportSize({ width: 390, height: 844 });
   const prepared = await prepareHostedTrivia(page, "Expanded phone controls", undefined, true);
@@ -358,26 +378,20 @@ test("the phone remote fills the viewport and brings selected cue controls to th
   // the controller may validly open the screen's current lesson rather than
   // this test's newly-created lesson. Exercise the cue that is actually shown
   // instead of coupling this layout test to bootstrap ordering.
-  const cue = page.locator(".remote-cue-list > button").first();
+  const cue = page.locator(".remote-cue-list .remote-cue-select").first();
   await expect(cue).toBeVisible();
   await cue.click();
   await expect(cue).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByRole("region", { name: "Lesson" })).toBeHidden();
-  await expect(page.getByRole("region", { name: "Cues" })).toBeHidden();
-  const controls = page.getByRole("region", { name: "Cue controls" });
-  await expect(controls).toBeVisible();
-  await expect(page.getByRole("button", { name: "All lesson cues" })).toBeVisible();
-
-  const placement = await page.evaluate(() => {
-    const flow = document.querySelector<HTMLElement>(".remote-flow")!.getBoundingClientRect();
-    const controls = document.querySelector<HTMLElement>(".remote-step-controls")!.getBoundingClientRect();
-    return { flowTop: flow.top, controlsTop: controls.top };
-  });
-  expect(Math.abs(placement.controlsTop - placement.flowTop)).toBeLessThanOrEqual(8);
-
-  await page.getByRole("button", { name: "All lesson cues" }).click();
   await expect(page.getByRole("region", { name: "Lesson" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Cues" })).toBeVisible();
+  const controls = page.getByRole("region", { name: "Cue controls" });
+  await expect(controls).toBeVisible();
+  await expect(page.getByRole("button", { name: "All lesson cues" })).toHaveCount(0);
+  await expect(page.locator(".remote-cue").first().locator(".remote-cue-controls")).toBeVisible();
+
+  await page.getByRole("button", { name: /Collapse controls for/ }).first().click();
+  await expect(cue).toHaveAttribute("aria-expanded", "false");
+  await expect(controls).toHaveCount(0);
 });
 
 test("the compact remote keeps playback failures visible instead of saying Ready", async ({ page }) => {
@@ -409,7 +423,7 @@ test("the compact remote keeps playback failures visible instead of saying Ready
   }, prepared);
   expect(status).toBe(202);
 
-  await openUniversalRemote(page, prepared.screenId);
+  await openUniversalRemote(page, prepared.screenId, prepared.lessonId, prepared.itemId, true);
   await expect(page.getByRole("alert")).toContainText("Decoder stopped while opening the activity.");
   await expect(page.locator(".remote-run-summary")).toContainText("REMAINING");
 });
@@ -417,7 +431,7 @@ test("the compact remote keeps playback failures visible instead of saying Ready
 test("the live console shows the join code, roster, and answers-in count", async ({ page }) => {
   await authenticate(page);
   const prepared = await prepareHostedTrivia(page, "Host Live Panel", undefined, true);
-  await openUniversalRemote(page, prepared.screenId);
+  await openUniversalRemote(page, prepared.screenId, prepared.lessonId, prepared.itemId, true);
 
   const panel = page.locator(".activity-live-host");
   await expect(panel).toBeVisible({ timeout: 20_000 });
@@ -487,7 +501,7 @@ test("when autonomy gives up, the console says so instead of looking frozen", as
     });
   }, prepared.runId);
 
-  await openUniversalRemote(page, prepared.screenId);
+  await openUniversalRemote(page, prepared.screenId, prepared.lessonId, prepared.itemId, true);
 
   const panel = page.locator(".activity-live-host");
   await expect(panel).toBeVisible({ timeout: 20_000 });
@@ -519,7 +533,7 @@ test("a full class fits: everyone is listed, findable, and lockable mid-game", a
     return joined;
   }, prepared.joinCode);
 
-  await openUniversalRemote(page, prepared.screenId);
+  await openUniversalRemote(page, prepared.screenId, prepared.lessonId, prepared.itemId, true);
   const panel = page.locator(".activity-live-host");
   await expect(panel).toBeVisible({ timeout: 20_000 });
 

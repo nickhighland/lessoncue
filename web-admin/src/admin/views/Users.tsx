@@ -1535,7 +1535,7 @@ export function RegistrationSettingsPanel({
             </small>
             <small>
               If the existing daily troubleshooting recipient is configured, the review result and
-              compressed report are delivered there too.
+              JSON report are delivered there too.
             </small>
             <div className="settings-subsection">
               <h4>Live Codex report</h4>

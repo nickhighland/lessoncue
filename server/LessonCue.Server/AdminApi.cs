@@ -2009,6 +2009,24 @@ public static class AdminApi
         {
             var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
             if (media is null) return Results.NotFound();
+            if (media.SourceKind == "youtube-download" && string.IsNullOrWhiteSpace(media.RelativePath))
+            {
+                if (!Uri.TryCreate(media.SourceUrl, UriKind.Absolute, out var youtubeSource) || !YouTubeMedia.IsYouTubeUrl(youtubeSource))
+                    return Results.BadRequest(new { error = "This YouTube import has no valid source URL to retry." });
+                if (media.ProcessingStatus is "processing" or "downloading")
+                    return Results.Conflict(new { error = "This YouTube download is already in progress." });
+                media.ProcessingStatus = "downloading";
+                media.ProcessingError = null;
+                db.AuditEvents.Add(new AuditEvent
+                {
+                    Actor = context.User.Identity?.Name ?? "admin",
+                    Action = "media.youtube.retry",
+                    Object = media.Id.ToString(),
+                    Summary = youtubeSource.Host
+                });
+                await db.SaveChangesAsync(ct);
+                return Results.Accepted($"/api/v1/media/{id}", media);
+            }
             if (media.SourceKind == "link" || string.IsNullOrWhiteSpace(media.RelativePath))
                 return Results.BadRequest(new { error = "Online-only media does not have a local file to reprocess." });
             if (media.ProcessingStatus is "processing" or "downloading")

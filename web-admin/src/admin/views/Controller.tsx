@@ -63,11 +63,29 @@ export function ControllerView({
         (!!item.controllerHostname &&
           item.controllerHostname === location.hostname),
   );
-  const liveScreens = screens.filter(
+  const allLiveScreens = screens.filter(
     (screen) =>
       !screen.revoked &&
       !screen.signageOnly &&
       (!room || screen.assignedClassId === room.id),
+  );
+  const universalRemote = !room && !sessionToken;
+  const [universalRoomId, setUniversalRoomId] = useState(() =>
+    universalRemote
+      ? allLiveScreens.find((screen) => screen.online)?.assignedClassId ||
+        allLiveScreens[0]?.assignedClassId ||
+        classes[0]?.id ||
+        ""
+      : "",
+  );
+  const selectedUniversalRoom = universalRemote
+    ? classes.find((item) => item.id === universalRoomId)
+    : undefined;
+  const selectedClassId = room?.id || (universalRemote ? universalRoomId : undefined);
+  const liveScreens = allLiveScreens.filter(
+    (screen) => !universalRemote && !selectedClassId
+      ? true
+      : !!selectedClassId && screen.assignedClassId === selectedClassId,
   );
   const [screenId, setScreenId] = useState(
     liveScreens.find((screen) => screen.online)?.id || liveScreens[0]?.id || "",
@@ -88,8 +106,12 @@ export function ControllerView({
         ? lesson.classId === room.id &&
           (!temporarySession?.lessonId ||
             lesson.id === temporarySession.lessonId)
-        : !selectedScreen?.assignedClassId ||
-          lesson.classId === selectedScreen.assignedClassId),
+        : selectedUniversalRoom
+          ? lesson.classId === selectedUniversalRoom.id
+          : universalRemote
+            ? false
+            : !selectedScreen?.assignedClassId ||
+              lesson.classId === selectedScreen.assignedClassId),
   );
   const requestedLessonId =
     new URLSearchParams(location.search).get("lesson") || "";
@@ -98,6 +120,20 @@ export function ControllerView({
       ? requestedLessonId
       : availableLessons[0]?.id || "",
   );
+  const requestedLessonApplied = useRef(false);
+  useEffect(() => {
+    // The public bootstrap can arrive in live-only mode first. Apply a lesson
+    // deep link once the full lesson library has caught up instead of leaving
+    // the remote on the first lesson that happened to be in the initial cache.
+    if (requestedLessonApplied.current) return;
+    if (!requestedLessonId) {
+      requestedLessonApplied.current = true;
+      return;
+    }
+    if (!availableLessons.some((item) => item.id === requestedLessonId)) return;
+    requestedLessonApplied.current = true;
+    setLessonId(current => current === requestedLessonId ? current : requestedLessonId);
+  }, [availableLessons, requestedLessonId]);
   const lesson =
     availableLessons.find((item) => item.id === lessonId) ||
     availableLessons[0];
@@ -106,6 +142,14 @@ export function ControllerView({
   );
   const [selectedItemId, setSelectedItemId] = useState("");
   const selectedItem = orderedItems.find((item) => item.id === selectedItemId);
+  const previousUniversalRoomId = useRef(universalRoomId);
+  useEffect(() => {
+    if (!universalRemote || previousUniversalRoomId.current === universalRoomId) return;
+    previousUniversalRoomId.current = universalRoomId;
+    const nextLesson = availableLessons.find((item) => item.id === requestedLessonId) || availableLessons[0];
+    setLessonId(nextLesson?.id || "");
+    setSelectedItemId("");
+  }, [availableLessons, requestedLessonId, setLessonId, universalRemote, universalRoomId]);
   const [seekSeconds, setSeekSeconds] = useState(0);
   const [universalPin, setUniversalPin] = useState("");
   const [universalGrant, setUniversalGrant] = useState(
@@ -413,11 +457,19 @@ export function ControllerView({
   return (
     <CompactRemoteShell
       room={room || undefined}
+      universalRooms={universalRemote ? classes : undefined}
+      universalRoomId={universalRemote ? universalRoomId : undefined}
+      setUniversalRoomId={universalRemote ? setUniversalRoomId : undefined}
+      universalRemote={universalRemote}
       liveScreens={liveScreens}
       screenId={screenId}
       onScreenChange={(value) => {
         setScreenId(value);
-        setLessonId("");
+        // Preserve an explicit lesson deep link while switching screens. The
+        // controller bootstrap already filtered it to the selected screen's
+        // class; clearing it here makes a linked game jump to whichever lesson
+        // happens to sort first before its controls can be opened.
+        setLessonId(requestedLessonId || "");
         setSelectedItemId("");
         setCommandReceipt(undefined);
       }}

@@ -561,8 +561,8 @@ public sealed class TroubleshootingReviewService(
                    $"<p>Media needing attention: {report.MediaAttentionCount}; TVs needing attention: {report.ScreenAttentionCount}.</p>";
         var attachments = new List<EmailAttachment>
         {
-            new($"lessoncue-troubleshooting-review-{now:yyyy-MM-dd}.json.gz",
-                await File.ReadAllBytesAsync(Path.Combine(artifactDirectory, "report.json.gz"), ct))
+            new($"lessoncue-troubleshooting-review-{now:yyyy-MM-dd}.json",
+                await File.ReadAllBytesAsync(Path.Combine(artifactDirectory, "report.json"), ct))
         };
         var reviewFile = settings.Provider == "deepseek" ? "review.md" : "codex-prompt.md";
         attachments.Add(new(reviewFile, await File.ReadAllBytesAsync(Path.Combine(artifactDirectory, reviewFile), ct)));

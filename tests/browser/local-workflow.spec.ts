@@ -844,16 +844,19 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.locator(".remote-lock-icon")).toHaveAttribute("viewBox", "0 0 24 24");
   await expect(page.locator(".remote-flow")).toHaveCSS("overflow-y", "auto");
   await expect(page.locator(".app-shell.controller-mode > .mobile-shell-header")).toHaveCount(0);
-  // The remote is one downward flow now: pick a lesson, pick a cue, control it.
+  // The universal remote scopes the same flow by room first; classroom links
+  // omit this step and begin with the lesson selector.
+  await expect(page.getByRole("region", { name: "Room" })).toBeVisible();
+  await expect(page.getByLabel("Choose a room")).toBeVisible();
+  // The remote is one downward flow now: pick a room, pick a lesson, pick a
+  // cue, control it.
   // No tabs, and nothing to discover behind them.
   await expect(page.getByRole("tab")).toHaveCount(0);
   await expect(page.locator(".remote-header")).toHaveCount(0);
 
   const lessonStep = page.getByRole("region", { name: "Lesson" });
-  const controlStep = page.getByRole("region", { name: "Cue controls" });
-
   // The paired screen already knows its lesson, so step one is answered on
-  // arrival and the list is folded away behind a way back to it.
+  // arrival and the lesson list stays available behind Change lesson.
   await expect(lessonStep).toHaveAttribute("data-state", "done");
   await expect(lessonStep).toContainText("Sample Lesson");
   await expect(page.locator(".remote-lesson-list")).toHaveCount(0);
@@ -868,12 +871,16 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: "Keep this lesson" }).click();
   await expect(page.locator(".remote-lesson-list")).toHaveCount(0);
 
-  // Choosing a cue turns its controls into the working surface instead of
-  // leaving them below the whole list. The list remains one press away.
-  await page.locator(".remote-cue-list > button").first().click();
-  await expect(page.locator(".remote-cue-list")).toBeHidden();
-  await expect(controlStep).toHaveAttribute("data-state", "current");
-  await expect(page.getByRole("button", { name: "All lesson cues" })).toBeVisible();
+  // Choosing a cue expands its controls in place, keeping the rest of the
+  // lesson available without a second navigation step.
+  const firstCue = page.locator(".remote-cue-list .remote-cue-select").first();
+  await firstCue.click();
+  await expect(firstCue).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("region", { name: "Lesson" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Cues" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Cue controls" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "All lesson cues" })).toHaveCount(0);
+  await expect(page.locator(".remote-cue").first().locator(".remote-cue-controls")).toBeVisible();
 
   await page.getByRole("button", { name: "Open monitor" }).click();
   await expect(page.locator(".pre-roll-monitor iframe")).toHaveAttribute("src", "https://example.org/private-monitor");

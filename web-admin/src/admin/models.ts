@@ -326,6 +326,7 @@ export type MediaTranscode = {
 export type Media = {
   id: string;
   fileName: string;
+  relativePath?: string;
   contentType: string;
   sizeBytes: number;
   durationMs?: number;

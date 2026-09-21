@@ -4,6 +4,30 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.18 — universal remote and import reliability
+
+### User changes
+
+- The universal remote now begins with a classroom selector and adopts the
+  selected classroom's theme color.
+- LessonCue can retry a failed YouTube download without re-uploading or
+  changing the existing media identity.
+- YouTube downloads avoid a current default-player HTTP 403 path and retry
+  transient transfer failures.
+- Daily troubleshooting and AI review emails now attach provider-compatible
+  plain JSON reports instead of rejected gzip attachments.
+
+### Developer changes
+
+- Added Android-player yt-dlp selection and bounded download retries for local
+  YouTube imports, with regression coverage for the observed SABR/403 failure.
+- Added a safe requeue path for failed YouTube imports and a matching Media
+  Library action.
+- Kept compressed troubleshooting artifacts server-side while sending
+  uncompressed JSON through Resend or Brevo.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
 ## v0.46.17 — live troubleshooting reports
 
 ### User changes
