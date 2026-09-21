@@ -1000,7 +1000,9 @@ export type ShortenerSettings = {
   poolPresent: number;
   activeCodes: number;
   detail: string | null;
+  missing: string[];
   conflicts: string[];
+  failures: string[];
   integrationKeyConfigured: boolean;
   consolePasswordSet: boolean;
   consoleUser: string;

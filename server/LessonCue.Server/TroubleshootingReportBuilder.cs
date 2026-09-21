@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text.Json;
+using LessonCue.Server.Shortener;
 using Microsoft.EntityFrameworkCore;
 
 namespace LessonCue.Server;
@@ -9,7 +10,10 @@ namespace LessonCue.Server;
 /// review. Keeping this outside the HTTP endpoint means scheduled email and
 /// manual downloads cannot drift apart.
 /// </summary>
-public sealed class TroubleshootingReportBuilder(TroubleshootingLog log, MediaStoragePaths paths)
+public sealed class TroubleshootingReportBuilder(
+    TroubleshootingLog log,
+    MediaStoragePaths paths,
+    ShortenerService shortener)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -88,12 +92,41 @@ public sealed class TroubleshootingReportBuilder(TroubleshootingLog log, MediaSt
             mediaDependencies = new { error = "dependency diagnostics unavailable" };
         }
 
+        object shortenerDiagnostics;
+        try
+        {
+            var status = await shortener.StatusAsync(ct);
+            var checks = await shortener.ProbeAsync(ct);
+            shortenerDiagnostics = new
+            {
+                state = status.State.ToString(),
+                status.Enabled,
+                status.Domain,
+                status.PublicUrl,
+                status.AdminUrl,
+                status.PoolTotal,
+                status.PoolPresent,
+                status.PoolActive,
+                status.Detail,
+                missing = status.Missing,
+                conflicts = status.Conflicts,
+                failures = status.Failures,
+                checks,
+            };
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            RecordIssue("shortener", error, diagnosticErrors);
+            shortenerDiagnostics = new { state = "unavailable", error = error.GetType().Name };
+        }
+
         return new TroubleshootingReport(
             DateTimeOffset.UtcNow,
             log.GetRecent(limit, failuresOnly),
             audit,
             media,
             mediaDependencies,
+            shortenerDiagnostics,
             screens,
             new TroubleshootingRetentionDiagnostic(
                 2_000, 7,
@@ -124,6 +157,7 @@ public sealed record TroubleshootingReport(
     IReadOnlyList<AuditEvent> Audit,
     IReadOnlyList<MediaDiagnosticSnapshot> Media,
     object MediaDependencies,
+    object Shortener,
     IReadOnlyList<TroubleshootingScreenDiagnostic> Screens,
     TroubleshootingRetentionDiagnostic Retention,
     IReadOnlyList<string> DiagnosticErrors)

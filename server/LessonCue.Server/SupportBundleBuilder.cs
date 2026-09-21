@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using LessonCue.Server.Shortener;
 
 namespace LessonCue.Server;
 
@@ -12,6 +13,7 @@ public sealed class SupportBundleBuilder(
     StorageService storage,
     BackupPolicyService backupPolicy,
     UpdateService updates,
+    ShortenerService shortener,
     ILogger<SupportBundleBuilder> logger)
 {
     public async Task<SupportBundleSnapshot> BuildAsync(
@@ -114,6 +116,34 @@ public sealed class SupportBundleBuilder(
                 false, null),
             issues);
 
+        object shortenerSnapshot;
+        try
+        {
+            var status = await shortener.StatusAsync(ct);
+            var checks = await shortener.ProbeAsync(ct);
+            shortenerSnapshot = new
+            {
+                state = status.State.ToString(),
+                status.Enabled,
+                status.Domain,
+                status.PublicUrl,
+                status.AdminUrl,
+                status.PoolTotal,
+                status.PoolPresent,
+                status.PoolActive,
+                status.Detail,
+                missing = status.Missing,
+                conflicts = status.Conflicts,
+                failures = status.Failures,
+                checks,
+            };
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            RecordIssue("shortener", error, issues);
+            shortenerSnapshot = new { state = "unavailable", error = error.GetType().Name };
+        }
+
         return new SupportBundleSnapshot(
             1,
             DateTimeOffset.UtcNow,
@@ -162,6 +192,7 @@ public sealed class SupportBundleBuilder(
             },
             backup,
             update,
+            shortenerSnapshot,
             issues);
     }
 
@@ -233,4 +264,5 @@ public sealed record SupportBundleSnapshot(
     object Screens,
     BackupPolicyStatus Backup,
     LessonCueUpdateStatus Update,
+    object Shortener,
     IReadOnlyList<string> DiagnosticErrors);

@@ -112,7 +112,8 @@ builder.Services.AddHostedService(services =>
 builder.Services.AddSingleton(new MediaStoragePaths(dataPath));
 builder.Services.AddSingleton(services => new TroubleshootingReportBuilder(
     services.GetRequiredService<TroubleshootingLog>(),
-    services.GetRequiredService<MediaStoragePaths>()));
+    services.GetRequiredService<MediaStoragePaths>(),
+    services.GetRequiredService<LessonCue.Server.Shortener.ShortenerService>()));
 builder.Services.AddSingleton(new StorageService(dataPath));
 builder.Services.AddSingleton<UploadSessionService>();
 builder.Services.AddHostedService(services => services.GetRequiredService<UploadSessionService>());

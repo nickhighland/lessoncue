@@ -17,6 +17,25 @@ public sealed record ReservationReport(
 }
 
 /// <summary>
+/// The non-mutating view of the reserved-code pool.
+///
+/// These categories are deliberately separate. A missing slug can be created,
+/// a slug with someone else's tags needs an administrator's decision, and a
+/// shortener/API failure means that LessonCue could not establish either fact.
+/// Treating the last two as the same state caused an outage to look like one
+/// hundred links that were safe to delete.
+/// </summary>
+public sealed record ReservationAudit(
+    int Total,
+    int Present,
+    IReadOnlyList<string> Missing,
+    IReadOnlyList<string> Conflicts,
+    IReadOnlyList<string> Failures)
+{
+    public bool Degraded => Missing.Count > 0 || Conflicts.Count > 0 || Failures.Count > 0;
+}
+
+/// <summary>
 /// Keeps the hundred reserved codes present, tagged, and pointing at the join
 /// page -- and puts them back when they drift.
 ///
@@ -106,24 +125,32 @@ public sealed class ReservedCodeProvisioner(ShlinkClient shlink)
     /// A cheap check for the status card: are they all there and tagged?
     /// Does not repair anything.
     /// </summary>
-    public async Task<(int Present, IReadOnlyList<string> Missing)> AuditAsync(
+    public async Task<ReservationAudit> AuditAsync(
         string upstream, string apiKey, string domain, CancellationToken ct = default)
     {
         var missing = new List<string>();
+        var conflicts = new List<string>();
+        var failures = new List<string>();
+        var present = 0;
         foreach (var code in ReservedGameCodes.All)
         {
             ct.ThrowIfCancellationRequested();
             try
             {
                 var existing = await shlink.FindAsync(upstream, apiKey, code, domain, ct);
-                if (existing is null || !IsOurs(existing)) missing.Add(code);
+                if (existing is null) missing.Add(code);
+                else if (!IsOurs(existing)) conflicts.Add(code);
+                else present++;
             }
-            catch (ShlinkException)
+            catch (ShlinkException error)
             {
-                missing.Add(code);
+                // A 401, 403, 5xx, or transport failure is not evidence that
+                // the slug is absent or owned by another user. Preserve the
+                // code and the shortener's reason for the diagnostic UI.
+                failures.Add($"{code}: {error.Message}");
             }
         }
-        return (ReservedGameCodes.All.Count - missing.Count, missing);
+        return new ReservationAudit(ReservedGameCodes.All.Count, present, missing, conflicts, failures);
     }
 
     /// <summary>Authored by us, as far as the shortener's tags are concerned.</summary>

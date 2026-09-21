@@ -3438,7 +3438,9 @@ public static class AdminApi
                 poolPresent = status.PoolPresent,
                 activeCodes = status.PoolActive,
                 detail = status.Detail,
+                missing = status.Missing,
                 conflicts = status.Conflicts,
+                failures = status.Failures,
                 // Whether a key exists, never the key itself.
                 integrationKeyConfigured = shortener.IntegrationKey is not null,
                 // Likewise for the console's password: whether one was chosen.
@@ -3693,7 +3695,9 @@ public static class AdminApi
                 var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
                 organization.ShortenerPoolVersion = ReservedGameCodes.Version;
                 Audit(db, "shortener.reconcile", organization.Id,
-                    $"Reserved codes: {report.Created} created, {report.Repaired} repaired, {report.Conflicts.Count} conflicting");
+                    $"Reserved codes: {report.Created} created, {report.Repaired} repaired, {report.AlreadyCorrect} already correct, "
+                    + $"{report.Conflicts.Count} conflicting, {report.Failures.Count} failed",
+                    report.Degraded ? "degraded" : "success");
                 await db.SaveChangesAsync(ct);
                 return Results.Ok(new
                 {
@@ -5245,8 +5249,8 @@ public static class AdminApi
     private static int PortFromEnvironment(string name, int fallback) =>
         int.TryParse(Environment.GetEnvironmentVariable(name), out var value) && value is > 0 and < 65536 ? value : fallback;
 
-    private static void Audit(LessonCueDb db, string action, Guid id, string? summary) =>
-        db.AuditEvents.Add(new AuditEvent { Actor = "admin", Action = action, Object = id.ToString(), Summary = summary });
+    private static void Audit(LessonCueDb db, string action, Guid id, string? summary, string result = "success") =>
+        db.AuditEvents.Add(new AuditEvent { Actor = "admin", Action = action, Object = id.ToString(), Result = result, Summary = summary });
 
     private static void DeleteDiagnosticScreenshot(string dataPath, string? relativePath)
     {

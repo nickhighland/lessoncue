@@ -745,3 +745,59 @@ actual production process/task boundary.
 The failed candidate was not released. The correction must pass the complete
 hosted browser suite and packaging checks before the server-only tag is
 published.
+
+## Reserved short-code incident — 2026-09-21
+
+The supplied production diagnostics reported:
+
+> A game code resolves on chroc.cc — Answered 500.
+> 100 reserved codes are missing or owned by someone else.
+
+The first statement is verified. A direct request to https://chroc.cc/a3c8
+returned HTTP 500 with the body "An unexpected error occurred"; the shortener
+health endpoint returned HTTP 200. This isolates the immediate failure to the
+shortener's public redirect path, not LessonCue game discovery.
+
+The second statement was not verified as written. The prior LessonCue status
+implementation put all of these into one missing list:
+
+- a genuinely absent short URL;
+- an existing short URL without LessonCue's reserved-code tag;
+- an API authentication/authorization failure;
+- a shortener 5xx or transport failure.
+
+The web console then labeled every entry in that list “Owned by someone else”.
+The attached support bundle's shortener.reconcile audit entry also said
+“0 created, 0 repaired, 0 conflicting” while omitting reconcile failures from
+its summary. Therefore deleting the listed links based on that message would
+have been unsafe.
+
+### Correction
+
+The reserved-code audit now reports missing, confirmed conflicts, and failures
+separately. HTTP status, shortener response text, and (when provided)
+x-request-id are retained in the failure detail. The Settings screen now
+instructs an administrator to delete/rename only confirmed conflicts and
+explicitly says not to delete links when the shortener could not be verified.
+Reconcile audit entries include already-correct and failed counts and are
+marked degraded when repair did not finish cleanly.
+
+The troubleshooting and support exports now include the shortener state, pool
+counts, categorized code lists, and public probe results. This makes the next
+daily AI review able to distinguish a database/API outage from an actual slug
+collision.
+
+No production shortener links were deleted or renamed during this
+investigation: the public endpoint was returning 500 and no authenticated
+shortener-management session or database access was available to verify the
+individual records. The safe next action after the corrected server is live is
+to run the status/reconcile check again; only the resulting conflicts list,
+not failures, is a deletion/rename candidate.
+
+### Validation
+
+- Reserved-code tests: 15 passed, including HTTP 500 and unreachable-shortener
+  cases that must not become conflicts.
+- Server build: passed with 0 warnings and 0 errors.
+- Admin typecheck: passed.
+- Shortener compose validation: passed.

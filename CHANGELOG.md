@@ -4,6 +4,26 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.14 — Shortener diagnostics correction
+
+### User changes
+
+- Reserved game-code status now distinguishes missing codes, confirmed links
+  owned by another account, and shortener/API failures.
+- The administrator is no longer told to delete links when LessonCue only
+  received an HTTP 500, authentication failure, or other unverifiable result.
+- Shortener checks and support exports include the response detail and request
+  ID needed to diagnose public redirect failures.
+
+### Developer changes
+
+- Reconciliation audit entries now include all result counts and are marked
+  degraded when repair is incomplete.
+- Daily troubleshooting and support bundles include categorized shortener pool
+  state and public probe results.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
 ## v0.46.13 — Phone controller layout hotfix
 
 ### User changes

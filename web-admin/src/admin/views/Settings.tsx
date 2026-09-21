@@ -2439,11 +2439,26 @@ export function Settings({
                 </div>
               )}
 
+              {shortener.missing.length > 0 && (
+                <p className="settings-copy settings-warning">
+                  Missing reserved game codes: {shortener.missing.slice(0, 8).join(", ")}
+                  {shortener.missing.length > 8 ? ", and " + (shortener.missing.length - 8) + " more" : ""}.
+                  Use <strong>Repair reserved codes</strong> to recreate them.
+                </p>
+              )}
+
               {shortener.conflicts.length > 0 && (
                 <p className="settings-copy settings-warning">
                   Owned by someone else in the shortener: {shortener.conflicts.slice(0, 8).join(", ")}
-                  {shortener.conflicts.length > 8 ? `, and ${shortener.conflicts.length - 8} more` : ""}.
-                  Delete or rename those links there, then repair.
+                  {shortener.conflicts.length > 8 ? ", and " + (shortener.conflicts.length - 8) + " more" : ""}.
+                  Delete or rename only those confirmed links there, then repair.
+                </p>
+              )}
+
+              {shortener.failures.length > 0 && (
+                <p className="settings-copy settings-warning">
+                  Could not verify {shortener.failures.length} reserved code{shortener.failures.length === 1 ? "" : "s"}
+                  {" "}because the shortener returned an error. Do not delete links based on this result. First failure: {shortener.failures[0]}
                 </p>
               )}
 

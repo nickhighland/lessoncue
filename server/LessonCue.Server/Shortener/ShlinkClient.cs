@@ -17,7 +17,13 @@ public sealed class ShlinkException(string message, HttpStatusCode? status = nul
     public HttpStatusCode? Status { get; } = status;
 
     /// <summary>A slug that already exists, authored by someone else.</summary>
-    public bool IsConflict => Status == HttpStatusCode.BadRequest || Status == HttpStatusCode.Conflict;
+    public bool IsConflict =>
+        Status == HttpStatusCode.Conflict ||
+        Status == HttpStatusCode.BadRequest &&
+        (Message.Contains("already exists", StringComparison.OrdinalIgnoreCase) ||
+         Message.Contains("already in use", StringComparison.OrdinalIgnoreCase) ||
+         Message.Contains("short code", StringComparison.OrdinalIgnoreCase) &&
+         Message.Contains("exists", StringComparison.OrdinalIgnoreCase));
 }
 
 /// <summary>
