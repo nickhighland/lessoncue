@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
@@ -70,6 +71,7 @@ public sealed class YouTubeImportService(
             if (!Uri.TryCreate(item.SourceUrl, UriKind.Absolute, out var uri) || !YouTubeMedia.IsYouTubeUrl(uri))
                 throw new InvalidOperationException("Only YouTube URLs can be downloaded by this importer.");
             var executable = FindExecutable();
+            var denoExecutable = YouTubeRuntimeLocator.ResolveDenoExecutable();
             var snapshot = await storage.GetSnapshotAsync(db, ct);
             if (snapshot.RemainingBytes < 1024 * 1024)
                 throw new InvalidOperationException("The LessonCue storage allocation is full.");
@@ -77,9 +79,7 @@ public sealed class YouTubeImportService(
             Directory.CreateDirectory(temporary);
             var outputTemplate = Path.Combine(temporary, "%(title).150B [%(id)s].%(ext)s");
             var stdout = await ConstrainedProcessRunner.RunAsync(executable,
-                ["--no-config", "--no-playlist", "--newline", "--restrict-filenames",
-                 "--max-filesize", snapshot.RemainingBytes.ToString(), "-f", "best[ext=mp4]", "-o", outputTemplate,
-                 "--print", "after_move:filepath", item.SourceUrl!],
+                BuildDownloadArguments(outputTemplate, snapshot.RemainingBytes, item.SourceUrl!, denoExecutable),
                 ConstrainedProcessOptions.Download(temporary, snapshot.RemainingBytes), ct);
 
             var downloaded = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -124,11 +124,108 @@ public sealed class YouTubeImportService(
         }
     }
 
+    internal static IReadOnlyList<string> BuildDownloadArguments(
+        string outputTemplate, long availableBytes, string sourceUrl, string denoExecutable) =>
+    [
+        "--no-config", "--no-playlist", "--newline", "--restrict-filenames",
+        "--js-runtimes", $"deno:{denoExecutable}",
+        "--max-filesize", availableBytes.ToString(CultureInfo.InvariantCulture),
+        "-f", "best[ext=mp4]", "-o", outputTemplate,
+        "--print", "after_move:filepath", sourceUrl
+    ];
+
     private static string FindExecutable()
     {
         var configured = Environment.GetEnvironmentVariable("LESSONCUE_YTDLP_PATH");
         if (!string.IsNullOrWhiteSpace(configured)) return configured;
         var bundled = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "yt-dlp.exe" : "yt-dlp");
         return File.Exists(bundled) ? bundled : OperatingSystem.IsWindows() ? "yt-dlp.exe" : "yt-dlp";
+    }
+}
+
+/// <summary>
+/// Locates the runtimes used by the explicitly requested local YouTube import.
+/// The release bundles Deno beside yt-dlp, while environment overrides keep
+/// development and existing managed installations configurable.
+/// </summary>
+internal static class YouTubeRuntimeLocator
+{
+    public static string ResolveDenoExecutable()
+    {
+        var configured = Environment.GetEnvironmentVariable("LESSONCUE_DENO_PATH");
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            var resolved = FindConfigured(configured, "deno");
+            if (resolved is not null) return resolved;
+            throw new InvalidOperationException(
+                $"YouTube local imports require Deno 2.3 or newer, but LESSONCUE_DENO_PATH does not point to an executable Deno runtime: {configured}");
+        }
+
+        return FindExecutable("LESSONCUE_DENO_PATH", "deno")
+            ?? throw new InvalidOperationException(
+                "YouTube local imports require Deno 2.3 or newer. The bundled Deno runtime is missing; install the latest LessonCue server release or set LESSONCUE_DENO_PATH.");
+    }
+
+    public static string? FindExecutable(string environmentName, string command)
+    {
+        var configured = Environment.GetEnvironmentVariable(environmentName);
+        if (!string.IsNullOrWhiteSpace(configured))
+            return FindConfigured(configured, command) ?? configured;
+
+        var bundled = BundledPath(command);
+        if (IsUsable(bundled)) return bundled;
+        return FindOnPath(command);
+    }
+
+    public static string BundledPath(string command) =>
+        Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? command + ".exe" : command);
+
+    public static bool IsUsable(string path)
+    {
+        if (!File.Exists(path)) return false;
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
+        {
+            try
+            {
+                var mode = File.GetUnixFileMode(path);
+                if (!mode.HasFlag(UnixFileMode.UserExecute) &&
+                    !mode.HasFlag(UnixFileMode.GroupExecute) &&
+                    !mode.HasFlag(UnixFileMode.OtherExecute)) return false;
+            }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+        }
+
+        return true;
+    }
+
+    private static string? FindConfigured(string value, string command)
+    {
+        if (Directory.Exists(value))
+        {
+            var inDirectory = Path.Combine(value, OperatingSystem.IsWindows() ? command + ".exe" : command);
+            return IsUsable(inDirectory) ? inDirectory : null;
+        }
+
+        if (IsUsable(value)) return value;
+        return Path.IsPathRooted(value) || value.Contains(Path.DirectorySeparatorChar) || value.Contains(Path.AltDirectorySeparatorChar)
+            ? null
+            : FindOnPath(value);
+    }
+
+    private static string? FindOnPath(string command)
+    {
+        var path = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        var names = OperatingSystem.IsWindows() && Path.GetExtension(command).Length == 0
+            ? new[] { command, command + ".exe" }
+            : new[] { command };
+        foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var name in names)
+        {
+            var candidate = Path.Combine(directory, name);
+            if (IsUsable(candidate)) return candidate;
+        }
+        return null;
     }
 }

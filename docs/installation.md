@@ -221,7 +221,7 @@ sudo ./install.sh
 
 The installer creates a restricted `lessoncue` account, installs the application at `/opt/lessoncue`, keeps data at `/var/lib/lessoncue`, registers the systemd service, opens port 80 when UFW is installed, and publishes the Avahi service when available. Running it again upgrades the application while preserving accounts, configuration, media, screen credentials, and backups. Upgrading an older installation preserves its current port; an administrator can switch it to port 80 afterward in Settings.
 
-The release includes the architecture-matched `yt-dlp` helper used only when an operator explicitly chooses **Download YouTube locally**. FFmpeg inspects and thumbnails the resulting MP4. No separate Python or downloader installation is required.
+The release includes architecture-matched `yt-dlp` and Deno helpers used only when an operator explicitly chooses **Download YouTube locally**. LessonCue passes the bundled Deno runtime to yt-dlp for current YouTube extraction, and FFmpeg inspects and thumbnails the resulting MP4. No separate Python, Node, Deno, or downloader installation is required.
 
 Useful commands:
 

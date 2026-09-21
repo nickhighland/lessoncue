@@ -24,4 +24,21 @@ public sealed class YouTubeMediaTests
         Assert.Null(YouTubeMedia.EmbedUrl(value));
         Assert.False(YouTubeMedia.IsYouTubeUrl(new Uri(value)));
     }
+
+    [Fact]
+    public void DownloadArgumentsConfigureTheBundledDenoRuntime()
+    {
+        var arguments = YouTubeImportService.BuildDownloadArguments(
+            "/var/lib/lessoncue/temporary/%(id)s.%(ext)s",
+            123456,
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "/opt/lessoncue/deno");
+
+        var runtimeIndex = Array.IndexOf(arguments.ToArray(), "--js-runtimes");
+        Assert.True(runtimeIndex >= 0);
+        Assert.Equal("deno:/opt/lessoncue/deno", arguments[runtimeIndex + 1]);
+        Assert.Contains("123456", arguments);
+        Assert.Contains("--no-config", arguments);
+        Assert.Contains("--no-playlist", arguments);
+    }
 }

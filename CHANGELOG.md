@@ -4,6 +4,25 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.16 — reliable YouTube local imports
+
+### User changes
+
+- Download YouTube locally now includes the JavaScript runtime required by
+  current YouTube extraction, so imports no longer depend on a separate Node or
+  Deno installation.
+- A missing or misconfigured runtime now produces a direct repair message in
+  the Media Library instead of an opaque 403 download failure.
+
+### Developer changes
+
+- Server packages and the container bundle Deno 2.9.7 for Linux x64/arm64 and
+  Windows x64, verify its SHA-256, and pass its explicit path to yt-dlp.
+- Troubleshooting diagnostics report the yt-dlp and Deno paths and whether each
+  executable is available.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
 ## v0.46.15 — reliable daily troubleshooting delivery
 
 ### User changes

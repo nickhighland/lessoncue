@@ -168,6 +168,13 @@ public static class MediaDependencyDiagnostics
         var commands = new[] { "ffmpeg", "ffprobe", "setpriv" }
             .Select(command => new { command, path = FindOnPath(command), available = FindOnPath(command) is not null })
             .ToArray();
+        var youtube = new
+        {
+            ytDlp = RuntimeState("yt-dlp", "LESSONCUE_YTDLP_PATH"),
+            deno = RuntimeState("deno", "LESSONCUE_DENO_PATH"),
+            jsRuntimeRequired = true,
+            requirement = "yt-dlp YouTube extraction requires a supported JavaScript runtime; LessonCue bundles Deno 2.3 or newer."
+        };
         var worker = workerCandidates.Select(path => new
         {
             path,
@@ -179,6 +186,7 @@ public static class MediaDependencyDiagnostics
         return new
         {
             commands,
+            youtube,
             mediaWorker = worker,
             storage = new
             {
@@ -199,6 +207,25 @@ public static class MediaDependencyDiagnostics
                 localConverterProtocols = "file,pipe,crypto,data",
                 networkNote = "The direct worker does not create a network namespace. FFmpeg/FFprobe media inputs are restricted to local protocols; deployments should keep the LessonCue service network policy unchanged for server features that require outbound access."
             }
+        };
+    }
+
+    private static object RuntimeState(string command, string environmentName)
+    {
+        var configured = Environment.GetEnvironmentVariable(environmentName);
+        var bundled = YouTubeRuntimeLocator.BundledPath(command);
+        var selected = YouTubeRuntimeLocator.FindExecutable(environmentName, command);
+        var available = selected is not null && YouTubeRuntimeLocator.IsUsable(selected);
+        var readable = selected is not null && CanRead(selected);
+        return new
+        {
+            command,
+            configured,
+            bundled,
+            path = selected,
+            available,
+            executable = available,
+            readable
         };
     }
 

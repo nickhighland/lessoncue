@@ -8,7 +8,7 @@ on:
       release_tag:
         description: Existing release tag to build and publish
         required: true
-        default: v0.46.15
+        default: v0.46.16
         type: string
       reuse_run_id:
         description: Completed release-validation run whose artifacts should be published
@@ -27,6 +27,10 @@ permissions:
 
 env:
   YT_DLP_VERSION: 2026.07.04
+  DENO_VERSION: 2.9.7
+  DENO_LINUX_X64_SHA256: c6527f24f4b16031d3ae4fa9f658d5f11534c8d84ce7dc8502420280919c3490
+  DENO_LINUX_ARM64_SHA256: c832298b1ad4422481334855f6003e0f54145762c5a134f20a489511d2f65bbf
+  DENO_WINDOWS_X64_SHA256: a0c3101b4158d1dfb7d6a78a7bf0f3de80c96bb423c152beec8beb22786f2238
   TRIVY_VERSION: 0.72.0
   TRIVY_LINUX_X64_SHA256: bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
@@ -175,9 +179,13 @@ jobs:
           if [ "${{ matrix.runtime }}" = "linux-arm64" ]; then
             asset=yt-dlp_linux_aarch64
             expected=b6ce97646773070d7a7ffd6bbbdcaecb47c48483909c54c915bf08a7a9b5e0b1
+            deno_asset=deno-aarch64-unknown-linux-gnu.zip
+            deno_expected=${DENO_LINUX_ARM64_SHA256}
           else
             asset=yt-dlp_linux
             expected=6bbb3d314cde4febe36e5fa1d55462e29c974f63444e707871834f6d8cc210ae
+            deno_asset=deno-x86_64-unknown-linux-gnu.zip
+            deno_expected=${DENO_LINUX_X64_SHA256}
           fi
           curl -fL "https://github.com/yt-dlp/yt-dlp/releases/download/${YT_DLP_VERSION}/${asset}" -o package/payload/yt-dlp
           printf '%s  %s\n' "${expected}" package/payload/yt-dlp | sha256sum -c -
@@ -186,6 +194,16 @@ jobs:
             file package/payload/yt-dlp | grep -Eq 'ELF 64-bit.*ARM aarch64'
           else
             test "$(package/payload/yt-dlp --version)" = "${YT_DLP_VERSION}"
+          fi
+          curl -fL "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/${deno_asset}" -o package/payload/deno.zip
+          printf '%s  %s\n' "${deno_expected}" package/payload/deno.zip | sha256sum -c -
+          unzip -p package/payload/deno.zip deno > package/payload/deno
+          rm package/payload/deno.zip
+          chmod 0755 package/payload/deno
+          if [ "${{ matrix.runtime }}" = "linux-arm64" ]; then
+            file package/payload/deno | grep -Eq 'ELF 64-bit.*ARM aarch64'
+          else
+            test "$(package/payload/deno --version | sed -n '1s/^deno //p')" = "${DENO_VERSION}"
           fi
       - run: |
           cp installers/linux/install.sh installers/linux/uninstall.sh installers/linux/repair-updater.sh installers/linux/lessoncue.service installers/linux/lessoncue-cloudflared.service installers/linux/lessoncue-update installers/linux/lessoncue-update.service installers/linux/lessoncue-update.path installers/linux/lessoncue-update-recovery.service installers/linux/lessoncue-media-worker installers/linux/lessoncue-render.rules installers/release-signing-public.pem package/
@@ -252,6 +270,15 @@ jobs:
           $actual = (Get-FileHash package/payload/yt-dlp.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actual -ne $expected) { throw "yt-dlp.exe checksum mismatch" }
           if ((& package/payload/yt-dlp.exe --version) -ne $env:YT_DLP_VERSION) { throw "yt-dlp.exe version mismatch" }
+          $denoExpected = $env:DENO_WINDOWS_X64_SHA256
+          Invoke-WebRequest "https://github.com/denoland/deno/releases/download/v$env:DENO_VERSION/deno-x86_64-pc-windows-msvc.zip" -OutFile package/deno.zip
+          $denoActual = (Get-FileHash package/deno.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($denoActual -ne $denoExpected) { throw "deno.zip checksum mismatch" }
+          Expand-Archive package/deno.zip -DestinationPath package/deno-extracted -Force
+          Move-Item package/deno-extracted/deno.exe package/payload/deno.exe
+          Remove-Item package/deno.zip -Force
+          Remove-Item package/deno-extracted -Recurse -Force
+          if (((& package/payload/deno.exe --version | Select-Object -First 1) -ne "deno $env:DENO_VERSION")) { throw "Deno version mismatch" }
           Copy-Item installers/windows/Install-LessonCue.ps1 package/
           Copy-Item installers/windows/Uninstall-LessonCue.ps1 package/
           Compress-Archive -Path package/* -DestinationPath LessonCue-Server-Windows-x64.zip

@@ -841,3 +841,40 @@ it without exposing credentials or tokens.
 - Full server test suite: 585 tests passed.
 - Admin typecheck, admin build, lint, protocol, network, shortener, and
   release-scope checks passed.
+
+## YouTube local import 403 — missing JavaScript runtime — 2026-09-21
+
+The reported `YouTubeImportService` failure was verified against the current
+implementation and the official yt-dlp extraction requirements. LessonCue was
+bundling yt-dlp `2026.07.04`, but it was not bundling or selecting a supported
+JavaScript runtime. yt-dlp therefore emitted `No supported JavaScript runtime
+could be found` and YouTube returned HTTP 403 while the extractor could not
+complete its challenge. The 403 was a downstream symptom of the missing
+runtime, not evidence that the supplied URL, LessonCue authorization, or media
+storage was invalid. The exception surfaced from the constrained process
+runner because that is the process boundary used by the importer.
+
+### Correction
+
+Server packages and the container now include the pinned Deno `2.9.7` runtime
+for Linux x64, Linux arm64, and Windows x64. The importer passes
+`--js-runtimes deno:<bundled-path>` explicitly to yt-dlp. `LESSONCUE_DENO_PATH`
+remains available for development or managed installations that intentionally
+provide their own runtime. If no usable runtime is present, the Media Library
+now records a direct repair message instead of the opaque downloader failure.
+System diagnostics report the detected yt-dlp and Deno paths and availability.
+
+No Android/Google TV or Vega TV changes are required; this is a server/web-only
+fix. Existing queued YouTube imports can be retried after the server is
+updated; the failed MediaAsset record and its lesson references are not
+replaced by this change.
+
+### Validation
+
+- Added a regression test proving the exact yt-dlp argument list selects Deno
+  and keeps the existing no-config/no-playlist restrictions.
+- Release packaging verifies Deno checksums and executable versions for each
+  supported server target, and the container build installs the matching
+  architecture.
+- No higher-reasoning model is needed for this fix: the log, current source,
+  and yt-dlp's documented runtime requirement identify the cause directly.
