@@ -4,6 +4,24 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.10 — Phone controller layout hotfix
+
+### User changes
+
+- The master controller now fills the full phone viewport instead of exposing
+  a white area beneath a short control surface.
+- Selecting a lesson cue now opens that cue's game or media controls at the top
+  of the scrollable area. **All lesson cues** returns to the lesson and cue list.
+
+### Developer changes
+
+- Made the public controller own its dynamic viewport height instead of relying
+  on the authenticated app shell that does not wrap public controller routes.
+- Added phone-sized browser regression coverage for full-height rendering,
+  selected-cue expansion, and returning to the cue list.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
 ## v0.46.9 — Lesson games carry identity and score forward
 
 ### User changes

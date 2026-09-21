@@ -1,4 +1,4 @@
-import { CSSProperties, Dispatch, SetStateAction, useState } from "react";
+import { CSSProperties, Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
 import { ActivityController } from "../../activities/ActivityController";
 import { Lesson, LessonClass, PlaylistItem, Screen } from "../models";
 import {
@@ -57,9 +57,10 @@ type CompactRemoteShellProps = {
  * choose the cue, control the cue — so it reads as one now, with each step
  * opening as the one before it is answered.
  *
- * The cue list stays on screen throughout rather than becoming a place you
- * navigate back to: during a lesson it is the thing a teacher reaches for most,
- * and the controls for the chosen cue sit directly beneath it.
+ * The cue list stays in the same downward flow until a teacher chooses a cue.
+ * The chosen cue then becomes the working surface, so game and media controls
+ * start at the top of the scroll area instead of below the whole lesson. A
+ * single back button restores the lesson and cue list.
  */
 export function CompactRemoteShell({
   room,
@@ -101,6 +102,8 @@ export function CompactRemoteShell({
   // Opened by hand when swapping lessons mid-session. Without a lesson the list
   // is open regardless, because that is the only thing left to do.
   const [changingLesson, setChangingLesson] = useState(false);
+  const [controlsExpanded, setControlsExpanded] = useState(false);
+  const flowRef = useRef<HTMLFieldSetElement>(null);
   const controllerStyle = room
     ? ({ "--room-color": room.controllerColor } as CSSProperties)
     : undefined;
@@ -116,8 +119,18 @@ export function CompactRemoteShell({
   const activityItem = liveActivityItem
     || (setupActivityItem?.id === controlledItem?.id ? setupActivityItem : undefined);
 
+  useEffect(() => {
+    if (!controlsExpanded) return;
+    const frame = requestAnimationFrame(() => flowRef.current?.scrollTo({ top: 0 }));
+    return () => cancelAnimationFrame(frame);
+  }, [controlsExpanded, controlledItem?.id]);
+
+  useEffect(() => {
+    if (!controlledItem) setControlsExpanded(false);
+  }, [controlledItem]);
+
   return (
-    <div className={`controller-page remote-shell ${room ? "room-themed" : ""}`} style={controllerStyle}>
+    <div className={`controller-page remote-shell ${controlsExpanded ? "controls-expanded" : ""} ${room ? "room-themed" : ""}`} style={controllerStyle}>
       <section className="remote-playback" aria-label="Playback controller">
         <div className="remote-control-row">
           <fieldset className="remote-playback-fieldset" disabled={controlsLocked}>
@@ -198,7 +211,11 @@ export function CompactRemoteShell({
         )}
       </section>
 
-      <fieldset className="remote-flow" disabled={controlsLocked}>
+      <fieldset
+        ref={flowRef}
+        className={`remote-flow ${controlsExpanded ? "controls-expanded" : ""}`}
+        disabled={controlsLocked}
+      >
         <section className="remote-step" aria-label="Lesson" data-state={lessonChosen ? "done" : "current"}>
           <div className="remote-step-head">
             <span className="remote-step-mark" aria-hidden="true">1</span>
@@ -216,7 +233,10 @@ export function CompactRemoteShell({
               <select
                 aria-label="Control this screen"
                 value={screenId}
-                onChange={(event) => onScreenChange(event.target.value)}
+                onChange={(event) => {
+                  setControlsExpanded(false);
+                  onScreenChange(event.target.value);
+                }}
               >
                 {liveScreens.length ? (
                   liveScreens.map((screen) => (
@@ -256,6 +276,7 @@ export function CompactRemoteShell({
                       setShowOnTheFlySetup(false);
                       setMonitorOpen(false);
                       setChangingLesson(false);
+                      setControlsExpanded(false);
                     }}
                   >
                     <span>
@@ -348,9 +369,12 @@ export function CompactRemoteShell({
                       className={`${selectedItemId === item.id ? "selected" : ""} ${isPlaying ? "playing" : ""}`}
                       disabled={!selectedScreenOnline}
                       aria-current={isPlaying ? "true" : undefined}
+                      aria-expanded={selectedItemId === item.id ? controlsExpanded : false}
+                      aria-controls={selectedItemId === item.id ? "remote-cue-controls" : undefined}
                       onClick={() => {
                         setSelectedItemId(item.id);
                         setSeekSeconds(0);
+                        setControlsExpanded(true);
                         play(item.id);
                       }}
                     >
@@ -375,10 +399,20 @@ export function CompactRemoteShell({
         </section>
 
         <section
+          id="remote-cue-controls"
           className="remote-step remote-step-controls"
           aria-label="Cue controls"
           data-state={controlledItem ? "current" : "waiting"}
         >
+          {controlsExpanded && (
+            <button
+              type="button"
+              className="button remote-controls-back"
+              onClick={() => setControlsExpanded(false)}
+            >
+              <span aria-hidden="true">←</span> All lesson cues
+            </button>
+          )}
           <div className="remote-step-head">
             <span className="remote-step-mark" aria-hidden="true">3</span>
             <div className="remote-step-title">
@@ -453,6 +487,7 @@ export function CompactRemoteShell({
                 onClick={() => {
                   setSelectedItemId(controlledItem.id);
                   setShowOnTheFlySetup(true);
+                  setControlsExpanded(true);
                   play(controlledItem.id);
                 }}
                 disabled={!selectedScreenOnline}

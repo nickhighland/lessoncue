@@ -20,7 +20,7 @@ const PIN = "482731";
 let granted: string | null = null;
 
 /** Open the universal remote, spending an unlock only when this worker has no grant. */
-export async function openUniversalRemote(page: Page, screenId: string) {
+export async function openUniversalRemote(page: Page, screenId: string, lessonId?: string) {
   if (!granted) {
     const status = await page.evaluate(async pin => (await fetch("/api/v1/controller-pin", {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }),
@@ -28,7 +28,7 @@ export async function openUniversalRemote(page: Page, screenId: string) {
     expect(status).toBe(204);
   }
 
-  await page.goto("/universalremote");
+  await page.goto(`/universalremote${lessonId ? `?lesson=${encodeURIComponent(lessonId)}` : ""}`);
 
   if (granted) {
     await page.evaluate(([key, value]) => sessionStorage.setItem(key, value), [KEY, granted]);
@@ -48,5 +48,8 @@ export async function openUniversalRemote(page: Page, screenId: string) {
 
   const selector = page.getByLabel("Control this screen");
   await expect(selector.locator(`option[value="${screenId}"]`)).toHaveCount(1, { timeout: 30_000 });
-  await selector.selectOption(screenId);
+  // Selecting the already-selected screen fires the real change handler, which
+  // intentionally clears a requested lesson. Preserve ?lesson= test setup when
+  // the bootstrap already chose the requested screen.
+  if (await selector.inputValue() !== screenId) await selector.selectOption(screenId);
 }

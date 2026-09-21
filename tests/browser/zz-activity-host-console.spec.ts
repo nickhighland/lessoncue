@@ -143,7 +143,7 @@ test("switching the live cue ignores delayed host responses from the previous ga
   const report = async (input: typeof first) => {
     const response = await page.request.post('/api/v1/tv/status', {
       headers: { Authorization: `Bearer ${input.deviceToken}` },
-        data: { screenId: input.screenId, appVersion: '0.46.9', online: true, freeBytes: 4e9,
+        data: { screenId: input.screenId, appVersion: '0.46.10', online: true, freeBytes: 4e9,
         manifestVersion: 1, failedDownloads: 0, playbackState: 'playing',
         lessonId: input.lessonId, itemId: input.itemId, positionMs: 0, durationMs: 60000 },
     });
@@ -296,7 +296,7 @@ test("a signed-out phone can host a game and receives the TV acknowledgment with
     const { version } = await response.json();
     const status = await page.request.post('/api/v1/tv/status', {
       headers: { Authorization: `Bearer ${prepared.deviceToken}` },
-      data: { screenId: prepared.screenId, appVersion: '0.46.9', online: true, freeBytes: 4e9,
+      data: { screenId: prepared.screenId, appVersion: '0.46.10', online: true, freeBytes: 4e9,
         manifestVersion: 1, failedDownloads: 0, acknowledgedControlVersion: version,
         playbackState: 'paused', lessonId: prepared.lessonId, itemId: prepared.itemId, positionMs: 0, durationMs: 60000 },
     });
@@ -339,6 +339,41 @@ test("the remote reads as one flow rather than three tabs", async ({ page }) => 
   await expect(page.getByText("Save this controller as an app", { exact: true })).toHaveCount(0);
   await expect(page.locator(".remote-run-summary")).toContainText("REMAINING");
   await expect(page.locator(".remote-run-summary")).toContainText("EST. FINISH");
+});
+
+test("the phone remote fills the viewport and brings selected cue controls to the top", async ({ page }) => {
+  await authenticate(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const name = "Expanded phone controls";
+  const prepared = await prepareHostedTrivia(page, name, undefined, true);
+  await openUniversalRemote(page, prepared.screenId, prepared.lessonId);
+
+  const coverage = await page.evaluate(() => {
+    const shell = document.querySelector<HTMLElement>(".remote-shell")!.getBoundingClientRect();
+    return { top: shell.top, bottom: shell.bottom, viewportHeight: window.innerHeight };
+  });
+  expect(coverage.top).toBeLessThanOrEqual(0);
+  expect(coverage.bottom).toBeGreaterThanOrEqual(coverage.viewportHeight);
+
+  const cue = page.locator(".remote-cue-list > button").filter({ hasText: name });
+  await cue.click();
+  await expect(cue).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("region", { name: "Lesson" })).toBeHidden();
+  await expect(page.getByRole("region", { name: "Cues" })).toBeHidden();
+  const controls = page.getByRole("region", { name: "Cue controls" });
+  await expect(controls).toBeVisible();
+  await expect(page.getByRole("button", { name: "All lesson cues" })).toBeVisible();
+
+  const placement = await page.evaluate(() => {
+    const flow = document.querySelector<HTMLElement>(".remote-flow")!.getBoundingClientRect();
+    const controls = document.querySelector<HTMLElement>(".remote-step-controls")!.getBoundingClientRect();
+    return { flowTop: flow.top, controlsTop: controls.top };
+  });
+  expect(Math.abs(placement.controlsTop - placement.flowTop)).toBeLessThanOrEqual(8);
+
+  await page.getByRole("button", { name: "All lesson cues" }).click();
+  await expect(page.getByRole("region", { name: "Lesson" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Cues" })).toBeVisible();
 });
 
 test("the compact remote keeps playback failures visible instead of saying Ready", async ({ page }) => {
