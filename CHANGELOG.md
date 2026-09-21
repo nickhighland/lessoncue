@@ -4,6 +4,19 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.19 — universal remote initialization
+
+### User changes
+
+- The universal remote now selects its initial classroom reliably while the
+  classroom and screen library is loading.
+
+### Developer changes
+
+- Added regression coverage for asynchronous public controller bootstrap data.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
 ## v0.46.18 — universal remote and import reliability
 
 ### User changes

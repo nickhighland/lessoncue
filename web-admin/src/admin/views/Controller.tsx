@@ -78,6 +78,19 @@ export function ControllerView({
         ""
       : "",
   );
+  useEffect(() => {
+    // The controller bootstrap loads classes and screens asynchronously. If
+    // the universal remote mounted before either collection was available,
+    // the one-time state initializer above could leave the room selector
+    // empty forever even though a paired room is now known.
+    if (!universalRemote || universalRoomId) return;
+    const defaultRoomId =
+      allLiveScreens.find((screen) => screen.online)?.assignedClassId ||
+      allLiveScreens.find((screen) => screen.assignedClassId)?.assignedClassId ||
+      classes[0]?.id ||
+      "";
+    if (defaultRoomId) setUniversalRoomId(defaultRoomId);
+  }, [allLiveScreens, classes, universalRemote, universalRoomId]);
   const selectedUniversalRoom = universalRemote
     ? classes.find((item) => item.id === universalRoomId)
     : undefined;

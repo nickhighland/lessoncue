@@ -795,7 +795,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const directManifest = await fetch(`/api/v1/screens/${identity.screenId}/manifest`,
       { headers: { Authorization: `Bearer ${browserUrl.searchParams.get("token")}` } });
     await fetch(`/api/v1/screens/${identity.screenId}`, { method: "PATCH", headers: jsonHeaders,
-      body: JSON.stringify({ signageOnly: false, permanentPairing: false }) });
+      body: JSON.stringify({ signageOnly: false, permanentPairing: false, assignedClassId: adaptiveLesson.classId, allowUnsupportedContent: true }) });
     const screenshot = await fetch(`/api/v1/screens/${identity.screenId}/diagnostics/screenshot`);
     return { upload: upload.status, screenshot: screenshot.status, requestMatches: control.screenshotRequestId === screenshotRequest.requestId,
       cache: JSON.parse(screen.cacheInventoryJson)[0]?.title, quality: screen.networkQuality, screenshotAvailable: screen.screenshotAvailable,
