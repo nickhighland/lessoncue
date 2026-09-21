@@ -21,6 +21,21 @@ const listOf = (value: unknown): JsonRecord[] => Array.isArray(value) ? value.fi
 const textOf = (value: unknown, fallback = '') => typeof value === 'string' ? value : fallback;
 const numberOf = (value: unknown, fallback = 0) => typeof value === 'number' ? value : fallback;
 const participantTokenKey = (code: string) => `lessoncue:activity-participant:${code.toUpperCase()}`;
+const participantDeviceTokenKey = 'lessoncue:activity-device-token';
+const newParticipantToken = () => Array.from(crypto.getRandomValues(new Uint8Array(24)), value => value.toString(16).padStart(2, '0')).join('');
+const readParticipantToken = (code: string): string => {
+  try {
+    return localStorage.getItem(participantTokenKey(code))
+      || localStorage.getItem(participantDeviceTokenKey)
+      || '';
+  } catch { return ''; }
+};
+const rememberParticipantToken = (code: string, token: string) => {
+  try {
+    localStorage.setItem(participantTokenKey(code), token);
+    localStorage.setItem(participantDeviceTokenKey, token);
+  } catch { /* private browsing */ }
+};
 const randomFrom = <T,>(options: readonly T[], fallback: T): T => options.length
   ? options[Math.floor(Math.random() * options.length)]
   : fallback;
@@ -62,7 +77,7 @@ export const ActivityParticipantApp: React.FC = () => {
   const [publicSession, setPublicSession] = useState<ActivitySessionPublicView | null>(null);
   const [participant, setParticipant] = useState<ActivityParticipantView | null>(null);
   const [name, setName] = useState('');
-  const [token, setToken] = useState(() => { try { return localStorage.getItem(participantTokenKey(code)) || ''; } catch { return ''; } });
+  const [token, setToken] = useState(() => readParticipantToken(code));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -144,12 +159,12 @@ export const ActivityParticipantApp: React.FC = () => {
     try {
       // Keep the same identity if the server accepts a join but its reply is
       // lost. getRandomValues also works on the local HTTP phone address.
-      const joiningToken = token || pendingJoinToken.current || Array.from(crypto.getRandomValues(new Uint8Array(24)), value => value.toString(16).padStart(2, '0')).join('');
+      const joiningToken = token || pendingJoinToken.current || newParticipantToken();
       pendingJoinToken.current = joiningToken;
-      try { localStorage.setItem(participantTokenKey(code), joiningToken); } catch { /* private browsing */ }
+      rememberParticipantToken(code, joiningToken);
       const result = await ActivityApi.joinSession(code, joiningToken, name.trim() || undefined, { avatar, color }, request.signal);
       setToken(result.token); setParticipant(result.participant); setName(result.participant.displayName);
-      try { localStorage.setItem(participantTokenKey(code), result.token); } catch { /* private browsing */ }
+      rememberParticipantToken(code, result.token);
     } catch (cause) { setError(request.signal.aborted ? 'Joining timed out. Try again; your player will not be duplicated.' : (cause as Error).message || 'Could not join this game.'); }
     finally { clearTimeout(timeout); setBusy(false); }
   };
@@ -200,7 +215,7 @@ export const ActivityParticipantApp: React.FC = () => {
   if (error && !publicSession) return <main className="activity-participant-page"><div className="participant-card"><span className="participant-mark">⚠</span><h1>Game unavailable</h1><p>{error}</p></div></main>;
   if (!publicSession) return null;
   if (!participant) return <JoinCard title={textOf(publicSession.state.name, 'LessonCue Game')} code={code} name={name} setName={setName} onSubmit={join} busy={busy} error={error} envelope={publicSession.state} avatar={avatar} setAvatar={setAvatar} color={color} setColor={setColor} />;
-  return <ParticipantGame view={participant} token={token} busy={busy} error={error} onAction={action} onUpdateIdentity={updateIdentity} onLeave={() => { refreshLoop.current?.stop(); pendingJoinToken.current = ''; setParticipant(null); setToken(''); setName(''); try { localStorage.removeItem(participantTokenKey(code)); } catch { /* ignore */ } }} />;
+  return <ParticipantGame view={participant} token={token} busy={busy} error={error} onAction={action} onUpdateIdentity={updateIdentity} onLeave={() => { refreshLoop.current?.stop(); pendingJoinToken.current = ''; setParticipant(null); setToken(''); setName(''); try { localStorage.removeItem(participantTokenKey(code)); localStorage.setItem(participantDeviceTokenKey, newParticipantToken()); } catch { /* ignore */ } }} />;
 };
 
 const JoinCard: React.FC<{ title: string; code: string; name: string; setName: (value: string) => void; onSubmit: (event: FormEvent) => void; busy: boolean; error: string; envelope: ActivityStateEnvelope; avatar: string; setAvatar: (value: string) => void; color: string; setColor: (value: string) => void }> = ({ title, code, name, setName, onSubmit, busy, error, envelope, avatar, setAvatar, color, setColor }) => (
@@ -264,6 +279,7 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
   const quizDoubleOrNothing = objectOf(quizModifiers.doubleOrNothing);
   const wagerEnabled = (envelope.type === 'trivia' || envelope.type === 'rapidFire') && quizWager.enabled === true;
   const doubleOrNothingEnabled = (envelope.type === 'trivia' || envelope.type === 'rapidFire') && quizDoubleOrNothing.enabled === true;
+  const speedBonusEnabled = (envelope.type === 'trivia' || envelope.type === 'rapidFire') && quizSpeedBonus.enabled !== false;
   const [wager, setWager] = useState('');
   const [doubleRisk, setDoubleRisk] = useState(false);
   const quizAnswerMode = envelope.type === 'trivia' ? textOf(question.answerMode, 'choice') : 'choice';
@@ -322,8 +338,8 @@ const ParticipantGame: React.FC<{ view: ActivityParticipantView; token: string; 
     ...(wagerEnabled ? { wager: Math.max(0, Math.round(Number(wager) || 0)) } : {}),
     ...(doubleOrNothingEnabled ? { doubleOrNothing: doubleRisk } : {})
   });
-  const quizModifierControls = (wagerEnabled || doubleOrNothingEnabled || quizSpeedBonus.enabled === true || quizLives.enabled === true)
-    ? <QuizModifierControls wagerEnabled={wagerEnabled} wager={wager} setWager={setWager} maxWager={numberOf(quizWager.maxPoints, 500)} doubleOrNothingEnabled={doubleOrNothingEnabled} doubleRisk={doubleRisk} setDoubleRisk={setDoubleRisk} speedBonusEnabled={quizSpeedBonus.enabled === true} livesEnabled={quizLives.enabled === true} />
+  const quizModifierControls = (wagerEnabled || doubleOrNothingEnabled || speedBonusEnabled || quizLives.enabled === true)
+    ? <QuizModifierControls wagerEnabled={wagerEnabled} wager={wager} setWager={setWager} maxWager={numberOf(quizWager.maxPoints, 500)} doubleOrNothingEnabled={doubleOrNothingEnabled} doubleRisk={doubleRisk} setDoubleRisk={setDoubleRisk} speedBonusEnabled={speedBonusEnabled} livesEnabled={quizLives.enabled === true} />
     : undefined;
   const sendChoice = (index: number) => { setSelected(String(index)); onAction(envelope.type === 'trivia' || envelope.type === 'rapidFire' ? 'answer' : envelope.type === 'poll' && pollMode ? 'predict' : 'vote', { optionIndex: index, ...((envelope.type === 'trivia' || envelope.type === 'rapidFire') ? quizModifierPayload() : {}) }); };
   const sendMatchChoice = (index: number) => { setSelected(String(index)); onAction(state.isTarget === true ? 'answer' : 'predict', { optionIndex: index }); };

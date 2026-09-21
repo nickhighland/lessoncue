@@ -867,6 +867,7 @@ public static class DatabaseUpgrade
                 "LessonId" TEXT NULL,
                 "JoinCode" TEXT NOT NULL,
                 "CurrentRunId" TEXT NULL,
+                "OpeningRunId" TEXT NULL,
                 "CreatedAt" TEXT NOT NULL,
                 "UpdatedAt" TEXT NOT NULL,
                 "ScoresResetAt" TEXT NULL
@@ -874,6 +875,8 @@ public static class DatabaseUpgrade
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_ActivitySessionGroups_JoinCode" ON "ActivitySessionGroups" ("JoinCode");
             CREATE INDEX IF NOT EXISTS "IX_ActivitySessionGroups_LessonId" ON "ActivitySessionGroups" ("LessonId");
             """, cancellationToken);
+        if (!await ColumnExistsAsync(connection, "ActivitySessionGroups", "OpeningRunId", cancellationToken))
+            await ExecuteAsync(connection, "ALTER TABLE \"ActivitySessionGroups\" ADD COLUMN \"OpeningRunId\" TEXT NULL;", cancellationToken);
 
         foreach (var table in new[] { "ActivityParticipants", "ActivityTeams", "ActivityScoreEvents" })
         {

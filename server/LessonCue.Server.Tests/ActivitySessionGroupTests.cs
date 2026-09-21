@@ -92,8 +92,8 @@ public sealed class ActivitySessionGroupTests
         return lesson.Id;
     }
 
-    private static JsonElement Quiz(string title) => JsonDocument.Parse($$"""
-        {"title":"{{title}}","questions":[{"id":"q1","prompt":"Pick one","options":["A","B"],"correctIndex":1,"points":100}]}
+    private static JsonElement Quiz(string title) => JsonDocument.Parse($$$$"""
+        {"title":"{{{{title}}}}","questions":[{"id":"q1","prompt":"Pick one","options":["A","B"],"correctIndex":1,"points":100}],"modifiers":{"speedBonus":{"enabled":false}}}
         """).RootElement;
 
     private static async Task<ActivityRun> StartGameAsync(
@@ -216,6 +216,39 @@ public sealed class ActivitySessionGroupTests
     }
 
     [Fact]
+    public async Task TeamScoresCarryAcrossGamesAndTeamRowsKeepTheirIdentity()
+    {
+        var (db, activities, sessions, connection, dataPath) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var lessonId = await NewLessonAsync(db, "Shared team scores");
+            var first = await StartGameAsync(activities, sessions, lessonId, "First team game");
+            Assert.True(await sessions.SetTeamsAsync(first.Id, [new ActivityTeamInput("Green")], ct));
+            var firstTeam = await db.ActivityTeams.SingleAsync(team => team.SessionGroupId == first.SessionGroupId && team.Active, ct);
+            var firstTeamId = firstTeam.Id;
+
+            var award = await sessions.ExecuteHostActionAsync(first.Id,
+                new ActivityCommandEnvelope(null, null, "awardpoints", JsonSerializer.SerializeToElement(new { teamId = firstTeamId, amount = 125 })), ct);
+            Assert.True(award.Success, award.Error);
+
+            var second = await StartGameAsync(activities, sessions, lessonId, "Second team game");
+            var carried = await sessions.GetHostViewAsync(second.Id, ct);
+            var carriedTeam = Assert.Single(carried!.Teams);
+            Assert.Equal(firstTeamId, carriedTeam.GetType().GetProperty("id")!.GetValue(carriedTeam));
+            Assert.Equal(125, carriedTeam.GetType().GetProperty("score")!.GetValue(carriedTeam));
+
+            Assert.True(await sessions.SetTeamsAsync(second.Id, [new ActivityTeamInput("Green Team")], ct));
+            var renamed = await sessions.GetHostViewAsync(second.Id, ct);
+            var sameTeam = Assert.Single(renamed!.Teams);
+            Assert.Equal(firstTeamId, sameTeam.GetType().GetProperty("id")!.GetValue(sameTeam));
+            Assert.Equal(125, sameTeam.GetType().GetProperty("score")!.GetValue(sameTeam));
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
     public async Task WithoutTheShortenerAGameNeverTakesAReservedCode()
     {
         // A four-character code on a wall the shortener cannot resolve is a
@@ -317,6 +350,63 @@ public sealed class ActivitySessionGroupTests
     }
 
     [Fact]
+    public async Task JoinCodeIsOnlyProjectedForTheOpeningLobby()
+    {
+        var (db, activities, sessions, connection, dataPath) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var lessonId = await NewLessonAsync(db, "One opening lobby");
+            var first = await StartGameAsync(activities, sessions, lessonId, "Opening game");
+
+            var opening = await sessions.GetDisplayEnvelopeAsync(first.Id, ct);
+            var openingState = JsonSerializer.SerializeToElement(opening!.State, ActivityJsonDefaults.Options);
+            Assert.Equal(first.JoinCode, openingState.GetProperty("joinCode").GetString());
+            Assert.True(openingState.GetProperty("joinCodeVisible").GetBoolean());
+
+            Assert.True((await sessions.ExecuteHostActionAsync(first.Id,
+                new ActivityCommandEnvelope(null, null, "start"), ct)).Success);
+            var live = await sessions.GetDisplayEnvelopeAsync(first.Id, ct);
+            var liveState = JsonSerializer.SerializeToElement(live!.State, ActivityJsonDefaults.Options);
+            Assert.Equal(JsonValueKind.Null, liveState.GetProperty("joinCode").ValueKind);
+            Assert.False(liveState.GetProperty("joinCodeVisible").GetBoolean());
+
+            var second = await StartGameAsync(activities, sessions, lessonId, "Second game");
+            var between = await sessions.GetDisplayEnvelopeAsync(second.Id, ct);
+            var betweenState = JsonSerializer.SerializeToElement(between!.State, ActivityJsonDefaults.Options);
+            Assert.Equal(JsonValueKind.Null, betweenState.GetProperty("joinCode").ValueKind);
+            Assert.False(betweenState.GetProperty("joinCodeVisible").GetBoolean());
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
+    public async Task ResetPlayersStartsANewOpeningLobbyWithItsNewCode()
+    {
+        var (db, activities, sessions, connection, dataPath) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var run = await StartGameAsync(activities, sessions, await NewLessonAsync(db, "Reset lobby"), "Resettable game");
+            var first = await sessions.GetDisplayEnvelopeAsync(run.Id, ct);
+            var firstState = JsonSerializer.SerializeToElement(first!.State, ActivityJsonDefaults.Options);
+            var firstCode = firstState.GetProperty("joinCode").GetString();
+
+            var reset = await sessions.ExecuteHostActionAsync(run.Id,
+                new ActivityCommandEnvelope(null, null, "resetplayers"), ct);
+            Assert.True(reset.Success, reset.Error);
+
+            var reopened = await sessions.GetDisplayEnvelopeAsync(run.Id, ct);
+            var reopenedState = JsonSerializer.SerializeToElement(reopened!.State, ActivityJsonDefaults.Options);
+            Assert.True(reopenedState.GetProperty("joinCodeVisible").GetBoolean());
+            Assert.NotEqual(firstCode, reopenedState.GetProperty("joinCode").GetString());
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
     public async Task TheCodeFollowsTheLessonIntoTheNextGame()
     {
         var (db, activities, sessions, connection, dataPath) = await CreateAsync();
@@ -412,6 +502,31 @@ public sealed class ActivitySessionGroupTests
                 .Where(x => x.SessionGroupId == run.SessionGroupId)
                 .CountAsync(TestContext.Current.CancellationToken);
             Assert.Equal(1, roster);
+        }
+        Directory.Delete(dataPath, true);
+    }
+
+    [Fact]
+    public async Task OffensivePlayerNamesAreRejectedWithoutCreatingAPlayer()
+    {
+        var (db, activities, sessions, connection, dataPath) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var run = await StartGameAsync(activities, sessions, await NewLessonAsync(db, "Names"), "Name rules");
+            var rejected = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "f.u.c.k"), ct);
+
+            Assert.Null(rejected.Participant);
+            Assert.Contains("not allowed", rejected.Error, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(await db.ActivityParticipants.ToListAsync(ct));
+
+            var accepted = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Class Captain"), ct);
+            Assert.NotNull(accepted.Participant);
+            var rename = await sessions.ExecuteHostActionAsync(run.Id,
+                new ActivityCommandEnvelope(null, null, "renameparticipant", JsonSerializer.SerializeToElement(new { participantId = accepted.Participant!.Id, displayName = "sh1t" })), ct);
+            Assert.False(rename.Success);
+            Assert.Equal("Class Captain", (await sessions.GetParticipantViewAsync(run.Id, accepted.Token, ct))!.DisplayName);
         }
         Directory.Delete(dataPath, true);
     }

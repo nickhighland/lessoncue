@@ -119,6 +119,19 @@ public sealed class ActivitySessionService(
                 // A TV or phone polling an older run must never move it back.
                 var moved = activate && existing.CurrentRunId != run.Id;
                 var changed = moved;
+                if (!existing.OpeningRunId.HasValue)
+                {
+                    // Groups created before opening-run tracking was added are
+                    // repaired lazily. Their oldest known updated run is the
+                    // least surprising opening lobby; all new groups record it
+                    // explicitly below.
+                    existing.OpeningRunId = existing.Runs
+                        .OrderBy(item => item.UpdatedAt)
+                        .ThenBy(item => item.Id)
+                        .Select(item => (Guid?)item.Id)
+                        .FirstOrDefault() ?? run.Id;
+                    changed = true;
+                }
                 if (!IsJoinCodeValid(existing.JoinCode))
                 {
                     await RotateGroupCodeAsync(existing, existing.JoinCode, ct);
@@ -164,8 +177,17 @@ public sealed class ActivitySessionService(
                 LessonId = run.LessonId,
                 JoinCode = joinCode,
                 CurrentRunId = run.Id,
+                OpeningRunId = run.Id,
             };
             db.ActivitySessionGroups.Add(group);
+        }
+        else if (!group.OpeningRunId.HasValue)
+        {
+            group.OpeningRunId = group.Runs
+                .OrderBy(item => item.UpdatedAt)
+                .ThenBy(item => item.Id)
+                .Select(item => (Guid?)item.Id)
+                .FirstOrDefault() ?? run.Id;
         }
 
         run.SessionGroupId = group.Id;
@@ -276,6 +298,8 @@ public sealed class ActivitySessionService(
             var isNewParticipant = participant is null;
 
             var displayName = NormalizeDisplayName(input.DisplayName);
+            if (!string.IsNullOrWhiteSpace(displayName) && !OffensiveNameFilter.IsAllowed(displayName))
+                return (run, null, token, "That player name is not allowed. Choose a different name.");
             if (participant is null)
             {
                 var count = groupId.HasValue
@@ -494,7 +518,7 @@ public sealed class ActivitySessionService(
             .ToArray();
         // The same address the room is shown. The host's own QR and join text
         // come from here, and they must not disagree with the television.
-        var hostJoinCode = IsSessionRunActive(run) ? run.JoinCode : null;
+        var hostJoinCode = await ShouldShowLessonJoinCodeAsync(run, ParseObject(run.StateJson), ct) ? run.JoinCode : null;
         var hostJoinUrl = hostJoinCode is null ? null : joinAddress.ResolveJoinUrl(hostJoinCode);
         var hostExpiry = run.SessionGroupId is Guid hostGroupId
             ? (await db.ActivitySessionGroups.AsNoTracking().SingleOrDefaultAsync(x => x.Id == hostGroupId, ct))?.UpdatedAt.Add(SessionIdleLifetime)
@@ -780,6 +804,7 @@ public sealed class ActivitySessionService(
             LessonId = run.LessonId,
             JoinCode = newCode,
             CurrentRunId = run.Id,
+            OpeningRunId = run.Id,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -864,22 +889,49 @@ public sealed class ActivitySessionService(
         {
             var run = await LoadRunAsync(runId, ct);
             if (run?.ActivityDefinition is null || !ActivityEngineCatalog.IsInteractive(run.ActivityDefinition)) return false;
-            var existingTeams = run.Teams.ToArray();
-            foreach (var participant in run.Participants)
-            {
-                if (participant.TeamId.HasValue && existingTeams.Any(team => team.Id == participant.TeamId.Value)) participant.TeamId = null;
-            }
-            db.ActivityTeams.RemoveRange(existingTeams);
-            if (existingTeams.Length > 0) await db.SaveChangesAsync(ct);
+            var requested = inputs.Take(12)
+                .Select((input, index) =>
+                {
+                    var name = NormalizeDisplayName(input.Name);
+                    return (Input: input, Index: index, Name: string.IsNullOrWhiteSpace(name) ? $"Team {index + 1}" : name);
+                })
+                .ToArray();
+            if (requested.Any(item => !OffensiveNameFilter.IsAllowed(item.Name))) return false;
 
-            var replacementTeams = new List<ActivityTeam>();
-            foreach (var (input, index) in inputs.Take(12).Select((value, index) => (value, index)))
+            // Teams belong to the lesson lobby when one exists. Replacing the
+            // rows at every game boundary detached old score events from the
+            // visible teams, making individual points carry while team points
+            // appeared to reset. Reuse the rows by position and retain inactive
+            // rows for score history; the score ledger remains authoritative.
+            var existingTeams = run.Teams.OrderBy(team => team.Position).ToList();
+            var teamIds = existingTeams.Select(team => team.Id).ToHashSet();
+            foreach (var participant in run.Participants)
+                if (participant.TeamId.HasValue && teamIds.Contains(participant.TeamId.Value)) participant.TeamId = null;
+
+            foreach (var team in existingTeams) team.Active = false;
+            foreach (var item in requested)
             {
-                var name = NormalizeDisplayName(input.Name);
-                if (string.IsNullOrWhiteSpace(name)) name = $"Team {index + 1}";
-                replacementTeams.Add(new ActivityTeam { ActivityRunId = run.Id, SessionGroupId = run.SessionGroupId, Name = name, Position = index, Color = input.Color ?? TeamColors[index % TeamColors.Length], Icon = input.Icon ?? TeamIcons[index % TeamIcons.Length] });
+                var team = existingTeams.ElementAtOrDefault(item.Index);
+                if (team is null)
+                {
+                    team = new ActivityTeam
+                    {
+                        ActivityRunId = run.Id,
+                        SessionGroupId = run.SessionGroupId,
+                        Name = item.Name,
+                        Id = Guid.NewGuid()
+                    };
+                    db.ActivityTeams.Add(team);
+                    existingTeams.Add(team);
+                }
+
+                team.Name = item.Name;
+                team.Position = item.Index;
+                team.Color = item.Input.Color ?? team.Color ?? TeamColors[item.Index % TeamColors.Length];
+                team.Icon = item.Input.Icon ?? team.Icon ?? TeamIcons[item.Index % TeamIcons.Length];
+                team.Active = true;
             }
-            db.ActivityTeams.AddRange(replacementTeams);
+            RefreshTeamScores(run);
             await db.SaveChangesAsync(ct);
             await BroadcastDisplayAsync(run.Id, ct);
             return true;
@@ -915,7 +967,7 @@ public sealed class ActivitySessionService(
             if (run?.ActivityDefinition is null || !ActivityEngineCatalog.IsInteractive(run.ActivityDefinition)) return false;
             var team = run.Teams.FirstOrDefault(item => item.Id == teamId && item.Active);
             var normalized = NormalizeDisplayName(name);
-            if (team is null || string.IsNullOrWhiteSpace(normalized)) return false;
+            if (team is null || string.IsNullOrWhiteSpace(normalized) || !OffensiveNameFilter.IsAllowed(normalized)) return false;
             team.Name = normalized;
             await db.SaveChangesAsync(ct);
             await BroadcastDisplayAsync(runId, ct);
@@ -3380,7 +3432,12 @@ public sealed class ActivitySessionService(
     private static (bool Success, string? Error) RenameParticipant(ActivityRun run, JsonElement? payload)
     {
         var id = ReadGuid(payload, "participantId"); var participant = id.HasValue ? run.Participants.FirstOrDefault(x => x.Id == id.Value) : null;
-        var name = NormalizeDisplayName(ReadString(payload, "displayName")); if (participant is null || string.IsNullOrWhiteSpace(name)) return (false, "Participant or display name not found."); participant.DisplayName = name; participant.IsAnonymous = false; return (true, null);
+        var name = NormalizeDisplayName(ReadString(payload, "displayName"));
+        if (participant is null || string.IsNullOrWhiteSpace(name)) return (false, "Participant or display name not found.");
+        if (!OffensiveNameFilter.IsAllowed(name)) return (false, "That player name is not allowed.");
+        participant.DisplayName = name;
+        participant.IsAnonymous = false;
+        return (true, null);
     }
 
     private async Task<(bool Success, string? Error)> ModerateAsync(ActivityRun run, JsonElement? payload, CancellationToken ct)
@@ -3443,7 +3500,19 @@ public sealed class ActivitySessionService(
             foreach (var winner in winners) correctSubmissions.Add(winner.Submission.Id);
         }
 
-        var responseStartedAt = DateTimeOffsetValue(state, "responseWindowStartedAt");
+        // The speed award is a single, deterministic bonus for the first
+        // correct submission recorded by the server. The old proportional
+        // calculation rewarded every correct player based on a client-visible
+        // window, so it was not actually a fastest-answer bonus and could make
+        // one round worth a different amount for every player.
+        var fastestCorrectSubmissionId = modifiers.SpeedBonusEnabled
+            ? submissions
+                .Where(submission => correctSubmissions.Contains(submission.Id))
+                .OrderBy(submission => submission.SubmittedAt)
+                .ThenBy(submission => submission.Id)
+                .Select(submission => (Guid?)submission.Id)
+                .FirstOrDefault()
+            : null;
         foreach (var submission in submissions)
         {
             var participant = run.Participants.FirstOrDefault(item => item.Id == submission.ParticipantId && item.Status != "removed");
@@ -3456,12 +3525,7 @@ public sealed class ActivitySessionService(
             var doubleOrNothing = modifiers.DoubleOrNothingEnabled && BoolValue(answer, "doubleOrNothing");
             var earned = isCorrect ? points : 0;
 
-            if (isCorrect && modifiers.SpeedBonusEnabled && responseStartedAt.HasValue)
-            {
-                var elapsedSeconds = Math.Max(0, (submission.SubmittedAt - responseStartedAt.Value).TotalSeconds);
-                var remainingRatio = Math.Clamp(1d - elapsedSeconds / modifiers.SpeedBonusWindowSeconds, 0d, 1d);
-                earned += (int)Math.Round(modifiers.SpeedBonusMaxPoints * remainingRatio, MidpointRounding.AwayFromZero);
-            }
+            if (isCorrect && submission.Id == fastestCorrectSubmissionId) earned += modifiers.SpeedBonusMaxPoints;
 
             if (isCorrect && modifiers.WagerEnabled) earned += wager;
             if (doubleOrNothing)
@@ -4515,14 +4579,20 @@ public sealed class ActivitySessionService(
     private async Task<JsonObject> ProjectDisplayStateAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct, Guid? participantId = null)
     {
         var projected = ParseObject(Serialize(state));
-        projected["joinCode"] = IsSessionRunActive(run) ? run.JoinCode : null;
+        // The join code is a lesson-opening instruction, not a persistent
+        // overlay. Repeating it over every activity made the stage feel like a
+        // new room and obscured the game. The first run's setup/lobby is the
+        // single place where the code and QR are projected.
+        var joinCodeVisible = await ShouldShowLessonJoinCodeAsync(run, state, ct);
+        projected["joinCodeVisible"] = joinCodeVisible;
+        projected["joinCode"] = joinCodeVisible ? run.JoinCode : null;
         // A phone cannot use a relative path, and the display's own origin is
         // whatever the TV connected to. The teacher-selected address is the one
         // the room should see and scan.
         // The short domain when this game holds a reserved code, LessonCue's own
         // address otherwise. Everything downstream -- the lobby text, the QR the
         // room scans, the phone's own header -- reads this one value.
-        projected["joinUrl"] = IsSessionRunActive(run) ? joinAddress.ResolveJoinUrl(run.JoinCode) : null;
+        projected["joinUrl"] = joinCodeVisible ? joinAddress.ResolveJoinUrl(run.JoinCode) : null;
         var participantCountQuery = run.SessionGroupId is Guid countGroupId
             ? db.ActivityParticipants.Where(x => x.SessionGroupId == countGroupId)
             : db.ActivityParticipants.Where(x => x.ActivityRunId == run.Id);
@@ -5109,7 +5179,23 @@ public sealed class ActivitySessionService(
             run.ScoreEvents = since is null ? points : [.. points.Where(x => x.CreatedAt > since.Value)];
         }
 
+        RefreshTeamScores(run);
         return run;
+    }
+
+    /// <summary>
+    /// Team totals are a projection of the same score ledger used for player
+    /// totals. Keeping this calculation in one place makes a team survive the
+    /// transition from one activity to the next without trusting a stale
+    /// denormalized counter.
+    /// </summary>
+    private static void RefreshTeamScores(ActivityRun run)
+    {
+        var totals = run.ScoreEvents
+            .Where(score => !score.IsUndone && score.TeamId.HasValue)
+            .GroupBy(score => score.TeamId!.Value)
+            .ToDictionary(group => group.Key, group => group.Sum(score => score.Amount));
+        foreach (var team in run.Teams) team.Score = totals.GetValueOrDefault(team.Id);
     }
 
     /// <summary>
@@ -5206,6 +5292,20 @@ public sealed class ActivitySessionService(
 
     private static bool IsSessionRunActive(ActivityRun run) =>
         run.Status != ActivityRunStatuses.Ended && !IsTerminalSessionPhase(run.StateJson);
+
+    private async Task<bool> ShouldShowLessonJoinCodeAsync(ActivityRun run, JsonObject state, CancellationToken ct)
+    {
+        if (!IsSessionRunActive(run)) return false;
+        var phase = StringValue(state, "phase");
+        if (phase is not (ActivityPhases.Setup or ActivityPhases.Lobby)) return false;
+        if (run.SessionGroupId is not Guid groupId) return true;
+        var group = await db.ActivitySessionGroups
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item => item.Id == groupId, ct);
+        if (group?.CurrentRunId != run.Id) return false;
+
+        return group.OpeningRunId == run.Id;
+    }
 
     private static bool IsSessionRunExpired(ActivityRun run, DateTimeOffset now) =>
         run.Status != ActivityRunStatuses.Ended &&

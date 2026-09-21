@@ -412,14 +412,14 @@ const ActivityHostSessionPanel: React.FC<{ hostView: ActivityHostView; onRefresh
   };
   return (
     <section className="activity-session-panel" aria-label="Game lobby and participants">
-      <div className="activity-session-join">
+      {hostView.joinCode && <div className="activity-session-join">
         <div>
           <span className="controller-eyebrow">PHONE LOBBY</span>
-          <strong>{hostView.joinCode || 'Preparing code…'}</strong>
-          <small>{joinUrl || 'Create a live session to invite players.'}</small>
+          <strong>{hostView.joinCode}</strong>
+          <small>{joinUrl}</small>
         </div>
         {joinUrl && <QrCode value={joinUrl} />}
-      </div>
+      </div>}
       <div className="activity-session-people">
         <div><span className="controller-eyebrow">PLAYERS</span><strong>{hostView.participants.length}</strong></div>
         <div className="activity-session-player-list">{hostView.participants.map(player => { const locked = player.status === 'locked'; return <div className={`activity-session-player ${locked ? 'locked' : ''}`} key={`${player.id}-${player.displayName}`}><label><span>{locked ? '🔒 ' : ''}{player.teamId ? `${player.displayName} · team` : player.displayName}</span><input key={`${player.id}-${player.displayName}`} aria-label={`Rename ${player.displayName}`} defaultValue={player.displayName} disabled={busyId === `participant:${player.id}`} onBlur={event => void renameParticipant(player.id, event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } }} /></label><button type="button" className="button" disabled={busyId === `participant:${player.id}`} onClick={() => void setParticipantLock(player.id, player.displayName, !locked)}>{locked ? 'Unlock' : 'Lock'}</button></div>; })}{!hostView.participants.length && <span className="muted">Waiting for players to join…</span>}</div>

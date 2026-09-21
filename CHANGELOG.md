@@ -4,6 +4,34 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.8 — Lesson games carry identity and score forward
+
+### User changes
+
+- The lesson join code appears in the opening lobby only; later activities no
+  longer repeat the invite code or QR panel.
+- Player and team scores carry across games in the same lesson, with team
+  totals derived from the shared score ledger.
+- Quiz speed bonuses now award a fixed, configurable bonus to the first correct
+  answer by default, with an explicit opt-out.
+- Activity creation choices are grouped into categories such as Quizzes,
+  Puzzles & word games, and Game show games.
+- Phones and tablets retain their player identity through refreshes and name
+  changes. The existing player handoff action still creates a fresh identity.
+- Player and team names are checked against a broad normalized offensive-name
+  filter, including punctuation and common leetspeak variations.
+
+### Developer changes
+
+- Added lesson-opening join-state projections, persistent device-token reuse,
+  score-ledger team projections, and migration coverage for existing session
+  groups.
+- Added server and browser regression coverage for cumulative scoring, fastest
+  correct answers, opening-lobby invite visibility, player identity, reset
+  lobbies, grouped activity choices, and name filtering.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
 ## v0.46.7 — Reliable server processing and diagnostics
 
 ### User changes

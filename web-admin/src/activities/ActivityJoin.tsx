@@ -56,9 +56,9 @@ export interface ActivityJoinBannerProps {
   joinUrl?: unknown;
   participantCount?: unknown;
   /**
-   * `prominent` is the lobby treatment, `compact` rides above live play, and
-   * `corner` sits out of the way for the whole game so a latecomer always has
-   * something to join with.
+   * `prominent` is the lesson-opening lobby treatment. The compact and corner
+   * variants remain available for previews and legacy callers, but live lesson
+   * state now supplies join details only during that opening lobby.
    */
   variant?: 'compact' | 'prominent' | 'corner';
 }

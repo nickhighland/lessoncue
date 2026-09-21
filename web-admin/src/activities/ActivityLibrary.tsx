@@ -33,6 +33,38 @@ const activityUsageNames = (activity: ActivityDefinition): string[] => [
   ...(activity.usage?.templateNames || []).map(name => `Template: ${name}`)
 ];
 
+const chooserCategoryLabel = (category: string): string => {
+  const normalized = category.trim().toLowerCase();
+  if (normalized === 'knowledge' || normalized === 'quiz' || normalized === 'quizzes') return 'Quizzes';
+  if (['sorting', 'match', 'puzzle', 'puzzles', 'word'].includes(normalized)) return 'Puzzles & word games';
+  if (['creative', 'drawing'].includes(normalized)) return 'Creative games';
+  if (['gameshow', 'game show', 'games'].includes(normalized)) return 'Game show games';
+  if (['poll', 'polls', 'audience'].includes(normalized)) return 'Polls & audience';
+  if (['media'].includes(normalized)) return 'Media';
+  if (['stage', 'physical', 'challenge', 'challenges'].includes(normalized)) return 'Challenges & movement';
+  if (['utility', 'utilities'].includes(normalized)) return 'Utilities';
+  return category.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, character => character.toUpperCase());
+};
+
+const chooserCategoryOrder = [
+  'Quizzes',
+  'Puzzles & word games',
+  'Game show games',
+  'Creative games',
+  'Polls & audience',
+  'Challenges & movement',
+  'Media',
+  'Utilities',
+];
+
+const orderChooserGroups = <T,>(groups: Map<string, T[]>): Array<[string, T[]]> => [...groups.entries()]
+  .sort(([left], [right]) => {
+    const leftIndex = chooserCategoryOrder.indexOf(left);
+    const rightIndex = chooserCategoryOrder.indexOf(right);
+    return (leftIndex < 0 ? chooserCategoryOrder.length : leftIndex) - (rightIndex < 0 ? chooserCategoryOrder.length : rightIndex)
+      || left.localeCompare(right);
+  });
+
 export const ActivityLibrary: React.FC = () => {
   const [activities, setActivities] = useState<ActivityDefinition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -339,6 +371,37 @@ export const ActivityLibrary: React.FC = () => {
     const query = chooserSearch.trim().toLowerCase();
     if (!query) return ACTIVITY_PRESET_CATALOG;
     return ACTIVITY_PRESET_CATALOG.filter(preset => `${preset.label} ${preset.description} ${preset.category} ${preset.type}`.toLowerCase().includes(query));
+  }, [chooserSearch]);
+
+  const namedPresetGroups = useMemo(() => {
+    const groups = new Map<string, ActivityPresetCatalogEntry[]>();
+    visibleChooserPresets.forEach(entry => {
+      const category = chooserCategoryLabel(entry.category);
+      const current = groups.get(category) || [];
+      current.push(entry);
+      groups.set(category, current);
+    });
+    return orderChooserGroups(groups);
+  }, [visibleChooserPresets]);
+
+  const blankActivityGroups = useMemo(() => {
+    const query = chooserSearch.trim().toLowerCase();
+    const groups = new Map<string, (typeof ACTIVITY_REGISTRY)[keyof typeof ACTIVITY_REGISTRY][]>();
+    Object.values(ACTIVITY_REGISTRY)
+      .filter(entry => !query || `${entry.name} ${entry.description} ${entry.type}`.toLowerCase().includes(query))
+      .forEach(entry => {
+        const category = chooserCategoryLabel(
+          ['trivia', 'rapidFire'].includes(entry.type)
+            ? 'knowledge'
+            : ['ordering', 'rankIt', 'wordScramble', 'matchPlayer'].includes(entry.type)
+              ? 'sorting'
+              : entry.category
+        );
+        const current = groups.get(category) || [];
+        current.push(entry);
+        groups.set(category, current);
+      });
+    return orderChooserGroups(groups);
   }, [chooserSearch]);
 
   const handleSaveEdit = async (closeAfterSave = false): Promise<boolean> => {
@@ -782,57 +845,43 @@ export const ActivityLibrary: React.FC = () => {
             </div>
             <div className="activity-chooser-section">
               <div className="activity-chooser-section-heading"><h3>Named game formats</h3><span>{visibleChooserPresets.length} available</span></div>
-              <div className="activity-chooser-grid">
-                {visibleChooserPresets.map(entry => (
-                  <button
-                    type="button"
-                    key={`preset:${entry.type}:${entry.id}`}
-                    onClick={() => void handleCreatePreset(entry)}
-                    className="activity-chooser-card"
-                    disabled={isSaving}
-                  >
-                    <span className="activity-chooser-icon" aria-hidden="true">{entry.icon}</span>
-                    <span className="activity-chooser-card-copy"><strong>{entry.label}</strong><small>{entry.description}</small></span>
-                    <span className="activity-chooser-meta">{entry.category.replace(/([a-z])([A-Z])/g, '$1 $2')} · {entry.requiresPhones ? 'phones' : 'no phones required'}</span>
-                  </button>
-                ))}
-              </div>
+              {namedPresetGroups.map(([category, entries]) => <section className="activity-chooser-category" key={`named:${category}`} aria-labelledby={`named-category-${category}`}>
+                <div className="activity-chooser-category-heading"><h4 id={`named-category-${category}`}>{category}</h4><span>{entries.length}</span></div>
+                <div className="activity-chooser-grid">
+                  {entries.map(entry => (
+                    <button
+                      type="button"
+                      key={`preset:${entry.type}:${entry.id}`}
+                      onClick={() => void handleCreatePreset(entry)}
+                      className="activity-chooser-card"
+                      disabled={isSaving}
+                    >
+                      <span className="activity-chooser-icon" aria-hidden="true">{entry.icon}</span>
+                      <span className="activity-chooser-card-copy"><strong>{entry.label}</strong><small>{entry.description}</small></span>
+                      <span className="activity-chooser-meta">{entry.requiresPhones ? 'phones' : 'no phones required'}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>)}
               {!visibleChooserPresets.length && <p className="muted">No named formats match “{chooserSearch}”. Try another search.</p>}
             </div>
             <div className="activity-chooser-section activity-chooser-building-blocks">
               <div className="activity-chooser-section-heading"><h3>Blank activity building blocks</h3><span>Use these for a custom setup</span></div>
-              <div className="activity-chooser-grid">
-            {Object.values(ACTIVITY_REGISTRY).filter(entry => {
-              const query = chooserSearch.trim().toLowerCase();
-              return !query || `${entry.name} ${entry.description} ${entry.type}`.toLowerCase().includes(query);
-            }).map(entry => (
-              <div
-                key={entry.type}
-                onClick={() => handleCreateNew(entry.type)}
-                className="panel"
-                style={{
-                  padding: '1.25rem',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1.5px solid var(--line)',
-                  background: '#ffffff'
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.borderColor = 'var(--gold)';
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.borderColor = 'var(--line)';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}
-              >
-                <div style={{ fontSize: '2.2rem', marginBottom: '0.5rem' }}>{entry.icon}</div>
-                <h4 style={{ margin: '0 0 0.3rem', fontSize: '1.1rem', fontWeight: 800, color: 'var(--ink)' }}>{entry.name}</h4>
-                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--muted)' }}>{entry.description}</p>
-              </div>
-            ))}
-              </div>
+              {blankActivityGroups.map(([category, entries]) => <section className="activity-chooser-category" key={`blank:${category}`} aria-labelledby={`blank-category-${category}`}>
+                <div className="activity-chooser-category-heading"><h4 id={`blank-category-${category}`}>{category}</h4><span>{entries.length}</span></div>
+                <div className="activity-chooser-grid">
+                  {entries.map(entry => <button
+                    type="button"
+                    key={entry.type}
+                    onClick={() => void handleCreateNew(entry.type)}
+                    className="activity-chooser-card activity-chooser-blank-card"
+                    disabled={isSaving}
+                  >
+                    <span className="activity-chooser-icon" aria-hidden="true">{entry.icon}</span>
+                    <span className="activity-chooser-card-copy"><strong>{entry.name}</strong><small>{entry.description}</small></span>
+                  </button>)}
+                </div>
+              </section>)}
             </div>
           </div>
         </Modal>

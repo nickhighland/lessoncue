@@ -245,17 +245,7 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
       // the prop or passes the old preview default.
       interactive={false}
     />
-    {/*
-      The code stays on screen for the whole game, not just the lobby. Only
-      five of the sixteen stages drew it during play, so for most games a
-      latecomer had nothing to join with the moment the first question went up
-      -- and the lobby never comes back, because the next game in the lesson
-      keeps the same code rather than showing a new join screen.
-
-      Once here rather than in each stage: it is the same fact about the room
-      whatever is being played.
-    */}
-    {!inLobby && !finished && (
+    {!inLobby && !finished && envelope.state?.joinCodeVisible === true && (
       <ActivityJoinBanner
         joinCode={envelope.state?.joinCode}
         joinUrl={envelope.state?.joinUrl}

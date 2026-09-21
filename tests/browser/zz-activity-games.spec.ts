@@ -219,7 +219,7 @@ test("Trivia runs from teacher launch through two phone answers and scored revea
     await hostAction(page, run.runId, "reveal");
     await expect(first.locator(".participant-result, .participant-waiting")).toBeVisible();
     const state = await hostState(page, run.runId);
-    expect(state.scoreEvents.filter(event => event.amount === 100)).toHaveLength(2);
+    expect(state.scoreEvents.map(event => event.amount).sort((left, right) => left - right)).toEqual([100, 150]);
   } finally {
     await firstContext.close();
     await secondContext.close();
@@ -285,7 +285,7 @@ test("Trivia supports short-answer and number lock-in rounds without leaking ans
     await hostAction(page, run.runId, "reveal");
     const textReveal = await runState(page, run.runId);
     expect(textReveal.revealedAnswer).toBe("never");
-    expect((await hostState(page, run.runId)).scoreEvents.filter(event => event.amount === 125)).toHaveLength(2);
+    expect((await hostState(page, run.runId)).scoreEvents.map(event => event.amount).sort((left, right) => left - right)).toEqual([125, 175]);
 
     await hostAction(page, run.runId, "next");
     await hostAction(page, run.runId, "open");
@@ -297,7 +297,7 @@ test("Trivia supports short-answer and number lock-in rounds without leaking ans
     await hostAction(page, run.runId, "lock");
     await hostAction(page, run.runId, "reveal");
     expect((await runState(page, run.runId)).revealedAnswer).toBe("42");
-    expect((await hostState(page, run.runId)).scoreEvents.filter(event => event.amount === 150)).toHaveLength(2);
+    expect((await hostState(page, run.runId)).scoreEvents.filter(event => event.roundId === "number-round").map(event => event.amount).sort((left, right) => left - right)).toEqual([150, 200]);
   } finally {
     await firstContext.close();
     await secondContext.close();
@@ -346,7 +346,7 @@ test("Wager Trivia exposes shared modifier controls and scores the server-author
     await participant.locator(".participant-choice-list button").nth(1).click();
     await hostAction(page, run.runId, "reveal");
     const state = await hostState(page, run.runId);
-    expect(state.scoreEvents.some(event => event.amount === 240)).toBe(true);
+    expect(state.scoreEvents.some(event => event.amount === 340)).toBe(true);
   } finally {
     await context.close();
   }

@@ -17,16 +17,16 @@ export const QuizModifierEditor: React.FC<ActivityEditorProps> = ({ config, onCh
 
   return <section className="activity-editor-card quiz-modifier-editor" aria-label="Quiz rules">
     <div className="activity-editor-card-heading"><strong>Game-show rules</strong><span className="activity-library-chip">Shared Quiz engine modifiers</span></div>
-    <p className="muted">These rules work for Trivia, Rapid Fire, Wager Trivia, and Survivor Trivia. Leave them off for a straightforward review quiz.</p>
+    <p className="muted">These rules work for Trivia, Rapid Fire, Wager Trivia, and Survivor Trivia. The fastest correct answer earns the speed bonus by default; turn it off for a straightforward review quiz.</p>
     <label className="checkbox-row"><input type="checkbox" checked={boolOf(wager.enabled)} onChange={event => update('wager', { enabled: event.target.checked })} /> Wager points before answering</label>
     {boolOf(wager.enabled) && <div className="two-fields quiz-modifier-fields">
       <label>Maximum wager<input type="number" min={0} max={10000} value={numberOf(wager.maxPoints, 500)} onChange={event => update('wager', { maxPoints: Math.max(0, Math.min(10000, Number(event.target.value) || 0)) })} /></label>
       <label>Suggested wager<input type="number" min={0} max={10000} value={numberOf(wager.defaultPoints, 0)} onChange={event => update('wager', { defaultPoints: Math.max(0, Math.min(10000, Number(event.target.value) || 0)) })} /></label>
     </div>}
-    <label className="checkbox-row"><input type="checkbox" checked={boolOf(speedBonus.enabled)} onChange={event => update('speedBonus', { enabled: event.target.checked })} /> Reward fast correct answers</label>
-    {boolOf(speedBonus.enabled) && <div className="two-fields quiz-modifier-fields">
-      <label>Maximum speed bonus<input type="number" min={0} max={2000} value={numberOf(speedBonus.maxPoints, 50)} onChange={event => update('speedBonus', { maxPoints: Math.max(0, Math.min(2000, Number(event.target.value) || 0)) })} /></label>
-      <label>Bonus window (seconds)<input type="number" min={1} max={600} value={numberOf(speedBonus.windowSeconds, 20)} onChange={event => update('speedBonus', { windowSeconds: Math.max(1, Math.min(600, Number(event.target.value) || 1)) })} /></label>
+    <label className="checkbox-row"><input type="checkbox" checked={boolOf(speedBonus.enabled, true)} onChange={event => update('speedBonus', { enabled: event.target.checked })} /> Reward the fastest correct answer</label>
+    {boolOf(speedBonus.enabled, true) && <div className="quiz-modifier-fields">
+      <label>Fastest-answer bonus<input type="number" min={0} max={2000} value={numberOf(speedBonus.maxPoints, 50)} onChange={event => update('speedBonus', { maxPoints: Math.max(0, Math.min(2000, Number(event.target.value) || 0)) })} /></label>
+      <small className="muted">Only the first correct response in each question receives this fixed bonus.</small>
     </div>}
     <label className="checkbox-row"><input type="checkbox" checked={boolOf(lives.enabled)} onChange={event => update('lives', { enabled: event.target.checked })} /> Give players limited lives</label>
     {boolOf(lives.enabled) && <div className="two-fields quiz-modifier-fields">

@@ -1822,6 +1822,10 @@
 .activity-chooser-section-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
 .activity-chooser-section-heading h3 { margin: 0; color: var(--ink); font-size: .98rem; }
 .activity-chooser-section-heading span { color: var(--muted); font-size: .75rem; font-weight: 700; }
+.activity-chooser-category { display: grid; gap: .55rem; }
+.activity-chooser-category-heading { display: flex; align-items: center; gap: .55rem; padding-top: .25rem; }
+.activity-chooser-category-heading h4 { margin: 0; color: var(--ink); font-size: .82rem; letter-spacing: .04em; text-transform: uppercase; }
+.activity-chooser-category-heading span { color: var(--muted); font-size: .7rem; font-weight: 700; }
 .activity-chooser-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); gap: .7rem; }
 .activity-chooser-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .7rem; align-items: start; min-height: 126px; padding: .9rem; border: 1px solid var(--line); border-radius: 14px; background: #fff; color: var(--ink); text-align: left; cursor: pointer; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
 .activity-chooser-card:hover, .activity-chooser-card:focus-visible { border-color: var(--gold); box-shadow: 0 8px 20px rgba(33, 48, 41, .1); transform: translateY(-2px); outline: none; }

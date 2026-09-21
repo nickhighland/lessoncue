@@ -35,7 +35,10 @@ public sealed record QuizModifierSettings(
             Enabled(wager, modifiers, config, "wager"),
             wagerMax,
             wagerDefault,
-            Enabled(speed, modifiers, config, "speedBonus"),
+            // Speed bonuses are on for quizzes unless a teacher explicitly
+            // turns them off. This also makes older definitions pick up the
+            // new default without a data migration.
+            Enabled(speed, modifiers, config, "speedBonus", defaultValue: true),
             ClampInt(IntValue(speed, "maxPoints", 50), 0, 2_000),
             ClampInt(IntValue(speed, "windowSeconds", 20), 1, 600),
             Enabled(lives, modifiers, config, "lives"),
@@ -44,10 +47,19 @@ public sealed record QuizModifierSettings(
             Enabled(doubleOrNothing, modifiers, config, "doubleOrNothing"));
     }
 
-    private static bool Enabled(JsonObject section, JsonObject modifiers, JsonObject config, string key) =>
-        BoolValue(section, "enabled", false)
-        || BoolValue(modifiers, $"{key}Enabled", false)
-        || BoolValue(config, $"{key}Enabled", false);
+    private static bool Enabled(JsonObject section, JsonObject modifiers, JsonObject config, string key, bool defaultValue = false)
+    {
+        if (section.TryGetPropertyValue("enabled", out var sectionValue)
+            && sectionValue is JsonValue sectionJson
+            && sectionJson.TryGetValue<bool>(out var sectionEnabled)) return sectionEnabled;
+        if (modifiers.TryGetPropertyValue($"{key}Enabled", out var modifierValue)
+            && modifierValue is JsonValue modifierJson
+            && modifierJson.TryGetValue<bool>(out var modifierEnabled)) return modifierEnabled;
+        if (config.TryGetPropertyValue($"{key}Enabled", out var configValue)
+            && configValue is JsonValue configJson
+            && configJson.TryGetValue<bool>(out var configEnabled)) return configEnabled;
+        return defaultValue;
+    }
 
     private static JsonObject ObjectValue(JsonObject? parent, string key) =>
         parent?.TryGetPropertyValue(key, out var value) == true && value is JsonObject objectValue
