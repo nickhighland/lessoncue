@@ -114,12 +114,6 @@ const ActivityControllerSession: React.FC<ActivityControllerProps> = ({
       setEnvelope(previous => latestActivityEnvelope(previous, activeRun!));
       setError(null);
       setLoading(false);
-      if (INTERACTIVE_ACTIVITY_TYPES.includes(activeRun.type)) {
-        try {
-          const incoming = await ActivityApi.getHostState(activeRun.runId, signal);
-          if (!signal?.aborted) setHostView(previous => latestActivityHostView(previous, incoming));
-        } catch (err) { console.debug('Host state refresh is not available yet', err); }
-      }
     } catch (err) {
       if (signal?.aborted) return;
       const message = err instanceof Error ? err.message : 'The controller could not refresh.';
@@ -133,6 +127,15 @@ const ActivityControllerSession: React.FC<ActivityControllerProps> = ({
       if (!signal) setRefreshing(false);
     }
   }, []);
+
+  // The live-host loop owns host-state polling. A manual refresh still needs
+  // to update both projections, but reconnect polling must not start a second
+  // host-state request while the live-host request is stalled.
+  const refreshAll = useCallback(async () => {
+    if (!currentRunId) return;
+    await refreshControllerState(currentRunId, hasEnvelope);
+    await fetchHostView(currentRunId, currentActivityType);
+  }, [currentActivityType, currentRunId, fetchHostView, hasEnvelope, refreshControllerState]);
 
   useEffect(() => activityHub.subscribeConnectionStatus(setConnectionState), []);
 
@@ -283,7 +286,7 @@ const ActivityControllerSession: React.FC<ActivityControllerProps> = ({
           >
             {envelope.status.toUpperCase()}
           </span>
-          <button type="button" className="button activity-controller-refresh" onClick={() => void refreshControllerState(currentRunId, hasEnvelope)} disabled={refreshing} aria-label="Refresh activity controller">
+          <button type="button" className="button activity-controller-refresh" onClick={() => void refreshAll()} disabled={refreshing} aria-label="Refresh activity controller">
             {refreshing ? 'Refreshing…' : '↻ Refresh'}
           </button>
           <ActivitySoundControls />
@@ -293,7 +296,7 @@ const ActivityControllerSession: React.FC<ActivityControllerProps> = ({
       {commandNotice && <div className={`activity-command-notice ${commandNotice.tone}`} role={commandNotice.tone === 'error' ? 'alert' : 'status'} aria-live="polite"><span>{commandNotice.message}</span><button type="button" onClick={() => setCommandNotice(null)} aria-label="Dismiss controller message">×</button></div>}
 
       {/* Live controls stay visible whether or not setup is open: the host needs
-          the join code and the answer count during the round, not only before it. */}
+          answer progress and moderation state throughout the round. */}
       {isInteractive && hostView && <ActivityLiveHostPanel hostView={hostView} onRefresh={() => fetchHostView(envelope.runId, currentActivityType)} />}
       {isInteractive && hostView && showSessionSetup && <ActivityHostSessionPanel hostView={hostView} onRefresh={() => fetchHostView(envelope.runId, currentActivityType)} />}
 

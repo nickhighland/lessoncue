@@ -143,7 +143,7 @@ test("switching the live cue ignores delayed host responses from the previous ga
   const report = async (input: typeof first) => {
     const response = await page.request.post('/api/v1/tv/status', {
       headers: { Authorization: `Bearer ${input.deviceToken}` },
-        data: { screenId: input.screenId, appVersion: '0.46.8', online: true, freeBytes: 4e9,
+        data: { screenId: input.screenId, appVersion: '0.46.9', online: true, freeBytes: 4e9,
         manifestVersion: 1, failedDownloads: 0, playbackState: 'playing',
         lessonId: input.lessonId, itemId: input.itemId, positionMs: 0, durationMs: 60000 },
     });
@@ -296,7 +296,7 @@ test("a signed-out phone can host a game and receives the TV acknowledgment with
     const { version } = await response.json();
     const status = await page.request.post('/api/v1/tv/status', {
       headers: { Authorization: `Bearer ${prepared.deviceToken}` },
-      data: { screenId: prepared.screenId, appVersion: '0.46.8', online: true, freeBytes: 4e9,
+      data: { screenId: prepared.screenId, appVersion: '0.46.9', online: true, freeBytes: 4e9,
         manifestVersion: 1, failedDownloads: 0, acknowledgedControlVersion: version,
         playbackState: 'paused', lessonId: prepared.lessonId, itemId: prepared.itemId, positionMs: 0, durationMs: 60000 },
     });
@@ -377,7 +377,7 @@ test("the compact remote keeps playback failures visible instead of saying Ready
 
 test("the live console shows the join code, roster, and answers-in count", async ({ page }) => {
   await authenticate(page);
-  const prepared = await prepareHostedTrivia(page, "Host Live Panel");
+  const prepared = await prepareHostedTrivia(page, "Host Live Panel", undefined, true);
   await openUniversalRemote(page, prepared.screenId);
 
   const panel = page.locator(".activity-live-host");

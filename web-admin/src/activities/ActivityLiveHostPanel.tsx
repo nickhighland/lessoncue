@@ -8,10 +8,9 @@ import { hostStepFor, useAutoAdvanceCountdown } from './ActivityHostFlow';
 /**
  * What the host needs while a round is actually live.
  *
- * The console previously showed none of this: no join code once setup was
- * closed, no way to see who had joined, and no idea how many had answered — so
- * the only way to know whether to close the window was to ask the room out
- * loud.
+ * The console keeps the opening-lobby code when this is the lesson's first
+ * game, then keeps roster and answer progress visible without repeating the
+ * code between activities.
  */
 
 const textOf = (value: unknown, fallback = '') => typeof value === 'string' ? value : fallback;

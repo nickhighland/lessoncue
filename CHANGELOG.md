@@ -4,7 +4,7 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
-## v0.46.8 — Lesson games carry identity and score forward
+## v0.46.9 — Lesson games carry identity and score forward
 
 ### User changes
 
@@ -29,6 +29,8 @@ administrator installs an update.
 - Added server and browser regression coverage for cumulative scoring, fastest
   correct answers, opening-lobby invite visibility, player identity, reset
   lobbies, grouped activity choices, and name filtering.
+- Removed redundant host-state polling during connection fallback so a stalled
+  refresh cannot accumulate duplicate requests.
 - This is a server/web release only; Android/Google TV and Vega TV artifacts
   remain at their previous release because their sources did not change.
 
