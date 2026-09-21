@@ -868,11 +868,12 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: "Keep this lesson" }).click();
   await expect(page.locator(".remote-lesson-list")).toHaveCount(0);
 
-  // The cue list does not go away when a cue is chosen: it is the thing a
-  // teacher reaches for most, and its controls appear beneath it.
+  // Choosing a cue turns its controls into the working surface instead of
+  // leaving them below the whole list. The list remains one press away.
   await page.locator(".remote-cue-list > button").first().click();
-  await expect(page.locator(".remote-cue-list")).toBeVisible();
+  await expect(page.locator(".remote-cue-list")).toBeHidden();
   await expect(controlStep).toHaveAttribute("data-state", "current");
+  await expect(page.getByRole("button", { name: "All lesson cues" })).toBeVisible();
 
   await page.getByRole("button", { name: "Open monitor" }).click();
   await expect(page.locator(".pre-roll-monitor iframe")).toHaveAttribute("src", "https://example.org/private-monitor");
@@ -1417,7 +1418,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.46.11" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.46.12" });
   // A lesson the screen is allowed to keep should end up on the device, not
   // just signage. A room that loses its network mid-service used to lose the
   // lesson with it while the rota on the wall carried on playing.
