@@ -17,6 +17,23 @@ administrator installs an update.
 - Added regression coverage for the report filename and kept the server-only
   release scope; no Android/Google TV or Vega TV artifact is produced.
 
+## v0.46.23 — Resilient YouTube download fallback
+
+### User changes
+
+- YouTube imports still try the fast Android-compatible MP4 path first.
+- If YouTube rejects that path with a 403 or exposes only adaptive streams,
+  LessonCue makes one bounded fallback attempt and merges validated MP4/audio
+  streams locally.
+
+### Developer changes
+
+- Added regression coverage for the fallback format and MP4 merge arguments.
+- Fallback failures remain visible with the selected profile and original
+  downloader error; checksum and media validation are unchanged.
+- This is a server/web release only; no Android/Google TV or Vega TV artifact
+  is produced.
+
 ## v0.46.21 — YouTube import and service reliability
 
 ### User changes

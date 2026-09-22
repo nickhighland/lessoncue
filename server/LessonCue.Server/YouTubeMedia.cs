@@ -41,6 +41,15 @@ public sealed class YouTubeImportService(
     StorageService storage,
     ILogger<YouTubeImportService> logger) : BackgroundService
 {
+    private sealed record DownloadProfile(string Name, string Format, string? ExtractorArguments,
+        bool MergeToMp4);
+
+    private static readonly DownloadProfile[] DownloadProfiles =
+    [
+        new("android-progressive", "best[ext=mp4]", "youtube:player_client=android", false),
+        new("default-adaptive", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", null, true)
+    ];
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -78,14 +87,40 @@ public sealed class YouTubeImportService(
 
             Directory.CreateDirectory(temporary);
             var outputTemplate = Path.Combine(temporary, "%(title).150B [%(id)s].%(ext)s");
-            var stdout = await ConstrainedProcessRunner.RunAsync(executable,
-                BuildDownloadArguments(outputTemplate, snapshot.RemainingBytes, item.SourceUrl!, denoExecutable),
-                ConstrainedProcessOptions.Download(temporary, snapshot.RemainingBytes), ct);
+            string? downloaded = null;
+            string? selectedProfile = null;
+            for (var profileIndex = 0; profileIndex < DownloadProfiles.Length; profileIndex++)
+            {
+                var profile = DownloadProfiles[profileIndex];
+                if (profileIndex > 0) ResetStagingDirectory(temporary);
+                try
+                {
+                    var stdout = await ConstrainedProcessRunner.RunAsync(executable,
+                        BuildDownloadArguments(outputTemplate, snapshot.RemainingBytes, item.SourceUrl!, denoExecutable, profile),
+                        ConstrainedProcessOptions.Download(temporary, snapshot.RemainingBytes), ct);
+                    downloaded = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Select(Path.GetFullPath).LastOrDefault(File.Exists);
+                    if (downloaded is null || !downloaded.StartsWith(Path.GetFullPath(temporary) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                        throw new InvalidOperationException("The downloader did not produce a valid local file.");
+                    selectedProfile = profile.Name;
+                    logger.LogInformation("YouTube media download succeeded for {MediaId} using profile {Profile}", item.Id, profile.Name);
+                    break;
+                }
+                catch (Exception ex) when (profileIndex + 1 < DownloadProfiles.Length && ShouldTryAlternateProfile(ex))
+                {
+                    logger.LogWarning(ex,
+                        "YouTube media download profile {Profile} failed for {MediaId}; trying the bounded fallback profile",
+                        profile.Name, item.Id);
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException(
+                        $"YouTube download failed with profile '{profile.Name}': {ex.Message}", ex);
+                }
+            }
 
-            var downloaded = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(Path.GetFullPath).LastOrDefault(File.Exists);
-            if (downloaded is null || !downloaded.StartsWith(Path.GetFullPath(temporary) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
-                throw new InvalidOperationException("The downloader did not produce a valid local file.");
+            if (downloaded is null)
+                throw new InvalidOperationException("The downloader did not produce a valid local file after all supported profiles.");
             var info = new FileInfo(downloaded);
             if (info.Length > snapshot.RemainingBytes)
                 throw new InvalidOperationException("The downloaded video exceeds the available LessonCue storage.");
@@ -108,7 +143,7 @@ public sealed class YouTubeImportService(
             item.ProcessingStatus = "pending";
             item.ProcessingError = null;
             db.AuditEvents.Add(new AuditEvent { Actor = "system", Action = "media.youtube.download",
-                Object = item.Id.ToString(), Summary = $"Downloaded {item.FileName} to local storage." });
+                Object = item.Id.ToString(), Summary = $"Downloaded {item.FileName} to local storage using profile {selectedProfile}." });
             await db.SaveChangesAsync(ct);
         }
         catch (Exception ex)
@@ -126,18 +161,57 @@ public sealed class YouTubeImportService(
 
     internal static IReadOnlyList<string> BuildDownloadArguments(
         string outputTemplate, long availableBytes, string sourceUrl, string denoExecutable) =>
-    [
-        "--no-config", "--no-playlist", "--newline", "--restrict-filenames",
-        "--js-runtimes", $"deno:{denoExecutable}",
-        // YouTube's default client can expose SABR-backed URLs that return 403
-        // when yt-dlp downloads them. The Android player client still exposes
-        // a directly downloadable MP4 for ordinary public videos.
-        "--extractor-args", "youtube:player_client=android",
-        "--retries", "3", "--fragment-retries", "3",
-        "--max-filesize", availableBytes.ToString(CultureInfo.InvariantCulture),
-        "-f", "best[ext=mp4]", "-o", outputTemplate,
-        "--print", "after_move:filepath", sourceUrl
-    ];
+        BuildDownloadArguments(outputTemplate, availableBytes, sourceUrl, denoExecutable, DownloadProfiles[0]);
+
+    internal static IReadOnlyList<string> BuildFallbackDownloadArguments(
+        string outputTemplate, long availableBytes, string sourceUrl, string denoExecutable) =>
+        BuildDownloadArguments(outputTemplate, availableBytes, sourceUrl, denoExecutable, DownloadProfiles[1]);
+
+    private static IReadOnlyList<string> BuildDownloadArguments(
+        string outputTemplate, long availableBytes, string sourceUrl, string denoExecutable,
+        DownloadProfile profile)
+    {
+        var arguments = new List<string>
+        {
+            "--no-config", "--no-playlist", "--newline", "--restrict-filenames",
+            "--js-runtimes", $"deno:{denoExecutable}",
+            "--retries", "3", "--fragment-retries", "3",
+            "--max-filesize", availableBytes.ToString(CultureInfo.InvariantCulture),
+            "-f", profile.Format
+        };
+        if (profile.ExtractorArguments is not null)
+        {
+            arguments.Add("--extractor-args");
+            arguments.Add(profile.ExtractorArguments);
+        }
+        if (profile.MergeToMp4)
+        {
+            arguments.Add("--merge-output-format");
+            arguments.Add("mp4");
+        }
+        arguments.Add("-o");
+        arguments.Add(outputTemplate);
+        arguments.Add("--print");
+        arguments.Add("after_move:filepath");
+        arguments.Add(sourceUrl);
+        return arguments;
+    }
+
+    private static bool ShouldTryAlternateProfile(Exception error)
+    {
+        var message = error.ToString().ToLowerInvariant();
+        return message.Contains("403") || message.Contains("forbidden") ||
+            message.Contains("unable to download video data") ||
+            message.Contains("requested format") || message.Contains("no video formats") ||
+            message.Contains("page needs to be reloaded") || message.Contains("sabr") ||
+            message.Contains("did not produce a valid local file");
+    }
+
+    private static void ResetStagingDirectory(string path)
+    {
+        Directory.Delete(path, recursive: true);
+        Directory.CreateDirectory(path);
+    }
 
     private static string FindExecutable()
     {

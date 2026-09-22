@@ -56,4 +56,21 @@ public sealed class YouTubeMediaTests
         Assert.Equal("youtube:player_client=android", arguments[extractorIndex + 1]);
         Assert.Contains("3", arguments);
     }
+
+    [Fact]
+    public void FallbackDownloadArgumentsMergeAdaptiveMp4Streams()
+    {
+        var arguments = YouTubeImportService.BuildFallbackDownloadArguments(
+            "/var/lib/lessoncue/temporary/%(id)s.%(ext)s",
+            123456,
+            "https://www.youtube.com/watch?v=c4PmpM058is",
+            "/opt/lessoncue/deno");
+
+        Assert.Contains("bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", arguments);
+        var mergeIndex = Array.IndexOf(arguments.ToArray(), "--merge-output-format");
+        Assert.True(mergeIndex >= 0);
+        Assert.Equal("mp4", arguments[mergeIndex + 1]);
+        Assert.DoesNotContain("--extractor-args", arguments);
+        Assert.Contains("deno:/opt/lessoncue/deno", arguments);
+    }
 }
