@@ -368,7 +368,10 @@ public sealed class BackupPolicyServiceTests
         Directory.CreateDirectory(Path.Combine(root, "config", "keys"));
         try
         {
-            var handler = new WebDavTestHandler();
+            var handler = new WebDavTestHandler
+            {
+                MkColStatus = HttpStatusCode.BadRequest
+            };
             handler.Seed("nextcloud", [
                 "lessoncue-20260101-020000-configuration-old1.lcbak",
                 "lessoncue-20260102-020000-configuration-old2.lcbak",
@@ -480,6 +483,8 @@ public sealed class BackupPolicyServiceTests
         private readonly Dictionary<string, List<string>> files = new(StringComparer.Ordinal);
         private readonly Dictionary<string, int> deletes = new(StringComparer.Ordinal);
 
+        public HttpStatusCode MkColStatus { get; set; } = HttpStatusCode.MethodNotAllowed;
+
         public void Seed(string provider, IEnumerable<string> names) =>
             files[provider] = names.ToList();
 
@@ -494,6 +499,14 @@ public sealed class BackupPolicyServiceTests
         {
             var provider = request.RequestUri?.Host.Split('.')[0] ?? "unknown";
             var bucket = files.GetValueOrDefault(provider) ?? [];
+            if (request.Method.Method.Equals("MKCOL", StringComparison.OrdinalIgnoreCase))
+            {
+                await Task.Yield();
+                return new HttpResponseMessage(MkColStatus)
+                {
+                    RequestMessage = request
+                };
+            }
             if (request.Method == HttpMethod.Put)
             {
                 var fileName = Path.GetFileName(request.RequestUri!.AbsolutePath);

@@ -548,14 +548,48 @@ public sealed class BackupPolicyService : BackgroundService
         using var request = new HttpRequestMessage(MkColMethod, uri);
         AddRemoteAuthorization(request, destination, UnprotectSecret(destination));
         var response = await clients.CreateClient("backup-offsite").SendAsync(request, ct);
+        var createStatus = response.StatusCode;
         using (response)
         {
             if (response.IsSuccessStatusCode ||
                 response.StatusCode == System.Net.HttpStatusCode.MethodNotAllowed)
                 return;
-            throw new IOException(
-                $"The {destination.Provider} WebDAV folder could not be created ({(int)response.StatusCode}).");
         }
+
+        // Some ownCloud installations answer MKCOL with 400 when the
+        // collection already exists. Verify the collection with the WebDAV
+        // operation that is safe for an existing folder before reporting the
+        // create failure. A failed verification keeps both statuses so bad
+        // credentials, a wrong path, and a genuinely missing parent remain
+        // actionable rather than being silently accepted.
+        var verificationStatus = await ProbeRemoteCollectionAsync(destination, uri, ct);
+        if (verificationStatus is not null &&
+            (int)verificationStatus >= 200 && (int)verificationStatus < 300)
+            return;
+
+        var verification = verificationStatus is null
+            ? "no response"
+            : ((int)verificationStatus).ToString(CultureInfo.InvariantCulture);
+        throw new IOException(
+            $"The {destination.Provider} WebDAV folder could not be created ({(int)createStatus}) " +
+            $"or verified as an existing collection ({verification}). Check the WebDAV URL, " +
+            "parent folder, and credentials.");
+    }
+
+    private async Task<System.Net.HttpStatusCode?> ProbeRemoteCollectionAsync(
+        StoredBackupDestination destination,
+        Uri uri,
+        CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(PropFindMethod, uri);
+        request.Headers.Add("Depth", "0");
+        request.Content = new StringContent(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?><d:propfind xmlns:d=\"DAV:\"><d:prop><d:resourcetype /></d:prop></d:propfind>",
+            Encoding.UTF8,
+            "application/xml");
+        AddRemoteAuthorization(request, destination, UnprotectSecret(destination));
+        using var response = await clients.CreateClient("backup-offsite").SendAsync(request, ct);
+        return response.StatusCode;
     }
 
     private async Task<RemoteMediaState> ReadRemoteMediaFilesAsync(

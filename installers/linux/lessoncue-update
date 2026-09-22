@@ -1080,6 +1080,11 @@ fi
 if [[ ! -x "${WORKDIR}/archive/payload/LessonCue.Server" ]]; then
   fail_update "The release archive is missing LessonCue.Server."
 fi
+EXPECTED_VERSION="${VERSION#v}"
+STAGED_VERSION="$("${WORKDIR}/archive/payload/LessonCue.Server" --version 2>/dev/null || true)"
+if [[ "${STAGED_VERSION}" != "${EXPECTED_VERSION}" ]]; then
+  fail_update "The signed release ${VERSION} contains LessonCue.Server ${STAGED_VERSION:-unknown}; refusing to record an update until the binary version matches the release tag."
+fi
 if [[ ! -f "${WORKDIR}/archive/lessoncue-render.rules" ]]; then
   fail_update "The release archive is missing the Intel render-device rule."
 fi

@@ -4,6 +4,26 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.25 — Reliable protected updates and existing WebDAV folders
+
+### User changes
+
+- Server updates now verify that the installed LessonCue binary reports the
+  requested release version before marking the update successful.
+- Scheduled ownCloud/WebDAV backups now recognize an existing destination
+  folder even when the provider returns `400` to an idempotent folder-create
+  request. Invalid paths and credentials still report the create and verify
+  statuses together.
+
+### Developer changes
+
+- Added a staged-binary version check to the protected Linux updater so a
+  release built with stale assembly metadata cannot be reported as installed.
+- Added WebDAV collection verification and regression coverage for providers
+  that reject `MKCOL` on an existing collection with `400`.
+- This is a server/web release only; no Android/Google TV or Vega TV artifact
+  is produced.
+
 ## v0.46.24 — Independent YouTube downloader updates
 
 ### User changes
