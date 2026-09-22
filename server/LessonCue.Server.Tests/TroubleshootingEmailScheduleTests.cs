@@ -25,6 +25,13 @@ public sealed class TroubleshootingEmailScheduleTests
         Assert.Equal(new DateTimeOffset(2026, 9, 21, 11, 0, 0, TimeSpan.Zero), next);
     }
 
+    [Fact]
+    public void Daily_report_keeps_json_payload_but_uses_a_provider_safe_text_filename()
+    {
+        Assert.Equal("lessoncue-troubleshooting-2026-09-22.txt",
+            TroubleshootingEmailService.ReportAttachmentFileName(new DateOnly(2026, 9, 22)));
+    }
+
     [Theory]
     [InlineData("7:05", "07:05")]
     [InlineData("23:59", "23:59")]

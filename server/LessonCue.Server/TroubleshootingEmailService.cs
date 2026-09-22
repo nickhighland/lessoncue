@@ -145,7 +145,7 @@ public sealed class TroubleshootingEmailService(
             var report = await reports.BuildAsync(db, failuresOnly: true, ct: ct);
             var localDate = TroubleshootingEmailSchedule.LocalDate(now, organization.TimeZone);
             var attachment = new EmailAttachment(
-                $"lessoncue-troubleshooting-{localDate:yyyy-MM-dd}.json",
+                ReportAttachmentFileName(localDate),
                 TroubleshootingReportBuilder.ToJson(report));
             var safeName = System.Net.WebUtility.HtmlEncode(organization.Name);
             var html = $"<p>Daily LessonCue troubleshooting report for <strong>{safeName}</strong>.</p>" +
@@ -219,6 +219,14 @@ public sealed class TroubleshootingEmailService(
         }
         finally { gate.Release(); }
     }
+
+    /// <summary>
+    /// Email providers commonly allow text attachments but reject diagnostic
+    /// formats such as .gz and .json. Keep the payload as JSON while using a
+    /// provider-safe filename so the daily report is delivered consistently.
+    /// </summary>
+    internal static string ReportAttachmentFileName(DateOnly localDate) =>
+        $"lessoncue-troubleshooting-{localDate:yyyy-MM-dd}.txt";
 
     private static string FailureText(Exception error)
     {

@@ -4,6 +4,19 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.22 — Provider-safe troubleshooting reports
+
+### User changes
+
+- Daily troubleshooting reports still contain the complete JSON diagnostic
+  payload, but are delivered with a `.txt` filename accepted by providers that
+  reject `.gz` and `.json` attachments.
+
+### Developer changes
+
+- Added regression coverage for the report filename and kept the server-only
+  release scope; no Android/Google TV or Vega TV artifact is produced.
+
 ## v0.46.21 — YouTube import and service reliability
 
 ### User changes
