@@ -13,6 +13,7 @@ namespace LessonCue.Server;
 public sealed class TroubleshootingReportBuilder(
     TroubleshootingLog log,
     MediaStoragePaths paths,
+    YouTubeRuntimeUpdateService youtubeRuntime,
     ShortenerService shortener)
 {
     private static readonly TimeSpan ShortenerDiagnosticBudget = TimeSpan.FromSeconds(10);
@@ -90,7 +91,12 @@ public sealed class TroubleshootingReportBuilder(
         }
 
         object mediaDependencies;
-        try { mediaDependencies = MediaDependencyDiagnostics.Build(paths); }
+        try
+        {
+            // Keep the existing dependency shape stable for the daily review
+            // while adding the independent runtime state beside it.
+            mediaDependencies = MediaDependencyDiagnostics.Build(paths, youtubeRuntime.Status);
+        }
         catch (Exception error)
         {
             RecordIssue("media dependencies", error, diagnosticErrors);

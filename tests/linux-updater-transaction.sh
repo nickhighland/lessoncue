@@ -81,7 +81,21 @@ SERVER
   chmod 0755 "${path}"
 }
 
+make_ytdlp() {
+  local path="$1" version="$2"
+  cat > "${path}" <<YTDLP
+#!/usr/bin/env bash
+if [[ "\${1:-}" == --version ]]; then
+  printf '%s\\n' '${version}'
+else
+  exit 1
+fi
+YTDLP
+  chmod 0755 "${path}"
+}
+
 make_server /opt/lessoncue/LessonCue.Server 1.0.0 OLD
+make_ytdlp /opt/lessoncue/yt-dlp 2026.09.01
 printf 'GOOD original database\n' > /var/lib/lessoncue/database/lessoncue.db
 printf '80\n' > /var/lib/lessoncue/config/http-port
 printf '1.0.0\n' > /var/lib/lessoncue/config/installed-version
@@ -104,6 +118,7 @@ install -d "${PACKAGE_ROOT}/payload" "${RELEASE_ROOT}/releases/download/v2.0.0"
 openssl genpkey -algorithm Ed25519 -out "${TEST_PRIVATE_KEY}" 2>/dev/null
 openssl pkey -in "${TEST_PRIVATE_KEY}" -pubout -out "${TEST_PUBLIC_KEY}" 2>/dev/null
 make_server "${PACKAGE_ROOT}/payload/LessonCue.Server" 2.0.0 NEW
+make_ytdlp "${PACKAGE_ROOT}/payload/yt-dlp" 2026.08.19
 cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-media-worker" "${PACKAGE_ROOT}/lessoncue-media-worker"
 chmod 0755 "${PACKAGE_ROOT}/lessoncue-media-worker"
 cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-media-worker" "${PACKAGE_ROOT}/payload/lessoncue-media-worker"
@@ -112,6 +127,9 @@ cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-render.rules" "${PACKAGE_ROOT}
 cp "${UPDATER_SOURCE}" "${PACKAGE_ROOT}/lessoncue-update"
 cp "${REPOSITORY_ROOT}/installers/linux/repair-updater.sh" "${PACKAGE_ROOT}/repair-updater.sh"
 cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-update-recovery.service" "${PACKAGE_ROOT}/"
+cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-ytdlp-update.service" "${PACKAGE_ROOT}/"
+cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-ytdlp-update.path" "${PACKAGE_ROOT}/"
+cp "${REPOSITORY_ROOT}/installers/linux/lessoncue-ytdlp-update.timer" "${PACKAGE_ROOT}/"
 cp "${TEST_PUBLIC_KEY}" "${PACKAGE_ROOT}/release-signing-public.pem"
 for unit in lessoncue-update.service lessoncue-update.path lessoncue.service lessoncue-cloudflared.service; do
   printf 'new %s\n' "${unit}" > "${PACKAGE_ROOT}/${unit}"
@@ -204,6 +222,8 @@ env \
 
 [[ "$(/opt/lessoncue/LessonCue.Server)" == NEW ]]
 [[ "$(/opt/lessoncue.previous/LessonCue.Server)" == OLD ]]
+[[ "$(/opt/lessoncue/yt-dlp --version)" == 2026.09.01 ]]
+[[ "$(/opt/lessoncue.previous/yt-dlp --version)" == 2026.09.01 ]]
 cmp -s "${UPDATER_SOURCE}" /usr/local/sbin/lessoncue-update
 grep -q 'Handing the protected operation to the verified release updater before snapshotting' \
   /tmp/lessoncue-bootstrap-output

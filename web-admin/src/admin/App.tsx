@@ -1449,6 +1449,7 @@ export function Shell({
                   lessons={lessons}
                   screens={screens}
                   onNavigate={setView}
+                  canManageUpdates={canManageUpdates}
                 />
               )}
               {view === "controller" && bootstrap && (

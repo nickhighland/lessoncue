@@ -1,0 +1,17 @@
+[Unit]
+Description=Independently maintain the LessonCue YouTube downloader
+After=network-online.target lessoncue.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=LESSONCUE_DATA_PATH=/var/lib/lessoncue
+ExecStart=/usr/bin/flock -n /run/lessoncue-ytdlp-update.lock /opt/lessoncue/LessonCue.Server --youtube-runtime-update
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/opt/lessoncue /var/lib/lessoncue
+NoNewPrivileges=true
+UMask=0022

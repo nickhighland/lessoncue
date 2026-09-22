@@ -1,7 +1,7 @@
 import { confirmAction } from "../../AccessibleDialogs";
 import { FormEvent, useEffect, useState } from "react";
 import { api, waitForVersion } from "../api";
-import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, JoinAddressStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, SettingsSection, ShortenerReport, ShortenerSettings, ShortenerTestResult, ShortenerTunnelPlan, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
+import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, JoinAddressStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, SettingsSection, ShortenerReport, ShortenerSettings, ShortenerTestResult, ShortenerTunnelPlan, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy, YouTubeRuntimeStatus } from "../models";
 import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead, StorageMeter } from "../ui";
 import { RegistrationSettingsPanel, TroubleshootingLogPanel } from "./Users";
 import { AuthenticatorMfaPanel } from "./Mfa";
@@ -113,6 +113,11 @@ export function Settings({
   );
   const [checking, setChecking] = useState(false);
   const [installing, setInstalling] = useState(false);
+  const [youtubeRuntime, setYoutubeRuntime] = useState<YouTubeRuntimeStatus | undefined>(
+    bootstrap.youtubeRuntime,
+  );
+  const [checkingYoutubeRuntime, setCheckingYoutubeRuntime] = useState(false);
+  const [updatingYoutubeRuntime, setUpdatingYoutubeRuntime] = useState(false);
   const [fixedPairing, setFixedPairing] = useState(bootstrap.pairingFixed);
   const [pairingPin, setPairingPin] = useState(bootstrap.pairingPin || "");
   const [controllerPin, setControllerPin] = useState(bootstrap.controllerPin || "");
@@ -245,6 +250,9 @@ export function Settings({
       })
       .catch((error) => setDiagnosticsError(errorText(error)));
   }, [canServiceSettings]);
+  useEffect(() => {
+    setYoutubeRuntime(bootstrap.youtubeRuntime);
+  }, [bootstrap.youtubeRuntime]);
   async function refreshDiagnostics() {
     setDiagnosticsBusy(true);
     try {
@@ -689,6 +697,57 @@ export function Settings({
     } catch (e) {
       notify(errorText(e));
       setInstalling(false);
+    }
+  }
+  async function checkYoutubeRuntime() {
+    setCheckingYoutubeRuntime(true);
+    try {
+      const result = await api<{
+        message: string;
+        status: YouTubeRuntimeStatus;
+      }>("/api/v1/updates/youtube-runtime/check", {
+        method: "POST",
+        body: "{}",
+      });
+      setYoutubeRuntime(result.status);
+      refresh();
+      notify(result.message);
+      window.setTimeout(() => {
+        void api<YouTubeRuntimeStatus>("/api/v1/updates/youtube-runtime")
+          .then(setYoutubeRuntime)
+          .catch(() => undefined);
+      }, 2_000);
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      setCheckingYoutubeRuntime(false);
+    }
+  }
+  async function updateYoutubeRuntime() {
+    if (!await confirmAction(
+      "Update the server's independent YouTube downloader now? LessonCue will keep the previous yt-dlp binary for rollback.",
+    )) return;
+    setUpdatingYoutubeRuntime(true);
+    try {
+      const result = await api<{
+        message: string;
+        status: YouTubeRuntimeStatus;
+      }>("/api/v1/updates/youtube-runtime/update", {
+        method: "POST",
+        body: "{}",
+      });
+      setYoutubeRuntime(result.status);
+      refresh();
+      notify(result.message);
+      window.setTimeout(() => {
+        void api<YouTubeRuntimeStatus>("/api/v1/updates/youtube-runtime")
+          .then(setYoutubeRuntime)
+          .catch(() => undefined);
+      }, 3_000);
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      setUpdatingYoutubeRuntime(false);
     }
   }
   async function savePairingPin(event: FormEvent<HTMLFormElement>) {
@@ -1136,6 +1195,17 @@ export function Settings({
                 <small>Version {bootstrap.update.currentVersion}</small>
               </button>
             )}
+            {canUpdates && youtubeRuntime?.updateAvailable && (
+              <button className="settings-overview-card" onClick={() => setSettingsSection("system")}>
+                <span>YOUTUBE DOWNLOADS</span>
+                <strong>Update available</strong>
+                <small>
+                  {youtubeRuntime.updateNoticeVisible
+                    ? "Downloads are failing; review the independent downloader."
+                    : "Review the independent downloader in Settings."}
+                </small>
+              </button>
+            )}
             {canManageApp && (
               <button className="settings-overview-card" onClick={() => setSettingsSection("playback")}>
                 <span>DISPLAYS</span>
@@ -1530,6 +1600,85 @@ export function Settings({
                   automatic updates on this server.
                 </p>
               )}
+            </CollapsibleSettingsSection>
+          )}
+          {canUpdates && (
+            <CollapsibleSettingsSection
+              label="YouTube downloader"
+              className="wide-settings settings-panel settings-system"
+            >
+              <div className="settings-heading">
+                <div>
+                  <span className="settings-kicker">MEDIA IMPORTS</span>
+                  <h2>Independent YouTube downloader</h2>
+                  <p className="settings-copy">
+                    yt-dlp is checked and maintained separately from LessonCue
+                    releases. Routine checks and verified updates are silent;
+                    this panel is the place to manage it manually.
+                  </p>
+                </div>
+                <span
+                  className={`update-state ${youtubeRuntime?.updateAvailable ? "available" : "current"}`}
+                >
+                  {youtubeRuntime?.updateAvailable
+                    ? "Update available"
+                    : youtubeRuntime?.supported
+                      ? "Maintained"
+                      : "Unavailable"}
+                </span>
+              </div>
+              <div className="storage-facts">
+                <Definition
+                  label="Installed version"
+                  value={youtubeRuntime?.installedVersion || "Unknown"}
+                />
+                <Definition
+                  label="Last checked"
+                  value={youtubeRuntime?.lastCheckedAt ? timeAgo(youtubeRuntime.lastCheckedAt) : "Not checked yet"}
+                />
+                <Definition
+                  label="Automatic checks"
+                  value={youtubeRuntime?.automaticUpdatesEnabled ? "Daily" : "Not configured"}
+                />
+              </div>
+              {youtubeRuntime?.updateAvailable && (
+                <div className="alert warning" role="status">
+                  {youtubeRuntime.updateNoticeVisible
+                    ? `YouTube downloads are failing and yt-dlp ${youtubeRuntime.latestVersion || "a newer version"} is available. Update the independent downloader and retry the failed import.`
+                    : `A verified yt-dlp ${youtubeRuntime.latestVersion || "newer"} release is available. This update is managed separately from LessonCue.`}
+                </div>
+              )}
+              {!youtubeRuntime?.supported && (
+                <p className="settings-copy">
+                  Independent updates are available on the native Linux server
+                  installation after the current installer has installed the
+                  updater services.
+                </p>
+              )}
+              {youtubeRuntime?.lastUpdateMessage && youtubeRuntime.lastUpdatedAt && (
+                <div className={`alert ${youtubeRuntime.lastUpdateSucceeded === false ? "error" : "success"}`} role="status">
+                  {youtubeRuntime.lastUpdateMessage} <span className="muted">({timeAgo(youtubeRuntime.lastUpdatedAt)})</span>
+                </div>
+              )}
+              {youtubeRuntime?.error && youtubeRuntime.updateNoticeVisible && (
+                <div className="alert error" role="alert">{youtubeRuntime.error}</div>
+              )}
+              <div className="head-actions">
+                <button
+                  className="button"
+                  onClick={checkYoutubeRuntime}
+                  disabled={checkingYoutubeRuntime || updatingYoutubeRuntime || !youtubeRuntime?.supported}
+                >
+                  {checkingYoutubeRuntime ? "Checking…" : "Check now"}
+                </button>
+                <button
+                  className="button primary"
+                  onClick={updateYoutubeRuntime}
+                  disabled={checkingYoutubeRuntime || updatingYoutubeRuntime || !youtubeRuntime?.supported}
+                >
+                  {updatingYoutubeRuntime ? "Queuing…" : "Update yt-dlp now"}
+                </button>
+              </div>
             </CollapsibleSettingsSection>
           )}
           {canServiceSettings && (

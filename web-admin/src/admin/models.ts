@@ -45,6 +45,7 @@ export type Bootstrap = {
   mediaFormats: MediaFormats;
   mediaConverters: MediaConverterStatus;
   accountEmail: { configured: boolean; provider: string };
+  youtubeRuntime?: YouTubeRuntimeStatus;
   counts: { classes: number; lessons: number; media: number; screens: number };
   /** Service Admin switch: hides Activities from teacher-facing surfaces. */
   activitiesEnabled: boolean;
@@ -216,6 +217,7 @@ export type SupportBundle = {
   };
   backup: BackupPolicyStatus;
   update: UpdateStatus;
+  youtubeRuntime?: YouTubeRuntimeStatus;
   diagnosticErrors?: string[];
 };
 export type UpdateStatus = {
@@ -234,6 +236,22 @@ export type UpdateStatus = {
   lastInstallMessage?: string;
   rollbackSnapshotAvailable: boolean;
   rollbackTargetVersion?: string;
+};
+export type YouTubeRuntimeStatus = {
+  supported: boolean;
+  automaticUpdatesEnabled: boolean;
+  installedVersion?: string;
+  latestVersion?: string;
+  updateAvailable: boolean;
+  updateNoticeVisible: boolean;
+  consecutiveFailures: number;
+  lastFailureAt?: string;
+  lastCheckedAt?: string;
+  lastUpdatedAt?: string;
+  lastUpdateSucceeded?: boolean;
+  lastUpdateMessage?: string;
+  error?: string;
+  operationPending: boolean;
 };
 export type LocalAddressStatus = {
   hostname: string;

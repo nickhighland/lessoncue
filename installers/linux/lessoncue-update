@@ -87,6 +87,11 @@ FAILED=/opt/lessoncue.failed
 ROLLBACK_REJECTED=/opt/lessoncue.rollback-rejected
 MEDIA_WORKER=/usr/local/libexec/lessoncue-media-worker
 MEDIA_RENDER_RULE=/etc/udev/rules.d/99-lessoncue-render.rules
+YTDLP_UPDATE_SERVICE=/etc/systemd/system/lessoncue-ytdlp-update.service
+YTDLP_UPDATE_PATH=/etc/systemd/system/lessoncue-ytdlp-update.path
+YTDLP_UPDATE_TIMER=/etc/systemd/system/lessoncue-ytdlp-update.timer
+YTDLP_UPDATE_PATH_WANTS=/etc/systemd/system/multi-user.target.wants/lessoncue-ytdlp-update.path
+YTDLP_UPDATE_TIMER_WANTS=/etc/systemd/system/timers.target.wants/lessoncue-ytdlp-update.timer
 SNAPSHOT_FAILURE_REASON=""
 UPDATE_TRANSACTION_ACTIVE=false
 APP_SWAPPED=false
@@ -173,6 +178,38 @@ refresh_render_device_rules() {
   fi
 }
 
+stop_ytdlp_updater() {
+  # A full LessonCue update replaces /opt/lessoncue. Serialize that operation
+  # with the independent yt-dlp updater so it cannot run the old binary while
+  # the application tree is being staged or swapped.
+  systemctl stop lessoncue-ytdlp-update.timer lessoncue-ytdlp-update.path lessoncue-ytdlp-update.service >/dev/null 2>&1 || true
+}
+
+start_ytdlp_updater() {
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  if [[ -f "${YTDLP_UPDATE_PATH}" ]]; then
+    systemctl enable --now lessoncue-ytdlp-update.path >/dev/null 2>&1 || true
+  fi
+  if [[ -f "${YTDLP_UPDATE_TIMER}" ]]; then
+    systemctl enable --now lessoncue-ytdlp-update.timer >/dev/null 2>&1 || true
+  fi
+}
+
+preserve_independent_ytdlp() {
+  local previous=/opt/lessoncue.previous/yt-dlp target=/opt/lessoncue/yt-dlp
+  local previous_version="" target_version=""
+  [[ -x "${previous}" && -x "${target}" ]] || return 0
+  previous_version="$("${previous}" --version 2>/dev/null || true)"
+  target_version="$("${target}" --version 2>/dev/null || true)"
+  [[ "${previous_version}" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] || return 0
+  [[ "${target_version}" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] || return 0
+  if [[ "${previous_version}" != "${target_version}" ]] &&
+     [[ "$(printf '%s\n%s\n' "${previous_version}" "${target_version}" | sort -V | tail -n 1)" == "${previous_version}" ]]; then
+    install -o root -g root -m 0755 "${previous}" "${target}"
+    echo "Preserved independently managed yt-dlp ${previous_version} over bundled ${target_version}."
+  fi
+}
+
 prepare_update_snapshot() {
   local temporary="${ROLLBACK_ROOT}.new"
   SNAPSHOT_FAILURE_REASON=""
@@ -219,6 +256,11 @@ prepare_update_snapshot() {
   snapshot_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service "${temporary}" || return 1
   snapshot_path /etc/systemd/system/lessoncue.service "${temporary}" || return 1
   snapshot_path /etc/systemd/system/lessoncue-cloudflared.service "${temporary}" || return 1
+  snapshot_path "${YTDLP_UPDATE_SERVICE}" "${temporary}" || return 1
+  snapshot_path "${YTDLP_UPDATE_PATH}" "${temporary}" || return 1
+  snapshot_path "${YTDLP_UPDATE_TIMER}" "${temporary}" || return 1
+  snapshot_path "${YTDLP_UPDATE_PATH_WANTS}" "${temporary}" || return 1
+  snapshot_path "${YTDLP_UPDATE_TIMER_WANTS}" "${temporary}" || return 1
   snapshot_path "${MEDIA_WORKER}" "${temporary}" || return 1
   snapshot_path "${MEDIA_RENDER_RULE}" "${temporary}" || return 1
   snapshot_path /etc/lessoncue "${temporary}" || return 1
@@ -247,6 +289,7 @@ prepare_update_snapshot() {
 restore_update_snapshot() {
   local operation="${1:-update}" restored=true
   set +e
+  stop_ytdlp_updater
   systemctl stop lessoncue.service >/dev/null 2>&1
 
   if [[ "${APP_SWAPPED}" == true ]]; then
@@ -273,6 +316,11 @@ restore_update_snapshot() {
   restore_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service || restored=false
   restore_path /etc/systemd/system/lessoncue.service || restored=false
   restore_path /etc/systemd/system/lessoncue-cloudflared.service || restored=false
+  restore_path "${YTDLP_UPDATE_SERVICE}" || restored=false
+  restore_path "${YTDLP_UPDATE_PATH}" || restored=false
+  restore_path "${YTDLP_UPDATE_TIMER}" || restored=false
+  restore_path "${YTDLP_UPDATE_PATH_WANTS}" || restored=false
+  restore_path "${YTDLP_UPDATE_TIMER_WANTS}" || restored=false
   restore_path "${MEDIA_WORKER}" || restored=false
   restore_path "${MEDIA_RENDER_RULE}" || restored=false
   refresh_render_device_rules
@@ -281,6 +329,7 @@ restore_update_snapshot() {
 
   local rollback_port
   rollback_port="$(cat /var/lib/lessoncue/config/http-port 2>/dev/null || printf '80')"
+  start_ytdlp_updater
   if [[ "${restored}" == true ]] && systemctl start lessoncue.service; then
     for ((attempt = 1; attempt <= READINESS_ATTEMPTS; attempt++)); do
       if curl -fsS "http://127.0.0.1:${rollback_port}/health/ready" >/dev/null; then
@@ -329,6 +378,11 @@ prepare_manual_rollback_safety() {
   snapshot_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service "${MANUAL_SAFETY_ROOT}" || return 1
   snapshot_path /etc/systemd/system/lessoncue.service "${MANUAL_SAFETY_ROOT}" || return 1
   snapshot_path /etc/systemd/system/lessoncue-cloudflared.service "${MANUAL_SAFETY_ROOT}" || return 1
+  snapshot_path "${YTDLP_UPDATE_SERVICE}" "${MANUAL_SAFETY_ROOT}" || return 1
+  snapshot_path "${YTDLP_UPDATE_PATH}" "${MANUAL_SAFETY_ROOT}" || return 1
+  snapshot_path "${YTDLP_UPDATE_TIMER}" "${MANUAL_SAFETY_ROOT}" || return 1
+  snapshot_path "${YTDLP_UPDATE_PATH_WANTS}" "${MANUAL_SAFETY_ROOT}" || return 1
+  snapshot_path "${YTDLP_UPDATE_TIMER_WANTS}" "${MANUAL_SAFETY_ROOT}" || return 1
   snapshot_path "${MEDIA_WORKER}" "${MANUAL_SAFETY_ROOT}" || return 1
   snapshot_path "${MEDIA_RENDER_RULE}" "${MANUAL_SAFETY_ROOT}" || return 1
   snapshot_path /etc/lessoncue "${MANUAL_SAFETY_ROOT}" || return 1
@@ -339,6 +393,7 @@ prepare_manual_rollback_safety() {
 restore_manual_rollback_safety() {
   local restored=true safety_port
   set +e
+  stop_ytdlp_updater
   systemctl stop lessoncue.service >/dev/null 2>&1
   rm -rf "${ROLLBACK_REJECTED}"
   if [[ -d /opt/lessoncue ]]; then mv /opt/lessoncue "${ROLLBACK_REJECTED}"; fi
@@ -362,6 +417,11 @@ restore_manual_rollback_safety() {
   restore_path /etc/systemd/system/multi-user.target.wants/lessoncue-update-recovery.service "${MANUAL_SAFETY_ROOT}" || restored=false
   restore_path /etc/systemd/system/lessoncue.service "${MANUAL_SAFETY_ROOT}" || restored=false
   restore_path /etc/systemd/system/lessoncue-cloudflared.service "${MANUAL_SAFETY_ROOT}" || restored=false
+  restore_path "${YTDLP_UPDATE_SERVICE}" "${MANUAL_SAFETY_ROOT}" || restored=false
+  restore_path "${YTDLP_UPDATE_PATH}" "${MANUAL_SAFETY_ROOT}" || restored=false
+  restore_path "${YTDLP_UPDATE_TIMER}" "${MANUAL_SAFETY_ROOT}" || restored=false
+  restore_path "${YTDLP_UPDATE_PATH_WANTS}" "${MANUAL_SAFETY_ROOT}" || restored=false
+  restore_path "${YTDLP_UPDATE_TIMER_WANTS}" "${MANUAL_SAFETY_ROOT}" || restored=false
   restore_path "${MEDIA_WORKER}" "${MANUAL_SAFETY_ROOT}" || restored=false
   restore_path "${MEDIA_RENDER_RULE}" "${MANUAL_SAFETY_ROOT}" || restored=false
   refresh_render_device_rules
@@ -369,6 +429,7 @@ restore_manual_rollback_safety() {
   systemctl daemon-reload || restored=false
 
   safety_port="$(cat /var/lib/lessoncue/config/http-port 2>/dev/null || printf '80')"
+  start_ytdlp_updater
   if [[ "${restored}" == true ]] && systemctl start lessoncue.service; then
     for ((attempt = 1; attempt <= READINESS_ATTEMPTS; attempt++)); do
       if curl -fsS "http://127.0.0.1:${safety_port}/health/ready" >/dev/null; then
@@ -410,8 +471,10 @@ perform_manual_rollback() {
     return 1
   fi
 
+  stop_ytdlp_updater
   systemctl stop lessoncue.service
   if ! prepare_manual_rollback_safety; then
+    start_ytdlp_updater
     systemctl start lessoncue.service || true
     write_update_result false "${VERSION}" \
       "LessonCue could not create and verify the required pre-rollback safety snapshot. The current installation was not changed."
@@ -1026,6 +1089,11 @@ fi
 if [[ ! -x "${WORKDIR}/archive/lessoncue-update" ]]; then
   fail_update "The release archive is missing the protected LessonCue updater."
 fi
+for ytdlp_unit in lessoncue-ytdlp-update.service lessoncue-ytdlp-update.path lessoncue-ytdlp-update.timer; do
+  if [[ ! -f "${WORKDIR}/archive/${ytdlp_unit}" ]]; then
+    fail_update "The release archive is missing ${ytdlp_unit}."
+  fi
+done
 
 # The signed archive may contain a newer updater than the one systemd started.
 # Run that verified candidate directly from the release bundle before taking
@@ -1055,6 +1123,7 @@ cp -a "${WORKDIR}/archive/payload/." "${STAGED}/"
 chown -R root:root "${STAGED}"
 
 # Stop all writers before taking a consistent database/configuration snapshot.
+stop_ytdlp_updater
 systemctl stop lessoncue.service
 if ! prepare_update_snapshot; then
   snapshot_reason="${SNAPSHOT_FAILURE_REASON:-an unknown protected snapshot step failed}"
@@ -1062,6 +1131,7 @@ if ! prepare_update_snapshot; then
   rm -rf "${ROLLBACK_ROOT}.new" ||
     echo "Pre-update snapshot cleanup also failed." >&2
   systemctl start lessoncue.service || true
+  start_ytdlp_updater
   write_update_result false "${VERSION}" \
     "LessonCue could not create and verify the required pre-update snapshot. Snapshot detail: ${snapshot_reason}. The existing installation was not changed."
   echo "The update was cancelled because the pre-update snapshot could not be created."
@@ -1086,6 +1156,9 @@ install -m 0644 "${WORKDIR}/archive/lessoncue-update.path" /etc/systemd/system/l
 install -m 0644 "${WORKDIR}/archive/lessoncue-update-recovery.service" /etc/systemd/system/lessoncue-update-recovery.service
 install -m 0644 "${WORKDIR}/archive/lessoncue.service" /etc/systemd/system/lessoncue.service
 install -m 0644 "${WORKDIR}/archive/lessoncue-cloudflared.service" /etc/systemd/system/lessoncue-cloudflared.service
+install -m 0644 "${WORKDIR}/archive/lessoncue-ytdlp-update.service" /etc/systemd/system/lessoncue-ytdlp-update.service
+install -m 0644 "${WORKDIR}/archive/lessoncue-ytdlp-update.path" /etc/systemd/system/lessoncue-ytdlp-update.path
+install -m 0644 "${WORKDIR}/archive/lessoncue-ytdlp-update.timer" /etc/systemd/system/lessoncue-ytdlp-update.timer
 systemctl daemon-reload
 systemctl enable lessoncue-update-recovery.service
 
@@ -1110,6 +1183,7 @@ if [[ -d /opt/lessoncue ]]; then
   APP_SWAPPED=true
 fi
 mv "${STAGED}" /opt/lessoncue
+preserve_independent_ytdlp
 
 # The optional URL shortener, if this installation asked for one. It lives
 # beside /opt/lessoncue rather than inside it, because that directory is
@@ -1174,6 +1248,7 @@ if systemctl start lessoncue.service; then
       rm -f "${TRANSACTION_MARKER}"
       write_update_result true "${VERSION}" \
         "LessonCue installed the update successfully. A protected last-known-good rollback snapshot is available."
+      start_ytdlp_updater
       echo "LessonCue ${VERSION} installed successfully."
       exit 0
     fi

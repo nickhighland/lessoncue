@@ -836,7 +836,7 @@ public static class AdminApi
         admin.MapGet("/admin/bootstrap", async (LessonCueDb db, PairingCodeService pairing, StorageService storage,
             UpdateService updates, LocalAddressService localAddress, HttpPortService httpPort,
             CloudflareTunnelService cloudflareTunnel, HardwareAccelerationService hardwareAcceleration,
-            ActivityAvailabilityService activityAvailability,
+            ActivityAvailabilityService activityAvailability, YouTubeRuntimeUpdateService youtubeRuntime,
             BackupPolicyService backupPolicy,
             IDataProtectionProvider protection,
             HttpContext context,
@@ -902,6 +902,9 @@ public static class AdminApi
                 },
                 mediaConverters = MediaConverterCapabilities.Snapshot(),
                 update = updates.Status,
+                youtubeRuntime = canManageService || LessonCuePermissions.Has(context.User, LessonCuePermissions.Updates)
+                    ? youtubeRuntime.Status
+                    : null,
                 backupPolicy = canManageService
                     ? backupPolicy.GetStatus(organization.TimeZone)
                     : null,
@@ -4027,6 +4030,35 @@ public static class AdminApi
         });
 
         updatesAdmin.MapGet("/updates", (UpdateService updates) => Results.Ok(updates.Status));
+
+        updatesAdmin.MapGet("/updates/youtube-runtime", (YouTubeRuntimeUpdateService youtubeRuntime) =>
+            Results.Ok(youtubeRuntime.Status));
+
+        updatesAdmin.MapPost("/updates/youtube-runtime/check", async (
+            YouTubeRuntimeUpdateService youtubeRuntime, LessonCueDb db, CancellationToken ct) =>
+        {
+            var operation = await youtubeRuntime.QueueCheckAsync(ct);
+            if (operation.Success)
+            {
+                Audit(db, "server.youtube-runtime.check", Guid.Empty, "Queued independent yt-dlp update check");
+                await db.SaveChangesAsync(ct);
+                return Results.Accepted(value: operation);
+            }
+            return Results.Conflict(new { error = operation.Message, failureCode = operation.FailureCode });
+        });
+
+        updatesAdmin.MapPost("/updates/youtube-runtime/update", async (
+            YouTubeRuntimeUpdateService youtubeRuntime, LessonCueDb db, CancellationToken ct) =>
+        {
+            var operation = await youtubeRuntime.QueueUpdateAsync(ct);
+            if (operation.Success)
+            {
+                Audit(db, "server.youtube-runtime.update", Guid.Empty, "Queued independent yt-dlp update");
+                await db.SaveChangesAsync(ct);
+                return Results.Accepted(value: operation);
+            }
+            return Results.Conflict(new { error = operation.Message, failureCode = operation.FailureCode });
+        });
 
         updatesAdmin.MapPost("/updates/check", async (UpdateService updates, CancellationToken ct) =>
             Results.Ok(await updates.CheckAsync(true, ct)));

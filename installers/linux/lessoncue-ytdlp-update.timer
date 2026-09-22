@@ -1,0 +1,12 @@
+[Unit]
+Description=Check and silently maintain the LessonCue YouTube downloader
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=24h
+RandomizedDelaySec=30min
+Persistent=true
+Unit=lessoncue-ytdlp-update.service
+
+[Install]
+WantedBy=timers.target

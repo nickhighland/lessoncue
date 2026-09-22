@@ -20,6 +20,11 @@ if (args.Contains("--version", StringComparer.Ordinal))
     Console.WriteLine(UpdateService.InstalledVersion());
     return;
 }
+if (args.Contains("--youtube-runtime-update", StringComparer.Ordinal))
+{
+    Environment.ExitCode = await YouTubeRuntimeUpdateCommand.RunAsync(dataPath);
+    return;
+}
 if (DatabaseVerificationCommand.TryGetPath(args, out var databaseToVerify))
 {
     Environment.ExitCode = await DatabaseVerificationCommand.RunAsync(databaseToVerify);
@@ -113,8 +118,12 @@ builder.Services.AddSingleton(new MediaStoragePaths(dataPath));
 builder.Services.AddSingleton(services => new TroubleshootingReportBuilder(
     services.GetRequiredService<TroubleshootingLog>(),
     services.GetRequiredService<MediaStoragePaths>(),
+    services.GetRequiredService<YouTubeRuntimeUpdateService>(),
     services.GetRequiredService<LessonCue.Server.Shortener.ShortenerService>()));
 builder.Services.AddSingleton(new StorageService(dataPath));
+builder.Services.AddSingleton(services => new YouTubeRuntimeUpdateService(
+    dataPath, services.GetRequiredService<ILogger<YouTubeRuntimeUpdateService>>()));
+builder.Services.AddHostedService(services => services.GetRequiredService<YouTubeRuntimeUpdateService>());
 builder.Services.AddSingleton<UploadSessionService>();
 builder.Services.AddHostedService(services => services.GetRequiredService<UploadSessionService>());
 builder.Services.AddSingleton<HardwareAccelerationService>();
@@ -142,7 +151,13 @@ builder.Services.AddHttpClient("updates", client =>
 });
 builder.Services.AddSingleton<UpdateService>();
 builder.Services.AddHostedService(services => services.GetRequiredService<UpdateService>());
-builder.Services.AddSingleton<SupportBundleBuilder>();
+builder.Services.AddSingleton(services => new SupportBundleBuilder(
+    services.GetRequiredService<StorageService>(),
+    services.GetRequiredService<BackupPolicyService>(),
+    services.GetRequiredService<UpdateService>(),
+    services.GetRequiredService<YouTubeRuntimeUpdateService>(),
+    services.GetRequiredService<LessonCue.Server.Shortener.ShortenerService>(),
+    services.GetRequiredService<ILogger<SupportBundleBuilder>>()));
 builder.Services.AddHttpClient("cloudflare-tunnel", client => client.Timeout = TimeSpan.FromSeconds(2));
 builder.Services.AddHttpClient("account-email", client => client.Timeout = TimeSpan.FromSeconds(20));
 builder.Services.AddHttpClient("deepseek-review", client =>

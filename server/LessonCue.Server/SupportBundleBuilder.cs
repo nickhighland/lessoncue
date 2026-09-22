@@ -13,6 +13,7 @@ public sealed class SupportBundleBuilder(
     StorageService storage,
     BackupPolicyService backupPolicy,
     UpdateService updates,
+    YouTubeRuntimeUpdateService youtubeRuntime,
     ShortenerService shortener,
     ILogger<SupportBundleBuilder> logger)
 {
@@ -116,6 +117,14 @@ public sealed class SupportBundleBuilder(
                 false, null),
             issues);
 
+        var youtube = Read(
+            "youtube runtime",
+            () => youtubeRuntime.Status,
+            new YouTubeRuntimeUpdateStatus(
+                false, false, null, null, false, false, 0, null, null, null, null, null,
+                "YouTube runtime diagnostics unavailable", false),
+            issues);
+
         object shortenerSnapshot;
         try
         {
@@ -192,6 +201,7 @@ public sealed class SupportBundleBuilder(
             },
             backup,
             update,
+            youtube,
             shortenerSnapshot,
             issues);
     }
@@ -264,5 +274,6 @@ public sealed record SupportBundleSnapshot(
     object Screens,
     BackupPolicyStatus Backup,
     LessonCueUpdateStatus Update,
+    YouTubeRuntimeUpdateStatus YouTubeRuntime,
     object Shortener,
     IReadOnlyList<string> DiagnosticErrors);

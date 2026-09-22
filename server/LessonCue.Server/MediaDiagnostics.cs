@@ -158,7 +158,7 @@ public sealed record MediaVariantDiagnostic(
 
 public static class MediaDependencyDiagnostics
 {
-    public static object Build(MediaStoragePaths paths)
+    public static object Build(MediaStoragePaths paths, YouTubeRuntimeUpdateStatus? youtubeRuntime = null)
     {
         var workerCandidates = new[]
         {
@@ -187,6 +187,7 @@ public static class MediaDependencyDiagnostics
         {
             commands,
             youtube,
+            youtubeRuntime,
             mediaWorker = worker,
             storage = new
             {
@@ -225,7 +226,8 @@ public static class MediaDependencyDiagnostics
             path = selected,
             available,
             executable = available,
-            readable
+            readable,
+            installedVersion = selected is null ? null : YouTubeRuntime.TryReadVersion(selected)
         };
     }
 

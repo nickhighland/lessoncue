@@ -39,6 +39,7 @@ public sealed class YouTubeImportService(
     IServiceScopeFactory scopes,
     MediaStoragePaths paths,
     StorageService storage,
+    YouTubeRuntimeUpdateService runtimeUpdates,
     ILogger<YouTubeImportService> logger) : BackgroundService
 {
     private sealed record DownloadProfile(string Name, string Format, string? ExtractorArguments,
@@ -145,12 +146,14 @@ public sealed class YouTubeImportService(
             db.AuditEvents.Add(new AuditEvent { Actor = "system", Action = "media.youtube.download",
                 Object = item.Id.ToString(), Summary = $"Downloaded {item.FileName} to local storage using profile {selectedProfile}." });
             await db.SaveChangesAsync(ct);
+            runtimeUpdates.RecordYouTubeSuccess();
         }
         catch (Exception ex)
         {
             item.ProcessingStatus = "failed";
             item.ProcessingError = ex.Message.Length > 900 ? ex.Message[..900] : ex.Message;
             await db.SaveChangesAsync(CancellationToken.None);
+            runtimeUpdates.RecordYouTubeFailure(ex);
             logger.LogWarning(ex, "Could not import YouTube media {MediaId}", item.Id);
         }
         finally

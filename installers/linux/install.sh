@@ -25,6 +25,12 @@ if [[ ! -x "${SOURCE_DIR}/lessoncue-media-worker" ]]; then
   echo "Missing lessoncue-media-worker. Use a complete signed release archive."
   exit 1
 fi
+for ytdlp_unit in lessoncue-ytdlp-update.service lessoncue-ytdlp-update.path lessoncue-ytdlp-update.timer; do
+  if [[ ! -f "${SOURCE_DIR}/${ytdlp_unit}" ]]; then
+    echo "Missing ${ytdlp_unit}. Use a complete signed release archive."
+    exit 1
+  fi
+done
 if [[ ! -f "${SOURCE_DIR}/lessoncue-render.rules" ]]; then
   echo "Missing lessoncue-render.rules. Use a complete signed release archive."
   exit 1
@@ -74,11 +80,39 @@ HTTP_PORT="$(cat "${PORT_FILE}")"
 # to a live executable with `Text file busy`. If a later installer step fails,
 # make a best effort to bring the existing service back online.
 SERVICE_WAS_ACTIVE=false
+systemctl stop lessoncue-ytdlp-update.timer lessoncue-ytdlp-update.path lessoncue-ytdlp-update.service 2>/dev/null || true
+PRESERVED_YTDLP=""
+if [[ -f /opt/lessoncue/yt-dlp ]]; then
+  PRESERVED_YTDLP="$(mktemp /var/lib/lessoncue/.yt-dlp-preserved.XXXXXXXX)"
+  cp -a /opt/lessoncue/yt-dlp "${PRESERVED_YTDLP}"
+fi
+preserve_newer_ytdlp() {
+  local previous="$1" target="$2" previous_version="" target_version=""
+  [[ -x "${previous}" && -x "${target}" ]] || return 0
+  previous_version="$("${previous}" --version 2>/dev/null || true)"
+  target_version="$("${target}" --version 2>/dev/null || true)"
+  [[ "${previous_version}" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] || return 0
+  [[ "${target_version}" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] || return 0
+  if [[ "${previous_version}" != "${target_version}" ]] &&
+     [[ "$(printf '%s\n%s\n' "${previous_version}" "${target_version}" | sort -V | tail -n 1)" == "${previous_version}" ]]; then
+    install -o root -g root -m 0755 "${previous}" "${target}"
+    echo "Preserved independently managed yt-dlp ${previous_version} over bundled ${target_version}."
+  fi
+}
+cleanup_preserved_ytdlp() {
+  if [[ -n "${PRESERVED_YTDLP}" ]]; then rm -f "${PRESERVED_YTDLP}"; fi
+}
+# Do not let the independent downloader updater replace a binary while this
+# installer is replacing the entire /opt/lessoncue tree.
 restart_service_after_failure() {
   local exit_code=$?
   if [[ "${exit_code}" -ne 0 && "${SERVICE_WAS_ACTIVE}" == true ]]; then
     systemctl start lessoncue.service || true
   fi
+  if [[ "${exit_code}" -ne 0 && -f /etc/systemd/system/lessoncue-ytdlp-update.path ]]; then
+    systemctl enable --now lessoncue-ytdlp-update.path lessoncue-ytdlp-update.timer >/dev/null 2>&1 || true
+  fi
+  cleanup_preserved_ytdlp
   exit "${exit_code}"
 }
 trap restart_service_after_failure EXIT
@@ -90,6 +124,11 @@ fi
 install -d /opt/lessoncue
 cp -a "${PAYLOAD_DIR}/." /opt/lessoncue/
 chown -R root:root /opt/lessoncue
+if [[ -n "${PRESERVED_YTDLP}" ]]; then
+  preserve_newer_ytdlp "${PRESERVED_YTDLP}" /opt/lessoncue/yt-dlp
+fi
+cleanup_preserved_ytdlp
+PRESERVED_YTDLP=""
 install -m 0644 "${SOURCE_DIR}/lessoncue.service" /etc/systemd/system/lessoncue.service
 install -m 0644 "${SOURCE_DIR}/lessoncue-cloudflared.service" /etc/systemd/system/lessoncue-cloudflared.service
 install -m 0755 "${SOURCE_DIR}/lessoncue-update" /usr/local/sbin/lessoncue-update
@@ -153,6 +192,9 @@ rm -rf "${MEDIA_WORKER_PROBE_ROOT}"
 install -m 0644 "${SOURCE_DIR}/lessoncue-update.service" /etc/systemd/system/lessoncue-update.service
 install -m 0644 "${SOURCE_DIR}/lessoncue-update.path" /etc/systemd/system/lessoncue-update.path
 install -m 0644 "${SOURCE_DIR}/lessoncue-update-recovery.service" /etc/systemd/system/lessoncue-update-recovery.service
+install -m 0644 "${SOURCE_DIR}/lessoncue-ytdlp-update.service" /etc/systemd/system/lessoncue-ytdlp-update.service
+install -m 0644 "${SOURCE_DIR}/lessoncue-ytdlp-update.path" /etc/systemd/system/lessoncue-ytdlp-update.path
+install -m 0644 "${SOURCE_DIR}/lessoncue-ytdlp-update.timer" /etc/systemd/system/lessoncue-ytdlp-update.timer
 if [[ ! -d /etc/lessoncue ]]; then
   install -d -o root -g root -m 0755 /etc/lessoncue
 fi
@@ -191,6 +233,7 @@ if command -v ufw >/dev/null 2>&1; then ufw allow "${HTTP_PORT}/tcp" >/dev/null 
 systemctl daemon-reload
 systemctl enable --now lessoncue-update.path
 systemctl enable lessoncue-update-recovery.service
+systemctl enable --now lessoncue-ytdlp-update.path lessoncue-ytdlp-update.timer
 systemctl enable lessoncue
 systemctl restart lessoncue
 trap - EXIT

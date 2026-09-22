@@ -14,6 +14,9 @@ for required in \
   lessoncue-update.service \
   lessoncue-update.path \
   lessoncue-update-recovery.service \
+  lessoncue-ytdlp-update.service \
+  lessoncue-ytdlp-update.path \
+  lessoncue-ytdlp-update.timer \
   release-signing-public.pem; do
   if [[ ! -f "${SOURCE_DIR}/${required}" ]]; then
     echo "The signed LessonCue release is missing ${required}."
@@ -43,16 +46,19 @@ install -o root -g root -m 0755 "${SOURCE_DIR}/lessoncue-update" /usr/local/sbin
 install -o root -g root -m 0644 "${SOURCE_DIR}/lessoncue-update.service" /etc/systemd/system/lessoncue-update.service
 install -o root -g root -m 0644 "${SOURCE_DIR}/lessoncue-update.path" /etc/systemd/system/lessoncue-update.path
 install -o root -g root -m 0644 "${SOURCE_DIR}/lessoncue-update-recovery.service" /etc/systemd/system/lessoncue-update-recovery.service
+install -o root -g root -m 0644 "${SOURCE_DIR}/lessoncue-ytdlp-update.service" /etc/systemd/system/lessoncue-ytdlp-update.service
+install -o root -g root -m 0644 "${SOURCE_DIR}/lessoncue-ytdlp-update.path" /etc/systemd/system/lessoncue-ytdlp-update.path
+install -o root -g root -m 0644 "${SOURCE_DIR}/lessoncue-ytdlp-update.timer" /etc/systemd/system/lessoncue-ytdlp-update.timer
 install -o root -g root -m 0644 "${SOURCE_DIR}/release-signing-public.pem" /etc/lessoncue/release-signing-public.pem
 install -d -o lessoncue -g lessoncue -m 0750 /var/lib/lessoncue
 install -d -o lessoncue -g lessoncue -m 0700 /var/lib/lessoncue/config
 systemctl daemon-reload
-systemctl enable lessoncue-update.path lessoncue-update-recovery.service
+systemctl enable lessoncue-update.path lessoncue-update-recovery.service lessoncue-ytdlp-update.path lessoncue-ytdlp-update.timer
 
 # Release the operation lock before starting the path watcher. If an existing
 # request is pending, the repaired updater can then consume it normally.
 flock -u 9
 exec 9>&-
-systemctl start lessoncue-update.path
+systemctl start lessoncue-update.path lessoncue-ytdlp-update.path lessoncue-ytdlp-update.timer
 
 echo "LessonCue ${VERSION} protected updater repaired. The application, database, and media were not replaced."
