@@ -4,6 +4,28 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.24 — Independent YouTube downloader updates
+
+### User changes
+
+- LessonCue now checks and maintains its YouTube downloader independently from
+  full LessonCue releases.
+- Settings and the Dashboard show when a verified yt-dlp update is available,
+  with manual check and update controls. Routine downloader maintenance does
+  not use the normal LessonCue update announcement.
+- A stronger warning appears when YouTube imports are failing and an update is
+  available.
+
+### Developer changes
+
+- Added a root-owned Linux updater with daily checks, official GitHub asset and
+  SHA-256 verification, atomic replacement, rollback, and preservation of a
+  newer independently managed binary during full LessonCue upgrades.
+- Added runtime state to support and troubleshooting diagnostics, plus
+  regression coverage for silent notices and transactional updater behavior.
+- This is a server/web release only; no Android/Google TV or Vega TV artifact
+  is produced.
+
 ## v0.46.22 — Provider-safe troubleshooting reports
 
 ### User changes
