@@ -4,6 +4,26 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.20 — scheduled media synchronization
+
+### User changes
+
+- Scheduled backups can run at a selected local hour, including 2 AM for
+  off-hours operation.
+- Off-site WebDAV destinations can keep media synchronized separately from
+  encrypted database/configuration backups.
+- A named folder can be created below each WebDAV root for the archive and
+  media mirror.
+
+### Developer changes
+
+- Added hash-based WebDAV media synchronization with a managed manifest,
+  safe stale-file cleanup, and sync diagnostics.
+- Added regression coverage for scheduled timing, folder creation, media
+  add/update/delete behavior, and preservation of unrelated remote files.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
 ## v0.46.19 — universal remote initialization
 
 ### User changes

@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Globalization;
@@ -16,7 +17,8 @@ public sealed record BackupDestinationInput(
     string? Username,
     string? Secret,
     int RetentionCount,
-    int RetentionDays);
+    int RetentionDays,
+    string? FolderName = null);
 
 public sealed record BackupDestinationStatus(
     string Provider,
@@ -30,7 +32,13 @@ public sealed record BackupDestinationStatus(
     DateTimeOffset? LastUploadedAt,
     string? LastUploadedFileName,
     int? RemoteBackupCount,
-    string? LastError);
+    string? LastError,
+    string? WebDavRootUrl = null,
+    string? FolderName = null,
+    DateTimeOffset? LastMediaSyncAt = null,
+    int? LastMediaSyncAdded = null,
+    int? LastMediaSyncUpdated = null,
+    int? LastMediaSyncDeleted = null);
 
 public sealed record BackupPolicyInput(
     bool Enabled,
@@ -46,7 +54,8 @@ public sealed record BackupPolicyInput(
     string RemoteAuthentication,
     string? RemoteUsername,
     string? RemoteSecret,
-    IReadOnlyList<BackupDestinationInput>? Destinations = null);
+    IReadOnlyList<BackupDestinationInput>? Destinations = null,
+    string? MediaMode = null);
 
 public sealed record BackupPolicyStatus(
     bool Enabled,
@@ -70,13 +79,17 @@ public sealed record BackupPolicyStatus(
     DateTimeOffset? NextRunAt,
     bool Overdue,
     bool Running,
-    IReadOnlyList<BackupDestinationStatus>? Destinations = null);
+    IReadOnlyList<BackupDestinationStatus>? Destinations = null,
+    string MediaMode = "backup");
 
 public sealed class BackupPolicyService : BackgroundService
 {
+    private const string MediaSyncManifestName = ".lessoncue-media-sync.json";
     private static readonly XNamespace DavNamespace = "DAV:";
     private static readonly HttpMethod PropFindMethod = new("PROPFIND");
+    private static readonly HttpMethod MkColMethod = new("MKCOL");
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private readonly string dataPath;
     private readonly string policyPath;
     private readonly IServiceScopeFactory scopes;
     private readonly BackupService backups;
@@ -94,6 +107,7 @@ public sealed class BackupPolicyService : BackgroundService
         IHttpClientFactory clients,
         ILogger<BackupPolicyService> logger)
     {
+        this.dataPath = dataPath;
         policyPath = Path.Combine(dataPath, "config", "backup-policy.json");
         this.scopes = scopes;
         this.backups = backups;
@@ -131,6 +145,7 @@ public sealed class BackupPolicyService : BackgroundService
             throw new ArgumentException("Keep between 1 and 365 scheduled backups.");
         if (input.RetentionDays is < 1 or > 3650)
             throw new ArgumentException("Retention must be from 1 to 3,650 days.");
+        var mediaMode = NormalizeMediaMode(input.MediaMode, input.IncludeMedia);
         var secretHandling = input.SecretHandling.Trim().ToLowerInvariant();
         if (secretHandling is not ("exclude" or "include"))
             throw new ArgumentException("Choose whether server credentials are excluded or included.");
@@ -154,7 +169,9 @@ public sealed class BackupPolicyService : BackgroundService
             var provider = NormalizeProvider(requested.Provider);
             if (!providers.Add(provider))
                 throw new ArgumentException($"Configure only one {provider} backup destination.");
-            var remoteUrl = NormalizeRemoteUrl(requested.WebDavUrl);
+            var rootUrl = NormalizeRemoteUrl(requested.WebDavUrl);
+            var folderName = NormalizeFolderName(requested.FolderName);
+            var remoteUrl = AppendRemoteFolder(rootUrl, folderName);
             var authentication = requested.Authentication.Trim().ToLowerInvariant();
             if (authentication is not ("none" or "basic" or "bearer"))
                 throw new ArgumentException("Choose no authentication, basic authentication, or a bearer token.");
@@ -172,6 +189,7 @@ public sealed class BackupPolicyService : BackgroundService
                 string.Equals(destination.Provider, provider, StringComparison.OrdinalIgnoreCase));
             var sameRemote = previous is not null &&
                              string.Equals(previous.WebDavUrl, remoteUrl, StringComparison.Ordinal) &&
+                             string.Equals(previous.FolderName, folderName, StringComparison.Ordinal) &&
                              string.Equals(previous.Authentication, authentication, StringComparison.Ordinal) &&
                              string.Equals(previous.Username, username, StringComparison.Ordinal);
             var protectedRemoteSecret = sameRemote ? previous!.ProtectedSecret : null;
@@ -187,7 +205,9 @@ public sealed class BackupPolicyService : BackgroundService
             destinations.Add(new StoredBackupDestination
             {
                 Provider = provider,
+                WebDavRootUrl = rootUrl,
                 WebDavUrl = remoteUrl,
+                FolderName = folderName,
                 Authentication = authentication,
                 Username = username,
                 ProtectedSecret = protectedRemoteSecret,
@@ -196,9 +216,17 @@ public sealed class BackupPolicyService : BackgroundService
                 LastUploadedAt = sameRemote ? previous!.LastUploadedAt : null,
                 LastUploadedFileName = sameRemote ? previous!.LastUploadedFileName : null,
                 RemoteBackupCount = sameRemote ? previous!.RemoteBackupCount : null,
-                LastError = sameRemote ? previous!.LastError : null
+                LastError = sameRemote ? previous!.LastError : null,
+                LastMediaSyncAt = sameRemote ? previous!.LastMediaSyncAt : null,
+                LastMediaSyncAdded = sameRemote ? previous!.LastMediaSyncAdded : null,
+                LastMediaSyncUpdated = sameRemote ? previous!.LastMediaSyncUpdated : null,
+                LastMediaSyncDeleted = sameRemote ? previous!.LastMediaSyncDeleted : null
             });
         }
+
+        if (mediaMode == "sync" && destinations.Count == 0)
+            throw new ArgumentException(
+                "Media sync requires at least one configured WebDAV destination.");
 
         var legacy = destinations.FirstOrDefault(destination =>
             string.Equals(destination.Provider, "webdav", StringComparison.OrdinalIgnoreCase));
@@ -212,7 +240,8 @@ public sealed class BackupPolicyService : BackgroundService
             Frequency = frequency,
             HourLocal = input.HourLocal,
             WeeklyDay = frequency == "weekly" ? input.WeeklyDay : null,
-            IncludeMedia = input.IncludeMedia,
+            IncludeMedia = mediaMode == "backup",
+            MediaMode = mediaMode,
             RetentionCount = input.RetentionCount,
             RetentionDays = input.RetentionDays,
             SecretHandling = secretHandling,
@@ -303,7 +332,7 @@ public sealed class BackupPolicyService : BackgroundService
                 var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
                 var record = await backups.CreateAsync(
                     db,
-                    policy.IncludeMedia,
+                    ResolveMediaMode(policy) == "backup",
                     "scheduled-backup",
                     ct,
                     password,
@@ -319,13 +348,20 @@ public sealed class BackupPolicyService : BackgroundService
                     try
                     {
                         await UploadRemoteAsync(destination, record, ct);
+                        var mediaSync = ResolveMediaMode(policy) == "sync"
+                            ? await SyncMediaAsync(destination, ct)
+                            : null;
                         var remaining = await PruneRemoteAsync(destination, ct);
                         destinations[index] = destination with
                         {
                             LastUploadedAt = DateTimeOffset.UtcNow,
                             LastUploadedFileName = record.FileName,
                             RemoteBackupCount = remaining,
-                            LastError = null
+                            LastError = null,
+                            LastMediaSyncAt = mediaSync?.CompletedAt ?? destination.LastMediaSyncAt,
+                            LastMediaSyncAdded = mediaSync?.Added ?? destination.LastMediaSyncAdded,
+                            LastMediaSyncUpdated = mediaSync?.Updated ?? destination.LastMediaSyncUpdated,
+                            LastMediaSyncDeleted = mediaSync?.Deleted ?? destination.LastMediaSyncDeleted
                         };
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
@@ -349,6 +385,7 @@ public sealed class BackupPolicyService : BackgroundService
                     {
                         record.FileName,
                         remote = destinations.Count,
+                        mediaMode = ResolveMediaMode(policy),
                         verification.FileCount
                     })
                 });
@@ -387,9 +424,9 @@ public sealed class BackupPolicyService : BackgroundService
     {
         var path = backups.Resolve(record.FileName)
                    ?? throw new FileNotFoundException("The scheduled backup file is missing.");
-        var target = new Uri(
-            new Uri(destination.WebDavUrl!, UriKind.Absolute),
-            Uri.EscapeDataString(record.FileName));
+        var baseUri = new Uri(destination.WebDavUrl!, UriKind.Absolute);
+        await EnsureRemoteCollectionAsync(destination, baseUri, ct);
+        var target = RemoteUri(baseUri, record.FileName);
         using var request = new HttpRequestMessage(HttpMethod.Put, target);
         var secret = string.IsNullOrEmpty(destination.ProtectedSecret)
             ? null
@@ -409,6 +446,423 @@ public sealed class BackupPolicyService : BackgroundService
                     $"The {destination.Provider} WebDAV target rejected the backup ({(int)response.StatusCode}).");
         }
     }
+
+    private async Task<MediaSyncResult> SyncMediaAsync(
+        StoredBackupDestination destination,
+        CancellationToken ct)
+    {
+        var localRoot = Path.Combine(dataPath, "media");
+        var baseUri = new Uri(destination.WebDavUrl!, UriKind.Absolute);
+        await EnsureRemoteCollectionAsync(destination, baseUri, ct);
+        var mediaUri = RemoteUri(baseUri, "media/");
+        await EnsureRemoteCollectionAsync(destination, mediaUri, ct);
+
+        var remote = await ReadRemoteMediaFilesAsync(destination, mediaUri, ct);
+        var previous = await ReadMediaSyncManifestAsync(destination, mediaUri, ct);
+        var local = await BuildLocalMediaManifestAsync(localRoot, ct);
+
+        var added = 0;
+        var updated = 0;
+        var deleted = 0;
+
+        var directories = local.Files.Keys
+            .Select(path => Path.GetDirectoryName(path)?.Replace('\\', '/'))
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path!)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(path => path.Count(value => value == '/'))
+            .ThenBy(path => path, StringComparer.Ordinal)
+            .ToList();
+        foreach (var directory in directories)
+        {
+            if (remote.Directories.Contains(directory)) continue;
+            await EnsureRemoteCollectionAsync(
+                destination,
+                RemoteUri(mediaUri, directory + "/"),
+                ct);
+            remote.Directories.Add(directory);
+        }
+
+        foreach (var pair in local.Files.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            var relativePath = pair.Key;
+            var expected = pair.Value;
+            var unchanged = previous?.Files.TryGetValue(relativePath, out var previousFile) == true &&
+                            previousFile == expected &&
+                            remote.Files.ContainsKey(relativePath);
+            if (unchanged) continue;
+
+            var sourcePath = Path.Combine(
+                localRoot,
+                relativePath.Replace('/', Path.DirectorySeparatorChar));
+            await PutRemoteFileAsync(
+                destination,
+                RemoteUri(mediaUri, relativePath),
+                sourcePath,
+                "application/octet-stream",
+                ct);
+            if (remote.Files.ContainsKey(relativePath)) updated++;
+            else added++;
+            remote.Files[relativePath] = new RemoteMediaFile(relativePath, expected.Bytes);
+        }
+
+        if (previous is not null)
+        {
+            foreach (var relativePath in previous.Files.Keys
+                         .Except(local.Files.Keys, StringComparer.Ordinal)
+                         .OrderBy(path => path, StringComparer.Ordinal))
+            {
+                if (!remote.Files.ContainsKey(relativePath)) continue;
+                await DeleteRemotePathAsync(
+                    destination,
+                    RemoteUri(mediaUri, relativePath),
+                    "media cleanup",
+                    ct);
+                remote.Files.Remove(relativePath);
+                deleted++;
+            }
+        }
+
+        var manifest = new MediaSyncManifest(
+            "LessonCue",
+            1,
+            DateTimeOffset.UtcNow,
+            local.Files);
+        var manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest, JsonOptions);
+        await PutRemoteContentAsync(
+            destination,
+            RemoteUri(mediaUri, MediaSyncManifestName),
+            manifestBytes,
+            "application/json",
+            "media sync manifest",
+            ct);
+
+        return new MediaSyncResult(DateTimeOffset.UtcNow, added, updated, deleted);
+    }
+
+    private async Task EnsureRemoteCollectionAsync(
+        StoredBackupDestination destination,
+        Uri uri,
+        CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(MkColMethod, uri);
+        AddRemoteAuthorization(request, destination, UnprotectSecret(destination));
+        var response = await clients.CreateClient("backup-offsite").SendAsync(request, ct);
+        using (response)
+        {
+            if (response.IsSuccessStatusCode ||
+                response.StatusCode == System.Net.HttpStatusCode.MethodNotAllowed)
+                return;
+            throw new IOException(
+                $"The {destination.Provider} WebDAV folder could not be created ({(int)response.StatusCode}).");
+        }
+    }
+
+    private async Task<RemoteMediaState> ReadRemoteMediaFilesAsync(
+        StoredBackupDestination destination,
+        Uri mediaUri,
+        CancellationToken ct)
+    {
+        var files = new Dictionary<string, RemoteMediaFile>(StringComparer.Ordinal);
+        var directories = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Queue<(Uri Uri, string RelativePath)>();
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        pending.Enqueue((mediaUri, ""));
+
+        while (pending.Count > 0)
+        {
+            var current = pending.Dequeue();
+            if (!visited.Add(current.Uri.AbsoluteUri)) continue;
+            var resources = await ReadRemoteResourcesAsync(
+                destination, current.Uri, mediaUri, ct);
+            foreach (var resource in resources)
+            {
+                if (resource.RelativePath.Length == 0 ||
+                    string.Equals(resource.RelativePath, MediaSyncManifestName, StringComparison.Ordinal))
+                    continue;
+                if (resource.IsCollection)
+                {
+                    directories.Add(resource.RelativePath);
+                    pending.Enqueue((resource.Uri, resource.RelativePath));
+                }
+                else
+                {
+                    files[resource.RelativePath] = new RemoteMediaFile(
+                        resource.RelativePath,
+                        resource.Bytes);
+                }
+            }
+        }
+        return new RemoteMediaState(files, directories);
+    }
+
+    private async Task<List<RemoteResource>> ReadRemoteResourcesAsync(
+        StoredBackupDestination destination,
+        Uri parentUri,
+        Uri mediaUri,
+        CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(PropFindMethod, parentUri);
+        request.Headers.Add("Depth", "1");
+        request.Content = new StringContent(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?><d:propfind xmlns:d=\"DAV:\"><d:prop><d:resourcetype /><d:getcontentlength /></d:prop></d:propfind>",
+            Encoding.UTF8,
+            "application/xml");
+        AddRemoteAuthorization(request, destination, UnprotectSecret(destination));
+        var response = await clients.CreateClient("backup-offsite")
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        using (response)
+        {
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return [];
+            if ((int)response.StatusCode is not (200 or 207))
+                throw new IOException(
+                    $"The {destination.Provider} media folder could not be listed ({(int)response.StatusCode}).");
+            await using var content = await response.Content.ReadAsStreamAsync(ct);
+            return await ParseRemoteResourcesAsync(content, parentUri, mediaUri, ct);
+        }
+    }
+
+    private static async Task<List<RemoteResource>> ParseRemoteResourcesAsync(
+        Stream content,
+        Uri parentUri,
+        Uri mediaUri,
+        CancellationToken ct)
+    {
+        var settings = new XmlReaderSettings
+        {
+            Async = true,
+            DtdProcessing = DtdProcessing.Prohibit,
+            XmlResolver = null,
+            MaxCharactersInDocument = 2_000_000
+        };
+        using var reader = XmlReader.Create(content, settings);
+        var document = await XDocument.LoadAsync(reader, LoadOptions.None, ct);
+        var resources = new List<RemoteResource>();
+        foreach (var response in document.Descendants(DavNamespace + "response"))
+        {
+            var href = (string?)response.Element(DavNamespace + "href");
+            if (string.IsNullOrWhiteSpace(href)) continue;
+            Uri? uri = Uri.TryCreate(href, UriKind.Absolute, out var absolute)
+                ? absolute
+                : Uri.TryCreate(parentUri, href, out var relative) ? relative : null;
+            if (uri is null) continue;
+            var relativePath = RelativeRemotePath(mediaUri, uri);
+            if (relativePath is null) continue;
+            var isCollection = response
+                .Descendants(DavNamespace + "resourcetype")
+                .Elements(DavNamespace + "collection")
+                .Any();
+            var lengthText = (string?)response
+                .Descendants(DavNamespace + "getcontentlength")
+                .FirstOrDefault();
+            long? length = long.TryParse(
+                lengthText,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var parsedLength)
+                ? parsedLength
+                : null;
+            resources.Add(new RemoteResource(relativePath, uri, isCollection, length));
+        }
+        return resources
+            .GroupBy(resource => resource.RelativePath, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToList();
+    }
+
+    private async Task<MediaSyncManifest?> ReadMediaSyncManifestAsync(
+        StoredBackupDestination destination,
+        Uri mediaUri,
+        CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            RemoteUri(mediaUri, MediaSyncManifestName));
+        AddRemoteAuthorization(request, destination, UnprotectSecret(destination));
+        var response = await clients.CreateClient("backup-offsite")
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        using (response)
+        {
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return null;
+            if (!response.IsSuccessStatusCode)
+                throw new IOException(
+                    $"The {destination.Provider} media sync manifest could not be read ({(int)response.StatusCode}).");
+            await using var content = await response.Content.ReadAsStreamAsync(ct);
+            try
+            {
+                var manifest = await JsonSerializer.DeserializeAsync<MediaSyncManifest>(
+                    content, JsonOptions, ct);
+                if (manifest is null ||
+                    !string.Equals(manifest.Product, "LessonCue", StringComparison.Ordinal) ||
+                    manifest.FormatVersion != 1 ||
+                    manifest.Files is null ||
+                    manifest.Files.Count > 100_000 ||
+                    manifest.Files.Any(pair =>
+                        !IsSafeMediaRelativePath(pair.Key) ||
+                        pair.Value.Bytes < 0 ||
+                        pair.Value.Sha256.Length != 64))
+                    return null;
+                return manifest;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+    }
+
+    private static async Task<MediaSyncManifest> BuildLocalMediaManifestAsync(
+        string localRoot,
+        CancellationToken ct)
+    {
+        var files = new Dictionary<string, MediaSyncManifestFile>(StringComparer.Ordinal);
+        if (!Directory.Exists(localRoot)) return new MediaSyncManifest(
+            "LessonCue", 1, DateTimeOffset.UtcNow, files);
+
+        foreach (var path in Directory.EnumerateFiles(localRoot, "*", SearchOption.AllDirectories)
+                     .OrderBy(path => path, StringComparer.Ordinal))
+        {
+            var relativePath = Path.GetRelativePath(localRoot, path).Replace('\\', '/');
+            if (!IsSafeMediaRelativePath(relativePath) ||
+                relativePath.Equals("temporary", StringComparison.OrdinalIgnoreCase) ||
+                relativePath.StartsWith("temporary/", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var info = new FileInfo(path);
+            var hash = await HashFileAsync(path, ct);
+            files[relativePath] = new MediaSyncManifestFile(
+                info.Length,
+                Convert.ToHexString(hash).ToLowerInvariant());
+        }
+        return new MediaSyncManifest("LessonCue", 1, DateTimeOffset.UtcNow, files);
+    }
+
+    private async Task PutRemoteFileAsync(
+        StoredBackupDestination destination,
+        Uri target,
+        string sourcePath,
+        string contentType,
+        CancellationToken ct)
+    {
+        await using var stream = File.OpenRead(sourcePath);
+        using var request = new HttpRequestMessage(HttpMethod.Put, target)
+        {
+            Content = new StreamContent(stream)
+        };
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        request.Content.Headers.ContentLength = stream.Length;
+        AddRemoteAuthorization(request, destination, UnprotectSecret(destination));
+        var response = await clients.CreateClient("backup-offsite")
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+                throw new IOException(
+                    $"The {destination.Provider} WebDAV target rejected a media file ({(int)response.StatusCode}).");
+        }
+    }
+
+    private async Task PutRemoteContentAsync(
+        StoredBackupDestination destination,
+        Uri target,
+        byte[] content,
+        string contentType,
+        string description,
+        CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, target)
+        {
+            Content = new ByteArrayContent(content)
+        };
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        request.Content.Headers.ContentLength = content.Length;
+        AddRemoteAuthorization(request, destination, UnprotectSecret(destination));
+        var response = await clients.CreateClient("backup-offsite")
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+                throw new IOException(
+                    $"The {destination.Provider} WebDAV target rejected the {description} ({(int)response.StatusCode}).");
+        }
+    }
+
+    private async Task DeleteRemotePathAsync(
+        StoredBackupDestination destination,
+        Uri target,
+        string description,
+        CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Delete, target);
+        AddRemoteAuthorization(request, destination, UnprotectSecret(destination));
+        var response = await clients.CreateClient("backup-offsite").SendAsync(request, ct);
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode &&
+                response.StatusCode != System.Net.HttpStatusCode.NotFound)
+                throw new IOException(
+                    $"The {destination.Provider} WebDAV target rejected {description} ({(int)response.StatusCode}).");
+        }
+    }
+
+    private string? UnprotectSecret(StoredBackupDestination destination) =>
+        string.IsNullOrEmpty(destination.ProtectedSecret)
+            ? null
+            : protector.Unprotect(destination.ProtectedSecret);
+
+    private static Uri RemoteUri(Uri baseUri, string relativePath)
+    {
+        var parts = relativePath.Replace('\\', '/')
+            .Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .Select(Uri.EscapeDataString);
+        var relative = string.Join('/', parts);
+        if (relativePath.EndsWith("/", StringComparison.Ordinal)) relative += "/";
+        return new Uri(baseUri, relative);
+    }
+
+    private static string? RelativeRemotePath(Uri baseUri, Uri candidate)
+    {
+        if (!string.Equals(candidate.Scheme, baseUri.Scheme, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(candidate.Host, baseUri.Host, StringComparison.OrdinalIgnoreCase) ||
+            candidate.Port != baseUri.Port ||
+            !string.IsNullOrEmpty(candidate.Query) ||
+            !string.IsNullOrEmpty(candidate.Fragment))
+            return null;
+        var basePath = baseUri.AbsolutePath.EndsWith("/", StringComparison.Ordinal)
+            ? baseUri.AbsolutePath
+            : baseUri.AbsolutePath + "/";
+        if (!candidate.AbsolutePath.StartsWith(basePath, StringComparison.Ordinal)) return null;
+        var relative = Uri.UnescapeDataString(candidate.AbsolutePath[basePath.Length..]).Trim('/');
+        return IsSafeMediaRelativePath(relative) || relative.Length == 0 ? relative : null;
+    }
+
+    private static async Task<byte[]> HashFileAsync(string path, CancellationToken ct)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        await using var input = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            1024 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        var buffer = new byte[1024 * 1024];
+        while (true)
+        {
+            var read = await input.ReadAsync(buffer, ct);
+            if (read == 0) break;
+            hash.AppendData(buffer, 0, read);
+        }
+        return hash.GetHashAndReset();
+    }
+
+    private static bool IsSafeMediaRelativePath(string path) =>
+        !string.IsNullOrWhiteSpace(path) &&
+        !path.StartsWith("/", StringComparison.Ordinal) &&
+        !path.Contains('\\') &&
+        !path.Split('/').Any(part => part is "" or "." or "..") &&
+        !path.Equals(MediaSyncManifestName, StringComparison.Ordinal);
 
     private async Task<int> PruneRemoteAsync(
         StoredBackupDestination destination,
@@ -574,6 +1028,7 @@ public sealed class BackupPolicyService : BackgroundService
 
     private BackupPolicyStatus Public(StoredBackupPolicy policy, DateTimeOffset? next)
     {
+        var mediaMode = ResolveMediaMode(policy);
         var interval = policy.Frequency == "weekly"
             ? TimeSpan.FromDays(8)
             : TimeSpan.FromHours(30);
@@ -586,7 +1041,7 @@ public sealed class BackupPolicyService : BackgroundService
             new BackupDestinationStatus(
                 destination.Provider,
                 !string.IsNullOrEmpty(destination.WebDavUrl),
-                destination.WebDavUrl,
+                destination.WebDavRootUrl ?? destination.WebDavUrl,
                 destination.Authentication,
                 destination.Username,
                 !string.IsNullOrEmpty(destination.ProtectedSecret),
@@ -595,7 +1050,13 @@ public sealed class BackupPolicyService : BackgroundService
                 destination.LastUploadedAt,
                 destination.LastUploadedFileName,
                 destination.RemoteBackupCount,
-                destination.LastError)).ToArray();
+                destination.LastError,
+                destination.WebDavRootUrl ?? destination.WebDavUrl,
+                destination.FolderName,
+                destination.LastMediaSyncAt,
+                destination.LastMediaSyncAdded,
+                destination.LastMediaSyncUpdated,
+                destination.LastMediaSyncDeleted)).ToArray();
         var legacy = (policy.Destinations ?? []).FirstOrDefault(destination =>
             string.Equals(destination.Provider, "webdav", StringComparison.OrdinalIgnoreCase));
         return new BackupPolicyStatus(
@@ -603,12 +1064,12 @@ public sealed class BackupPolicyService : BackgroundService
             policy.Frequency,
             policy.HourLocal,
             policy.WeeklyDay,
-            policy.IncludeMedia,
+            mediaMode == "backup",
             policy.RetentionCount,
             policy.RetentionDays,
             policy.SecretHandling,
             !string.IsNullOrEmpty(policy.ProtectedBackupPassword),
-            legacy?.WebDavUrl ?? policy.RemoteWebDavUrl,
+            legacy?.WebDavRootUrl ?? legacy?.WebDavUrl ?? policy.RemoteWebDavUrl,
             legacy?.Authentication ?? policy.RemoteAuthentication,
             legacy?.Username ?? policy.RemoteUsername,
             !string.IsNullOrEmpty(legacy?.ProtectedSecret ?? policy.ProtectedRemoteSecret),
@@ -620,7 +1081,8 @@ public sealed class BackupPolicyService : BackgroundService
             next,
             overdue,
             running,
-            destinations);
+            destinations,
+            mediaMode);
     }
 
     private StoredBackupPolicy Read()
@@ -642,6 +1104,7 @@ public sealed class BackupPolicyService : BackgroundService
                         new StoredBackupDestination
                         {
                             Provider = "webdav",
+                            WebDavRootUrl = policy.RemoteWebDavUrl,
                             WebDavUrl = policy.RemoteWebDavUrl,
                             Authentication = policy.RemoteAuthentication,
                             Username = policy.RemoteUsername,
@@ -749,6 +1212,37 @@ public sealed class BackupPolicyService : BackgroundService
         return builder.Uri.AbsoluteUri;
     }
 
+    private static string? NormalizeFolderName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var folder = value.Trim();
+        if (folder.Length > 128 || folder is "." or ".." ||
+            folder.Contains('/') || folder.Contains('\\') ||
+            folder.Any(char.IsControl))
+            throw new ArgumentException(
+                "Folder names must be one safe path segment of 1–128 characters.");
+        return folder;
+    }
+
+    private static string AppendRemoteFolder(string rootUrl, string? folderName) =>
+        folderName is null
+            ? rootUrl
+            : RemoteUri(new Uri(rootUrl, UriKind.Absolute), folderName + "/").AbsoluteUri;
+
+    private static string NormalizeMediaMode(string? value, bool includeMedia)
+    {
+        var mode = string.IsNullOrWhiteSpace(value)
+            ? includeMedia ? "backup" : "exclude"
+            : value.Trim().ToLowerInvariant();
+        return mode is "backup" or "sync" or "exclude"
+            ? mode
+            : throw new ArgumentException(
+                "Choose whether media is included in backups, synced to WebDAV, or excluded.");
+    }
+
+    private static string ResolveMediaMode(StoredBackupPolicy policy) =>
+        NormalizeMediaMode(policy.MediaMode, policy.IncludeMedia);
+
     private static string NormalizeProvider(string value)
     {
         var provider = value.Trim().ToLowerInvariant();
@@ -792,6 +1286,7 @@ public sealed class BackupPolicyService : BackgroundService
         public int HourLocal { get; init; } = 2;
         public int? WeeklyDay { get; init; }
         public bool IncludeMedia { get; init; } = true;
+        public string? MediaMode { get; init; }
         public int RetentionCount { get; init; } = 7;
         public int RetentionDays { get; init; } = 30;
         public string SecretHandling { get; init; } = "exclude";
@@ -811,7 +1306,9 @@ public sealed class BackupPolicyService : BackgroundService
     private sealed record StoredBackupDestination
     {
         public string Provider { get; init; } = "webdav";
+        public string? WebDavRootUrl { get; init; }
         public string? WebDavUrl { get; init; }
+        public string? FolderName { get; init; }
         public string Authentication { get; init; } = "none";
         public string? Username { get; init; }
         public string? ProtectedSecret { get; init; }
@@ -821,7 +1318,31 @@ public sealed class BackupPolicyService : BackgroundService
         public string? LastUploadedFileName { get; init; }
         public int? RemoteBackupCount { get; init; }
         public string? LastError { get; init; }
+        public DateTimeOffset? LastMediaSyncAt { get; init; }
+        public int? LastMediaSyncAdded { get; init; }
+        public int? LastMediaSyncUpdated { get; init; }
+        public int? LastMediaSyncDeleted { get; init; }
     }
 
     private sealed record WebDavEntry(string FileName, DateTimeOffset? LastModified);
+    private sealed record MediaSyncManifest(
+        string Product,
+        int FormatVersion,
+        DateTimeOffset GeneratedAt,
+        Dictionary<string, MediaSyncManifestFile> Files);
+    private sealed record MediaSyncManifestFile(long Bytes, string Sha256);
+    private sealed record RemoteMediaFile(string RelativePath, long? Bytes);
+    private sealed record RemoteMediaState(
+        Dictionary<string, RemoteMediaFile> Files,
+        HashSet<string> Directories);
+    private sealed record RemoteResource(
+        string RelativePath,
+        Uri Uri,
+        bool IsCollection,
+        long? Bytes);
+    private sealed record MediaSyncResult(
+        DateTimeOffset CompletedAt,
+        int Added,
+        int Updated,
+        int Deleted);
 }

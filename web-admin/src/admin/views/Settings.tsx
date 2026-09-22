@@ -9,6 +9,7 @@ import { cleanReleaseNotes, errorText, formatBytes, parseStringArray, quotaLimit
 
 type RemoteBackupForm = {
   url: string;
+  folderName: string;
   authentication: "none" | "basic" | "bearer";
   username: string;
   secret: string;
@@ -18,6 +19,7 @@ type RemoteBackupForm = {
 
 const emptyRemoteBackupForm = (): RemoteBackupForm => ({
   url: "",
+  folderName: "",
   authentication: "basic",
   username: "",
   secret: "",
@@ -147,7 +149,9 @@ export function Settings({
   );
   const [policyHour, setPolicyHour] = useState("2");
   const [policyWeeklyDay, setPolicyWeeklyDay] = useState("0");
-  const [policyFull, setPolicyFull] = useState(true);
+  const [policyMediaMode, setPolicyMediaMode] = useState<
+    "backup" | "sync" | "exclude"
+  >("backup");
   const [policyRetentionCount, setPolicyRetentionCount] = useState("7");
   const [policyRetentionDays, setPolicyRetentionDays] = useState("30");
   const [policyIncludeSecrets, setPolicyIncludeSecrets] = useState(false);
@@ -190,7 +194,9 @@ export function Settings({
         setPolicyFrequency(status.frequency);
         setPolicyHour(String(status.hourLocal));
         setPolicyWeeklyDay(String(status.weeklyDay ?? 0));
-        setPolicyFull(status.includeMedia);
+        setPolicyMediaMode(
+          status.mediaMode || (status.includeMedia ? "backup" : "exclude"),
+        );
         setPolicyRetentionCount(String(status.retentionCount));
         setPolicyRetentionDays(String(status.retentionDays));
         setPolicyIncludeSecrets(status.secretHandling === "include");
@@ -218,6 +224,7 @@ export function Settings({
         destinations.forEach((destination) => {
           remotes[destination.provider] = {
             url: destination.webDavUrl || "",
+            folderName: destination.folderName || "",
             authentication: destination.authentication,
             username: destination.username || "",
             secret: "",
@@ -366,7 +373,8 @@ export function Settings({
           hourLocal: Number(policyHour),
           weeklyDay:
             policyFrequency === "weekly" ? Number(policyWeeklyDay) : null,
-          includeMedia: policyFull,
+          includeMedia: policyMediaMode === "backup",
+          mediaMode: policyMediaMode,
           retentionCount: Number(policyRetentionCount),
           retentionDays: Number(policyRetentionDays),
           secretHandling: policyIncludeSecrets ? "include" : "exclude",
@@ -381,6 +389,7 @@ export function Settings({
             .map(({ provider, form }) => ({
               provider,
               webDavUrl: form.url.trim(),
+              folderName: form.folderName.trim() || null,
               authentication: form.authentication,
               username: form.username || null,
               secret: form.secret || null,
@@ -3186,7 +3195,7 @@ export function Settings({
                       <option value="weekly">Weekly</option>
                     </select>
                   </Field>
-                  <Field label={`Hour in ${bootstrap.timeZone}`}>
+                  <Field label={`Run hour in ${bootstrap.timeZone}`}>
                     <select
                       value={policyHour}
                       onChange={(event) => setPolicyHour(event.target.value)}
@@ -3201,6 +3210,10 @@ export function Settings({
                     </select>
                   </Field>
                 </div>
+                <p className="settings-copy">
+                  Scheduled backups and media sync run at this local hour on
+                  the LessonCue server. Choose 2 AM for an off-hours run.
+                </p>
                 {policyFrequency === "weekly" && (
                   <Field label="Weekday">
                     <select
@@ -3249,14 +3262,34 @@ export function Settings({
                     />
                   </Field>
                 </div>
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={policyFull}
-                    onChange={(event) => setPolicyFull(event.target.checked)}
-                  />
-                  Include the media library
-                </label>
+                <Field label="Media handling">
+                  <select
+                    value={policyMediaMode}
+                    onChange={(event) =>
+                      setPolicyMediaMode(
+                        event.target.value as "backup" | "sync" | "exclude",
+                      )
+                    }
+                  >
+                    <option value="backup">
+                      Include media in each backup archive
+                    </option>
+                    <option value="sync">
+                      Sync media to each remote destination
+                    </option>
+                    <option value="exclude">
+                      Exclude media from backups and sync
+                    </option>
+                  </select>
+                </Field>
+                <p className="settings-copy">
+                  {policyMediaMode === "sync"
+                    ? "The encrypted archive keeps the database and other non-media resources. Each configured WebDAV destination mirrors the media library: missing or changed files are added, and files previously managed by LessonCue that are no longer present locally are removed."
+                    : policyMediaMode === "backup"
+                      ? "The encrypted archive contains the database, configuration, and media library."
+                      : "The encrypted archive contains the database and configuration only; existing media is preserved during configuration restores."
+                  }
+                </p>
                 <label className="check">
                   <input
                     type="checkbox"
@@ -3296,7 +3329,9 @@ export function Settings({
                     LessonCue encrypts and verifies each `.lcbak` locally,
                     uploads it to every configured destination, and removes
                     only older LessonCue backup files after the configured
-                    retention limit is met.
+                    retention limit is met. If a folder name is supplied,
+                    LessonCue creates it beneath the WebDAV root and keeps the
+                    archive and optional media sync inside it.
                   </p>
                   {(["nextcloud", "owncloud", "webdav"] as const).map(
                     (provider) => {
@@ -3307,7 +3342,7 @@ export function Settings({
                       return (
                         <div className="backup-remote-destination" key={provider}>
                           <h5>{remoteProviderLabel(provider)}</h5>
-                          <Field label="HTTPS WebDAV folder URL">
+                          <Field label="HTTPS WebDAV root URL">
                             <input
                               type="url"
                               value={form.url}
@@ -3321,6 +3356,18 @@ export function Settings({
                               onChange={(event) =>
                                 updatePolicyRemote(provider, {
                                   url: event.target.value,
+                                })
+                              }
+                            />
+                          </Field>
+                          <Field label="Folder name (created under this root)">
+                            <input
+                              value={form.folderName}
+                              placeholder="LessonCue"
+                              maxLength={128}
+                              onChange={(event) =>
+                                updatePolicyRemote(provider, {
+                                  folderName: event.target.value,
                                 })
                               }
                             />
@@ -3428,6 +3475,16 @@ export function Settings({
                                   Last uploaded {timeAgo(status.lastUploadedAt)}
                                   {status.remoteBackupCount !== undefined
                                     ? ` · ${status.remoteBackupCount} remote copies retained`
+                                    : ""}
+                                </p>
+                              )}
+                              {status?.lastMediaSyncAt && (
+                                <p className="settings-copy">
+                                  Media synced {timeAgo(status.lastMediaSyncAt)}
+                                  {status.lastMediaSyncAdded !== undefined ||
+                                  status.lastMediaSyncUpdated !== undefined ||
+                                  status.lastMediaSyncDeleted !== undefined
+                                    ? ` · ${status.lastMediaSyncAdded || 0} added, ${status.lastMediaSyncUpdated || 0} updated, ${status.lastMediaSyncDeleted || 0} deleted`
                                     : ""}
                                 </p>
                               )}
