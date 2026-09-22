@@ -4980,13 +4980,8 @@ public static class AdminApi
             ? id
             : Guid.Empty;
 
-    private static Task<AccountToken?> FindTokenAsync(LessonCueDb db, string raw, string purpose, CancellationToken ct)
-    {
-        var hash = AccountEmailService.Hash(raw);
-        var now = DateTimeOffset.UtcNow;
-        return db.AccountTokens.Include(x => x.Account).SingleOrDefaultAsync(x =>
-            x.TokenHash == hash && x.Purpose == purpose && x.UsedAt == null && x.ExpiresAt > now, ct);
-    }
+    private static Task<AccountToken?> FindTokenAsync(LessonCueDb db, string raw, string purpose, CancellationToken ct) =>
+        AccountTokenLookup.FindAsync(db, raw, purpose, ct);
 
     private static async Task InvalidateTokensAsync(LessonCueDb db, Guid accountId, string purpose, CancellationToken ct)
     {

@@ -252,6 +252,38 @@ FAILED
   exit 1
 fi
 
+# The container health endpoint only proves that PHP is serving HTTP. It does
+# not prove that Shlink's external database has been initialized; an empty
+# schema can therefore look healthy while every authenticated REST request
+# fails with a 500. Run the vendor-supported, idempotent initializer before
+# minting keys, and fail here with the actual migration output if it cannot
+# prepare the database.
+echo "Checking the shortener database schema"
+if ! "${COMPOSE[@]}" exec -T shlink sh -lc \
+    'cd /etc/shlink && php vendor/bin/shlink-installer init --no-interaction --clear-db-cache --skip-download-geolite'; then
+  echo "The shortener answered HTTP but its database could not be initialized." >&2
+  exit 1
+fi
+
+# The integration key is created by Shlink's entrypoint from the shared secret
+# file. Verify an authenticated REST request as well as the process health
+# check; otherwise a missing/invalid initial key would be reported as a good
+# install and LessonCue would later log opaque 401/500 errors.
+api_ready() {
+  [ -s "$INTEGRATION_KEY_FILE" ] || return 1
+  local status
+  status="$(curl --fail --silent --show-error --output /dev/null --write-out '%{http_code}' \
+    -H "X-Api-Key:$(cat "$INTEGRATION_KEY_FILE")" \
+    "http://127.0.0.1:${SHORTENER_HTTP_PORT}/rest/v3/short-urls?limit=1" || true)"
+  [ "$status" = "200" ]
+}
+
+if ! api_ready; then
+  echo "The shortener schema is ready, but its LessonCue API key was not accepted." >&2
+  echo "Check the initial API key secret and the Shlink container logs." >&2
+  exit 1
+fi
+
 # The companion gets its own key, scoped to what it creates itself. Shlink's
 # AUTHORED_SHORT_URLS role means a key only sees short URLs it made, so the
 # hundred reserved game codes -- authored by LessonCue's key -- are invisible

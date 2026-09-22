@@ -162,7 +162,7 @@ LessonCue remains centered on preparing media, organizing lessons, confirming re
 
   [x] **Signed and reproducible installer/release supply chain**
    - [x] Sign the complete release manifest with an offline Ed25519 key independent of GitHub-hosted checksums, authenticate every artifact through that manifest, pin the public trust anchor in the installer/updater, and verify the signature before reading checksums or executing downloaded code as root. Adversarial updater tests prove a changed signature is rejected without touching the live installation.
-   - [x] Pin every bundled `yt-dlp` binary to reviewed release `2026.07.04`, bundle Deno `2.9.7` for its required YouTube JavaScript extraction runtime, verify architecture-specific SHA-256 values and reported versions in Linux, Windows, and container builds, and remove mutable `latest` downloads.
+   - [x] Pin every bundled `yt-dlp` binary to reviewed release `2026.08.19`, bundle Deno `2.9.7` for its required YouTube JavaScript extraction runtime, verify architecture-specific SHA-256 values and reported versions in Linux, Windows, and container builds, and remove mutable `latest` downloads.
    - [x] Upgrade the JavaScript lint toolchain to patched versions and verify that `npm audit` reports no known vulnerabilities.
    - [x] Add weekly Dependabot coverage for npm, NuGet, Gradle, Docker, and GitHub Actions plus scheduled/push/PR CodeQL analysis for C#, JavaScript/TypeScript, and Kotlin.
    - [x] Produce an exact SPDX release SBOM, generated third-party notices, GitHub/Sigstore provenance and SBOM attestations, plus checksum-pinned Trivy source, dependency, configuration, secret, and exact-container scanning.

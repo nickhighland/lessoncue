@@ -4,6 +4,27 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.21 — YouTube import and service reliability
+
+### User changes
+
+- Updated the bundled YouTube downloader to yt-dlp 2026.08.19 and retained the
+  bundled Deno runtime plus the Android-player compatibility path for current
+  YouTube downloads.
+- Fixed daily troubleshooting report delivery through providers that reject
+  compressed `.gz` attachments.
+- Fixed account setup, verification, and password-reset links on SQLite-backed
+  installations.
+
+### Developer changes
+
+- Verified the yt-dlp Linux and Windows artifacts against the official release
+  SHA-256 values.
+- Moved account-token expiry validation out of the SQLite query and added a
+  regression test for live and expired tokens.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
 ## v0.46.20 — scheduled media synchronization
 
 ### User changes

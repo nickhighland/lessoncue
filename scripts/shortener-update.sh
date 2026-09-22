@@ -45,6 +45,14 @@ health() {
   "${COMPOSE[@]}" exec -T shlink curl --fail --silent http://127.0.0.1:8080/rest/health >/dev/null 2>&1
 }
 
+database_ready() {
+  # HTTP health is process-only. Keep migrations explicit so an empty external
+  # database cannot masquerade as a working Shlink instance during an update.
+  "${COMPOSE[@]}" exec -T shlink sh -lc \
+    'cd /etc/shlink && php vendor/bin/shlink-installer init --no-interaction --clear-db-cache --skip-download-geolite' >/dev/null
+  "${COMPOSE[@]}" exec -T shlink shlink api-key:list >/dev/null
+}
+
 ui_port() {
   "${COMPOSE[@]}" config --format json 2>/dev/null \
     | python3 -c "import json,sys; s=json.load(sys.stdin)['services'].get('link-shortener-companion',{}); print((s.get('ports') or [{}])[0].get('published',''))" 2>/dev/null
@@ -60,6 +68,10 @@ ui_health() {
 echo "Running version: $(running_version)"
 if ! health; then
   echo "The shortener is not healthy right now. Fix that before updating." >&2
+  exit 1
+fi
+if ! database_ready; then
+  echo "The shortener is answering HTTP but its database schema is not ready." >&2
   exit 1
 fi
 
