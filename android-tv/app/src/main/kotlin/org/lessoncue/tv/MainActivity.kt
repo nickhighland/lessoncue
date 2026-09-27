@@ -1854,13 +1854,29 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         }
         return
     }
+    val streamingSources = remember(item.id, item.streamingSources, item.url) {
+        item.streamingSources.filter { it.url.isNotBlank() }.ifEmpty {
+            listOf(PlaybackSource("manifest", item.url, item.contentType))
+        }
+    }
+    val initialStreamingSource = streamingSources.firstOrNull()
+    var activeSourceIndex by remember(item.id, seekMs, cached?.absolutePath) {
+        mutableIntStateOf(if (cached == null) 0 else -1)
+    }
+    var fallbackDiagnostic by remember(item.id) { mutableStateOf<String?>(null) }
+    fun clippedMediaItem(uri: String, contentType: String?): MediaItem {
+        val clipping = MediaItem.ClippingConfiguration.Builder().setStartPositionMs(item.startMs).apply {
+            item.endMs?.let { setEndPositionMs(it) }
+        }.build()
+        return MediaItem.Builder().setUri(uri).setMimeType(contentType)
+            .setClippingConfiguration(clipping).build()
+    }
     val player = remember(item.id, seekMs) {
         ExoPlayer.Builder(context).build().apply {
-            val clipping = MediaItem.ClippingConfiguration.Builder().setStartPositionMs(item.startMs).apply {
-                item.endMs?.let { setEndPositionMs(it) }
-            }.build()
-            setMediaItem(MediaItem.Builder().setUri(cached?.toURI()?.toString() ?: item.url)
-                .setMimeType(item.contentType).setClippingConfiguration(clipping).build())
+            val cachedUri = cached?.toURI()?.toString()
+            val source = initialStreamingSource
+            setMediaItem(clippedMediaItem(cachedUri ?: source?.url ?: item.url,
+                if (cachedUri != null) item.contentType else source?.contentType ?: item.contentType))
             prepare()
             seekTo(seekMs.coerceAtLeast(0))
             volume = if (item.muted) 0f else (item.volumePercent / 100f).coerceIn(0f, 1.5f)
@@ -1871,6 +1887,30 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
     var playerState by remember(item.id) { mutableStateOf("loading") }
     var playerPosition by remember(item.id) { mutableLongStateOf(seekMs.coerceAtLeast(0)) }
     var playerDuration by remember(item.id) { mutableStateOf<Long?>(item.effectiveDurationMs()) }
+    fun tryNextPlaybackSource(reason: String): Boolean {
+        val nextIndex = PlaybackFallbackPolicy.nextSourceIndex(activeSourceIndex, streamingSources.size)
+            ?: return false
+        val nextSource = streamingSources[nextIndex]
+        val previous = if (activeSourceIndex < 0) "offline cache"
+            else streamingSources.getOrNull(activeSourceIndex)?.displayQuality() ?: "current source"
+        val resumeAt = player.currentPosition.coerceAtLeast(0)
+        activeSourceIndex = nextIndex
+        fallbackDiagnostic = "Quality fallback: $previous → ${nextSource.displayQuality()} after $reason"
+        Log.w("LessonCuePlayback", "${fallbackDiagnostic}; item=${item.id}; resumePositionMs=$resumeAt")
+        playerState = "buffering"
+        player.setMediaItem(clippedMediaItem(nextSource.url, nextSource.contentType ?: item.contentType))
+        player.prepare()
+        player.seekTo(resumeAt)
+        player.playWhenReady = true
+        onTelemetry(PlaybackTelemetry("buffering", playlist.id, item.id, resumeAt,
+            player.duration.takeUnless { it == C.TIME_UNSET }, item.volumePercent, fallbackDiagnostic))
+        return true
+    }
+    LaunchedEffect(fallbackDiagnostic) {
+        val diagnostic = fallbackDiagnostic ?: return@LaunchedEffect
+        kotlinx.coroutines.delay(8_000)
+        if (fallbackDiagnostic == diagnostic) fallbackDiagnostic = null
+    }
     val remoteModifier = playbackRemoteModifier(item.id) { action ->
         revealOverlay()
         when (action) {
@@ -1911,8 +1951,25 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
             playerPosition = position
             playerDuration = duration.takeUnless { it == C.TIME_UNSET }
             onTelemetry(PlaybackTelemetry(state, playlist.id, item.id, position,
-                duration.takeUnless { it == C.TIME_UNSET }, item.volumePercent, player.playerError?.message))
+                duration.takeUnless { it == C.TIME_UNSET }, item.volumePercent,
+                player.playerError?.message ?: fallbackDiagnostic))
             kotlinx.coroutines.delay(500)
+        }
+    }
+    LaunchedEffect(player, item.id) {
+        var bufferingSince: Long? = null
+        while (true) {
+            if (player.playWhenReady && player.playbackState == Player.STATE_BUFFERING) {
+                val now = android.os.SystemClock.elapsedRealtime()
+                val startedAt = bufferingSince
+                if (startedAt == null) bufferingSince = now
+                else if (PlaybackFallbackPolicy.bufferingTimedOut(startedAt, now)) {
+                    if (tryNextPlaybackSource("buffering for ${now - startedAt}ms"))
+                        bufferingSince = android.os.SystemClock.elapsedRealtime()
+                    else bufferingSince = null
+                }
+            } else bufferingSince = null
+            kotlinx.coroutines.delay(1_000)
         }
     }
     LaunchedEffect(control?.version) {
@@ -1923,6 +1980,16 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
     }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                if (!tryNextPlaybackSource(error.message ?: "playback error")) {
+                    playerState = "error"
+                    onTelemetry(PlaybackTelemetry("error", playlist.id, item.id,
+                        player.currentPosition.coerceAtLeast(0),
+                        player.duration.takeUnless { it == C.TIME_UNSET }, item.volumePercent,
+                        error.message ?: "Playback failed for all available quality levels."))
+                }
+            }
+
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) {
                     repeatCompleted += 1
@@ -1972,7 +2039,9 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
             positionMs = playerPosition,
             durationMs = playerDuration,
             playing = playerState == "playing",
-            availabilityLabel = if (cached != null) "OFFLINE COPY" else "SERVER MEDIA",
+            availabilityLabel = if (cached != null && activeSourceIndex < 0) "OFFLINE COPY"
+                else streamingSources.getOrNull(activeSourceIndex)?.let { "STREAMING ${it.displayQuality()}" }
+                    ?: "SERVER MEDIA",
             actions = PlaybackOverlayActions(
                 previous = { revealOverlay(); if (index > 0) onNext(index - 1) },
                 rewind = { revealOverlay(); player.seekTo((player.currentPosition - REMOTE_SEEK_STEP_MS).coerceAtLeast(0)) },

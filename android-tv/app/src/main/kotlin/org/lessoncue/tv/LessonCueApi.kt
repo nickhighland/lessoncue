@@ -443,7 +443,17 @@ class LessonCueApi(
         fallbackMessage = json.optString("fallbackMessage").takeIf { it.isNotBlank() && it != "null" },
         cuePoints = json.optJSONArray("cuePoints")?.mapObjects { cue ->
             CuePoint(cue.getString("name"), cue.getLong("positionMs"))
-        } ?: emptyList()
+        } ?: emptyList(),
+        streamingSources = json.optJSONArray("streamingSources")?.mapObjects { source -> PlaybackSource(
+            profile = source.optString("profile", "original"),
+            url = source.optString("url").takeIf { it.isNotBlank() && it != "null" }
+                ?.let { if (it.startsWith("http")) it else "$baseUrl$it" }.orEmpty(),
+            contentType = source.optString("contentType").takeIf { it.isNotBlank() && it != "null" },
+            sha256 = source.optString("sha256").takeIf { it.isNotBlank() && it != "null" },
+            sizeBytes = source.optLong("sizeBytes").takeIf { source.has("sizeBytes") && !source.isNull("sizeBytes") },
+            width = source.optInt("width").takeIf { source.has("width") && !source.isNull("width") },
+            height = source.optInt("height").takeIf { source.has("height") && !source.isNull("height") }
+        ) }.orEmpty().filter { it.url.isNotBlank() }
     )
 
     private fun request(

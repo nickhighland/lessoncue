@@ -43,12 +43,15 @@ public sealed class YouTubeImportService(
     ILogger<YouTubeImportService> logger) : BackgroundService
 {
     private sealed record DownloadProfile(string Name, string Format, string? ExtractorArguments,
-        bool MergeToMp4);
+        string? MergeOutputFormat, string FormatSort);
 
     private static readonly DownloadProfile[] DownloadProfiles =
     [
-        new("android-progressive", "best[ext=mp4]", "youtube:player_client=android", false),
-        new("default-adaptive", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", null, true)
+        new("adaptive-original-up-to-4k", "bestvideo+bestaudio/best", null, "mkv", "res:2160"),
+        new("android-adaptive-original-up-to-4k", "bestvideo+bestaudio/best",
+            "youtube:player_client=android", "mkv", "res:2160"),
+        new("android-progressive-fallback", "best[ext=mp4]",
+            "youtube:player_client=android", null, "res:2160")
     ];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -127,7 +130,9 @@ public sealed class YouTubeImportService(
                 throw new InvalidOperationException("The downloaded video exceeds the available LessonCue storage.");
 
             var extension = Path.GetExtension(downloaded).ToLowerInvariant();
-            if (extension != ".mp4") throw new InvalidOperationException("YouTube did not provide an MP4 version of this video.");
+            if (!MediaFormatCatalog.IsVideo(extension))
+                throw new InvalidOperationException(
+                    $"YouTube did not provide a supported video container ({extension}).");
             MediaContentInspector.RequireValid(downloaded, downloaded);
             var storedName = item.Id + extension;
             var destination = Path.Combine(paths.Originals, storedName);
@@ -137,7 +142,7 @@ public sealed class YouTubeImportService(
             item.Sha256 = Convert.ToHexString(await SHA256.HashDataAsync(stream, ct)).ToLowerInvariant();
             item.RelativePath = storedName;
             item.FileName = Path.GetFileName(downloaded);
-            item.ContentType = "video/mp4";
+            item.ContentType = MediaFormatCatalog.ContentType(extension);
             item.SizeBytes = info.Length;
             item.OfflineEligible = true;
             item.LinkKind = "youtube-local";
@@ -170,6 +175,10 @@ public sealed class YouTubeImportService(
         string outputTemplate, long availableBytes, string sourceUrl, string denoExecutable) =>
         BuildDownloadArguments(outputTemplate, availableBytes, sourceUrl, denoExecutable, DownloadProfiles[1]);
 
+    internal static IReadOnlyList<string> BuildProgressiveFallbackDownloadArguments(
+        string outputTemplate, long availableBytes, string sourceUrl, string denoExecutable) =>
+        BuildDownloadArguments(outputTemplate, availableBytes, sourceUrl, denoExecutable, DownloadProfiles[2]);
+
     private static IReadOnlyList<string> BuildDownloadArguments(
         string outputTemplate, long availableBytes, string sourceUrl, string denoExecutable,
         DownloadProfile profile)
@@ -180,17 +189,18 @@ public sealed class YouTubeImportService(
             "--js-runtimes", $"deno:{denoExecutable}",
             "--retries", "3", "--fragment-retries", "3",
             "--max-filesize", availableBytes.ToString(CultureInfo.InvariantCulture),
-            "-f", profile.Format
+            "-f", profile.Format,
+            "-S", profile.FormatSort
         };
         if (profile.ExtractorArguments is not null)
         {
             arguments.Add("--extractor-args");
             arguments.Add(profile.ExtractorArguments);
         }
-        if (profile.MergeToMp4)
+        if (profile.MergeOutputFormat is not null)
         {
             arguments.Add("--merge-output-format");
-            arguments.Add("mp4");
+            arguments.Add(profile.MergeOutputFormat);
         }
         arguments.Add("-o");
         arguments.Add(outputTemplate);

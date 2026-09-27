@@ -184,6 +184,7 @@ public sealed class ManifestService(LessonCueDb db)
             sizeBytes = useVariant ? variant!.SizeBytes : compatible && !useNative ? media?.CompatibilitySizeBytes : media?.SizeBytes,
             contentType = useVariant || compatible && !useNative ? "video/mp4" : media?.ContentType,
             fileExtension = useVariant || compatible && !useNative ? "mp4" : Path.GetExtension(media?.RelativePath ?? "").TrimStart('.').ToLowerInvariant(),
+            streamingSources = MapStreamingSources(media, screen),
             compatibilityStatus = media?.CompatibilityStatus,
             requestedProfile,
             selectedProfile,
@@ -266,6 +267,7 @@ public sealed class ManifestService(LessonCueDb db)
             fileExtension = extension,
             sha256,
             sizeBytes,
+            streamingSources = MapStreamingSources(media, screen),
             durationMs = media.DurationMs,
             startMs = 0,
             endMs = (long?)null,
@@ -277,6 +279,18 @@ public sealed class ManifestService(LessonCueDb db)
         };
         return (manifest, versionedUrl);
     }
+
+    private static object[] MapStreamingSources(MediaAsset? media, Screen screen) =>
+        MediaPlaybackSources.For(media, screen).Select(source => (object)new
+        {
+            profile = source.Profile,
+            url = source.Url,
+            contentType = source.ContentType,
+            sha256 = source.Sha256,
+            sizeBytes = source.SizeBytes,
+            width = source.Width,
+            height = source.Height
+        }).ToArray();
 
     private static object MapSignage(SignagePlaylist item, SignageScheduleState state, Screen screen,
         IReadOnlyDictionary<Guid, MediaAsset> zoneMedia, IReadOnlyDictionary<Guid, SignageLayoutResource> layouts,

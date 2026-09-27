@@ -119,7 +119,8 @@ builder.Services.AddSingleton(services => new TroubleshootingReportBuilder(
     services.GetRequiredService<TroubleshootingLog>(),
     services.GetRequiredService<MediaStoragePaths>(),
     services.GetRequiredService<YouTubeRuntimeUpdateService>(),
-    services.GetRequiredService<LessonCue.Server.Shortener.ShortenerService>()));
+    services.GetRequiredService<LessonCue.Server.Shortener.ShortenerService>(),
+    services.GetRequiredService<BackupPolicyService>()));
 builder.Services.AddSingleton(new StorageService(dataPath));
 builder.Services.AddSingleton(services => new YouTubeRuntimeUpdateService(
     dataPath, services.GetRequiredService<ILogger<YouTubeRuntimeUpdateService>>()));

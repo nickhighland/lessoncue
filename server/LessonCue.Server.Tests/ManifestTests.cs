@@ -106,6 +106,11 @@ public sealed class ManifestTests
         Assert.Equal($"/api/v1/media/{media.Id}/playback?v=original-sha", cue.GetProperty("downloadUrl").GetString());
         Assert.Equal("original-sha", cue.GetProperty("sha256").GetString());
         Assert.Equal("video/mp4", cue.GetProperty("contentType").GetString());
+        var streamingSources = cue.GetProperty("streamingSources");
+        Assert.Equal(1, streamingSources.GetArrayLength());
+        Assert.Equal("original", streamingSources[0].GetProperty("profile").GetString());
+        Assert.Equal($"/api/v1/media/{media.Id}/file?v=original-sha",
+            streamingSources[0].GetProperty("url").GetString());
     }
 
     [Fact]

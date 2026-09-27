@@ -14,7 +14,8 @@ public sealed class TroubleshootingReportBuilder(
     TroubleshootingLog log,
     MediaStoragePaths paths,
     YouTubeRuntimeUpdateService youtubeRuntime,
-    ShortenerService shortener)
+    ShortenerService shortener,
+    BackupPolicyService backupPolicy)
 {
     private static readonly TimeSpan ShortenerDiagnosticBudget = TimeSpan.FromSeconds(10);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -103,6 +104,49 @@ public sealed class TroubleshootingReportBuilder(
             mediaDependencies = new { error = "dependency diagnostics unavailable" };
         }
 
+        TroubleshootingBackupDiagnostic? backupDiagnostics = null;
+        try
+        {
+            var timeZone = await db.Organizations.AsNoTracking()
+                .OrderBy(item => item.Id)
+                .Select(item => item.TimeZone)
+                .FirstOrDefaultAsync(ct) ?? "UTC";
+            var status = backupPolicy.GetStatus(timeZone);
+            backupDiagnostics = new TroubleshootingBackupDiagnostic(
+                status.Enabled,
+                status.Frequency,
+                status.HourLocal,
+                status.WeeklyDay,
+                status.MediaMode,
+                status.LastAttemptAt,
+                status.LastSucceededAt,
+                status.LastVerifiedAt,
+                status.LastBackupFileName,
+                status.LastError,
+                status.NextRunAt,
+                status.Overdue,
+                status.Running,
+                (status.Destinations ?? []).Select(destination => new TroubleshootingBackupDestinationDiagnostic(
+                    destination.Provider,
+                    destination.Enabled,
+                    Uri.TryCreate(destination.WebDavUrl, UriKind.Absolute, out var endpoint)
+                        ? endpoint.Host
+                        : null,
+                    destination.FolderName,
+                    destination.LastUploadedAt,
+                    destination.LastUploadedFileName,
+                    destination.RemoteBackupCount,
+                    destination.LastError,
+                    destination.LastMediaSyncAt,
+                    destination.LastMediaSyncAdded,
+                    destination.LastMediaSyncUpdated,
+                    destination.LastMediaSyncDeleted)).ToArray());
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            RecordIssue("backup policy", error, diagnosticErrors);
+        }
+
         object shortenerDiagnostics;
         using var shortenerBudget = CancellationTokenSource.CreateLinkedTokenSource(ct);
         shortenerBudget.CancelAfter(ShortenerDiagnosticBudget);
@@ -149,6 +193,7 @@ public sealed class TroubleshootingReportBuilder(
             audit,
             media,
             mediaDependencies,
+            backupDiagnostics,
             shortenerDiagnostics,
             screens,
             new TroubleshootingRetentionDiagnostic(
@@ -181,6 +226,7 @@ public sealed record TroubleshootingReport(
     IReadOnlyList<AuditEvent> Audit,
     IReadOnlyList<MediaDiagnosticSnapshot> Media,
     object MediaDependencies,
+    TroubleshootingBackupDiagnostic? Backup,
     object Shortener,
     IReadOnlyList<TroubleshootingScreenDiagnostic> Screens,
     TroubleshootingRetentionDiagnostic Retention,
@@ -200,6 +246,36 @@ public sealed record TroubleshootingReport(
         item.FailedDownloads > 0 || !string.IsNullOrWhiteSpace(item.PlaybackError) ||
         !string.Equals(item.RecentErrorsJson, "[]", StringComparison.Ordinal));
 }
+
+public sealed record TroubleshootingBackupDiagnostic(
+    bool Enabled,
+    string Frequency,
+    int HourLocal,
+    int? WeeklyDay,
+    string MediaMode,
+    DateTimeOffset? LastAttemptAt,
+    DateTimeOffset? LastSucceededAt,
+    DateTimeOffset? LastVerifiedAt,
+    string? LastBackupFileName,
+    string? LastError,
+    DateTimeOffset? NextRunAt,
+    bool Overdue,
+    bool Running,
+    IReadOnlyList<TroubleshootingBackupDestinationDiagnostic> Destinations);
+
+public sealed record TroubleshootingBackupDestinationDiagnostic(
+    string Provider,
+    bool Enabled,
+    string? Host,
+    string? FolderName,
+    DateTimeOffset? LastUploadedAt,
+    string? LastUploadedFileName,
+    int? RemoteBackupCount,
+    string? LastError,
+    DateTimeOffset? LastMediaSyncAt,
+    int? LastMediaSyncAdded,
+    int? LastMediaSyncUpdated,
+    int? LastMediaSyncDeleted);
 
 public sealed record TroubleshootingScreenDiagnostic(
     Guid Id,

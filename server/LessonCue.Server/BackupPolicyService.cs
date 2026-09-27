@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
@@ -85,6 +86,9 @@ public sealed record BackupPolicyStatus(
 public sealed class BackupPolicyService : BackgroundService
 {
     private const string MediaSyncManifestName = ".lessoncue-media-sync.json";
+    private const int OwnCloudMediaChunkBytes = 2 * 1024 * 1024;
+    private const int MediaUploadAttempts = 3;
+    private static readonly TimeSpan MaximumRetryAfter = TimeSpan.FromMinutes(2);
     private static readonly XNamespace DavNamespace = "DAV:";
     private static readonly HttpMethod PropFindMethod = new("PROPFIND");
     private static readonly HttpMethod MkColMethod = new("MKCOL");
@@ -348,20 +352,37 @@ public sealed class BackupPolicyService : BackgroundService
                     try
                     {
                         await UploadRemoteAsync(destination, record, ct);
-                        var mediaSync = ResolveMediaMode(policy) == "sync"
-                            ? await SyncMediaAsync(destination, ct)
-                            : null;
-                        var remaining = await PruneRemoteAsync(destination, ct);
-                        destinations[index] = destination with
+                        destination = destination with
                         {
                             LastUploadedAt = DateTimeOffset.UtcNow,
                             LastUploadedFileName = record.FileName,
+                            LastError = null
+                        };
+                        destinations[index] = destination;
+                        policy = policy with { Destinations = destinations };
+                        await WriteAsync(policy, ct);
+
+                        var mediaSync = ResolveMediaMode(policy) == "sync"
+                            ? await SyncMediaAsync(destination, ct)
+                            : null;
+                        if (mediaSync is not null)
+                        {
+                            destination = destination with
+                            {
+                                LastMediaSyncAt = mediaSync.CompletedAt,
+                                LastMediaSyncAdded = mediaSync.Added,
+                                LastMediaSyncUpdated = mediaSync.Updated,
+                                LastMediaSyncDeleted = mediaSync.Deleted
+                            };
+                            destinations[index] = destination;
+                            policy = policy with { Destinations = destinations };
+                            await WriteAsync(policy, ct);
+                        }
+                        var remaining = await PruneRemoteAsync(destination, ct);
+                        destinations[index] = destination with
+                        {
                             RemoteBackupCount = remaining,
-                            LastError = null,
-                            LastMediaSyncAt = mediaSync?.CompletedAt ?? destination.LastMediaSyncAt,
-                            LastMediaSyncAdded = mediaSync?.Added ?? destination.LastMediaSyncAdded,
-                            LastMediaSyncUpdated = mediaSync?.Updated ?? destination.LastMediaSyncUpdated,
-                            LastMediaSyncDeleted = mediaSync?.Deleted ?? destination.LastMediaSyncDeleted
+                            LastError = null
                         };
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
@@ -460,6 +481,9 @@ public sealed class BackupPolicyService : BackgroundService
         var remote = await ReadRemoteMediaFilesAsync(destination, mediaUri, ct);
         var previous = await ReadMediaSyncManifestAsync(destination, mediaUri, ct);
         var local = await BuildLocalMediaManifestAsync(localRoot, ct);
+        var useOwnCloudChunking = IsOwnCloudProvider(destination.Provider) &&
+                                  local.Files.Values.Any(file => file.Bytes > OwnCloudMediaChunkBytes) &&
+                                  await OwnCloudSupportsChunkingAsync(destination, baseUri, ct);
 
         var added = 0;
         var updated = 0;
@@ -495,11 +519,15 @@ public sealed class BackupPolicyService : BackgroundService
             var sourcePath = Path.Combine(
                 localRoot,
                 relativePath.Replace('/', Path.DirectorySeparatorChar));
+            var fileInfo = new FileInfo(sourcePath);
             await PutRemoteFileAsync(
                 destination,
                 RemoteUri(mediaUri, relativePath),
                 sourcePath,
+                relativePath,
+                fileInfo.Length,
                 "application/octet-stream",
+                useOwnCloudChunking,
                 ct);
             if (remote.Files.ContainsKey(relativePath)) updated++;
             else added++;
@@ -776,25 +804,295 @@ public sealed class BackupPolicyService : BackgroundService
         StoredBackupDestination destination,
         Uri target,
         string sourcePath,
+        string relativePath,
+        long fileBytes,
+        string contentType,
+        bool useOwnCloudChunking,
+        CancellationToken ct)
+    {
+        if (useOwnCloudChunking && fileBytes > OwnCloudMediaChunkBytes)
+        {
+            await PutRemoteFileChunkedAsync(
+                destination, target, sourcePath, relativePath, fileBytes, contentType, ct);
+            return;
+        }
+
+        await SendRemoteMediaPutAsync(
+            destination,
+            target,
+            relativePath,
+            fileBytes,
+            fileBytes,
+            contentType,
+            () => new StreamContent(File.OpenRead(sourcePath)),
+            chunked: false,
+            chunkIndex: null,
+            chunkCount: null,
+            ct);
+    }
+
+    private async Task<bool> OwnCloudSupportsChunkingAsync(
+        StoredBackupDestination destination,
+        Uri webDavUri,
+        CancellationToken ct)
+    {
+        var path = webDavUri.AbsolutePath;
+        var remotePhpIndex = path.IndexOf("/remote.php", StringComparison.OrdinalIgnoreCase);
+        if (remotePhpIndex < 0)
+        {
+            logger.LogWarning(
+                "Could not determine the ownCloud OCS capabilities endpoint for {Host}; using ordinary WebDAV media uploads.",
+                webDavUri.Host);
+            return false;
+        }
+
+        var installationPath = path[..(remotePhpIndex + 1)];
+        var capabilityUri = new UriBuilder(webDavUri)
+        {
+            Path = $"{installationPath}ocs/v1.php/cloud/capabilities",
+            Query = "format=json",
+            Fragment = string.Empty
+        }.Uri;
+        using var request = new HttpRequestMessage(HttpMethod.Get, capabilityUri);
+        request.Headers.TryAddWithoutValidation("OCS-APIRequest", "true");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        AddRemoteAuthorization(request, destination, UnprotectSecret(destination));
+        using var response = await clients.CreateClient("backup-offsite")
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            logger.LogWarning(
+                "Could not read ownCloud chunking capability for {Host} (HTTP {StatusCode}, CF-Ray {CloudflareRay}); using ordinary WebDAV media uploads.",
+                webDavUri.Host,
+                (int)response.StatusCode,
+                HeaderValue(response, "CF-Ray"));
+            return false;
+        }
+
+        await using var responseStream = await response.Content.ReadAsStreamAsync(ct);
+        using var json = await JsonDocument.ParseAsync(responseStream, cancellationToken: ct);
+        if (!json.RootElement.TryGetProperty("ocs", out var ocs) ||
+            !ocs.TryGetProperty("data", out var data) ||
+            !data.TryGetProperty("capabilities", out var capabilities))
+            return false;
+
+        var supported = capabilities.TryGetProperty("files", out var files) &&
+                        files.TryGetProperty("bigfilechunking", out var bigFileChunking) &&
+                        IsJsonTrue(bigFileChunking);
+        if (!supported)
+            logger.LogWarning(
+                "ownCloud at {Host} does not advertise files.bigfilechunking; large media will use ordinary WebDAV PUT.",
+                webDavUri.Host);
+        return supported;
+    }
+
+    private async Task PutRemoteFileChunkedAsync(
+        StoredBackupDestination destination,
+        Uri target,
+        string sourcePath,
+        string relativePath,
+        long fileBytes,
         string contentType,
         CancellationToken ct)
     {
-        await using var stream = File.OpenRead(sourcePath);
-        using var request = new HttpRequestMessage(HttpMethod.Put, target)
+        var chunkCount = checked((int)Math.Ceiling(fileBytes / (double)OwnCloudMediaChunkBytes));
+        var transferId = RandomNumberGenerator.GetInt32(1, int.MaxValue)
+            .ToString(CultureInfo.InvariantCulture);
+        var chunkUris = Enumerable.Range(0, chunkCount)
+            .Select(index => new Uri(
+                $"{target.AbsoluteUri}-chunking-{transferId}-{chunkCount}-{index.ToString(CultureInfo.InvariantCulture)}"))
+            .ToArray();
+        var attemptedChunks = new List<Uri>(chunkCount);
+
+        try
         {
-            Content = new StreamContent(stream)
-        };
-        request.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
-        request.Content.Headers.ContentLength = stream.Length;
-        AddRemoteAuthorization(request, destination, UnprotectSecret(destination));
-        var response = await clients.CreateClient("backup-offsite")
-            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        using (response)
-        {
-            if (!response.IsSuccessStatusCode)
-                throw new IOException(
-                    $"The {destination.Provider} WebDAV target rejected a media file ({(int)response.StatusCode}).");
+            await using var source = new FileStream(
+                sourcePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                OwnCloudMediaChunkBytes,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            for (var index = 0; index < chunkCount; index++)
+            {
+                var length = (int)Math.Min(OwnCloudMediaChunkBytes, fileBytes - source.Position);
+                var bytes = new byte[length];
+                await source.ReadExactlyAsync(bytes, ct);
+                var chunkUri = chunkUris[index];
+                attemptedChunks.Add(chunkUri);
+                await SendRemoteMediaPutAsync(
+                    destination,
+                    chunkUri,
+                    relativePath,
+                    fileBytes,
+                    length,
+                    contentType,
+                    () => new ByteArrayContent(bytes),
+                    chunked: true,
+                    index + 1,
+                    chunkCount,
+                    ct);
+            }
         }
+        catch
+        {
+            using var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            foreach (var chunkUri in attemptedChunks)
+            {
+                if (cleanupTimeout.IsCancellationRequested) break;
+                try
+                {
+                    await DeleteRemotePathAsync(
+                        destination, chunkUri, "incomplete ownCloud media-upload chunk", cleanupTimeout.Token);
+                }
+                catch (OperationCanceledException) when (cleanupTimeout.IsCancellationRequested) { break; }
+                catch (Exception cleanupError)
+                {
+                    logger.LogWarning(
+                        cleanupError,
+                        "Could not remove an incomplete ownCloud upload chunk for {MediaPath} ({FileBytes} bytes).",
+                        relativePath,
+                        fileBytes);
+                }
+            }
+            throw;
+        }
+    }
+
+    private async Task SendRemoteMediaPutAsync(
+        StoredBackupDestination destination,
+        Uri target,
+        string relativePath,
+        long fileBytes,
+        long transferBytes,
+        string contentType,
+        Func<HttpContent> createContent,
+        bool chunked,
+        int? chunkIndex,
+        int? chunkCount,
+        CancellationToken ct)
+    {
+        var elapsed = Stopwatch.StartNew();
+        var client = clients.CreateClient("backup-offsite");
+        for (var attempt = 1; attempt <= MediaUploadAttempts; attempt++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Put, target)
+            {
+                Content = createContent()
+            };
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+            request.Content.Headers.ContentLength = transferBytes;
+            if (chunked) request.Headers.TryAddWithoutValidation("OC-Chunked", "1");
+            AddRemoteAuthorization(request, destination, UnprotectSecret(destination));
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await client.SendAsync(
+                    request, HttpCompletionOption.ResponseHeadersRead, ct);
+            }
+            catch (HttpRequestException ex) when (attempt < MediaUploadAttempts)
+            {
+                var delay = TimeSpan.FromSeconds(2 * attempt);
+                logger.LogWarning(
+                    ex,
+                    "WebDAV media upload transport failed for {Provider} {MediaPath}, file {FileBytes} bytes, chunk {ChunkIndex}/{ChunkCount}; retry {Attempt}/{MaxAttempts} in {RetryDelaySeconds}s.",
+                    destination.Provider,
+                    relativePath,
+                    fileBytes,
+                    chunkIndex,
+                    chunkCount,
+                    attempt,
+                    MediaUploadAttempts,
+                    delay.TotalSeconds);
+                await Task.Delay(delay, ct);
+                continue;
+            }
+            catch (HttpRequestException ex)
+            {
+                throw new IOException(
+                    $"WebDAV media upload transport failed. Provider={destination.Provider}; MediaPath={relativePath}; FileBytes={fileBytes}; TransferBytes={transferBytes}; Chunk={FormatChunk(chunkIndex, chunkCount)}; Attempts={attempt}; ElapsedMs={elapsed.ElapsedMilliseconds}; Error={ex.Message}",
+                    ex);
+            }
+
+            using (response)
+            {
+                if (response.IsSuccessStatusCode) return;
+
+                var status = (int)response.StatusCode;
+                var server = response.Headers.Server.ToString();
+                var cloudflareRay = HeaderValue(response, "CF-Ray");
+                var retryAfter = RetryAfter(response);
+                var body = await ReadResponsePreviewAsync(response.Content, ct);
+                var failure =
+                    $"WebDAV media upload failed. Provider={destination.Provider}; MediaPath={relativePath}; FileBytes={fileBytes}; TransferBytes={transferBytes}; Chunk={FormatChunk(chunkIndex, chunkCount)}; HTTP={status}; Server={server}; CF-Ray={cloudflareRay}; RetryAfter={retryAfter?.TotalSeconds.ToString("0", CultureInfo.InvariantCulture) ?? "none"}s; ElapsedMs={elapsed.ElapsedMilliseconds}; Response={body}";
+                if (attempt < MediaUploadAttempts && IsTransientMediaUploadStatus(status))
+                {
+                    var delay = retryAfter ?? TimeSpan.FromSeconds(2 * attempt);
+                    logger.LogWarning(
+                        "{Failure}; retry {Attempt}/{MaxAttempts} in {RetryDelaySeconds}s.",
+                        failure,
+                        attempt,
+                        MediaUploadAttempts,
+                        delay.TotalSeconds);
+                    response.Dispose();
+                    await Task.Delay(delay, ct);
+                    continue;
+                }
+
+                throw new IOException(failure);
+            }
+        }
+
+        throw new IOException(
+            $"WebDAV media upload failed after {MediaUploadAttempts} attempts. Provider={destination.Provider}; MediaPath={relativePath}; FileBytes={fileBytes}; TransferBytes={transferBytes}; Chunk={FormatChunk(chunkIndex, chunkCount)}; ElapsedMs={elapsed.ElapsedMilliseconds}.");
+    }
+
+    private static string FormatChunk(int? index, int? count) =>
+        index is null || count is null ? "none" : $"{index}/{count}";
+
+    private static bool IsOwnCloudProvider(string provider) =>
+        string.Equals(provider, "owncloud", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsJsonTrue(JsonElement value) =>
+        value.ValueKind == JsonValueKind.True ||
+        value.ValueKind == JsonValueKind.String &&
+        string.Equals(value.GetString(), "true", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsTransientMediaUploadStatus(int status) =>
+        status is 408 or 429 || status >= 500;
+
+    private static string HeaderValue(HttpResponseMessage response, string name) =>
+        response.Headers.TryGetValues(name, out var values)
+            ? string.Join(",", values)
+            : "none";
+
+    private static TimeSpan? RetryAfter(HttpResponseMessage response)
+    {
+        var value = response.Headers.RetryAfter?.Delta;
+        if (value is null && response.Headers.RetryAfter?.Date is { } retryDate)
+            value = retryDate - DateTimeOffset.UtcNow;
+        if (value is null || value < TimeSpan.Zero) return null;
+        return value > MaximumRetryAfter ? MaximumRetryAfter : value;
+    }
+
+    private static async Task<string> ReadResponsePreviewAsync(
+        HttpContent content,
+        CancellationToken ct)
+    {
+        await using var stream = await content.ReadAsStreamAsync(ct);
+        var buffer = new byte[512];
+        var count = 0;
+        while (count < buffer.Length)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(count, buffer.Length - count), ct);
+            if (read == 0) break;
+            count += read;
+        }
+        return Encoding.UTF8.GetString(buffer, 0, count)
+            .Replace('\r', ' ')
+            .Replace('\n', ' ')
+            .Trim();
     }
 
     private async Task PutRemoteContentAsync(

@@ -4,6 +4,40 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.26 — Resilient backups and high-quality media imports
+
+### User changes
+
+- Large ownCloud media files now use the server's advertised chunked-upload
+  support, with bounded retries for transient upload failures.
+- Backup status and safe destination details are included in troubleshooting
+  reports. A successful configuration-backup upload remains visible when a
+  later media-sync step fails.
+- YouTube imports now prefer the highest available source quality up to 4K,
+  while keeping the original encoded streams intact; only separate TV playback
+  copies may be transcoded for compatibility.
+- Android/Google TV playback now starts with the highest codec-compatible
+  available version and automatically falls back to lower versions after a
+  playback error or sustained buffering, resuming at the same position.
+
+### Developer changes
+
+- WebDAV media-upload errors now include the relative media path, byte counts,
+  chunk progress, elapsed time, response status, and proxy trace identifiers
+  when provided. Interrupted ownCloud chunk uploads are cleaned up.
+- Troubleshooting snapshots include schedule, last-run/verification state,
+  per-destination media-sync counts, and errors without including credentials
+  or full WebDAV URLs.
+- YouTube format selection now considers non-MP4 high-resolution codecs,
+  prefers formats up to 2160p, and uses a lossless MKV stream-copy merge when
+  separate video and audio streams must be combined. Android and progressive
+  fallback profiles remain available when the preferred download path fails.
+- TV manifests now include a versioned, codec-filtered playback ladder. The
+  Media3 player records quality fallback diagnostics and retries after 15
+  seconds of continuous buffering without changing the stored original.
+- This release includes Android/Google TV artifacts because playback behavior
+  changed; no Apple TV/tvOS artifact is produced.
+
 ## v0.46.25 — Reliable protected updates and existing WebDAV folders
 
 ### User changes

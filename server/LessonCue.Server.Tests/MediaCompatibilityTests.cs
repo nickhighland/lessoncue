@@ -27,6 +27,77 @@ public sealed class MediaCompatibilityTests
         Assert.Equal("native", AdaptiveTranscodeProfiles.SelectForScreen(screen, media));
     }
 
+    [Fact]
+    public void Playback_sources_try_the_highest_supported_original_then_compatible_lower_profiles()
+    {
+        var media = new MediaAsset
+        {
+            FileName = "lesson-4k.mkv", RelativePath = "lesson-4k.mkv", ContentType = "video/x-matroska",
+            Sha256 = "original-checksum", SizeBytes = 4_000_000_000, Version = 3,
+            VideoCodec = "hevc", AudioCodec = "aac", Width = 3840, Height = 2160,
+            CompatibilityStatus = "ready", CompatibilityPath = "lesson.mp4",
+            CompatibilitySha256 = "compat-checksum", CompatibilitySizeBytes = 800_000_000
+        };
+        media.TranscodeVariants.Add(new MediaTranscodeVariant
+        {
+            Profile = AdaptiveTranscodeProfiles.Balanced720, Status = "ready", RelativePath = "720.mp4",
+            Sha256 = "720-checksum", SizeBytes = 200_000_000, Width = 1280, Height = 720, SourceVersion = 3
+        });
+        media.TranscodeVariants.Add(new MediaTranscodeVariant
+        {
+            Profile = AdaptiveTranscodeProfiles.DataSaver480, Status = "ready", RelativePath = "480.mp4",
+            Sha256 = "480-checksum", SizeBytes = 100_000_000, Width = 854, Height = 480, SourceVersion = 3
+        });
+        var screen = new Screen
+        {
+            Name = "4K TV",
+            CodecCapabilitiesJson = """
+                [{"kind":"video","codec":"H.264 / AVC","supported":true},
+                 {"kind":"video","codec":"H.265 / HEVC","supported":true},
+                 {"kind":"audio","codec":"AAC","supported":true}]
+                """
+        };
+
+        var sources = MediaPlaybackSources.For(media, screen);
+
+        Assert.Equal(new[] { "original", "compatible-1080", "h264-720", "h264-480" },
+            sources.Select(source => source.Profile));
+        Assert.Equal($"/api/v1/media/{media.Id}/file?v=original-che", sources[0].Url);
+        Assert.Equal("/api/v1/media/" + media.Id + "/transcodes/h264-720?v=720-checksum", sources[2].Url);
+    }
+
+    [Fact]
+    public void Playback_sources_never_offer_a_codec_explicitly_rejected_by_the_tv()
+    {
+        var media = new MediaAsset
+        {
+            FileName = "hevc.mp4", RelativePath = "hevc.mp4", ContentType = "video/mp4",
+            Sha256 = "hevc-checksum", SizeBytes = 400, Version = 1,
+            VideoCodec = "hevc", AudioCodec = "aac", Width = 1920, Height = 1080,
+            CompatibilityStatus = "ready", CompatibilityPath = "compatible.mp4",
+            CompatibilitySha256 = "compat-checksum", CompatibilitySizeBytes = 300
+        };
+        media.TranscodeVariants.Add(new MediaTranscodeVariant
+        {
+            Profile = AdaptiveTranscodeProfiles.Balanced720, Status = "ready", RelativePath = "720.mp4",
+            Sha256 = "720-checksum", SizeBytes = 200, Width = 1280, Height = 720, SourceVersion = 1
+        });
+        var screen = new Screen
+        {
+            Name = "HEVC-only TV",
+            CodecCapabilitiesJson = """
+                [{"kind":"video","codec":"H.264 / AVC","supported":false},
+                 {"kind":"video","codec":"H.265 / HEVC","supported":true},
+                 {"kind":"audio","codec":"AAC","supported":true}]
+                """
+        };
+
+        var sources = MediaPlaybackSources.For(media, screen);
+
+        Assert.Single(sources);
+        Assert.Equal("original", sources[0].Profile);
+    }
+
     [Theory]
     [InlineData("h264", "aac", "yuv420p", 41, 1920, 1080, true)]
     [InlineData("h264", null, "yuvj420p", 40, 1280, 720, true)]

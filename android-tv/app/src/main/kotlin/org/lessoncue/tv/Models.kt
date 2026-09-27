@@ -62,7 +62,18 @@ data class CueItem(
     val offlineEligible: Boolean = false,
     val renderSupport: String = "supported",
     val fallbackMessage: String? = null,
-    val cuePoints: List<CuePoint> = emptyList()
+    val cuePoints: List<CuePoint> = emptyList(),
+    val streamingSources: List<PlaybackSource> = emptyList()
+)
+
+data class PlaybackSource(
+    val profile: String,
+    val url: String,
+    val contentType: String? = null,
+    val sha256: String? = null,
+    val sizeBytes: Long? = null,
+    val width: Int? = null,
+    val height: Int? = null
 )
 
 fun CueItem.cacheFileName(): String = "$id.${fileExtension?.takeIf { it.matches(Regex("[a-zA-Z0-9]{1,8}")) } ?: "bin"}"
