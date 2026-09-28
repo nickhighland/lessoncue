@@ -193,6 +193,39 @@ Ordered by value, not effort.
    three surfaces found a total outage (six uncreatable games) on its first run.
    Lesson cues and signage have no equivalent.
 
+## 6a. Path containment, and the CodeQL alerts
+
+CodeQL reports seven high-severity `cs/path-injection` alerts against
+`AdminApi.cs` and `MediaRetentionService.cs`, first raised 2026-07-31. **They are
+false positives.** Every flagged sink is guarded: the guard resolves the full
+path and compares it to the root with a trailing separator, and `&&`
+short-circuits so the file operation only runs after containment passes. The
+uploaded extension reaching those paths is separator-free by construction —
+`Path.GetExtension` stops at a separator — and is checked against the format
+catalogue's allowlist. CodeQL does not model a `StartsWith` comparison as a
+sanitizer; this is a documented limitation of that query, not a gap in the code.
+
+They were still worth acting on, because what they pointed at was real. The same
+rule had been written out by hand in **fourteen places across ten files**, in
+three spellings, and two had drifted — `BackupService.Resolve` compared against a
+root with no trailing separator (unreachable only because `Path.GetFileName`
+strips the directory part first), and `AdaptiveTranscodeService` combines a
+stored path with no check at all.
+
+There is now one `ContainedPath` (`Resolve`, `ResolveExistingFile`,
+`DeleteIfContained`, `IsInside`) with 15 tests covering traversal, a rooted path
+that would make `Path.Combine` discard the root, the sibling directory that
+defeats a prefix comparison, and the root itself. It asks
+`Path.GetRelativePath` the containment question instead of comparing string
+prefixes, so it cannot forget the separator and it uses the platform's own casing
+rules. All 18 call sites go through it, including the backup extractor's
+zip-slip guard and the check on yt-dlp's stdout, neither of which CodeQL flagged.
+
+**The alerts will probably not clear on their own**, because the helper is still
+a `GetRelativePath` check that the query does not recognise either. Dismissing
+them as false positives is reasonable and is the repository owner's call; the
+justification is this section and `ContainedPathTests`.
+
 ## 7. Security constraints that still apply
 
 These were set by the repository owner and are not negotiable without asking:
