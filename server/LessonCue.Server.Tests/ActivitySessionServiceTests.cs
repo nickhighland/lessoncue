@@ -499,9 +499,9 @@ public sealed class ActivitySessionServiceTests
     }
 
     [Theory]
-    [InlineData("truth")]
-    [InlineData("TRUTH")]
-    public async Task FakeOutKeepsTruthUnmarkedUntilRevealAndScoresTheFinder(string truthTarget)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FakeOutKeepsTruthUnmarkedUntilRevealAndScoresTheFinder(bool upperCaseTarget)
     {
         var (db, activities, sessions, connection) = await CreateAsync();
         await using (connection)
@@ -527,6 +527,10 @@ public sealed class ActivitySessionServiceTests
             Assert.Contains("A real answer", optionsBeforeReveal, StringComparison.Ordinal);
             Assert.DoesNotContain("\"isTruth\":true", optionsBeforeReveal, StringComparison.OrdinalIgnoreCase);
 
+            // The truth carries the round's opaque id, in whatever case the phone echoes it.
+            var truthOptionId = JsonSerializer.SerializeToElement(participantState!.State.State, ActivityJsonDefaults.Options).GetProperty("options")
+                .EnumerateArray().Single(option => option.GetProperty("text").GetString() == "A real answer").GetProperty("id").GetString()!;
+            var truthTarget = upperCaseTarget ? truthOptionId.ToUpperInvariant() : truthOptionId;
             Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(finder.Token, "vote", JsonSerializer.SerializeToElement(new { targetId = truthTarget })), TestContext.Current.CancellationToken)).Success);
             await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "reveal"), TestContext.Current.CancellationToken);
             var displayAfterReveal = await sessions.GetDisplayEnvelopeAsync(run.Id, TestContext.Current.CancellationToken);
@@ -595,7 +599,9 @@ public sealed class ActivitySessionServiceTests
             var submission = Assert.Single(hostBeforeVote!.Submissions);
             var submissionId = submission.GetType().GetProperty("id")!.GetValue(submission)!.ToString();
             await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "openvoting"), TestContext.Current.CancellationToken);
-            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(finder.Token, "vote", JsonDocument.Parse("{\"targetId\":\"truth\"}").RootElement), TestContext.Current.CancellationToken)).Success);
+            var finderOptions = JsonSerializer.SerializeToElement((await sessions.GetParticipantViewAsync(run.Id, finder.Token, TestContext.Current.CancellationToken))!.State.State, ActivityJsonDefaults.Options).GetProperty("options");
+            var truthOptionId = finderOptions.EnumerateArray().Single(option => option.GetProperty("text").GetString() == "A real answer").GetProperty("id").GetString();
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(finder.Token, "vote", JsonSerializer.SerializeToElement(new { targetId = truthOptionId })), TestContext.Current.CancellationToken)).Success);
             var beforeReveal = JsonSerializer.Serialize((await sessions.GetDisplayEnvelopeAsync(run.Id, TestContext.Current.CancellationToken))!.State, ActivityJsonDefaults.Options);
             Assert.DoesNotContain("Bluffer", beforeReveal, StringComparison.Ordinal);
             Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "hostfavorite", JsonDocument.Parse($"{{\"submissionId\":\"{submissionId}\"}}").RootElement), TestContext.Current.CancellationToken)).Success);

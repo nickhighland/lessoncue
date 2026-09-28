@@ -179,9 +179,12 @@ test("an arrangement on the phone survives the round's clock ticking", async ({ 
     // The clock has to actually be running, or this proves nothing.
     await expect(phone.locator(".activity-motion-countdown")).toBeVisible();
 
-    await phone.getByRole("button", { name: "Move Alpha down" }).click();
-    const moved = ["Bravo", "Alpha", "Charlie"];
-    await expect(phone.locator(".ordering-participant-row span")).toHaveText(moved);
+    // Cards arrive in a stable server shuffle, so move whichever one is first.
+    const rows = phone.locator(".ordering-participant-row span");
+    const dealt = await rows.allTextContents();
+    await phone.getByRole("button", { name: `Move ${dealt[0]} down` }).click();
+    const moved = [dealt[1], dealt[0], dealt[2]];
+    await expect(rows).toHaveText(moved);
 
     // Several ticks later it must still be theirs, not the server's order again.
     await page.waitForTimeout(2_000);

@@ -1446,7 +1446,11 @@ public sealed class ActivitySessionService(
         {
             case "open": case "openresponses": state["phase"] = ActivityPhases.AcceptingResponses; state["responsesOpen"] = true; state["responsesLocked"] = false; return (true, null);
             case "close": case "closeresponses": case "lock": state["phase"] = ActivityPhases.ResponsesLocked; state["responsesOpen"] = false; state["responsesLocked"] = true; return (true, null);
-            case "openvoting": state["phase"] = ActivityPhases.Voting; state["votingOpen"] = true; return (true, null);
+            case "openvoting":
+                // An opaque id for the real answer, fixed for the round, so the
+                // truth cannot be picked out by its id or its place in the list.
+                if (StringValue(state, "truthOptionId") is null) state["truthOptionId"] = Guid.NewGuid().ToString();
+                state["phase"] = ActivityPhases.Voting; state["votingOpen"] = true; return (true, null);
             case "favorite": case "hostfavorite":
                 var favoriteId = ReadString(payload, "submissionId").Trim();
                 var favorite = run.Submissions.FirstOrDefault(item => item.Id.ToString() == favoriteId && item.RoundId == CurrentRoundId(run, config) && item.Kind == "bluff" && item.ModerationStatus == "approved" && !item.Hidden);
@@ -1463,7 +1467,7 @@ public sealed class ActivitySessionService(
             case "next": case "nextround":
                 var rounds = ArrayValue(config, "rounds"); var index = IntValue(state, "currentRoundIndex");
                 if (index >= Math.Max(0, rounds.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
-                state["currentRoundIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["votingOpen"] = false; state["resultsVisible"] = false; state["answerRevealed"] = false; state["scoresApplied"] = false; state["hostFavoriteScoreApplied"] = false; state.Remove("hostFavoriteSubmissionId"); return (true, null);
+                state["currentRoundIndex"] = index + 1; state["phase"] = ActivityPhases.RoundIntro; state["responsesOpen"] = false; state["responsesLocked"] = false; state["votingOpen"] = false; state["resultsVisible"] = false; state["answerRevealed"] = false; state["scoresApplied"] = false; state["hostFavoriteScoreApplied"] = false; state.Remove("hostFavoriteSubmissionId"); state.Remove("truthOptionId"); return (true, null);
             default: return (false, $"Unrecognized bluff action '{action}'.");
         }
     }
@@ -3296,9 +3300,10 @@ public sealed class ActivitySessionService(
             return (false, "Voting time is up.");
         if (submissionKind is not null)
         {
-            if (allowTruth && string.Equals(target, "truth", StringComparison.OrdinalIgnoreCase))
+            if (allowTruth && IsTruthOption(state, target))
             {
-                // The truth is a valid anonymous option for bluffing rounds.
+                // Stored under the canonical id so scoring never needs the
+                // round's opaque one.
                 target = "truth";
             }
             else if (!Guid.TryParse(target, out var submissionId))
@@ -3322,6 +3327,15 @@ public sealed class ActivitySessionService(
         else { existing.TargetId = target; existing.PayloadJson = voteJson; existing.CreatedAt = DateTimeOffset.UtcNow; }
         return (true, null);
     }
+
+    /// <summary>
+    /// Whether a bluff vote names the real answer. A round whose voting opened
+    /// before it had an opaque truth id still takes the old literal.
+    /// </summary>
+    private static bool IsTruthOption(JsonObject state, string target) =>
+        StringValue(state, "truthOptionId") is { } truthOptionId
+            ? string.Equals(target, truthOptionId, StringComparison.OrdinalIgnoreCase)
+            : string.Equals(target, "truth", StringComparison.OrdinalIgnoreCase);
 
     private async Task<(bool Success, string? Error)> AwardFromPayloadAsync(ActivityRun run, JsonObject state, JsonElement? payload, CancellationToken ct)
     {
@@ -3841,6 +3855,39 @@ public sealed class ActivitySessionService(
         return mode is "matching" or "grouping" ? mode : "ordering";
     }
 
+    /// <summary>
+    /// The order a round's cards are dealt to the room.
+    ///
+    /// Teachers author the list in the answer order (every Order Up preset
+    /// does), and Connections clues are written group by group, so handing the
+    /// room the authored order handed it the answer. The deal is keyed to the
+    /// run and round, so it holds still between polls and a phone keeps the
+    /// player's arrangement, and it is never the answer itself.
+    /// </summary>
+    private static JsonArray DealRoundItems(Guid runId, string? roundId, JsonArray items, IReadOnlyList<string> answerOrder)
+    {
+        var dealt = items
+            .Select((item, index) => (Item: item, Id: StringValue(item as JsonObject, "id") ?? $"item-{index + 1}"))
+            .OrderBy(entry => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{runId:N}:{roundId}:{entry.Id}"))), StringComparer.Ordinal)
+            .ToList();
+        if (dealt.Count > 1 && dealt.Select(entry => entry.Id).SequenceEqual(answerOrder, StringComparer.Ordinal))
+            dealt = [.. dealt.Skip(1), dealt[0]];
+        return new JsonArray(dealt.Select(entry => entry.Item?.DeepClone()).ToArray());
+    }
+
+    /// <summary>The order a sequencing round must not be dealt in: its answer.</summary>
+    private static List<string> OrderingAnswer(JsonObject round)
+    {
+        var answer = ReadStringArray(round, "correctOrder");
+        return answer.Count > 0
+            ? answer
+            : ArrayValue(round, "items").Select((item, index) => StringValue(item as JsonObject, "id") ?? $"item-{index + 1}").ToList();
+    }
+
+    /// <summary>The order a Connections round must not be dealt in: as authored, group by group.</summary>
+    private static List<string> AuthoredItemOrder(JsonObject? round) =>
+        ArrayValue(round, "items").Select((item, index) => StringValue(item as JsonObject, "id") ?? $"item-{index + 1}").ToList();
+
     private async Task ScoreWordAsync(ActivityRun run, JsonObject config, JsonObject state, CancellationToken ct)
     {
         var roundId = CurrentRoundId(run, config);
@@ -4269,7 +4316,7 @@ public sealed class ActivitySessionService(
         var state = ParseObject(run.StateJson);
         if (role == ProjectionRole.Host) state["currentRoundId"] = CurrentRoundId(run, config);
         if (role == ProjectionRole.Display || role == ProjectionRole.Participant) state = await ProjectDisplayStateAsync(run, config, state, ct, participantId);
-        var projectedConfig = role == ProjectionRole.Host ? config : ProjectPublicConfig(run.ActivityDefinition!.Type, config, state);
+        var projectedConfig = role == ProjectionRole.Host ? config : ProjectPublicConfig(run.ActivityDefinition!.Type, config, state, run.Id);
         return new ActivityStateEnvelope(run.Id, run.ActivityDefinitionId, run.ActivityDefinition!.Type, run.Revision, run.Status, ParseUntyped(Serialize(state))!, DateTimeOffset.UtcNow, run.ActivityDefinition.Name, ParseUntyped(run.ActivityDefinition.ThemeJson), ParseUntyped(Serialize(projectedConfig)));
     }
 
@@ -4616,19 +4663,22 @@ public sealed class ActivitySessionService(
                 : submissions;
             var fakePhase = StringValue(state, "phase");
             var revealAuthors = BoolValue(config, "revealAuthors", true) && (fakePhase is ActivityPhases.Reveal or ActivityPhases.FinalResults);
-            var options = new JsonArray(visibleBluffs.Select(x =>
+            var options = visibleBluffs.Select(x =>
             {
                 var option = new JsonObject { ["id"] = x.Id.ToString(), ["text"] = StringValue(ParseObject(x.PayloadJson), "text") ?? "", ["isTruth"] = false };
                 if (revealAuthors) option["author"] = run.Participants.FirstOrDefault(participant => participant.Id == x.ParticipantId)?.DisplayName ?? "Anonymous";
-                return (JsonNode)option;
-            }).ToArray());
+                return option;
+            }).ToList();
             if (fakePhase is ActivityPhases.Voting or ActivityPhases.Reveal or ActivityPhases.FinalResults)
             {
-                var truthOption = new JsonObject { ["id"] = "truth", ["text"] = StringValue(ArrayValue(config, "rounds").Count > IntValue(state, "currentRoundIndex") ? ArrayValue(config, "rounds")[IntValue(state, "currentRoundIndex")] as JsonObject : null, "truth") ?? "", ["isTruth"] = fakePhase is ActivityPhases.Reveal or ActivityPhases.FinalResults };
+                var truthOption = new JsonObject { ["id"] = StringValue(state, "truthOptionId") ?? "truth", ["text"] = StringValue(ArrayValue(config, "rounds").Count > IntValue(state, "currentRoundIndex") ? ArrayValue(config, "rounds")[IntValue(state, "currentRoundIndex")] as JsonObject : null, "truth") ?? "", ["isTruth"] = fakePhase is ActivityPhases.Reveal or ActivityPhases.FinalResults };
                 if (revealAuthors) truthOption["author"] = "THE REAL ANSWER";
                 options.Add(truthOption);
             }
-            projected["options"] = options;
+            // Every id is random, so ordering by id is a shuffle that holds still
+            // between polls. Appending the truth made it always the last card.
+            projected["options"] = new JsonArray(options.OrderBy(option => StringValue(option, "id"), StringComparer.Ordinal).Select(option => (JsonNode)option).ToArray());
+            projected.Remove("truthOptionId");
         }
         else if (run.ActivityDefinition.Type == ActivityTypes.Buzzer)
         {
@@ -4746,7 +4796,8 @@ public sealed class ActivitySessionService(
             }
             else if (interactionMode == "grouping")
             {
-                projected["groupingItems"] = new JsonArray(ArrayValue(round, "items").OfType<JsonObject>().Select((item, itemIndex) => (JsonNode)new JsonObject
+                var dealtItems = DealRoundItems(run.Id, StringValue(round, "id") ?? $"round-{index + 1}", ArrayValue(round, "items"), AuthoredItemOrder(round));
+                projected["groupingItems"] = new JsonArray(dealtItems.OfType<JsonObject>().Select((item, itemIndex) => (JsonNode)new JsonObject
                 {
                     ["id"] = StringValue(item, "id") ?? $"item-{itemIndex + 1}",
                     ["label"] = StringValue(item, "label") ?? "Item"
@@ -4948,7 +4999,7 @@ public sealed class ActivitySessionService(
         return projected;
     }
 
-    private static JsonObject ProjectPublicConfig(string type, JsonObject config, JsonObject state)
+    private static JsonObject ProjectPublicConfig(string type, JsonObject config, JsonObject state, Guid runId)
     {
         var projected = ParseObject(Serialize(config));
         if (type is ActivityTypes.Trivia or ActivityTypes.RapidFire)
@@ -4984,8 +5035,14 @@ public sealed class ActivitySessionService(
         }
         else if (type == ActivityTypes.Ordering)
         {
-            foreach (var round in ArrayValue(projected, "rounds")) if (round is JsonObject item)
+            foreach (var (round, roundIndex) in ArrayValue(projected, "rounds").Select((round, roundIndex) => (round, roundIndex)).ToArray()) if (round is JsonObject item)
             {
+                var interactionMode = OrderingInteractionMode(projected, item);
+                var roundId = StringValue(item, "id") ?? $"round-{roundIndex + 1}";
+                if (interactionMode == "ordering")
+                    item["items"] = DealRoundItems(runId, roundId, ArrayValue(item, "items"), OrderingAnswer(item));
+                else if (interactionMode == "grouping")
+                    item["items"] = DealRoundItems(runId, roundId, ArrayValue(item, "items"), AuthoredItemOrder(item));
                 item.Remove("correctOrder");
                 // Match-Up and Connections receive sanitized choices through
                 // the role-specific state projection. The answer mapping stays

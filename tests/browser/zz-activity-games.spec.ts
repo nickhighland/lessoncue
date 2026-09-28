@@ -622,10 +622,16 @@ test("Fake Out keeps truth hidden as a label, moderates bluffs, and scores truth
     await hostAction(page, run.runId, "lock");
     await hostAction(page, run.runId, "openvoting");
     const beforeReveal = await runState(page, run.runId);
-    expect((beforeReveal.options as Array<{ isTruth?: boolean }>).some(option => option.isTruth === true)).toBe(false);
+    const publicOptions = beforeReveal.options as Array<{ id: string; isTruth?: boolean }>;
+    expect(publicOptions.some(option => option.isTruth === true)).toBe(false);
+    // The truth has an opaque id and no fixed place in the list, so find it by
+    // the text only the host is allowed to know.
+    expect(publicOptions.some(option => option.id.toLowerCase() === "truth")).toBe(false);
+    const hostConfig = (await hostState(page, run.runId)).state.config as { rounds: Array<{ truth: string }> };
+    const truthText = hostConfig.rounds[0].truth;
     for (const participantPage of [first, second]) {
       await expect(participantPage.locator(".participant-choice-list")).toBeVisible();
-      await participantPage.locator(".participant-choice-list button").last().click();
+      await participantPage.locator(".participant-choice-list button", { hasText: truthText }).click();
     }
     await hostAction(page, run.runId, "reveal");
     const afterReveal = await runState(page, run.runId);
@@ -759,7 +765,16 @@ test("Order Up supports accessible phone sorting and partial credit", async ({ p
     await hostAction(page, run.runId, "start");
     await hostAction(page, run.runId, "open");
     await expect(participant.locator(".ordering-participant-list")).toBeVisible();
-    await participant.getByRole("button", { name: "Move Try down" }).click();
+    // The cards are dealt in a stable shuffle, never in the answer order the
+    // preset was authored in, so build the arrangement from whatever arrived.
+    const rows = participant.locator(".ordering-participant-row span");
+    expect(await rows.allTextContents()).not.toEqual(["Start", "Try", "Reflect"]);
+    const target = ["Start", "Reflect", "Try"];
+    for (const [position, label] of target.entries()) {
+      while ((await rows.allTextContents()).indexOf(label) > position)
+        await participant.getByRole("button", { name: `Move ${label} up` }).click();
+    }
+    await expect(rows).toHaveText(target);
     await participant.getByRole("button", { name: "Lock in order" }).click();
     await expect(participant.getByText("Your answer is locked in.")).toBeVisible();
 
