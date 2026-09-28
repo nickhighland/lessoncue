@@ -740,7 +740,11 @@ public sealed class ActivitySessionService(
             run.TimerStartedAt = null;
             run.TimerPausedAt = null;
             run.TimerDurationMs = null;
-            foreach (var participant in run.Participants) participant.Status = "active";
+            // The lobby's people, teams and points span the lesson. Resetting one
+            // game lifts only that game's knockouts: a player the host removed or
+            // locked stays that way, and points other games earned stay earned.
+            foreach (var participant in run.Participants.Where(item => item.Status == ActivityParticipantStatuses.Eliminated))
+                participant.Status = ActivityParticipantStatuses.Active;
             if (run.ActivityDefinition.Type is ActivityTypes.Trivia or ActivityTypes.RapidFire)
             {
                 var resetConfig = ParseConfig(run);
@@ -750,8 +754,11 @@ public sealed class ActivitySessionService(
             }
             db.ActivitySubmissions.RemoveRange(run.Submissions);
             db.ActivityVotes.RemoveRange(run.Votes);
-            db.ActivityScoreEvents.RemoveRange(run.ScoreEvents);
-            foreach (var team in run.Teams) team.Score = 0;
+            db.ActivityScoreEvents.RemoveRange(run.RunScoreEvents);
+            foreach (var team in run.Teams)
+                team.Score = run.ScoreEvents
+                    .Where(score => !score.IsUndone && score.TeamId == team.Id && score.ActivityRunId != run.Id)
+                    .Sum(score => score.Amount);
             await CommitAsync(run, ParseObject(run.StateJson), ct, incrementRevision: true);
             return run;
         }
@@ -931,6 +938,12 @@ public sealed class ActivitySessionService(
         if (action is "start" or "startgame")
         {
             var activityType = run.ActivityDefinition!.Type;
+            // A knockout belongs to the game it happened in. Participants are the
+            // lobby's, so without this a Survivor Trivia loss silenced that
+            // phone for every later game in the lesson.
+            if (StringValue(state, "phase") is null or ActivityPhases.Lobby or ActivityPhases.Setup)
+                foreach (var participant in run.Participants.Where(item => item.Status == ActivityParticipantStatuses.Eliminated))
+                    participant.Status = ActivityParticipantStatuses.Active;
             if (run.ActivityDefinition!.Type == ActivityTypes.Bracket)
             {
                 await EnsureBracketEntrantsAsync(run, config, state, ct);
@@ -1030,6 +1043,9 @@ public sealed class ActivitySessionService(
             // history behind it stays auditable and undo still means something.
             group.ScoresResetAt = DateTimeOffset.UtcNow;
             group.UpdatedAt = group.ScoresResetAt.Value;
+            // The team board reads the running team total, not the ledger, so it
+            // has to start over here too or team standings never cleared.
+            foreach (var team in run.Teams) team.Score = 0;
             await db.SaveChangesAsync(ct);
             return (true, null);
         }
@@ -4015,20 +4031,17 @@ public sealed class ActivitySessionService(
         if (ArrayValue(state, "bracketEntrants").Count > 0) return;
 
         var roster = new List<JsonObject>();
+        // The lobby's roster, not the rows whose ActivityRunId is this run: that
+        // column records the game a player first joined through, so a bracket
+        // later in a lesson found nobody to seat.
         if (source == "participants")
         {
-            var participants = await db.ActivityParticipants
-                .Where(participant => participant.ActivityRunId == run.Id && participant.Status == ActivityParticipantStatuses.Active)
-                .ToListAsync(ct);
+            var participants = run.Participants.Where(participant => participant.Status == ActivityParticipantStatuses.Active);
             roster.AddRange(participants.OrderBy(participant => participant.JoinedAt).Take(32).Select(participant => new JsonObject { ["id"] = participant.Id.ToString(), ["label"] = participant.DisplayName }));
         }
         else if (source == "teams")
         {
-            var teams = await db.ActivityTeams
-                .Where(team => team.ActivityRunId == run.Id && team.Active)
-                .OrderBy(team => team.Position)
-                .Take(32)
-                .ToListAsync(ct);
+            var teams = run.Teams.Where(team => team.Active).OrderBy(team => team.Position).Take(32);
             roster.AddRange(teams.Select(team => new JsonObject { ["id"] = team.Id.ToString(), ["label"] = team.Name }));
         }
         else
@@ -4046,6 +4059,7 @@ public sealed class ActivitySessionService(
 
         if (source is not "teacher" || randomSelection)
             state["bracketEntrants"] = new JsonArray(roster.Select(item => (JsonNode)item).ToArray());
+        await Task.CompletedTask;
     }
 
     private static JsonArray BracketEntrants(JsonObject config, JsonObject state) =>
