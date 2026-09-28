@@ -1119,6 +1119,16 @@ public sealed class ActivitySessionService(
                 state["responsesOpen"] = true;
                 state["responsesLocked"] = false;
                 state["responseWindowStartedAt"] = DateTimeOffset.UtcNow.ToString("O");
+                // Only the first question is started; every later one is opened,
+                // by the host or the auto-pilot. Without its own clock armed here
+                // each answer was refused as out of time.
+                if (run.ActivityDefinition!.Type == ActivityTypes.RapidFire && run.Status != ActivityRunStatuses.Paused && RapidFireRemainingMs(state) <= 0)
+                {
+                    var durationMs = RapidFireDurationMs(config, state);
+                    state["remainingMs"] = durationMs;
+                    state["targetAt"] = DateTimeOffset.UtcNow.AddMilliseconds(durationMs).ToString("O");
+                    state["isRunning"] = true;
+                }
                 return (true, null);
             case "closeresponses":
             case "lock":
