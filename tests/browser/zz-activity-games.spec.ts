@@ -505,8 +505,9 @@ test("Punchline can resolve a moderated head-to-head matchup through the phone c
     await expect(first.locator(".participant-choice-list button")).toHaveCount(2);
     const session = await hostState(page, run.runId);
     const firstSubmissionId = session.submissions[0].id;
-    await first.locator(".participant-choice-list button").first().click();
-    await second.locator(".participant-choice-list button").first().click();
+    // Nobody can vote for their own response, so each phone backs the other.
+    await first.locator(".participant-choice-list button", { hasText: "A mascot made of toast" }).click();
+    await second.locator(".participant-choice-list button", { hasText: "A tiny mascot" }).click();
     await hostAction(page, run.runId, "reveal", { winnerId: firstSubmissionId });
     await expect.poll(async () => (await runState(page, run.runId)).phase).toBe("finalResults");
     const scores = (await hostState(page, run.runId)).scoreEvents.map(event => event.amount);

@@ -1546,8 +1546,10 @@ public sealed class ActivitySessionServiceTests
             Assert.Contains("A surprisingly tiny mascot", participantState.GetProperty("creativeCurrentMatch").GetProperty("entrantA").GetString()! + participantState.GetProperty("creativeCurrentMatch").GetProperty("entrantB").GetString()!);
             Assert.DoesNotContain("First Writer", JsonSerializer.Serialize(participantState, ActivityJsonDefaults.Options), StringComparison.Ordinal);
 
-            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(first.Token, "vote", JsonDocument.Parse($"{{\"targetId\":\"{firstSubmissionId}\"}}").RootElement), TestContext.Current.CancellationToken)).Success);
-            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(second.Token, "vote", JsonDocument.Parse($"{{\"targetId\":\"{secondSubmissionId}\"}}").RootElement), TestContext.Current.CancellationToken)).Success);
+            // Writers cannot back their own response, so each votes for the other's.
+            Assert.False((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(first.Token, "vote", JsonDocument.Parse($"{{\"targetId\":\"{firstSubmissionId}\"}}").RootElement), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(first.Token, "vote", JsonDocument.Parse($"{{\"targetId\":\"{secondSubmissionId}\"}}").RootElement), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(second.Token, "vote", JsonDocument.Parse($"{{\"targetId\":\"{firstSubmissionId}\"}}").RootElement), TestContext.Current.CancellationToken)).Success);
             var reveal = await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "reveal", JsonDocument.Parse($"{{\"winnerId\":\"{firstSubmissionId}\"}}").RootElement), TestContext.Current.CancellationToken);
             Assert.True(reveal.Success, reveal.Error);
             var revealState = JsonSerializer.SerializeToElement(reveal.State, ActivityJsonDefaults.Options);

@@ -1224,7 +1224,15 @@ public sealed class ActivitySessionService(
         var existing = await db.ActivitySubmissions.SingleOrDefaultAsync(x => x.ActivityRunId == run.Id && x.ParticipantId == participant.Id && x.RoundId == roundId, ct);
         var payloadJson = Serialize(answerPayload);
         if (existing is null) db.ActivitySubmissions.Add(new ActivitySubmission { ActivityRunId = run.Id, ParticipantId = participant.Id, RoundId = roundId, Kind = "quizAnswer", PayloadJson = payloadJson });
-        else { existing.PayloadJson = payloadJson; existing.UpdatedAt = DateTimeOffset.UtcNow; }
+        else
+        {
+            // A changed answer is a new answer. The speed bonus and "first
+            // correct" read SubmittedAt, so keeping the first time rewarded a
+            // placeholder sent the instant the window opened. A resend of the
+            // same answer keeps its time.
+            if (!string.Equals(existing.PayloadJson, payloadJson, StringComparison.Ordinal)) existing.SubmittedAt = DateTimeOffset.UtcNow;
+            existing.PayloadJson = payloadJson; existing.UpdatedAt = DateTimeOffset.UtcNow;
+        }
         state["responseCount"] = await db.ActivitySubmissions.CountAsync(x => x.ActivityRunId == run.Id && x.RoundId == roundId, ct) + (existing is null ? 1 : 0);
         return (true, null);
     }
@@ -1318,7 +1326,7 @@ public sealed class ActivitySessionService(
                 state["stealOpen"] = false;
                 state["buzzWinnerParticipantId"] = null;
                 state["buzzWinnerName"] = null;
-                state.Remove("lockedOutParticipantId");
+                state.Remove("lockedOutParticipantId"); state.Remove("lockedOutParticipantIds");
                 state["answerRevealed"] = false;
                 state.Remove("revealedAnswer");
                 return (true, null);
@@ -1342,7 +1350,7 @@ public sealed class ActivitySessionService(
                     state["stealOpen"] = false;
                     state["buzzWinnerParticipantId"] = null;
                     state["buzzWinnerName"] = null;
-                    state.Remove("lockedOutParticipantId");
+                    state.Remove("lockedOutParticipantId"); state.Remove("lockedOutParticipantIds");
                     state["answerRevealed"] = false;
                     state.Remove("revealedAnswer");
                     return (true, null);
@@ -1359,7 +1367,15 @@ public sealed class ActivitySessionService(
             case "incorrect":
                 var loser = StringValue(state, "buzzWinnerParticipantId");
                 if (!Guid.TryParse(loser, out var loserId)) return (false, "A player must buzz before marking an answer incorrect.");
-                if (BoolValue(config, "lockOutOnMiss", true)) state["lockedOutParticipantId"] = loserId.ToString();
+                if (BoolValue(config, "lockOutOnMiss", true))
+                {
+                    state["lockedOutParticipantId"] = loserId.ToString();
+                    // Every miss on this clue stays out, not just the latest: with
+                    // one slot, a second miss let the first player buzz again.
+                    var lockedOut = ReadStringArray(state, "lockedOutParticipantIds");
+                    if (!lockedOut.Contains(loserId.ToString(), StringComparer.OrdinalIgnoreCase)) lockedOut.Add(loserId.ToString());
+                    state["lockedOutParticipantIds"] = new JsonArray(lockedOut.Select(id => (JsonNode)id).ToArray());
+                }
                 var penalty = IntValue(config, "wrongPenalty");
                 if (penalty != 0) await AwardScoreAsync(run, loserId, null, -Math.Abs(penalty), "Incorrect buzzer answer", CurrentRoundId(run, config), ct);
                 var stealOnMiss = BoolValue(config, "stealOnMiss", true);
@@ -1383,7 +1399,7 @@ public sealed class ActivitySessionService(
                 return (true, null);
             case "next": case "nextround":
                 if (index >= Math.Max(0, clues.Count - 1)) { state["phase"] = ActivityPhases.FinalResults; return (true, null); }
-                state["currentClueIndex"] = index + 1; state["cluesRevealed"] = 0; state["buzzWinnerParticipantId"] = null; state["buzzWinnerName"] = null; state["buzzLocked"] = false; state["stealOpen"] = false; state["responsesOpen"] = false; state["answerRevealed"] = false; state.Remove("revealedAnswer"); state.Remove("lockedOutParticipantId"); state["scoresApplied"] = false; state.Remove("pointsAwarded"); state["phase"] = ActivityPhases.RoundIntro; return (true, null);
+                state["currentClueIndex"] = index + 1; state["cluesRevealed"] = 0; state["buzzWinnerParticipantId"] = null; state["buzzWinnerName"] = null; state["buzzLocked"] = false; state["stealOpen"] = false; state["responsesOpen"] = false; state["answerRevealed"] = false; state.Remove("revealedAnswer"); state.Remove("lockedOutParticipantId"); state.Remove("lockedOutParticipantIds"); state["scoresApplied"] = false; state.Remove("pointsAwarded"); state["phase"] = ActivityPhases.RoundIntro; return (true, null);
             default: return (false, $"Unrecognized buzzer action '{action}'.");
         }
     }
@@ -1392,10 +1408,14 @@ public sealed class ActivitySessionService(
     {
         if (action is not ("buzz" or "answer")) return Task.FromResult((Success: false, Error: (string?)"Press the buzzer when it opens."));
         if (StringValue(state, "phase") != ActivityPhases.AcceptingResponses || !BoolValue(state, "responsesOpen", true) || BoolValue(state, "buzzLocked")) return Task.FromResult((Success: false, Error: (string?)"The buzzer is closed."));
-        if (StringValue(state, "lockedOutParticipantId") == participant.Id.ToString()) return Task.FromResult((Success: false, Error: (string?)"You are locked out for this clue."));
+        if (IsBuzzerLockedOut(state, participant.Id)) return Task.FromResult((Success: false, Error: (string?)"You are locked out for this clue."));
         state["buzzWinnerParticipantId"] = participant.Id.ToString(); state["buzzWinnerName"] = participant.DisplayName; state["buzzLocked"] = true; state["phase"] = ActivityPhases.Judging;
         return Task.FromResult((true, (string?)null));
     }
+
+    private static bool IsBuzzerLockedOut(JsonObject state, Guid participantId) =>
+        StringValue(state, "lockedOutParticipantId") == participantId.ToString()
+        || ReadStringArray(state, "lockedOutParticipantIds").Contains(participantId.ToString(), StringComparer.OrdinalIgnoreCase);
 
     private async Task<(bool Success, string? Error)> HandleCreativeHostAsync(ActivityRun run, JsonObject config, JsonObject state, string action, JsonElement? payload, CancellationToken ct)
     {
@@ -1446,7 +1466,7 @@ public sealed class ActivitySessionService(
             state["submissionCount"] = await db.ActivitySubmissions.CountAsync(x => x.ActivityRunId == run.Id && x.RoundId == roundId, ct) + (existing is null ? 1 : 0);
             return (true, null);
         }
-        if (action is "vote" or "choose") return await SaveVoteAsync(run, participant, state, payload, CreativeVoteRoundId(run, config, state), ct, "creative");
+        if (action is "vote" or "choose") return await SaveVoteAsync(run, participant, state, payload, CreativeVoteRoundId(run, config, state), ct, "creative", preventSelfVote: true);
         return (false, "Submit a response or vote when the host opens that phase.");
     }
 
@@ -3228,10 +3248,13 @@ public sealed class ActivitySessionService(
                 var winnerTeamId = BoolValue(state, "stealOpen") ? StringValue(state, "stealTeamId") : StringValue(state, "buzzWinnerTeamId");
                 if (newlyRevealed)
                 {
+                    // One award per board answer. The ledger ignores a repeat of the
+                    // same player/team, round and reason, so a reason without the
+                    // rank credited only the first answer a team found.
                     if (Guid.TryParse(winnerTeamId, out var scoreTeamId) && run.Teams.Any(team => team.Id == scoreTeamId && team.Active))
-                        await AwardScoreAsync(run, null, scoreTeamId, points, BoolValue(state, "stealOpen") ? "Steal survey answer" : "Matched survey answer", CurrentRoundId(run, config), ct);
+                        await AwardScoreAsync(run, null, scoreTeamId, points, BoolValue(state, "stealOpen") ? $"Steal survey answer #{rank}" : $"Matched survey answer #{rank}", CurrentRoundId(run, config), ct);
                     else if (Guid.TryParse(winner, out var winnerId))
-                        await AwardScoreAsync(run, winnerId, null, points, "Matched survey answer", CurrentRoundId(run, config), ct);
+                        await AwardScoreAsync(run, winnerId, null, points, $"Matched survey answer #{rank}", CurrentRoundId(run, config), ct);
                 }
                 state["stealOpen"] = false;
                 state.Remove("stealTeamId");
@@ -3351,7 +3374,13 @@ public sealed class ActivitySessionService(
     {
         var amount = ReadInt(payload, "amount", 0); if (amount is < -100000 or > 100000) return (false, "Point adjustment is out of range.");
         var participantId = ReadGuid(payload, "participantId"); var teamId = ReadGuid(payload, "teamId"); if (participantId is null && teamId is null) return (false, "Choose a player or team.");
-        await AwardScoreAsync(run, participantId, teamId, amount, ReadString(payload, "reason").Trim() is { Length: > 0 } reason ? reason : "Host-awarded points", ReadString(payload, "roundId"), ct);
+        // Only this lobby's people and teams; any other id failed the foreign
+        // key as a 500, or credited a player from another class's lobby.
+        if (participantId is Guid awardedParticipantId && run.Participants.All(item => item.Id != awardedParticipantId)) return (false, "That player is not in this game.");
+        if (teamId is Guid awardedTeamId && run.Teams.All(item => item.Id != awardedTeamId)) return (false, "That team is not in this game.");
+        // A host award is a deliberate press, so a second "+100 · Team 1" is a
+        // second award, not a retry for the ledger to swallow.
+        await AwardScoreAsync(run, participantId, teamId, amount, ReadString(payload, "reason").Trim() is { Length: > 0 } reason ? reason : "Host-awarded points", ReadString(payload, "roundId"), ct, deduplicate: false);
         return (true, null);
     }
 
@@ -3946,13 +3975,13 @@ public sealed class ActivitySessionService(
 
     private async Task ScoreBoardAsync(ActivityRun run, CancellationToken ct) => await Task.CompletedTask;
 
-    private async Task AwardScoreAsync(ActivityRun run, Guid? participantId, Guid? teamId, int amount, string reason, string? roundId, CancellationToken ct)
+    private async Task AwardScoreAsync(ActivityRun run, Guid? participantId, Guid? teamId, int amount, string reason, string? roundId, CancellationToken ct, bool deduplicate = true)
     {
         if (participantId is null && teamId is null) return;
         var participant = participantId.HasValue ? run.Participants.FirstOrDefault(x => x.Id == participantId.Value) : null;
         var resolvedTeamId = teamId ?? participant?.TeamId;
         var team = resolvedTeamId.HasValue ? run.Teams.FirstOrDefault(x => x.Id == resolvedTeamId.Value) : null;
-        var already = run.ScoreEvents.Any(x => x.ActivityRunId == run.Id && !x.IsUndone && x.ParticipantId == participantId && x.TeamId == resolvedTeamId && x.RoundId == roundId && x.Reason == reason);
+        var already = deduplicate && run.ScoreEvents.Any(x => x.ActivityRunId == run.Id && !x.IsUndone && x.ParticipantId == participantId && x.TeamId == resolvedTeamId && x.RoundId == roundId && x.Reason == reason);
         if (already) return;
         // Stamped with the lobby so totals carry across the lesson's games,
         // and with the run so a single game's points stay attributable.
@@ -4694,8 +4723,9 @@ public sealed class ActivitySessionService(
         {
             projected.Remove("buzzWinnerParticipantId");
             projected.Remove("lockedOutParticipantId");
+            projected.Remove("lockedOutParticipantIds");
             if (participantId.HasValue)
-                projected["isLockedOut"] = StringValue(state, "lockedOutParticipantId") == participantId.Value.ToString();
+                projected["isLockedOut"] = IsBuzzerLockedOut(state, participantId.Value);
         }
         else if (run.ActivityDefinition.Type == ActivityTypes.SurveyBoard)
         {
