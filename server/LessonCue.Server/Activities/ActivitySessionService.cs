@@ -219,9 +219,12 @@ public sealed class ActivitySessionService(
             return null;
         }
 
+        // Only a run from before lobbies owns its code outright. Every run in a
+        // lobby mirrors the lobby's code and keeps it after the lobby retires
+        // it, so a retired code can match several ended runs.
         var run = await db.ActivityRuns.Include(x => x.ActivityDefinition)
-            .SingleOrDefaultAsync(x => x.JoinCode == normalized, ct);
-        if (run is null || run.ActivityDefinition is null || run.Status == ActivityRunStatuses.Ended) return null;
+            .FirstOrDefaultAsync(x => x.JoinCode == normalized && x.SessionGroupId == null && x.Status != ActivityRunStatuses.Ended, ct);
+        if (run is null || run.ActivityDefinition is null) return null;
         return await EnsureInteractiveRunAsync(run, ct, activate: false);
     }
 
@@ -532,7 +535,7 @@ public sealed class ActivitySessionService(
             var config = ParseConfig(run);
             var state = ParseObject(run.StateJson);
             var action = input.Action.Trim().ToLowerInvariant();
-            var result = await HandleParticipantActionAsync(run, participant, config, state, action, input.Payload, ct);
+            var result = await HandleParticipantActionAsync(run, participant, config, state, action, ObjectPayload(input.Payload), ct);
             if (!result.Success) return new ActivityCommandResult(false, result.Error, run.Revision, run.Status, ParseUntyped(run.StateJson), DateTimeOffset.UtcNow);
             await ApplyAutoAdvanceAsync(run, config, state, ct);
             await CommitAsync(run, state, ct);
@@ -716,7 +719,7 @@ public sealed class ActivitySessionService(
 
         var result = action == "resetplayers"
             ? await ResetPlayersAsync(run, ct)
-            : await HandleHostActionAsync(run, config, state, action, command.Payload, ct);
+            : await HandleHostActionAsync(run, config, state, action, ObjectPayload(command.Payload), ct);
         if (!result.Success) return new ActivityCommandResult(false, result.Error, run.Revision, run.Status, ParseUntyped(run.StateJson), DateTimeOffset.UtcNow);
         if (action == "resetplayers") state = ParseObject(run.StateJson);
         await CommitAsync(run, state, ct);
@@ -1666,15 +1669,21 @@ public sealed class ActivitySessionService(
             if (StringValue(state, "phase") != ActivityPhases.AcceptingResponses || !BoolValue(state, "responsesOpen")) return (false, "Drawing is closed.");
             var telephone = BoolValue(config, "telephoneChain");
             var telephoneKind = StringValue(state, "telephoneStepKind", "drawing");
+            // Keep only the field that was validated. A description was checked
+            // for its text and then stored whole, so anything else a phone sent
+            // (any size, unchecked strokes) was saved and later broadcast to the
+            // stage and every phone in the chain reveal.
+            JsonObject payloadObject;
             if (telephone && telephoneKind == "description")
             {
                 var text = ReadString(payload, "text").Trim();
                 if (text.Length is < 1 or > 1000) return (false, "Descriptions must be between 1 and 1,000 characters.");
+                payloadObject = new JsonObject { ["text"] = text };
             }
             else if (!ValidateDrawingPayload(payload, config, out var error)) return (false, error);
+            else payloadObject = new JsonObject { ["strokes"] = JsonNode.Parse(payload!.Value.GetProperty("strokes").GetRawText()) };
             var existing = await db.ActivitySubmissions.SingleOrDefaultAsync(x => x.ActivityRunId == run.Id && x.ParticipantId == participant.Id && x.RoundId == roundId, ct);
             var status = BoolValue(config, "requireModeration", true) ? "pending" : "approved";
-            var payloadObject = JsonNode.Parse(payload!.Value.GetRawText()) as JsonObject ?? new JsonObject();
             if (telephone) { payloadObject["stepIndex"] = IntValue(state, "telephoneStepIndex"); payloadObject["kind"] = telephoneKind; }
             var json = payloadObject.ToJsonString(ActivityJsonDefaults.Options);
             if (existing is null) db.ActivitySubmissions.Add(new ActivitySubmission { ActivityRunId = run.Id, ParticipantId = participant.Id, RoundId = roundId, Kind = telephone ? "telephone" : "drawing", PayloadJson = json, ModerationStatus = status });
@@ -1762,8 +1771,9 @@ public sealed class ActivitySessionService(
             var normalized = new JsonArray();
             foreach (var match in matchesElement.EnumerateArray())
             {
-                var leftId = match.TryGetProperty("leftId", out var leftValue) ? leftValue.GetString()?.Trim() ?? "" : "";
-                var rightId = match.TryGetProperty("rightId", out var rightValue) ? rightValue.GetString()?.Trim() ?? "" : "";
+                if (match.ValueKind != JsonValueKind.Object) return (false, "Each match must use every left item once.");
+                var leftId = match.TryGetProperty("leftId", out var leftValue) && leftValue.ValueKind == JsonValueKind.String ? leftValue.GetString()?.Trim() ?? "" : "";
+                var rightId = match.TryGetProperty("rightId", out var rightValue) && rightValue.ValueKind == JsonValueKind.String ? rightValue.GetString()?.Trim() ?? "" : "";
                 if (leftId.Length == 0 || rightId.Length == 0 || !leftIds.Contains(leftId) || !submittedLeft.Add(leftId) || !submittedRight.Add(rightId))
                     return (false, "Each match must use every left item once.");
                 normalized.Add(new JsonObject { ["leftId"] = leftId, ["rightId"] = rightId });
@@ -1780,13 +1790,14 @@ public sealed class ActivitySessionService(
             var normalized = new JsonArray();
             foreach (var group in groupsElement.EnumerateArray())
             {
-                var groupId = group.TryGetProperty("groupId", out var groupValue) ? groupValue.GetString()?.Trim() ?? "" : "";
+                if (group.ValueKind != JsonValueKind.Object) return (false, "Every group needs a name and its selected items.");
+                var groupId = group.TryGetProperty("groupId", out var groupValue) && groupValue.ValueKind == JsonValueKind.String ? groupValue.GetString()?.Trim() ?? "" : "";
                 if (groupId.Length == 0 || group.TryGetProperty("itemIds", out var itemIdsElement) != true || itemIdsElement.ValueKind != JsonValueKind.Array)
                     return (false, "Every group needs a name and its selected items.");
                 var itemIds = new JsonArray();
                 foreach (var item in itemIdsElement.EnumerateArray())
                 {
-                    var itemId = item.GetString()?.Trim() ?? "";
+                    var itemId = item.ValueKind == JsonValueKind.String ? item.GetString()?.Trim() ?? "" : "";
                     if (itemId.Length == 0 || !expectedItems.Contains(itemId) || !submittedItems.Add(itemId)) return (false, "Place each item into one group only.");
                     itemIds.Add(itemId);
                 }
@@ -5472,13 +5483,33 @@ public sealed class ActivitySessionService(
     private static string? StringValue(JsonObject? obj, string key) => obj is not null && obj.TryGetPropertyValue(key, out var value) ? value?.GetValue<string>() : null;
     private static string? StringValue(JsonObject? obj, string key, string fallback) => StringValue(obj, key) ?? fallback;
     private static bool BoolValue(JsonObject? obj, string key, bool fallback = false) => obj is not null && obj.TryGetPropertyValue(key, out var value) && value is not null ? value.GetValue<bool>() : fallback;
-    private static int IntValue(JsonObject? obj, string key, int fallback = 0) => obj is not null && obj.TryGetPropertyValue(key, out var value) && value is not null ? value.GetValue<int>() : fallback;
-    private static long LongValue(JsonObject? obj, string key, long fallback = 0) => obj is not null && obj.TryGetPropertyValue(key, out var value) && value is not null ? value.GetValue<long>() : fallback;
+    // Whole numbers from teacher-authored config as well as server state. A
+    // form can post 12.5 or "100", and GetValue<int> threw on both, so one
+    // decimal point value made the round impossible to reveal.
+    private static int IntValue(JsonObject? obj, string key, int fallback = 0) =>
+        WholeNumber(obj, key) is { } number ? (int)Math.Clamp(number, int.MinValue, int.MaxValue) : fallback;
+    private static long LongValue(JsonObject? obj, string key, long fallback = 0) => WholeNumber(obj, key) ?? fallback;
+    private static long? WholeNumber(JsonObject? obj, string key)
+    {
+        if (obj is null || !obj.TryGetPropertyValue(key, out var node) || node is not JsonValue value) return null;
+        if (value.TryGetValue<int>(out var whole)) return whole;
+        if (value.TryGetValue<long>(out var wide)) return wide;
+        if (value.TryGetValue<double>(out var real) && double.IsFinite(real)) return (long)Math.Clamp(Math.Round(real, MidpointRounding.AwayFromZero), -9e18, 9e18);
+        if (value.TryGetValue<string>(out var text) && double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) && double.IsFinite(parsed))
+            return (long)Math.Clamp(Math.Round(parsed, MidpointRounding.AwayFromZero), -9e18, 9e18);
+        return null;
+    }
     private static double? DoubleValue(JsonObject? obj, string key) => obj is not null && obj.TryGetPropertyValue(key, out var value) && value is JsonValue jsonValue && jsonValue.TryGetValue<double>(out var result) ? result : null;
     private static DateTimeOffset? DateTimeOffsetValue(JsonObject? obj, string key) => obj is not null && obj.TryGetPropertyValue(key, out var value) && value is not null && DateTimeOffset.TryParse(value.GetValue<string>(), out var result) ? result : null;
     private static JsonArray ArrayValue(JsonObject? obj, string key) => obj?.TryGetPropertyValue(key, out var value) == true && value is JsonArray array ? array : [];
     private static bool SurveyTeamMode(JsonObject config) => BoolValue(config, "teamPlay") || BoolValue(config, "stealEnabled");
     private static int SurveyStrikeLimit(JsonObject config) => Math.Clamp(IntValue(config, "strikesToSteal", 3), 1, 5);
+    /// <summary>
+    /// Every action payload is an object. Anything else is treated as absent:
+    /// TryGetProperty throws on an array or a string, so a phone sending one
+    /// turned into a 500 and an error log entry instead of a refused action.
+    /// </summary>
+    private static JsonElement? ObjectPayload(JsonElement? payload) => payload is { ValueKind: JsonValueKind.Object } ? payload : null;
     private static string ReadString(JsonElement? payload, string key) => payload?.TryGetProperty(key, out var value) == true && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
     private static int ReadInt(JsonElement? payload, string key, int fallback) => payload?.TryGetProperty(key, out var value) == true && value.TryGetInt32(out var result) ? result : fallback;
     private static bool ReadBool(JsonElement? payload, string key) => payload?.TryGetProperty(key, out var value) == true && value.ValueKind == JsonValueKind.True;

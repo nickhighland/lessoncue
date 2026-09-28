@@ -3,12 +3,23 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Routing;
 
 namespace LessonCue.Server.Activities;
 
 public static class ActivityApi
 {
+    // Kestrel allows 20 GB bodies server-wide for media uploads, and a JSON
+    // payload is buffered whole before any handler can refuse it. These
+    // endpoints are anonymous, so each gets a cap sized to what a real client
+    // sends: a drawing is at most ~100 KB, everything else is a few hundred bytes.
+    internal const long SmallBodyLimit = 16 * 1024;
+    internal const long ParticipantActionBodyLimit = 256 * 1024;
+
+    /// <summary>Applied by routing before the body is read, like [RequestSizeLimit].</summary>
+    private sealed record BodySizeLimit(long? MaxRequestBodySize) : IRequestSizeLimitMetadata;
+
     public static void Map(IEndpointRouteBuilder routes)
     {
         var api = routes.MapGroup("/api/v1");
@@ -267,7 +278,7 @@ public static class ActivityApi
                 Theme: theme,
                 Config: config
             ));
-        });
+        }).WithMetadata(new BodySizeLimit(SmallBodyLimit));
 
         api.MapPost("/activity-runs/{id:guid}/command", async (
             Guid id,
@@ -295,7 +306,8 @@ public static class ActivityApi
             }
 
             return Results.Ok(result);
-        }).RequireAuthorization(policy => policy.RequireAssertion(ActivityControllerAccess.AuthorizeAsync));
+        }).RequireAuthorization(policy => policy.RequireAssertion(ActivityControllerAccess.AuthorizeAsync))
+            .WithMetadata(new BodySizeLimit(ParticipantActionBodyLimit));
 
         api.MapPost("/activity-runs/{id:guid}/reset", async (
             Guid id,
@@ -394,7 +406,7 @@ public static class ActivityApi
             if (joined.Participant is null || joined.Run is null) return Results.Conflict(new { error = joined.Error ?? "Could not join this game." });
             var state = await sessions.GetParticipantViewAsync(joined.Run.Id, joined.Token, ct);
             return state is null ? Results.Conflict(new { error = "The game session could not be restored." }) : Results.Ok(new { token = joined.Token, participant = state });
-        }).RequireRateLimiting("activity-submit");
+        }).RequireRateLimiting("activity-submit").WithMetadata(new BodySizeLimit(SmallBodyLimit));
 
         publicSessions.MapGet("/{id:guid}/participant-state", async (Guid id, string? participantToken, ActivitySessionService sessions, CancellationToken ct) =>
         {
@@ -409,7 +421,7 @@ public static class ActivityApi
             var result = await sessions.ExecuteParticipantActionAsync(id, input, ct);
             if (!result.Success) return Results.BadRequest(result);
             return Results.Ok(result);
-        }).RequireRateLimiting("activity-submit");
+        }).RequireRateLimiting("activity-submit").WithMetadata(new BodySizeLimit(ParticipantActionBodyLimit));
 
         var hostSessions = api.MapGroup("/activity-sessions")
             .RequireAuthorization(policy => policy.RequireAssertion(ActivityControllerAccess.AuthorizeAsync));
