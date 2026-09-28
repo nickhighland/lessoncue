@@ -4589,17 +4589,19 @@ public static class AdminApi
         });
         backupsAdmin.MapPost("/backups/google-drive/connect", async (
             HttpContext context,
+            LessonCueDb db,
             BackupPolicyService policy,
             CancellationToken ct) =>
         {
-            if (!context.Request.IsHttps || !context.Request.Host.HasValue)
+            var configuredBaseUrl = await db.Organizations.AsNoTracking()
+                .OrderBy(item => item.Id).Select(x => x.PublicBaseUrl).FirstOrDefaultAsync(ct);
+            var origin = GoogleDriveCallbackOrigin(configuredBaseUrl, context);
+            if (origin is null)
                 return Results.BadRequest(new
                 {
                     error = "Connect Google Drive through the HTTPS LessonCue address used in your browser."
                 });
-            var callbackUri =
-                $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}" +
-                "/api/v1/backups/google-drive/callback";
+            var callbackUri = origin + "/api/v1/backups/google-drive/callback";
             try
             {
                 return Results.Ok(new
@@ -5219,6 +5221,34 @@ public static class AdminApi
             var path = ResolveStoredFile(paths.Transcodes, relativePath);
             if (path is not null) TryDeleteFile(path);
         }
+    }
+
+    /// <summary>
+    /// The origin a Google Drive OAuth callback URI is built on.
+    /// </summary>
+    /// <remarks>
+    /// This URI is handed to Google and is where an authorization code comes
+    /// back, so it decides where that code can be delivered. Built from
+    /// Request.Host it was built from a header the caller sets, and the only
+    /// thing standing between a forged host and a redirected code was Google
+    /// refusing a redirect URI that is not registered — Google's allowlist
+    /// doing the job of ours.
+    ///
+    /// The configured public address is preferred instead: an administrator
+    /// sets it and it is already validated as an absolute URL where it is
+    /// saved. Installations that have not set one keep the previous behaviour
+    /// rather than losing a working connection, and still have to be on HTTPS.
+    /// </remarks>
+    private static string? GoogleDriveCallbackOrigin(string? publicBaseUrl, HttpContext context)
+    {
+        if (!string.IsNullOrWhiteSpace(publicBaseUrl)
+            && Uri.TryCreate(publicBaseUrl.Trim(), UriKind.Absolute, out var configured)
+            && configured.Scheme == Uri.UriSchemeHttps)
+            return configured.GetLeftPart(UriPartial.Authority)
+                + configured.AbsolutePath.TrimEnd('/');
+
+        if (!context.Request.IsHttps || !context.Request.Host.HasValue) return null;
+        return $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
     }
 
     private static string? ResolveStoredFile(string root, string relativePath) =>

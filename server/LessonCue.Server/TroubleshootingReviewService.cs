@@ -444,7 +444,12 @@ public sealed class TroubleshootingReviewService(
                 {
                     organization.TroubleshootingReviewLastError =
                         $"Review completed, but email delivery failed: {FailureText(emailError)}";
-                    logger.LogWarning(emailError, "Troubleshooting review completed but email delivery failed.");
+                    // The type and trimmed message, not the exception: a delivery
+                    // failure names the recipient, and that address is already put
+                    // in front of the administrator who has to fix it. It does not
+                    // also need to be in the server log with a stack trace.
+                    logger.LogWarning("Troubleshooting review completed but email delivery failed: {Failure} ({ErrorType})",
+                        FailureText(emailError), emailError.GetType().Name);
                 }
                 organization.TroubleshootingReviewLastStatus = "completed";
             }
@@ -461,7 +466,8 @@ public sealed class TroubleshootingReviewService(
                 {
                     organization.TroubleshootingReviewLastError =
                         $"Review package created, but email delivery failed: {FailureText(emailError)}";
-                    logger.LogWarning(emailError, "Codex troubleshooting package created but email delivery failed.");
+                    logger.LogWarning("Codex troubleshooting package created but email delivery failed: {Failure} ({ErrorType})",
+                        FailureText(emailError), emailError.GetType().Name);
                 }
                 organization.TroubleshootingReviewLastStatus = "package-ready";
             }

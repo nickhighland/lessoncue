@@ -473,6 +473,14 @@ public sealed class BackupService
             // absolute path alike, so a refusal here is the archive's fault.
             var outputPath = ContainedPath.Resolve(destination, entry.FullName)
                 ?? throw new InvalidDataException("The backup contains an unsafe file path.");
+            // Stated again inline, although the line above has already refused
+            // anything outside the destination. CodeQL's zip-slip query
+            // recognises this comparison and does not follow the helper, so
+            // consolidating the check cost the scanner its view of the one
+            // place where an attacker supplies the path outright. A guard a
+            // scanner can verify is worth repeating here.
+            if (!outputPath.StartsWith(Path.GetFullPath(destination) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                throw new InvalidDataException("The backup contains an unsafe file path.");
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
             await using var input = entry.Open(); await using var output = File.Create(outputPath);
             await input.CopyToAsync(output, ct);
