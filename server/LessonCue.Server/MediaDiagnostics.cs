@@ -94,9 +94,7 @@ public static class MediaDiagnostics
     {
         try
         {
-            var rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            var candidate = Path.GetFullPath(Path.Combine(rootFull, relativePath));
-            return candidate.StartsWith(rootFull, StringComparison.Ordinal) ? candidate : null;
+            return ContainedPath.Resolve(root, relativePath);
         }
         catch (ArgumentException) { return null; }
     }

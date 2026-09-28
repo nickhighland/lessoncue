@@ -614,9 +614,8 @@ api.MapGet("/media/{mediaId:guid}/file", async (Guid mediaId, LessonCueDb db, Ca
 {
     var media = await db.MediaAssets.AsNoTracking().SingleOrDefaultAsync(x => x.Id == mediaId, ct);
     if (media is null || media.SourceKind == "link") return Results.NotFound();
-    var normalizedRoot = Path.GetFullPath(mediaPath) + Path.DirectorySeparatorChar;
-    var path = Path.GetFullPath(Path.Combine(mediaPath, media.RelativePath));
-    if (!path.StartsWith(normalizedRoot, StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
+    var path = ContainedPath.ResolveExistingFile(mediaPath, media.RelativePath);
+    if (path is null) return Results.NotFound();
     return Results.File(path, media.ContentType, media.FileName, enableRangeProcessing: true,
         entityTag: media.Sha256 is null ? null : new Microsoft.Net.Http.Headers.EntityTagHeaderValue($"\"{media.Sha256}\""));
 });
@@ -629,9 +628,8 @@ api.MapGet("/media/{mediaId:guid}/playback", async (Guid mediaId, LessonCueDb db
     var compatible = media.CompatibilityStatus == "ready" && !string.IsNullOrWhiteSpace(media.CompatibilityPath);
     var root = compatible ? paths.Compatibility : paths.Originals;
     var relative = compatible ? media.CompatibilityPath! : media.RelativePath;
-    var normalizedRoot = Path.GetFullPath(root) + Path.DirectorySeparatorChar;
-    var path = Path.GetFullPath(Path.Combine(root, relative));
-    if (!path.StartsWith(normalizedRoot, StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
+    var path = ContainedPath.ResolveExistingFile(root, relative);
+    if (path is null) return Results.NotFound();
     var contentType = compatible ? "video/mp4" : media.ContentType;
     var fileName = compatible ? Path.GetFileNameWithoutExtension(media.FileName) + ".mp4" : media.FileName;
     var hash = compatible ? media.CompatibilitySha256 : media.Sha256;
@@ -645,9 +643,8 @@ api.MapGet("/media/{mediaId:guid}/transcodes/{profile}", async (Guid mediaId, st
     var variant = await db.MediaTranscodeVariants.AsNoTracking().SingleOrDefaultAsync(x =>
         x.MediaAssetId == mediaId && x.Profile == profile && x.Status == "ready", ct);
     if (variant?.RelativePath is null) return Results.NotFound();
-    var root = Path.GetFullPath(paths.Transcodes) + Path.DirectorySeparatorChar;
-    var path = Path.GetFullPath(Path.Combine(paths.Transcodes, variant.RelativePath));
-    if (!path.StartsWith(root, StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
+    var path = ContainedPath.ResolveExistingFile(paths.Transcodes, variant.RelativePath);
+    if (path is null) return Results.NotFound();
     return Results.File(path, "video/mp4", enableRangeProcessing: true,
         entityTag: variant.Sha256 is null ? null : new Microsoft.Net.Http.Headers.EntityTagHeaderValue($"\"{variant.Sha256}\""));
 });
@@ -657,9 +654,8 @@ api.MapGet("/media/{mediaId:guid}/thumbnail", async (Guid mediaId, LessonCueDb d
     var media = await db.MediaAssets.AsNoTracking().SingleOrDefaultAsync(x => x.Id == mediaId, ct);
     if (media?.ThumbnailPath is null) return Results.NotFound();
     var thumbnails = Path.Combine(dataPath, "media", "thumbnails");
-    var path = Path.GetFullPath(Path.Combine(thumbnails, media.ThumbnailPath));
-    var normalizedRoot = Path.GetFullPath(thumbnails) + Path.DirectorySeparatorChar;
-    if (!path.StartsWith(normalizedRoot, StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
+    var path = ContainedPath.ResolveExistingFile(thumbnails, media.ThumbnailPath);
+    if (path is null) return Results.NotFound();
     return Results.File(path, "image/jpeg", enableRangeProcessing: true);
 });
 
@@ -863,11 +859,7 @@ api.MapPut("/tv/screens/{screenId:guid}/diagnostics/screenshot/{requestId:guid}"
     var validJpeg = extension == ".jpg" && signature[0] == 0xff && signature[1] == 0xd8 && signature[2] == 0xff;
     var validPng = extension == ".png" && signature.SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
     if (!validJpeg && !validPng) { File.Delete(temporary); return Results.BadRequest(new { error = "Screenshot data does not match its image type." }); }
-    if (!string.IsNullOrWhiteSpace(screen.ScreenshotRelativePath))
-    {
-        var previous = Path.GetFullPath(Path.Combine(dataPath, screen.ScreenshotRelativePath));
-        if (previous.StartsWith(Path.GetFullPath(dataPath) + Path.DirectorySeparatorChar, StringComparison.Ordinal)) try { File.Delete(previous); } catch { }
-    }
+    ContainedPath.DeleteIfContained(dataPath, screen.ScreenshotRelativePath);
     File.Move(temporary, destination, true);
     screen.ScreenshotRelativePath = relative;
     screen.ScreenshotCapturedAt = DateTimeOffset.UtcNow;
@@ -924,10 +916,8 @@ static string HashToken(string token) => Convert.ToHexString(SHA256.HashData(Sys
 
 static IResult DerivativeFile(string? relativePath, string root, string contentType)
 {
-    if (string.IsNullOrWhiteSpace(relativePath)) return Results.NotFound();
-    var normalizedRoot = Path.GetFullPath(root) + Path.DirectorySeparatorChar;
-    var path = Path.GetFullPath(Path.Combine(root, relativePath));
-    return path.StartsWith(normalizedRoot, StringComparison.Ordinal) && File.Exists(path)
+    var path = ContainedPath.ResolveExistingFile(root, relativePath);
+    return path is not null
         ? Results.File(path, contentType, enableRangeProcessing: true)
         : Results.NotFound();
 }

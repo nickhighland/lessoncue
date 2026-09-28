@@ -104,7 +104,10 @@ public sealed class YouTubeImportService(
                         ConstrainedProcessOptions.Download(temporary, snapshot.RemainingBytes), ct);
                     downloaded = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                         .Select(Path.GetFullPath).LastOrDefault(File.Exists);
-                    if (downloaded is null || !downloaded.StartsWith(Path.GetFullPath(temporary) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                    // The path comes back on the downloader's stdout, so it is
+                    // only trusted once it is shown to be inside the working
+                    // directory the downloader was confined to.
+                    if (!ContainedPath.IsInside(temporary, downloaded))
                         throw new InvalidOperationException("The downloader did not produce a valid local file.");
                     selectedProfile = profile.Name;
                     logger.LogInformation("YouTube media download succeeded for {MediaId} using profile {Profile}", item.Id, profile.Name);

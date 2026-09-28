@@ -363,9 +363,11 @@ public sealed class TroubleshootingReviewService(
             _ => ""
         };
         if (fileName.Length == 0) return null;
-        var root = Path.GetFullPath(ArtifactRoot);
+        // Combined against the data path, but required to land in the artifact
+        // directory: a stored path that resolves anywhere else under the data
+        // path is still not one of ours.
         var directory = Path.GetFullPath(Path.Combine(dataPath, relative));
-        if (!directory.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal)) return null;
+        if (!ContainedPath.IsInside(ArtifactRoot, directory)) return null;
         var path = Path.Combine(directory, fileName);
         if (!File.Exists(path)) return null;
         return (await File.ReadAllBytesAsync(path, ct), fileName,

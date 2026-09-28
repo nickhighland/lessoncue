@@ -296,8 +296,12 @@ public sealed class BackupService
 
     public string? Resolve(string fileName)
     {
-        var path = Path.GetFullPath(Path.Combine(BackupPath, Path.GetFileName(fileName)));
-        return path.StartsWith(Path.GetFullPath(BackupPath), StringComparison.Ordinal) && File.Exists(path) ? path : null;
+        // GetFileName already strips any directory part, so nothing should be
+        // able to traverse here. The containment check stays as the second
+        // lock, and now compares against the root properly: the old one omitted
+        // the trailing separator, so a sibling directory whose name merely
+        // started with the backup root's would have satisfied it.
+        return ContainedPath.ResolveExistingFile(BackupPath, Path.GetFileName(fileName));
     }
 
     public async Task<BackupPreview> VerifyStoredAsync(
@@ -464,9 +468,11 @@ public sealed class BackupService
         using var archive = ZipFile.OpenRead(archivePath);
         foreach (var entry in ValidateEntries(archive).Where(x => !x.FullName.EndsWith('/')))
         {
-            var outputPath = Path.GetFullPath(Path.Combine(destination, entry.FullName));
-            if (!outputPath.StartsWith(Path.GetFullPath(destination) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
-                throw new InvalidDataException("The backup contains an unsafe file path.");
+            // An archive entry naming "../" would otherwise be written outside
+            // the restore directory. Resolve refuses the traversal and the
+            // absolute path alike, so a refusal here is the archive's fault.
+            var outputPath = ContainedPath.Resolve(destination, entry.FullName)
+                ?? throw new InvalidDataException("The backup contains an unsafe file path.");
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
             await using var input = entry.Open(); await using var output = File.Create(outputPath);
             await input.CopyToAsync(output, ct);

@@ -2784,9 +2784,8 @@ public static class AdminApi
             if (screen?.ScreenshotStatus != "ready" || screen.ScreenshotCapturedAt is null ||
                 screen.ScreenshotCapturedAt < DateTimeOffset.UtcNow.AddHours(-24) || string.IsNullOrWhiteSpace(screen.ScreenshotRelativePath))
                 return Results.NotFound();
-            var root = Path.GetFullPath(dataPath) + Path.DirectorySeparatorChar;
-            var path = Path.GetFullPath(Path.Combine(dataPath, screen.ScreenshotRelativePath));
-            if (!path.StartsWith(root, StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
+            var path = ContainedPath.ResolveExistingFile(dataPath, screen.ScreenshotRelativePath);
+            if (path is null) return Results.NotFound();
             var contentType = Path.GetExtension(path).Equals(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg";
             return Results.File(path, contentType, enableRangeProcessing: false);
         });
@@ -5222,13 +5221,8 @@ public static class AdminApi
         }
     }
 
-    private static string? ResolveStoredFile(string root, string relativePath)
-    {
-        if (string.IsNullOrWhiteSpace(relativePath)) return null;
-        var normalizedRoot = Path.GetFullPath(root) + Path.DirectorySeparatorChar;
-        var path = Path.GetFullPath(Path.Combine(root, relativePath));
-        return path.StartsWith(normalizedRoot, StringComparison.Ordinal) && File.Exists(path) ? path : null;
-    }
+    private static string? ResolveStoredFile(string root, string relativePath) =>
+        ContainedPath.ResolveExistingFile(root, relativePath);
 
     private static void TryDeleteFile(string path) { try { if (File.Exists(path)) File.Delete(path); } catch { } }
     private static long SaturatingAdd(long left, long right) => left > long.MaxValue - right ? long.MaxValue : left + right;
@@ -5418,13 +5412,8 @@ public static class AdminApi
     private static void Audit(LessonCueDb db, string action, Guid id, string? summary, string result = "success") =>
         db.AuditEvents.Add(new AuditEvent { Actor = "admin", Action = action, Object = id.ToString(), Result = result, Summary = summary });
 
-    private static void DeleteDiagnosticScreenshot(string dataPath, string? relativePath)
-    {
-        if (string.IsNullOrWhiteSpace(relativePath)) return;
-        var root = Path.GetFullPath(dataPath) + Path.DirectorySeparatorChar;
-        var path = Path.GetFullPath(Path.Combine(dataPath, relativePath));
-        if (path.StartsWith(root, StringComparison.Ordinal)) try { File.Delete(path); } catch { }
-    }
+    private static void DeleteDiagnosticScreenshot(string dataPath, string? relativePath) =>
+        ContainedPath.DeleteIfContained(dataPath, relativePath);
 
     private static void ClearDiagnosticScreenshot(Screen screen)
     {
