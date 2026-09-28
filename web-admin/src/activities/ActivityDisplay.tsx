@@ -118,6 +118,9 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
     let isCancelled = false;
+    // A lesson cue arrives as a definition, not a run, so the run this stage
+    // shows is only known once it has been created or found.
+    let resolvedRunId = propRunId || initialEnvelope?.runId;
 
     const initRun = async () => {
       try {
@@ -145,6 +148,7 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
 
         // Subscribe to live SignalR updates
         const runId = activeRun.runId;
+        resolvedRunId = runId;
         unsubscribe = activityHub.subscribeRun(runId, updated => {
           if (!isCancelled) {
             setEnvelope(previous => latestActivityEnvelope(previous, updated));
@@ -177,9 +181,10 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
     // A slow safety net under the live connection. A television is left running
     // for an hour at a time, and a dropped or missed push should heal itself
     // rather than leaving the room looking at a stale screen until somebody
-    // reloads the browser.
+    // reloads the browser. Keyed to the resolved run: the lesson-cue path
+    // passes no run id, and reading only the props left the TV without it.
     const heal = window.setInterval(() => {
-      const runId = propRunId || initialEnvelope?.runId;
+      const runId = resolvedRunId;
       if (!runId || isCancelled) return;
       void ActivityApi.getRun(runId)
         .then(current => { if (!isCancelled) setEnvelope(previous => latestActivityEnvelope(previous, current)); })
