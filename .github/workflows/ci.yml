@@ -22,6 +22,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run test:version
       - run: npm run test:protocol
       - run: npm run test:network-config
       - run: npm run test:amazon

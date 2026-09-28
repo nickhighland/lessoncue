@@ -13,21 +13,46 @@ Last reviewed: 2026-09-28, against `v0.46.27`.
 
 ---
 
+## 0. `main` is not the release line — read this first
+
+`github/main` is at **v0.46.4**. The branch `codex/amazon-release-notes-fix` is
+at **v0.46.27**. Twenty-three releases, including everything shipped since
+2026-09-14, are tagged on that branch and have never been merged back.
+
+What happened: PR #126 merged the branch into `main` on 2026-09-14, and work
+then continued on the same branch instead of a new one. `main` has exactly one
+commit the branch does not have — that merge commit.
+
+**This makes every open pull request ineffective.** They all target `main`, so
+#130's eighteen bug fixes, if merged today, land on a branch that is not
+shipping.
+
+The fix is a clean merge: `git merge-tree` reports **zero conflicts** merging
+the release branch into `main`. Someone with a view on repository conventions
+should decide between merging it back, making it the default branch, or
+retargeting the open PRs — but the present state should not be left alone,
+because it silently discards work.
+
 ## 1. Where things stand
 
 | Component | Version | Notes |
 | --- | --- | --- |
-| Server (`csproj`) | 0.46.27 | matches the latest tag |
-| `package.json` | 0.46.23 | **4 releases behind the tag** |
-| `WebPlayer.tsx` `APP_VERSION` | 0.46.16 | **11 releases behind; this is what classroom screens display** |
+| Server (`csproj`) | 0.46.27 | source of truth; matches the latest tag |
+| `package.json` | 0.46.27 | corrected 2026-09-28 (was 0.46.23) |
+| `WebPlayer.tsx` `APP_VERSION` | 0.46.27 | corrected 2026-09-28 (was 0.46.16) |
 | Android TV `versionName` | 0.46.7 | released on its own cadence |
 | Vega `manifest.toml` | 0.46.6 | parked, see §4 |
 
-The version drift is a recurring defect, not a one-off. `APP_VERSION` was
-already found twelve releases stale at v0.46.0 and corrected then; it has drifted
-eleven releases since. **Nothing checks it.** The cheapest fix is a test that
-compares `APP_VERSION` and `package.json` against the server version and fails
-the build on a mismatch — see §6.
+The version drift was a recurring defect: `APP_VERSION` was found twelve
+releases stale at v0.46.0 and corrected, then drifted eleven releases again by
+v0.46.27 — and that constant is what classroom screens report to the server.
+Nothing checked it.
+
+`npm run test:version` now does, and runs in the `web` CI job.
+`scripts/check-version-consistency.mjs` treats the server `csproj` as the source
+of truth and fails the build on a mismatch. It deliberately does **not** compare
+against git tags: a pull request legitimately precedes its own tag, and a CI
+checkout may have no tags at all.
 
 ## 2. Open pull requests
 
@@ -43,13 +68,24 @@ Two things to know before touching these:
 - **#109 is mis-bundled.** The offline media caching fix is wanted regardless of
   whether Vega ever ships, and it is currently gated behind a parked port. Split
   it out or merge the PR; do not close it as "Vega work".
-- **#130 conflicts with unpushed Codex work.** Its author notes the brief it was
-  written from describes code not on `main` (`OpeningRunId`, an offensive-name
-  filter, a device-wide token fallback), with line numbers ~140 ahead — most
-  likely a Codex working tree that was never pushed. Most of its fixes land in
-  `ActivitySessionService.cs`. **If you are holding that tree, push or rebase it
-  before #130 merges,** or expect to resolve conflicts in the busiest file in the
-  activities subsystem.
+- **#130 is clean against its base and conflicts with the release line.**
+  Measured on 2026-09-28, not guessed: `git merge-tree` against `main` reports no
+  conflicts, and against `codex/amazon-release-notes-fix` reports exactly two —
+
+  ```
+  server/LessonCue.Server.Tests/ActivitySessionServiceTests.cs
+  web-admin/src/activities/ActivityDisplay.tsx
+  ```
+
+  `ActivitySessionService.cs` itself auto-merges, despite carrying most of the
+  fixes. Two files is a small resolution, but it has to happen whichever
+  direction §0 is settled in.
+
+  Separately, its author notes the brief it was written from describes code on
+  no branch (`OpeningRunId`, an offensive-name filter, a device-wide token
+  fallback) with line numbers ~140 ahead — most likely a Codex working tree that
+  was never pushed. **If you are holding that tree, push it**, or those fixes
+  will be reapplied on top of work nobody can see.
 
 ## 3. Sound packs (changed 2026-09-28)
 
@@ -136,19 +172,24 @@ Two traps that have each cost a release:
 
 Ordered by value, not effort.
 
-1. **Merge or split #109** so the offline media caching fix ships.
-2. **Land #130**, resolving the `ActivitySessionService.cs` conflict first.
-3. **Add a version-consistency test.** `APP_VERSION`, `package.json`, and the
-   server version should not be able to drift. This has now recurred twice and
-   is the single cheapest fix in this document.
-4. **Ship a default sound pack.** The four audio cues added in v0.46.0 are
+1. **Resolve the trunk divergence in §0.** Everything below is worth less until
+   merged work actually ships.
+2. **Land #130.** Currently `MERGEABLE`, `CLEAN`, and green on all fourteen
+   checks. Eighteen fixes with regression tests, several severe: a game reset
+   wiping every game's points in the lesson, Fake Out scoreable by posting
+   `{"targetId":"truth"}`, Order Up dealing cards in answer order so locking in
+   immediately scored 100%.
+3. **Merge or split #109** so the offline media caching fix ships. Currently
+   `CONFLICTING`.
+4. ~~Add a version-consistency test.~~ Done 2026-09-28; see §1.
+5. **Ship a default sound pack.** The four audio cues added in v0.46.0 are
    inert — the plumbing exists, the placeholders now explain themselves, and no
    `.mp3` ships. A small set of licensed beds in `shared/` would make the feature
    real. Licensing requirements are in `docs/activities-assets-and-sound.md`.
-5. **Separate per-game state from lobby state.** #130 names this its top
+6. **Separate per-game state from lobby state.** #130 names this its top
    improvement and traces four bugs to it (AUD-01, 05, 10, 23); independent work
    in `ActivitySessionService` reached the same conclusion.
-6. **Extend the `zz-activity-sweep` pattern.** Playing all 28 engines on all
+7. **Extend the `zz-activity-sweep` pattern.** Playing all 28 engines on all
    three surfaces found a total outage (six uncreatable games) on its first run.
    Lesson cues and signage have no equivalent.
 
