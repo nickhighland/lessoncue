@@ -157,6 +157,7 @@ export const BuzzerController: React.FC<ActivityComponentProps> = props => {
   const stealOpen = state.stealOpen === true;
   const currentIndex = numberOf(state.currentClueIndex);
   const revealed = Math.min(numberOf(state.cluesRevealed), clues.length);
+  const lockedOut = Array.isArray(state.lockedOutParticipantIds) ? state.lockedOutParticipantIds.length : stringOf(state.lockedOutParticipantId) ? 1 : 0;
   return <InteractiveControllerShell {...props} actions={[
     { label: 'Start game', action: 'start', disabled: phase !== 'lobby' },
     { label: revealed >= clues.length ? 'All clues revealed' : 'Reveal clue', action: 'revealclue', tone: 'act-btn-secondary', disabled: !canReveal || revealed >= clues.length },
@@ -167,7 +168,7 @@ export const BuzzerController: React.FC<ActivityComponentProps> = props => {
     { label: 'Reveal answer', action: 'revealanswer', tone: 'act-btn-gold', disabled: phase !== 'reveal' && phase !== 'acceptingResponses' },
     { label: 'Reset buzzers', action: 'resetbuzzers', tone: 'act-btn-secondary', disabled: !canReset },
     { label: currentIndex >= Math.max(0, clues.length - 1) ? 'Finish game' : 'Next clue', action: 'next', tone: 'act-btn-secondary', disabled: phase !== 'reveal' && phase !== 'roundIntro' }
-  ]}><div className="act-ctrl-card"><p className="muted">Clue {Math.min(currentIndex + 1, Math.max(1, clues.length))} of {Math.max(1, clues.length)} · {revealed} revealed</p><strong>{winner ? `Winner: ${winner}` : stealOpen ? 'Steal attempt open' : 'No buzzer yet'}</strong>{stringOf(state.lockedOutParticipantId) && <small className="muted">One miss has been locked out for this clue.</small>}</div></InteractiveControllerShell>;
+  ]}><div className="act-ctrl-card"><p className="muted">Clue {Math.min(currentIndex + 1, Math.max(1, clues.length))} of {Math.max(1, clues.length)} · {revealed} revealed</p><strong>{winner ? `Winner: ${winner}` : stealOpen ? 'Steal attempt open' : 'No buzzer yet'}</strong>{lockedOut > 0 && <small className="muted">{lockedOut === 1 ? 'One miss has' : `${lockedOut} misses have`} been locked out for this clue.</small>}</div></InteractiveControllerShell>;
 };
 
 export const PunchlineController: React.FC<ActivityComponentProps> = props => {

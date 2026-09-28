@@ -229,6 +229,15 @@ public static class ActivityAutoPilot
             state["votingDurationMs"] is JsonValue voteDuration && voteDuration.TryGetValue<long>(out var voteMs) && voteMs > 0)
             return voteStart.AddMilliseconds(voteMs);
 
+        // Rapid Fire keeps its own per-question clock. Closing on the engine
+        // default instead cut long questions short and left short ones open
+        // after the server had stopped taking answers.
+        if (state.TryGetPropertyValue("targetAt", out var targetNode)
+            && targetNode is JsonValue targetValue
+            && targetValue.TryGetValue<string>(out var targetText)
+            && DateTimeOffset.TryParse(targetText, out var targetAt))
+            return targetAt;
+
         if (state.TryGetPropertyValue("timerStartedAt", out var startedNode)
             && startedNode is JsonValue startedValue
             && startedValue.TryGetValue<string>(out var startedText)
