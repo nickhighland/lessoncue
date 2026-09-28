@@ -1,6 +1,8 @@
 # Activities & Games audit — 2026-09-28
 
-An audit of the phone-connected games system: the server engines, lobby and join-code lifecycle, projections, auto-pilot, host controls, and the TV, phone, and host clients. It found 43 issues. 18 are fixed in this change, each with a regression test that failed before its fix. The other 25 are written up with evidence and a recommendation.
+An audit of the phone-connected games system: the server engines, lobby and join-code lifecycle, projections, auto-pilot, host controls, and the TV, phone, and host clients. It found 43 issues. 18 are fixed in this change. The other 25 are written up with evidence and a recommendation.
+
+Of the 18 fixes, 16 have a regression test that failed before the fix. The other two are AUD-06, the body-size limits, which were measured against a running server, and AUD-18, a TV client change.
 
 This is a targeted review. It does not guarantee that the system is free of defects, and it does not cover native TV behavior or real classroom Wi-Fi.
 
@@ -9,7 +11,7 @@ This is a targeted review. It does not guarantee that the system is free of defe
 - **Code reviewed:** `main` at `12037a6` (v0.46.4). Line numbers in this document refer to that commit unless a line says "this change".
 - **Server, read in full:** `ActivityApi.cs`, `ActivityControllerAccess.cs`, `ActivityHub.cs`, `ActivityService.cs`, `ActivitySessionService.cs` (5,733 lines), `ActivityModels.cs`, `ActivityValidation.cs`, `ActivityAutoPilot*.cs`, `ActivityEngineCatalog.cs`, `QuizModifiers.cs`, `ActivityRandomSource.cs`, `ReservedGameCodePool.cs`, `ActivityJoinAddressService.cs`, and the relevant parts of `ShortenerService.cs`, `ShortenerHealthService.cs`, `Program.cs`, and `LessonCueDb.cs`.
 - **Clients, read in full:** `ActivityParticipant.tsx`, `ActivityDisplay.tsx`, `ActivityTvDisplay.tsx`, `ActivityController.tsx`, `ActivityLiveHostPanel.tsx`, `ActivityHostFlow.tsx`, `activityConnection.ts`, `refreshLoop.ts`, `api.ts`, `DrawingPreview.tsx`, and `drawingData.ts`, plus the engine components, editors, and presets that the findings below cite.
-- **Evidence:** each fixed finding has an xUnit regression test in `server/LessonCue.Server.Tests/ActivityGamesAuditTests.cs`. All 21 of those tests failed on `main` and pass with this change. The body-size limit was measured against a running Kestrel server. Two open findings, the concurrent-launch race and clue-ladder scoring, were checked with throwaway probes that were not committed; their output is quoted below.
+- **Evidence:** every fixed server finding except AUD-06 has an xUnit regression test in `server/LessonCue.Server.Tests/ActivityGamesAuditTests.cs`. All 21 of those tests failed on `main` and pass with this change. The body-size limit was measured against a running Kestrel server. Two open findings, the concurrent-launch race and clue-ladder scoring, were checked with throwaway probes that were not committed; their output is quoted below.
 - **Validation:** see [Validation](#validation) at the end.
 
 ### Where the brief and `main` disagree
