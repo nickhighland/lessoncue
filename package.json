@@ -13,6 +13,7 @@
     "typecheck:admin": "tsc -p web-admin/tsconfig.json",
     "test": "npm run typecheck:admin && npm run build:admin",
     "audio:manifest": "node scripts/build-audio-manifest.mjs",
+    "audio:placeholders": "node scripts/build-audio-placeholders.mjs",
     "test:protocol": "node scripts/validate-protocol-contract.mjs",
     "test:e2e": "playwright test",
     "test:a11y": "playwright test tests/browser/zz-accessibility.spec.ts",

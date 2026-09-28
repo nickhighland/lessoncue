@@ -21,11 +21,21 @@ SUGGESTED CHARACTER
 SPEC
   30–90 s, seamlessly loopable, mixed low (plays at 0.4 gain).
 
+COVERS
+  Every game on every engine — all 162 named games in the catalogue, plus
+  anything a teacher builds from blank — except where a more specific pack
+  supplies its own themes/intro-theme.mp3. This is the only pack consulted for
+  every activity in LessonCue, so it is the one to author first.
+
+DOES NOT COVER
+  Nothing. No engine or preset pack supplies its own themes/intro-theme.mp3,
+  so every game in LessonCue reaches this file for this cue.
+
 IF THIS FILE IS ABSENT
-  This is the last folder searched. If the file is missing here too,
-  no music plays for this cue. LessonCue synthesizes effects but not
-  music, so an absent bed or sting simply means silence. That is the shipped
-  default and is not an error.
+  This is the last folder searched. If the file is missing here too, no music
+  plays for this cue. LessonCue synthesizes effects but not music, so an
+  absent bed or sting simply means silence. That is the shipped default and is
+  not an error.
 
 LICENSING
   Any audio committed here is a bundled asset and needs a source note, a

@@ -23,12 +23,28 @@ SUGGESTED CHARACTER
 SPEC
   about 5 s, and no longer -- it should land on zero. Played over the bed (0.5 gain).
 
+COVERS
+  The 7 named games built on the matchPlayer engine — Match-the-Player:
+    Match Minds, Same Brain, Know Your Leader, Friend Match, Newlywed Game,
+    How Well Do You Know Me?, Guess My Answer
+
+  …and any activity a teacher builds on this engine from blank.
+
+DOES NOT COVER
+  Games on the other 27 engines. They use their own engine pack when it
+  supplies this cue, and otherwise
+  assets/games/shared/audio/themes/countdown-final-five.mp3.
+
+  One named game can also override this file on its own by adding
+  assets/games/<presetId>/audio/themes/countdown-final-five.mp3; everything it
+  omits keeps falling through to this pack.
+
 IF THIS FILE IS ABSENT
-  Lookup cascades preset → engine → shared. If this file is absent,
-  LessonCue tries assets/games/shared/audio/themes/countdown-final-five.mp3, and if that is
-  also absent, no music plays for this cue. LessonCue synthesizes effects but not
-  music, so an absent bed or sting simply means silence. That is the shipped
-  default and is not an error.
+  Lookup cascades preset → engine → shared. If this file is absent, LessonCue
+  tries assets/games/shared/audio/themes/countdown-final-five.mp3, and if that
+  is also absent, no music plays for this cue. LessonCue synthesizes effects
+  but not music, so an absent bed or sting simply means silence. That is the
+  shipped default and is not an error.
 
 LICENSING
   Any audio committed here is a bundled asset and needs a source note, a

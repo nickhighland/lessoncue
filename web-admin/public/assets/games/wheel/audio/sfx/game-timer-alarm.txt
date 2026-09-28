@@ -21,9 +21,24 @@ SPEC
 PITCH
   Played at its authored pitch.
 
+COVERS
+  The 2 named games built on the wheel engine — Wheel:
+    Safari Spin, Spin Challenge Wheel
+
+  …and any activity a teacher builds on this engine from blank.
+
+DOES NOT COVER
+  Games on the other 27 engines. They use their own engine pack when it
+  supplies this cue, and otherwise
+  assets/games/shared/audio/sfx/game-timer-alarm.mp3.
+
+  One named game can also override this file on its own by adding
+  assets/games/<presetId>/audio/sfx/game-timer-alarm.mp3; everything it omits
+  keeps falling through to this pack.
+
 IF THIS FILE IS ABSENT
-  Lookup cascades preset → engine → shared. If this file is absent,
-  LessonCue tries assets/games/shared/audio/sfx/game-timer-alarm.mp3, and if that is
+  Lookup cascades preset → engine → shared. If this file is absent, LessonCue
+  tries assets/games/shared/audio/sfx/game-timer-alarm.mp3, and if that is
   also absent, LessonCue plays its original synthesized cue from
   web-admin/src/activities/effects.ts. That is the shipped default.
 

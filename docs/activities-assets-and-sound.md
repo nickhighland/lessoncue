@@ -60,8 +60,21 @@ Lookup cascades **preset → engine → shared**, per cue:
 4. otherwise the synthesized effect — or, for a theme, silence
 
 Only the 28 engine folders and `shared` are scaffolded, because that covers all
-164 named games in the catalog. A single preset can override one cue by adding
+162 named games in the catalog. A single preset can override one cue by adding
 its own folder with just that file; everything omitted keeps falling through.
+
+`shared` is the pack to author first: it is the only one consulted for every
+activity, so one set of fourteen files gives every game sound. An engine folder
+is then an override, and only for the cues it actually supplies — a `.txt`
+placeholder is not an override, only a real `.mp3` is.
+
+Each placeholder states which games reach it and which do not. Those two
+sections, and the cascade step at the end, are generated, because they depend on
+the preset catalog and on which packs already ship an `.mp3` — both of which
+move. Regenerate them with `npm run audio:placeholders` after adding an engine
+folder, a named preset, or any `.mp3`. The script rewrites only the generated
+sections and leaves the hand-written role, timing, character, and spec notes
+untouched; running it twice produces the same bytes.
 
 Theme cues play on the TV/projector only. Player phones stay effects-only —
 thirty phones playing the same music bed is a bad room.

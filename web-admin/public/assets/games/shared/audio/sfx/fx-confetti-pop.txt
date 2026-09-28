@@ -20,10 +20,20 @@ SPEC
 PITCH
   Randomized 0.85x–1.15x on every play. Author one dry take.
 
+COVERS
+  Every game on every engine — all 162 named games in the catalogue, plus
+  anything a teacher builds from blank — except where a more specific pack
+  supplies its own sfx/fx-confetti-pop.mp3. This is the only pack consulted
+  for every activity in LessonCue, so it is the one to author first.
+
+DOES NOT COVER
+  Nothing. No engine or preset pack supplies its own sfx/fx-confetti-pop.mp3,
+  so every game in LessonCue reaches this file for this cue.
+
 IF THIS FILE IS ABSENT
-  This is the last folder searched. If the file is missing here too,
-  LessonCue plays its original synthesized cue from
-  web-admin/src/activities/effects.ts. That is the shipped default.
+  This is the last folder searched. If the file is missing here too, LessonCue
+  plays its original synthesized cue from web-admin/src/activities/effects.ts.
+  That is the shipped default.
 
 LICENSING
   Any audio committed here is a bundled asset and needs a source note, a

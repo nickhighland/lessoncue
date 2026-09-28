@@ -20,10 +20,24 @@ SPEC
 PITCH
   Randomized 0.85x–1.15x on every play. Author one dry take.
 
+COVERS
+  Activities built on the responses engine — Open Responses. This engine has
+  no named games in the catalogue — it is reached by building from blank — so
+  this pack exists for deployments that use it that way.
+
+DOES NOT COVER
+  Games on the other 27 engines. They use their own engine pack when it
+  supplies this cue, and otherwise
+  assets/games/shared/audio/sfx/fx-confetti-pop.mp3.
+
+  One named game can also override this file on its own by adding
+  assets/games/<presetId>/audio/sfx/fx-confetti-pop.mp3; everything it omits
+  keeps falling through to this pack.
+
 IF THIS FILE IS ABSENT
-  Lookup cascades preset → engine → shared. If this file is absent,
-  LessonCue tries assets/games/shared/audio/sfx/fx-confetti-pop.mp3, and if that is
-  also absent, LessonCue plays its original synthesized cue from
+  Lookup cascades preset → engine → shared. If this file is absent, LessonCue
+  tries assets/games/shared/audio/sfx/fx-confetti-pop.mp3, and if that is also
+  absent, LessonCue plays its original synthesized cue from
   web-admin/src/activities/effects.ts. That is the shipped default.
 
 LICENSING
