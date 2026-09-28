@@ -4,6 +4,36 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.27 — Google Drive backups and organized activities
+
+### User changes
+
+- Off-site backups can now connect to Google Drive through OAuth using the
+  limited `drive.file` permission. LessonCue creates and manages its own named
+  folder, uploads encrypted archives with resumable transfers, and can mirror
+  media without accessing unrelated Drive files.
+- Settings show the exact Google OAuth callback URL, connection state, and
+  setup guidance while keeping client secrets and refresh tokens protected.
+- Activities Studio now groups games into quizzes, puzzles, game shows,
+  creative activities, audience activities, movement, media, and classroom
+  tools, with category filters and optional grouped library sections.
+- Activity creation now separates ready-made formats from blank builders and
+  includes search, participation filters, practical descriptions, and a detail
+  panel before creation.
+- The activity editor now guides teachers through content and rules, timing
+  and flow, and TV presentation in that order.
+
+### Developer changes
+
+- Added a scoped Google Drive client with OAuth state and replay protection,
+  refresh-token handling, resumable upload recovery, managed-file metadata,
+  retention, media manifests, and regression coverage.
+- Added one shared teacher-facing activity taxonomy used by the library and
+  chooser, plus unit and browser coverage for category mapping, descriptions,
+  creation, filtering, arranging, and editing.
+- This is a server/web release only; no Android/Google TV, Vega TV, or Apple
+  TV artifact is produced.
+
 ## v0.46.26 — Resilient backups and high-quality media imports
 
 ### User changes

@@ -95,6 +95,13 @@ builder.Services.AddHttpClient("backup-offsite", client =>
         AllowAutoRedirect = false,
         ConnectTimeout = TimeSpan.FromSeconds(20)
     });
+builder.Services.AddHttpClient("backup-google-oauth", client =>
+    client.Timeout = TimeSpan.FromSeconds(25))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        ConnectTimeout = TimeSpan.FromSeconds(10)
+    });
 builder.Services.AddHttpClient("migration-transfer", client =>
     {
         client.Timeout = TimeSpan.FromHours(6);

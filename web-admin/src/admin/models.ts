@@ -917,16 +917,18 @@ export type BackupPolicyStatus = {
   mediaMode: "backup" | "sync" | "exclude";
   destinations?: BackupDestinationStatus[];
 };
-export type BackupDestinationProvider = "nextcloud" | "owncloud" | "webdav";
+export type BackupDestinationProvider = "googledrive" | "nextcloud" | "owncloud" | "webdav";
 export type BackupDestinationInput = {
   provider: BackupDestinationProvider;
   webDavUrl: string | null;
   folderName?: string | null;
-  authentication: "none" | "basic" | "bearer";
+  authentication: "none" | "basic" | "bearer" | "oauth";
   username: string | null;
   secret: string | null;
   retentionCount: number;
   retentionDays: number;
+  googleDriveClientId?: string | null;
+  googleDriveClientSecret?: string | null;
 };
 export type BackupDestinationStatus = {
   provider: BackupDestinationProvider;
@@ -934,7 +936,7 @@ export type BackupDestinationStatus = {
   webDavUrl?: string;
   webDavRootUrl?: string;
   folderName?: string;
-  authentication: "none" | "basic" | "bearer";
+  authentication: "none" | "basic" | "bearer" | "oauth";
   username?: string;
   secretConfigured: boolean;
   retentionCount: number;
@@ -947,6 +949,9 @@ export type BackupDestinationStatus = {
   lastMediaSyncAdded?: number;
   lastMediaSyncUpdated?: number;
   lastMediaSyncDeleted?: number;
+  googleDriveClientId?: string;
+  googleDriveConnected?: boolean;
+  googleDriveClientSecretConfigured?: boolean;
 };
 export type MigrationTransferGrant = {
   token: string;

@@ -19,7 +19,9 @@ public sealed record BackupDestinationInput(
     string? Secret,
     int RetentionCount,
     int RetentionDays,
-    string? FolderName = null);
+    string? FolderName = null,
+    string? GoogleDriveClientId = null,
+    string? GoogleDriveClientSecret = null);
 
 public sealed record BackupDestinationStatus(
     string Provider,
@@ -39,7 +41,10 @@ public sealed record BackupDestinationStatus(
     DateTimeOffset? LastMediaSyncAt = null,
     int? LastMediaSyncAdded = null,
     int? LastMediaSyncUpdated = null,
-    int? LastMediaSyncDeleted = null);
+    int? LastMediaSyncDeleted = null,
+    string? GoogleDriveClientId = null,
+    bool GoogleDriveConnected = false,
+    bool GoogleDriveClientSecretConfigured = false);
 
 public sealed record BackupPolicyInput(
     bool Enabled,
@@ -99,6 +104,7 @@ public sealed class BackupPolicyService : BackgroundService
     private readonly BackupService backups;
     private readonly IDataProtector protector;
     private readonly IHttpClientFactory clients;
+    private readonly GoogleDriveBackupClient googleDrive;
     private readonly ILogger<BackupPolicyService> logger;
     private readonly SemaphoreSlim gate = new(1, 1);
     private volatile bool running;
@@ -117,6 +123,7 @@ public sealed class BackupPolicyService : BackgroundService
         this.backups = backups;
         protector = protection.CreateProtector("LessonCue.BackupPolicy.v1");
         this.clients = clients;
+        googleDrive = new GoogleDriveBackupClient(clients);
         this.logger = logger;
     }
 
@@ -169,8 +176,61 @@ public sealed class BackupPolicyService : BackgroundService
         var providers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var requested in requestedDestinations)
         {
-            if (string.IsNullOrWhiteSpace(requested.WebDavUrl)) continue;
             var provider = NormalizeProvider(requested.Provider);
+            if (provider == "googledrive")
+            {
+                var clientId = requested.GoogleDriveClientId?.Trim();
+                if (string.IsNullOrWhiteSpace(clientId)) continue;
+                if (clientId.Length > 512)
+                    throw new ArgumentException("The Google OAuth client ID cannot exceed 512 characters.");
+                if (!providers.Add(provider))
+                    throw new ArgumentException("Configure only one Google Drive backup destination.");
+                if (requested.RetentionCount is < 1 or > 365)
+                    throw new ArgumentException("Google Drive backup retention must keep 1–365 copies.");
+                if (requested.RetentionDays is < 1 or > 3650)
+                    throw new ArgumentException("Google Drive backup retention must be 1–3,650 days.");
+
+                var driveFolderName = NormalizeFolderName(requested.FolderName) ?? "LessonCue";
+                var previousDrive = (current.Destinations ?? []).FirstOrDefault(destination =>
+                    string.Equals(destination.Provider, provider, StringComparison.OrdinalIgnoreCase));
+                var sameDriveClient = previousDrive is not null &&
+                                      string.Equals(previousDrive.GoogleDriveOAuthClientId, clientId, StringComparison.Ordinal);
+                var sameDriveRemote = sameDriveClient &&
+                                      string.Equals(previousDrive!.FolderName, driveFolderName, StringComparison.Ordinal);
+                var protectedClientSecret = sameDriveClient ? previousDrive!.ProtectedGoogleDriveOAuthClientSecret : null;
+                if (!string.IsNullOrEmpty(requested.GoogleDriveClientSecret))
+                {
+                    if (requested.GoogleDriveClientSecret.Length > 4096)
+                        throw new ArgumentException("The Google OAuth client secret cannot exceed 4,096 characters.");
+                    protectedClientSecret = protector.Protect(requested.GoogleDriveClientSecret);
+                }
+                if (string.IsNullOrEmpty(protectedClientSecret))
+                    throw new ArgumentException("Enter the Google OAuth client secret and save before connecting Google Drive.");
+
+                destinations.Add(new StoredBackupDestination
+                {
+                    Provider = provider,
+                    FolderName = driveFolderName,
+                    Authentication = "oauth",
+                    GoogleDriveOAuthClientId = clientId,
+                    ProtectedGoogleDriveOAuthClientSecret = protectedClientSecret,
+                    ProtectedGoogleDriveRefreshToken = sameDriveClient ? previousDrive!.ProtectedGoogleDriveRefreshToken : null,
+                    GoogleDriveFolderId = sameDriveRemote ? previousDrive!.GoogleDriveFolderId : null,
+                    RetentionCount = requested.RetentionCount,
+                    RetentionDays = requested.RetentionDays,
+                    LastUploadedAt = sameDriveRemote ? previousDrive!.LastUploadedAt : null,
+                    LastUploadedFileName = sameDriveRemote ? previousDrive!.LastUploadedFileName : null,
+                    RemoteBackupCount = sameDriveRemote ? previousDrive!.RemoteBackupCount : null,
+                    LastError = sameDriveRemote ? previousDrive!.LastError : null,
+                    LastMediaSyncAt = sameDriveRemote ? previousDrive!.LastMediaSyncAt : null,
+                    LastMediaSyncAdded = sameDriveRemote ? previousDrive!.LastMediaSyncAdded : null,
+                    LastMediaSyncUpdated = sameDriveRemote ? previousDrive!.LastMediaSyncUpdated : null,
+                    LastMediaSyncDeleted = sameDriveRemote ? previousDrive!.LastMediaSyncDeleted : null
+                });
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(requested.WebDavUrl)) continue;
             if (!providers.Add(provider))
                 throw new ArgumentException($"Configure only one {provider} backup destination.");
             var rootUrl = NormalizeRemoteUrl(requested.WebDavUrl);
@@ -230,7 +290,7 @@ public sealed class BackupPolicyService : BackgroundService
 
         if (mediaMode == "sync" && destinations.Count == 0)
             throw new ArgumentException(
-                "Media sync requires at least one configured WebDAV destination.");
+                "Media sync requires at least one configured off-site destination.");
 
         var legacy = destinations.FirstOrDefault(destination =>
             string.Equals(destination.Provider, "webdav", StringComparison.OrdinalIgnoreCase));
@@ -268,6 +328,129 @@ public sealed class BackupPolicyService : BackgroundService
     {
         await RunPolicyAsync(timeZone, ct, force: true);
         return GetStatus(timeZone);
+    }
+
+    public async Task<string> BeginGoogleDriveAuthorizationAsync(
+        string callbackUri,
+        CancellationToken ct)
+    {
+        if (!Uri.TryCreate(callbackUri, UriKind.Absolute, out var callback) ||
+            callback.Scheme != Uri.UriSchemeHttps ||
+            !string.IsNullOrEmpty(callback.UserInfo) ||
+            !string.IsNullOrEmpty(callback.Query) ||
+            !string.IsNullOrEmpty(callback.Fragment))
+            throw new ArgumentException("Google Drive authorization requires this server's HTTPS callback URL.");
+
+        await gate.WaitAsync(ct);
+        try
+        {
+            var policy = Read();
+            var destinations = policy.Destinations?.ToList() ?? [];
+            var index = destinations.FindIndex(item => item.Provider == "googledrive");
+            if (index < 0)
+                throw new InvalidOperationException("Save a Google Drive destination before connecting it.");
+            var destination = destinations[index];
+            if (string.IsNullOrWhiteSpace(destination.GoogleDriveOAuthClientId) ||
+                string.IsNullOrWhiteSpace(destination.ProtectedGoogleDriveOAuthClientSecret))
+                throw new InvalidOperationException("Save the Google OAuth client ID and secret first.");
+
+            var state = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+                .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+            destination = destination with
+            {
+                GoogleDriveOAuthStateProtected = protector.Protect(state),
+                GoogleDriveOAuthStateExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10),
+                GoogleDriveOAuthRedirectUri = callback.AbsoluteUri,
+                LastError = null
+            };
+            destinations[index] = destination;
+            await WriteAsync(policy with { Destinations = destinations }, ct);
+            return googleDrive.CreateAuthorizationUrl(
+                destination.GoogleDriveOAuthClientId,
+                callback.AbsoluteUri,
+                state);
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task CompleteGoogleDriveAuthorizationAsync(
+        string state,
+        string code,
+        CancellationToken ct)
+    {
+        string clientId;
+        string clientSecret;
+        string callbackUri;
+        string? existingProtectedRefreshToken;
+        await gate.WaitAsync(ct);
+        try
+        {
+            var policy = Read();
+            var destinations = policy.Destinations?.ToList() ?? [];
+            var index = destinations.FindIndex(item => item.Provider == "googledrive");
+            if (index < 0) throw new InvalidOperationException("The Google Drive destination was removed.");
+            var destination = destinations[index];
+            if (string.IsNullOrEmpty(destination.GoogleDriveOAuthStateProtected) ||
+                destination.GoogleDriveOAuthStateExpiresAt is not { } expiresAt ||
+                expiresAt < DateTimeOffset.UtcNow ||
+                string.IsNullOrEmpty(destination.GoogleDriveOAuthRedirectUri))
+                throw new InvalidOperationException("This Google authorization request expired. Start Connect again.");
+
+            string expectedState;
+            try { expectedState = protector.Unprotect(destination.GoogleDriveOAuthStateProtected); }
+            catch (CryptographicException)
+            {
+                throw new InvalidOperationException("The Google authorization state is invalid. Start Connect again.");
+            }
+            if (!CryptographicOperations.FixedTimeEquals(
+                    Encoding.UTF8.GetBytes(expectedState), Encoding.UTF8.GetBytes(state)))
+                throw new InvalidOperationException("Google returned an invalid authorization state. Start Connect again.");
+
+            clientId = destination.GoogleDriveOAuthClientId ??
+                       throw new InvalidOperationException("The Google OAuth client ID is missing.");
+            clientSecret = string.IsNullOrEmpty(destination.ProtectedGoogleDriveOAuthClientSecret)
+                ? throw new InvalidOperationException("The Google OAuth client secret is missing.")
+                : protector.Unprotect(destination.ProtectedGoogleDriveOAuthClientSecret);
+            callbackUri = destination.GoogleDriveOAuthRedirectUri;
+            existingProtectedRefreshToken = destination.ProtectedGoogleDriveRefreshToken;
+
+            // Consume the one-time state before exchanging the authorization code.
+            destinations[index] = destination with
+            {
+                GoogleDriveOAuthStateProtected = null,
+                GoogleDriveOAuthStateExpiresAt = null,
+                GoogleDriveOAuthRedirectUri = null
+            };
+            await WriteAsync(policy with { Destinations = destinations }, ct);
+        }
+        finally { gate.Release(); }
+
+        if (string.IsNullOrWhiteSpace(code))
+            throw new InvalidOperationException("Google did not return an authorization code.");
+        var refreshToken = await googleDrive.ExchangeAuthorizationCodeAsync(
+            clientId, clientSecret, code, callbackUri, ct);
+        if (refreshToken is null && string.IsNullOrEmpty(existingProtectedRefreshToken))
+            throw new InvalidOperationException(
+                "Google authorized LessonCue but did not return a refresh token. Reconnect and approve offline access.");
+
+        await gate.WaitAsync(ct);
+        try
+        {
+            var policy = Read();
+            var destinations = policy.Destinations?.ToList() ?? [];
+            var index = destinations.FindIndex(item => item.Provider == "googledrive");
+            if (index < 0 || destinations[index].GoogleDriveOAuthClientId != clientId)
+                throw new InvalidOperationException("Google Drive settings changed during authorization. Connect again.");
+            destinations[index] = destinations[index] with
+            {
+                ProtectedGoogleDriveRefreshToken = refreshToken is null
+                    ? existingProtectedRefreshToken
+                    : protector.Protect(refreshToken),
+                LastError = null
+            };
+            await WriteAsync(policy with { Destinations = destinations }, ct);
+        }
+        finally { gate.Release(); }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -351,7 +534,22 @@ public sealed class BackupPolicyService : BackgroundService
                     var destination = destinations[index];
                     try
                     {
-                        await UploadRemoteAsync(destination, record, ct);
+                        GoogleDriveBackupClient.GoogleDriveSession? driveSession = null;
+                        if (destination.Provider == "googledrive")
+                        {
+                            driveSession = await OpenGoogleDriveSessionAsync(destination, ct);
+                            var prepared = await EnsureGoogleDriveDestinationAsync(
+                                destination, driveSession, ct);
+                            if (prepared.GoogleDriveFolderId != destination.GoogleDriveFolderId)
+                            {
+                                destination = prepared;
+                                destinations[index] = destination;
+                                policy = policy with { Destinations = destinations };
+                                await WriteAsync(policy, ct);
+                            }
+                        }
+
+                        await UploadRemoteAsync(destination, record, driveSession, ct);
                         destination = destination with
                         {
                             LastUploadedAt = DateTimeOffset.UtcNow,
@@ -363,7 +561,7 @@ public sealed class BackupPolicyService : BackgroundService
                         await WriteAsync(policy, ct);
 
                         var mediaSync = ResolveMediaMode(policy) == "sync"
-                            ? await SyncMediaAsync(destination, ct)
+                            ? await SyncMediaAsync(destination, driveSession, ct)
                             : null;
                         if (mediaSync is not null)
                         {
@@ -378,7 +576,7 @@ public sealed class BackupPolicyService : BackgroundService
                             policy = policy with { Destinations = destinations };
                             await WriteAsync(policy, ct);
                         }
-                        var remaining = await PruneRemoteAsync(destination, ct);
+                        var remaining = await PruneRemoteAsync(destination, driveSession, ct);
                         destinations[index] = destination with
                         {
                             RemoteBackupCount = remaining,
@@ -438,13 +636,72 @@ public sealed class BackupPolicyService : BackgroundService
         }
     }
 
+    private async Task<GoogleDriveBackupClient.GoogleDriveSession> OpenGoogleDriveSessionAsync(
+        StoredBackupDestination destination,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(destination.GoogleDriveOAuthClientId) ||
+            string.IsNullOrEmpty(destination.ProtectedGoogleDriveOAuthClientSecret) ||
+            string.IsNullOrEmpty(destination.ProtectedGoogleDriveRefreshToken))
+            throw new InvalidOperationException(
+                "Google Drive is not connected. Save its OAuth settings and use Connect Google Drive in Backup & Recovery.");
+        return await googleDrive.CreateSessionAsync(
+            destination.GoogleDriveOAuthClientId,
+            protector.Unprotect(destination.ProtectedGoogleDriveOAuthClientSecret),
+            protector.Unprotect(destination.ProtectedGoogleDriveRefreshToken),
+            ct);
+    }
+
+    private static async Task<StoredBackupDestination> EnsureGoogleDriveDestinationAsync(
+        StoredBackupDestination destination,
+        GoogleDriveBackupClient.GoogleDriveSession session,
+        CancellationToken ct)
+    {
+        var folderName = destination.FolderName ?? "LessonCue";
+        var rootFolders = await session.ListChildrenAsync("root", ct);
+        var root = rootFolders.FirstOrDefault(item =>
+            item.Id == destination.GoogleDriveFolderId &&
+            item.MimeType == "application/vnd.google-apps.folder" &&
+            item.ManagedType == "backup-root") ??
+            rootFolders.FirstOrDefault(item =>
+                item.Name == folderName &&
+                item.MimeType == "application/vnd.google-apps.folder" &&
+                item.ManagedType == "backup-root");
+        if (root is null)
+        {
+            var folderId = await session.GetOrCreateFolderAsync(
+                "root", folderName, "backup-root", ct);
+            root = new GoogleDriveItem(
+                folderId, folderName, "application/vnd.google-apps.folder", null, null, null,
+                "backup-root", folderName);
+        }
+        return destination with { GoogleDriveFolderId = root.Id };
+    }
+
     private async Task UploadRemoteAsync(
         StoredBackupDestination destination,
         BackupRecord record,
+        GoogleDriveBackupClient.GoogleDriveSession? driveSession,
         CancellationToken ct)
     {
         var path = backups.Resolve(record.FileName)
                    ?? throw new FileNotFoundException("The scheduled backup file is missing.");
+        if (destination.Provider == "googledrive")
+        {
+            if (driveSession is null || string.IsNullOrEmpty(destination.GoogleDriveFolderId))
+                throw new InvalidOperationException("Google Drive destination is not ready.");
+            await using var driveStream = File.OpenRead(path);
+            await driveSession.UploadFileAsync(
+                destination.GoogleDriveFolderId,
+                record.FileName,
+                "application/vnd.lessoncue.backup",
+                "backup",
+                driveStream,
+                driveStream.Length,
+                null,
+                ct);
+            return;
+        }
         var baseUri = new Uri(destination.WebDavUrl!, UriKind.Absolute);
         await EnsureRemoteCollectionAsync(destination, baseUri, ct);
         var target = RemoteUri(baseUri, record.FileName);
@@ -470,8 +727,15 @@ public sealed class BackupPolicyService : BackgroundService
 
     private async Task<MediaSyncResult> SyncMediaAsync(
         StoredBackupDestination destination,
+        GoogleDriveBackupClient.GoogleDriveSession? driveSession,
         CancellationToken ct)
     {
+        if (destination.Provider == "googledrive")
+        {
+            if (driveSession is null || string.IsNullOrEmpty(destination.GoogleDriveFolderId))
+                throw new InvalidOperationException("Google Drive destination is not ready.");
+            return await SyncGoogleDriveMediaAsync(destination, driveSession, ct);
+        }
         var localRoot = Path.Combine(dataPath, "media");
         var baseUri = new Uri(destination.WebDavUrl!, UriKind.Absolute);
         await EnsureRemoteCollectionAsync(destination, baseUri, ct);
@@ -489,11 +753,17 @@ public sealed class BackupPolicyService : BackgroundService
         var updated = 0;
         var deleted = 0;
 
-        var directories = local.Files.Keys
-            .Select(path => Path.GetDirectoryName(path)?.Replace('\\', '/'))
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(path => path!)
-            .Distinct(StringComparer.Ordinal)
+        var directorySet = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var filePath in local.Files.Keys)
+        {
+            var parent = Path.GetDirectoryName(filePath)?.Replace('\\', '/') ?? "";
+            while (!string.IsNullOrWhiteSpace(parent))
+            {
+                directorySet.Add(parent);
+                parent = Path.GetDirectoryName(parent)?.Replace('\\', '/') ?? "";
+            }
+        }
+        var directories = directorySet
             .OrderBy(path => path.Count(value => value == '/'))
             .ThenBy(path => path, StringComparer.Ordinal)
             .ToList();
@@ -566,6 +836,194 @@ public sealed class BackupPolicyService : BackgroundService
             ct);
 
         return new MediaSyncResult(DateTimeOffset.UtcNow, added, updated, deleted);
+    }
+
+    private async Task<MediaSyncResult> SyncGoogleDriveMediaAsync(
+        StoredBackupDestination destination,
+        GoogleDriveBackupClient.GoogleDriveSession session,
+        CancellationToken ct)
+    {
+        var localRoot = Path.Combine(dataPath, "media");
+        var driveRoot = destination.GoogleDriveFolderId!;
+        var mediaFolderId = await session.GetOrCreateFolderAsync(
+            driveRoot, "media", "media-root", ct);
+        var remote = await ReadGoogleDriveMediaFilesAsync(session, mediaFolderId, ct);
+        var previous = await ReadGoogleDriveMediaSyncManifestAsync(
+            session, remote.ManifestId, ct);
+        var local = await BuildLocalMediaManifestAsync(localRoot, ct);
+        var added = 0;
+        var updated = 0;
+        var deleted = 0;
+
+        var directorySet = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var filePath in local.Files.Keys)
+        {
+            var parent = Path.GetDirectoryName(filePath)?.Replace('\\', '/') ?? "";
+            while (!string.IsNullOrWhiteSpace(parent))
+            {
+                directorySet.Add(parent);
+                parent = Path.GetDirectoryName(parent)?.Replace('\\', '/') ?? "";
+            }
+        }
+        var directories = directorySet
+            .OrderBy(path => path.Count(value => value == '/'))
+            .ThenBy(path => path, StringComparer.Ordinal)
+            .ToList();
+        var directoryIds = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [""] = mediaFolderId
+        };
+        foreach (var directory in directories)
+        {
+            var parentPath = Path.GetDirectoryName(directory)?.Replace('\\', '/') ?? "";
+            var parentId = directoryIds.GetValueOrDefault(parentPath);
+            if (parentId is null)
+                throw new IOException($"Google Drive media folder hierarchy is incomplete at '{directory}'.");
+            var segment = Path.GetFileName(directory);
+            if (string.IsNullOrWhiteSpace(segment))
+                throw new IOException("A local media folder has an invalid name.");
+            var id = remote.Directories.GetValueOrDefault(directory);
+            if (id is null)
+                id = await session.GetOrCreateFolderAsync(
+                    parentId, segment, "media-directory", ct);
+            directoryIds[directory] = id;
+        }
+
+        foreach (var pair in local.Files.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            var relativePath = pair.Key;
+            var expected = pair.Value;
+            var existing = remote.Files.GetValueOrDefault(relativePath);
+            var unchanged = previous?.Files.TryGetValue(relativePath, out var previousFile) == true &&
+                            previousFile == expected && existing is not null;
+            if (unchanged) continue;
+
+            var sourcePath = Path.Combine(
+                localRoot,
+                relativePath.Replace('/', Path.DirectorySeparatorChar));
+            var parentPath = Path.GetDirectoryName(relativePath)?.Replace('\\', '/') ?? "";
+            if (!directoryIds.TryGetValue(parentPath, out var parentId))
+                throw new IOException($"Google Drive media folder hierarchy is incomplete at '{relativePath}'.");
+            await using var stream = new FileStream(
+                sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                1024 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var uploaded = await session.UploadFileAsync(
+                parentId,
+                Path.GetFileName(relativePath),
+                "application/octet-stream",
+                "media-file",
+                stream,
+                stream.Length,
+                existing?.Id,
+                ct);
+            if (existing is null) added++;
+            else updated++;
+            remote.Files[relativePath] = uploaded;
+        }
+
+        if (previous is not null)
+        {
+            foreach (var relativePath in previous.Files.Keys
+                         .Except(local.Files.Keys, StringComparer.Ordinal)
+                         .OrderBy(path => path, StringComparer.Ordinal))
+            {
+                if (!remote.Files.TryGetValue(relativePath, out var stale)) continue;
+                await session.DeleteFileAsync(stale.Id, ct);
+                remote.Files.Remove(relativePath);
+                deleted++;
+            }
+        }
+
+        var manifest = new MediaSyncManifest("LessonCue", 1, DateTimeOffset.UtcNow, local.Files);
+        var manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest, JsonOptions);
+        await using var manifestStream = new MemoryStream(manifestBytes, writable: false);
+        await session.UploadFileAsync(
+            mediaFolderId,
+            MediaSyncManifestName,
+            "application/json",
+            "media-manifest",
+            manifestStream,
+            manifestBytes.Length,
+            remote.ManifestId,
+            ct);
+        return new MediaSyncResult(DateTimeOffset.UtcNow, added, updated, deleted);
+    }
+
+    private static async Task<GoogleDriveMediaState> ReadGoogleDriveMediaFilesAsync(
+        GoogleDriveBackupClient.GoogleDriveSession session,
+        string mediaFolderId,
+        CancellationToken ct)
+    {
+        var files = new Dictionary<string, GoogleDriveItem>(StringComparer.Ordinal);
+        var directories = new Dictionary<string, string>(StringComparer.Ordinal);
+        string? manifestId = null;
+        var pending = new Queue<(string Id, string RelativePath)>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        pending.Enqueue((mediaFolderId, ""));
+        while (pending.TryDequeue(out var current))
+        {
+            if (!visited.Add(current.Id)) continue;
+            foreach (var item in await session.ListChildrenAsync(current.Id, ct))
+            {
+                if (item.ManagedType == "media-directory" &&
+                    item.MimeType == "application/vnd.google-apps.folder")
+                {
+                    var relativePath = CombineRemoteMediaPath(current.RelativePath, item.Name);
+                    if (relativePath is null) continue;
+                    directories.TryAdd(relativePath, item.Id);
+                    pending.Enqueue((item.Id, relativePath));
+                    continue;
+                }
+
+                if (item.ManagedType == "media-manifest" &&
+                    current.RelativePath.Length == 0 &&
+                    item.MimeType != "application/vnd.google-apps.folder" &&
+                    item.Name == MediaSyncManifestName)
+                {
+                    manifestId = item.Id;
+                    continue;
+                }
+
+                if (item.ManagedType != "media-file" ||
+                    item.MimeType == "application/vnd.google-apps.folder")
+                    continue;
+                var filePath = CombineRemoteMediaPath(current.RelativePath, item.Name);
+                if (filePath is null) continue;
+                files.TryAdd(filePath, item with { ManagedPath = filePath });
+            }
+        }
+        return new GoogleDriveMediaState(files, directories, manifestId);
+    }
+
+    private static async Task<MediaSyncManifest?> ReadGoogleDriveMediaSyncManifestAsync(
+        GoogleDriveBackupClient.GoogleDriveSession session,
+        string? manifestId,
+        CancellationToken ct)
+    {
+        if (manifestId is null) return null;
+        var bytes = await session.DownloadFileAsync(manifestId, ct);
+        try
+        {
+            await using var stream = new MemoryStream(bytes, writable: false);
+            var manifest = await JsonSerializer.DeserializeAsync<MediaSyncManifest>(
+                stream, JsonOptions, ct);
+            if (manifest is null ||
+                !string.Equals(manifest.Product, "LessonCue", StringComparison.Ordinal) ||
+                manifest.FormatVersion != 1 ||
+                manifest.Files is null ||
+                manifest.Files.Count > 100_000 ||
+                manifest.Files.Any(pair =>
+                    !IsSafeMediaRelativePath(pair.Key) ||
+                    pair.Value is null ||
+                    pair.Value.Bytes < 0 || pair.Value.Sha256 is null ||
+                    pair.Value.Sha256.Length != 64))
+                return null;
+            return manifest;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private async Task EnsureRemoteCollectionAsync(
@@ -763,7 +1221,8 @@ public sealed class BackupPolicyService : BackgroundService
                     manifest.Files.Count > 100_000 ||
                     manifest.Files.Any(pair =>
                         !IsSafeMediaRelativePath(pair.Key) ||
-                        pair.Value.Bytes < 0 ||
+                        pair.Value is null ||
+                        pair.Value.Bytes < 0 || pair.Value.Sha256 is null ||
                         pair.Value.Sha256.Length != 64))
                     return null;
                 return manifest;
@@ -1196,10 +1655,47 @@ public sealed class BackupPolicyService : BackgroundService
         !path.Split('/').Any(part => part is "" or "." or "..") &&
         !path.Equals(MediaSyncManifestName, StringComparison.Ordinal);
 
+    private static string? CombineRemoteMediaPath(string parent, string child)
+    {
+        if (string.IsNullOrWhiteSpace(child) || child is "." or ".." ||
+            child.Contains('/') || child.Contains('\\'))
+            return null;
+        var path = parent.Length == 0 ? child : $"{parent}/{child}";
+        return IsSafeMediaRelativePath(path) ? path : null;
+    }
+
     private async Task<int> PruneRemoteAsync(
         StoredBackupDestination destination,
+        GoogleDriveBackupClient.GoogleDriveSession? driveSession,
         CancellationToken ct)
     {
+        if (destination.Provider == "googledrive")
+        {
+            if (driveSession is null || string.IsNullOrEmpty(destination.GoogleDriveFolderId))
+                throw new InvalidOperationException("Google Drive destination is not ready.");
+            var driveFiles = (await driveSession.ListChildrenAsync(destination.GoogleDriveFolderId, ct))
+                .Where(item => item.ManagedType == "backup" &&
+                               item.MimeType != "application/vnd.google-apps.folder" &&
+                               item.Name.StartsWith("lessoncue-", StringComparison.OrdinalIgnoreCase) &&
+                               item.Name.EndsWith(".lcbak", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(item => item.ModifiedAt ?? DateTimeOffset.MinValue)
+                .ThenByDescending(item => item.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var cutoffDate = DateTimeOffset.UtcNow.AddDays(-destination.RetentionDays);
+            var keepDrive = driveFiles.Take(destination.RetentionCount)
+                .Select(item => item.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (var item in driveFiles)
+            {
+                if (keepDrive.Contains(item.Id) &&
+                    (item.ModifiedAt is null || item.ModifiedAt >= cutoffDate))
+                    continue;
+                await driveSession.DeleteFileAsync(item.Id, ct);
+            }
+            return driveFiles.Count(item => keepDrive.Contains(item.Id) &&
+                                            (item.ModifiedAt is null || item.ModifiedAt >= cutoffDate));
+        }
+
         var baseUri = new Uri(destination.WebDavUrl!, UriKind.Absolute);
         using var request = new HttpRequestMessage(PropFindMethod, baseUri);
         request.Headers.Add("Depth", "1");
@@ -1372,11 +1868,15 @@ public sealed class BackupPolicyService : BackgroundService
         var destinations = (policy.Destinations ?? []).Select(destination =>
             new BackupDestinationStatus(
                 destination.Provider,
-                !string.IsNullOrEmpty(destination.WebDavUrl),
+                destination.Provider == "googledrive"
+                    ? !string.IsNullOrEmpty(destination.GoogleDriveOAuthClientId)
+                    : !string.IsNullOrEmpty(destination.WebDavUrl),
                 destination.WebDavRootUrl ?? destination.WebDavUrl,
                 destination.Authentication,
                 destination.Username,
-                !string.IsNullOrEmpty(destination.ProtectedSecret),
+                destination.Provider == "googledrive"
+                    ? !string.IsNullOrEmpty(destination.ProtectedGoogleDriveRefreshToken)
+                    : !string.IsNullOrEmpty(destination.ProtectedSecret),
                 destination.RetentionCount,
                 destination.RetentionDays,
                 destination.LastUploadedAt,
@@ -1388,7 +1888,10 @@ public sealed class BackupPolicyService : BackgroundService
                 destination.LastMediaSyncAt,
                 destination.LastMediaSyncAdded,
                 destination.LastMediaSyncUpdated,
-                destination.LastMediaSyncDeleted)).ToArray();
+                destination.LastMediaSyncDeleted,
+                destination.GoogleDriveOAuthClientId,
+                !string.IsNullOrEmpty(destination.ProtectedGoogleDriveRefreshToken),
+                !string.IsNullOrEmpty(destination.ProtectedGoogleDriveOAuthClientSecret))).ToArray();
         var legacy = (policy.Destinations ?? []).FirstOrDefault(destination =>
             string.Equals(destination.Provider, "webdav", StringComparison.OrdinalIgnoreCase));
         return new BackupPolicyStatus(
@@ -1578,9 +2081,9 @@ public sealed class BackupPolicyService : BackgroundService
     private static string NormalizeProvider(string value)
     {
         var provider = value.Trim().ToLowerInvariant();
-        return provider is "nextcloud" or "owncloud" or "webdav"
+        return provider is "nextcloud" or "owncloud" or "webdav" or "googledrive"
             ? provider
-            : throw new ArgumentException("Choose Nextcloud, ownCloud, or another WebDAV destination.");
+            : throw new ArgumentException("Choose Google Drive, Nextcloud, ownCloud, or another WebDAV destination.");
     }
 
     private static IReadOnlyList<BackupDestinationInput> LegacyDestination(BackupPolicyInput input) =>
@@ -1644,6 +2147,13 @@ public sealed class BackupPolicyService : BackgroundService
         public string Authentication { get; init; } = "none";
         public string? Username { get; init; }
         public string? ProtectedSecret { get; init; }
+        public string? GoogleDriveOAuthClientId { get; init; }
+        public string? ProtectedGoogleDriveOAuthClientSecret { get; init; }
+        public string? ProtectedGoogleDriveRefreshToken { get; init; }
+        public string? GoogleDriveOAuthStateProtected { get; init; }
+        public DateTimeOffset? GoogleDriveOAuthStateExpiresAt { get; init; }
+        public string? GoogleDriveOAuthRedirectUri { get; init; }
+        public string? GoogleDriveFolderId { get; init; }
         public int RetentionCount { get; init; } = 7;
         public int RetentionDays { get; init; } = 30;
         public DateTimeOffset? LastUploadedAt { get; init; }
@@ -1667,6 +2177,10 @@ public sealed class BackupPolicyService : BackgroundService
     private sealed record RemoteMediaState(
         Dictionary<string, RemoteMediaFile> Files,
         HashSet<string> Directories);
+    private sealed record GoogleDriveMediaState(
+        Dictionary<string, GoogleDriveItem> Files,
+        Dictionary<string, string> Directories,
+        string? ManifestId);
     private sealed record RemoteResource(
         string RelativePath,
         Uri Uri,

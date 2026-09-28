@@ -1,12 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ActivityDefinition, ActivityTheme, ActivityTypeDescriptor } from './types';
+import type { ActivityDefinition, ActivityTheme } from './types';
 import { ActivityApi } from './api';
 import { ACTIVITY_REGISTRY, getActivityDescriptor } from './activityRegistry';
 import { ACTIVITY_PRESET_CATALOG, ACTIVITY_THEME_PRESETS, type ActivityPresetCatalogEntry, type ActivityThemePreset } from './activityPresetRegistry';
+import {
+  ACTIVITY_CATALOG_CATEGORIES,
+  categoryForActivityType,
+  compareActivityCatalogCategories,
+  getActivityCatalogCategory,
+  type ActivityCatalogCategoryId,
+} from './activityCatalog';
 import { ActivityPreview, type ActivityPreviewMode } from './ActivityPreview';
 import { PageHead, Modal, Field, Empty } from '../admin/ui';
 import './activity.css';
-import { ActivityAutoAdvanceEditor } from './ActivityAutoAdvanceEditor';
+import { ActivityAutoAdvanceEditor, supportsAutoAdvance, supportsPacing } from './ActivityAutoAdvanceEditor';
 
 const stableDraftValue = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(stableDraftValue);
@@ -33,37 +40,21 @@ const activityUsageNames = (activity: ActivityDefinition): string[] => [
   ...(activity.usage?.templateNames || []).map(name => `Template: ${name}`)
 ];
 
-const chooserCategoryLabel = (category: string): string => {
-  const normalized = category.trim().toLowerCase();
-  if (normalized === 'knowledge' || normalized === 'quiz' || normalized === 'quizzes') return 'Quizzes';
-  if (['sorting', 'match', 'puzzle', 'puzzles', 'word'].includes(normalized)) return 'Puzzles & word games';
-  if (['creative', 'drawing'].includes(normalized)) return 'Creative games';
-  if (['gameshow', 'game show', 'games'].includes(normalized)) return 'Game show games';
-  if (['poll', 'polls', 'audience'].includes(normalized)) return 'Polls & audience';
-  if (['media'].includes(normalized)) return 'Media';
-  if (['stage', 'physical', 'challenge', 'challenges'].includes(normalized)) return 'Challenges & movement';
-  if (['utility', 'utilities'].includes(normalized)) return 'Utilities';
-  return category.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, character => character.toUpperCase());
+type ActivityChooserMode = 'templates' | 'blank';
+type ActivityChooserParticipation = 'all' | 'phones' | 'room';
+
+type ActivityChooserOption = {
+  key: string;
+  kind: ActivityChooserMode;
+  label: string;
+  description: string;
+  icon: string;
+  category: ActivityCatalogCategoryId;
+  requiresPhones: boolean;
+  supportsTeams: boolean;
+  activityType: string;
+  preset?: ActivityPresetCatalogEntry;
 };
-
-const chooserCategoryOrder = [
-  'Quizzes',
-  'Puzzles & word games',
-  'Game show games',
-  'Creative games',
-  'Polls & audience',
-  'Challenges & movement',
-  'Media',
-  'Utilities',
-];
-
-const orderChooserGroups = <T,>(groups: Map<string, T[]>): Array<[string, T[]]> => [...groups.entries()]
-  .sort(([left], [right]) => {
-    const leftIndex = chooserCategoryOrder.indexOf(left);
-    const rightIndex = chooserCategoryOrder.indexOf(right);
-    return (leftIndex < 0 ? chooserCategoryOrder.length : leftIndex) - (rightIndex < 0 ? chooserCategoryOrder.length : rightIndex)
-      || left.localeCompare(right);
-  });
 
 export const ActivityLibrary: React.FC = () => {
   const [activities, setActivities] = useState<ActivityDefinition[]>([]);
@@ -71,7 +62,7 @@ export const ActivityLibrary: React.FC = () => {
   const [libraryPage, setLibraryPage] = useState(1);
   const [libraryTotalCount, setLibraryTotalCount] = useState(0);
   const libraryPageSize = 100;
-  const [categoryFilter, setCategoryFilter] = useState<'all' | ActivityTypeDescriptor['category']>('all');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | ActivityCatalogCategoryId>('all');
   const [engineFilter, setEngineFilter] = useState('all');
   const [capabilityFilter, setCapabilityFilter] = useState<'all' | 'phones' | 'noPhones' | 'teams' | 'media' | 'favorites'>('all');
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(() => {
@@ -85,6 +76,9 @@ export const ActivityLibrary: React.FC = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
     try { return localStorage.getItem('lessoncue.activityView') === 'list' ? 'list' : 'grid'; } catch { return 'grid'; }
   });
+  const [groupByCategory, setGroupByCategory] = useState(() => {
+    try { return localStorage.getItem('lessoncue.activityGroupByCategory') !== 'false'; } catch { return true; }
+  });
   const [showArchived, setShowArchived] = useState(false);
   const [arrangeMode, setArrangeMode] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -95,6 +89,10 @@ export const ActivityLibrary: React.FC = () => {
   const [selectedActivity, setSelectedActivity] = useState<ActivityDefinition | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [chooserSearch, setChooserSearch] = useState('');
+  const [chooserMode, setChooserMode] = useState<ActivityChooserMode>('templates');
+  const [chooserCategory, setChooserCategory] = useState<'all' | ActivityCatalogCategoryId>('all');
+  const [chooserParticipation, setChooserParticipation] = useState<ActivityChooserParticipation>('all');
+  const [chooserSelectionKey, setChooserSelectionKey] = useState<string | null>(null);
   const [previewTab, setPreviewTab] = useState<ActivityPreviewMode>('display');
   const [editingConfig, setEditingConfig] = useState<Record<string, unknown>>({});
   const [editingName, setEditingName] = useState('');
@@ -186,6 +184,10 @@ export const ActivityLibrary: React.FC = () => {
   }, [viewMode]);
 
   useEffect(() => {
+    try { localStorage.setItem('lessoncue.activityGroupByCategory', String(groupByCategory)); } catch { /* private browsing */ }
+  }, [groupByCategory]);
+
+  useEffect(() => {
     if (!isEditorDirty) return;
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -210,10 +212,14 @@ export const ActivityLibrary: React.FC = () => {
     });
   }, [activities]);
 
-  const categories = useMemo(() => {
-    const values = new Set<ActivityTypeDescriptor['category']>();
-    activities.forEach(activity => values.add(getActivityDescriptor(activity.type).category));
-    return [...values].sort((a, b) => a.localeCompare(b));
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<ActivityCatalogCategoryId, number>();
+    activities.forEach(activity => {
+      const descriptor = getActivityDescriptor(activity.type);
+      const category = categoryForActivityType(activity.type, descriptor.category);
+      counts.set(category, (counts.get(category) || 0) + 1);
+    });
+    return counts;
   }, [activities]);
 
   const engines = useMemo(() => {
@@ -228,7 +234,8 @@ export const ActivityLibrary: React.FC = () => {
     const query = searchQuery.trim().toLowerCase();
     const matches = activities.filter(activity => {
       const descriptor = getActivityDescriptor(activity.type);
-      if (categoryFilter !== 'all' && descriptor.category !== categoryFilter) return false;
+      const catalogCategory = categoryForActivityType(activity.type, descriptor.category);
+      if (categoryFilter !== 'all' && catalogCategory !== categoryFilter) return false;
       if (engineFilter !== 'all' && (activity.engineType || descriptor.engineType || '') !== engineFilter) return false;
       if (capabilityFilter === 'phones' && !descriptor.requiresPhones) return false;
       if (capabilityFilter === 'noPhones' && descriptor.requiresPhones) return false;
@@ -236,7 +243,8 @@ export const ActivityLibrary: React.FC = () => {
       if (capabilityFilter === 'media' && descriptor.category !== 'media' && !['imageReveal', 'imageShuffle'].includes(activity.type)) return false;
       if (capabilityFilter === 'favorites' && !favoriteIds.has(activity.id)) return false;
       if (!query) return true;
-      return `${activity.name} ${activity.description} ${descriptor.name} ${descriptor.engineType || ''}`.toLowerCase().includes(query);
+      const category = getActivityCatalogCategory(catalogCategory);
+      return `${activity.name} ${activity.description} ${descriptor.name} ${descriptor.engineType || ''} ${category.label} ${category.description}`.toLowerCase().includes(query);
     });
 
     if (sortBy === 'manual') return matches;
@@ -247,6 +255,19 @@ export const ActivityLibrary: React.FC = () => {
       return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
     });
   }, [activities, capabilityFilter, categoryFilter, engineFilter, favoriteIds, searchQuery, sortBy]);
+
+  const libraryGroups = useMemo(() => {
+    if (!groupByCategory || arrangeMode) return [{ key: 'all', category: null, activities: filtered }];
+    const grouped = new Map<ActivityCatalogCategoryId, ActivityDefinition[]>();
+    filtered.forEach(activity => {
+      const descriptor = getActivityDescriptor(activity.type);
+      const category = categoryForActivityType(activity.type, descriptor.category);
+      grouped.set(category, [...(grouped.get(category) || []), activity]);
+    });
+    return [...grouped.entries()]
+      .sort(([left], [right]) => compareActivityCatalogCategories(left, right))
+      .map(([category, groupedActivities]) => ({ key: category, category, activities: groupedActivities }));
+  }, [arrangeMode, filtered, groupByCategory]);
 
   const visibleIds = filtered.map(activity => activity.id);
   const selectedActivities = activities.filter(activity => selectedIds.has(activity.id));
@@ -322,6 +343,25 @@ export const ActivityLibrary: React.FC = () => {
     setPreviewTab('display');
   };
 
+  const resetChooser = () => {
+    setChooserSearch('');
+    setChooserMode('templates');
+    setChooserCategory('all');
+    setChooserParticipation('all');
+    setChooserSelectionKey(null);
+  };
+
+  const openChooser = () => {
+    resetChooser();
+    setIsCreating(true);
+  };
+
+  const closeChooser = () => {
+    if (isSaving) return;
+    setIsCreating(false);
+    resetChooser();
+  };
+
   const handleCreateNew = async (type: string) => {
     const desc = getActivityDescriptor(type);
     setIsSaving(true);
@@ -336,6 +376,7 @@ export const ActivityLibrary: React.FC = () => {
       await fetchActivities();
       handleSelectActivity(created);
       setIsCreating(false);
+      resetChooser();
       setStatusMessage(`Created ${created.name}.`);
     } catch (err) {
       setStatusMessage(`Could not create activity: ${(err as Error).message}`);
@@ -358,7 +399,7 @@ export const ActivityLibrary: React.FC = () => {
       await fetchActivities();
       handleSelectActivity(created);
       setIsCreating(false);
-      setChooserSearch('');
+      resetChooser();
       setStatusMessage(`Created ${created.name}.`);
     } catch (err) {
       setStatusMessage(`Could not create ${preset.label}: ${(err as Error).message}`);
@@ -367,42 +408,69 @@ export const ActivityLibrary: React.FC = () => {
     }
   };
 
-  const visibleChooserPresets = useMemo(() => {
-    const query = chooserSearch.trim().toLowerCase();
-    if (!query) return ACTIVITY_PRESET_CATALOG;
-    return ACTIVITY_PRESET_CATALOG.filter(preset => `${preset.label} ${preset.description} ${preset.category} ${preset.type}`.toLowerCase().includes(query));
-  }, [chooserSearch]);
+  const chooserOptions = useMemo<ActivityChooserOption[]>(() => {
+    if (chooserMode === 'templates') {
+      return ACTIVITY_PRESET_CATALOG.map(preset => ({
+        key: `preset:${preset.type}:${preset.id}`,
+        kind: 'templates',
+        label: preset.label,
+        description: preset.description,
+        icon: preset.icon,
+        category: categoryForActivityType(preset.type, preset.category),
+        requiresPhones: preset.requiresPhones,
+        supportsTeams: preset.supportsTeams,
+        activityType: preset.type,
+        preset,
+      }));
+    }
+    return Object.values(ACTIVITY_REGISTRY).map(blank => ({
+      key: `blank:${blank.type}`,
+      kind: 'blank',
+      label: blank.name,
+      description: blank.description,
+      icon: blank.icon,
+      category: categoryForActivityType(blank.type, blank.category),
+      requiresPhones: Boolean(blank.requiresPhones),
+      supportsTeams: Boolean(blank.supportsTeams),
+      activityType: blank.type,
+    }));
+  }, [chooserMode]);
 
-  const namedPresetGroups = useMemo(() => {
-    const groups = new Map<string, ActivityPresetCatalogEntry[]>();
-    visibleChooserPresets.forEach(entry => {
-      const category = chooserCategoryLabel(entry.category);
-      const current = groups.get(category) || [];
-      current.push(entry);
-      groups.set(category, current);
+  const chooserSearchResults = useMemo(() => {
+    const query = chooserSearch.trim().toLowerCase();
+    return chooserOptions.filter(option => {
+      if (chooserParticipation === 'phones' && !option.requiresPhones) return false;
+      if (chooserParticipation === 'room' && option.requiresPhones) return false;
+      if (!query) return true;
+      const category = getActivityCatalogCategory(option.category);
+      const engine = getActivityDescriptor(option.activityType);
+      return `${option.label} ${option.description} ${category.label} ${category.description} ${engine.name} ${engine.description}`
+        .toLowerCase()
+        .includes(query);
     });
-    return orderChooserGroups(groups);
-  }, [visibleChooserPresets]);
+  }, [chooserOptions, chooserParticipation, chooserSearch]);
 
-  const blankActivityGroups = useMemo(() => {
-    const query = chooserSearch.trim().toLowerCase();
-    const groups = new Map<string, (typeof ACTIVITY_REGISTRY)[keyof typeof ACTIVITY_REGISTRY][]>();
-    Object.values(ACTIVITY_REGISTRY)
-      .filter(entry => !query || `${entry.name} ${entry.description} ${entry.type}`.toLowerCase().includes(query))
-      .forEach(entry => {
-        const category = chooserCategoryLabel(
-          ['trivia', 'rapidFire'].includes(entry.type)
-            ? 'knowledge'
-            : ['ordering', 'rankIt', 'wordScramble', 'matchPlayer'].includes(entry.type)
-              ? 'sorting'
-              : entry.category
-        );
-        const current = groups.get(category) || [];
-        current.push(entry);
-        groups.set(category, current);
-      });
-    return orderChooserGroups(groups);
-  }, [chooserSearch]);
+  const chooserCategoryCounts = useMemo(() => {
+    const counts = new Map<ActivityCatalogCategoryId, number>();
+    chooserSearchResults.forEach(option => counts.set(option.category, (counts.get(option.category) || 0) + 1));
+    return counts;
+  }, [chooserSearchResults]);
+
+  const visibleChooserOptions = useMemo(() => chooserSearchResults.filter(option =>
+    chooserCategory === 'all' || option.category === chooserCategory
+  ), [chooserCategory, chooserSearchResults]);
+
+  const chooserGroups = useMemo(() => {
+    const grouped = new Map<ActivityCatalogCategoryId, ActivityChooserOption[]>();
+    visibleChooserOptions.forEach(option => grouped.set(option.category, [...(grouped.get(option.category) || []), option]));
+    return [...grouped.entries()]
+      .sort(([left], [right]) => compareActivityCatalogCategories(left, right))
+      .map(([category, options]) => ({ category: getActivityCatalogCategory(category), options }));
+  }, [visibleChooserOptions]);
+
+  const selectedChooserOption = chooserOptions.find(option => option.key === chooserSelectionKey) || null;
+  const selectedChooserCategory = selectedChooserOption ? getActivityCatalogCategory(selectedChooserOption.category) : null;
+  const selectedChooserDescriptor = selectedChooserOption ? getActivityDescriptor(selectedChooserOption.activityType) : null;
 
   const handleSaveEdit = async (closeAfterSave = false): Promise<boolean> => {
     if (!selectedActivity) return false;
@@ -603,7 +671,7 @@ export const ActivityLibrary: React.FC = () => {
       <PageHead
         eyebrow="INTERACTIVE ACTIVITIES"
         title="Activities Studio"
-        detail="Exciting high-energy games, spin wheels, scoreboards, and crowd activities for TV displays and remotes."
+        detail="Browse by category, compare clearly described formats, and build games and classroom activities for displays and remotes."
         action={
           <div className="page-actions" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
             <label className="button" style={{ cursor: 'pointer', margin: 0 }}>
@@ -613,7 +681,7 @@ export const ActivityLibrary: React.FC = () => {
             <button
               type="button"
               className="button primary"
-              onClick={() => setIsCreating(true)}
+              onClick={openChooser}
             >
               + Create activity
             </button>
@@ -631,13 +699,6 @@ export const ActivityLibrary: React.FC = () => {
               value={searchQuery}
               onChange={event => setSearchQuery(event.target.value)}
             />
-          </label>
-          <label>
-            <span>Category</span>
-            <select value={categoryFilter} onChange={event => setCategoryFilter(event.target.value as typeof categoryFilter)}>
-              <option value="all">All categories</option>
-              {categories.map(category => <option key={category} value={category}>{category.replace(/([a-z])([A-Z])/g, '$1 $2')}</option>)}
-            </select>
           </label>
           <label>
             <span>Participation</span>
@@ -658,6 +719,32 @@ export const ActivityLibrary: React.FC = () => {
             </select>
           </label>
         </div>
+        <div className="activity-library-category-strip" role="group" aria-label="Filter activities by category">
+          <button
+            type="button"
+            className={categoryFilter === 'all' ? 'active' : ''}
+            aria-pressed={categoryFilter === 'all'}
+            onClick={() => setCategoryFilter('all')}
+          >
+            <span aria-hidden="true">✨</span>
+            <strong>All activities</strong>
+            <small>{activities.length}</small>
+          </button>
+          {ACTIVITY_CATALOG_CATEGORIES.filter(category => (categoryCounts.get(category.id) || 0) > 0).map(category => (
+            <button
+              type="button"
+              key={category.id}
+              className={categoryFilter === category.id ? 'active' : ''}
+              aria-pressed={categoryFilter === category.id}
+              title={category.description}
+              onClick={() => setCategoryFilter(category.id)}
+            >
+              <span aria-hidden="true">{category.icon}</span>
+              <strong>{category.shortLabel}</strong>
+              <small>{categoryCounts.get(category.id) || 0}</small>
+            </button>
+          ))}
+        </div>
         <div className="activity-library-toolbar-row activity-library-toolbar-secondary">
           <div className="activity-library-count" aria-live="polite">
             Showing <strong>{filtered.length}</strong> of <strong>{libraryTotalCount}</strong> activities · Page {libraryPage} of {totalPages}
@@ -666,6 +753,10 @@ export const ActivityLibrary: React.FC = () => {
           <label className="activity-library-check-row">
             <input type="checkbox" checked={showArchived} onChange={event => { setShowArchived(event.target.checked); setSelectedIds(new Set()); }} />
             Show archived
+          </label>
+          <label className="activity-library-check-row">
+            <input type="checkbox" checked={groupByCategory} onChange={event => setGroupByCategory(event.target.checked)} />
+            Group by category
           </label>
           <label>
             <span>Sort</span>
@@ -699,6 +790,17 @@ export const ActivityLibrary: React.FC = () => {
           >
             {arrangeMode ? 'Done arranging' : 'Arrange'}
           </button>
+          {hasActiveFilters && !arrangeMode && <button
+            type="button"
+            className="button"
+            onClick={() => {
+              setSearchQuery('');
+              setCategoryFilter('all');
+              setCapabilityFilter('all');
+              setEngineFilter('all');
+              setShowArchived(false);
+            }}
+          >Clear filters</button>}
         </div>
         {arrangeMode && <p className="activity-library-hint">Drag activities into your preferred order, or use the keyboard arrows on each item. Clear filters to arrange the entire library.</p>}
       </section>
@@ -736,16 +838,30 @@ export const ActivityLibrary: React.FC = () => {
             <button
               type="button"
               className="button primary"
-              onClick={() => setIsCreating(true)}
+              onClick={openChooser}
             >
               Create activity
             </button>
           }
         />
       ) : (
-        <div className={viewMode === 'grid' ? 'activity-library-grid' : 'activity-library-list'}>
-          {filtered.map((act, index) => {
+        <div className="activity-library-groups">
+          {libraryGroups.map(group => {
+            const groupCategory = group.category ? getActivityCatalogCategory(group.category) : null;
+            return <section className="activity-library-group" key={group.key}>
+              {groupCategory && <header className="activity-library-group-heading">
+                <span aria-hidden="true">{groupCategory.icon}</span>
+                <div>
+                  <h2>{groupCategory.label}</h2>
+                  <p>{groupCategory.description}</p>
+                </div>
+                <strong>{group.activities.length}</strong>
+              </header>}
+              <div className={viewMode === 'grid' ? 'activity-library-grid' : 'activity-library-list'}>
+          {group.activities.map(act => {
+            const index = filtered.findIndex(item => item.id === act.id);
             const desc = getActivityDescriptor(act.type);
+            const catalogCategory = getActivityCatalogCategory(categoryForActivityType(act.type, desc.category));
             const selected = selectedIds.has(act.id);
             const archived = Boolean(act.archivedAt);
             return viewMode === 'grid' ? (
@@ -768,6 +884,7 @@ export const ActivityLibrary: React.FC = () => {
                   <button type="button" className={`activity-library-favorite ${favoriteIds.has(act.id) ? 'active' : ''}`} onClick={event => { event.stopPropagation(); toggleFavorite(act.id); }} aria-label={`${favoriteIds.has(act.id) ? 'Remove' : 'Add'} ${act.name} ${favoriteIds.has(act.id) ? 'from' : 'to'} favorites`} aria-pressed={favoriteIds.has(act.id)}>★</button>
                   <div className="activity-library-card-badges">
                     {archived && <span className="activity-library-chip archived-chip">Archived</span>}
+                    <span className="activity-library-chip activity-library-category-chip">{catalogCategory.shortLabel}</span>
                     {desc.badge && <span className="activity-library-chip">{desc.badge}</span>}
                   </div>
                 </div>
@@ -806,13 +923,16 @@ export const ActivityLibrary: React.FC = () => {
                 {act.thumbnailUrl ? <img className="activity-library-list-thumbnail" src={act.thumbnailUrl} alt="" /> : null}
                 <button type="button" className={`activity-library-favorite ${favoriteIds.has(act.id) ? 'active' : ''}`} onClick={event => { event.stopPropagation(); toggleFavorite(act.id); }} aria-label={`${favoriteIds.has(act.id) ? 'Remove' : 'Add'} ${act.name} ${favoriteIds.has(act.id) ? 'from' : 'to'} favorites`} aria-pressed={favoriteIds.has(act.id)}>★</button>
                 <button type="button" className="activity-library-list-name" onClick={() => handleSelectActivity(act)}><strong>{act.name}</strong><small>{act.description || desc.description}</small></button>
-                <span className="activity-library-list-type">{desc.name}</span>
+                <span className="activity-library-list-type">{catalogCategory.shortLabel} · {desc.name}</span>
                 <span className="activity-library-list-tags">{desc.requiresPhones ? '📱 Phones' : '📺 No phones'}{desc.supportsTeams ? ' · 👥 Teams' : ''} · {activityUsageLabel(act)}</span>
                 <span className="activity-library-list-date">{archived ? 'Archived' : `Updated ${new Date(act.updatedAt).toLocaleDateString()}`}</span>
                 {arrangeMode && !archived && <span className="activity-library-arrow-actions"><button type="button" onClick={() => moveActivity(act.id, -1)} disabled={index === 0} aria-label={`Move ${act.name} earlier`}>↑</button><button type="button" onClick={() => moveActivity(act.id, 1)} disabled={index === filtered.length - 1} aria-label={`Move ${act.name} later`}>↓</button></span>}
                 <button type="button" className="button" onClick={() => handleSelectActivity(act)}>Open</button>
               </article>
             );
+          })}
+              </div>
+            </section>;
           })}
         </div>
       )}
@@ -826,62 +946,171 @@ export const ActivityLibrary: React.FC = () => {
       {/* Create Activity Modal */}
       {isCreating && (
         <Modal
-          title="Choose an Activity Type"
-          onClose={() => { if (!isSaving) { setIsCreating(false); setChooserSearch(''); } }}
+          title="Create an activity"
+          className="activity-chooser-modal"
+          onClose={closeChooser}
         >
           <div className="activity-chooser">
             <div className="activity-chooser-intro">
               <div>
-                <strong>Start with a named game format</strong>
-                <p>These are ready-to-edit templates built on the same Activities engines. You can still create a blank activity below.</p>
+                <strong>{chooserMode === 'templates' ? 'Choose a ready-made format' : 'Choose a blank building block'}</strong>
+                <p>{chooserMode === 'templates'
+                  ? 'Each format starts with useful sample content and rules. Select one to read exactly how it works before creating it.'
+                  : 'Choose the underlying activity style when you want to build every prompt, rule, and round yourself.'}</p>
               </div>
-              <input
-                type="search"
-                aria-label="Search game formats"
-                placeholder="Search games…"
-                value={chooserSearch}
-                onChange={event => setChooserSearch(event.target.value)}
-              />
-            </div>
-            <div className="activity-chooser-section">
-              <div className="activity-chooser-section-heading"><h3>Named game formats</h3><span>{visibleChooserPresets.length} available</span></div>
-              {namedPresetGroups.map(([category, entries]) => <section className="activity-chooser-category" key={`named:${category}`} aria-labelledby={`named-category-${category}`}>
-                <div className="activity-chooser-category-heading"><h4 id={`named-category-${category}`}>{category}</h4><span>{entries.length}</span></div>
-                <div className="activity-chooser-grid">
-                  {entries.map(entry => (
-                    <button
-                      type="button"
-                      key={`preset:${entry.type}:${entry.id}`}
-                      onClick={() => void handleCreatePreset(entry)}
-                      className="activity-chooser-card"
-                      disabled={isSaving}
-                    >
-                      <span className="activity-chooser-icon" aria-hidden="true">{entry.icon}</span>
-                      <span className="activity-chooser-card-copy"><strong>{entry.label}</strong><small>{entry.description}</small></span>
-                      <span className="activity-chooser-meta">{entry.requiresPhones ? 'phones' : 'no phones required'}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>)}
-              {!visibleChooserPresets.length && <p className="muted">No named formats match “{chooserSearch}”. Try another search.</p>}
-            </div>
-            <div className="activity-chooser-section activity-chooser-building-blocks">
-              <div className="activity-chooser-section-heading"><h3>Blank activity building blocks</h3><span>Use these for a custom setup</span></div>
-              {blankActivityGroups.map(([category, entries]) => <section className="activity-chooser-category" key={`blank:${category}`} aria-labelledby={`blank-category-${category}`}>
-                <div className="activity-chooser-category-heading"><h4 id={`blank-category-${category}`}>{category}</h4><span>{entries.length}</span></div>
-                <div className="activity-chooser-grid">
-                  {entries.map(entry => <button
-                    type="button"
-                    key={entry.type}
-                    onClick={() => void handleCreateNew(entry.type)}
-                    className="activity-chooser-card activity-chooser-blank-card"
-                    disabled={isSaving}
+              <div className="activity-chooser-filters">
+                <label>
+                  <span>Search</span>
+                  <input
+                    type="search"
+                    aria-label="Search activity formats"
+                    placeholder="Try trivia, drawing, no phones…"
+                    value={chooserSearch}
+                    onChange={event => { setChooserSearch(event.target.value); setChooserSelectionKey(null); }}
+                  />
+                </label>
+                <label>
+                  <span>Participation</span>
+                  <select
+                    value={chooserParticipation}
+                    onChange={event => { setChooserParticipation(event.target.value as ActivityChooserParticipation); setChooserSelectionKey(null); }}
                   >
-                    <span className="activity-chooser-icon" aria-hidden="true">{entry.icon}</span>
-                    <span className="activity-chooser-card-copy"><strong>{entry.name}</strong><small>{entry.description}</small></span>
-                  </button>)}
+                    <option value="all">Any setup</option>
+                    <option value="phones">Players use phones</option>
+                    <option value="room">No phones required</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div className="activity-chooser-mode" role="tablist" aria-label="Activity starting point">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={chooserMode === 'templates'}
+                className={chooserMode === 'templates' ? 'active' : ''}
+                onClick={() => { setChooserMode('templates'); setChooserSelectionKey(null); }}
+              >
+                <strong>Ready-made formats</strong>
+                <small>Sample content and rules included</small>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={chooserMode === 'blank'}
+                className={chooserMode === 'blank' ? 'active' : ''}
+                onClick={() => { setChooserMode('blank'); setChooserSelectionKey(null); }}
+              >
+                <strong>Blank building blocks</strong>
+                <small>Start from an empty activity engine</small>
+              </button>
+            </div>
+
+            <div className="activity-chooser-categories" role="group" aria-label="Activity categories">
+              <button
+                type="button"
+                className={chooserCategory === 'all' ? 'active' : ''}
+                aria-pressed={chooserCategory === 'all'}
+                onClick={() => { setChooserCategory('all'); setChooserSelectionKey(null); }}
+              >
+                <span aria-hidden="true">✨</span><strong>All</strong><small>{chooserSearchResults.length}</small>
+              </button>
+              {ACTIVITY_CATALOG_CATEGORIES.filter(category => (chooserCategoryCounts.get(category.id) || 0) > 0).map(category => (
+                <button
+                  type="button"
+                  key={category.id}
+                  className={chooserCategory === category.id ? 'active' : ''}
+                  aria-pressed={chooserCategory === category.id}
+                  title={category.description}
+                  onClick={() => { setChooserCategory(category.id); setChooserSelectionKey(null); }}
+                >
+                  <span aria-hidden="true">{category.icon}</span><strong>{category.shortLabel}</strong><small>{chooserCategoryCounts.get(category.id) || 0}</small>
+                </button>
+              ))}
+            </div>
+
+            <div className="activity-chooser-workspace">
+              <div className="activity-chooser-results">
+                <div className="activity-chooser-section-heading">
+                  <h3>{chooserMode === 'templates' ? 'Formats' : 'Building blocks'}</h3>
+                  <span>{visibleChooserOptions.length} {visibleChooserOptions.length === 1 ? 'choice' : 'choices'}</span>
                 </div>
-              </section>)}
+                {chooserGroups.map(group => <section className="activity-chooser-category" key={group.category.id} aria-labelledby={`chooser-category-${group.category.id}`}>
+                  <div className="activity-chooser-category-heading">
+                    <span aria-hidden="true">{group.category.icon}</span>
+                    <div><h4 id={`chooser-category-${group.category.id}`}>{group.category.label}</h4><p>{group.category.description}</p></div>
+                    <strong>{group.options.length}</strong>
+                  </div>
+                  <div className="activity-chooser-grid">
+                    {group.options.map(option => {
+                      const descriptor = getActivityDescriptor(option.activityType);
+                      return <button
+                        type="button"
+                        key={option.key}
+                        onClick={() => setChooserSelectionKey(option.key)}
+                        className={`activity-chooser-card ${chooserSelectionKey === option.key ? 'selected' : ''}`}
+                        aria-pressed={chooserSelectionKey === option.key}
+                        disabled={isSaving}
+                      >
+                        <span className="activity-chooser-icon" aria-hidden="true">{option.icon}</span>
+                        <span className="activity-chooser-card-copy">
+                          <strong>{option.label}</strong>
+                          <small>{option.description}</small>
+                        </span>
+                        <span className="activity-chooser-meta">
+                          {descriptor.name} · {option.requiresPhones ? '📱 player devices' : '📺 no phones required'}{option.supportsTeams ? ' · teams' : ''}
+                        </span>
+                      </button>;
+                    })}
+                  </div>
+                </section>)}
+                {!visibleChooserOptions.length && <div className="activity-chooser-empty">
+                  <strong>No activities match these filters.</strong>
+                  <p>Try a different search, category, or participation setup.</p>
+                  <button type="button" className="button" onClick={() => {
+                    setChooserSearch('');
+                    setChooserCategory('all');
+                    setChooserParticipation('all');
+                  }}>Clear filters</button>
+                </div>}
+              </div>
+
+              <aside className={`activity-chooser-detail ${selectedChooserOption ? 'has-selection' : ''}`} aria-live="polite">
+                {selectedChooserOption && selectedChooserCategory && selectedChooserDescriptor ? <>
+                  <div className="activity-chooser-detail-category"><span aria-hidden="true">{selectedChooserCategory.icon}</span>{selectedChooserCategory.label}</div>
+                  <div className="activity-chooser-detail-title"><span aria-hidden="true">{selectedChooserOption.icon}</span><h3>{selectedChooserOption.label}</h3></div>
+                  <p className="activity-chooser-detail-description">{selectedChooserOption.description}</p>
+                  <div className="activity-chooser-detail-explanation">
+                    <strong>How this activity works</strong>
+                    <p>{selectedChooserOption.kind === 'templates'
+                      ? selectedChooserDescriptor.description
+                      : `This is the blank ${selectedChooserDescriptor.name} builder. Add your own content and rules in the editor after creating it.`}</p>
+                  </div>
+                  <div className="activity-chooser-detail-explanation">
+                    <strong>Good for</strong>
+                    <p>{selectedChooserCategory.description}</p>
+                  </div>
+                  <ul className="activity-chooser-detail-facts">
+                    <li>{selectedChooserOption.requiresPhones ? 'Players participate from phones or tablets.' : 'The host can run it without player devices.'}</li>
+                    <li>{selectedChooserOption.supportsTeams ? 'Can be used with teams.' : 'Designed for individual or whole-room participation.'}</li>
+                    <li>You can edit all included prompts and content before adding it to a lesson.</li>
+                  </ul>
+                  <button
+                    type="button"
+                    className="button primary activity-chooser-create"
+                    disabled={isSaving}
+                    onClick={() => selectedChooserOption.preset
+                      ? void handleCreatePreset(selectedChooserOption.preset)
+                      : void handleCreateNew(selectedChooserOption.activityType)}
+                  >
+                    {isSaving ? 'Creating…' : selectedChooserOption.kind === 'templates' ? `Use ${selectedChooserOption.label}` : `Build a ${selectedChooserOption.label}`}
+                  </button>
+                </> : <div className="activity-chooser-detail-placeholder">
+                  <span aria-hidden="true">☝️</span>
+                  <strong>Select an activity to learn more</strong>
+                  <p>Its purpose, participation setup, and a clear description will appear here before you create anything.</p>
+                </div>}
+              </aside>
             </div>
           </div>
         </Modal>
@@ -966,7 +1195,8 @@ export const ActivityLibrary: React.FC = () => {
                     }}
                   />
                   <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: '2px' }}>
-                    Type: {getActivityDescriptor(selectedActivity.type).name}
+                    {getActivityCatalogCategory(categoryForActivityType(selectedActivity.type, getActivityDescriptor(selectedActivity.type).category)).label}
+                    {' · '}{getActivityDescriptor(selectedActivity.type).name}
                   </div>
                   <div className="activity-editor-usage-note">
                     {activityUsageLabel(selectedActivity)}
@@ -1024,84 +1254,104 @@ export const ActivityLibrary: React.FC = () => {
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(360px, 420px) 1fr', flex: 1, overflow: 'hidden' }}>
               {/* Left Config Editor Panel */}
               <div style={{ padding: '1.5rem', overflowY: 'auto', borderRight: '1px solid var(--line)', background: '#f9f8f5' }}>
-                <div style={{ marginBottom: '1.25rem' }}>
-                  <Field label="Description">
-                    <textarea
-                      value={editingDescription}
-                      onChange={e => commitDescription(e.target.value)}
-                      rows={2}
-                      placeholder="Optional notes or instructions"
-                    />
-                  </Field>
-                </div>
-
-                <section className="activity-theme-editor activity-editor-card" aria-labelledby="activity-theme-heading">
-                  <div className="activity-editor-card-heading">
-                    <div>
-                      <strong id="activity-theme-heading">TV presentation</strong>
-                      <small>Choose an original LessonCue color and sound treatment for the room display.</small>
-                    </div>
-                    <button type="button" className="button" onClick={() => commitTheme({ ...ACTIVITY_THEME_PRESETS.stage })}>Reset</button>
-                  </div>
-                  <label>Theme
-                    <select
-                      value={editingTheme?.preset || 'stage'}
-                      onChange={event => commitTheme({ ...ACTIVITY_THEME_PRESETS[event.target.value as ActivityThemePreset] })}
-                    >
-                      {Object.keys(ACTIVITY_THEME_PRESETS).map(value => <option key={value} value={value}>{value === 'stage' ? 'LessonCue Stage' : value.replace(/^./, character => character.toUpperCase())}</option>)}
-                    </select>
-                  </label>
-                  <div className="two-fields">
-                    <label>Sound
-                      <select
-                        value={editingTheme?.soundPack || 'gameshow'}
-                        onChange={event => commitTheme({ ...(draftRef.current.theme || ACTIVITY_THEME_PRESETS.stage), soundPack: event.target.value as ActivityTheme['soundPack'] })}
-                      >
-                        <option value="gameshow">Game show</option>
-                        <option value="arcade">Arcade</option>
-                        <option value="minimal">Minimal</option>
-                        <option value="muted">Muted</option>
-                      </select>
-                    </label>
-                    <label className="checkbox-row" style={{ alignSelf: 'end' }}>
-                      <input
-                        type="checkbox"
-                        checked={editingTheme?.backgroundMotion !== false}
-                        onChange={event => commitTheme({ ...(draftRef.current.theme || ACTIVITY_THEME_PRESETS.stage), backgroundMotion: event.target.checked })}
-                      />
-                      Ambient motion
-                    </label>
-                  </div>
-                  <label>Reveal pacing
-                    <select
-                      aria-label="Reveal pacing"
-                      value={typeof editingConfig.revealPacing === 'string' ? editingConfig.revealPacing : 'dramatic'}
-                      onChange={event => commitConfig({ ...draftRef.current.config, revealPacing: event.target.value })}
-                    >
-                      <option value="quick">Quick</option>
-                      <option value="dramatic">Dramatic</option>
-                      <option value="epic">Epic</option>
-                    </select>
-                  </label>
-                  <small className="muted">Motion respects reduced-motion settings. Game audio stays separate from lesson media volume.</small>
-                </section>
-
                 {(() => {
                   const desc = getActivityDescriptor(selectedActivity.type);
                   const EditorComponent = desc.editorComponent;
+                  const hasFlowSettings = supportsAutoAdvance(selectedActivity.type) || supportsPacing(selectedActivity.type);
                   return (
                     <>
-                      <EditorComponent
-                        config={editingConfig}
-                        onChange={commitConfig}
-                      />
-                      {/* Shared across engines rather than repeated in each
-                          editor, so every supporting engine gets it. */}
-                      <ActivityAutoAdvanceEditor
-                        type={selectedActivity.type}
-                        config={editingConfig}
-                        onChange={commitConfig}
-                      />
+                      <div className="activity-editor-build-intro">
+                        <span>BUILD ACTIVITY</span>
+                        <strong>Set the content first, then adjust timing and presentation.</strong>
+                      </div>
+
+                      <section className="activity-editor-build-section" aria-labelledby="activity-content-heading">
+                        <header className="activity-editor-build-heading">
+                          <span>1</span>
+                          <div><strong id="activity-content-heading">Content & rules</strong><small>Add what participants will see, answer, or do.</small></div>
+                        </header>
+                        <Field label="Activity description" hint="Explain the purpose or instructions in plain language so this activity is easy to recognize later.">
+                          <textarea
+                            value={editingDescription}
+                            onChange={e => commitDescription(e.target.value)}
+                            rows={3}
+                            placeholder="What will players do in this activity?"
+                          />
+                        </Field>
+                        <EditorComponent
+                          config={editingConfig}
+                          onChange={commitConfig}
+                        />
+                      </section>
+
+                      {hasFlowSettings && <section className="activity-editor-build-section" aria-labelledby="activity-flow-heading">
+                        <header className="activity-editor-build-heading">
+                          <span>2</span>
+                          <div><strong id="activity-flow-heading">Timing & flow</strong><small>Choose how quickly rounds move and when answers close.</small></div>
+                        </header>
+                        <ActivityAutoAdvanceEditor
+                          type={selectedActivity.type}
+                          config={editingConfig}
+                          onChange={commitConfig}
+                        />
+                      </section>}
+
+                      <section className="activity-editor-build-section" aria-labelledby="activity-theme-heading">
+                        <header className="activity-editor-build-heading">
+                          <span>{hasFlowSettings ? '3' : '2'}</span>
+                          <div><strong id="activity-theme-heading">TV presentation</strong><small>Choose the color, sound, motion, and reveal style for the room display.</small></div>
+                        </header>
+                        <div className="activity-theme-editor activity-editor-card">
+                          <div className="activity-editor-card-heading">
+                            <div>
+                              <strong>Look & sound</strong>
+                              <small>The preview updates as you make changes.</small>
+                            </div>
+                            <button type="button" className="button" onClick={() => commitTheme({ ...ACTIVITY_THEME_PRESETS.stage })}>Reset</button>
+                          </div>
+                          <label>Theme
+                            <select
+                              value={editingTheme?.preset || 'stage'}
+                              onChange={event => commitTheme({ ...ACTIVITY_THEME_PRESETS[event.target.value as ActivityThemePreset] })}
+                            >
+                              {Object.keys(ACTIVITY_THEME_PRESETS).map(value => <option key={value} value={value}>{value === 'stage' ? 'LessonCue Stage' : value.replace(/^./, character => character.toUpperCase())}</option>)}
+                            </select>
+                          </label>
+                          <div className="two-fields">
+                            <label>Sound
+                              <select
+                                value={editingTheme?.soundPack || 'gameshow'}
+                                onChange={event => commitTheme({ ...(draftRef.current.theme || ACTIVITY_THEME_PRESETS.stage), soundPack: event.target.value as ActivityTheme['soundPack'] })}
+                              >
+                                <option value="gameshow">Game show</option>
+                                <option value="arcade">Arcade</option>
+                                <option value="minimal">Minimal</option>
+                                <option value="muted">Muted</option>
+                              </select>
+                            </label>
+                            <label className="checkbox-row" style={{ alignSelf: 'end' }}>
+                              <input
+                                type="checkbox"
+                                checked={editingTheme?.backgroundMotion !== false}
+                                onChange={event => commitTheme({ ...(draftRef.current.theme || ACTIVITY_THEME_PRESETS.stage), backgroundMotion: event.target.checked })}
+                              />
+                              Ambient motion
+                            </label>
+                          </div>
+                          <label>Reveal pacing
+                            <select
+                              aria-label="Reveal pacing"
+                              value={typeof editingConfig.revealPacing === 'string' ? editingConfig.revealPacing : 'dramatic'}
+                              onChange={event => commitConfig({ ...draftRef.current.config, revealPacing: event.target.value })}
+                            >
+                              <option value="quick">Quick</option>
+                              <option value="dramatic">Dramatic</option>
+                              <option value="epic">Epic</option>
+                            </select>
+                          </label>
+                          <small className="muted">Motion respects reduced-motion settings. Game audio stays separate from lesson media volume.</small>
+                        </div>
+                      </section>
                     </>
                   );
                 })()}

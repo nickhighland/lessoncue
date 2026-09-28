@@ -33,11 +33,14 @@ async function createActivity(page: Page, presetName: string, activityName: stri
   await page.getByRole("button", { name: /Activities$/ }).click();
   await expect(page.getByRole("heading", { name: "Activities Studio" })).toBeVisible();
   await page.getByRole("button", { name: "+ Create activity" }).click();
-  const chooser = page.getByRole("dialog", { name: "Choose an Activity Type" });
-  // Named presets and blank building blocks intentionally share labels (for
-  // example, both expose “Punchline”). The named card is the first exact
-  // match and is the one this helper is meant to exercise.
-  await chooser.getByText(presetName, { exact: true }).first().click();
+  const chooser = page.getByRole("dialog", { name: "Create an activity" });
+  let choice = chooser.getByText(presetName, { exact: true }).first();
+  if (!await choice.isVisible().catch(() => false)) {
+    await chooser.getByRole("tab", { name: /Blank building blocks/ }).click();
+    choice = chooser.getByText(presetName, { exact: true }).first();
+  }
+  await choice.click();
+  await chooser.getByRole("button", { name: new RegExp(`^(Use|Build a) ${presetName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) }).click();
   await page.locator('input[type="text"]').first().fill(activityName);
   const saveResponse = page.waitForResponse(
     response => response.request().method() === "PUT" && response.url().includes("/api/v1/activities/") && response.ok(),
@@ -126,21 +129,28 @@ async function runState(page: Page, runId: string) {
   }, runId);
 }
 
-test("The existing Activities chooser exposes named game formats from one searchable catalog", async ({ page }) => {
+test("The Activities chooser groups formats, explains them, and remains searchable", async ({ page }) => {
   await authenticate(page);
   await page.getByRole("button", { name: /Activities$/ }).click();
   await expect(page.getByRole("heading", { name: "Activities Studio" })).toBeVisible();
   await page.getByRole("button", { name: "+ Create activity" }).click();
-  const chooser = page.getByRole("dialog", { name: "Choose an Activity Type" });
-  await expect(chooser.getByRole("heading", { name: "Named game formats" })).toBeVisible();
+  const chooser = page.getByRole("dialog", { name: "Create an activity" });
+  await expect(chooser.getByRole("heading", { name: "Formats" })).toBeVisible();
+  await expect(chooser.getByRole("heading", { name: "Quizzes & knowledge" })).toBeVisible();
+  await expect(chooser.getByRole("button", { name: /Puzzles/ })).toBeVisible();
   await expect(chooser.getByRole("button", { name: /Telephone Draw/ })).toBeVisible();
   await expect(chooser.getByRole("button", { name: /Connections/ })).toBeVisible();
   await expect(chooser.getByRole("button", { name: /Adventure/ })).toBeVisible();
   await expect(chooser.getByRole("button", { name: /Safari Spin/ })).toBeVisible();
   await expect(chooser.getByRole("button", { name: /Coin Flip/ })).toBeVisible();
-  await chooser.getByLabel("Search game formats").fill("memory");
+  const formatDescriptions = await chooser.locator(".activity-chooser-card-copy small").allTextContents();
+  expect(formatDescriptions.length).toBeGreaterThan(20);
+  expect(formatDescriptions.every(description => description.trim().length >= 25)).toBe(true);
+  await chooser.getByLabel("Search activity formats").fill("memory");
   await expect(chooser.getByRole("button", { name: /Memory Grid/ })).toBeVisible();
-  await expect(chooser.getByText("No named formats match", { exact: false })).toHaveCount(0);
+  await chooser.getByRole("button", { name: /Memory Grid/ }).click();
+  await expect(chooser.locator(".activity-chooser-detail-description")).toContainText("Flash a grid of hidden cards");
+  await expect(chooser.getByText("How this activity works", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
 });
 
@@ -1226,7 +1236,7 @@ test("Activities Studio supports grid/list views, filters, arranging, and bulk d
 
   await page.getByRole("button", { name: /Activities$/ }).click();
   await expect(page.getByRole("heading", { name: "Activities Studio" })).toBeVisible();
-  await expect(page.locator(".activity-library-grid")).toBeVisible();
+  await expect(page.locator(".activity-library-grid").first()).toBeVisible();
 
   const librarySearch = page.getByPlaceholder("Name, description, or game type");
   await librarySearch.fill(activityTag);
@@ -1258,7 +1268,7 @@ test("Activities Studio supports grid/list views, filters, arranging, and bulk d
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)\./ })).toBeVisible();
   await page.getByRole("button", { name: /Activities$/ }).click();
-  await expect(page.locator(".activity-library-grid")).toBeVisible();
+  await expect(page.locator(".activity-library-grid").first()).toBeVisible();
   await page.getByPlaceholder("Name, description, or game type").fill(activityTag);
 
   await page.getByRole("checkbox", { name: `Select ${triviaName}`, exact: true }).check();

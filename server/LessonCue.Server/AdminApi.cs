@@ -4588,6 +4588,75 @@ public static class AdminApi
                 .FirstOrDefaultAsync(ct) ?? "UTC";
             return Results.Ok(policy.GetStatus(timeZone));
         });
+        backupsAdmin.MapPost("/backups/google-drive/connect", async (
+            HttpContext context,
+            BackupPolicyService policy,
+            CancellationToken ct) =>
+        {
+            if (!context.Request.IsHttps || !context.Request.Host.HasValue)
+                return Results.BadRequest(new
+                {
+                    error = "Connect Google Drive through the HTTPS LessonCue address used in your browser."
+                });
+            var callbackUri =
+                $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}" +
+                "/api/v1/backups/google-drive/callback";
+            try
+            {
+                return Results.Ok(new
+                {
+                    authorizationUrl = await policy.BeginGoogleDriveAuthorizationAsync(callbackUri, ct),
+                    redirectUri = callbackUri
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+        backupsAdmin.MapGet("/backups/google-drive/callback", async (
+            string? state,
+            string? code,
+            string? error,
+            HttpContext context,
+            BackupPolicyService policy,
+            ILogger<BackupPolicyService> logger,
+            CancellationToken ct) =>
+        {
+            var connected = false;
+            if (string.IsNullOrEmpty(error) && !string.IsNullOrWhiteSpace(state) &&
+                !string.IsNullOrWhiteSpace(code))
+            {
+                try
+                {
+                    await policy.CompleteGoogleDriveAuthorizationAsync(state, code, ct);
+                    connected = true;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(ex, "Google Drive backup authorization did not complete");
+                }
+            }
+
+            // This tightly scoped page is the only place LessonCue permits an
+            // inline script. It posts a boolean result to the opener and never
+            // includes the OAuth code, token, or server-side error text.
+            context.Response.Headers["Content-Security-Policy"] =
+                "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'";
+            var connectedText = connected ? "true" : "false";
+            var message = connected
+                ? "Google Drive is connected. You can close this window."
+                : "Google Drive was not connected. Return to LessonCue and try again.";
+            var html = $"<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>Google Drive</title>" +
+                       $"<body><p>{message}</p><script>if(window.opener){{window.opener.postMessage(" +
+                       $"{{type:'lessoncue-google-drive-oauth',connected:{connectedText}}},window.location.origin);" +
+                       "window.close();}</script></body></html>";
+            return Results.Content(html, "text/html; charset=utf-8");
+        }).AllowAnonymous();
         backupsAdmin.MapPut("/backups/policy", async (
             BackupPolicyInput input,
             LessonCueDb db,
