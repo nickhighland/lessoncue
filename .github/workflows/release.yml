@@ -21,6 +21,12 @@ on:
         default: auto
         type: choice
         options: [auto, server-only, tv]
+      publish_mode:
+        description: Publish store builds, or create the signed GitHub release without changing app stores
+        required: false
+        default: complete
+        type: choice
+        options: [complete, server-update-only]
 
 permissions:
   contents: read
@@ -456,6 +462,16 @@ jobs:
           cp -R shortener-companion release/shortener/shortener-companion
           tar -czf release/LessonCue-URL-Shortener.tar.gz -C release shortener
           rm -rf release/shortener
+      - name: Document deferred store publication
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' && inputs.publish_mode == 'server-update-only' }}
+        run: |
+          cat >> release/RELEASE-NOTES.md <<'EOF'
+
+          ### TV app stores
+
+          Store publication is deferred. The signed TV packages are included in this release, but no Google Play or Amazon Appstore submission was made.
+          EOF
+          printf '%s\n' 'Google Play and Amazon Appstore submissions were deferred; this release publishes the signed server update and packages only.' > release/APPSTORE-SUBMISSION-STATUS.md
       - name: Install checksum-pinned Trivy
         run: bash scripts/install-trivy.sh "${RUNNER_TEMP}/lessoncue-security"
       - name: Generate release SBOM and third-party inventory
@@ -532,7 +548,7 @@ jobs:
           subject-path: release/*
           sbom-path: release/LessonCue-SBOM.spdx.json
       - name: Publish Google Play internal test
-        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' && inputs.reuse_run_id == '' }}
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' && inputs.reuse_run_id == '' && inputs.publish_mode != 'server-update-only' }}
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
         with:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
@@ -547,7 +563,7 @@ jobs:
           status: completed
       - name: Publish Amazon Appstore
         id: amazon
-        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' }}
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' && inputs.publish_mode != 'server-update-only' }}
         env:
           AMAZON_APP_ID: ${{ secrets.AMAZON_APP_ID }}
           AMAZON_CLIENT_ID: ${{ secrets.AMAZON_CLIENT_ID }}
@@ -622,6 +638,16 @@ jobs:
           cp -R shortener-companion release/shortener/shortener-companion
           tar -czf release/LessonCue-URL-Shortener.tar.gz -C release shortener
           rm -rf release/shortener
+      - name: Document deferred store publication
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' && inputs.publish_mode == 'server-update-only' }}
+        run: |
+          cat >> release/RELEASE-NOTES.md <<'EOF'
+
+          ### TV app stores
+
+          Store publication is deferred. The signed TV packages are included in this release, but no Google Play or Amazon Appstore submission was made.
+          EOF
+          printf '%s\n' 'Google Play and Amazon Appstore submissions were deferred; this release publishes the signed server update and packages only.' > release/APPSTORE-SUBMISSION-STATUS.md
       - name: Install checksum-pinned Trivy
         run: bash scripts/install-trivy.sh "${RUNNER_TEMP}/lessoncue-security"
       - name: Generate release SBOM and third-party inventory
@@ -698,13 +724,13 @@ jobs:
           subject-path: release/*
           sbom-path: release/LessonCue-SBOM.spdx.json
       - name: Record previously completed Google Play publication
-        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' }}
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' && inputs.publish_mode != 'server-update-only' }}
         run: echo "Google Play publication already completed by source run ${SOURCE_RUN_ID}."
         env:
           SOURCE_RUN_ID: ${{ inputs.reuse_run_id }}
       - name: Publish Amazon Appstore
         id: amazon
-        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' }}
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' && inputs.publish_mode != 'server-update-only' }}
         env:
           AMAZON_APP_ID: ${{ secrets.AMAZON_APP_ID }}
           AMAZON_CLIENT_ID: ${{ secrets.AMAZON_CLIENT_ID }}
