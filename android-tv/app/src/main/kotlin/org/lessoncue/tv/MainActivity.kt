@@ -563,7 +563,10 @@ private suspend fun captureDiagnosticScreenshot(activity: ComponentActivity): By
 private fun ConnectScreen(message: String?, onConnect: (String, String) -> Unit) {
     var address by remember { mutableStateOf("http://lessoncue.local") }
     var deviceName by remember { mutableStateOf(defaultDeviceName()) }
-    FormLayout("Connect this TV", "Link this display to the LessonCue server on your local network.") {
+    FormLayout(
+        "Connect this TV",
+        "LessonCue TV uses server pairing, not a username and password. Enter a reachable LessonCue server address, then use its six-digit pairing PIN."
+    ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
             Column(Modifier.weight(1f)) {
                 Text("DEVICE NAME", color = Muted, fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
@@ -598,7 +601,7 @@ private fun ConnectScreen(message: String?, onConnect: (String, String) -> Unit)
         Spacer(Modifier.height(26.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "LessonCue will also search the local network automatically.",
+                "This display is paired to a LessonCue server; it does not use a personal account login. LessonCue will also search the local network automatically.",
                 color = Muted,
                 fontSize = 16.sp,
                 modifier = Modifier.weight(1f)
@@ -674,7 +677,10 @@ private fun attemptSummary(attempts: List<EndpointAttempt>): String = attempts.t
 internal fun PinScreen(serverName: String, onBack: () -> Unit, onConfirm: (String) -> Unit) {
     var pin by remember { mutableStateOf("") }
     BackHandler(onBack = onBack)
-    FormLayout("Pair this TV", "Connected to $serverName. Enter the six-digit PIN shown in LessonCue.") {
+    FormLayout(
+        "Pair this TV",
+        "Connected to $serverName. Enter the six-digit pairing PIN shown in the LessonCue administrator screen. This pairs the TV; it is not a user account password."
+    ) {
         TvTextField(
             value = pin,
             onValueChange = { pin = it.filter(Char::isDigit).take(6) },

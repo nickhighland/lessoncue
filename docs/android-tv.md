@@ -17,6 +17,12 @@ Use JDK 17, Android SDK 36, and the Gradle version pinned in CI. LessonCue has t
 - **LessonCue Sideload** is the APK published on GitHub. It checks signed GitHub release metadata and can hand a verified update to Android's installer.
 - **LessonCue** is the store distribution for Google Play and the Amazon Appstore. It does not request package-install permission, contact GitHub for application updates, or display external-update controls. Google Play or the Amazon Appstore owns its update lifecycle.
 
+For Amazon Appstore certification, the reviewer needs a reachable HTTPS LessonCue
+server and a six-digit pairing PIN. The TV client does not use a username/password
+login. Keep the copy-ready [Amazon testing instructions](amazon-appstore-testing-instructions.md)
+with the submission and replace its placeholders with a disposable review server
+and current PIN before submitting.
+
 Debug builds are suitable only for device testing. Production builds use the permanent organization-owned keystore configured through protected release secrets; never commit the keystore or passwords. See [Android TV self-update system](android-tv-updater.md) for release configuration, verification rules, safe rollout, and the hardware acceptance matrix.
 
 The launcher uses the approved LessonCue icon at every Android TV density, an adaptive icon on Android 8.0 and newer, and the approved full wordmark in every 16:9 banner density. Upload-ready Google Play and Fire TV artwork is kept in [`branding/store`](../branding/store).

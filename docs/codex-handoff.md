@@ -9,7 +9,7 @@ already knew.
 describes, the way `CHANGELOG.md` is updated. If a section here is wrong, that
 is a bug in the file — fix it rather than working around it.
 
-Last reviewed: 2026-09-28, against `v0.46.27`.
+Last reviewed: 2026-09-29, against `v0.46.27`.
 
 ---
 
@@ -37,10 +37,10 @@ because it silently discards work.
 
 | Component | Version | Notes |
 | --- | --- | --- |
-| Server (`csproj`) | 0.46.27 | source of truth; matches the latest tag |
-| `package.json` | 0.46.27 | corrected 2026-09-28 (was 0.46.23) |
-| `WebPlayer.tsx` `APP_VERSION` | 0.46.27 | corrected 2026-09-28 (was 0.46.16) |
-| Android TV `versionName` | 0.46.7 | released on its own cadence |
+| Server (`csproj`) | 0.46.28 | next release; source of truth for the tag |
+| `package.json` | 0.46.28 | corrected 2026-09-28 (was 0.46.23) |
+| `WebPlayer.tsx` `APP_VERSION` | 0.46.28 | corrected 2026-09-28 (was 0.46.16) |
+| Android TV `versionName` | 0.46.8 | released on its own cadence; 0.46.7 was rejected because review access was undocumented |
 | Vega `manifest.toml` | 0.46.6 | parked, see §4 |
 
 The version drift was a recurring defect: `APP_VERSION` was found twelve
@@ -145,6 +145,22 @@ Operational traps: the VM dies with its launching shell unless started with
 `start_new_session=True`; `virtualdevice` wants `-p <sdk>/vvd/instances` with
 **no** `-n` flag; a stale Android `adb` on port 5037 makes the device invisible
 to every Vega tool.
+
+## 4a. Amazon Appstore review access
+
+The Android TV store APK at version 0.46.8 does not have a username/password
+login. On a clean install it requires a reachable LessonCue server origin and a
+six-digit screen-pairing PIN, then receives its lesson manifest using the issued
+device token. Amazon's **Testing Instructions** field must therefore contain a
+public HTTPS review-server URL, a fixed current pairing PIN, and the exact
+pairing steps. The copy-ready template is
+`docs/amazon-appstore-testing-instructions.md`.
+
+Use a disposable review server with a playable lesson and no interactive VPN or
+outer login in front of the API. Never commit the real URL, PIN, or credentials.
+The Amazon publisher script uploads the APK and listing release notes; it does
+not populate the Console's Testing Instructions field, so that field remains a
+manual submission step.
 
 ## 5. Conventions and commands
 

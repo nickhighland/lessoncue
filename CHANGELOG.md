@@ -4,6 +4,22 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.28 — Review-ready TV pairing and Docker-host tunnels
+
+### User changes
+
+- Android TV pairing now explains that the display uses a server address and
+  six-digit pairing PIN rather than a personal username and password.
+- Docker hosts such as Unraid can run an optional, pinned Cloudflare Tunnel
+  connector alongside the LessonCue server.
+
+### Developer changes
+
+- Added copy-ready Amazon Appstore testing instructions for the server-pairing
+  flow and documented the public HTTPS review-server requirement.
+- Raised the Android TV store build to version 0.46.8 after the 0.46.7 review
+  rejection caused by undocumented test access.
+
 ## v0.46.27 — Google Drive backups and organized activities
 
 ### User changes
