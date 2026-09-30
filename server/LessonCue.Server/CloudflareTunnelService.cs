@@ -67,8 +67,10 @@ public sealed class CloudflareTunnelService : BackgroundService
     public async Task<CloudflareTunnelStatus> SetAsync(bool enabled, string? publicHostname, string? token,
         bool acknowledgedRemoteExposure, CancellationToken ct = default)
     {
-        if (enabled && !IsSupported())
-            throw new ArgumentException("Automatic Cloudflare Tunnel setup requires a native Linux installation updated with the latest LessonCue installer.");
+        if (!IsSupported())
+            throw new ArgumentException(enabled
+                ? "Automatic Cloudflare Tunnel setup requires a native Linux installation updated with the latest LessonCue installer."
+                : "Automatic Cloudflare Tunnel control is unavailable on this host.");
         var hostname = enabled ? NormalizePublicHostname(publicHostname) : ReadConfig().PublicHostname;
         if (enabled && !acknowledgedRemoteExposure)
             throw new ArgumentException("Confirm that you configured Cloudflare Access or accept that this address exposes the LessonCue sign-in page to the internet.");

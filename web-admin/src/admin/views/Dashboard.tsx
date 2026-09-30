@@ -7,11 +7,13 @@ export function Dashboard({
   lessons,
   screens,
   onNavigate,
+  canManageUpdates,
 }: {
   bootstrap: Bootstrap;
   lessons: Lesson[];
   screens: Screen[];
   onNavigate: (v: View) => void;
+  canManageUpdates: boolean;
 }) {
   const upcoming = [...lessons]
     .filter((l) => new Date(`${l.date}T23:59:59`) >= new Date())
@@ -84,6 +86,22 @@ export function Dashboard({
           mono
         />
       </div>
+      {canManageUpdates && bootstrap.youtubeRuntime?.updateAvailable && (
+        <section className="panel" style={{ marginBottom: 20 }}>
+          <PanelTitle
+            title={bootstrap.youtubeRuntime.updateNoticeVisible
+              ? "YouTube downloader needs attention"
+              : "YouTube downloader update available"}
+            action="Open Settings"
+            onClick={() => onNavigate("settings")}
+          />
+          <p className="settings-copy">
+            {bootstrap.youtubeRuntime.updateNoticeVisible
+              ? "YouTube downloads are failing and a verified yt-dlp update is available. Review the independent downloader in Settings."
+              : "A verified yt-dlp update is available. Review the independent downloader in Settings."}
+          </p>
+        </section>
+      )}
       <div className="dashboard-grid">
         <section className="panel">
           <PanelTitle

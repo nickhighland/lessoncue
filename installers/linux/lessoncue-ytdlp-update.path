@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for a requested LessonCue yt-dlp operation
+
+[Path]
+PathChanged=/var/lib/lessoncue/config/ytdlp-update-request
+Unit=lessoncue-ytdlp-update.service
+
+[Install]
+WantedBy=multi-user.target

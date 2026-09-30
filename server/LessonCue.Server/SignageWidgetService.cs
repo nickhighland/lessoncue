@@ -2,6 +2,7 @@ using System.Net;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml;
 using System.Xml.Linq;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -68,7 +69,7 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
                         cache[zone.Id] = await FetchAsync(zone, cancellationToken);
                         signChanged = true;
                     }
-                    catch (Exception error) when (error is HttpRequestException or TaskCanceledException or InvalidDataException or JsonException)
+                    catch (Exception error) when (error is HttpRequestException or TaskCanceledException or InvalidDataException or JsonException or XmlException)
                     {
                         errors.Add($"{zone.Title ?? zone.Type}: {Short(error.Message)}");
                     }
@@ -95,7 +96,10 @@ public sealed class SignageWidgetService(IServiceScopeFactory scopeFactory, IHtt
     public async Task<SignageWidgetCacheEntry> FetchAsync(SignageZoneInput zone, CancellationToken cancellationToken)
     {
         zone = await ResolveWeatherLocationAsync(SignageLayout.Normalize(zone), cancellationToken);
-        var source = WeatherSource(zone) ?? zone.SourceUrl ?? throw new InvalidDataException("Widget source is missing.");
+        var source = WeatherSource(zone);
+        if (source is null && zone.Type == "weather" && zone.WeatherProvider is ("open-meteo" or "nws"))
+            throw new InvalidDataException("Preset weather elements require a postal code or valid coordinates.");
+        source ??= zone.SourceUrl ?? throw new InvalidDataException("Widget source is missing.");
         var text = await FetchTextAsync(source, zone.WeatherProvider == "custom" ? zone.CredentialKey : null, cancellationToken);
         if (zone.Type == "weather" && zone.WeatherProvider == "nws")
         {

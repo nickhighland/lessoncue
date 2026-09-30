@@ -27,6 +27,8 @@ public static class SignageSchedule
         var minute = local.Hour * 60 + local.Minute;
         var startMinutes = Math.Clamp(signage.StartMinutes ?? 0, 0, 1439);
         var endMinutes = Math.Clamp(signage.EndMinutes ?? 1440, 1, 1440);
+        if (signage.StartMinutes is not null && signage.EndMinutes is not null && startMinutes == endMinutes)
+            return new(false, null, localDate);
         var overnight = endMinutes <= startMinutes;
         var occurrenceDate = overnight && minute < endMinutes ? localDate.AddDays(-1) : localDate;
 

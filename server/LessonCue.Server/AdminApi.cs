@@ -784,6 +784,7 @@ public static class AdminApi
                     x.DownloadQueueJson,
                     x.CodecCapabilitiesJson,
                     x.RecentErrorsJson,
+                    x.ConnectionDiagnosticsJson,
                     x.ClockOffsetMs,
                     x.NetworkLatencyMs,
                     x.NetworkQuality,
@@ -820,78 +821,10 @@ public static class AdminApi
 
         // A redacted, operator-downloadable snapshot for support tickets. It intentionally
         // omits account names, IP addresses, media paths, URLs, secrets, and response text.
-        admin.MapGet("/support/bundle", async (LessonCueDb db, StorageService storage,
-            BackupPolicyService backupPolicy, UpdateService updates, CancellationToken ct) =>
+        admin.MapGet("/support/bundle", async (LessonCueDb db, SupportBundleBuilder support,
+            CancellationToken ct) =>
         {
-            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
-            var storageStatus = await storage.GetSnapshotAsync(db, ct);
-            var converter = MediaConverterCapabilities.Snapshot();
-            var media = await db.MediaAssets.AsNoTracking().Where(x => x.DeletedAt == null)
-                .Select(x => new { x.ProcessingStatus, x.CompatibilityStatus, x.ConversionStatus, x.SizeBytes })
-                .ToListAsync(ct);
-            var activeUploadStates = new[]
-            {
-                UploadSessionStates.Active,
-                UploadSessionStates.Paused,
-                UploadSessionStates.Failed,
-                UploadSessionStates.Completing
-            };
-            var uploadSnapshotTime = DateTimeOffset.UtcNow;
-            var uploads = (await db.UploadSessions.AsNoTracking()
-                .Select(x => new { x.State, x.ExpectedLength, x.ReceivedBytes, x.UpdatedAt, x.ExpiresAt })
-                .ToListAsync(ct))
-                .Where(x => x.ExpiresAt > uploadSnapshotTime && activeUploadStates.Contains(x.State))
-                .ToList();
-            var screens = await db.Screens.AsNoTracking().Where(x => !x.Revoked)
-                .Select(x => new
-                {
-                    platform = x.Platform,
-                    online = x.LastSeenAt != null && x.LastSeenAt >= DateTimeOffset.UtcNow.AddMinutes(-2),
-                    lastSeenAt = x.LastSeenAt,
-                    x.FailedDownloads,
-                    x.PlaybackError,
-                    x.NetworkQuality,
-                    x.AcknowledgedControlVersion,
-                    x.ControlVersion
-                }).ToListAsync(ct);
-            var bundle = new
-            {
-                schemaVersion = 1,
-                generatedAt = DateTimeOffset.UtcNow,
-                server = new { serverId, serverName, version = updates.Status.CurrentVersion,
-                    timeZone = organization.TimeZone },
-                storage = new { storageStatus.UsedBytes, storageStatus.AllocationBytes,
-                    storageStatus.RemainingBytes, storageStatus.ReservedBytes,
-                    storageStatus.DiskAvailableBytes },
-                converters = new { converter.Ffmpeg, converter.Ffprobe, converter.LibreOffice,
-                    converter.Poppler, converter.WebpEncoder, converter.TheoraEncoder,
-                    converter.Missing, converter.CheckedAt },
-                queue = new
-                {
-                    activeUploads = uploads.Count,
-                    reservedBytes = uploads.Sum(x => Math.Max(0, x.ExpectedLength - x.ReceivedBytes)),
-                    states = uploads.GroupBy(x => x.State).ToDictionary(g => g.Key, g => g.Count())
-                },
-                media = new
-                {
-                    count = media.Count,
-                    bytes = media.Sum(x => x.SizeBytes),
-                    processing = media.GroupBy(x => x.ProcessingStatus).ToDictionary(g => g.Key, g => g.Count()),
-                    compatibility = media.GroupBy(x => x.CompatibilityStatus).ToDictionary(g => g.Key, g => g.Count()),
-                    conversion = media.GroupBy(x => x.ConversionStatus).ToDictionary(g => g.Key, g => g.Count())
-                },
-                screens = new
-                {
-                    count = screens.Count,
-                    online = screens.Count(x => x.online),
-                    failedDownloads = screens.Sum(x => x.FailedDownloads),
-                    playbackErrors = screens.Count(x => !string.IsNullOrWhiteSpace(x.PlaybackError)),
-                    commandsAwaitingReceipt = screens.Count(x => x.ControlVersion > x.AcknowledgedControlVersion),
-                    networkQuality = screens.GroupBy(x => x.NetworkQuality).ToDictionary(g => g.Key, g => g.Count())
-                },
-                backup = backupPolicy.GetStatus(organization.TimeZone),
-                update = updates.Status
-            };
+            var bundle = await support.BuildAsync(db, serverId, serverName, ct);
             var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(bundle, new JsonSerializerOptions
             {
                 WriteIndented = true,
@@ -903,7 +836,7 @@ public static class AdminApi
         admin.MapGet("/admin/bootstrap", async (LessonCueDb db, PairingCodeService pairing, StorageService storage,
             UpdateService updates, LocalAddressService localAddress, HttpPortService httpPort,
             CloudflareTunnelService cloudflareTunnel, HardwareAccelerationService hardwareAcceleration,
-            ActivityAvailabilityService activityAvailability,
+            ActivityAvailabilityService activityAvailability, YouTubeRuntimeUpdateService youtubeRuntime,
             BackupPolicyService backupPolicy,
             IDataProtectionProvider protection,
             HttpContext context,
@@ -938,7 +871,15 @@ public static class AdminApi
                     PublicBaseUrl = canManageService ? organization.PublicBaseUrl : "",
                     EmailFromAddress = canManageService ? organization.EmailFromAddress : "",
                     EmailFromName = canManageService ? organization.EmailFromName : "",
-                    EmailProvider = canManageService ? organization.EmailProvider : "none"
+                    EmailProvider = canManageService ? organization.EmailProvider : "none",
+                    DailyTroubleshootingEmailEnabled = canManageService && organization.DailyTroubleshootingEmailEnabled,
+                    DailyTroubleshootingEmailRecipient = canManageService ? organization.DailyTroubleshootingEmailRecipient : "",
+                    DailyTroubleshootingEmailTime = canManageService ? organization.DailyTroubleshootingEmailTime : "07:00",
+                    DailyTroubleshootingEmailLastSentAt = canManageService ? organization.DailyTroubleshootingEmailLastSentAt : null,
+                    DailyTroubleshootingEmailLastError = canManageService ? organization.DailyTroubleshootingEmailLastError : null,
+                    troubleshootingReview = canManageService
+                        ? TroubleshootingReviewService.Status(organization, DateTimeOffset.UtcNow)
+                        : null
                 },
                 organization.TimeZone,
                 pairingPin = canPair ? pairing.Current : null,
@@ -961,6 +902,9 @@ public static class AdminApi
                 },
                 mediaConverters = MediaConverterCapabilities.Snapshot(),
                 update = updates.Status,
+                youtubeRuntime = canManageService || LessonCuePermissions.Has(context.User, LessonCuePermissions.Updates)
+                    ? youtubeRuntime.Status
+                    : null,
                 backupPolicy = canManageService
                     ? backupPolicy.GetStatus(organization.TimeZone)
                     : null,
@@ -1320,12 +1264,16 @@ public static class AdminApi
         {
             var source = await db.Lessons.AsNoTracking().Include(x => x.Items).SingleOrDefaultAsync(x => x.Id == id, ct);
             if (source is null) return Results.NotFound();
+            var timeZone = await db.Organizations.AsNoTracking().OrderBy(item => item.Id)
+                .Select(item => item.TimeZone).FirstOrDefaultAsync(ct) ?? "UTC";
             var copy = new Lesson
             {
                 ClassId = source.ClassId, Date = source.Date.AddDays(7), Title = source.Title + " copy",
-                AvailableFrom = source.AvailableFrom?.AddDays(7), ExpiresAt = source.ExpiresAt?.AddDays(7),
-                DesignatedStartAt = source.DesignatedStartAt?.AddDays(7), PreRollEnabled = source.PreRollEnabled,
-                PreRollStartsAt = source.PreRollStartsAt?.AddDays(7),
+                AvailableFrom = LessonScheduleService.ShiftWallClock(source.AvailableFrom, 7, timeZone),
+                ExpiresAt = LessonScheduleService.ShiftWallClock(source.ExpiresAt, 7, timeZone),
+                DesignatedStartAt = LessonScheduleService.ShiftWallClock(source.DesignatedStartAt, 7, timeZone),
+                PreRollEnabled = source.PreRollEnabled,
+                PreRollStartsAt = LessonScheduleService.ShiftWallClock(source.PreRollStartsAt, 7, timeZone),
                 KeepOffline = source.KeepOffline, DownloadDaysBefore = source.DownloadDaysBefore,
                 VolumePercent = source.VolumePercent, Muted = source.Muted,
                 SubstituteNotes = source.SubstituteNotes, PreRollMonitorUrl = source.PreRollMonitorUrl
@@ -1347,7 +1295,8 @@ public static class AdminApi
                     CropBottomPercent = sourceItem.CropBottomPercent, Muted = sourceItem.Muted,
                     PlaybackRatePercent = sourceItem.PlaybackRatePercent, RepeatCount = sourceItem.RepeatCount,
                     BackgroundColor = sourceItem.BackgroundColor, TransitionStyle = sourceItem.TransitionStyle,
-                    TransitionDurationMs = sourceItem.TransitionDurationMs, FlexibleTime = sourceItem.FlexibleTime
+                    TransitionDurationMs = sourceItem.TransitionDurationMs, FlexibleTime = sourceItem.FlexibleTime,
+                    ActivityDefinitionId = sourceItem.ActivityDefinitionId
                 };
                 copy.Items.Add(clone);
                 if (sourceItem.Id == source.CountdownItemId || sourceItem.Role == "countdown") copy.CountdownItemId = clone.Id;
@@ -1368,16 +1317,18 @@ public static class AdminApi
             if (!await db.Classes.AnyAsync(x => x.Id == input.ClassId, ct)) return Results.BadRequest(new { error = "Choose an existing destination class." });
             var source = await db.Lessons.Include(x => x.Items).SingleOrDefaultAsync(x => x.Id == id, ct);
             if (source is null) return Results.NotFound();
+            var timeZone = await db.Organizations.AsNoTracking().OrderBy(item => item.Id)
+                .Select(item => item.TimeZone).FirstOrDefaultAsync(ct) ?? "UTC";
             var title = string.IsNullOrWhiteSpace(input.Title) ? source.Title : input.Title.Trim();
             if (title.Length > 160) return Results.BadRequest(new { error = "Lesson title may contain at most 160 characters." });
             var shiftDays = input.Date.DayNumber - source.Date.DayNumber;
             if (action == "move")
             {
                 source.ClassId = input.ClassId; source.Date = input.Date; source.Title = title;
-                source.AvailableFrom = source.AvailableFrom?.AddDays(shiftDays);
-                source.ExpiresAt = source.ExpiresAt?.AddDays(shiftDays);
-                source.DesignatedStartAt = source.DesignatedStartAt?.AddDays(shiftDays);
-                source.PreRollStartsAt = source.PreRollStartsAt?.AddDays(shiftDays);
+                source.AvailableFrom = LessonScheduleService.ShiftWallClock(source.AvailableFrom, shiftDays, timeZone);
+                source.ExpiresAt = LessonScheduleService.ShiftWallClock(source.ExpiresAt, shiftDays, timeZone);
+                source.DesignatedStartAt = LessonScheduleService.ShiftWallClock(source.DesignatedStartAt, shiftDays, timeZone);
+                source.PreRollStartsAt = LessonScheduleService.ShiftWallClock(source.PreRollStartsAt, shiftDays, timeZone);
                 source.GeneratedByScheduleId = null; source.Version++;
                 var mediaIds = source.Items.Where(x => x.MediaAssetId != null).Select(x => x.MediaAssetId!.Value).Distinct().ToList();
                 var media = await db.MediaAssets.Where(x => mediaIds.Contains(x.Id) && x.StoragePolicy == MediaRetention.LessonScoped).ToListAsync(ct);
@@ -1390,8 +1341,10 @@ public static class AdminApi
             var copy = new Lesson
             {
                 ClassId = input.ClassId, Date = input.Date, Title = title,
-                AvailableFrom = source.AvailableFrom?.AddDays(shiftDays), ExpiresAt = source.ExpiresAt?.AddDays(shiftDays),
-                DesignatedStartAt = source.DesignatedStartAt?.AddDays(shiftDays), PreRollStartsAt = source.PreRollStartsAt?.AddDays(shiftDays),
+                AvailableFrom = LessonScheduleService.ShiftWallClock(source.AvailableFrom, shiftDays, timeZone),
+                ExpiresAt = LessonScheduleService.ShiftWallClock(source.ExpiresAt, shiftDays, timeZone),
+                DesignatedStartAt = LessonScheduleService.ShiftWallClock(source.DesignatedStartAt, shiftDays, timeZone),
+                PreRollStartsAt = LessonScheduleService.ShiftWallClock(source.PreRollStartsAt, shiftDays, timeZone),
                 PreRollEnabled = source.PreRollEnabled, KeepOffline = source.KeepOffline, DownloadDaysBefore = source.DownloadDaysBefore,
                 VolumePercent = source.VolumePercent, Muted = source.Muted, SubstituteNotes = source.SubstituteNotes,
                 PreRollMonitorUrl = source.PreRollMonitorUrl
@@ -1447,13 +1400,15 @@ public static class AdminApi
                 case "shift":
                     if (input.ShiftDays is not int shiftDays || shiftDays is < -3650 or > 3650 || shiftDays == 0)
                         return Results.BadRequest(new { error = "Enter a non-zero date shift between -3650 and 3650 days." });
+                    var timeZone = await db.Organizations.AsNoTracking().OrderBy(item => item.Id)
+                        .Select(item => item.TimeZone).FirstOrDefaultAsync(ct) ?? "UTC";
                     foreach (var lesson in lessons)
                     {
                         lesson.Date = lesson.Date.AddDays(shiftDays);
-                        lesson.AvailableFrom = lesson.AvailableFrom?.AddDays(shiftDays);
-                        lesson.ExpiresAt = lesson.ExpiresAt?.AddDays(shiftDays);
-                        lesson.DesignatedStartAt = lesson.DesignatedStartAt?.AddDays(shiftDays);
-                        lesson.PreRollStartsAt = lesson.PreRollStartsAt?.AddDays(shiftDays);
+                        lesson.AvailableFrom = LessonScheduleService.ShiftWallClock(lesson.AvailableFrom, shiftDays, timeZone);
+                        lesson.ExpiresAt = LessonScheduleService.ShiftWallClock(lesson.ExpiresAt, shiftDays, timeZone);
+                        lesson.DesignatedStartAt = LessonScheduleService.ShiftWallClock(lesson.DesignatedStartAt, shiftDays, timeZone);
+                        lesson.PreRollStartsAt = LessonScheduleService.ShiftWallClock(lesson.PreRollStartsAt, shiftDays, timeZone);
                         lesson.GeneratedByScheduleId = null;
                         lesson.Version++;
                     }
@@ -1833,7 +1788,8 @@ public static class AdminApi
             var lesson = await db.Lessons.Include(x => x.Items).SingleOrDefaultAsync(x => x.Id == lessonId, ct);
             if (lesson is null) return Results.NotFound();
             var byId = lesson.Items.ToDictionary(x => x.Id);
-            if (input.ItemIds.Count != byId.Count || input.ItemIds.Distinct().Count() != byId.Count || input.ItemIds.Any(id => !byId.ContainsKey(id)))
+            if (input.ItemIds is null || input.ItemIds.Count != byId.Count ||
+                input.ItemIds.Distinct().Count() != byId.Count || input.ItemIds.Any(id => !byId.ContainsKey(id)))
                 return Results.BadRequest(new { error = "Reorder list must contain every playlist item exactly once." });
             for (var index = 0; index < input.ItemIds.Count; index++) byId[input.ItemIds[index]].Position = (index + 1) * 1000;
             lesson.Version++;
@@ -1925,6 +1881,7 @@ public static class AdminApi
             {
                 x.Id,
                 x.FileName,
+                x.RelativePath,
                 x.ContentType,
                 x.SizeBytes,
                 x.DurationMs,
@@ -1938,13 +1895,18 @@ public static class AdminApi
                 x.Width,
                 x.Height,
                 x.LoudnessLufs,
+                x.ThumbnailPath,
+                x.FilmstripPath,
+                x.WaveformPath,
                 x.CompatibilityStatus,
                 x.CompatibilityError,
+                x.CompatibilityPath,
+                x.CompatibilitySha256,
                 x.CompatibilityTranscodedAt,
                 x.CompatibilitySizeBytes,
                 transcodes = x.TranscodeVariants.OrderBy(v => v.Profile).Select(v => new
                 {
-                    v.Id, v.Profile, v.Status, v.SizeBytes, v.Width, v.Height, v.VideoBitrateKbps,
+                    v.Id, v.Profile, v.Status, v.RelativePath, v.Sha256, v.SizeBytes, v.Width, v.Height, v.VideoBitrateKbps,
                     v.SourceVersion, v.Error, v.QueuedAt, v.StartedAt, v.CompletedAt
                 }).ToArray(),
                 x.SourceKind,
@@ -2050,10 +2012,40 @@ public static class AdminApi
         {
             var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
             if (media is null) return Results.NotFound();
+            if (media.SourceKind == "youtube-download" && string.IsNullOrWhiteSpace(media.RelativePath))
+            {
+                if (!Uri.TryCreate(media.SourceUrl, UriKind.Absolute, out var youtubeSource) || !YouTubeMedia.IsYouTubeUrl(youtubeSource))
+                    return Results.BadRequest(new { error = "This YouTube import has no valid source URL to retry." });
+                if (media.ProcessingStatus is "processing" or "downloading")
+                    return Results.Conflict(new { error = "This YouTube download is already in progress." });
+                media.ProcessingStatus = "downloading";
+                media.ProcessingError = null;
+                db.AuditEvents.Add(new AuditEvent
+                {
+                    Actor = context.User.Identity?.Name ?? "admin",
+                    Action = "media.youtube.retry",
+                    Object = media.Id.ToString(),
+                    Summary = youtubeSource.Host
+                });
+                await db.SaveChangesAsync(ct);
+                return Results.Accepted($"/api/v1/media/{id}", media);
+            }
             if (media.SourceKind == "link" || string.IsNullOrWhiteSpace(media.RelativePath))
                 return Results.BadRequest(new { error = "Online-only media does not have a local file to reprocess." });
             if (media.ProcessingStatus is "processing" or "downloading")
                 return Results.Conflict(new { error = "This media is already being processed." });
+            var source = await MediaRecovery.ValidateOriginalAsync(media, paths, ct);
+            if (!source.Valid)
+                return Results.UnprocessableEntity(new
+                {
+                    error = source.Error ?? "The original file cannot be safely reprocessed.",
+                    mediaId = media.Id,
+                    recoverable = false,
+                    originalFileExists = source.Exists,
+                    originalDiskSizeBytes = source.DiskSizeBytes,
+                    originalSha256Matches = source.Sha256Matches,
+                    action = "Restore the intact original file or remove the damaged asset; do not re-upload over this asset."
+                });
             var derivatives = ResetMediaProcessing(media);
             db.AuditEvents.Add(new AuditEvent { Actor = context.User.Identity?.Name ?? "admin", Action = "media.reprocess",
                 Object = media.Id.ToString(), Summary = media.FileName });
@@ -2750,6 +2742,7 @@ public static class AdminApi
                 x.DownloadQueueJson,
                 x.CodecCapabilitiesJson,
                 x.RecentErrorsJson,
+                x.ConnectionDiagnosticsJson,
                 x.ClockOffsetMs,
                 x.NetworkLatencyMs,
                 x.NetworkQuality,
@@ -2791,9 +2784,8 @@ public static class AdminApi
             if (screen?.ScreenshotStatus != "ready" || screen.ScreenshotCapturedAt is null ||
                 screen.ScreenshotCapturedAt < DateTimeOffset.UtcNow.AddHours(-24) || string.IsNullOrWhiteSpace(screen.ScreenshotRelativePath))
                 return Results.NotFound();
-            var root = Path.GetFullPath(dataPath) + Path.DirectorySeparatorChar;
-            var path = Path.GetFullPath(Path.Combine(dataPath, screen.ScreenshotRelativePath));
-            if (!path.StartsWith(root, StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
+            var path = ContainedPath.ResolveExistingFile(dataPath, screen.ScreenshotRelativePath);
+            if (path is null) return Results.NotFound();
             var contentType = Path.GetExtension(path).Equals(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg";
             return Results.File(path, contentType, enableRangeProcessing: false);
         });
@@ -3043,35 +3035,12 @@ public static class AdminApi
         settings.MapGet("/organization", async (LessonCueDb db, CancellationToken ct) =>
             await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct));
 
-        settings.MapGet("/troubleshooting-log", async (int? limit, bool? failuresOnly, LessonCueDb db, TroubleshootingLog log,
-            CancellationToken ct) =>
+        settings.MapGet("/troubleshooting-log", async (int? limit, bool? failuresOnly, LessonCueDb db,
+            TroubleshootingReportBuilder reports, CancellationToken ct) =>
         {
             var failureFilter = failuresOnly == true;
             var safeLimit = Math.Clamp(limit ?? (failureFilter ? 10_000 : 500), 1, failureFilter ? 10_000 : 2_000);
-            var auditQuery = db.AuditEvents.AsNoTracking();
-            if (failureFilter)
-            {
-                auditQuery = auditQuery.Where(item =>
-                    EF.Functions.Like(item.Result, "%fail%") ||
-                    EF.Functions.Like(item.Result, "%error%") ||
-                    EF.Functions.Like(item.Action, "%fail%") ||
-                    EF.Functions.Like(item.Action, "%error%") ||
-                    item.Summary != null &&
-                    (EF.Functions.Like(item.Summary, "%fail%") || EF.Functions.Like(item.Summary, "%error%")));
-            }
-            var audit = await auditQuery.OrderByDescending(x => x.Id).Take(safeLimit).ToListAsync(ct);
-            return Results.Ok(new
-            {
-                generatedAt = DateTimeOffset.UtcNow,
-                runtime = log.GetRecent(safeLimit, failureFilter),
-                audit = audit.OrderByDescending(x => x.Timestamp),
-                retention = new
-                {
-                    runtimeEntries = 2_000,
-                    failureRetentionDays = 7,
-                    file = "routine events: last 4 MB plus the prior rotated file; failures: separate seven-day store"
-                }
-            });
+            return Results.Ok(await reports.BuildAsync(db, safeLimit, failureFilter, ct));
         });
 
         settings.MapGet("/registration/settings", async (LessonCueDb db, AccountEmailService email,
@@ -3231,6 +3200,102 @@ public static class AdminApi
                 await db.SaveChangesAsync(ct);
                 return Results.Json(new { error = $"The provider could not deliver the test: {error.Message}" }, statusCode: 502);
             }
+        });
+
+        settings.MapGet("/troubleshooting-email", async (LessonCueDb db, AccountEmailService email,
+            CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            return Results.Ok(TroubleshootingEmailService.Status(
+                organization, email.Status(organization.EmailProvider).Configured, DateTimeOffset.UtcNow));
+        });
+
+        settings.MapPut("/troubleshooting-email", async (TroubleshootingEmailSettingsInput input,
+            LessonCueDb db, AccountEmailService email, CancellationToken ct) =>
+        {
+            var recipient = input.Recipient?.Trim().ToLowerInvariant() ?? "";
+            if (recipient.Length > 200 || !string.IsNullOrWhiteSpace(recipient) && !TroubleshootingEmailSchedule.IsEmail(recipient))
+                return Results.BadRequest(new { error = "Enter a valid daily troubleshooting recipient email address." });
+            if (!TroubleshootingEmailSchedule.TryNormalizeTime(input.TimeLocal, out var time))
+                return Results.BadRequest(new { error = "Choose a daily delivery time in HH:mm format." });
+
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+            if (input.Enabled)
+            {
+                if (!TroubleshootingEmailSchedule.IsEmail(recipient))
+                    return Results.BadRequest(new { error = "A recipient is required when daily troubleshooting email is enabled." });
+                if (!email.Status(organization.EmailProvider).Configured)
+                    return Results.Conflict(new { error = "Configure Resend or Brevo account email before enabling daily troubleshooting delivery." });
+            }
+
+            organization.DailyTroubleshootingEmailEnabled = input.Enabled;
+            organization.DailyTroubleshootingEmailRecipient = recipient;
+            organization.DailyTroubleshootingEmailTime = time;
+            organization.DailyTroubleshootingEmailLastError = null;
+            Audit(db, "troubleshooting.email-settings.update", organization.Id,
+                input.Enabled ? $"enabled:{time}" : "disabled");
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(TroubleshootingEmailService.Status(
+                organization, email.Status(organization.EmailProvider).Configured, DateTimeOffset.UtcNow));
+        });
+
+        settings.MapPost("/troubleshooting-email/send-now", async (TroubleshootingEmailService dailyEmail,
+            CancellationToken ct) =>
+        {
+            try { return Results.Accepted("/api/v1/troubleshooting-email", await dailyEmail.QueueSendNowAsync(ct)); }
+            catch (Exception error) when (error is InvalidOperationException or HttpRequestException)
+            {
+                return Results.Json(new { error = error.Message }, statusCode: 502);
+            }
+        });
+
+        settings.MapGet("/troubleshooting-review", async (LessonCueDb db, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            return Results.Ok(TroubleshootingReviewService.Status(organization, DateTimeOffset.UtcNow));
+        });
+
+        settings.MapPut("/troubleshooting-review", async (TroubleshootingReviewSettingsInput input,
+            LessonCueDb db, CancellationToken ct) =>
+        {
+            var candidate = new TroubleshootingReviewConfig(
+                input.Enabled, input.Provider, input.Frequency, input.TimeLocal,
+                input.WeeklyDay, input.MonthlyDay, input.CustomInterval, input.CustomUnit);
+            if (!TroubleshootingReviewSchedule.TryNormalize(candidate, out var normalized, out var error))
+                return Results.BadRequest(new { error });
+
+            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+            organization.TroubleshootingReviewSettingsJson =
+                TroubleshootingReviewConfiguration.Serialize(normalized);
+            organization.TroubleshootingReviewLastError = null;
+            Audit(db, "troubleshooting.review-settings.update", organization.Id,
+                normalized.Enabled ? $"{normalized.Provider}:{normalized.Frequency}" : "disabled");
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(TroubleshootingReviewService.Status(organization, DateTimeOffset.UtcNow));
+        });
+
+        settings.MapPost("/troubleshooting-review/run-now", async (TroubleshootingReviewService review,
+            CancellationToken ct) => Results.Accepted(
+                "/api/v1/troubleshooting-review", await review.QueueRunNowAsync(ct)));
+
+        settings.MapGet("/troubleshooting-review/artifact", async (string? kind, LessonCueDb db,
+            TroubleshootingReviewService review, CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            var artifact = await review.ReadArtifactAsync(organization, kind ?? "review", ct);
+            return artifact is null
+                ? Results.NotFound(new { error = "No troubleshooting review artifact is available." })
+                : Results.File(artifact.Value.Content, artifact.Value.ContentType, artifact.Value.FileName);
+        });
+
+        settings.MapGet("/troubleshooting-review/codex-pull-prompt", async (LessonCueDb db,
+            CancellationToken ct) =>
+        {
+            var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
+            return Results.Text(
+                TroubleshootingReviewService.CodexPullPrompt(organization),
+                "text/markdown",
+                Encoding.UTF8);
         });
 
         appSettings.MapGet("/registration/codes", async (LessonCueDb db, CancellationToken ct) =>
@@ -3445,7 +3510,9 @@ public static class AdminApi
                 poolPresent = status.PoolPresent,
                 activeCodes = status.PoolActive,
                 detail = status.Detail,
+                missing = status.Missing,
                 conflicts = status.Conflicts,
+                failures = status.Failures,
                 // Whether a key exists, never the key itself.
                 integrationKeyConfigured = shortener.IntegrationKey is not null,
                 // Likewise for the console's password: whether one was chosen.
@@ -3700,7 +3767,9 @@ public static class AdminApi
                 var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
                 organization.ShortenerPoolVersion = ReservedGameCodes.Version;
                 Audit(db, "shortener.reconcile", organization.Id,
-                    $"Reserved codes: {report.Created} created, {report.Repaired} repaired, {report.Conflicts.Count} conflicting");
+                    $"Reserved codes: {report.Created} created, {report.Repaired} repaired, {report.AlreadyCorrect} already correct, "
+                    + $"{report.Conflicts.Count} conflicting, {report.Failures.Count} failed",
+                    report.Degraded ? "degraded" : "success");
                 await db.SaveChangesAsync(ct);
                 return Results.Ok(new
                 {
@@ -3862,12 +3931,19 @@ public static class AdminApi
                 input.RoleDailyBytes?.Values.Any(value => value <= 0) == true ||
                 input.ClassDailyBytes?.Values.Any(value => value <= 0) == true)
                 return Results.BadRequest(new { error = "Per-user, role, and class limits must be greater than zero." });
-            var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
-            UploadQuotaPolicy.Store(organization, input);
-            Audit(db, "storage.upload-policy.update", organization.Id,
-                $"file:{input.MaxFileBytes};day:{input.MaxDailyBytes};active:{input.MaxActiveSessionsPerUser}");
-            await db.SaveChangesAsync(ct);
-            return Results.Ok(UploadQuotaPolicy.Read(organization));
+            try
+            {
+                var organization = await db.Organizations.OrderBy(item => item.Id).FirstAsync(ct);
+                UploadQuotaPolicy.Store(organization, input);
+                Audit(db, "storage.upload-policy.update", organization.Id,
+                    $"file:{input.MaxFileBytes};day:{input.MaxDailyBytes};active:{input.MaxActiveSessionsPerUser}");
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(UploadQuotaPolicy.Read(organization));
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
         });
 
         settings.MapGet("/local-address", (LocalAddressService localAddress) => Results.Ok(localAddress.Status));
@@ -3953,6 +4029,35 @@ public static class AdminApi
         });
 
         updatesAdmin.MapGet("/updates", (UpdateService updates) => Results.Ok(updates.Status));
+
+        updatesAdmin.MapGet("/updates/youtube-runtime", (YouTubeRuntimeUpdateService youtubeRuntime) =>
+            Results.Ok(youtubeRuntime.Status));
+
+        updatesAdmin.MapPost("/updates/youtube-runtime/check", async (
+            YouTubeRuntimeUpdateService youtubeRuntime, LessonCueDb db, CancellationToken ct) =>
+        {
+            var operation = await youtubeRuntime.QueueCheckAsync(ct);
+            if (operation.Success)
+            {
+                Audit(db, "server.youtube-runtime.check", Guid.Empty, "Queued independent yt-dlp update check");
+                await db.SaveChangesAsync(ct);
+                return Results.Accepted(value: operation);
+            }
+            return Results.Conflict(new { error = operation.Message, failureCode = operation.FailureCode });
+        });
+
+        updatesAdmin.MapPost("/updates/youtube-runtime/update", async (
+            YouTubeRuntimeUpdateService youtubeRuntime, LessonCueDb db, CancellationToken ct) =>
+        {
+            var operation = await youtubeRuntime.QueueUpdateAsync(ct);
+            if (operation.Success)
+            {
+                Audit(db, "server.youtube-runtime.update", Guid.Empty, "Queued independent yt-dlp update");
+                await db.SaveChangesAsync(ct);
+                return Results.Accepted(value: operation);
+            }
+            return Results.Conflict(new { error = operation.Message, failureCode = operation.FailureCode });
+        });
 
         updatesAdmin.MapPost("/updates/check", async (UpdateService updates, CancellationToken ct) =>
             Results.Ok(await updates.CheckAsync(true, ct)));
@@ -4482,6 +4587,77 @@ public static class AdminApi
                 .FirstOrDefaultAsync(ct) ?? "UTC";
             return Results.Ok(policy.GetStatus(timeZone));
         });
+        backupsAdmin.MapPost("/backups/google-drive/connect", async (
+            HttpContext context,
+            LessonCueDb db,
+            BackupPolicyService policy,
+            CancellationToken ct) =>
+        {
+            var configuredBaseUrl = await db.Organizations.AsNoTracking()
+                .OrderBy(item => item.Id).Select(x => x.PublicBaseUrl).FirstOrDefaultAsync(ct);
+            var origin = GoogleDriveCallbackOrigin(configuredBaseUrl, context);
+            if (origin is null)
+                return Results.BadRequest(new
+                {
+                    error = "Connect Google Drive through the HTTPS LessonCue address used in your browser."
+                });
+            var callbackUri = origin + "/api/v1/backups/google-drive/callback";
+            try
+            {
+                return Results.Ok(new
+                {
+                    authorizationUrl = await policy.BeginGoogleDriveAuthorizationAsync(callbackUri, ct),
+                    redirectUri = callbackUri
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+        backupsAdmin.MapGet("/backups/google-drive/callback", async (
+            string? state,
+            string? code,
+            string? error,
+            HttpContext context,
+            BackupPolicyService policy,
+            ILogger<BackupPolicyService> logger,
+            CancellationToken ct) =>
+        {
+            var connected = false;
+            if (string.IsNullOrEmpty(error) && !string.IsNullOrWhiteSpace(state) &&
+                !string.IsNullOrWhiteSpace(code))
+            {
+                try
+                {
+                    await policy.CompleteGoogleDriveAuthorizationAsync(state, code, ct);
+                    connected = true;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(ex, "Google Drive backup authorization did not complete");
+                }
+            }
+
+            // This tightly scoped page is the only place LessonCue permits an
+            // inline script. It posts a boolean result to the opener and never
+            // includes the OAuth code, token, or server-side error text.
+            context.Response.Headers["Content-Security-Policy"] =
+                "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'";
+            var connectedText = connected ? "true" : "false";
+            var message = connected
+                ? "Google Drive is connected. You can close this window."
+                : "Google Drive was not connected. Return to LessonCue and try again.";
+            var html = $"<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>Google Drive</title>" +
+                       $"<body><p>{message}</p><script>if(window.opener){{window.opener.postMessage(" +
+                       $"{{type:'lessoncue-google-drive-oauth',connected:{connectedText}}},window.location.origin);" +
+                       "window.close();}</script></body></html>";
+            return Results.Content(html, "text/html; charset=utf-8");
+        }).AllowAnonymous();
         backupsAdmin.MapPut("/backups/policy", async (
             BackupPolicyInput input,
             LessonCueDb db,
@@ -4766,6 +4942,8 @@ public static class AdminApi
                 return "The ending date must be on or after the starting date.";
             if (input.StartMinutes is < 0 or > 1439 || input.EndMinutes is < 1 or > 1440)
                 return "Recurring start and end times are invalid.";
+            if (input.StartMinutes is int startMinutes && input.EndMinutes is int endMinutes && startMinutes == endMinutes)
+                return "Recurring signage start and end times must be different.";
             if (recurrence == "weekly" && !(input.DaysOfWeek?.Any(day => day is >= 0 and <= 6) ?? false))
                 return "Choose at least one weekday for weekly signage.";
             if ((input.ExcludedDates?.Count ?? 0) > 366) return "Signage supports at most 366 excluded dates.";
@@ -4904,13 +5082,8 @@ public static class AdminApi
             ? id
             : Guid.Empty;
 
-    private static Task<AccountToken?> FindTokenAsync(LessonCueDb db, string raw, string purpose, CancellationToken ct)
-    {
-        var hash = AccountEmailService.Hash(raw);
-        var now = DateTimeOffset.UtcNow;
-        return db.AccountTokens.Include(x => x.Account).SingleOrDefaultAsync(x =>
-            x.TokenHash == hash && x.Purpose == purpose && x.UsedAt == null && x.ExpiresAt > now, ct);
-    }
+    private static Task<AccountToken?> FindTokenAsync(LessonCueDb db, string raw, string purpose, CancellationToken ct) =>
+        AccountTokenLookup.FindAsync(db, raw, purpose, ct);
 
     private static async Task InvalidateTokensAsync(LessonCueDb db, Guid accountId, string purpose, CancellationToken ct)
     {
@@ -5050,13 +5223,36 @@ public static class AdminApi
         }
     }
 
-    private static string? ResolveStoredFile(string root, string relativePath)
+    /// <summary>
+    /// The origin a Google Drive OAuth callback URI is built on.
+    /// </summary>
+    /// <remarks>
+    /// This URI is handed to Google and is where an authorization code comes
+    /// back, so it decides where that code can be delivered. Built from
+    /// Request.Host it was built from a header the caller sets, and the only
+    /// thing standing between a forged host and a redirected code was Google
+    /// refusing a redirect URI that is not registered — Google's allowlist
+    /// doing the job of ours.
+    ///
+    /// The configured public address is preferred instead: an administrator
+    /// sets it and it is already validated as an absolute URL where it is
+    /// saved. Installations that have not set one keep the previous behaviour
+    /// rather than losing a working connection, and still have to be on HTTPS.
+    /// </remarks>
+    private static string? GoogleDriveCallbackOrigin(string? publicBaseUrl, HttpContext context)
     {
-        if (string.IsNullOrWhiteSpace(relativePath)) return null;
-        var normalizedRoot = Path.GetFullPath(root) + Path.DirectorySeparatorChar;
-        var path = Path.GetFullPath(Path.Combine(root, relativePath));
-        return path.StartsWith(normalizedRoot, StringComparison.Ordinal) && File.Exists(path) ? path : null;
+        if (!string.IsNullOrWhiteSpace(publicBaseUrl)
+            && Uri.TryCreate(publicBaseUrl.Trim(), UriKind.Absolute, out var configured)
+            && configured.Scheme == Uri.UriSchemeHttps)
+            return configured.GetLeftPart(UriPartial.Authority)
+                + configured.AbsolutePath.TrimEnd('/');
+
+        if (!context.Request.IsHttps || !context.Request.Host.HasValue) return null;
+        return $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
     }
+
+    private static string? ResolveStoredFile(string root, string relativePath) =>
+        ContainedPath.ResolveExistingFile(root, relativePath);
 
     private static void TryDeleteFile(string path) { try { if (File.Exists(path)) File.Delete(path); } catch { } }
     private static long SaturatingAdd(long left, long right) => left > long.MaxValue - right ? long.MaxValue : left + right;
@@ -5243,16 +5439,11 @@ public static class AdminApi
     private static int PortFromEnvironment(string name, int fallback) =>
         int.TryParse(Environment.GetEnvironmentVariable(name), out var value) && value is > 0 and < 65536 ? value : fallback;
 
-    private static void Audit(LessonCueDb db, string action, Guid id, string? summary) =>
-        db.AuditEvents.Add(new AuditEvent { Actor = "admin", Action = action, Object = id.ToString(), Summary = summary });
+    private static void Audit(LessonCueDb db, string action, Guid id, string? summary, string result = "success") =>
+        db.AuditEvents.Add(new AuditEvent { Actor = "admin", Action = action, Object = id.ToString(), Result = result, Summary = summary });
 
-    private static void DeleteDiagnosticScreenshot(string dataPath, string? relativePath)
-    {
-        if (string.IsNullOrWhiteSpace(relativePath)) return;
-        var root = Path.GetFullPath(dataPath) + Path.DirectorySeparatorChar;
-        var path = Path.GetFullPath(Path.Combine(dataPath, relativePath));
-        if (path.StartsWith(root, StringComparison.Ordinal)) try { File.Delete(path); } catch { }
-    }
+    private static void DeleteDiagnosticScreenshot(string dataPath, string? relativePath) =>
+        ContainedPath.DeleteIfContained(dataPath, relativePath);
 
     private static void ClearDiagnosticScreenshot(Screen screen)
     {

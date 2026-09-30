@@ -45,6 +45,7 @@ export type Bootstrap = {
   mediaFormats: MediaFormats;
   mediaConverters: MediaConverterStatus;
   accountEmail: { configured: boolean; provider: string };
+  youtubeRuntime?: YouTubeRuntimeStatus;
   counts: { classes: number; lessons: number; media: number; screens: number };
   /** Service Admin switch: hides Activities from teacher-facing surfaces. */
   activitiesEnabled: boolean;
@@ -98,6 +99,12 @@ export type Organization = {
   emailFromAddress: string;
   emailFromName: string;
   emailProvider: "none" | "resend" | "brevo";
+  dailyTroubleshootingEmailEnabled: boolean;
+  dailyTroubleshootingEmailRecipient: string;
+  dailyTroubleshootingEmailTime: string;
+  dailyTroubleshootingEmailLastSentAt?: string;
+  dailyTroubleshootingEmailLastError?: string;
+  troubleshootingReview?: TroubleshootingReviewStatus | null;
   signageSourceAllowlistJson: string;
   signageEnabled: boolean;
 };
@@ -210,6 +217,8 @@ export type SupportBundle = {
   };
   backup: BackupPolicyStatus;
   update: UpdateStatus;
+  youtubeRuntime?: YouTubeRuntimeStatus;
+  diagnosticErrors?: string[];
 };
 export type UpdateStatus = {
   currentVersion: string;
@@ -227,6 +236,22 @@ export type UpdateStatus = {
   lastInstallMessage?: string;
   rollbackSnapshotAvailable: boolean;
   rollbackTargetVersion?: string;
+};
+export type YouTubeRuntimeStatus = {
+  supported: boolean;
+  automaticUpdatesEnabled: boolean;
+  installedVersion?: string;
+  latestVersion?: string;
+  updateAvailable: boolean;
+  updateNoticeVisible: boolean;
+  consecutiveFailures: number;
+  lastFailureAt?: string;
+  lastCheckedAt?: string;
+  lastUpdatedAt?: string;
+  lastUpdateSucceeded?: boolean;
+  lastUpdateMessage?: string;
+  error?: string;
+  operationPending: boolean;
 };
 export type LocalAddressStatus = {
   hostname: string;
@@ -319,6 +344,7 @@ export type MediaTranscode = {
 export type Media = {
   id: string;
   fileName: string;
+  relativePath?: string;
   contentType: string;
   sizeBytes: number;
   durationMs?: number;
@@ -521,6 +547,7 @@ export type Screen = {
   downloadQueueJson: string;
   codecCapabilitiesJson: string;
   recentErrorsJson: string;
+  connectionDiagnosticsJson: string;
   clockOffsetMs?: number;
   networkLatencyMs?: number;
   networkQuality: string;
@@ -591,6 +618,13 @@ export type ErrorDiagnostic = {
   message?: string;
   itemId?: string;
 };
+export type ConnectionDiagnostic = {
+  endpoint?: string;
+  source?: string;
+  addressFamily?: string;
+  outcome?: string;
+  reason?: string;
+};
 export type User = {
   id: string;
   username: string;
@@ -638,6 +672,39 @@ export type RegistrationSettings = {
   emailFromName: string;
   emailProvider: "none" | "resend" | "brevo";
   emailConfigured: boolean;
+  dailyTroubleshootingEmailEnabled: boolean;
+  dailyTroubleshootingEmailRecipient: string;
+  dailyTroubleshootingEmailTime: string;
+  dailyTroubleshootingEmailLastSentAt?: string;
+  dailyTroubleshootingEmailLastError?: string;
+};
+export type TroubleshootingEmailStatus = {
+  enabled: boolean;
+  recipient: string;
+  timeLocal: string;
+  providerConfigured: boolean;
+  lastSentAt?: string;
+  lastError?: string;
+  nextRunAt?: string;
+};
+export type TroubleshootingReviewStatus = {
+  enabled: boolean;
+  provider: "codex" | "deepseek";
+  frequency: "daily" | "weekly" | "monthly" | "custom";
+  timeLocal: string;
+  weeklyDay: number;
+  monthlyDay: number;
+  customInterval: number;
+  customUnit: "hours" | "days" | "weeks" | "months";
+  providerConfigured: boolean;
+  lastRunAt?: string;
+  lastStatus: "never" | "running" | "package-ready" | "completed" | "failed" | string;
+  lastError?: string;
+  lastArtifact?: string;
+  nextRunAt?: string;
+  reportPullConfigured: boolean;
+  reportPullPath: string;
+  reportPullUrl: string;
 };
 export type RegistrationCode = {
   id: string;
@@ -847,23 +914,29 @@ export type BackupPolicyStatus = {
   nextRunAt?: string;
   overdue: boolean;
   running: boolean;
+  mediaMode: "backup" | "sync" | "exclude";
   destinations?: BackupDestinationStatus[];
 };
-export type BackupDestinationProvider = "nextcloud" | "owncloud" | "webdav";
+export type BackupDestinationProvider = "googledrive" | "nextcloud" | "owncloud" | "webdav";
 export type BackupDestinationInput = {
   provider: BackupDestinationProvider;
   webDavUrl: string | null;
-  authentication: "none" | "basic" | "bearer";
+  folderName?: string | null;
+  authentication: "none" | "basic" | "bearer" | "oauth";
   username: string | null;
   secret: string | null;
   retentionCount: number;
   retentionDays: number;
+  googleDriveClientId?: string | null;
+  googleDriveClientSecret?: string | null;
 };
 export type BackupDestinationStatus = {
   provider: BackupDestinationProvider;
   enabled: boolean;
   webDavUrl?: string;
-  authentication: "none" | "basic" | "bearer";
+  webDavRootUrl?: string;
+  folderName?: string;
+  authentication: "none" | "basic" | "bearer" | "oauth";
   username?: string;
   secretConfigured: boolean;
   retentionCount: number;
@@ -872,6 +945,13 @@ export type BackupDestinationStatus = {
   lastUploadedFileName?: string;
   remoteBackupCount?: number;
   lastError?: string;
+  lastMediaSyncAt?: string;
+  lastMediaSyncAdded?: number;
+  lastMediaSyncUpdated?: number;
+  lastMediaSyncDeleted?: number;
+  googleDriveClientId?: string;
+  googleDriveConnected?: boolean;
+  googleDriveClientSecretConfigured?: boolean;
 };
 export type MigrationTransferGrant = {
   token: string;
@@ -903,6 +983,9 @@ export type TroubleshootingLog = {
   generatedAt: string;
   runtime: TroubleshootingEntry[];
   audit: Audit[];
+  media?: unknown[];
+  mediaDependencies?: unknown;
+  screens?: unknown[];
   retention: { runtimeEntries: number; failureRetentionDays: number; file: string };
 };
 export type View =
@@ -969,7 +1052,9 @@ export type ShortenerSettings = {
   poolPresent: number;
   activeCodes: number;
   detail: string | null;
+  missing: string[];
   conflicts: string[];
+  failures: string[];
   integrationKeyConfigured: boolean;
   consolePasswordSet: boolean;
   consoleUser: string;

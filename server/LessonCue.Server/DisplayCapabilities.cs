@@ -120,7 +120,7 @@ public static class DisplayCapabilities
             return Unsupported($"“{item.Title}” has no media attached.");
         if (media.DeletedAt is not null)
             return Unsupported($"“{item.Title}” uses media that is in the recycling bin.");
-        if (media.ProcessingStatus == "failed" || media.CompatibilityStatus == "failed")
+        if (media.ProcessingStatus == "failed")
             return Unsupported($"“{item.Title}” could not be prepared for reliable playback.");
         if (media.SourceKind != "link" && string.IsNullOrWhiteSpace(media.RelativePath))
             return Unsupported($"The media file for “{item.Title}” is missing.");
@@ -137,7 +137,11 @@ public static class DisplayCapabilities
         if (string.IsNullOrWhiteSpace(capability))
             return Unsupported($"“{item.Title}” uses an unrecognized media or link type.");
         return Supports(platform, capability)
-            ? new DisplayRenderDecision("supported", null)
+            ? new DisplayRenderDecision(
+                "supported",
+                media.CompatibilityStatus == "failed"
+                    ? "The TV compatibility copy is unavailable; the original upload will be tried."
+                    : null)
             : Unsupported($"“{item.Title}” is not supported by this display client.");
     }
 
@@ -158,7 +162,7 @@ public static class DisplayCapabilities
         if (zone.Type == "media" && media is null)
             return Unsupported($"The media for “{zone.Title ?? zone.Id}” is missing.");
         if (media is not null &&
-            (media.ProcessingStatus == "failed" || media.CompatibilityStatus == "failed" ||
+            (media.ProcessingStatus == "failed" ||
              media.SourceKind != "link" && string.IsNullOrWhiteSpace(media.RelativePath)))
             return Unsupported($"The media for “{zone.Title ?? zone.Id}” could not be prepared for reliable playback.");
         return platformDecision;

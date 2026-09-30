@@ -26,7 +26,10 @@ public sealed class Organization
     [MaxLength(12000)] public string SignageSourceAllowlistJson { get; set; } = "[]";
     // Retained for database and API compatibility. Signage is now always live.
     public bool SignageEnabled { get; set; } = true;
-    public int SignageModelVersion { get; set; }
+    // New databases already contain the current signage model. Legacy
+    // databases are deliberately created at 0 by DatabaseUpgrade so the
+    // one-time compatibility purge still runs before being promoted to 1.
+    public int SignageModelVersion { get; set; } = 1;
     [JsonIgnore] public string? ControllerPinHash { get; set; }
     [JsonIgnore, MaxLength(2048)] public string? ControllerPinProtected { get; set; }
     public bool RequireLocalRoomControllers { get; set; }
@@ -37,6 +40,18 @@ public sealed class Organization
     [MaxLength(200)] public string EmailFromAddress { get; set; } = "";
     [MaxLength(120)] public string EmailFromName { get; set; } = "LessonCue";
     [MaxLength(16)] public string EmailProvider { get; set; } = "none";
+    /// <summary>Opt-in daily failures-only troubleshooting report.</summary>
+    public bool DailyTroubleshootingEmailEnabled { get; set; }
+    [MaxLength(200)] public string DailyTroubleshootingEmailRecipient { get; set; } = "";
+    [MaxLength(5)] public string DailyTroubleshootingEmailTime { get; set; } = "07:00";
+    public DateTimeOffset? DailyTroubleshootingEmailLastSentAt { get; set; }
+    [MaxLength(1000)] public string? DailyTroubleshootingEmailLastError { get; set; }
+    /// <summary>Opt-in provider-neutral AI troubleshooting review configuration.</summary>
+    [MaxLength(24000)] public string TroubleshootingReviewSettingsJson { get; set; } = "{}";
+    public DateTimeOffset? TroubleshootingReviewLastRunAt { get; set; }
+    [MaxLength(24)] public string TroubleshootingReviewLastStatus { get; set; } = "never";
+    [MaxLength(1000)] public string? TroubleshootingReviewLastError { get; set; }
+    [MaxLength(512)] public string? TroubleshootingReviewLastArtifact { get; set; }
     [MaxLength(24000)] public string UploadQuotaPolicyJson { get; set; } = "{}";
 
     // The optional self-hosted URL shortener. Every value here is an
@@ -452,6 +467,7 @@ public sealed class Screen
     public string DownloadQueueJson { get; set; } = "[]";
     public string CodecCapabilitiesJson { get; set; } = "[]";
     public string RecentErrorsJson { get; set; } = "[]";
+    public string ConnectionDiagnosticsJson { get; set; } = "{}";
     public long? ClockOffsetMs { get; set; }
     public int? NetworkLatencyMs { get; set; }
     [MaxLength(24)] public string NetworkQuality { get; set; } = "unknown";
@@ -746,13 +762,17 @@ public sealed record TvStatusInput(Guid ScreenId, string AppVersion, bool Online
     int? NetworkLatencyMs = null, string? NetworkQuality = null,
     List<TvCacheItemInput>? CacheInventory = null, List<TvDownloadItemInput>? DownloadQueue = null,
     List<TvCodecCapabilityInput>? CodecCapabilities = null, List<TvDiagnosticErrorInput>? RecentErrors = null,
-    Guid? SignageId = null, int? SignageVersion = null, string? SignageName = null, string? SignageError = null);
+    Guid? SignageId = null, int? SignageVersion = null, string? SignageName = null, string? SignageError = null,
+    string? ServerHostRequested = null, string? SelectedServerEndpoint = null,
+    List<TvEndpointCandidateInput>? ConnectionCandidates = null);
 public sealed record TvCacheItemInput(string ItemId, string Title, string State, long SizeBytes,
     long? ExpectedBytes = null, string? Error = null);
 public sealed record TvDownloadItemInput(string ItemId, string Title, string State, long BytesDownloaded = 0,
     long? ExpectedBytes = null, string? Error = null);
 public sealed record TvCodecCapabilityInput(string Kind, string Codec, bool Supported, string? Detail = null);
 public sealed record TvDiagnosticErrorInput(DateTimeOffset Timestamp, string Area, string Message, string? ItemId = null);
+public sealed record TvEndpointCandidateInput(string Endpoint, string Source, string AddressFamily,
+    string Outcome, string? Reason = null);
 public sealed record AdminSetupInput(string OrganizationName, string Username, string Password,
     string? DisplayName = null, string? TimeZone = null, string? Email = null,
     string? SiteName = null, string? WeekStartsOn = null);
@@ -777,6 +797,10 @@ public sealed record RegistrationSectionInput(string Mode, string PublicBaseUrl)
 public sealed record EmailSettingsInput(string EmailProvider, string EmailFromAddress,
     string EmailFromName, string? ApiKey);
 public sealed record TestAccountEmailInput(string Recipient);
+public sealed record TroubleshootingEmailSettingsInput(bool Enabled, string Recipient, string TimeLocal);
+public sealed record TroubleshootingReviewSettingsInput(bool Enabled, string Provider, string Frequency,
+    string TimeLocal, int WeeklyDay = 1, int MonthlyDay = 1, int CustomInterval = 1,
+    string CustomUnit = "days");
 public sealed record RegistrationCodeInput(string Label, DateTimeOffset? ExpiresAt, int? MaxUses);
 public sealed record AudienceSessionInput(string Title, bool ShowLiveResults = false,
     bool AllowResponseChanges = true, int RetentionDays = 7, List<AudienceQuestionInput>? Questions = null);
@@ -803,7 +827,7 @@ public sealed record PlaylistItemUpdateInput(string? Title, string? Type, string
     int? RepeatCount = null, string? BackgroundColor = null, string? TransitionStyle = null,
     int? TransitionDurationMs = null, bool? FlexibleTime = null, Guid? ActivityDefinitionId = null);
 public sealed record CuePointInput(string Name, long PositionMs);
-public sealed record PlaylistReorderInput(List<Guid> ItemIds);
+public sealed record PlaylistReorderInput(List<Guid>? ItemIds);
 public sealed record LessonBulkInput(List<Guid> LessonIds, string Action, Guid? ClassId = null,
     int? ShiftDays = null, string? TitlePrefix = null);
 public sealed record LessonRelocateInput(string Action, Guid ClassId, DateOnly Date, string? Title = null);

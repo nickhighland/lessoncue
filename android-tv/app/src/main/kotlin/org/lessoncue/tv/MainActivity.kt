@@ -110,6 +110,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import androidx.work.ExistingWorkPolicy
+import androidx.work.Constraints
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -209,7 +211,7 @@ fun LessonCueApp() {
 
         cancellableResult { reconnectSavedServer(context, identity, manifestCache) }
             .onSuccess { (resolvedIdentity, manifest) ->
-                if (resolvedIdentity.serverUrl != identity.serverUrl) store.save(resolvedIdentity)
+                if (resolvedIdentity != identity) store.save(resolvedIdentity)
                 connectionMode = ConnectionMode.Online
                 activeIdentity = resolvedIdentity
                 activeManifestVersion = manifest.version
@@ -232,14 +234,21 @@ fun LessonCueApp() {
 
     LaunchedEffect(activeIdentity) {
         val identity = activeIdentity ?: return@LaunchedEffect
-        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
+        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"),
+            connectionDiagnostics = identity.connectionDiagnostics)
         while (true) {
             // Counting cached files and asking for free space are both disk
             // work, and this loop runs every two seconds while a lesson plays.
             // On a TV's flash that was enough to make the remote feel late,
             // because it happened on the thread that draws and handles keys.
             val (cachedItems, freeBytes) = withContext(Dispatchers.IO) {
-                (context.filesDir.resolve("media").listFiles()?.size ?: 0) to context.filesDir.usableSpace
+                val expected = api.cachedManifest()?.allItems().orEmpty().filter { it.offlineEligible }
+                val mediaDirectory = context.filesDir.resolve("media")
+                val cached = expected.count { item ->
+                    mediaDirectory.resolve(item.cacheFileName()).exists() ||
+                        mediaDirectory.resolve("${item.id}.bin").exists()
+                }
+                cached to context.filesDir.usableSpace
             }
             cancellableResult { api.reportStatus(identity, activeManifestVersion, freeBytes,
                 acknowledgedControlVersion = acknowledgedControlVersion,
@@ -251,7 +260,8 @@ fun LessonCueApp() {
 
     LaunchedEffect(activeIdentity) {
         val identity = activeIdentity ?: return@LaunchedEffect
-        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
+        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"),
+            connectionDiagnostics = identity.connectionDiagnostics)
         var controlVersion = cancellableResult { api.control(identity).version }.getOrDefault(0)
         val diagnosticCapture = DiagnosticCaptureTask(this) { diagnosticCaptureVisible = it }
         playbackCommandError = null
@@ -323,7 +333,8 @@ fun LessonCueApp() {
 
     LaunchedEffect(activeIdentity) {
         val identity = activeIdentity ?: return@LaunchedEffect
-        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
+        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"),
+            connectionDiagnostics = identity.connectionDiagnostics)
         while (true) {
             val refresh = cancellableResult { api.manifest(identity) }
             refresh.onFailure { connectionMode = ConnectionMode.Cached }
@@ -393,6 +404,7 @@ fun LessonCueApp() {
                     LaunchedEffect(current.manifest.version) { playbackTelemetry = PlaybackTelemetry() }
                     LaunchedEffect(current.manifest.version) { scheduleMediaCaches(context, current.identity, current.manifest) }
                     LaunchedEffect(current.manifest.version, current.manifest.playlists.size) {
+                        if (current.manifest.signage.any { it.mode == "emergency" }) return@LaunchedEffect
                         while (true) {
                             val scheduled = current.manifest.playlists.map { it to ScheduleCoordinator.phase(it, Instant.now()) }
                                 .firstOrNull { (_, phase) -> phase is PlaybackPhase.Countdown || phase is PlaybackPhase.PreRoll }
@@ -465,7 +477,8 @@ fun LessonCueApp() {
                     PlayerScreen(current.playlist, current.items, current.itemIndex, current.seekMs, playbackControl, activeIdentity,
                     onTelemetry = { playbackTelemetry = it },
                     onExit = { scope.launch { store.load()?.let { identity ->
-                        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
+                        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"),
+                            connectionDiagnostics = identity.connectionDiagnostics)
                         val manifest = cancellableResult { api.manifest(identity) }.getOrElse {
                             api.cachedManifest() ?: ScreenManifest(1, "LessonCue", emptyList(), listOf(current.playlist))
                         }
@@ -474,7 +487,8 @@ fun LessonCueApp() {
                     } } },
                     onFinished = { scope.launch {
                         val identity = activeIdentity ?: return@launch
-                        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"))
+                        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"),
+                            connectionDiagnostics = identity.connectionDiagnostics)
                         val manifest = cancellableResult { api.manifest(identity) }.getOrElse {
                             api.cachedManifest() ?: ScreenManifest(1, "LessonCue", emptyList(), listOf(current.playlist))
                         }
@@ -549,7 +563,10 @@ private suspend fun captureDiagnosticScreenshot(activity: ComponentActivity): By
 private fun ConnectScreen(message: String?, onConnect: (String, String) -> Unit) {
     var address by remember { mutableStateOf("http://lessoncue.local") }
     var deviceName by remember { mutableStateOf(defaultDeviceName()) }
-    FormLayout("Connect this TV", "Link this display to the LessonCue server on your local network.") {
+    FormLayout(
+        "Connect this TV",
+        "LessonCue TV uses server pairing, not a username and password. Enter a reachable LessonCue server address, then use its six-digit pairing PIN."
+    ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
             Column(Modifier.weight(1f)) {
                 Text("DEVICE NAME", color = Muted, fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
@@ -584,7 +601,7 @@ private fun ConnectScreen(message: String?, onConnect: (String, String) -> Unit)
         Spacer(Modifier.height(26.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "LessonCue will also search the local network automatically.",
+                "This display is paired to a LessonCue server; it does not use a personal account login. LessonCue will also search the local network automatically.",
                 color = Muted,
                 fontSize = 16.sp,
                 modifier = Modifier.weight(1f)
@@ -600,35 +617,70 @@ private fun ConnectScreen(message: String?, onConnect: (String, String) -> Unit)
 
 private suspend fun findLessonCueServer(context: android.content.Context, address: String, manifestCache: java.io.File):
     Pair<LessonCueApi, String> {
-    val preferred = LessonCueApi(address, manifestCache)
-    cancellableResult { preferred.discover() }.getOrNull()?.let { return preferred to it }
+    val resolution = withContext(Dispatchers.IO) { ServerEndpointSelection.resolve(address) }
+    val attempts = resolution.rejected.toMutableList()
+    val tried = mutableSetOf<String>()
 
-    val discoveredAddress = LessonCueDiscovery(context).findServer()
-        ?: error("Could not reach $address or find LessonCue automatically. Enter the numeric server address, such as http://192.168.1.25.")
-    val discovered = LessonCueApi(discoveredAddress, manifestCache)
-    return discovered to discovered.discover()
+    suspend fun tryCandidates(candidates: List<ServerEndpointCandidate>): Pair<LessonCueApi, String>? {
+      val verified = firstVerifiedServerEndpoint(candidates, tried, attempts) { candidate ->
+        val api = LessonCueApi(candidate.endpoint, manifestCache)
+        api to (api.discoverQuickly())
+      } ?: return null
+      val (candidate, result) = verified
+      val diagnostics = ConnectionDiagnostics(address, candidate.endpoint, attempts.toList())
+      return result.first.withConnectionDiagnostics(diagnostics) to result.second
+    }
+
+    tryCandidates(resolution.candidates)?.let { return it }
+    val discovered = LessonCueDiscovery(context).findServers()
+    val discoveredResolution = withContext(Dispatchers.IO) { ServerEndpointSelection.resolve(address, discovered) }
+    attempts += discoveredResolution.rejected.filter { rejected -> attempts.none { it.endpoint == rejected.endpoint && it.reason == rejected.reason } }
+    tryCandidates(discoveredResolution.candidates)?.let { return it }
+    error("Could not verify LessonCue at $address or any discovered endpoint. ${attemptSummary(attempts)}")
 }
 
 private suspend fun reconnectSavedServer(context: android.content.Context, identity: DeviceIdentity, manifestCache: java.io.File):
     Pair<DeviceIdentity, ScreenManifest> {
-    // The saved address first, and briefly: it is either right, in which case
-    // it answers at once, or it is not, in which case waiting is time spent on
-    // a screen that looks frozen.
-    val preferred = LessonCueApi(identity.serverUrl, manifestCache)
-    cancellableResult { preferred.manifestQuickly(identity) }.getOrNull()?.let { return identity to it }
+    // Expand the saved hostname and every NSD result into concrete candidates.
+    // Each candidate is verified with the authenticated manifest endpoint, so
+    // a dead AAAA result cannot prevent a working A result from being used.
+    val attempts = withContext(Dispatchers.IO) {
+        ServerEndpointSelection.resolve(identity.serverUrl).rejected.toMutableList()
+    }
+    val tried = mutableSetOf<String>()
 
-    val discoveredAddress = LessonCueDiscovery(context).findServer()
-        ?: error("Automatic LessonCue discovery did not find a server.")
-    val discoveredIdentity = identity.copy(serverUrl = discoveredAddress)
-    val manifest = LessonCueApi(discoveredAddress, manifestCache).manifest(discoveredIdentity)
-    return discoveredIdentity to manifest
+    suspend fun tryCandidates(candidates: List<ServerEndpointCandidate>): Pair<DeviceIdentity, ScreenManifest>? {
+      val verified = firstVerifiedServerEndpoint(candidates, tried, attempts) { candidate ->
+        val candidateIdentity = identity.copy(serverUrl = candidate.endpoint)
+        val api = LessonCueApi(candidate.endpoint, manifestCache,
+            connectionDiagnostics = identity.connectionDiagnostics)
+        candidateIdentity to api.manifestQuickly(candidateIdentity)
+      } ?: return null
+      val (candidate, result) = verified
+      val diagnostics = ConnectionDiagnostics(identity.serverUrl, candidate.endpoint, attempts.toList())
+      return result.first.copy(connectionDiagnostics = diagnostics) to result.second
+    }
+
+    tryCandidates(withContext(Dispatchers.IO) { ServerEndpointSelection.resolve(identity.serverUrl).candidates })?.let { return it }
+    val discovered = LessonCueDiscovery(context).findServers()
+    val resolution = withContext(Dispatchers.IO) { ServerEndpointSelection.resolve(identity.serverUrl, discovered) }
+    attempts += resolution.rejected.filter { rejected -> attempts.none { it.endpoint == rejected.endpoint && it.reason == rejected.reason } }
+    tryCandidates(resolution.candidates)?.let { return it }
+    error("Automatic LessonCue discovery did not find a verified server. ${attemptSummary(attempts)}")
+}
+
+private fun attemptSummary(attempts: List<EndpointAttempt>): String = attempts.takeLast(8).joinToString("; ") { attempt ->
+    "${attempt.endpoint} -> ${attempt.outcome}${attempt.reason?.let { " ($it)" }.orEmpty()}"
 }
 
 @Composable
 internal fun PinScreen(serverName: String, onBack: () -> Unit, onConfirm: (String) -> Unit) {
     var pin by remember { mutableStateOf("") }
     BackHandler(onBack = onBack)
-    FormLayout("Pair this TV", "Connected to $serverName. Enter the six-digit PIN shown in LessonCue.") {
+    FormLayout(
+        "Pair this TV",
+        "Connected to $serverName. Enter the six-digit pairing PIN shown in the LessonCue administrator screen. This pairs the TV; it is not a user account password."
+    ) {
         TvTextField(
             value = pin,
             onValueChange = { pin = it.filter(Char::isDigit).take(6) },
@@ -1733,7 +1785,7 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         }
     }
     if (item.type == "image") {
-        val duration = item.imageDurationSeconds?.coerceAtLeast(1)?.times(1_000L) ?: Long.MAX_VALUE
+        val duration = item.effectiveDurationMs()?.coerceAtLeast(1_000L) ?: Long.MAX_VALUE
         var position by remember(item.id, seekMs) { mutableLongStateOf(seekMs.coerceIn(0, duration)) }
         var playing by remember(item.id) { mutableStateOf(true) }
         LaunchedEffect(control?.version) {
@@ -1808,13 +1860,29 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         }
         return
     }
+    val streamingSources = remember(item.id, item.streamingSources, item.url) {
+        item.streamingSources.filter { it.url.isNotBlank() }.ifEmpty {
+            listOf(PlaybackSource("manifest", item.url, item.contentType))
+        }
+    }
+    val initialStreamingSource = streamingSources.firstOrNull()
+    var activeSourceIndex by remember(item.id, seekMs, cached?.absolutePath) {
+        mutableIntStateOf(if (cached == null) 0 else -1)
+    }
+    var fallbackDiagnostic by remember(item.id) { mutableStateOf<String?>(null) }
+    fun clippedMediaItem(uri: String, contentType: String?): MediaItem {
+        val clipping = MediaItem.ClippingConfiguration.Builder().setStartPositionMs(item.startMs).apply {
+            item.endMs?.let { setEndPositionMs(it) }
+        }.build()
+        return MediaItem.Builder().setUri(uri).setMimeType(contentType)
+            .setClippingConfiguration(clipping).build()
+    }
     val player = remember(item.id, seekMs) {
         ExoPlayer.Builder(context).build().apply {
-            val clipping = MediaItem.ClippingConfiguration.Builder().setStartPositionMs(item.startMs).apply {
-                item.endMs?.let { setEndPositionMs(it) }
-            }.build()
-            setMediaItem(MediaItem.Builder().setUri(cached?.toURI()?.toString() ?: item.url)
-                .setMimeType(item.contentType).setClippingConfiguration(clipping).build())
+            val cachedUri = cached?.toURI()?.toString()
+            val source = initialStreamingSource
+            setMediaItem(clippedMediaItem(cachedUri ?: source?.url ?: item.url,
+                if (cachedUri != null) item.contentType else source?.contentType ?: item.contentType))
             prepare()
             seekTo(seekMs.coerceAtLeast(0))
             volume = if (item.muted) 0f else (item.volumePercent / 100f).coerceIn(0f, 1.5f)
@@ -1825,6 +1893,30 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
     var playerState by remember(item.id) { mutableStateOf("loading") }
     var playerPosition by remember(item.id) { mutableLongStateOf(seekMs.coerceAtLeast(0)) }
     var playerDuration by remember(item.id) { mutableStateOf<Long?>(item.effectiveDurationMs()) }
+    fun tryNextPlaybackSource(reason: String): Boolean {
+        val nextIndex = PlaybackFallbackPolicy.nextSourceIndex(activeSourceIndex, streamingSources.size)
+            ?: return false
+        val nextSource = streamingSources[nextIndex]
+        val previous = if (activeSourceIndex < 0) "offline cache"
+            else streamingSources.getOrNull(activeSourceIndex)?.displayQuality() ?: "current source"
+        val resumeAt = player.currentPosition.coerceAtLeast(0)
+        activeSourceIndex = nextIndex
+        fallbackDiagnostic = "Quality fallback: $previous → ${nextSource.displayQuality()} after $reason"
+        Log.w("LessonCuePlayback", "${fallbackDiagnostic}; item=${item.id}; resumePositionMs=$resumeAt")
+        playerState = "buffering"
+        player.setMediaItem(clippedMediaItem(nextSource.url, nextSource.contentType ?: item.contentType))
+        player.prepare()
+        player.seekTo(resumeAt)
+        player.playWhenReady = true
+        onTelemetry(PlaybackTelemetry("buffering", playlist.id, item.id, resumeAt,
+            player.duration.takeUnless { it == C.TIME_UNSET }, item.volumePercent, fallbackDiagnostic))
+        return true
+    }
+    LaunchedEffect(fallbackDiagnostic) {
+        val diagnostic = fallbackDiagnostic ?: return@LaunchedEffect
+        kotlinx.coroutines.delay(8_000)
+        if (fallbackDiagnostic == diagnostic) fallbackDiagnostic = null
+    }
     val remoteModifier = playbackRemoteModifier(item.id) { action ->
         revealOverlay()
         when (action) {
@@ -1865,8 +1957,25 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
             playerPosition = position
             playerDuration = duration.takeUnless { it == C.TIME_UNSET }
             onTelemetry(PlaybackTelemetry(state, playlist.id, item.id, position,
-                duration.takeUnless { it == C.TIME_UNSET }, item.volumePercent, player.playerError?.message))
+                duration.takeUnless { it == C.TIME_UNSET }, item.volumePercent,
+                player.playerError?.message ?: fallbackDiagnostic))
             kotlinx.coroutines.delay(500)
+        }
+    }
+    LaunchedEffect(player, item.id) {
+        var bufferingSince: Long? = null
+        while (true) {
+            if (player.playWhenReady && player.playbackState == Player.STATE_BUFFERING) {
+                val now = android.os.SystemClock.elapsedRealtime()
+                val startedAt = bufferingSince
+                if (startedAt == null) bufferingSince = now
+                else if (PlaybackFallbackPolicy.bufferingTimedOut(startedAt, now)) {
+                    if (tryNextPlaybackSource("buffering for ${now - startedAt}ms"))
+                        bufferingSince = android.os.SystemClock.elapsedRealtime()
+                    else bufferingSince = null
+                }
+            } else bufferingSince = null
+            kotlinx.coroutines.delay(1_000)
         }
     }
     LaunchedEffect(control?.version) {
@@ -1877,6 +1986,16 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
     }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                if (!tryNextPlaybackSource(error.message ?: "playback error")) {
+                    playerState = "error"
+                    onTelemetry(PlaybackTelemetry("error", playlist.id, item.id,
+                        player.currentPosition.coerceAtLeast(0),
+                        player.duration.takeUnless { it == C.TIME_UNSET }, item.volumePercent,
+                        error.message ?: "Playback failed for all available quality levels."))
+                }
+            }
+
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) {
                     repeatCompleted += 1
@@ -1897,14 +2016,21 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         onDispose { player.removeListener(listener); player.release() }
     }
     Box(Modifier.fillMaxSize().background(cueBackground(item)).then(remoteModifier)) {
-        AndroidView(factory = { PlayerView(it).apply {
-                this.player = player
-                useController = false
-                isFocusable = false
-                isFocusableInTouchMode = false
-                resizeMode = if (item.fitMode == "fill") AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
-            } },
-            modifier = Modifier.fillMaxSize().onSizeChanged { visualSize = it }.cueVisual(item, visualOpacity, visualSize))
+        key(item.id) {
+            AndroidView(factory = { PlayerView(it).apply {
+                    this.player = player
+                    useController = false
+                    isFocusable = false
+                    isFocusableInTouchMode = false
+                    resizeMode = if (item.fitMode == "fill") AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+                } },
+                update = { view ->
+                    view.player = player
+                    view.resizeMode = if (item.fitMode == "fill") AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+                },
+                onRelease = { it.player = null },
+                modifier = Modifier.fillMaxSize().onSizeChanged { visualSize = it }.cueVisual(item, visualOpacity, visualSize))
+        }
         PlaybackOverlay(
             visible = shouldShowPlaybackOverlay(
                 lastOverlayInteraction,
@@ -1919,7 +2045,9 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
             positionMs = playerPosition,
             durationMs = playerDuration,
             playing = playerState == "playing",
-            availabilityLabel = if (cached != null) "OFFLINE COPY" else "SERVER MEDIA",
+            availabilityLabel = if (cached != null && activeSourceIndex < 0) "OFFLINE COPY"
+                else streamingSources.getOrNull(activeSourceIndex)?.let { "STREAMING ${it.displayQuality()}" }
+                    ?: "SERVER MEDIA",
             actions = PlaybackOverlayActions(
                 previous = { revealOverlay(); if (index > 0) onNext(index - 1) },
                 rewind = { revealOverlay(); player.seekTo((player.currentPosition - REMOTE_SEEK_STEP_MS).coerceAtLeast(0)) },
@@ -2286,11 +2414,14 @@ private fun scheduleMediaCaches(context: android.content.Context, identity: Devi
     }
     val items = (lessonMedia + signageMedia)
         .distinctBy { it.id }.filter { it.offlineEligible && it.url != null }
+    val constraints = Constraints.Builder()
+        .setRequiredNetworkType(NetworkType.CONNECTED)
+        .build()
     items.forEach { item ->
         val request = OneTimeWorkRequestBuilder<MediaCacheWorker>().setInputData(workDataOf(
             "url" to item.url, "fileName" to item.cacheFileName(), "token" to identity.token,
             "serverHost" to java.net.URL(identity.serverUrl).host, "sha256" to item.sha256
-        )).build()
+        )).setConstraints(constraints).build()
         manager.enqueueUniqueWork("lessoncue-media-${item.id}-${item.sha256?.take(12) ?: "current"}",
             ExistingWorkPolicy.KEEP, request)
     }

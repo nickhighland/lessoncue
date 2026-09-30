@@ -132,10 +132,10 @@ install_prerequisites() {
   run_root apt-get update
 
   if [[ "${repair_updater}" != true ]]; then
-    packages+=(ffmpeg libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-draw poppler-utils avahi-daemon avahi-utils libnss-mdns libicu-dev zlib1g util-linux bubblewrap)
+    packages+=(ffmpeg libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-draw poppler-utils avahi-daemon avahi-utils libnss-mdns libicu-dev zlib1g util-linux)
     # Debian splits runuser into util-linux-extra on some releases. The
-    # packaged installer uses runuser to validate and launch the media
-    # sandbox, so install the split package whenever the host publishes it.
+    # packaged installer uses runuser to validate the media worker, so install
+    # the split package whenever the host publishes it.
     add_first_package_if_available util-linux-extra
     # FFmpeg's codec set is supplied by the distribution build. Install the
     # optional runtime/codec packages when this Debian/Ubuntu release names
@@ -310,11 +310,13 @@ install_shortener_if_wanted() {
   install -d -m 750 "${SHORTENER_DATA}"
   # Passed through so the bare short domain forwards from the first start,
   # rather than needing a container restart after setting it in LessonCue.
-  if ( cd "${SHORTENER_DIR}" \
-       && SHORTENER_DATA_DIR="${SHORTENER_DATA}" \
-          LESSONCUE_DATA_PATH="/var/lib/lessoncue" \
-          SHORT_DOMAIN_ROOT_REDIRECT="${SHORT_DOMAIN_ROOT_REDIRECT:-}" \
-          ./install.sh "${domain}" ); then
+  if [[ "${SHORT_DOMAIN_ROOT_REDIRECT+x}" == x ]]; then
+    shortener_install=(SHORTENER_DATA_DIR="${SHORTENER_DATA}" LESSONCUE_DATA_PATH="/var/lib/lessoncue"
+      SHORT_DOMAIN_ROOT_REDIRECT="${SHORT_DOMAIN_ROOT_REDIRECT}")
+  else
+    shortener_install=(SHORTENER_DATA_DIR="${SHORTENER_DATA}" LESSONCUE_DATA_PATH="/var/lib/lessoncue")
+  fi
+  if ( cd "${SHORTENER_DIR}" && env "${shortener_install[@]}" ./install.sh "${domain}" ); then
     echo
     echo "Add these two routes to the Cloudflare Tunnel already serving LessonCue:"
     echo "    ${domain}          ->  http://${server_ip}:8081"

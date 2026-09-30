@@ -24,10 +24,30 @@ SPEC
 PITCH
   Played at its authored pitch.
 
+COVERS
+  The 20 named games built on the punchline engine — Creative Response
+  (Punchline):
+    Punchline, Caption This, Autocomplete, Bad Advice, Wrong Answers Only,
+    Slogan Factory, Movie Pitch, Make It Worse, Explain It Badly, Rename It,
+    New Product, Headline, Deleted Scene, Alternate Ending, Plot Twist, Excuse
+    Generator, Superpower / Catch, Explain This Photo, Who Approved This?,
+    Worst Ranking
+
+  …and any activity a teacher builds on this engine from blank.
+
+DOES NOT COVER
+  Games on the other 27 engines. They use their own engine pack when it
+  supplies this cue, and otherwise
+  assets/games/shared/audio/sfx/ui-btn-lock-in.mp3.
+
+  One named game can also override this file on its own by adding
+  assets/games/<presetId>/audio/sfx/ui-btn-lock-in.mp3; everything it omits
+  keeps falling through to this pack.
+
 IF THIS FILE IS ABSENT
-  Lookup cascades preset → engine → shared. If this file is absent,
-  LessonCue tries assets/games/shared/audio/sfx/ui-btn-lock-in.mp3, and if that is
-  also absent, LessonCue plays its original synthesized cue from
+  Lookup cascades preset → engine → shared. If this file is absent, LessonCue
+  tries assets/games/shared/audio/sfx/ui-btn-lock-in.mp3, and if that is also
+  absent, LessonCue plays its original synthesized cue from
   web-admin/src/activities/effects.ts. That is the shipped default.
 
 LICENSING

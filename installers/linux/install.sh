@@ -25,12 +25,14 @@ if [[ ! -x "${SOURCE_DIR}/lessoncue-media-worker" ]]; then
   echo "Missing lessoncue-media-worker. Use a complete signed release archive."
   exit 1
 fi
+for ytdlp_unit in lessoncue-ytdlp-update.service lessoncue-ytdlp-update.path lessoncue-ytdlp-update.timer; do
+  if [[ ! -f "${SOURCE_DIR}/${ytdlp_unit}" ]]; then
+    echo "Missing ${ytdlp_unit}. Use a complete signed release archive."
+    exit 1
+  fi
+done
 if [[ ! -f "${SOURCE_DIR}/lessoncue-render.rules" ]]; then
   echo "Missing lessoncue-render.rules. Use a complete signed release archive."
-  exit 1
-fi
-if ! command -v bwrap >/dev/null 2>&1; then
-  echo "Missing bubblewrap. Install the bubblewrap package before installing LessonCue."
   exit 1
 fi
 if ! command -v runuser >/dev/null 2>&1; then
@@ -78,11 +80,39 @@ HTTP_PORT="$(cat "${PORT_FILE}")"
 # to a live executable with `Text file busy`. If a later installer step fails,
 # make a best effort to bring the existing service back online.
 SERVICE_WAS_ACTIVE=false
+systemctl stop lessoncue-ytdlp-update.timer lessoncue-ytdlp-update.path lessoncue-ytdlp-update.service 2>/dev/null || true
+PRESERVED_YTDLP=""
+if [[ -f /opt/lessoncue/yt-dlp ]]; then
+  PRESERVED_YTDLP="$(mktemp /var/lib/lessoncue/.yt-dlp-preserved.XXXXXXXX)"
+  cp -a /opt/lessoncue/yt-dlp "${PRESERVED_YTDLP}"
+fi
+preserve_newer_ytdlp() {
+  local previous="$1" target="$2" previous_version="" target_version=""
+  [[ -x "${previous}" && -x "${target}" ]] || return 0
+  previous_version="$("${previous}" --version 2>/dev/null || true)"
+  target_version="$("${target}" --version 2>/dev/null || true)"
+  [[ "${previous_version}" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] || return 0
+  [[ "${target_version}" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] || return 0
+  if [[ "${previous_version}" != "${target_version}" ]] &&
+     [[ "$(printf '%s\n%s\n' "${previous_version}" "${target_version}" | sort -V | tail -n 1)" == "${previous_version}" ]]; then
+    install -o root -g root -m 0755 "${previous}" "${target}"
+    echo "Preserved independently managed yt-dlp ${previous_version} over bundled ${target_version}."
+  fi
+}
+cleanup_preserved_ytdlp() {
+  if [[ -n "${PRESERVED_YTDLP}" ]]; then rm -f "${PRESERVED_YTDLP}"; fi
+}
+# Do not let the independent downloader updater replace a binary while this
+# installer is replacing the entire /opt/lessoncue tree.
 restart_service_after_failure() {
   local exit_code=$?
   if [[ "${exit_code}" -ne 0 && "${SERVICE_WAS_ACTIVE}" == true ]]; then
     systemctl start lessoncue.service || true
   fi
+  if [[ "${exit_code}" -ne 0 && -f /etc/systemd/system/lessoncue-ytdlp-update.path ]]; then
+    systemctl enable --now lessoncue-ytdlp-update.path lessoncue-ytdlp-update.timer >/dev/null 2>&1 || true
+  fi
+  cleanup_preserved_ytdlp
   exit "${exit_code}"
 }
 trap restart_service_after_failure EXIT
@@ -94,6 +124,11 @@ fi
 install -d /opt/lessoncue
 cp -a "${PAYLOAD_DIR}/." /opt/lessoncue/
 chown -R root:root /opt/lessoncue
+if [[ -n "${PRESERVED_YTDLP}" ]]; then
+  preserve_newer_ytdlp "${PRESERVED_YTDLP}" /opt/lessoncue/yt-dlp
+fi
+cleanup_preserved_ytdlp
+PRESERVED_YTDLP=""
 install -m 0644 "${SOURCE_DIR}/lessoncue.service" /etc/systemd/system/lessoncue.service
 install -m 0644 "${SOURCE_DIR}/lessoncue-cloudflared.service" /etc/systemd/system/lessoncue-cloudflared.service
 install -m 0755 "${SOURCE_DIR}/lessoncue-update" /usr/local/sbin/lessoncue-update
@@ -106,22 +141,22 @@ if command -v udevadm >/dev/null 2>&1; then
   udevadm trigger --subsystem-match=drm || true
 fi
 
-# Validate the installed sandbox before restarting the service. This catches
-# incomplete Bubblewrap/libva installations while the previous service is
+# Validate the installed bounded worker before restarting the service. This
+# catches missing util-linux/runtime permissions while the previous service is
 # still recoverable, instead of replacing a working server and leaving media
 # conversion broken on the next request.
 MEDIA_WORKER_PROBE_ROOT=/var/lib/lessoncue/media/temporary/.installer-worker-probe
 MEDIA_WORKER_PROBE_LOG="$(mktemp)"
 install -d -o lessoncue -g lessoncue -m 0700 "${MEDIA_WORKER_PROBE_ROOT}"
-# Run the probe as the same account as the systemd service. Bubblewrap maps
-# namespace root back to its invoking account, so a root-launched probe cannot
-# enter this service-owned 0700 directory even though production can.
+# Run the probe as the same account as the systemd service. The production
+# worker must therefore prove its capability drop and service-owned paths before
+# the installer restarts the server.
 if ! runuser -u lessoncue -- setpriv --ambient-caps=-all --inh-caps=-all --no-new-privs -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
   /usr/local/libexec/lessoncue-media-worker \
   --network=deny --timeout=10 --memory=268435456 --file-size=1048576 \
-  --processes=4 --write-root="${MEDIA_WORKER_PROBE_ROOT}" -- \
+  --write-root="${MEDIA_WORKER_PROBE_ROOT}" -- \
   /usr/bin/true >"${MEDIA_WORKER_PROBE_LOG}" 2>&1; then
-  echo "The installed LessonCue media sandbox could not start. The previous service was left recoverable; inspect the installer output below." >&2
+  echo "The installed LessonCue media worker could not start. The previous service was left recoverable; inspect the installer output below." >&2
   sed -n '1,120p' "${MEDIA_WORKER_PROBE_LOG}" >&2
   rm -f "${MEDIA_WORKER_PROBE_LOG}"
   rm -rf "${MEDIA_WORKER_PROBE_ROOT}"
@@ -132,7 +167,7 @@ rm -f "${MEDIA_WORKER_PROBE_LOG}"
 # If a DRM render node and FFmpeg are present, exercise the actual H.264
 # hardware path as the service account. Hardware is optional, so a failed
 # probe is reported and the server can still use its software fallback; the
-# sandbox failure above remains a hard installation error.
+# worker failure above remains a hard installation error.
 if command -v runuser >/dev/null 2>&1 && command -v ffmpeg >/dev/null 2>&1; then
   MEDIA_RENDER_NODE="$(find /dev/dri -maxdepth 1 -type c -name 'renderD[0-9]*' -print -quit 2>/dev/null || true)"
   if [[ -n "${MEDIA_RENDER_NODE}" ]]; then
@@ -140,7 +175,7 @@ if command -v runuser >/dev/null 2>&1 && command -v ffmpeg >/dev/null 2>&1; then
     if ! runuser -u lessoncue -- setpriv --ambient-caps=-all --inh-caps=-all --no-new-privs -- env LESSONCUE_DATA_PATH=/var/lib/lessoncue \
       /usr/local/libexec/lessoncue-media-worker \
       --network=deny --timeout=30 --memory=2147483648 --file-size=1048576 \
-      --processes=32 --write-root="${MEDIA_WORKER_PROBE_ROOT}" -- \
+      --write-root="${MEDIA_WORKER_PROBE_ROOT}" -- \
       /usr/bin/ffmpeg -hide_banner -loglevel error -y \
       -vaapi_device "${MEDIA_RENDER_NODE}" \
       -f lavfi -i color=size=64x64:rate=1:duration=1 \
@@ -157,6 +192,9 @@ rm -rf "${MEDIA_WORKER_PROBE_ROOT}"
 install -m 0644 "${SOURCE_DIR}/lessoncue-update.service" /etc/systemd/system/lessoncue-update.service
 install -m 0644 "${SOURCE_DIR}/lessoncue-update.path" /etc/systemd/system/lessoncue-update.path
 install -m 0644 "${SOURCE_DIR}/lessoncue-update-recovery.service" /etc/systemd/system/lessoncue-update-recovery.service
+install -m 0644 "${SOURCE_DIR}/lessoncue-ytdlp-update.service" /etc/systemd/system/lessoncue-ytdlp-update.service
+install -m 0644 "${SOURCE_DIR}/lessoncue-ytdlp-update.path" /etc/systemd/system/lessoncue-ytdlp-update.path
+install -m 0644 "${SOURCE_DIR}/lessoncue-ytdlp-update.timer" /etc/systemd/system/lessoncue-ytdlp-update.timer
 if [[ ! -d /etc/lessoncue ]]; then
   install -d -o root -g root -m 0755 /etc/lessoncue
 fi
@@ -195,6 +233,7 @@ if command -v ufw >/dev/null 2>&1; then ufw allow "${HTTP_PORT}/tcp" >/dev/null 
 systemctl daemon-reload
 systemctl enable --now lessoncue-update.path
 systemctl enable lessoncue-update-recovery.service
+systemctl enable --now lessoncue-ytdlp-update.path lessoncue-ytdlp-update.timer
 systemctl enable lessoncue
 systemctl restart lessoncue
 trap - EXIT

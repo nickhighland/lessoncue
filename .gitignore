@@ -38,6 +38,7 @@ tvos/LessonCueTV.xcodeproj/
 # Local runtime data
 .env
 .secrets/
+.lessoncue-report/
 lessoncue-data/
 server/LessonCue.Server/data/
 *.db
@@ -47,3 +48,6 @@ server/LessonCue.Server/data/
 
 # Incremental typecheck state, not source.
 tsconfig.tsbuildinfo
+
+# Stray server log capture from debugging sessions (see PR #87).
+/run[0-9]*.txt

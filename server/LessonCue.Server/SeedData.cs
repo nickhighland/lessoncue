@@ -9,7 +9,7 @@ public static class SeedData
     {
         if (!await db.Organizations.AnyAsync())
         {
-            var organization = new Organization { Name = "LessonCue Demo" };
+            var organization = new Organization { Name = "LessonCue Demo", SignageModelVersion = 1 };
             var lessonClass = new LessonClass { Name = "Learning Lab", Description = "A ready-to-use example class for any learning environment." };
             var sampleDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7));
             var designatedStart = new DateTimeOffset(sampleDate.ToDateTime(new TimeOnly(9, 0)), TimeSpan.Zero);

@@ -193,6 +193,8 @@ public sealed class ActivitySessionGroup
     [MaxLength(12)] public required string JoinCode { get; set; }
     /// <summary>The run phones should follow right now, as the lesson moves.</summary>
     public Guid? CurrentRunId { get; set; }
+    /// <summary>The one run whose opening lobby introduces the lesson join code.</summary>
+    public Guid? OpeningRunId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     /// <summary>Set when a host clears the board to start scoring over.</summary>

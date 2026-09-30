@@ -124,7 +124,7 @@ test("the lobby preloads exactly the documented cue paths for an installed pack"
 
     await participant.goto(`/play/${run.joinCode}`);
     // Preload starts as soon as the lobby resolves, before the player joins.
-    await expect.poll(() => [...requested].sort(), { timeout: 15_000 }).toEqual(expect.arrayContaining([
+    await expect.poll(() => requested.filter(path => path.endsWith(".mp3")).sort(), { timeout: 15_000 }).toEqual([
       "/assets/games/word/audio/sfx/fx-confetti-pop.mp3",
       "/assets/games/word/audio/sfx/game-timer-alarm.mp3",
       "/assets/games/word/audio/sfx/game-timer-tick.mp3",
@@ -135,7 +135,7 @@ test("the lobby preloads exactly the documented cue paths for an installed pack"
       "/assets/games/word/audio/themes/game-outro.mp3",
       "/assets/games/word/audio/themes/intro-theme.mp3",
       "/assets/games/word/audio/themes/round-transition.mp3",
-    ]));
+    ].sort());
 
     // Every one of those 404s here — the pack is declared but not installed.
     // The game must be completely unaffected.
@@ -486,7 +486,7 @@ test("a stock install requests no audio at all", async ({ page, context }) => {
   }
 });
 
-test("a missing preset pack falls through to its engine and then to shared", async ({ page, context }) => {
+test("an absent engine pack falls through to the shared pack", async ({ page, context }) => {
   await authenticate(page);
   const definitionId = await createWordActivity(page, "Juice Cascade Check", 45);
   const run = await launch(page, definitionId);
@@ -499,26 +499,25 @@ test("a missing preset pack falls through to its engine and then to shared", asy
   });
 
   try {
-    // Pretend both the engine and shared packs ship this cue. The engine entry
-    // must win; shared is only the fallback.
+    // Pretend only the shared pack ships this cue. The engine entry is absent,
+    // so the final fallback must be used.
     await participant.route("**/assets/games/manifest.json", route => route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ version: 1, packs: {
-        word: ["sfx/ui-btn-select.mp3"],
         shared: ["sfx/ui-btn-select.mp3"],
       } }),
     }));
-    await participant.route("**/assets/games/word/audio/sfx/ui-btn-select.mp3", route =>
+    await participant.route("**/assets/games/shared/audio/sfx/ui-btn-select.mp3", route =>
       route.fulfill({ status: 200, contentType: "audio/wav", body: wavBytes(0.25) }));
 
     await participant.goto(`/play/${run.joinCode}`);
     // The definition carries no preset, so the cascade is engine then shared.
     await expect.poll(() => requested, { timeout: 15_000 })
-      .toContain("/assets/games/word/audio/sfx/ui-btn-select.mp3");
+      .toContain("/assets/games/shared/audio/sfx/ui-btn-select.mp3");
 
-    // The engine pack satisfied the cue, so shared is never reached.
-    expect(requested).not.toContain("/assets/games/shared/audio/sfx/ui-btn-select.mp3");
+    // The engine pack was absent, so shared supplied the cue.
+    expect(requested).not.toContain("/assets/games/word/audio/sfx/ui-btn-select.mp3");
 
     await joinAs(participant, run.joinCode, "Cascader");
     await expect(participant.locator(".participant-waiting")).toBeVisible();

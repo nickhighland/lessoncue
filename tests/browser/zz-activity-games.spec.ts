@@ -33,11 +33,14 @@ async function createActivity(page: Page, presetName: string, activityName: stri
   await page.getByRole("button", { name: /Activities$/ }).click();
   await expect(page.getByRole("heading", { name: "Activities Studio" })).toBeVisible();
   await page.getByRole("button", { name: "+ Create activity" }).click();
-  const chooser = page.getByRole("dialog", { name: "Choose an Activity Type" });
-  // Named presets and blank building blocks intentionally share labels (for
-  // example, both expose “Punchline”). The named card is the first exact
-  // match and is the one this helper is meant to exercise.
-  await chooser.getByText(presetName, { exact: true }).first().click();
+  const chooser = page.getByRole("dialog", { name: "Create an activity" });
+  let choice = chooser.getByText(presetName, { exact: true }).first();
+  if (!await choice.isVisible().catch(() => false)) {
+    await chooser.getByRole("tab", { name: /Blank building blocks/ }).click();
+    choice = chooser.getByText(presetName, { exact: true }).first();
+  }
+  await choice.click();
+  await chooser.getByRole("button", { name: new RegExp(`^(Use|Build a) ${presetName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) }).click();
   await page.locator('input[type="text"]').first().fill(activityName);
   const saveResponse = page.waitForResponse(
     response => response.request().method() === "PUT" && response.url().includes("/api/v1/activities/") && response.ok(),
@@ -126,21 +129,28 @@ async function runState(page: Page, runId: string) {
   }, runId);
 }
 
-test("The existing Activities chooser exposes named game formats from one searchable catalog", async ({ page }) => {
+test("The Activities chooser groups formats, explains them, and remains searchable", async ({ page }) => {
   await authenticate(page);
   await page.getByRole("button", { name: /Activities$/ }).click();
   await expect(page.getByRole("heading", { name: "Activities Studio" })).toBeVisible();
   await page.getByRole("button", { name: "+ Create activity" }).click();
-  const chooser = page.getByRole("dialog", { name: "Choose an Activity Type" });
-  await expect(chooser.getByRole("heading", { name: "Named game formats" })).toBeVisible();
+  const chooser = page.getByRole("dialog", { name: "Create an activity" });
+  await expect(chooser.getByRole("heading", { name: "Formats" })).toBeVisible();
+  await expect(chooser.getByRole("heading", { name: "Quizzes & knowledge" })).toBeVisible();
+  await expect(chooser.getByRole("button", { name: /Puzzles/ })).toBeVisible();
   await expect(chooser.getByRole("button", { name: /Telephone Draw/ })).toBeVisible();
   await expect(chooser.getByRole("button", { name: /Connections/ })).toBeVisible();
   await expect(chooser.getByRole("button", { name: /Adventure/ })).toBeVisible();
   await expect(chooser.getByRole("button", { name: /Safari Spin/ })).toBeVisible();
   await expect(chooser.getByRole("button", { name: /Coin Flip/ })).toBeVisible();
-  await chooser.getByLabel("Search game formats").fill("memory");
+  const formatDescriptions = await chooser.locator(".activity-chooser-card-copy small").allTextContents();
+  expect(formatDescriptions.length).toBeGreaterThan(20);
+  expect(formatDescriptions.every(description => description.trim().length >= 25)).toBe(true);
+  await chooser.getByLabel("Search activity formats").fill("memory");
   await expect(chooser.getByRole("button", { name: /Memory Grid/ })).toBeVisible();
-  await expect(chooser.getByText("No named formats match", { exact: false })).toHaveCount(0);
+  await chooser.getByRole("button", { name: /Memory Grid/ }).click();
+  await expect(chooser.locator(".activity-chooser-detail-description")).toContainText("Flash a grid of hidden cards");
+  await expect(chooser.getByText("How this activity works", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
 });
 
@@ -219,7 +229,7 @@ test("Trivia runs from teacher launch through two phone answers and scored revea
     await hostAction(page, run.runId, "reveal");
     await expect(first.locator(".participant-result, .participant-waiting")).toBeVisible();
     const state = await hostState(page, run.runId);
-    expect(state.scoreEvents.filter(event => event.amount === 100)).toHaveLength(2);
+    expect(state.scoreEvents.map(event => event.amount).sort((left, right) => left - right)).toEqual([100, 150]);
   } finally {
     await firstContext.close();
     await secondContext.close();
@@ -285,7 +295,7 @@ test("Trivia supports short-answer and number lock-in rounds without leaking ans
     await hostAction(page, run.runId, "reveal");
     const textReveal = await runState(page, run.runId);
     expect(textReveal.revealedAnswer).toBe("never");
-    expect((await hostState(page, run.runId)).scoreEvents.filter(event => event.amount === 125)).toHaveLength(2);
+    expect((await hostState(page, run.runId)).scoreEvents.map(event => event.amount).sort((left, right) => left - right)).toEqual([125, 175]);
 
     await hostAction(page, run.runId, "next");
     await hostAction(page, run.runId, "open");
@@ -297,7 +307,7 @@ test("Trivia supports short-answer and number lock-in rounds without leaking ans
     await hostAction(page, run.runId, "lock");
     await hostAction(page, run.runId, "reveal");
     expect((await runState(page, run.runId)).revealedAnswer).toBe("42");
-    expect((await hostState(page, run.runId)).scoreEvents.filter(event => event.amount === 150)).toHaveLength(2);
+    expect((await hostState(page, run.runId)).scoreEvents.filter(event => event.roundId === "number-round").map(event => event.amount).sort((left, right) => left - right)).toEqual([150, 200]);
   } finally {
     await firstContext.close();
     await secondContext.close();
@@ -346,7 +356,7 @@ test("Wager Trivia exposes shared modifier controls and scores the server-author
     await participant.locator(".participant-choice-list button").nth(1).click();
     await hostAction(page, run.runId, "reveal");
     const state = await hostState(page, run.runId);
-    expect(state.scoreEvents.some(event => event.amount === 240)).toBe(true);
+    expect(state.scoreEvents.some(event => event.amount === 340)).toBe(true);
   } finally {
     await context.close();
   }
@@ -1170,10 +1180,10 @@ test("Activity controller shows live recovery state and command acknowledgements
       }),
     });
     if (!status.ok) throw new Error(await status.text());
-    return { screenId: identity.screenId };
+    return { screenId: identity.screenId, itemId: item.id };
   }, definitionId);
 
-  await openUniversalRemote(page, prepared.screenId);
+  await openUniversalRemote(page, prepared.screenId, undefined, prepared.itemId, true);
   // The remote groups its controls into tabs; the Activity controls live in one.
   const activityController = page.locator(".activity-controller-shell");
   await expect(activityController.getByText("Browser Controller Recovery Activity", { exact: true })).toBeVisible();
@@ -1226,7 +1236,7 @@ test("Activities Studio supports grid/list views, filters, arranging, and bulk d
 
   await page.getByRole("button", { name: /Activities$/ }).click();
   await expect(page.getByRole("heading", { name: "Activities Studio" })).toBeVisible();
-  await expect(page.locator(".activity-library-grid")).toBeVisible();
+  await expect(page.locator(".activity-library-grid").first()).toBeVisible();
 
   const librarySearch = page.getByPlaceholder("Name, description, or game type");
   await librarySearch.fill(activityTag);
@@ -1258,7 +1268,7 @@ test("Activities Studio supports grid/list views, filters, arranging, and bulk d
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)\./ })).toBeVisible();
   await page.getByRole("button", { name: /Activities$/ }).click();
-  await expect(page.locator(".activity-library-grid")).toBeVisible();
+  await expect(page.locator(".activity-library-grid").first()).toBeVisible();
   await page.getByPlaceholder("Name, description, or game type").fill(activityTag);
 
   await page.getByRole("checkbox", { name: `Select ${triviaName}`, exact: true }).check();

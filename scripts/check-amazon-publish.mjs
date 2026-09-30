@@ -10,7 +10,7 @@
 // the documented API asks, which is the part that is ours to get right.
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -33,7 +33,7 @@ const APP_ID = "amzn1.devportal.mobileapp.test";
 const APK_BYTES = Buffer.from("PK pretend this is a signed apk");
 
 /** One run of the publisher against a stand-in, returning what it did. */
-async function publish({ existingApks, editAlreadyOpen = false }) {
+async function publish({ existingApks, editAlreadyOpen = false, locked = false }) {
   const seen = [];
   let committed = null;
   let uploadedBytes = null;
@@ -74,6 +74,11 @@ async function publish({ existingApks, editAlreadyOpen = false }) {
       }
       if (url === `${base}/edit-1/apks/apk-9/replace` && method === "PUT") {
         if (request.headers["if-match"] !== "apk-etag-1") return send(412, { error: "stale etag" });
+        if (locked) return send(400, {
+          httpCode: 400,
+          message: "Bad Request",
+          errors: [{ errorCode: "error_apk_cannot_be_modified", errorMessage: "APK cannot be modified in the current state of the app." }],
+        });
         uploadedBytes = body;
         return send(200, { id: "apk-9", versionCode: 140 });
       }
@@ -107,6 +112,7 @@ async function publish({ existingApks, editAlreadyOpen = false }) {
   writeFileSync(apk, APK_BYTES);
   const notes = join(work, "RELEASE-NOTES.md");
   writeFileSync(notes, "Updated classroom controls and reliability.\n");
+  const output = join(work, "github-output");
 
   const run = await runPublisher(apk, {
     ...process.env,
@@ -116,11 +122,27 @@ async function publish({ existingApks, editAlreadyOpen = false }) {
     AMAZON_RELEASE_NOTES_FILE: notes,
     AMAZON_API_BASE: `http://127.0.0.1:${port}/api/appstore/v1`,
     AMAZON_TOKEN_URL: `http://127.0.0.1:${port}/auth/o2/token`,
+    GITHUB_OUTPUT: output,
   });
 
+  let status = "";
+  try { status = readFileSync(output, "utf8"); } catch {}
   rmSync(work, { recursive: true, force: true });
   await new Promise(resolve => server.close(resolve));
-  return { run, seen, committed, uploadedBytes, listingUpdated };
+  return { run, seen, committed, uploadedBytes, listingUpdated, status };
+}
+
+// Amazon refuses to modify an app while a previous submission is under review.
+// That is a safe, explicit deferral, not a successful upload or commit.
+{
+  const { run, committed, uploadedBytes, status } = await publish({
+    existingApks: [{ id: "apk-9", versionCode: 139, name: "old.apk" }],
+    locked: true,
+  });
+  check(run.status === 0, `a review lock should defer cleanly: ${run.stderr || run.stdout}`);
+  check(status.includes("status=deferred"), "a review lock must be exposed as a deferred publish status");
+  check(committed === null, "a review lock must not commit the edit");
+  check(uploadedBytes === null, "a review lock must not replace the APK");
 }
 
 // ── A version going out over an app that already has one.

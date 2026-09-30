@@ -12,7 +12,7 @@ SSH into the server from your computer:
 ssh YOUR_USERNAME@SERVER_IP
 ```
 
-Paste these two commands into the SSH session. The first installs the one prerequisite needed to download the installer; the installer then installs the complete host toolchain (including Git, Docker Engine, Docker Compose, FFmpeg, document converters, Bubblewrap, Avahi, and runtime libraries), detects Intel/AMD versus ARM64, downloads the signed release, registers the systemd service, waits for it to become healthy, and prints the browser address:
+Paste these two commands into the SSH session. The first installs the one prerequisite needed to download the installer; the installer then installs the complete host toolchain (including Git, Docker Engine, Docker Compose, FFmpeg, document converters, Avahi, and runtime libraries), detects Intel/AMD versus ARM64, downloads the signed release, registers the systemd service, waits for it to become healthy, and prints the browser address:
 
 ```bash
 sudo apt-get update
@@ -67,6 +67,25 @@ The LessonCue web tunnel and SSH access are separate routes. The web tunnel does
 
 The connector needs outbound access to Cloudflare on port `7844` (UDP for QUIC or TCP for HTTP/2). If the service is active but no edge connection appears, verify the tunnel token in Cloudflare, allow outbound TCP or UDP `7844`, and select **Retry tunnel connection** in LessonCue. The published hostname route controls where requests go after the connector reaches Cloudflare; it does not establish the edge connection itself.
 
+#### Docker hosts such as Unraid
+
+The native Settings toggle above requires systemd and is not the Docker-host
+path. On Unraid, run the `lessoncue` and `cloudflared` services on the same
+Compose network instead. Create the remotely managed Cloudflare Tunnel route
+for `demo.lessoncue.net` with the local service `http://lessoncue:8080`, place
+the replica token in the Unraid secret store and point
+`CLOUDFLARE_TUNNEL_TOKEN_FILE` at it, then start only the optional profile:
+
+```bash
+docker compose --profile cloudflare-tunnel up -d --build
+```
+
+The token file is mounted read-only and is not placed in the process command
+line, written to the repository, or passed through the LessonCue web
+administration API. Keep this instance disposable for store review; do not put
+Cloudflare Access's interactive login in front of the TV pairing and manifest
+endpoints, because the native TV client cannot complete that browser flow.
+
 ### Set up reusable lessons and schedules
 
 No additional service or cloud account is required. Build one complete lesson under **Classes**, then open **Templates → New template** and select it as the source. LessonCue keeps media used by a reusable template permanently. Choose **Create lesson** for a one-time dated copy, or **New schedule** for weekly, multi-week, monthly, term-based, or explicit custom dates.
@@ -75,7 +94,7 @@ Choose how far LessonCue should generate ahead. The server checks enabled schedu
 
 ### Let LessonCue prepare videos for televisions
 
-No converter setup is required after using the recommended installer; FFmpeg and FFprobe are included as server dependencies. Every new upload is inspected automatically. When a video is not in the broadly supported TV profile, LessonCue keeps the original and creates an H.264/AAC MP4 playback copy locally. Existing videos are inspected in the background after an update, so no re-upload is necessary. In **Media Library**, wait for **TV copy ready** or **TV ready** before relying on offline playback. A compatibility error remains visible there and can be retried with **Manage versions & impact → Reprocess metadata**.
+No converter setup is required after using the recommended installer; FFmpeg and FFprobe are included as server dependencies. Every new upload is inspected automatically. When a video is not in the broadly supported TV profile, LessonCue keeps the original and creates an H.264/AAC MP4 playback copy locally. Existing videos are inspected in the background after an update, so no re-upload is necessary. In **Media Library**, the original is playable as soon as it is accepted; wait for **TV copy ready** or **TV ready** before relying on offline playback. A compatibility or runtime error remains visible there and can be retried with **Manage versions & impact → Retry processing**. LessonCue verifies the original size, checksum, and content before requeueing it, so a damaged or missing source is not retried as though it were a worker failure.
 
 Compatibility copies count toward the storage allocation. For reliable initial conversion, leave enough available capacity for the original plus a second video file. Neither the original nor its playback copy leaves the local server.
 
@@ -209,7 +228,7 @@ Open `http://SERVER-IP`. Data is stored in `./lessoncue-data` unless `LESSONCUE_
 
 For a small VM, set `LESSONCUE_CPUS` in `.env` to the number of available virtual CPUs (the default is `2.0`). Docker bridge networking does not reliably publish mDNS; use the numeric address or install the supplied `docker/avahi-service.xml` on the host. With Avahi installed, set the host name and the persisted `lessoncue-data/config/local-hostname` to the same value (for example, `lessoncue`) to use `http://lessoncue.local`. Native installation is friendlier for ordinary deployments.
 
-Docker defaults to `LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX=1` because the standard Docker seccomp profile commonly blocks the nested user and mount namespaces required by Bubblewrap. The constrained worker still applies timeout, memory, and output-file limits while Docker supplies the read-only root, dropped capabilities, `no-new-privileges`, memory/CPU/PID limits, and writable-data boundary. Set the value to `0` only after explicitly enabling nested namespaces on a trusted host and recreate the container; native Linux installations keep the stronger Bubblewrap boundary and default `0`.
+The container runs the same bounded media worker without requiring nested user or mount namespaces. Docker supplies the read-only root, dropped capabilities, `no-new-privileges`, memory/CPU/PID limits, and writable-data boundary; the worker adds timeout, address-space, output-file, process-count, open-file, and captured-output limits. Native Linux installations receive the equivalent systemd service boundary.
 
 ## Manual Linux service installation
 
@@ -221,7 +240,7 @@ sudo ./install.sh
 
 The installer creates a restricted `lessoncue` account, installs the application at `/opt/lessoncue`, keeps data at `/var/lib/lessoncue`, registers the systemd service, opens port 80 when UFW is installed, and publishes the Avahi service when available. Running it again upgrades the application while preserving accounts, configuration, media, screen credentials, and backups. Upgrading an older installation preserves its current port; an administrator can switch it to port 80 afterward in Settings.
 
-The release includes the architecture-matched `yt-dlp` helper used only when an operator explicitly chooses **Download YouTube locally**. FFmpeg inspects and thumbnails the resulting MP4. No separate Python or downloader installation is required.
+The release includes architecture-matched `yt-dlp` and Deno helpers used only when an operator explicitly chooses **Download YouTube locally**. LessonCue passes the bundled Deno runtime to yt-dlp for current YouTube extraction, and FFmpeg inspects and thumbnails the resulting MP4. No separate Python, Node, Deno, or downloader installation is required.
 
 Useful commands:
 
@@ -320,9 +339,11 @@ Use a backup produced by the same or an older LessonCue release. A newer server 
 
 ### Schedule and test recovery copies
 
-Under **Settings → Privacy & backups → Scheduled and off-server backups**, a Service Admin can select daily or weekly execution in the organization's configured time zone, configuration-only or full-media content, the number and maximum age of local scheduled copies, and the same server-secret exclusion policy used by manual exports. Enter the backup password once. LessonCue protects the scheduler's copy with its local data-protection key ring, never returns it through the API, and deliberately excludes `backup-policy.json` from every backup so the wrapped password is never packaged with those keys.
+Under **Settings → Privacy & backups → Scheduled and off-server backups**, a Service Admin can select daily or weekly execution, the local run hour, and (for weekly schedules) the weekday in the organization's configured time zone. Choose **2 AM** for an off-hours run. The same schedule controls the encrypted backup and any configured media sync. You can also choose configuration-only, full-media, or **Sync media to each remote destination**, plus the number and maximum age of local scheduled copies and the same server-secret exclusion policy used by manual exports. Enter the backup password once. LessonCue protects the scheduler's copy with its local data-protection key ring, never returns it through the API, and deliberately excludes `backup-policy.json` from every backup so the wrapped password is never packaged with those keys.
 
-Optional off-site destinations are configured independently under **Off-site WebDAV destinations**. Add a Nextcloud folder, an ownCloud folder, or another HTTPS WebDAV folder. Use the provider's app password (or a bearer token), not the primary account password. Each destination is encrypted locally before upload and has its own **Keep newest remote copies** count and **Delete remote copies older than** limit. After a successful upload, LessonCue lists the folder with WebDAV `PROPFIND` and deletes only direct-child files whose names match `lessoncue-*.lcbak`; unrelated files are never touched. Remote credentials are protected locally and omitted from backups and API responses. **Create and verify now** tests local encryption, manifest/database verification, every configured destination, and remote retention before you rely on it.
+Optional off-site destinations are configured independently under **Off-site backup destinations**. Add Google Drive, a Nextcloud folder, an ownCloud folder, or another HTTPS WebDAV folder. For Google Drive, create a Google Cloud project, enable the Google Drive API, and create an OAuth client of type **Web application**. Add the exact callback URI shown in LessonCue to the client's authorized redirect URIs, then enter its client ID and secret and save the policy. Select **Connect Google Drive** and authorize the Google account with the storage plan. Use the OAuth consent screen's **Production** publishing status for persistent scheduled access: external apps left in Testing can have refresh tokens expire after seven days. LessonCue requests the `drive.file` scope and creates its own named folder under My Drive; it does not access arbitrary Drive files or Google Cloud Storage buckets. Access LessonCue through its public HTTPS address for the OAuth callback.
+
+For WebDAV, use the provider's app password (or a bearer token), not the primary account password. An optional single folder name is created in the Google Drive My Drive root or below the WebDAV root; both the encrypted archive and the media mirror stay inside it. Each destination is encrypted locally before archive upload and has its own **Keep newest remote copies** count and **Delete remote copies older than** limit. In media-sync mode, LessonCue hashes the local media library, adds missing or changed files under `media/`, and removes only files listed in the previous LessonCue sync manifest that are no longer local. The first sync does not delete unrecognized remote media, so existing provider content is protected. Media files are synchronized as files rather than placed in the encrypted archive; use the provider's HTTPS and at-rest protection for them. Google Drive uploads use resumable upload sessions; cleanup is limited to LessonCue-managed files. WebDAV archive pruning lists the folder with `PROPFIND` and deletes only direct-child files whose names match `lessoncue-*.lcbak`; unrelated files are never touched. OAuth and WebDAV credentials are protected locally and omitted from backups and API responses. **Create and verify now** tests local encryption, manifest/database verification, every configured destination, and remote retention before you rely on it.
 
 LessonCue raises a Service Admin banner when a scheduled backup fails or the latest successful verified copy is overdue. Local pruning applies both the “keep newest copies” and maximum-age limits, without deleting manually created or pre-restore safety backups. The **Run restore drill** action decrypts a selected copy, authenticates its envelope and every manifest entry, runs SQLite integrity and required-table checks, and compares the media inventory without changing production data. Complete the drill by downloading that exact file to another device, confirming the separately stored password, and periodically restoring it to a spare LessonCue server.
 
@@ -330,7 +351,7 @@ The operational recovery objectives are:
 
 - With a healthy daily policy, the target recovery point is no more than 24 hours before a failure; with a weekly policy it is no more than seven days. A visible overdue or failed state means that objective is not currently met.
 - A configuration-only restore should be rehearsed to complete within 30 minutes after a replacement server is available. A full-media restore time depends on archive size and disk/network throughput; measure and record it during the spare-server drill.
-- Keep at least one verified copy on another physical device or WebDAV service, retain the password in a separate password manager, and ensure two authorized people know the recovery procedure.
+- Keep at least one verified copy on another physical device, Google Drive, or WebDAV service, retain the password in a separate password manager, and ensure two authorized people know the recovery procedure.
 
 ### Move directly to another LessonCue server
 
@@ -367,7 +388,7 @@ Document files can be uploaded in the Media Library or directly on a lesson. Les
 
 Local document conversion runs through headless LibreOffice and Poppler and creates PNG media with a maximum 1920-pixel dimension. Google Slides is downloaded once through Google's PDF export endpoint and then follows the same local conversion path; no LessonCue-hosted cloud service receives the deck. Static conversion intentionally loses transitions, builds, animations, embedded video, and presenter timing. Apple office packages depend on the LibreOffice importer available on the server and may need to be exported to PDF if that importer cannot open them. LessonCue shows the detected converter state in the Media upload dialog; missing optional WebP or Theora encoders remain visible as a processing diagnostic instead of causing a silent failure.
 
-The recommended Linux installer and Docker image include both converters and the Bubblewrap media sandbox. For a manual Debian/Ubuntu install, run `sudo apt-get install -y ffmpeg libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-draw poppler-utils bubblewrap util-linux coreutils`, then add the optional codec runtime packages your release names (for example `libavcodec-extra`, `libwebp7`, `libtheora0`, `libvpx9`/`libvpx7`, `libheif1`, `libavif16`/`libavif15`, `libjxl0.7`/`libjxl0`, and `libopenjp2-7`). `apt-cache search '^libvpx[0-9]+$'` and the equivalent searches for AVIF/JXL are useful when a versioned package name differs; the LessonCue installer selects an available variant automatically. On Windows, install a current FFmpeg build with `libwebp` and `libtheora` encoders, install LibreOffice system-wide, install a Poppler build, set the machine environment variable `LESSONCUE_PDFTOPPM_PATH` to `pdftoppm.exe`, and rerun the LessonCue installer so its outbound-deny rules include those converter binaries.
+The recommended Linux installer and Docker image include both converters and the bounded media worker. For a manual Debian/Ubuntu install, run `sudo apt-get install -y ffmpeg libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-draw poppler-utils util-linux coreutils`, then add the optional codec runtime packages your release names (for example `libavcodec-extra`, `libwebp7`, `libtheora0`, `libvpx9`/`libvpx7`, `libheif1`, `libavif16`/`libavif15`, `libjxl0.7`/`libjxl0`, and `libopenjp2-7`). `apt-cache search '^libvpx[0-9]+$'` and the equivalent searches for AVIF/JXL are useful when a versioned package name differs; the LessonCue installer selects an available variant automatically. On Windows, install a current FFmpeg build with `libwebp` and `libtheora` encoders, install LibreOffice system-wide, install a Poppler build, set the machine environment variable `LESSONCUE_PDFTOPPM_PATH` to `pdftoppm.exe`, and rerun the LessonCue installer so its outbound-deny rules include those converter binaries.
 
 For a deck whose native animations must be retained, export it to H.264/AAC MP4 in PowerPoint, Keynote, or the originating application and upload that video. The [animation-preservation investigation](presentation-animation-preservation.md) explains why LessonCue does not offer a misleading headless “preserve animations” switch.
 

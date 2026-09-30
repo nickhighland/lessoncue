@@ -20,6 +20,11 @@ if (args.Contains("--version", StringComparer.Ordinal))
     Console.WriteLine(UpdateService.InstalledVersion());
     return;
 }
+if (args.Contains("--youtube-runtime-update", StringComparer.Ordinal))
+{
+    Environment.ExitCode = await YouTubeRuntimeUpdateCommand.RunAsync(dataPath);
+    return;
+}
 if (DatabaseVerificationCommand.TryGetPath(args, out var databaseToVerify))
 {
     Environment.ExitCode = await DatabaseVerificationCommand.RunAsync(databaseToVerify);
@@ -44,9 +49,18 @@ var troubleshootingLog = new TroubleshootingLog(dataPath);
 builder.Logging.AddProvider(troubleshootingLog);
 
 var port = HttpPortConfiguration.Resolve(dataPath);
-if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
-    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
-builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 20L * 1024 * 1024 * 1024);
+var useDefaultHttpBinding = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS"));
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = 20L * 1024 * 1024 * 1024;
+    // Avahi publishes both address families when IPv6 is enabled. Binding the
+    // native appliance to 0.0.0.0 only advertised an IPv6 endpoint that
+    // Kestrel could never serve, which made some Android TV NSD clients stop
+    // before they tried the working IPv4 address. ListenAnyIP creates the
+    // dual-stack listener for the default appliance path; deployments that set
+    // ASPNETCORE_URLS retain control of their explicit binding.
+    if (useDefaultHttpBinding) options.ListenAnyIP(port);
+});
 builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = 20L * 1024 * 1024 * 1024);
 
 builder.Services.AddDbContext<LessonCueDb>(options =>
@@ -81,6 +95,13 @@ builder.Services.AddHttpClient("backup-offsite", client =>
         AllowAutoRedirect = false,
         ConnectTimeout = TimeSpan.FromSeconds(20)
     });
+builder.Services.AddHttpClient("backup-google-oauth", client =>
+    client.Timeout = TimeSpan.FromSeconds(25))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        ConnectTimeout = TimeSpan.FromSeconds(10)
+    });
 builder.Services.AddHttpClient("migration-transfer", client =>
     {
         client.Timeout = TimeSpan.FromHours(6);
@@ -101,7 +122,16 @@ builder.Services.AddSingleton(services => new BackupPolicyService(
 builder.Services.AddHostedService(services =>
     services.GetRequiredService<BackupPolicyService>());
 builder.Services.AddSingleton(new MediaStoragePaths(dataPath));
+builder.Services.AddSingleton(services => new TroubleshootingReportBuilder(
+    services.GetRequiredService<TroubleshootingLog>(),
+    services.GetRequiredService<MediaStoragePaths>(),
+    services.GetRequiredService<YouTubeRuntimeUpdateService>(),
+    services.GetRequiredService<LessonCue.Server.Shortener.ShortenerService>(),
+    services.GetRequiredService<BackupPolicyService>()));
 builder.Services.AddSingleton(new StorageService(dataPath));
+builder.Services.AddSingleton(services => new YouTubeRuntimeUpdateService(
+    dataPath, services.GetRequiredService<ILogger<YouTubeRuntimeUpdateService>>()));
+builder.Services.AddHostedService(services => services.GetRequiredService<YouTubeRuntimeUpdateService>());
 builder.Services.AddSingleton<UploadSessionService>();
 builder.Services.AddHostedService(services => services.GetRequiredService<UploadSessionService>());
 builder.Services.AddSingleton<HardwareAccelerationService>();
@@ -129,8 +159,20 @@ builder.Services.AddHttpClient("updates", client =>
 });
 builder.Services.AddSingleton<UpdateService>();
 builder.Services.AddHostedService(services => services.GetRequiredService<UpdateService>());
+builder.Services.AddSingleton(services => new SupportBundleBuilder(
+    services.GetRequiredService<StorageService>(),
+    services.GetRequiredService<BackupPolicyService>(),
+    services.GetRequiredService<UpdateService>(),
+    services.GetRequiredService<YouTubeRuntimeUpdateService>(),
+    services.GetRequiredService<LessonCue.Server.Shortener.ShortenerService>(),
+    services.GetRequiredService<ILogger<SupportBundleBuilder>>()));
 builder.Services.AddHttpClient("cloudflare-tunnel", client => client.Timeout = TimeSpan.FromSeconds(2));
 builder.Services.AddHttpClient("account-email", client => client.Timeout = TimeSpan.FromSeconds(20));
+builder.Services.AddHttpClient("deepseek-review", client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(2);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("LessonCue-Troubleshooting-Review/1.0");
+});
 builder.Services.AddHttpClient("presentation-import", client =>
 {
     client.Timeout = TimeSpan.FromMinutes(3);
@@ -151,6 +193,23 @@ builder.Services.AddHostedService(services => services.GetRequiredService<LiveSt
 builder.Services.AddSingleton(services => new AccountEmailService(dataPath,
     services.GetRequiredService<IDataProtectionProvider>(), services.GetRequiredService<IHttpClientFactory>(),
     services.GetRequiredService<ILogger<AccountEmailService>>()));
+builder.Services.AddSingleton(services => new TroubleshootingEmailService(
+    services.GetRequiredService<IServiceScopeFactory>(),
+    services.GetRequiredService<AccountEmailService>(),
+    services.GetRequiredService<TroubleshootingReportBuilder>(),
+    services.GetRequiredService<ILogger<TroubleshootingEmailService>>()));
+builder.Services.AddHostedService(services => services.GetRequiredService<TroubleshootingEmailService>());
+builder.Services.AddSingleton(services => new TroubleshootingReviewService(
+    dataPath,
+    services.GetRequiredService<IServiceScopeFactory>(),
+    services.GetRequiredService<TroubleshootingReportBuilder>(),
+    services.GetRequiredService<AccountEmailService>(),
+    services.GetRequiredService<IHttpClientFactory>(),
+    services.GetRequiredService<ILogger<TroubleshootingReviewService>>()));
+builder.Services.AddHostedService(services => services.GetRequiredService<TroubleshootingReviewService>());
+builder.Services.AddSingleton(services => new TroubleshootingReportPullService(
+    services.GetRequiredService<IServiceScopeFactory>(),
+    services.GetRequiredService<TroubleshootingReportBuilder>()));
 builder.Services.AddSingleton(services => new CloudflareTunnelService(dataPath,
     services.GetRequiredService<HttpPortService>(), services.GetRequiredService<IHttpClientFactory>(),
     services.GetRequiredService<ILogger<CloudflareTunnelService>>()));
@@ -313,6 +372,14 @@ builder.Services.AddRateLimiter(options =>
             Window = TimeSpan.FromHours(1),
             QueueLimit = 0
         }));
+    options.AddPolicy("report-pull", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 30,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
 });
 
 var app = builder.Build();
@@ -471,6 +538,49 @@ Func<LessonCueDb, CancellationToken, Task<IResult>> readiness = async (db, ct) =
 app.MapGet("/health/ready", readiness);
 app.MapGet("/health", readiness);
 
+app.MapGet(TroubleshootingReportPullService.EndpointPath, async (
+    HttpRequest request,
+    HttpResponse response,
+    TroubleshootingReportPullService pull,
+    CancellationToken ct) =>
+{
+    if (!TroubleshootingReportPullService.IsConfigured)
+        return Results.NotFound();
+    if (!TroubleshootingReportPullService.Authorize(request))
+    {
+        response.Headers.WWWAuthenticate = "Bearer";
+        return Results.Unauthorized();
+    }
+
+    try
+    {
+        var result = await pull.GetAsync(request.Headers.IfNoneMatch.ToString(), ct);
+        response.Headers.ETag = result.ETag;
+        response.Headers["Last-Modified"] = result.GeneratedAt.ToUniversalTime().ToString("R");
+        response.Headers.CacheControl = "no-store";
+        response.Headers.Vary = "Authorization";
+        response.Headers["X-Robots-Tag"] = "noindex, noarchive";
+        response.Headers["X-LessonCue-Report-Generated-At"] = result.GeneratedAt.ToUniversalTime().ToString("O");
+        if (result.NotModified) return Results.StatusCode(StatusCodes.Status304NotModified);
+        return Results.Bytes(result.Content!, "application/json");
+    }
+    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception error)
+    {
+        app.Logger.LogError(error, "Live troubleshooting report generation failed");
+        return Results.Problem(
+            "The live troubleshooting report is temporarily unavailable.",
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            extensions: new Dictionary<string, object?>
+            {
+                ["code"] = "LC.REPORT.GENERATION.UNAVAILABLE"
+            });
+    }
+}).AllowAnonymous().RequireRateLimiting("report-pull");
+
 var api = app.MapGroup("/api/v1");
 
 api.MapGet("/display-capabilities", (string? platform) =>
@@ -504,8 +614,8 @@ api.MapGet("/media/{mediaId:guid}/file", async (Guid mediaId, LessonCueDb db, Ca
 {
     var media = await db.MediaAssets.AsNoTracking().SingleOrDefaultAsync(x => x.Id == mediaId, ct);
     if (media is null || media.SourceKind == "link") return Results.NotFound();
-    var path = Path.GetFullPath(Path.Combine(mediaPath, media.RelativePath));
-    if (!path.StartsWith(Path.GetFullPath(mediaPath), StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
+    var path = ContainedPath.ResolveExistingFile(mediaPath, media.RelativePath);
+    if (path is null) return Results.NotFound();
     return Results.File(path, media.ContentType, media.FileName, enableRangeProcessing: true,
         entityTag: media.Sha256 is null ? null : new Microsoft.Net.Http.Headers.EntityTagHeaderValue($"\"{media.Sha256}\""));
 });
@@ -518,9 +628,8 @@ api.MapGet("/media/{mediaId:guid}/playback", async (Guid mediaId, LessonCueDb db
     var compatible = media.CompatibilityStatus == "ready" && !string.IsNullOrWhiteSpace(media.CompatibilityPath);
     var root = compatible ? paths.Compatibility : paths.Originals;
     var relative = compatible ? media.CompatibilityPath! : media.RelativePath;
-    var normalizedRoot = Path.GetFullPath(root) + Path.DirectorySeparatorChar;
-    var path = Path.GetFullPath(Path.Combine(root, relative));
-    if (!path.StartsWith(normalizedRoot, StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
+    var path = ContainedPath.ResolveExistingFile(root, relative);
+    if (path is null) return Results.NotFound();
     var contentType = compatible ? "video/mp4" : media.ContentType;
     var fileName = compatible ? Path.GetFileNameWithoutExtension(media.FileName) + ".mp4" : media.FileName;
     var hash = compatible ? media.CompatibilitySha256 : media.Sha256;
@@ -534,9 +643,8 @@ api.MapGet("/media/{mediaId:guid}/transcodes/{profile}", async (Guid mediaId, st
     var variant = await db.MediaTranscodeVariants.AsNoTracking().SingleOrDefaultAsync(x =>
         x.MediaAssetId == mediaId && x.Profile == profile && x.Status == "ready", ct);
     if (variant?.RelativePath is null) return Results.NotFound();
-    var root = Path.GetFullPath(paths.Transcodes) + Path.DirectorySeparatorChar;
-    var path = Path.GetFullPath(Path.Combine(paths.Transcodes, variant.RelativePath));
-    if (!path.StartsWith(root, StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
+    var path = ContainedPath.ResolveExistingFile(paths.Transcodes, variant.RelativePath);
+    if (path is null) return Results.NotFound();
     return Results.File(path, "video/mp4", enableRangeProcessing: true,
         entityTag: variant.Sha256 is null ? null : new Microsoft.Net.Http.Headers.EntityTagHeaderValue($"\"{variant.Sha256}\""));
 });
@@ -546,8 +654,8 @@ api.MapGet("/media/{mediaId:guid}/thumbnail", async (Guid mediaId, LessonCueDb d
     var media = await db.MediaAssets.AsNoTracking().SingleOrDefaultAsync(x => x.Id == mediaId, ct);
     if (media?.ThumbnailPath is null) return Results.NotFound();
     var thumbnails = Path.Combine(dataPath, "media", "thumbnails");
-    var path = Path.GetFullPath(Path.Combine(thumbnails, media.ThumbnailPath));
-    if (!path.StartsWith(Path.GetFullPath(thumbnails), StringComparison.Ordinal) || !File.Exists(path)) return Results.NotFound();
+    var path = ContainedPath.ResolveExistingFile(thumbnails, media.ThumbnailPath);
+    if (path is null) return Results.NotFound();
     return Results.File(path, "image/jpeg", enableRangeProcessing: true);
 });
 
@@ -656,24 +764,45 @@ api.MapPost("/pairing/request", async (PairingRequestInput input, LessonCueDb db
 api.MapPost("/pairing/confirm", async (PairingConfirmInput input, LessonCueDb db,
     IPasswordHasher<PairingAttempt> hasher, CancellationToken ct) =>
 {
-    var attempt = await db.PairingAttempts.SingleOrDefaultAsync(x => x.Id == input.RequestId, ct);
-    if (attempt is null || attempt.Completed || attempt.ExpiresAt <= DateTimeOffset.UtcNow || attempt.FailedAttempts >= 5)
+    await using var transaction = await db.Database.BeginTransactionAsync(ct);
+    var now = DateTimeOffset.UtcNow;
+    var attempt = await db.PairingAttempts.AsNoTracking()
+        .SingleOrDefaultAsync(x => x.Id == input.RequestId, ct);
+    if (attempt is null || attempt.Completed || attempt.ExpiresAt <= now || attempt.FailedAttempts >= 5)
         return Results.BadRequest(new { error = "Pairing request expired or locked." });
     var result = hasher.VerifyHashedPassword(attempt, attempt.PinHash, input.Pin);
     if (result == PasswordVerificationResult.Failed)
     {
-        attempt.FailedAttempts++;
-        await db.SaveChangesAsync(ct);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE "PairingAttempts"
+            SET "FailedAttempts" = "FailedAttempts" + 1
+            WHERE "Id" = {input.RequestId}
+              AND "Completed" = 0
+              AND "ExpiresAt" > {now}
+              AND "FailedAttempts" < 5
+            """, ct);
+        await transaction.CommitAsync(ct);
         return Results.BadRequest(new { error = "Incorrect PIN." });
     }
+
+    var claimed = await db.Database.ExecuteSqlInterpolatedAsync($"""
+        UPDATE "PairingAttempts"
+        SET "Completed" = 1
+        WHERE "Id" = {input.RequestId}
+          AND "Completed" = 0
+          AND "ExpiresAt" > {now}
+          AND "FailedAttempts" < 5
+        """, ct);
+    if (claimed != 1)
+        return Results.BadRequest(new { error = "Pairing request expired or locked." });
 
     var screen = new Screen { Name = attempt.DeviceName, Platform = attempt.Platform };
     var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
     db.Screens.Add(screen);
     db.DeviceCredentials.Add(new DeviceCredential { ScreenId = screen.Id, TokenHash = HashToken(token) });
-    attempt.Completed = true;
     db.AuditEvents.Add(new AuditEvent { Actor = attempt.DeviceName, Action = "screen.pair.complete", Object = screen.Id.ToString() });
     await db.SaveChangesAsync(ct);
+    await transaction.CommitAsync(ct);
     return Results.Ok(new { screenId = screen.Id, deviceToken = token, apiVersion = 1, serverPublicKey = (string?)null });
 }).RequireRateLimiting("pairing");
 
@@ -730,11 +859,7 @@ api.MapPut("/tv/screens/{screenId:guid}/diagnostics/screenshot/{requestId:guid}"
     var validJpeg = extension == ".jpg" && signature[0] == 0xff && signature[1] == 0xd8 && signature[2] == 0xff;
     var validPng = extension == ".png" && signature.SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
     if (!validJpeg && !validPng) { File.Delete(temporary); return Results.BadRequest(new { error = "Screenshot data does not match its image type." }); }
-    if (!string.IsNullOrWhiteSpace(screen.ScreenshotRelativePath))
-    {
-        var previous = Path.GetFullPath(Path.Combine(dataPath, screen.ScreenshotRelativePath));
-        if (previous.StartsWith(Path.GetFullPath(dataPath) + Path.DirectorySeparatorChar, StringComparison.Ordinal)) try { File.Delete(previous); } catch { }
-    }
+    ContainedPath.DeleteIfContained(dataPath, screen.ScreenshotRelativePath);
     File.Move(temporary, destination, true);
     screen.ScreenshotRelativePath = relative;
     screen.ScreenshotCapturedAt = DateTimeOffset.UtcNow;
@@ -791,10 +916,8 @@ static string HashToken(string token) => Convert.ToHexString(SHA256.HashData(Sys
 
 static IResult DerivativeFile(string? relativePath, string root, string contentType)
 {
-    if (string.IsNullOrWhiteSpace(relativePath)) return Results.NotFound();
-    var normalizedRoot = Path.GetFullPath(root) + Path.DirectorySeparatorChar;
-    var path = Path.GetFullPath(Path.Combine(root, relativePath));
-    return path.StartsWith(normalizedRoot, StringComparison.Ordinal) && File.Exists(path)
+    var path = ContainedPath.ResolveExistingFile(root, relativePath);
+    return path is not null
         ? Results.File(path, contentType, enableRangeProcessing: true)
         : Results.NotFound();
 }

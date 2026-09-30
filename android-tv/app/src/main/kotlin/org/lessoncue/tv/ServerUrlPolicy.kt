@@ -25,12 +25,21 @@ internal fun normalizeLessonCueServerUrl(value: String): String {
     val host = uri.host?.trim()?.trim('[', ']')?.lowercase()
         ?: throw IllegalArgumentException("The LessonCue address needs a hostname or IP address.")
     require(uri.port in -1..65_535 && uri.port != 0) { "The LessonCue port must be from 1 to 65535." }
+    require(!isBareLinkLocalIpv6(host)) {
+        "A link-local IPv6 address must include its interface scope, such as %25wlan0."
+    }
     require(scheme == "https" || isTrustedLocalHttpHost(host)) {
         "Public or ordinary DNS addresses require HTTPS. Use HTTP only for a private IP address, localhost, or a .local name."
     }
     val authority = if (':' in host) "[$host]" else host
     val port = uri.port.takeIf { it > 0 && !((scheme == "http" && it == 80) || (scheme == "https" && it == 443)) }
     return "$scheme://$authority${port?.let { ":$it" }.orEmpty()}"
+}
+
+private fun isBareLinkLocalIpv6(host: String): Boolean {
+    if ('%' in host || ':' !in host) return false
+    val address = runCatching { InetAddress.getByName(host) }.getOrNull() as? Inet6Address ?: return false
+    return address.isLinkLocalAddress
 }
 
 internal fun isTrustedLocalHttpHost(hostValue: String): Boolean {

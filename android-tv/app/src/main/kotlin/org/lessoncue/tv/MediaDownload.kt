@@ -6,6 +6,8 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.security.MessageDigest
 
+internal class PermanentMediaDownloadException(message: String) : IOException(message)
+
 /** Publish a cache file only after the response, byte count and checksum agree. */
 internal fun downloadMedia(
     connection: HttpURLConnection,
@@ -27,6 +29,8 @@ internal fun downloadMedia(
             partial.delete()
             throw IOException("Cached media range is unavailable; retrying a full download")
         }
+        if (status in 400..499 && status != 408 && status != 416 && status != 429)
+            throw PermanentMediaDownloadException("Media download returned HTTP $status")
         if (status != 200 && status != 206) throw IOException("Media download returned HTTP $status")
         val range = if (status == 206) {
             val parts = Regex("bytes (\\d+)-(\\d+)/(\\d+)")

@@ -26,6 +26,7 @@ class MediaCacheWorker(context: Context, parameters: WorkerParameters) : Corouti
         try {
             context.ensureActive()
             val connection = URL(url).openConnection() as HttpURLConnection
+            connection.instanceFollowRedirects = false
             if (URL(url).host.equals(serverHost, ignoreCase = true))
                 token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
             downloadMedia(connection, destination, expectedSha) { context.ensureActive() }
@@ -35,7 +36,7 @@ class MediaCacheWorker(context: Context, parameters: WorkerParameters) : Corouti
             throw cancelled
         } catch (error: Exception) {
             diagnosticError.writeText("${System.currentTimeMillis()}\n${error.message ?: error.javaClass.simpleName}")
-            Result.retry()
+            if (error is PermanentMediaDownloadException || runAttemptCount >= 2) Result.failure() else Result.retry()
         }
     }
 }

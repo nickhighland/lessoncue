@@ -694,8 +694,15 @@ public static class SignageStudioApi
             .Where(zone => zone.Type == "presentation").Select(zone => zone.Id)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var assignments = input.PlaylistAssignments ?? [];
-        if (assignments.Keys.Any(zoneId => !presentationZoneIds.Contains(zoneId)))
-            return "A playlist was assigned to an element that is not part of this layout.";
+        var normalizedAssignmentIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var zoneId in assignments.Keys)
+        {
+            var normalizedZoneId = zoneId.Trim();
+            if (!normalizedAssignmentIds.Add(normalizedZoneId))
+                return "Each signage element can have only one playlist assignment.";
+            if (!presentationZoneIds.Contains(normalizedZoneId))
+                return "A playlist was assigned to an element that is not part of this layout.";
+        }
         var playlistIds = assignments.Values.Where(value => value != Guid.Empty).Distinct().ToArray();
         if (playlistIds.Length > 0 && await db.SignageContentPlaylists.CountAsync(
                 playlist => playlistIds.Contains(playlist.Id) && playlist.PublishedVersion > 0, ct) != playlistIds.Length)

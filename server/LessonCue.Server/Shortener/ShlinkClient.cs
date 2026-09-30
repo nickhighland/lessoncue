@@ -17,7 +17,13 @@ public sealed class ShlinkException(string message, HttpStatusCode? status = nul
     public HttpStatusCode? Status { get; } = status;
 
     /// <summary>A slug that already exists, authored by someone else.</summary>
-    public bool IsConflict => Status == HttpStatusCode.BadRequest || Status == HttpStatusCode.Conflict;
+    public bool IsConflict =>
+        Status == HttpStatusCode.Conflict ||
+        Status == HttpStatusCode.BadRequest &&
+        (Message.Contains("already exists", StringComparison.OrdinalIgnoreCase) ||
+         Message.Contains("already in use", StringComparison.OrdinalIgnoreCase) ||
+         Message.Contains("short code", StringComparison.OrdinalIgnoreCase) &&
+         Message.Contains("exists", StringComparison.OrdinalIgnoreCase));
 }
 
 /// <summary>
@@ -79,11 +85,14 @@ public sealed class ShlinkClient(HttpClient http)
     /// </remarks>
     public async Task<ShlinkShortUrl?> FindAsync(string baseUrl, string apiKey, string slug, string domain, CancellationToken ct = default)
     {
-        var found = await FindExactAsync(baseUrl, apiKey, slug, domain, ct);
+        // Shlink lowercases custom slugs in the configured loose mode. Probe
+        // the canonical form first so every reserved-code reconciliation does
+        // not create a guaranteed uppercase 404 followed by a lowercase hit.
+        var lowered = slug.ToLowerInvariant();
+        var found = await FindExactAsync(baseUrl, apiKey, lowered, domain, ct);
         if (found is not null) return found;
 
-        var lowered = slug.ToLowerInvariant();
-        return lowered == slug ? null : await FindExactAsync(baseUrl, apiKey, lowered, domain, ct);
+        return lowered == slug ? null : await FindExactAsync(baseUrl, apiKey, slug, domain, ct);
     }
 
     private async Task<ShlinkShortUrl?> FindExactAsync(string baseUrl, string apiKey, string slug, string domain, CancellationToken ct)

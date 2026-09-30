@@ -4,6 +4,21 @@ import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/**
+ * The version the web player is expected to report.
+ *
+ * This was written out as a literal, so the assertion passed only while
+ * somebody remembered to edit it, and failed the moment the player's version
+ * was corrected — which is to say the test was holding the drift in place
+ * rather than catching it. `npm run test:version` keeps package.json,
+ * WebPlayer's APP_VERSION and the server csproj equal, so reading it here
+ * tracks the real thing and never needs bumping again.
+ *
+ * Playwright runs from the repository root, where playwright.config.ts lives.
+ */
+const expectedPlayerVersion: string =
+  JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")).version;
+
 function silentWav(marker = 0) {
   const sampleRate = 8_000;
   const dataBytes = sampleRate * 2;
@@ -51,6 +66,14 @@ function incompatibleVideo() {
   const path = join(tmpdir(), `lessoncue-incompatible-${Date.now()}.mp4`);
   try {
     execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=15", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100", "-t", "1", "-c:v", "mpeg4", "-q:v", "5", "-c:a", "mp3", "-shortest", path]);
+    return readFileSync(path);
+  } finally { rmSync(path, { force: true }); }
+}
+
+function freshJpeg() {
+  const path = join(tmpdir(), `lessoncue-fresh-${Date.now()}.jpg`);
+  try {
+    execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=0x336699:size=160x90", "-frames:v", "1", path]);
     return readFileSync(path);
   } finally { rmSync(path, { force: true }); }
 }
@@ -135,7 +158,35 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const items = await fetch("/api/v1/media").then(response => response.json());
     const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
     return `${item?.processingStatus}:${item?.compatibilityStatus}`;
+  }), { timeout: 60_000 }).toMatch(/^ready:/);
+  const originalPlayback = await page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
+    const response = await fetch(item.playbackUrl);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return { status: response.status, contentType: response.headers.get("content-type"), signature: String.fromCharCode(...bytes.slice(4, 8)) };
+  });
+  expect(originalPlayback).toEqual({ status: 200, contentType: "video/mp4", signature: "ftyp" });
+  await expect.poll(async () => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
+    return `${item?.processingStatus}:${item?.compatibilityStatus}`;
   }), { timeout: 60_000 }).toBe("ready:ready");
+
+  await page.locator(".playlist-heading-actions").getByRole("button", { name: /Add media/ }).click();
+  await page.getByRole("button", { name: "Upload new media" }).click();
+  const imageUploadForm = page.locator("form").filter({ has: page.getByLabel("Media files") });
+  await imageUploadForm.getByLabel("Media files").setInputFiles({
+    name: "fresh-upload.jpg", mimeType: "image/jpeg", buffer: freshJpeg(),
+  });
+  await imageUploadForm.getByLabel("Display title").fill("Fresh Upload Image");
+  await imageUploadForm.getByRole("button", { name: "Upload and add" }).click();
+  await expect(page.locator('[aria-label$="playback sequence"] .playlist-item strong').filter({ hasText: "Fresh Upload Image" })).toBeVisible();
+  await expect.poll(async () => page.evaluate(async () => {
+    const items = await fetch("/api/v1/media").then(response => response.json());
+    const item = items.find((value: { fileName: string }) => value.fileName === "fresh-upload.jpg");
+    return `${item?.processingStatus}:${item?.compatibilityStatus}:${Boolean(item?.thumbnailUrl)}`;
+  }), { timeout: 60_000 }).toBe("ready:not-needed:true");
   await page.reload();
   await page.getByRole("button", { name: /Lessons$/ }).click();
   await page.getByRole("button", { name: /Sample Lesson/ }).first().click();
@@ -149,6 +200,20 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const ordered = [...lesson.items].sort((a: { position: number }, b: { position: number }) => a.position - b.position);
     return `${ordered[0]?.title}:${ordered.filter((item: { title: string }) => item.title === "needs-tv-conversion.mp4").length}`;
   })).toBe("needs-tv-conversion.mp4:1");
+  const reorderSource = page.locator('[aria-label$="playback sequence"] .playlist-item').filter({ hasText: "needs-tv-conversion.mp4" });
+  const reorderTarget = page.locator('[aria-label$="playback sequence"] .playlist-item').filter({ hasText: "Welcome Loop" });
+  await expect(reorderSource.locator(".cue-drag-grip")).toBeVisible();
+  await expect(reorderSource).toHaveAttribute("draggable", "true");
+  await reorderSource.dragTo(reorderTarget, { targetPosition: { x: 140, y: 80 } });
+  await expect.poll(() => page.evaluate(async () => {
+    const lessons = await fetch("/api/v1/lessons").then(response => response.json());
+    const lesson = lessons.find((item: { title: string }) => item.title === "Sample Lesson");
+    return [...lesson.items]
+      .sort((a: { position: number }, b: { position: number }) => a.position - b.position)
+      .filter((item: { role: string }) => item.role === "preRoll")
+      .map((item: { title: string }) => item.title)
+      .join(",");
+  })).toBe("Welcome Loop,needs-tv-conversion.mp4");
   const playbackDelivery = await page.evaluate(async () => {
     const items = await fetch("/api/v1/media").then(response => response.json());
     const item = items.find((value: { fileName: string }) => value.fileName === "needs-tv-conversion.mp4");
@@ -690,8 +755,49 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((item: { id: string }) => item.id === identity.screenId);
     const manifest = await fetch(`/api/v1/screens/${identity.screenId}/manifest`, { headers: { Authorization: `Bearer ${identity.deviceToken}` } }).then(response => response.json());
-    const adaptiveItem = manifest.playlists.flatMap((playlist: { items: unknown[] }) => playlist.items)
+    const manifestItems = manifest.playlists.flatMap((playlist: { items: Array<{
+      mediaId?: string; title: string; downloadUrl?: string; sha256?: string; sizeBytes?: number; renderSupport?: string;
+    }> }) => playlist.items);
+    const adaptiveItem = manifestItems
       .find((item: { title: string }) => item.title === "Browser Compatibility Video");
+    const mediaRows = await fetch("/api/v1/media").then(response => response.json());
+    async function verifyManifestMedia(fileName: string) {
+      const row = mediaRows.find((item: {
+        id: string; fileName: string; sha256?: string; compatibilitySha256?: string;
+        transcodes?: Array<{ sha256?: string }>;
+      }) => item.fileName === fileName);
+      const manifestItem = manifestItems.find((item: { mediaId?: string }) => item.mediaId === row?.id);
+      if (!row || !manifestItem?.downloadUrl) throw new Error(`Manifest did not publish ${fileName}`);
+      const normal = await fetch(manifestItem.downloadUrl);
+      const bytes = new Uint8Array(await normal.arrayBuffer());
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const checksum = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, "0")).join("");
+      const range = await fetch(manifestItem.downloadUrl, { headers: { Range: "bytes=0-31" } });
+      const rangeBytes = new Uint8Array(await range.arrayBuffer());
+      return {
+        status: normal.status,
+        contentType: normal.headers.get("content-type"),
+        contentLength: normal.headers.get("content-length"),
+        acceptRanges: normal.headers.get("accept-ranges"),
+        etag: normal.headers.get("etag"),
+        byteCount: bytes.byteLength,
+        contentLengthMatches: Number(normal.headers.get("content-length")) === bytes.byteLength,
+        etagPresent: Boolean(normal.headers.get("etag")),
+        checksumMatches: checksum === manifestItem.sha256,
+        assetHashMatches: [row.sha256, row.compatibilitySha256, ...(row.transcodes || []).map(item => item.sha256)].includes(checksum),
+        renderSupport: manifestItem.renderSupport,
+        rangeStatus: range.status,
+        rangeLength: rangeBytes.byteLength,
+        contentRange: range.headers.get("content-range"),
+        rangeContentRangeMatches: range.headers.get("content-range")?.startsWith("bytes 0-31/"),
+      };
+    }
+    const manifestMedia = {
+      image: await verifyManifestMedia("fresh-upload.jpg"),
+      video: await verifyManifestMedia("needs-tv-conversion.mp4"),
+    };
+    const troubleshooting = await fetch("/api/v1/troubleshooting-log?limit=10").then(response => response.json());
+    const diagnosticImage = troubleshooting.media?.find((item: { fileName: string }) => item.fileName === "fresh-upload.jpg");
     await fetch(`/api/v1/screens/${identity.screenId}`, { method: "PATCH", headers: jsonHeaders,
       body: JSON.stringify({ signageOnly: true, permanentPairing: true }) });
     const signageOnlyManifest = await fetch(`/api/v1/screens/${identity.screenId}/manifest`,
@@ -704,16 +810,32 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const directManifest = await fetch(`/api/v1/screens/${identity.screenId}/manifest`,
       { headers: { Authorization: `Bearer ${browserUrl.searchParams.get("token")}` } });
     await fetch(`/api/v1/screens/${identity.screenId}`, { method: "PATCH", headers: jsonHeaders,
-      body: JSON.stringify({ signageOnly: false, permanentPairing: false }) });
+      body: JSON.stringify({ signageOnly: false, permanentPairing: false, assignedClassId: adaptiveLesson.classId, allowUnsupportedContent: true }) });
     const screenshot = await fetch(`/api/v1/screens/${identity.screenId}/diagnostics/screenshot`);
     return { upload: upload.status, screenshot: screenshot.status, requestMatches: control.screenshotRequestId === screenshotRequest.requestId,
       cache: JSON.parse(screen.cacheInventoryJson)[0]?.title, quality: screen.networkQuality, screenshotAvailable: screen.screenshotAvailable,
       requestedProfile: adaptiveItem?.requestedProfile, selectedProfile: adaptiveItem?.selectedProfile,
+      manifestMedia,
+      troubleshootingMedia: {
+        processingStatus: diagnosticImage?.processingStatus,
+        compatibilityStatus: diagnosticImage?.compatibilityStatus,
+        originalExists: diagnosticImage?.originalFile?.exists,
+        originalMatches: diagnosticImage?.originalFile?.sizeAndSha256Match,
+      },
       signageOnlyPlaylists: signageOnlyManifest.playlists.length, blockedControl: blockedControl.status,
       browserLinkPath: browserUrl.pathname, directManifest: directManifest.status };
   });
   expect(diagnostics).toEqual({ upload: 202, screenshot: 200, requestMatches: true, cache: "Cached welcome", quality: "poor", screenshotAvailable: true,
     requestedProfile: "h264-480", selectedProfile: "h264-480", signageOnlyPlaylists: 0, blockedControl: 409,
+    manifestMedia: {
+      image: expect.objectContaining({ status: 200, contentType: "image/jpeg", acceptRanges: "bytes", contentLengthMatches: true,
+        etagPresent: true, checksumMatches: true, assetHashMatches: true, renderSupport: "supported", rangeStatus: 206, rangeLength: 32,
+        rangeContentRangeMatches: true }),
+      video: expect.objectContaining({ status: 200, contentType: "video/mp4", acceptRanges: "bytes", contentLengthMatches: true,
+        etagPresent: true, checksumMatches: true, assetHashMatches: true, renderSupport: "supported", rangeStatus: 206, rangeLength: 32,
+        rangeContentRangeMatches: true }),
+    },
+    troubleshootingMedia: { processingStatus: "ready", compatibilityStatus: "not-needed", originalExists: true, originalMatches: true },
     browserLinkPath: "/display", directManifest: 200 });
 
   await page.getByRole("button", { name: /Screens$/ }).click();
@@ -734,17 +856,22 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByRole("button", { name: "Pause playback" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Stop playback" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Next cue" })).toBeVisible();
+  await expect(page.locator(".remote-lock-icon")).toHaveAttribute("viewBox", "0 0 24 24");
+  await expect(page.locator(".remote-flow")).toHaveCSS("overflow-y", "auto");
   await expect(page.locator(".app-shell.controller-mode > .mobile-shell-header")).toHaveCount(0);
-  // The remote is one downward flow now: pick a lesson, pick a cue, control it.
+  // The universal remote scopes the same flow by room first; classroom links
+  // omit this step and begin with the lesson selector.
+  await expect(page.getByRole("region", { name: "Room" })).toBeVisible();
+  await expect(page.getByLabel("Choose a room")).toBeVisible();
+  // The remote is one downward flow now: pick a room, pick a lesson, pick a
+  // cue, control it.
   // No tabs, and nothing to discover behind them.
   await expect(page.getByRole("tab")).toHaveCount(0);
   await expect(page.locator(".remote-header")).toHaveCount(0);
 
   const lessonStep = page.getByRole("region", { name: "Lesson" });
-  const controlStep = page.getByRole("region", { name: "Cue controls" });
-
   // The paired screen already knows its lesson, so step one is answered on
-  // arrival and the list is folded away behind a way back to it.
+  // arrival and the lesson list stays available behind Change lesson.
   await expect(lessonStep).toHaveAttribute("data-state", "done");
   await expect(lessonStep).toContainText("Sample Lesson");
   await expect(page.locator(".remote-lesson-list")).toHaveCount(0);
@@ -759,11 +886,16 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await page.getByRole("button", { name: "Keep this lesson" }).click();
   await expect(page.locator(".remote-lesson-list")).toHaveCount(0);
 
-  // The cue list does not go away when a cue is chosen: it is the thing a
-  // teacher reaches for most, and its controls appear beneath it.
-  await page.locator(".remote-cue-list > button").first().click();
-  await expect(page.locator(".remote-cue-list")).toBeVisible();
-  await expect(controlStep).toHaveAttribute("data-state", "current");
+  // Choosing a cue expands its controls in place, keeping the rest of the
+  // lesson available without a second navigation step.
+  const firstCue = page.locator(".remote-cue-list .remote-cue-select").first();
+  await firstCue.click();
+  await expect(firstCue).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("region", { name: "Lesson" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Cues" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Cue controls" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "All lesson cues" })).toHaveCount(0);
+  await expect(page.locator(".remote-cue").first().locator(".remote-cue-controls")).toBeVisible();
 
   await page.getByRole("button", { name: "Open monitor" }).click();
   await expect(page.locator(".pre-roll-monitor iframe")).toHaveAttribute("src", "https://example.org/private-monitor");
@@ -1057,9 +1189,9 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   expect(Date.parse(simpleSignage.containment?.[5] || "")).not.toBeNaN();
   expect(Date.parse(simpleSignage.containment?.[6] || "")).not.toBeNaN();
 
-  // Retained legacy assertions are intentionally unreachable while the replacement
-  // data model settles; they document the removed schedule/publish/emergency workflow.
-  if (false) {
+  // Retained legacy assertions are opt-in while the replacement data model
+  // settles; they document the removed schedule/publish/emergency workflow.
+  if (process.env.LESSONCUE_LEGACY_WORKFLOW_TESTS === "1") {
   await page.evaluate(() => Object.defineProperty(globalThis.crypto, "randomUUID", { configurable: true, value: undefined }));
   await page.getByRole("button", { name: "New schedule" }).click();
   const signageDialog = page.getByRole("dialog", { name: "Create signage" });
@@ -1308,7 +1440,7 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
     const screens = await fetch("/api/v1/screens").then(response => response.json());
     const screen = screens.find((entry: { id: string }) => entry.id === screenId);
     return { acknowledged: screen?.acknowledgedControlVersion, platform: screen?.platform, appVersion: screen?.appVersion };
-  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: "0.46.4" });
+  }, browserPlayback), { timeout: 12_000 }).toEqual({ acknowledged: browserPlayback.version, platform: "web-player", appVersion: expectedPlayerVersion });
   // A lesson the screen is allowed to keep should end up on the device, not
   // just signage. A room that loses its network mid-service used to lose the
   // lesson with it while the rota on the wall carried on playing.

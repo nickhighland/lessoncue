@@ -201,6 +201,7 @@ export class ActivityApi {
   static async importBracketFinalists(runId: string, sourceRunId: string, limit?: number): Promise<{ imported: number; sourceRunId: string }> {
     return api<{ imported: number; sourceRunId: string }>(`/api/v1/activity-sessions/${runId}/bracket-finalists`, {
       method: 'POST',
+      headers: controllerHeaders,
       body: JSON.stringify({ sourceRunId, limit: limit || null })
     });
   }

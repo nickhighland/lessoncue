@@ -1,7 +1,7 @@
 import { confirmAction } from "../../AccessibleDialogs";
 import { FormEvent, useEffect, useState } from "react";
 import { api, waitForVersion } from "../api";
-import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, JoinAddressStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, SettingsSection, ShortenerReport, ShortenerSettings, ShortenerTestResult, ShortenerTunnelPlan, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy } from "../models";
+import { Audit, Backup, BackupDestinationProvider, BackupPolicyStatus, BackupPreview, BackupRestoreResult, Bootstrap, CloudflareTunnelStatus, HardwareAccelerationStatus, HttpPortStatus, JoinAddressStatus, LocalAddressStatus, MediaTaxonomy, MigrationTransferGrant, RecycleItem, SettingsSection, ShortenerReport, ShortenerSettings, ShortenerTestResult, ShortenerTunnelPlan, StorageStatus, SupportBundle, UpdateStatus, UploadQuotaPolicy, YouTubeRuntimeStatus } from "../models";
 import { CollapsibleSettingsSection, Definition, Empty, Field, Modal, PageHead, StorageMeter } from "../ui";
 import { RegistrationSettingsPanel, TroubleshootingLogPanel } from "./Users";
 import { AuthenticatorMfaPanel } from "./Mfa";
@@ -9,28 +9,36 @@ import { cleanReleaseNotes, errorText, formatBytes, parseStringArray, quotaLimit
 
 type RemoteBackupForm = {
   url: string;
-  authentication: "none" | "basic" | "bearer";
+  folderName: string;
+  authentication: "none" | "basic" | "bearer" | "oauth";
   username: string;
   secret: string;
   retentionCount: string;
   retentionDays: string;
+  googleDriveClientId: string;
+  googleDriveClientSecret: string;
 };
 
 const emptyRemoteBackupForm = (): RemoteBackupForm => ({
   url: "",
+  folderName: "",
   authentication: "basic",
   username: "",
   secret: "",
   retentionCount: "7",
   retentionDays: "30",
+  googleDriveClientId: "",
+  googleDriveClientSecret: "",
 });
 
 const remoteProviderLabel = (provider: BackupDestinationProvider) =>
-  provider === "nextcloud"
-    ? "Nextcloud"
-    : provider === "owncloud"
-      ? "ownCloud"
-      : "Other WebDAV destination";
+  provider === "googledrive"
+    ? "Google Drive"
+    : provider === "nextcloud"
+      ? "Nextcloud"
+      : provider === "owncloud"
+        ? "ownCloud"
+        : "Other WebDAV destination";
 
 export function Settings({
   bootstrap,
@@ -111,6 +119,11 @@ export function Settings({
   );
   const [checking, setChecking] = useState(false);
   const [installing, setInstalling] = useState(false);
+  const [youtubeRuntime, setYoutubeRuntime] = useState<YouTubeRuntimeStatus | undefined>(
+    bootstrap.youtubeRuntime,
+  );
+  const [checkingYoutubeRuntime, setCheckingYoutubeRuntime] = useState(false);
+  const [updatingYoutubeRuntime, setUpdatingYoutubeRuntime] = useState(false);
   const [fixedPairing, setFixedPairing] = useState(bootstrap.pairingFixed);
   const [pairingPin, setPairingPin] = useState(bootstrap.pairingPin || "");
   const [controllerPin, setControllerPin] = useState(bootstrap.controllerPin || "");
@@ -141,13 +154,16 @@ export function Settings({
   const [backupPolicy, setBackupPolicy] = useState<BackupPolicyStatus>();
   const [backupDrill, setBackupDrill] = useState<BackupPreview>();
   const [backupPolicyBusy, setBackupPolicyBusy] = useState(false);
+  const [googleDriveBusy, setGoogleDriveBusy] = useState(false);
   const [policyEnabled, setPolicyEnabled] = useState(false);
   const [policyFrequency, setPolicyFrequency] = useState<"daily" | "weekly">(
     "daily",
   );
   const [policyHour, setPolicyHour] = useState("2");
   const [policyWeeklyDay, setPolicyWeeklyDay] = useState("0");
-  const [policyFull, setPolicyFull] = useState(true);
+  const [policyMediaMode, setPolicyMediaMode] = useState<
+    "backup" | "sync" | "exclude"
+  >("backup");
   const [policyRetentionCount, setPolicyRetentionCount] = useState("7");
   const [policyRetentionDays, setPolicyRetentionDays] = useState("30");
   const [policyIncludeSecrets, setPolicyIncludeSecrets] = useState(false);
@@ -155,6 +171,7 @@ export function Settings({
   const [policyRemotes, setPolicyRemotes] = useState<
     Record<BackupDestinationProvider, RemoteBackupForm>
   >({
+    googledrive: emptyRemoteBackupForm(),
     nextcloud: emptyRemoteBackupForm(),
     owncloud: emptyRemoteBackupForm(),
     webdav: emptyRemoteBackupForm(),
@@ -190,11 +207,14 @@ export function Settings({
         setPolicyFrequency(status.frequency);
         setPolicyHour(String(status.hourLocal));
         setPolicyWeeklyDay(String(status.weeklyDay ?? 0));
-        setPolicyFull(status.includeMedia);
+        setPolicyMediaMode(
+          status.mediaMode || (status.includeMedia ? "backup" : "exclude"),
+        );
         setPolicyRetentionCount(String(status.retentionCount));
         setPolicyRetentionDays(String(status.retentionDays));
         setPolicyIncludeSecrets(status.secretHandling === "include");
         const remotes: Record<BackupDestinationProvider, RemoteBackupForm> = {
+          googledrive: emptyRemoteBackupForm(),
           nextcloud: emptyRemoteBackupForm(),
           owncloud: emptyRemoteBackupForm(),
           webdav: emptyRemoteBackupForm(),
@@ -218,11 +238,14 @@ export function Settings({
         destinations.forEach((destination) => {
           remotes[destination.provider] = {
             url: destination.webDavUrl || "",
+            folderName: destination.folderName || "",
             authentication: destination.authentication,
             username: destination.username || "",
             secret: "",
             retentionCount: String(destination.retentionCount),
             retentionDays: String(destination.retentionDays),
+            googleDriveClientId: destination.googleDriveClientId || "",
+            googleDriveClientSecret: "",
           };
         });
         setPolicyRemotes(remotes);
@@ -238,6 +261,9 @@ export function Settings({
       })
       .catch((error) => setDiagnosticsError(errorText(error)));
   }, [canServiceSettings]);
+  useEffect(() => {
+    setYoutubeRuntime(bootstrap.youtubeRuntime);
+  }, [bootstrap.youtubeRuntime]);
   async function refreshDiagnostics() {
     setDiagnosticsBusy(true);
     try {
@@ -354,6 +380,67 @@ export function Settings({
     }));
   }
 
+  async function connectGoogleDrive() {
+    const popup = window.open(
+      "about:blank",
+      "lessoncue-google-drive-oauth",
+      "popup,width=600,height=700",
+    );
+    if (!popup) {
+      notify("Allow pop-ups for LessonCue, then choose Connect Google Drive again.");
+      return;
+    }
+
+    setGoogleDriveBusy(true);
+    const timeout = window.setTimeout(() => {
+      window.removeEventListener("message", onMessage);
+      popup.close();
+      setGoogleDriveBusy(false);
+      notify("Google Drive authorization timed out. Try connecting again.");
+    }, 5 * 60 * 1000);
+    const finish = () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener("message", onMessage);
+      setGoogleDriveBusy(false);
+    };
+    const onMessage = (event: MessageEvent) => {
+      const result = event.data as {
+        type?: string;
+        connected?: boolean;
+      } | null;
+      if (
+        event.origin !== window.location.origin ||
+        event.source !== popup ||
+        result?.type !== "lessoncue-google-drive-oauth"
+      ) return;
+      finish();
+      popup.close();
+      if (!result.connected) {
+        notify("Google Drive was not connected. Check the OAuth settings and try again.");
+        return;
+      }
+      void api<BackupPolicyStatus>("/api/v1/backups/policy")
+        .then((status) => {
+          setBackupPolicy(status);
+          notify("Google Drive connected. It is ready as a backup destination.");
+        })
+        .catch((error) => notify(errorText(error)));
+    };
+    window.addEventListener("message", onMessage);
+
+    try {
+      const authorization = await api<{
+        authorizationUrl: string;
+        redirectUri: string;
+      }>("/api/v1/backups/google-drive/connect", { method: "POST" });
+      popup.location.replace(authorization.authorizationUrl);
+    } catch (error) {
+      finish();
+      popup.close();
+      notify(errorText(error));
+    }
+  }
+
   async function saveBackupPolicy(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBackupPolicyBusy(true);
@@ -366,7 +453,8 @@ export function Settings({
           hourLocal: Number(policyHour),
           weeklyDay:
             policyFrequency === "weekly" ? Number(policyWeeklyDay) : null,
-          includeMedia: policyFull,
+          includeMedia: policyMediaMode === "backup",
+          mediaMode: policyMediaMode,
           retentionCount: Number(policyRetentionCount),
           retentionDays: Number(policyRetentionDays),
           secretHandling: policyIncludeSecrets ? "include" : "exclude",
@@ -377,15 +465,20 @@ export function Settings({
           remoteSecret: policyRemotes.webdav.secret || null,
           destinations: (Object.keys(policyRemotes) as BackupDestinationProvider[])
             .map((provider) => ({ provider, form: policyRemotes[provider] }))
-            .filter(({ form }) => form.url.trim())
+            .filter(({ provider, form }) => provider === "googledrive"
+              ? form.googleDriveClientId.trim()
+              : form.url.trim())
             .map(({ provider, form }) => ({
               provider,
-              webDavUrl: form.url.trim(),
-              authentication: form.authentication,
+              webDavUrl: provider === "googledrive" ? null : form.url.trim(),
+              folderName: form.folderName.trim() || null,
+              authentication: provider === "googledrive" ? "oauth" as const : form.authentication,
               username: form.username || null,
               secret: form.secret || null,
               retentionCount: Number(form.retentionCount),
               retentionDays: Number(form.retentionDays),
+              googleDriveClientId: form.googleDriveClientId.trim() || null,
+              googleDriveClientSecret: form.googleDriveClientSecret || null,
             })),
         }),
       });
@@ -393,10 +486,10 @@ export function Settings({
       setPolicyPassword("");
       setPolicyRemotes((current) =>
         Object.fromEntries(
-          Object.entries(current).map(([provider, form]) => [
-            provider,
-            { ...form, secret: "" },
-          ]),
+        Object.entries(current).map(([provider, form]) => [
+          provider,
+          { ...form, secret: "", googleDriveClientSecret: "" },
+        ]),
         ) as Record<BackupDestinationProvider, RemoteBackupForm>,
       );
       notify("Scheduled backup policy saved.");
@@ -680,6 +773,57 @@ export function Settings({
     } catch (e) {
       notify(errorText(e));
       setInstalling(false);
+    }
+  }
+  async function checkYoutubeRuntime() {
+    setCheckingYoutubeRuntime(true);
+    try {
+      const result = await api<{
+        message: string;
+        status: YouTubeRuntimeStatus;
+      }>("/api/v1/updates/youtube-runtime/check", {
+        method: "POST",
+        body: "{}",
+      });
+      setYoutubeRuntime(result.status);
+      refresh();
+      notify(result.message);
+      window.setTimeout(() => {
+        void api<YouTubeRuntimeStatus>("/api/v1/updates/youtube-runtime")
+          .then(setYoutubeRuntime)
+          .catch(() => undefined);
+      }, 2_000);
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      setCheckingYoutubeRuntime(false);
+    }
+  }
+  async function updateYoutubeRuntime() {
+    if (!await confirmAction(
+      "Update the server's independent YouTube downloader now? LessonCue will keep the previous yt-dlp binary for rollback.",
+    )) return;
+    setUpdatingYoutubeRuntime(true);
+    try {
+      const result = await api<{
+        message: string;
+        status: YouTubeRuntimeStatus;
+      }>("/api/v1/updates/youtube-runtime/update", {
+        method: "POST",
+        body: "{}",
+      });
+      setYoutubeRuntime(result.status);
+      refresh();
+      notify(result.message);
+      window.setTimeout(() => {
+        void api<YouTubeRuntimeStatus>("/api/v1/updates/youtube-runtime")
+          .then(setYoutubeRuntime)
+          .catch(() => undefined);
+      }, 3_000);
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      setUpdatingYoutubeRuntime(false);
     }
   }
   async function savePairingPin(event: FormEvent<HTMLFormElement>) {
@@ -1127,6 +1271,17 @@ export function Settings({
                 <small>Version {bootstrap.update.currentVersion}</small>
               </button>
             )}
+            {canUpdates && youtubeRuntime?.updateAvailable && (
+              <button className="settings-overview-card" onClick={() => setSettingsSection("system")}>
+                <span>YOUTUBE DOWNLOADS</span>
+                <strong>Update available</strong>
+                <small>
+                  {youtubeRuntime.updateNoticeVisible
+                    ? "Downloads are failing; review the independent downloader."
+                    : "Review the independent downloader in Settings."}
+                </small>
+              </button>
+            )}
             {canManageApp && (
               <button className="settings-overview-card" onClick={() => setSettingsSection("playback")}>
                 <span>DISPLAYS</span>
@@ -1523,6 +1678,85 @@ export function Settings({
               )}
             </CollapsibleSettingsSection>
           )}
+          {canUpdates && (
+            <CollapsibleSettingsSection
+              label="YouTube downloader"
+              className="wide-settings settings-panel settings-system"
+            >
+              <div className="settings-heading">
+                <div>
+                  <span className="settings-kicker">MEDIA IMPORTS</span>
+                  <h2>Independent YouTube downloader</h2>
+                  <p className="settings-copy">
+                    yt-dlp is checked and maintained separately from LessonCue
+                    releases. Routine checks and verified updates are silent;
+                    this panel is the place to manage it manually.
+                  </p>
+                </div>
+                <span
+                  className={`update-state ${youtubeRuntime?.updateAvailable ? "available" : "current"}`}
+                >
+                  {youtubeRuntime?.updateAvailable
+                    ? "Update available"
+                    : youtubeRuntime?.supported
+                      ? "Maintained"
+                      : "Unavailable"}
+                </span>
+              </div>
+              <div className="storage-facts">
+                <Definition
+                  label="Installed version"
+                  value={youtubeRuntime?.installedVersion || "Unknown"}
+                />
+                <Definition
+                  label="Last checked"
+                  value={youtubeRuntime?.lastCheckedAt ? timeAgo(youtubeRuntime.lastCheckedAt) : "Not checked yet"}
+                />
+                <Definition
+                  label="Automatic checks"
+                  value={youtubeRuntime?.automaticUpdatesEnabled ? "Daily" : "Not configured"}
+                />
+              </div>
+              {youtubeRuntime?.updateAvailable && (
+                <div className="alert warning" role="status">
+                  {youtubeRuntime.updateNoticeVisible
+                    ? `YouTube downloads are failing and yt-dlp ${youtubeRuntime.latestVersion || "a newer version"} is available. Update the independent downloader and retry the failed import.`
+                    : `A verified yt-dlp ${youtubeRuntime.latestVersion || "newer"} release is available. This update is managed separately from LessonCue.`}
+                </div>
+              )}
+              {!youtubeRuntime?.supported && (
+                <p className="settings-copy">
+                  Independent updates are available on the native Linux server
+                  installation after the current installer has installed the
+                  updater services.
+                </p>
+              )}
+              {youtubeRuntime?.lastUpdateMessage && youtubeRuntime.lastUpdatedAt && (
+                <div className={`alert ${youtubeRuntime.lastUpdateSucceeded === false ? "error" : "success"}`} role="status">
+                  {youtubeRuntime.lastUpdateMessage} <span className="muted">({timeAgo(youtubeRuntime.lastUpdatedAt)})</span>
+                </div>
+              )}
+              {youtubeRuntime?.error && youtubeRuntime.updateNoticeVisible && (
+                <div className="alert error" role="alert">{youtubeRuntime.error}</div>
+              )}
+              <div className="head-actions">
+                <button
+                  className="button"
+                  onClick={checkYoutubeRuntime}
+                  disabled={checkingYoutubeRuntime || updatingYoutubeRuntime || !youtubeRuntime?.supported}
+                >
+                  {checkingYoutubeRuntime ? "Checking…" : "Check now"}
+                </button>
+                <button
+                  className="button primary"
+                  onClick={updateYoutubeRuntime}
+                  disabled={checkingYoutubeRuntime || updatingYoutubeRuntime || !youtubeRuntime?.supported}
+                >
+                  {updatingYoutubeRuntime ? "Queuing…" : "Update yt-dlp now"}
+                </button>
+              </div>
+            </CollapsibleSettingsSection>
+          )}
           {canServiceSettings && (
             <CollapsibleSettingsSection
               label="System diagnostics & support"
@@ -1553,6 +1787,11 @@ export function Settings({
                   {diagnosticsError}
                 </div>
               )}
+              {diagnostics?.diagnosticErrors?.length ? (
+                <div className="alert warning" role="status">
+                  Some diagnostics could not be collected: {diagnostics.diagnosticErrors.join(" · ")}. The remaining checks are still available, and the downloaded bundle includes this partial-failure record.
+                </div>
+              ) : null}
               {diagnostics ? (
                 <>
                   <div className="diagnostic-grid">
@@ -2434,11 +2673,26 @@ export function Settings({
                 </div>
               )}
 
+              {shortener.missing.length > 0 && (
+                <p className="settings-copy settings-warning">
+                  Missing reserved game codes: {shortener.missing.slice(0, 8).join(", ")}
+                  {shortener.missing.length > 8 ? ", and " + (shortener.missing.length - 8) + " more" : ""}.
+                  Use <strong>Repair reserved codes</strong> to recreate them.
+                </p>
+              )}
+
               {shortener.conflicts.length > 0 && (
                 <p className="settings-copy settings-warning">
                   Owned by someone else in the shortener: {shortener.conflicts.slice(0, 8).join(", ")}
-                  {shortener.conflicts.length > 8 ? `, and ${shortener.conflicts.length - 8} more` : ""}.
-                  Delete or rename those links there, then repair.
+                  {shortener.conflicts.length > 8 ? ", and " + (shortener.conflicts.length - 8) + " more" : ""}.
+                  Delete or rename only those confirmed links there, then repair.
+                </p>
+              )}
+
+              {shortener.failures.length > 0 && (
+                <p className="settings-copy settings-warning">
+                  Could not verify {shortener.failures.length} reserved code{shortener.failures.length === 1 ? "" : "s"}
+                  {" "}because the shortener returned an error. Do not delete links based on this result. First failure: {shortener.failures[0]}
                 </p>
               )}
 
@@ -3166,7 +3420,7 @@ export function Settings({
                       <option value="weekly">Weekly</option>
                     </select>
                   </Field>
-                  <Field label={`Hour in ${bootstrap.timeZone}`}>
+                  <Field label={`Run hour in ${bootstrap.timeZone}`}>
                     <select
                       value={policyHour}
                       onChange={(event) => setPolicyHour(event.target.value)}
@@ -3181,6 +3435,10 @@ export function Settings({
                     </select>
                   </Field>
                 </div>
+                <p className="settings-copy">
+                  Scheduled backups and media sync run at this local hour on
+                  the LessonCue server. Choose 2 AM for an off-hours run.
+                </p>
                 {policyFrequency === "weekly" && (
                   <Field label="Weekday">
                     <select
@@ -3229,14 +3487,34 @@ export function Settings({
                     />
                   </Field>
                 </div>
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={policyFull}
-                    onChange={(event) => setPolicyFull(event.target.checked)}
-                  />
-                  Include the media library
-                </label>
+                <Field label="Media handling">
+                  <select
+                    value={policyMediaMode}
+                    onChange={(event) =>
+                      setPolicyMediaMode(
+                        event.target.value as "backup" | "sync" | "exclude",
+                      )
+                    }
+                  >
+                    <option value="backup">
+                      Include media in each backup archive
+                    </option>
+                    <option value="sync">
+                      Sync media to each remote destination
+                    </option>
+                    <option value="exclude">
+                      Exclude media from backups and sync
+                    </option>
+                  </select>
+                </Field>
+                <p className="settings-copy">
+                  {policyMediaMode === "sync"
+                    ? "The encrypted archive keeps the database and other non-media resources. Each configured remote destination mirrors the media library: missing or changed files are added, and files previously managed by LessonCue that are no longer present locally are removed."
+                    : policyMediaMode === "backup"
+                      ? "The encrypted archive contains the database, configuration, and media library."
+                      : "The encrypted archive contains the database and configuration only; existing media is preserved during configuration restores."
+                  }
+                </p>
                 <label className="check">
                   <input
                     type="checkbox"
@@ -3270,15 +3548,14 @@ export function Settings({
                   />
                 </Field>
                 <div className="backup-remote-settings">
-                  <h4>Off-site WebDAV destinations</h4>
+                  <h4>Off-site backup destinations</h4>
                   <p className="settings-copy">
-                    Nextcloud and ownCloud both provide HTTPS WebDAV folders.
                     LessonCue encrypts and verifies each `.lcbak` locally,
-                    uploads it to every configured destination, and removes
-                    only older LessonCue backup files after the configured
-                    retention limit is met.
+                    uploads it to every configured destination, and applies
+                    retention there. Google Drive, Nextcloud, ownCloud, and
+                    other HTTPS WebDAV servers are supported.
                   </p>
-                  {(["nextcloud", "owncloud", "webdav"] as const).map(
+                  {(["googledrive", "nextcloud", "owncloud", "webdav"] as const).map(
                     (provider) => {
                       const form = policyRemotes[provider];
                       const status = backupPolicy?.destinations?.find(
@@ -3287,7 +3564,144 @@ export function Settings({
                       return (
                         <div className="backup-remote-destination" key={provider}>
                           <h5>{remoteProviderLabel(provider)}</h5>
-                          <Field label="HTTPS WebDAV folder URL">
+                          {provider === "googledrive" ? (
+                            <>
+                              <p className="settings-copy">
+                                Connect the Google Drive account that has your storage plan. This is Google Drive file storage, not Google Cloud Storage buckets. LessonCue creates and manages a named folder in My Drive.
+                              </p>
+                              <Field label="Google OAuth client ID">
+                                <input
+                                  value={form.googleDriveClientId}
+                                  autoComplete="off"
+                                  onChange={(event) =>
+                                    updatePolicyRemote(provider, {
+                                      googleDriveClientId: event.target.value,
+                                    })
+                                  }
+                                />
+                              </Field>
+                              <Field label={status?.googleDriveClientSecretConfigured
+                                ? "Replace Google OAuth client secret (optional)"
+                                : "Google OAuth client secret"}>
+                                <input
+                                  type="password"
+                                  maxLength={4096}
+                                  value={form.googleDriveClientSecret}
+                                  autoComplete="new-password"
+                                  placeholder={status?.googleDriveClientSecretConfigured
+                                    ? "Leave blank to keep the protected secret"
+                                    : "From your Google Cloud OAuth web client"}
+                                  onChange={(event) =>
+                                    updatePolicyRemote(provider, {
+                                      googleDriveClientSecret: event.target.value,
+                                    })
+                                  }
+                                />
+                              </Field>
+                              <Field label="Folder name (created in My Drive)">
+                                <input
+                                  value={form.folderName}
+                                  placeholder="LessonCue"
+                                  maxLength={128}
+                                  onChange={(event) =>
+                                    updatePolicyRemote(provider, {
+                                      folderName: event.target.value,
+                                    })
+                                  }
+                                />
+                              </Field>
+                              <p className="settings-copy">
+                                In{" "}
+                                <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">
+                                  Google Cloud Console
+                                </a>
+                                , enable the Google Drive API, create an OAuth client with type “Web application,” and add this exact authorized redirect URI:
+                                <br />
+                                <code>{window.location.origin}/api/v1/backups/google-drive/callback</code>
+                                <br />
+                                Save this backup policy first, then connect the account. LessonCue requests access only to files and folders it creates. Set the Google OAuth consent screen to Production for persistent scheduled access; Google may expire refresh tokens after seven days while the app is in Testing.
+                              </p>
+                              <div className="two-fields">
+                                <Field label="Keep newest remote copies">
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={365}
+                                    value={form.retentionCount}
+                                    onChange={(event) =>
+                                      updatePolicyRemote(provider, {
+                                        retentionCount: event.target.value,
+                                      })
+                                    }
+                                  />
+                                </Field>
+                                <Field label="Delete remote copies older than (days)">
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={3650}
+                                    value={form.retentionDays}
+                                    onChange={(event) =>
+                                      updatePolicyRemote(provider, {
+                                        retentionDays: event.target.value,
+                                      })
+                                    }
+                                  />
+                                </Field>
+                              </div>
+                              {status?.googleDriveConnected && (
+                                <div className="alert success" role="status">
+                                  Google Drive is connected and ready for scheduled backups.
+                                </div>
+                              )}
+                              {status?.lastError && (
+                                <div className="alert error" role="alert">
+                                  {status.lastError}
+                                </div>
+                              )}
+                              <button
+                                className="button"
+                                type="button"
+                                onClick={() => void connectGoogleDrive()}
+                                disabled={
+                                  googleDriveBusy ||
+                                  !form.googleDriveClientId.trim() ||
+                                  !status?.googleDriveClientSecretConfigured
+                                }
+                              >
+                                {googleDriveBusy
+                                  ? "Waiting for Google…"
+                                  : status?.googleDriveConnected
+                                    ? "Reconnect Google Drive"
+                                    : "Connect Google Drive"}
+                              </button>
+                              {!status?.googleDriveClientSecretConfigured && (
+                                <p className="settings-copy">
+                                  Enter the OAuth client ID and secret, then save this policy before connecting.
+                                </p>
+                              )}
+                              {status?.lastUploadedAt && (
+                                <p className="settings-copy">
+                                  Last uploaded {timeAgo(status.lastUploadedAt)}
+                                  {status.remoteBackupCount !== undefined
+                                    ? ` · ${status.remoteBackupCount} remote copies retained`
+                                    : ""}
+                                </p>
+                              )}
+                              {status?.lastMediaSyncAt && (
+                                <p className="settings-copy">
+                                  Media synced {timeAgo(status.lastMediaSyncAt)}
+                                  {status.lastMediaSyncAdded !== undefined ||
+                                  status.lastMediaSyncUpdated !== undefined ||
+                                  status.lastMediaSyncDeleted !== undefined
+                                    ? ` · ${status.lastMediaSyncAdded || 0} added, ${status.lastMediaSyncUpdated || 0} updated, ${status.lastMediaSyncDeleted || 0} deleted`
+                                    : ""}
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                          <Field label="HTTPS WebDAV root URL">
                             <input
                               type="url"
                               value={form.url}
@@ -3301,6 +3715,18 @@ export function Settings({
                               onChange={(event) =>
                                 updatePolicyRemote(provider, {
                                   url: event.target.value,
+                                })
+                              }
+                            />
+                          </Field>
+                          <Field label="Folder name (created under this root)">
+                            <input
+                              value={form.folderName}
+                              placeholder="LessonCue"
+                              maxLength={128}
+                              onChange={(event) =>
+                                updatePolicyRemote(provider, {
+                                  folderName: event.target.value,
                                 })
                               }
                             />
@@ -3411,6 +3837,18 @@ export function Settings({
                                     : ""}
                                 </p>
                               )}
+                              {status?.lastMediaSyncAt && (
+                                <p className="settings-copy">
+                                  Media synced {timeAgo(status.lastMediaSyncAt)}
+                                  {status.lastMediaSyncAdded !== undefined ||
+                                  status.lastMediaSyncUpdated !== undefined ||
+                                  status.lastMediaSyncDeleted !== undefined
+                                    ? ` · ${status.lastMediaSyncAdded || 0} added, ${status.lastMediaSyncUpdated || 0} updated, ${status.lastMediaSyncDeleted || 0} deleted`
+                                    : ""}
+                                </p>
+                              )}
+                            </>
+                          )}
                             </>
                           )}
                         </div>
@@ -3421,7 +3859,8 @@ export function Settings({
                     Credentials are protected on this server and never
                     included in ordinary backup archives. Use a Nextcloud or
                     ownCloud app password rather than your main account
-                    password.
+                    password. Google OAuth credentials and refresh tokens are
+                    also encrypted on the server.
                   </p>
                 </div>
                 <div className="head-actions">

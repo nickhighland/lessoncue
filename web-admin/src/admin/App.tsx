@@ -711,6 +711,8 @@ export function Auth({
             <Field label="Username">
               <input
                 name="username"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
                 required
                 minLength={3}
                 autoComplete="username"
@@ -1447,6 +1449,7 @@ export function Shell({
                   lessons={lessons}
                   screens={screens}
                   onNavigate={setView}
+                  canManageUpdates={canManageUpdates}
                 />
               )}
               {view === "controller" && bootstrap && (

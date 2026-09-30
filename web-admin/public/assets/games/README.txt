@@ -30,9 +30,24 @@ first that has the file:
   4. otherwise, the synthesized effect (or, for music, silence)
 
 Only the 28 engine folders and `shared` are scaffolded here, because that is
-enough to cover all 164 named games in the catalog. Wager Trivia, Fact or
+enough to cover all 162 named games in the catalog. Wager Trivia, Fact or
 Fiction, Finish the Quote and every other quiz preset resolve through
 assets/games/trivia/.
+
+START WITH shared/. It is the only pack consulted for every activity, so one
+set of fourteen files gives every game in LessonCue sound. An engine folder is
+then an override, and only for the cues it actually supplies. A .txt is not an
+override — only a real .mp3 is, so scaffolding alone changes nothing.
+
+Every placeholder says which games reach it and which do not. Those sections
+are generated from the preset catalog and from which packs already ship an
+.mp3, so regenerate them after adding an engine folder, a named preset, or any
+.mp3:
+
+  npm run audio:placeholders
+
+It rewrites only the generated sections and leaves the hand-written notes
+alone.
 
 To give one named game its own sound, create a folder using its preset id and
 add only the files you want to override. Everything you leave out keeps falling
@@ -51,10 +66,18 @@ CUE LIST
 themes/ — played on the TV/projector only, never on player phones, because
           thirty phones playing the same music bed is a bad room.
 
-  intro-theme.mp3       loops while the join code is up and players arrive
-  game-intro.mp3        one-shot, fires when the game leaves the lobby
-  round-transition.mp3  one-shot, fires at each round intro
-  game-outro.mp3        one-shot, fires at final results / end of run
+  intro-theme.mp3          loops while the join code is up and players arrive
+  game-intro.mp3           one-shot, fires when the game leaves the lobby
+  gameplay-bed.mp3         loops under ordinary play, once the game starts
+  countdown-bed.mp3        loops while a clock is running, replacing the above
+  countdown-announce.mp3   one-shot, fires as a timed window opens
+  countdown-final-five.mp3 one-shot, fires as the clock crosses five seconds
+  round-transition.mp3     one-shot, fires at each round intro
+  game-outro.mp3           one-shot, fires at final results / end of run
+
+Only one bed plays at a time: countdown-bed takes over from gameplay-bed while
+a clock runs and hands back when it stops. Beds and stings play on separate
+channels, so a sting sounds over the music rather than replacing it.
 
 sfx/ — played on participant phones and host controls.
 

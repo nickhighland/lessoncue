@@ -30,6 +30,7 @@ class LessonCueApi(
     serverUrl: String,
     private val manifestCache: File? = null,
     private val openConnection: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection },
+    private val connectionDiagnostics: ConnectionDiagnostics? = null,
 ) {
     val baseUrl = normalizeLessonCueServerUrl(serverUrl)
 
@@ -37,6 +38,14 @@ class LessonCueApi(
         val json = request("/.well-known/lessoncue")
         JSONObject(json).getString("serverName")
     }
+
+    suspend fun discoverQuickly(): String = withContext(Dispatchers.IO) {
+        val json = request("/.well-known/lessoncue", connectTimeoutMillis = 1_500, readTimeoutMillis = 2_500)
+        JSONObject(json).getString("serverName")
+    }
+
+    fun withConnectionDiagnostics(value: ConnectionDiagnostics): LessonCueApi =
+        LessonCueApi(baseUrl, manifestCache, openConnection, value)
 
     suspend fun requestPairing(deviceName: String): String = withContext(Dispatchers.IO) {
         val body = JSONObject()
@@ -49,7 +58,7 @@ class LessonCueApi(
     suspend fun confirmPairing(requestId: String, pin: String): DeviceIdentity = withContext(Dispatchers.IO) {
         val body = JSONObject().put("requestId", requestId).put("pin", pin)
         val json = JSONObject(request("/api/v1/pairing/confirm", "POST", body.toString()))
-        DeviceIdentity(json.getString("screenId"), json.getString("deviceToken"), baseUrl)
+        DeviceIdentity(json.getString("screenId"), json.getString("deviceToken"), baseUrl, connectionDiagnostics)
     }
 
     /**
@@ -126,6 +135,17 @@ class LessonCueApi(
             .put("downloadQueue", queue)
             .put("codecCapabilities", codecs)
             .put("recentErrors", errors)
+            .put("serverHostRequested", connectionDiagnostics?.requestedServerUrl ?: identity.serverUrl)
+            .put("selectedServerEndpoint", identity.serverUrl)
+            .put("connectionCandidates", JSONArray().apply {
+                connectionDiagnostics?.candidates.orEmpty().forEach { candidate ->
+                    put(JSONObject().put("endpoint", candidate.endpoint)
+                        .put("source", candidate.source)
+                        .put("addressFamily", candidate.addressFamily)
+                        .put("outcome", candidate.outcome)
+                        .put("reason", candidate.reason))
+                }
+            })
         manifest?.signage?.firstOrNull()?.let { signage ->
             body.put("signageId", signage.id)
                 .put("signageVersion", signage.publishedVersion)
@@ -423,7 +443,17 @@ class LessonCueApi(
         fallbackMessage = json.optString("fallbackMessage").takeIf { it.isNotBlank() && it != "null" },
         cuePoints = json.optJSONArray("cuePoints")?.mapObjects { cue ->
             CuePoint(cue.getString("name"), cue.getLong("positionMs"))
-        } ?: emptyList()
+        } ?: emptyList(),
+        streamingSources = json.optJSONArray("streamingSources")?.mapObjects { source -> PlaybackSource(
+            profile = source.optString("profile", "original"),
+            url = source.optString("url").takeIf { it.isNotBlank() && it != "null" }
+                ?.let { if (it.startsWith("http")) it else "$baseUrl$it" }.orEmpty(),
+            contentType = source.optString("contentType").takeIf { it.isNotBlank() && it != "null" },
+            sha256 = source.optString("sha256").takeIf { it.isNotBlank() && it != "null" },
+            sizeBytes = source.optLong("sizeBytes").takeIf { source.has("sizeBytes") && !source.isNull("sizeBytes") },
+            width = source.optInt("width").takeIf { source.has("width") && !source.isNull("width") },
+            height = source.optInt("height").takeIf { source.has("height") && !source.isNull("height") }
+        ) }.orEmpty().filter { it.url.isNotBlank() }
     )
 
     private fun request(
@@ -442,6 +472,9 @@ class LessonCueApi(
         val connection = openConnection(URL("$baseUrl$path"))
         try {
             connection.requestMethod = method
+            // Never let a server redirect an authenticated device request to a
+            // different host (or from HTTPS to cleartext) implicitly.
+            connection.instanceFollowRedirects = false
             connection.connectTimeout = connectTimeoutMillis
             connection.readTimeout = readTimeoutMillis
             connection.setRequestProperty("Accept", "application/json")
@@ -480,8 +513,8 @@ class LessonCueApi(
     }
 }
 
-private fun ScreenManifest.allItems(): List<CueItem> = (playlists.flatMap {
-    it.items + it.preRoll?.items.orEmpty() + listOfNotNull(it.countdown?.item)
+internal fun ScreenManifest.allItems(): List<CueItem> = (playlists.flatMap {
+    it.items + it.preRoll?.items.orEmpty() + listOfNotNull(it.countdown?.item) + it.postLesson?.items.orEmpty()
 } + signageSchedule.flatMap { sign -> listOfNotNull(sign.media, sign.backgroundAudio) + sign.zones.mapNotNull { it.media } +
     sign.contentPlaylist?.items.orEmpty().flatMap { entry ->
         listOfNotNull(entry.media, entry.layout?.backgroundAudio) + entry.layout?.zones.orEmpty().mapNotNull { it.media }

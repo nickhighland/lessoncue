@@ -160,11 +160,13 @@ public sealed class MediaRetentionService(
         });
     }
 
+    // Not ContainedPath.DeleteIfContained: that swallows IO failures, which is
+    // right for a cleanup path and wrong here. Retention reports what it
+    // removed, so a file it could not delete has to surface rather than leave
+    // the record saying the data is gone.
     private static void DeleteStoredFile(string root, string relativePath)
     {
-        if (string.IsNullOrWhiteSpace(relativePath)) return;
-        var normalizedRoot = Path.GetFullPath(root) + Path.DirectorySeparatorChar;
-        var fullPath = Path.GetFullPath(Path.Combine(root, relativePath));
-        if (fullPath.StartsWith(normalizedRoot, StringComparison.Ordinal) && File.Exists(fullPath)) File.Delete(fullPath);
+        var path = ContainedPath.ResolveExistingFile(root, relativePath);
+        if (path is not null) File.Delete(path);
     }
 }

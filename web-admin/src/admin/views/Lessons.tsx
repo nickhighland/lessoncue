@@ -917,6 +917,9 @@ export function LessonEditor({
   const [relocateAction, setRelocateAction] = useState<"copy" | "move">("copy");
   const [draggedLibraryMediaId, setDraggedLibraryMediaId] = useState<string>();
   const [libraryDropIndex, setLibraryDropIndex] = useState<number>();
+  const [draggedCueId, setDraggedCueId] = useState<string>();
+  const [cueDropIndex, setCueDropIndex] = useState<number>();
+  const [cueDropRole, setCueDropRole] = useState<PlaylistItem["role"]>();
   const [activeSequenceSection, setActiveSequenceSection] = useState<"total" | PlaylistItem["role"]>("total");
   const [newCueId, setNewCueId] = useState<string>();
   const [showSchedule, setShowSchedule] = useState(false);
@@ -928,6 +931,10 @@ export function LessonEditor({
   const draftTimer = useRef<number | undefined>(undefined);
   const lessonSettingsRef = useRef<HTMLFormElement>(null);
   const items = [...lesson.items].sort((a, b) => a.position - b.position);
+  const itemsRef = useRef(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
   const assignedScreens = screens.filter(
     (screen) => !screen.revoked && screen.assignedClassId === lesson.classId,
   );
@@ -942,6 +949,17 @@ export function LessonEditor({
   } | undefined>(undefined);
   const libraryDropHandledRef = useRef(false);
   const suppressLibraryClickUntilRef = useRef(0);
+  const cueDropIndexRef = useRef<number | undefined>(undefined);
+  const cueDropRoleRef = useRef<PlaylistItem["role"] | undefined>(undefined);
+  const cuePointerDragRef = useRef<{
+    itemId: string;
+    role: PlaylistItem["role"];
+    pointerId: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | undefined>(undefined);
+  const cueDropHandledRef = useRef(false);
   useEffect(() => {
     if (!showAdd) return;
     void api<AudiencePollOption[]>("/api/v1/audience/admin/sessions")
@@ -1265,6 +1283,172 @@ export function LessonEditor({
       body: JSON.stringify({ itemIds: reordered.map((item) => item.id) }),
     });
     refresh();
+  }
+  async function reorderCue(itemId: string, role: PlaylistItem["role"], dropIndex: number) {
+    const currentItems = itemsRef.current;
+    const roleItems = currentItems.filter((item) => item.role === role);
+    const sourceIndex = roleItems.findIndex((item) => item.id === itemId);
+    if (sourceIndex < 0) return;
+    const boundedDropIndex = Math.max(0, Math.min(dropIndex, roleItems.length));
+    const insertIndex = boundedDropIndex > sourceIndex ? boundedDropIndex - 1 : boundedDropIndex;
+    if (insertIndex === sourceIndex) return;
+
+    const nextRoleItems = roleItems.filter((item) => item.id !== itemId);
+    nextRoleItems.splice(insertIndex, 0, roleItems[sourceIndex]);
+    const rolePositions = currentItems
+      .map((item, index) => item.role === role ? index : -1)
+      .filter((index) => index >= 0);
+    const reordered = [...currentItems];
+    rolePositions.forEach((position, index) => {
+      reordered[position] = nextRoleItems[index];
+    });
+    await api(`/api/v1/lessons/${lesson.id}/reorder`, {
+      method: "POST",
+      body: JSON.stringify({ itemIds: reordered.map((item) => item.id) }),
+    });
+    refresh();
+  }
+  const reorderCueRef = useRef(reorderCue);
+  useEffect(() => {
+    reorderCueRef.current = reorderCue;
+  });
+  function clearCueDrag() {
+    cuePointerDragRef.current = undefined;
+    cueDropIndexRef.current = undefined;
+    cueDropRoleRef.current = undefined;
+    setDraggedCueId(undefined);
+    setCueDropIndex(undefined);
+    setCueDropRole(undefined);
+  }
+  function cueDropIndexAtPoint(clientX: number, clientY: number, role: PlaylistItem["role"]) {
+    const target = document.elementFromPoint(clientX, clientY);
+    const card = target?.closest<HTMLElement>(".playlist-item");
+    const dropZone = target?.closest<HTMLElement>("[data-sequence-role]");
+    const targetRole = card?.dataset.sequenceRole || dropZone?.dataset.sequenceRole;
+    if (targetRole !== role) return undefined;
+    if (!card) return itemsRef.current.filter((item) => item.role === role).length;
+    const cardIndex = Number(card.dataset.sequenceIndex);
+    if (!Number.isInteger(cardIndex)) return undefined;
+    const bounds = card.getBoundingClientRect();
+    return clientX < bounds.left + bounds.width / 2 ? cardIndex : cardIndex + 1;
+  }
+  function beginCuePointerDrag(event: ReactPointerEvent<HTMLElement>, item: PlaylistItem) {
+    if ((event.pointerType === "mouse" && event.button !== 0) || !event.isPrimary) return;
+    if ((event.target as HTMLElement).closest("button, input, select, textarea, a, summary")) return;
+    cueDropHandledRef.current = false;
+    cuePointerDragRef.current = {
+      itemId: item.id,
+      role: item.role,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    };
+    cueDropIndexRef.current = undefined;
+    cueDropRoleRef.current = item.role;
+    setDraggedCueId(item.id);
+    setCueDropIndex(undefined);
+    setCueDropRole(item.role);
+  }
+  useEffect(() => {
+    if (!draggedCueId) return;
+    const finishPointerDrag = (event: PointerEvent, cancelled = false) => {
+      const drag = cuePointerDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const index = cueDropIndexAtPoint(event.clientX, event.clientY, drag.role) ?? cueDropIndexRef.current;
+      const shouldDrop = drag.moved && !cancelled && !cueDropHandledRef.current && index != null;
+      cueDropHandledRef.current = shouldDrop;
+      clearCueDrag();
+      if (shouldDrop) void reorderCueRef.current(drag.itemId, drag.role, index);
+    };
+    const handlePointerMove = (event: PointerEvent) => {
+      const drag = cuePointerDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6) return;
+      drag.moved = true;
+      event.preventDefault();
+      const index = cueDropIndexAtPoint(event.clientX, event.clientY, drag.role);
+      if (index == null) return;
+      cueDropIndexRef.current = index;
+      cueDropRoleRef.current = drag.role;
+      setCueDropIndex(index);
+      setCueDropRole(drag.role);
+    };
+    const handlePointerUp = (event: PointerEvent) => finishPointerDrag(event);
+    const handlePointerCancel = (event: PointerEvent) => finishPointerDrag(event, true);
+    document.addEventListener("pointermove", handlePointerMove, { passive: false });
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handlePointerCancel);
+    return () => {
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handlePointerCancel);
+    };
+  }, [draggedCueId]);
+  function cueDragStart(event: ReactDragEvent<HTMLElement>, item: PlaylistItem) {
+    if ((event.target as HTMLElement).closest("button, input, select, textarea, a, summary")) {
+      event.preventDefault();
+      return;
+    }
+    cuePointerDragRef.current = undefined;
+    cueDropHandledRef.current = false;
+    setDraggedCueId(item.id);
+    setCueDropIndex(undefined);
+    setCueDropRole(item.role);
+    cueDropRoleRef.current = item.role;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-lessoncue-playlist-item-id", item.id);
+    event.dataTransfer.setData("text/plain", item.id);
+  }
+  function cueDragEnd() {
+    clearCueDrag();
+  }
+  function sequenceDragOver(event: ReactDragEvent<HTMLElement>, index: number, role: PlaylistItem["role"]) {
+    const cueId = event.dataTransfer.getData("application/x-lessoncue-playlist-item-id") || draggedCueId;
+    const source = cueId ? itemsRef.current.find((item) => item.id === cueId) : undefined;
+    if (source) {
+      if (source.role !== role) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      const card = (event.target as HTMLElement).closest<HTMLElement>(".playlist-item");
+      const nextIndex = card
+        ? (() => {
+            const cardIndex = Number(card.dataset.sequenceIndex);
+            if (!Number.isInteger(cardIndex)) return index;
+            const bounds = card.getBoundingClientRect();
+            return event.clientX < bounds.left + bounds.width / 2 ? cardIndex : cardIndex + 1;
+          })()
+        : index;
+      cueDropIndexRef.current = nextIndex;
+      cueDropRoleRef.current = role;
+      setCueDropIndex(nextIndex);
+      setCueDropRole(role);
+      return;
+    }
+    libraryDragOver(event, index, role);
+  }
+  async function sequenceDrop(event: ReactDragEvent<HTMLElement>, role: PlaylistItem["role"]) {
+    if (cueDropHandledRef.current) return;
+    const cueId = event.dataTransfer.getData("application/x-lessoncue-playlist-item-id") || draggedCueId;
+    const source = cueId ? itemsRef.current.find((item) => item.id === cueId) : undefined;
+    if (source) {
+      if (source.role !== role) return;
+      event.preventDefault();
+      const card = (event.target as HTMLElement).closest<HTMLElement>(".playlist-item");
+      let index = cueDropIndexRef.current ?? cueDropIndex;
+      if (card) {
+        const cardIndex = Number(card.dataset.sequenceIndex);
+        if (Number.isInteger(cardIndex)) {
+          const bounds = card.getBoundingClientRect();
+          index = event.clientX < bounds.left + bounds.width / 2 ? cardIndex : cardIndex + 1;
+        }
+      }
+      cueDropHandledRef.current = true;
+      clearCueDrag();
+      if (index != null) await reorderCue(source.id, source.role, index);
+      return;
+    }
+    await libraryDrop(event, role);
   }
   async function addLibraryMedia(asset: Media, index = items.length, roleOverride?: PlaylistItem["role"]) {
     try {
@@ -1711,13 +1895,18 @@ export function LessonEditor({
         index={index}
         sequenceIndex={index}
         total={entries.length}
-        dropEdge={
-          libraryDropIndex === index
+        dropEdge={draggedCueId && cueDropRole === role
+          ? cueDropIndex === index
+            ? "before"
+            : index === entries.length - 1 && cueDropIndex === index + 1
+              ? "after"
+              : undefined
+          : libraryDropIndex === index
             ? "before"
             : index === entries.length - 1 && libraryDropIndex === index + 1
               ? "after"
-              : undefined
-        }
+              : undefined}
+        reordering={draggedCueId === item.id}
         selected={selectedCueIds.has(item.id)}
         highlighted={newCueId === item.id}
         onSelected={() => toggleCue(item.id)}
@@ -1725,8 +1914,11 @@ export function LessonEditor({
         onChange={changeItem}
         onTimeline={() => setPreviewItem(item)}
         onRemove={removeItem}
-        onLibraryDragOver={(event) => libraryDragOver(event, index, role)}
-        onLibraryDrop={(event) => libraryDrop(event, role)}
+        onSequenceDragOver={(event) => sequenceDragOver(event, index, role)}
+        onSequenceDrop={(event) => sequenceDrop(event, role)}
+        onCueDragStart={(event) => cueDragStart(event, item)}
+        onCueDragEnd={cueDragEnd}
+        onCuePointerDown={(event) => beginCuePointerDrag(event, item)}
       />
     ));
   }
@@ -2359,7 +2551,7 @@ export function LessonEditor({
           <div>
             <span className="section-label">PLAYLIST BUILDER</span>
             <h2>Playback sequence</h2>
-            <p>Arrange pre-roll, countdown, main lesson, and post-lesson media in the order the room will see it.</p>
+            <p>Drag a cue's preview to arrange pre-roll, countdown, main lesson, and post-lesson media in the order the room will see it.</p>
           </div>
           <div className="playlist-heading-actions">
             <span className="pill">{items.length} items</span>
@@ -2427,7 +2619,7 @@ export function LessonEditor({
           </label>
           {activeSequenceSection === "total" ? (
             <div
-              className={`lesson-total-sequence ${draggedLibraryMediaId ? "is-library-dragging" : ""}`}
+              className={`lesson-total-sequence ${draggedLibraryMediaId ? "is-library-dragging" : ""} ${draggedCueId ? "is-cue-dragging" : ""}`}
               aria-label="Total playback sequence grouped by section"
             >
               {sequenceGroups.map((group) => (
@@ -2439,25 +2631,25 @@ export function LessonEditor({
                 >
                   {group.items.length ? (
                     <div
-                      className={`playlist lesson-playlist-track section-${group.role} ${draggedLibraryMediaId ? "is-library-dragging" : ""}`}
+                      className={`playlist lesson-playlist-track section-${group.role} ${draggedLibraryMediaId ? "is-library-dragging" : ""} ${draggedCueId ? "is-cue-dragging" : ""}`}
                       aria-label={`${group.label} playback sequence`}
                       onDragOver={(event) => {
                         if (!(event.target as HTMLElement).closest(".playlist-item")) {
-                          libraryDragOver(event, group.items.length, group.role);
+                          sequenceDragOver(event, group.items.length, group.role);
                         }
                       }}
-                      onDrop={(event) => libraryDrop(event, group.role)}
+                      onDrop={(event) => sequenceDrop(event, group.role)}
                     >
                       {renderSequenceItems(group.items, group.role)}
                     </div>
                   ) : (
                     <section
-                      className={`lesson-empty-drop-target ${draggedLibraryMediaId ? "is-library-dragging" : ""} ${libraryDropIndex === 0 ? "is-drop-ready" : ""}`}
+                      className={`lesson-empty-drop-target ${draggedLibraryMediaId ? "is-library-dragging" : ""} ${draggedCueId ? "is-cue-dragging" : ""} ${libraryDropIndex === 0 || cueDropIndex === 0 ? "is-drop-ready" : ""}`}
                       data-sequence-role={group.role}
                       aria-label={`Drop media into empty ${group.label} section`}
                       title={`Drop media into ${group.label}`}
-                      onDragOver={(event) => libraryDragOver(event, 0, group.role)}
-                      onDrop={(event) => libraryDrop(event, group.role)}
+                      onDragOver={(event) => sequenceDragOver(event, 0, group.role)}
+                      onDrop={(event) => sequenceDrop(event, group.role)}
                     />
                   )}
                 </section>
@@ -2465,25 +2657,25 @@ export function LessonEditor({
             </div>
           ) : visibleSequenceItems.length ? (
             <section
-              className={`playlist lesson-playlist-track section-${activeSectionRole} ${draggedLibraryMediaId ? "is-library-dragging" : ""}`}
+              className={`playlist lesson-playlist-track section-${activeSectionRole} ${draggedLibraryMediaId ? "is-library-dragging" : ""} ${draggedCueId ? "is-cue-dragging" : ""}`}
               data-sequence-role={activeSectionRole}
               aria-label={`${roleName(activeSectionRole)} playback sequence`}
               onDragOver={(event) => {
                 if (!(event.target as HTMLElement).closest(".playlist-item")) {
-                  libraryDragOver(event, visibleSequenceItems.length, activeSectionRole);
+                  sequenceDragOver(event, visibleSequenceItems.length, activeSectionRole);
                 }
               }}
-              onDrop={(event) => libraryDrop(event, activeSectionRole)}
+              onDrop={(event) => sequenceDrop(event, activeSectionRole)}
             >
               {renderSequenceItems(visibleSequenceItems, activeSectionRole)}
             </section>
           ) : (
             <section
-              className={`lesson-empty-drop-target ${draggedLibraryMediaId ? "is-library-dragging" : ""} ${libraryDropIndex === 0 ? "is-drop-ready" : ""}`}
+              className={`lesson-empty-drop-target ${draggedLibraryMediaId ? "is-library-dragging" : ""} ${draggedCueId ? "is-cue-dragging" : ""} ${libraryDropIndex === 0 || cueDropIndex === 0 ? "is-drop-ready" : ""}`}
               data-sequence-role={activeSectionRole}
               aria-label={`Drop media into empty ${roleName(activeSectionRole)} section`}
-              onDragOver={(event) => libraryDragOver(event, 0, activeSectionRole)}
-              onDrop={(event) => libraryDrop(event, activeSectionRole)}
+              onDragOver={(event) => sequenceDragOver(event, 0, activeSectionRole)}
+              onDrop={(event) => sequenceDrop(event, activeSectionRole)}
             >
               <Empty
                 title={`No ${roleName(activeSectionRole).toLowerCase()} cues yet`}
@@ -2566,6 +2758,7 @@ export function PlaylistCueRow({
   sequenceIndex,
   total,
   dropEdge,
+  reordering,
   selected,
   highlighted,
   onSelected,
@@ -2573,8 +2766,11 @@ export function PlaylistCueRow({
   onChange,
   onTimeline,
   onRemove,
-  onLibraryDragOver,
-  onLibraryDrop,
+  onSequenceDragOver,
+  onSequenceDrop,
+  onCueDragStart,
+  onCueDragEnd,
+  onCuePointerDown,
 }: {
   item: PlaylistItem;
   media?: Media;
@@ -2587,13 +2783,17 @@ export function PlaylistCueRow({
     changes: Record<string, unknown>,
   ) => void | Promise<void>;
   dropEdge?: "before" | "after";
+  reordering: boolean;
   selected: boolean;
   highlighted: boolean;
   onSelected: () => void;
   onTimeline: () => void;
   onRemove: (id: string) => void | Promise<void>;
-  onLibraryDragOver: (event: ReactDragEvent<HTMLElement>) => void;
-  onLibraryDrop: (event: ReactDragEvent<HTMLElement>) => void | Promise<void>;
+  onSequenceDragOver: (event: ReactDragEvent<HTMLElement>) => void;
+  onSequenceDrop: (event: ReactDragEvent<HTMLElement>) => void | Promise<void>;
+  onCueDragStart: (event: ReactDragEvent<HTMLElement>) => void;
+  onCueDragEnd: () => void;
+  onCuePointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
 }) {
   const visual = item.type === "video" || item.type === "image";
   const [timedStill, setTimedStill] = useState(item.imageDurationSeconds != null);
@@ -2649,14 +2849,19 @@ export function PlaylistCueRow({
   }
   return (
     <article
-      className={`playlist-item ${item.role} ${selected ? "selected" : ""} ${highlighted ? "newly-added" : ""} ${dropEdge ? `drop-${dropEdge}` : ""}`}
+      className={`playlist-item ${item.role} ${selected ? "selected" : ""} ${highlighted ? "newly-added" : ""} ${reordering ? "is-reordering" : ""} ${dropEdge ? `drop-${dropEdge}` : ""}`}
       id={`lesson-cue-${item.id}`}
       tabIndex={-1}
+      draggable
+      data-reorderable="true"
       data-sequence-index={sequenceIndex}
       data-sequence-role={item.role}
-      onDragEnter={onLibraryDragOver}
-      onDragOver={onLibraryDragOver}
-      onDrop={onLibraryDrop}
+      onPointerDown={onCuePointerDown}
+      onDragStart={onCueDragStart}
+      onDragEnd={onCueDragEnd}
+      onDragEnter={onSequenceDragOver}
+      onDragOver={onSequenceDragOver}
+      onDrop={onSequenceDrop}
     >
       <label className="media-select">
         <input
@@ -2683,12 +2888,13 @@ export function PlaylistCueRow({
           ↓
         </button>
       </div>
-      <div className="media-thumb cue-visual-thumb">
+      <div className="media-thumb cue-visual-thumb" title="Drag this preview to reorder the cue">
         {media?.thumbnailUrl ? (
           <img src={media.thumbnailUrl} alt="" />
         ) : (
           item.type === "video" ? "▶" : item.type === "audio" ? "♫" : "▧"
         )}
+        <span className="cue-drag-grip" aria-hidden="true">⋮⋮</span>
       </div>
       <div className="item-main">
         <div className="cue-card-heading">

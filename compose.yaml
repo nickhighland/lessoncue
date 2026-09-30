@@ -32,12 +32,6 @@ services:
       # keeps the documented 10001:10001 default.
       LESSONCUE_UID: "${LESSONCUE_UID:-10001}"
       LESSONCUE_GID: "${LESSONCUE_GID:-10001}"
-      # Docker's default seccomp profile commonly blocks the nested user and
-      # mount namespaces Bubblewrap needs. The outer container already supplies
-      # the isolation boundary, so Docker defaults to the constrained worker
-      # fallback; set LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX=0 only on a host that
-      # has explicitly enabled nested namespaces.
-      LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX: "${LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX:-1}"
       LESSONCUE_SERVER_NAME: "${LESSONCUE_SERVER_NAME:-LessonCue}"
       # Passed in so the tunnel instructions name the ports actually published,
       # rather than the defaults this file happens to use.
@@ -49,6 +43,31 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  # Optional for Unraid and other Docker hosts. Native Linux installations use
+  # LessonCue's protected systemd integration instead; a container cannot
+  # install or supervise that host service. Create the remotely managed
+  # Cloudflare route with its origin set to http://lessoncue:8080, then start
+  # this profile with a token file supplied only through the host's secret
+  # store.
+  cloudflared:
+    image: "${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:2026.9.3}"
+    container_name: lessoncue-cloudflared
+    profiles: ["cloudflare-tunnel"]
+    restart: unless-stopped
+    depends_on:
+      lessoncue:
+        condition: service_healthy
+    command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/secrets/cloudflare_tunnel_token"]
+    volumes:
+      - "${CLOUDFLARE_TUNNEL_TOKEN_FILE:-./lessoncue-data/config/cloudflare/tunnel-token}:/run/secrets/cloudflare_tunnel_token:ro"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
 
   # ------------------------------------------------------------------------
   # Optional URL shortener. Nothing below starts unless it is asked for:
@@ -71,7 +90,7 @@ services:
     expose:
       - "5432"
     volumes:
-      - "${SHORTENER_DB_PATH:-./shortener-data/postgres}:/var/lib/postgresql/data"
+      - "${SHORTENER_DB_PATH:-${SHORTENER_DATA_DIR:-./shortener-data}/postgres}:/var/lib/postgresql/data"
     environment:
       POSTGRES_DB: shlink
       POSTGRES_USER: shlink

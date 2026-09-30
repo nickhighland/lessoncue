@@ -67,14 +67,9 @@ public sealed class ScreenDiagnosticCleanupService(IServiceScopeFactory scopes, 
         var screens = candidates.Where(x =>
             (x.ScreenshotStatus == "pending" && x.ScreenshotExpiresAt < now) ||
             (x.ScreenshotCapturedAt != null && x.ScreenshotCapturedAt < now.AddHours(-24))).ToList();
-        var root = Path.GetFullPath(dataPath) + Path.DirectorySeparatorChar;
         foreach (var screen in screens)
         {
-            if (!string.IsNullOrWhiteSpace(screen.ScreenshotRelativePath))
-            {
-                var path = Path.GetFullPath(Path.Combine(dataPath, screen.ScreenshotRelativePath));
-                if (path.StartsWith(root, StringComparison.Ordinal)) try { File.Delete(path); } catch { }
-            }
+            DeleteScreenshot(dataPath, screen.ScreenshotRelativePath);
             screen.ScreenshotRequestId = null;
             screen.ScreenshotRequestedAt = null;
             screen.ScreenshotExpiresAt = null;
@@ -86,13 +81,8 @@ public sealed class ScreenDiagnosticCleanupService(IServiceScopeFactory scopes, 
         return screens.Count;
     }
 
-    private static void DeleteScreenshot(string dataPath, string? relativePath)
-    {
-        if (string.IsNullOrWhiteSpace(relativePath)) return;
-        var root = Path.GetFullPath(dataPath) + Path.DirectorySeparatorChar;
-        var path = Path.GetFullPath(Path.Combine(dataPath, relativePath));
-        if (path.StartsWith(root, StringComparison.Ordinal)) try { File.Delete(path); } catch { }
-    }
+    private static void DeleteScreenshot(string dataPath, string? relativePath) =>
+        ContainedPath.DeleteIfContained(dataPath, relativePath);
 
     public static bool IsBrowserPairExpired(string platform, DateTimeOffset? lastSeenAt,
         DateTimeOffset credentialCreatedAt, DateTimeOffset now) =>

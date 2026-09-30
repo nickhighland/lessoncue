@@ -9,6 +9,9 @@ fi
 systemctl disable --now lessoncue 2>/dev/null || true
 systemctl disable --now lessoncue-update.path 2>/dev/null || true
 systemctl stop lessoncue-update 2>/dev/null || true
+systemctl disable --now lessoncue-ytdlp-update.timer 2>/dev/null || true
+systemctl disable --now lessoncue-ytdlp-update.path 2>/dev/null || true
+systemctl stop lessoncue-ytdlp-update.service 2>/dev/null || true
 systemctl disable --now lessoncue-cloudflared.service 2>/dev/null || true
 if [[ -f /etc/avahi/avahi-daemon.conf && -f /var/lib/lessoncue/config/local-hostname ]]; then
   LOCAL_HOSTNAME="$(tr -d '[:space:]' < /var/lib/lessoncue/config/local-hostname)"
@@ -16,7 +19,7 @@ if [[ -f /etc/avahi/avahi-daemon.conf && -f /var/lib/lessoncue/config/local-host
     sed -i -E "s/^[[:space:]]*host-name[[:space:]]*=[[:space:]]*${LOCAL_HOSTNAME}[[:space:]]*$/#host-name=/" /etc/avahi/avahi-daemon.conf
   fi
 fi
-rm -f /etc/systemd/system/lessoncue.service /etc/systemd/system/lessoncue-cloudflared.service /etc/systemd/system/lessoncue-update.service /etc/systemd/system/lessoncue-update.path /etc/avahi/services/lessoncue.service
+rm -f /etc/systemd/system/lessoncue.service /etc/systemd/system/lessoncue-cloudflared.service /etc/systemd/system/lessoncue-update.service /etc/systemd/system/lessoncue-update.path /etc/systemd/system/lessoncue-ytdlp-update.service /etc/systemd/system/lessoncue-ytdlp-update.path /etc/systemd/system/lessoncue-ytdlp-update.timer /etc/avahi/services/lessoncue.service
 rm -f /usr/local/sbin/lessoncue-update
 rm -f /usr/local/libexec/lessoncue-media-worker
 rm -f /etc/udev/rules.d/99-lessoncue-render.rules

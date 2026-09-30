@@ -411,6 +411,16 @@ public static class DatabaseUpgrade
             ["Organizations.EmailFromAddress"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"EmailFromAddress\" TEXT NOT NULL DEFAULT ''"),
             ["Organizations.EmailFromName"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"EmailFromName\" TEXT NOT NULL DEFAULT 'LessonCue'"),
             ["Organizations.EmailProvider"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"EmailProvider\" TEXT NOT NULL DEFAULT 'none'"),
+            ["Organizations.DailyTroubleshootingEmailEnabled"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"DailyTroubleshootingEmailEnabled\" INTEGER NOT NULL DEFAULT 0"),
+            ["Organizations.DailyTroubleshootingEmailRecipient"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"DailyTroubleshootingEmailRecipient\" TEXT NOT NULL DEFAULT ''"),
+            ["Organizations.DailyTroubleshootingEmailTime"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"DailyTroubleshootingEmailTime\" TEXT NOT NULL DEFAULT '07:00'"),
+            ["Organizations.DailyTroubleshootingEmailLastSentAt"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"DailyTroubleshootingEmailLastSentAt\" TEXT NULL"),
+            ["Organizations.DailyTroubleshootingEmailLastError"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"DailyTroubleshootingEmailLastError\" TEXT NULL"),
+            ["Organizations.TroubleshootingReviewSettingsJson"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"TroubleshootingReviewSettingsJson\" TEXT NOT NULL DEFAULT '{}'"),
+            ["Organizations.TroubleshootingReviewLastRunAt"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"TroubleshootingReviewLastRunAt\" TEXT NULL"),
+            ["Organizations.TroubleshootingReviewLastStatus"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"TroubleshootingReviewLastStatus\" TEXT NOT NULL DEFAULT 'never'"),
+            ["Organizations.TroubleshootingReviewLastError"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"TroubleshootingReviewLastError\" TEXT NULL"),
+            ["Organizations.TroubleshootingReviewLastArtifact"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"TroubleshootingReviewLastArtifact\" TEXT NULL"),
             ["Organizations.UploadQuotaPolicyJson"] = ("Organizations", "ALTER TABLE \"Organizations\" ADD COLUMN \"UploadQuotaPolicyJson\" TEXT NOT NULL DEFAULT '{}'"),
             ["MediaAssets.ConversionLessonId"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"ConversionLessonId\" TEXT NULL"),
             ["MediaAssets.ConversionSlideDurationSeconds"] = ("MediaAssets", "ALTER TABLE \"MediaAssets\" ADD COLUMN \"ConversionSlideDurationSeconds\" INTEGER NOT NULL DEFAULT 10"),
@@ -581,6 +591,7 @@ public static class DatabaseUpgrade
             ["Screens.DownloadQueueJson"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"DownloadQueueJson\" TEXT NOT NULL DEFAULT '[]'"),
             ["Screens.CodecCapabilitiesJson"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"CodecCapabilitiesJson\" TEXT NOT NULL DEFAULT '[]'"),
             ["Screens.RecentErrorsJson"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"RecentErrorsJson\" TEXT NOT NULL DEFAULT '[]'"),
+            ["Screens.ConnectionDiagnosticsJson"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ConnectionDiagnosticsJson\" TEXT NOT NULL DEFAULT '{}'"),
             ["Screens.ClockOffsetMs"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"ClockOffsetMs\" INTEGER NULL"),
             ["Screens.NetworkLatencyMs"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"NetworkLatencyMs\" INTEGER NULL"),
             ["Screens.NetworkQuality"] = ("Screens", "ALTER TABLE \"Screens\" ADD COLUMN \"NetworkQuality\" TEXT NOT NULL DEFAULT 'unknown'"),
@@ -861,6 +872,7 @@ public static class DatabaseUpgrade
                 "LessonId" TEXT NULL,
                 "JoinCode" TEXT NOT NULL,
                 "CurrentRunId" TEXT NULL,
+                "OpeningRunId" TEXT NULL,
                 "CreatedAt" TEXT NOT NULL,
                 "UpdatedAt" TEXT NOT NULL,
                 "ScoresResetAt" TEXT NULL
@@ -868,6 +880,8 @@ public static class DatabaseUpgrade
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_ActivitySessionGroups_JoinCode" ON "ActivitySessionGroups" ("JoinCode");
             CREATE INDEX IF NOT EXISTS "IX_ActivitySessionGroups_LessonId" ON "ActivitySessionGroups" ("LessonId");
             """, cancellationToken);
+        if (!await ColumnExistsAsync(connection, "ActivitySessionGroups", "OpeningRunId", cancellationToken))
+            await ExecuteAsync(connection, "ALTER TABLE \"ActivitySessionGroups\" ADD COLUMN \"OpeningRunId\" TEXT NULL;", cancellationToken);
 
         foreach (var table in new[] { "ActivityParticipants", "ActivityTeams", "ActivityScoreEvents" })
         {

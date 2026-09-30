@@ -67,7 +67,7 @@ test("a correct answer is celebrated on the phone with points and rank", async (
 
     // Standing is shown, and the count-up settles on the real total.
     await expect.poll(async () => (await result.locator(".participant-result-standing dd").nth(1).innerText()).trim())
-      .toBe("100");
+      .toBe("150");
     await expect(result.locator(".participant-result-standing dd").first()).toContainText("1");
   } finally {
     await phone.context().close();

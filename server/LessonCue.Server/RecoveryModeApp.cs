@@ -12,8 +12,11 @@ public static class RecoveryModeApp
         Exception startupFailure)
     {
         var builder = WebApplication.CreateSlimBuilder(args);
-        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
-            builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+        var useDefaultHttpBinding = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS"));
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            if (useDefaultHttpBinding) options.ListenAnyIP(port);
+        });
         var app = builder.Build();
         app.Logger.LogCritical(
             startupFailure,

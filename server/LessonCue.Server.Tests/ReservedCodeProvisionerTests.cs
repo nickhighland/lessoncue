@@ -26,6 +26,7 @@ public class ReservedCodeProvisionerTests
         public int Creates;
         public int Updates;
         public bool Unreachable;
+        public readonly HashSet<string> FailLookups = new(StringComparer.OrdinalIgnoreCase);
         public readonly HashSet<string> RefuseToCreate = new(StringComparer.OrdinalIgnoreCase);
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -39,9 +40,16 @@ public class ReservedCodeProvisionerTests
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
 
             if (request.Method == HttpMethod.Get)
+            {
+                if (FailLookups.Contains(slug))
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                    {
+                        Content = new StringContent("shortener database unavailable"),
+                    });
                 return Task.FromResult(Urls.TryGetValue(slug, out var found)
                     ? Json(HttpStatusCode.OK, slug, found.LongUrl, found.Tags)
                     : new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("{}") });
+            }
 
             if (request.Method == HttpMethod.Post)
             {
@@ -215,10 +223,44 @@ public class ReservedCodeProvisionerTests
         fake.Forget("Z9Y5");
         var creates = fake.Creates;
 
-        var (present, missing) = await provisioner.AuditAsync(Upstream, Key, Domain, TestContext.Current.CancellationToken);
-        Assert.Equal(99, present);
-        Assert.Equal(["Z9Y5"], missing);
+        var audit = await provisioner.AuditAsync(Upstream, Key, Domain, TestContext.Current.CancellationToken);
+        Assert.Equal(99, audit.Present);
+        Assert.Equal(["Z9Y5"], audit.Missing);
+        Assert.Empty(audit.Conflicts);
+        Assert.Empty(audit.Failures);
         Assert.Equal(creates, fake.Creates);
+    }
+
+    [Fact]
+    public async Task AnAuditKeepsShortenerFailuresOutOfTheConflictList()
+    {
+        var (provisioner, fake) = Create();
+        await provisioner.ReconcileAsync(Upstream, Key, Domain, PublicUrl, TestContext.Current.CancellationToken);
+        fake.FailLookups.Add("a3c8");
+
+        var audit = await provisioner.AuditAsync(Upstream, Key, Domain, TestContext.Current.CancellationToken);
+
+        Assert.Equal(99, audit.Present);
+        Assert.Empty(audit.Missing);
+        Assert.Empty(audit.Conflicts);
+        Assert.Single(audit.Failures);
+        Assert.Contains("A3C8", audit.Failures[0], StringComparison.Ordinal);
+        Assert.Contains("500", audit.Failures[0], StringComparison.Ordinal);
+        Assert.Contains("shortener database unavailable", audit.Failures[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnUnreachableShortenerDoesNotLookLikeOneHundredConflicts()
+    {
+        var (provisioner, fake) = Create();
+        fake.Unreachable = true;
+
+        var audit = await provisioner.AuditAsync(Upstream, Key, Domain, TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, audit.Present);
+        Assert.Empty(audit.Missing);
+        Assert.Empty(audit.Conflicts);
+        Assert.Equal(100, audit.Failures.Count);
     }
 
     [Fact]

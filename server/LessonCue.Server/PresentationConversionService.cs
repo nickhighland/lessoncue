@@ -298,10 +298,7 @@ public sealed class PresentationConversionService(
 
     private static string? ResolveStoredFile(string root, string relative)
     {
-        if (string.IsNullOrWhiteSpace(relative)) return null;
-        var normalizedRoot = Path.GetFullPath(root) + Path.DirectorySeparatorChar;
-        var path = Path.GetFullPath(Path.Combine(root, relative));
-        return path.StartsWith(normalizedRoot, StringComparison.Ordinal) && File.Exists(path) ? path : null;
+        return ContainedPath.ResolveExistingFile(root, relative);
     }
     private static void TryDelete(string path) { try { if (File.Exists(path)) File.Delete(path); } catch { } }
     private static void TryDeleteDirectory(string path) { try { if (Directory.Exists(path)) Directory.Delete(path, true); } catch { } }

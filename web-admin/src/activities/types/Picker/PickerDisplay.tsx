@@ -28,6 +28,9 @@ export const PickerDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ e
   const lastPickNonceRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
+    let cancelled = false;
+    let frame: number | undefined;
+    let stopDrumroll: (() => void) | undefined;
     if (state.pickNonce !== undefined && state.pickNonce !== lastPickNonceRef.current && state.currentPick) {
       lastPickNonceRef.current = state.pickNonce;
       setIsWinner(false);
@@ -39,10 +42,11 @@ export const PickerDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ e
       let lastTickTime = 0;
       let tickInterval = 40;
 
-      const stopDrumroll = playDrumrollSound(durationMs);
+      stopDrumroll = playDrumrollSound(durationMs);
       const pool = items.length > 0 ? items : ['Player 1', 'Player 2', 'Player 3', 'Player 4'];
 
       const animate = (now: number) => {
+        if (cancelled) return;
         const elapsed = now - startTime;
         const progress = Math.min(1, elapsed / durationMs);
 
@@ -57,9 +61,10 @@ export const PickerDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ e
         }
 
         if (progress < 1) {
-          requestAnimationFrame(animate);
+          frame = requestAnimationFrame(animate);
         } else {
-          stopDrumroll();
+          stopDrumroll?.();
+          stopDrumroll = undefined;
           setDisplayText(targetPick);
           setIsCycling(false);
           setIsWinner(true);
@@ -68,11 +73,16 @@ export const PickerDisplay: React.FC<{ envelope: ActivityStateEnvelope }> = ({ e
         }
       };
 
-      requestAnimationFrame(animate);
+      frame = requestAnimationFrame(animate);
     } else if (state.currentPick && !isCycling) {
       setDisplayText(state.currentPick);
       setIsWinner(true);
     }
+    return () => {
+      cancelled = true;
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      stopDrumroll?.();
+    };
   }, [state.pickNonce, state.currentPick]);
 
   return (

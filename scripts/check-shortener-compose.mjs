@@ -95,6 +95,10 @@ for (const script of [installer, updater]) {
     "the install and update paths must give Docker a writable config directory under the protected Linux updater");
 }
 check(/ui_health/.test(updater), "the shortener updater must wait for the Companion as well as Shlink");
+check(installer.includes("shlink-installer init") && installer.includes("/rest/v3/short-urls"),
+  "the shortener installer must verify the database schema and authenticated REST API");
+check(updater.includes("database_ready") && updater.includes("shlink-installer init"),
+  "the shortener updater must verify the database schema instead of trusting process health alone");
 
 const shortenerInstallStart = lessonCueUpdater.indexOf('if [[ "${REQUEST}" == shortener:install ]]; then');
 const shortenerInstallEnd = lessonCueUpdater.indexOf('if [[ "${REQUEST}" == tunnel:disable ]]; then', shortenerInstallStart);

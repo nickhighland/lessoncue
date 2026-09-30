@@ -41,10 +41,8 @@ internal class ServiceResolutionQueue<T>(
         if (closed || active != id) return
         active = null
         if (url != null) {
-            close()
             found(url)
-        } else {
-            advance()
         }
+        advance()
     }
 }

@@ -22,10 +22,24 @@ SUGGESTED CHARACTER
 SPEC
   60-180 s, seamlessly loopable, mixed low (plays at 0.28 gain).
 
+COVERS
+  Activities built on the countdown engine — Countdown. This engine has no
+  named games in the catalogue — it is reached by building from blank — so
+  this pack exists for deployments that use it that way.
+
+DOES NOT COVER
+  Games on the other 27 engines. They use their own engine pack when it
+  supplies this cue, and otherwise
+  assets/games/shared/audio/themes/gameplay-bed.mp3.
+
+  One named game can also override this file on its own by adding
+  assets/games/<presetId>/audio/themes/gameplay-bed.mp3; everything it omits
+  keeps falling through to this pack.
+
 IF THIS FILE IS ABSENT
-  Lookup cascades preset → engine → shared. If this file is absent,
-  LessonCue tries assets/games/shared/audio/themes/gameplay-bed.mp3, and if that is
-  also absent, no music plays for this cue. LessonCue synthesizes effects but not
+  Lookup cascades preset → engine → shared. If this file is absent, LessonCue
+  tries assets/games/shared/audio/themes/gameplay-bed.mp3, and if that is also
+  absent, no music plays for this cue. LessonCue synthesizes effects but not
   music, so an absent bed or sting simply means silence. That is the shipped
   default and is not an error.
 

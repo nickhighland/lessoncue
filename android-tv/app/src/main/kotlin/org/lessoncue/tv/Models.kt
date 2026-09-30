@@ -2,7 +2,26 @@ package org.lessoncue.tv
 
 import java.time.Instant
 
-data class DeviceIdentity(val screenId: String, val token: String, val serverUrl: String)
+data class EndpointAttempt(
+    val endpoint: String,
+    val source: String,
+    val addressFamily: String,
+    val outcome: String,
+    val reason: String? = null,
+)
+
+data class ConnectionDiagnostics(
+    val requestedServerUrl: String,
+    val selectedEndpoint: String? = null,
+    val candidates: List<EndpointAttempt> = emptyList(),
+)
+
+data class DeviceIdentity(
+    val screenId: String,
+    val token: String,
+    val serverUrl: String,
+    val connectionDiagnostics: ConnectionDiagnostics? = null,
+)
 
 data class CuePoint(val name: String, val positionMs: Long)
 
@@ -43,7 +62,18 @@ data class CueItem(
     val offlineEligible: Boolean = false,
     val renderSupport: String = "supported",
     val fallbackMessage: String? = null,
-    val cuePoints: List<CuePoint> = emptyList()
+    val cuePoints: List<CuePoint> = emptyList(),
+    val streamingSources: List<PlaybackSource> = emptyList()
+)
+
+data class PlaybackSource(
+    val profile: String,
+    val url: String,
+    val contentType: String? = null,
+    val sha256: String? = null,
+    val sizeBytes: Long? = null,
+    val width: Int? = null,
+    val height: Int? = null
 )
 
 fun CueItem.cacheFileName(): String = "$id.${fileExtension?.takeIf { it.matches(Regex("[a-zA-Z0-9]{1,8}")) } ?: "bin"}"

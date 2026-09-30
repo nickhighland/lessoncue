@@ -55,8 +55,26 @@ public static class ScreenTelemetry
             {
                 timestamp = item.Timestamp, area = Limit(item.Area, 40), message = Limit(item.Message, 500), itemId = Limit(item.ItemId, 80)
             }));
+        if (input.ServerHostRequested is not null || input.SelectedServerEndpoint is not null || input.ConnectionCandidates is not null)
+        {
+            var candidates = input.ConnectionCandidates?.Take(32).Select(item => new
+            {
+                endpoint = Limit(item.Endpoint, 256),
+                source = Limit(item.Source, 32),
+                addressFamily = Limit(item.AddressFamily, 16),
+                outcome = Limit(item.Outcome, 24),
+                reason = Limit(item.Reason, 500)
+            });
+            screen.ConnectionDiagnosticsJson = JsonSerializer.Serialize(new
+            {
+                requestedServerUrl = Limit(input.ServerHostRequested, 256),
+                selectedEndpoint = Limit(input.SelectedServerEndpoint, 256),
+                candidates
+            });
+        }
         if (input.CacheInventory is not null || input.DownloadQueue is not null || input.CodecCapabilities is not null ||
-            input.RecentErrors is not null || input.ClientTimeUnixMs is not null || input.NetworkLatencyMs is not null)
+            input.RecentErrors is not null || input.ServerHostRequested is not null || input.SelectedServerEndpoint is not null ||
+            input.ConnectionCandidates is not null || input.ClientTimeUnixMs is not null || input.NetworkLatencyMs is not null)
             screen.DiagnosticsUpdatedAt = now;
 
         if (input.AcknowledgedControlVersion is int acknowledged)

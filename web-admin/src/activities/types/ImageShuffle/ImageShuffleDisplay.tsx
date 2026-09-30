@@ -32,6 +32,8 @@ export const ImageShuffleDisplay: React.FC<{ envelope: ActivityStateEnvelope }> 
   const lastNonceRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
+    let cancelled = false;
+    let frame: number | undefined;
     if (state.actionNonce !== undefined && state.actionNonce !== lastNonceRef.current && state.selectedImageId) {
       lastNonceRef.current = state.actionNonce;
       setIsWinner(false);
@@ -45,6 +47,7 @@ export const ImageShuffleDisplay: React.FC<{ envelope: ActivityStateEnvelope }> 
       let curr = 0;
 
       const animate = (now: number) => {
+        if (cancelled) return;
         const elapsed = now - startTime;
         const progress = Math.min(1, elapsed / durationMs);
 
@@ -58,7 +61,7 @@ export const ImageShuffleDisplay: React.FC<{ envelope: ActivityStateEnvelope }> 
         }
 
         if (progress < 1) {
-          requestAnimationFrame(animate);
+          frame = requestAnimationFrame(animate);
         } else {
           setActiveIdx(targetIdx);
           setIsCycling(false);
@@ -68,8 +71,12 @@ export const ImageShuffleDisplay: React.FC<{ envelope: ActivityStateEnvelope }> 
         }
       };
 
-      requestAnimationFrame(animate);
+      frame = requestAnimationFrame(animate);
     }
+    return () => {
+      cancelled = true;
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
   }, [state.actionNonce, state.selectedImageId, state.selectedImageUrl, images.length]);
 
   const currentImage = images[activeIdx] || images[0] || (state.selectedImageUrl ? {

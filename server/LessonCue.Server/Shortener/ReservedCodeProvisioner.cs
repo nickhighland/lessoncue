@@ -17,6 +17,25 @@ public sealed record ReservationReport(
 }
 
 /// <summary>
+/// The non-mutating view of the reserved-code pool.
+///
+/// These categories are deliberately separate. A missing slug can be created,
+/// a slug with someone else's tags needs an administrator's decision, and a
+/// shortener/API failure means that LessonCue could not establish either fact.
+/// Treating the last two as the same state caused an outage to look like one
+/// hundred links that were safe to delete.
+/// </summary>
+public sealed record ReservationAudit(
+    int Total,
+    int Present,
+    IReadOnlyList<string> Missing,
+    IReadOnlyList<string> Conflicts,
+    IReadOnlyList<string> Failures)
+{
+    public bool Degraded => Missing.Count > 0 || Conflicts.Count > 0 || Failures.Count > 0;
+}
+
+/// <summary>
 /// Keeps the hundred reserved codes present, tagged, and pointing at the join
 /// page -- and puts them back when they drift.
 ///
@@ -106,25 +125,44 @@ public sealed class ReservedCodeProvisioner(ShlinkClient shlink)
     /// A cheap check for the status card: are they all there and tagged?
     /// Does not repair anything.
     /// </summary>
-    public async Task<(int Present, IReadOnlyList<string> Missing)> AuditAsync(
+    public async Task<ReservationAudit> AuditAsync(
         string upstream, string apiKey, string domain, CancellationToken ct = default)
     {
-        var missing = new List<string>();
-        foreach (var code in ReservedGameCodes.All)
+        // A status/diagnostic read must not spend twelve seconds per code when
+        // the optional shortener is down. A small amount of bounded parallelism
+        // keeps the audit responsive while avoiding an unbounded burst against
+        // the shortener or its reverse proxy.
+        using var limiter = new SemaphoreSlim(8);
+        var outcomes = await Task.WhenAll(ReservedGameCodes.All.Select(async code =>
         {
-            ct.ThrowIfCancellationRequested();
+            await limiter.WaitAsync(ct);
             try
             {
                 var existing = await shlink.FindAsync(upstream, apiKey, code, domain, ct);
-                if (existing is null || !IsOurs(existing)) missing.Add(code);
+                return new AuditOutcome(code, existing, null);
             }
-            catch (ShlinkException)
+            catch (ShlinkException error)
             {
-                missing.Add(code);
+                // A 401, 403, 5xx, or transport failure is not evidence that
+                // the slug is absent or owned by another user. Preserve the
+                // code and the shortener's reason for the diagnostic UI.
+                return new AuditOutcome(code, null, $"{code}: {error.Message}");
             }
-        }
-        return (ReservedGameCodes.All.Count - missing.Count, missing);
+            finally { limiter.Release(); }
+        }));
+
+        var missing = outcomes.Where(item => item.Existing is null && item.Failure is null)
+            .Select(item => item.Code).ToArray();
+        var conflicts = outcomes.Where(item => item.Existing is not null && !IsOurs(item.Existing))
+            .Select(item => item.Code).ToArray();
+        var failures = outcomes.Where(item => item.Failure is not null)
+            .Select(item => item.Failure!)
+            .ToArray();
+        var present = outcomes.Count(item => item.Existing is not null && IsOurs(item.Existing));
+        return new ReservationAudit(ReservedGameCodes.All.Count, present, missing, conflicts, failures);
     }
+
+    private sealed record AuditOutcome(string Code, ShlinkShortUrl? Existing, string? Failure);
 
     /// <summary>Authored by us, as far as the shortener's tags are concerned.</summary>
     private static bool IsOurs(ShlinkShortUrl url) =>

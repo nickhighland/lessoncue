@@ -114,12 +114,6 @@ const ActivityControllerSession: React.FC<ActivityControllerProps> = ({
       setEnvelope(previous => latestActivityEnvelope(previous, activeRun!));
       setError(null);
       setLoading(false);
-      if (INTERACTIVE_ACTIVITY_TYPES.includes(activeRun.type)) {
-        try {
-          const incoming = await ActivityApi.getHostState(activeRun.runId, signal);
-          if (!signal?.aborted) setHostView(previous => latestActivityHostView(previous, incoming));
-        } catch (err) { console.debug('Host state refresh is not available yet', err); }
-      }
     } catch (err) {
       if (signal?.aborted) return;
       const message = err instanceof Error ? err.message : 'The controller could not refresh.';
@@ -133,6 +127,15 @@ const ActivityControllerSession: React.FC<ActivityControllerProps> = ({
       if (!signal) setRefreshing(false);
     }
   }, []);
+
+  // The live-host loop owns host-state polling. A manual refresh still needs
+  // to update both projections, but reconnect polling must not start a second
+  // host-state request while the live-host request is stalled.
+  const refreshAll = useCallback(async () => {
+    if (!currentRunId) return;
+    await refreshControllerState(currentRunId, hasEnvelope);
+    await fetchHostView(currentRunId, currentActivityType);
+  }, [currentActivityType, currentRunId, fetchHostView, hasEnvelope, refreshControllerState]);
 
   useEffect(() => activityHub.subscribeConnectionStatus(setConnectionState), []);
 
@@ -283,7 +286,7 @@ const ActivityControllerSession: React.FC<ActivityControllerProps> = ({
           >
             {envelope.status.toUpperCase()}
           </span>
-          <button type="button" className="button activity-controller-refresh" onClick={() => void refreshControllerState(currentRunId, hasEnvelope)} disabled={refreshing} aria-label="Refresh activity controller">
+          <button type="button" className="button activity-controller-refresh" onClick={() => void refreshAll()} disabled={refreshing} aria-label="Refresh activity controller">
             {refreshing ? 'Refreshing…' : '↻ Refresh'}
           </button>
           <ActivitySoundControls />
@@ -293,7 +296,7 @@ const ActivityControllerSession: React.FC<ActivityControllerProps> = ({
       {commandNotice && <div className={`activity-command-notice ${commandNotice.tone}`} role={commandNotice.tone === 'error' ? 'alert' : 'status'} aria-live="polite"><span>{commandNotice.message}</span><button type="button" onClick={() => setCommandNotice(null)} aria-label="Dismiss controller message">×</button></div>}
 
       {/* Live controls stay visible whether or not setup is open: the host needs
-          the join code and the answer count during the round, not only before it. */}
+          answer progress and moderation state throughout the round. */}
       {isInteractive && hostView && <ActivityLiveHostPanel hostView={hostView} onRefresh={() => fetchHostView(envelope.runId, currentActivityType)} />}
       {isInteractive && hostView && showSessionSetup && <ActivityHostSessionPanel hostView={hostView} onRefresh={() => fetchHostView(envelope.runId, currentActivityType)} />}
 
@@ -322,9 +325,13 @@ const ActivitySoundControls: React.FC = () => {
   useEffect(() => {
     try {
       const storedMuted = localStorage.getItem('lessoncue.activityMuted');
-      const storedVolume = Number(localStorage.getItem('lessoncue.activityVolume'));
+      const storedVolumeText = localStorage.getItem('lessoncue.activityVolume');
+      const storedVolume = storedVolumeText === null ? null : Number(storedVolumeText);
       if (storedMuted !== null) { const nextMuted = storedMuted === 'true'; setMuted(nextMuted); setAudioMuted(nextMuted); }
-      if (Number.isFinite(storedVolume)) { setVolume(storedVolume); setAudioVolume(storedVolume); }
+      if (storedVolume !== null && Number.isFinite(storedVolume)) {
+        const nextVolume = Math.min(1, Math.max(0, storedVolume));
+        setVolume(nextVolume); setAudioVolume(nextVolume);
+      }
     } catch { /* private browsing */ }
   }, []);
   return <div className="activity-sound-controls" aria-label="Activity sound controls">
@@ -408,14 +415,14 @@ const ActivityHostSessionPanel: React.FC<{ hostView: ActivityHostView; onRefresh
   };
   return (
     <section className="activity-session-panel" aria-label="Game lobby and participants">
-      <div className="activity-session-join">
+      {hostView.joinCode && <div className="activity-session-join">
         <div>
           <span className="controller-eyebrow">PHONE LOBBY</span>
-          <strong>{hostView.joinCode || 'Preparing code…'}</strong>
-          <small>{joinUrl || 'Create a live session to invite players.'}</small>
+          <strong>{hostView.joinCode}</strong>
+          <small>{joinUrl}</small>
         </div>
         {joinUrl && <QrCode value={joinUrl} />}
-      </div>
+      </div>}
       <div className="activity-session-people">
         <div><span className="controller-eyebrow">PLAYERS</span><strong>{hostView.participants.length}</strong></div>
         <div className="activity-session-player-list">{hostView.participants.map(player => { const locked = player.status === 'locked'; return <div className={`activity-session-player ${locked ? 'locked' : ''}`} key={`${player.id}-${player.displayName}`}><label><span>{locked ? '🔒 ' : ''}{player.teamId ? `${player.displayName} · team` : player.displayName}</span><input key={`${player.id}-${player.displayName}`} aria-label={`Rename ${player.displayName}`} defaultValue={player.displayName} disabled={busyId === `participant:${player.id}`} onBlur={event => void renameParticipant(player.id, event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } }} /></label><button type="button" className="button" disabled={busyId === `participant:${player.id}`} onClick={() => void setParticipantLock(player.id, player.displayName, !locked)}>{locked ? 'Unlock' : 'Lock'}</button></div>; })}{!hostView.participants.length && <span className="muted">Waiting for players to join…</span>}</div>

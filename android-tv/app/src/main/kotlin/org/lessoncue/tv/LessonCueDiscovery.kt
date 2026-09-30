@@ -18,13 +18,16 @@ internal class LessonCueDiscovery(context: Context) {
     private val nsdManager = appContext.getSystemService(Context.NSD_SERVICE) as NsdManager
     private val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
 
-    suspend fun findServer(timeoutMillis: Long = 6_000): String? =
-        withTimeoutOrNull(timeoutMillis) { browse() }
+    suspend fun findServers(timeoutMillis: Long = 6_000): List<String> =
+        withTimeoutOrNull(timeoutMillis) { browse() }.orEmpty()
+
+    suspend fun findServer(timeoutMillis: Long = 6_000): String? = findServers(timeoutMillis).firstOrNull()
 
     @SuppressLint("ServiceCast")
     @Suppress("DEPRECATION")
-    private suspend fun browse(): String? = suspendCancellableCoroutine { continuation ->
+    private suspend fun browse(): List<String> = suspendCancellableCoroutine { continuation ->
         val completed = AtomicBoolean(false)
+        val found = linkedSetOf<String>()
         val handler = Handler(Looper.getMainLooper())
         val multicastLock = runCatching {
             wifiManager?.createMulticastLock("lessoncue-discovery")?.apply {
@@ -46,10 +49,10 @@ internal class LessonCueDiscovery(context: Context) {
             }
         }
 
-        fun complete(serverUrl: String?) {
+        fun complete() {
             if (!completed.compareAndSet(false, true)) return
             releaseResources()
-            if (continuation.isActive) continuation.resume(serverUrl)
+            if (continuation.isActive) continuation.resume(found.toList())
         }
 
         resolutions = ServiceResolutionQueue(
@@ -63,20 +66,20 @@ internal class LessonCueDiscovery(context: Context) {
                             val secure = serviceInfo.attributes["secure"]
                                 ?.toString(StandardCharsets.UTF_8)
                                 ?.equals("true", ignoreCase = true) == true
-                            lessonCueServiceUrl(serviceInfo.host?.hostAddress, serviceInfo.port, secure)
+                            lessonCueServiceUrl(serviceHostAddress(serviceInfo.host), serviceInfo.port, secure)
                         }.getOrNull()
                         resolved(address)
                     }
                 })
             },
-            found = ::complete,
+            found = { url -> found += url },
         )
 
         discoveryListener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) = Unit
             override fun onDiscoveryStopped(serviceType: String) = Unit
             override fun onServiceLost(serviceInfo: NsdServiceInfo) = Unit
-            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) = complete(null)
+            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) = complete()
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
@@ -86,7 +89,7 @@ internal class LessonCueDiscovery(context: Context) {
             }
         }
 
-        timeout = Runnable { complete(null) }
+        timeout = Runnable { complete() }
         continuation.invokeOnCancellation {
             if (completed.compareAndSet(false, true)) releaseResources()
         }
@@ -95,7 +98,7 @@ internal class LessonCueDiscovery(context: Context) {
                 handler.postDelayed(timeout, 5_500)
                 runCatching {
                     nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
-                }.onFailure { complete(null) }
+                }.onFailure { complete() }
             }
         }
     }
@@ -105,11 +108,32 @@ internal class LessonCueDiscovery(context: Context) {
     }
 }
 
+private fun serviceHostAddress(host: java.net.InetAddress?): String? {
+    if (host !is java.net.Inet6Address) return host?.hostAddress
+    val hostAddress = host.hostAddress ?: return null
+    var value = hostAddress.substringBefore('%')
+    if (!host.isLinkLocalAddress) return value
+    val scope = hostAddress.substringAfter('%', "").takeIf { it.isNotBlank() }
+        ?: runCatching { host.scopedInterface?.name }.getOrNull()?.takeIf { it.isNotBlank() }
+        ?: host.scopeId.takeIf { it > 0 }?.toString()
+        ?: return null
+    value += "%$scope"
+    return value
+}
+
 internal fun lessonCueServiceUrl(hostAddress: String?, port: Int, secure: Boolean): String? {
     val address = hostAddress?.trim()?.takeIf(String::isNotEmpty) ?: return null
     if (port !in 1..65_535) return null
+    if (':' in address && isBareLinkLocalHost(address)) return null
     val scheme = if (secure) "https" else "http"
     val host = if (':' in address) "[${address.replace("%", "%25")}]" else address
     val defaultPort = if (secure) 443 else 80
     return "$scheme://$host${if (port == defaultPort) "" else ":$port"}"
+}
+
+private fun isBareLinkLocalHost(value: String): Boolean {
+    if ('%' in value) return false
+    val address = runCatching { java.net.InetAddress.getByName(value) }
+        .getOrNull() as? java.net.Inet6Address ?: return false
+    return address.isLinkLocalAddress
 }

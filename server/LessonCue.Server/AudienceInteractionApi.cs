@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace LessonCue.Server;
@@ -119,7 +120,14 @@ public static class AudienceInteractionApi
             response.UpdatedAt = now;
         }
         session.PurgeAt = now.AddDays(Math.Clamp(session.RetentionDays, 1, 30));
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is SqliteException { SqliteErrorCode: 19 })
+        {
+            return Results.Conflict(new { error = "This response was already submitted from this device." });
+        }
         return Results.Ok(new
         {
             accepted = true,

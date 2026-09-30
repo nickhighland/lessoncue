@@ -46,6 +46,7 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
   const finished = phase === 'finalResults' || phase === 'complete'
     || envelope?.status === 'ended' || envelope?.status === 'completed';
   const previousPhase = useRef<string | null>(null);
+  const resolvedRunIdRef = useRef<string | null>(propRunId || initialEnvelope?.runId || null);
 
   // The same two clocks the stage draws. One of them running is what makes
   // this a timed moment, and the remaining time is what the final-five cue
@@ -121,6 +122,7 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
 
     const initRun = async () => {
       try {
+        resolvedRunIdRef.current = propRunId || initialEnvelope?.runId || null;
         setError(null);
         setLoading(!initialEnvelope);
         if (!initialEnvelope) setEnvelope(null);
@@ -140,6 +142,7 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
 
         if (isCancelled) return;
         if (!activeRun) throw new Error('Activity run is not available.');
+        resolvedRunIdRef.current = activeRun.runId;
         setEnvelope(previous => latestActivityEnvelope(previous, activeRun!));
         setLoading(false);
 
@@ -179,7 +182,7 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
     // rather than leaving the room looking at a stale screen until somebody
     // reloads the browser.
     const heal = window.setInterval(() => {
-      const runId = propRunId || initialEnvelope?.runId;
+      const runId = resolvedRunIdRef.current;
       if (!runId || isCancelled) return;
       void ActivityApi.getRun(runId)
         .then(current => { if (!isCancelled) setEnvelope(previous => latestActivityEnvelope(previous, current)); })
@@ -242,17 +245,7 @@ export const ActivityDisplay: React.FC<ActivityDisplayProps> = ({
       // the prop or passes the old preview default.
       interactive={false}
     />
-    {/*
-      The code stays on screen for the whole game, not just the lobby. Only
-      five of the sixteen stages drew it during play, so for most games a
-      latecomer had nothing to join with the moment the first question went up
-      -- and the lobby never comes back, because the next game in the lesson
-      keeps the same code rather than showing a new join screen.
-
-      Once here rather than in each stage: it is the same fact about the room
-      whatever is being played.
-    */}
-    {!inLobby && !finished && (
+    {!inLobby && !finished && envelope.state?.joinCodeVisible === true && (
       <ActivityJoinBanner
         joinCode={envelope.state?.joinCode}
         joinUrl={envelope.state?.joinUrl}

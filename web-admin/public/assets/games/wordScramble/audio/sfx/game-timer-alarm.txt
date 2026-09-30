@@ -21,9 +21,23 @@ SPEC
 PITCH
   Played at its authored pitch.
 
+COVERS
+  Activities built on the wordScramble engine — Word Scramble. This engine has
+  no named games in the catalogue — it is reached by building from blank — so
+  this pack exists for deployments that use it that way.
+
+DOES NOT COVER
+  Games on the other 27 engines. They use their own engine pack when it
+  supplies this cue, and otherwise
+  assets/games/shared/audio/sfx/game-timer-alarm.mp3.
+
+  One named game can also override this file on its own by adding
+  assets/games/<presetId>/audio/sfx/game-timer-alarm.mp3; everything it omits
+  keeps falling through to this pack.
+
 IF THIS FILE IS ABSENT
-  Lookup cascades preset → engine → shared. If this file is absent,
-  LessonCue tries assets/games/shared/audio/sfx/game-timer-alarm.mp3, and if that is
+  Lookup cascades preset → engine → shared. If this file is absent, LessonCue
+  tries assets/games/shared/audio/sfx/game-timer-alarm.mp3, and if that is
   also absent, LessonCue plays its original synthesized cue from
   web-admin/src/activities/effects.ts. That is the shipped default.
 

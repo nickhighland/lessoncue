@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.DataProtection;
 namespace LessonCue.Server;
 
 public sealed record AccountEmailStatus(bool Configured, string Provider, string? Error = null);
+public sealed record EmailAttachment(string FileName, byte[] Content);
 
 public sealed class AccountEmailService
 {
@@ -28,7 +29,7 @@ public sealed class AccountEmailService
     }
 
     public AccountEmailStatus Status(string provider) => new(
-        provider == configuredProvider && provider is "resend" or "brevo" && !string.IsNullOrWhiteSpace(protectedApiKey),
+        provider == configuredProvider && (provider is "resend" or "brevo") && !string.IsNullOrWhiteSpace(protectedApiKey),
         provider);
 
     public async Task ConfigureAsync(string provider, string? apiKey, CancellationToken ct)
@@ -56,20 +57,29 @@ public sealed class AccountEmailService
             throw new ArgumentException("Enter an API key the first time this provider is configured.");
     }
 
-    public async Task SendAsync(Organization organization, string recipient, string subject, string html, CancellationToken ct)
+    public async Task SendAsync(Organization organization, string recipient, string subject, string html,
+        CancellationToken ct, IReadOnlyList<EmailAttachment>? attachments = null)
     {
         if (!Status(organization.EmailProvider).Configured) throw new InvalidOperationException("Email delivery is not configured.");
         var key = protector.Unprotect(protectedApiKey!);
         using var request = organization.EmailProvider == "resend"
-            ? ResendRequest(organization, recipient, subject, html, key)
-            : BrevoRequest(organization, recipient, subject, html, key);
+            ? ResendRequest(organization, recipient, subject, html, key, attachments)
+            : BrevoRequest(organization, recipient, subject, html, key, attachments);
         using var response = await clients.CreateClient("account-email").SendAsync(request, ct);
         if (!response.IsSuccessStatusCode)
         {
             var detail = await response.Content.ReadAsStringAsync(ct);
             logger.LogWarning("Account email provider returned {Status}: {Detail}", (int)response.StatusCode,
                 detail.Length > 500 ? detail[..500] : detail);
-            throw new InvalidOperationException($"Email provider rejected the request ({(int)response.StatusCode}).");
+            detail = string.Join(' ', detail.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            if (detail.Length > 500) detail = detail[..500] + "…";
+            var attachmentBytes = attachments?.Sum(item => (long)item.Content.Length) ?? 0;
+            var attachmentDetail = attachmentBytes > 0
+                ? $" Attachment bytes: {attachmentBytes:N0}."
+                : "";
+            var providerDetail = string.IsNullOrWhiteSpace(detail) ? "" : $" Details: {detail}";
+            throw new InvalidOperationException(
+                $"Email provider rejected the request ({(int)response.StatusCode}).{providerDetail}{attachmentDetail}");
         }
     }
 
@@ -94,7 +104,7 @@ public sealed class AccountEmailService
     }
 
     private static HttpRequestMessage ResendRequest(Organization organization, string recipient, string subject,
-        string html, string key)
+        string html, string key, IReadOnlyList<EmailAttachment>? attachments)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "https://api.resend.com/emails");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
@@ -103,13 +113,18 @@ public sealed class AccountEmailService
             from = $"{organization.EmailFromName} <{organization.EmailFromAddress}>",
             to = new[] { recipient },
             subject,
-            html
+            html,
+            attachments = attachments?.Select(item => new
+            {
+                filename = item.FileName,
+                content = Convert.ToBase64String(item.Content)
+            }).ToArray()
         });
         return request;
     }
 
     private static HttpRequestMessage BrevoRequest(Organization organization, string recipient, string subject,
-        string html, string key)
+        string html, string key, IReadOnlyList<EmailAttachment>? attachments)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "https://api.brevo.com/v3/smtp/email");
         request.Headers.Add("api-key", key);
@@ -118,7 +133,12 @@ public sealed class AccountEmailService
             sender = new { name = organization.EmailFromName, email = organization.EmailFromAddress },
             to = new[] { new { email = recipient } },
             subject,
-            htmlContent = html
+            htmlContent = html,
+            attachment = attachments?.Select(item => new
+            {
+                name = item.FileName,
+                content = Convert.ToBase64String(item.Content)
+            }).ToArray()
         });
         return request;
     }

@@ -14,4 +14,9 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
     <ProjectReference Include="../LessonCue.Server/LessonCue.Server.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="../../tests/fixtures/display-capabilities/*.json"
+          Link="display-capabilities/%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

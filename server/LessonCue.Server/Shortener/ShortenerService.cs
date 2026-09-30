@@ -16,7 +16,14 @@ public sealed record ShortenerStatus(
     int PoolPresent,
     int PoolActive,
     string? Detail,
-    IReadOnlyList<string> Conflicts);
+    IReadOnlyList<string> Conflicts)
+{
+    /// <summary>Codes the shortener does not contain.</summary>
+    public IReadOnlyList<string> Missing { get; init; } = [];
+
+    /// <summary>Codes whose lookup could not be completed.</summary>
+    public IReadOnlyList<string> Failures { get; init; } = [];
+}
 
 /// <summary>
 /// The optional self-hosted URL shortener.
@@ -474,17 +481,37 @@ public sealed class ShortenerService(
                 settings.Enabled, settings.Domain, settings.AdminHost, settings.PublicUrl, settings.AdminUrl,
                 ReservedGameCodes.All.Count, 0, pool.Active, "The shortener is not answering.", []));
 
-        var (present, missing) = await provisioner.AuditAsync(settings.Upstream, key, settings.Domain, ct);
-        var state = missing.Count == 0 ? ShortenerState.Running : ShortenerState.Degraded;
+        var audit = await provisioner.AuditAsync(settings.Upstream, key, settings.Domain, ct);
+        var state = audit.Degraded ? ShortenerState.Degraded : ShortenerState.Running;
         // Recorded so the hot path can decide whether a short link would
         // actually resolve, without asking the network on every projection.
-        MarkUsable(missing.Count == 0);
-        var detail = missing.Count == 0
-            ? null
-            : $"{missing.Count} reserved {(missing.Count == 1 ? "code is" : "codes are")} missing or owned by someone else.";
+        MarkUsable(!audit.Degraded);
+        var detail = AuditDetail(audit);
 
         return Remember(new ShortenerStatus(state, settings.Enabled, settings.Domain, settings.AdminHost,
-            settings.PublicUrl, settings.AdminUrl, ReservedGameCodes.All.Count, present, pool.Active, detail, missing));
+            settings.PublicUrl, settings.AdminUrl, ReservedGameCodes.All.Count, audit.Present, pool.Active, detail,
+            audit.Conflicts)
+        {
+            Missing = audit.Missing,
+            Failures = audit.Failures,
+        });
+    }
+
+    private static string? AuditDetail(ReservationAudit audit)
+    {
+        if (!audit.Degraded) return null;
+
+        var parts = new List<string>();
+        if (audit.Missing.Count > 0)
+            parts.Add($"{audit.Missing.Count} reserved {(audit.Missing.Count == 1 ? "code is" : "codes are")} missing.");
+        if (audit.Conflicts.Count > 0)
+            parts.Add($"{audit.Conflicts.Count} reserved {(audit.Conflicts.Count == 1 ? "code is" : "codes are")} owned by another shortener link.");
+        if (audit.Failures.Count > 0)
+        {
+            var example = audit.Failures[0];
+            parts.Add($"{audit.Failures.Count} reserved {(audit.Failures.Count == 1 ? "code could not" : "codes could not")} be verified; first failure: {example}");
+        }
+        return string.Join(" ", parts);
     }
 
     private volatile bool _usable;
@@ -540,28 +567,28 @@ public sealed class ShortenerService(
         if (!settings.Configured)
             return [new Check("Configured", false, "Set the short domain and where the shortener is reachable first.")];
 
-        var checks = new List<Check>
+        var checks = new List<Task<Check>>
         {
-            await ProbeOneAsync("The shortener answers locally", $"{settings.Upstream.TrimEnd('/')}/{ShlinkClient.HealthPath}",
+            ProbeOneAsync("The shortener answers locally", $"{settings.Upstream.TrimEnd('/')}/{ShlinkClient.HealthPath}",
                 "LessonCue can reach it inside the deployment.", ct),
         };
 
         // Through the tunnel now, on the hostnames the room will actually use.
-        checks.Add(await ProbeOneAsync($"{settings.Domain} reaches the shortener",
+        checks.Add(ProbeOneAsync($"{settings.Domain} reaches the shortener",
             $"{settings.PublicUrl}/{ShlinkClient.HealthPath}",
             "The short domain is routed to the shortener.", ct));
 
         if (settings.AdminHost.Length > 0)
-            checks.Add(await ProbeOneAsync($"{settings.AdminHost} serves the console",
+            checks.Add(ProbeOneAsync($"{settings.AdminHost} serves the console",
                 settings.AdminUrl, "The management address is routed to the web client.", ct));
 
         // And a reserved code, because that is the path a phone takes.
         var sample = ReservedGameCodes.All.FirstOrDefault();
         if (sample is not null)
-            checks.Add(await ProbeOneAsync($"A game code resolves on {settings.Domain}",
+            checks.Add(ProbeOneAsync($"A game code resolves on {settings.Domain}",
                 settings.ShortLinkFor(sample), "A reserved code redirects rather than 404s.", ct, expectRedirect: true));
 
-        return checks;
+        return await Task.WhenAll(checks);
     }
 
     private async Task<Check> ProbeOneAsync(string name, string url, string good, CancellationToken ct, bool expectRedirect = false)
@@ -577,7 +604,7 @@ public sealed class ShortenerService(
                 ? good
                 : expectRedirect && status == 404
                     ? "The shortener answered, but does not know that code. Repair the reserved codes."
-                    : $"Answered {status}.");
+                    : $"{await FailedResponseDetailAsync(response, status, ct)}");
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException)
         {
@@ -585,6 +612,21 @@ public sealed class ShortenerService(
                 ? "Timed out. If the tunnel route was only just added, give it a moment."
                 : "No answer. Check the tunnel route for this hostname.");
         }
+    }
+
+    private static async Task<string> FailedResponseDetailAsync(HttpResponseMessage response, int status, CancellationToken ct)
+    {
+        var body = await response.Content.ReadAsStringAsync(ct);
+        body = string.Join(' ', body.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (body.Length > 240) body = body[..240] + "…";
+
+        var requestId = response.Headers.TryGetValues("x-request-id", out var values)
+            ? values.FirstOrDefault()
+            : null;
+        var detail = $"Answered {status}";
+        if (!string.IsNullOrWhiteSpace(body)) detail += $": {body}";
+        if (!string.IsNullOrWhiteSpace(requestId)) detail += $" (request ID {requestId})";
+        return detail + ".";
     }
 
     // ---------------------------------------------------------- provisioning

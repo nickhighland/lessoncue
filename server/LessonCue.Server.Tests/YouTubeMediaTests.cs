@@ -24,4 +24,77 @@ public sealed class YouTubeMediaTests
         Assert.Null(YouTubeMedia.EmbedUrl(value));
         Assert.False(YouTubeMedia.IsYouTubeUrl(new Uri(value)));
     }
+
+    [Fact]
+    public void DownloadArgumentsConfigureTheBundledDenoRuntime()
+    {
+        var arguments = YouTubeImportService.BuildDownloadArguments(
+            "/var/lib/lessoncue/temporary/%(id)s.%(ext)s",
+            123456,
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "/opt/lessoncue/deno");
+
+        var runtimeIndex = Array.IndexOf(arguments.ToArray(), "--js-runtimes");
+        Assert.True(runtimeIndex >= 0);
+        Assert.Equal("deno:/opt/lessoncue/deno", arguments[runtimeIndex + 1]);
+        Assert.Contains("123456", arguments);
+        Assert.Contains("--no-config", arguments);
+        Assert.Contains("--no-playlist", arguments);
+    }
+
+    [Fact]
+    public void DownloadArgumentsPreferTheHighestAvailableOriginalQualityUpTo4k()
+    {
+        var arguments = YouTubeImportService.BuildDownloadArguments(
+            "/var/lib/lessoncue/temporary/%(id)s.%(ext)s",
+            123456,
+            "https://www.youtube.com/watch?v=c4PmpM058is",
+            "/opt/lessoncue/deno");
+
+        Assert.Contains("bestvideo+bestaudio/best", arguments);
+        var sortIndex = Array.IndexOf(arguments.ToArray(), "-S");
+        Assert.True(sortIndex >= 0);
+        Assert.Equal("res:2160", arguments[sortIndex + 1]);
+        var mergeIndex = Array.IndexOf(arguments.ToArray(), "--merge-output-format");
+        Assert.True(mergeIndex >= 0);
+        Assert.Equal("mkv", arguments[mergeIndex + 1]);
+        Assert.DoesNotContain("--recode-video", arguments);
+        Assert.DoesNotContain("--convert-video", arguments);
+        Assert.Contains("3", arguments);
+    }
+
+    [Fact]
+    public void FallbackDownloadArgumentsTryAndroidAdaptiveStreamsAtOriginalQuality()
+    {
+        var arguments = YouTubeImportService.BuildFallbackDownloadArguments(
+            "/var/lib/lessoncue/temporary/%(id)s.%(ext)s",
+            123456,
+            "https://www.youtube.com/watch?v=c4PmpM058is",
+            "/opt/lessoncue/deno");
+
+        Assert.Contains("bestvideo+bestaudio/best", arguments);
+        var extractorIndex = Array.IndexOf(arguments.ToArray(), "--extractor-args");
+        Assert.True(extractorIndex >= 0);
+        Assert.Equal("youtube:player_client=android", arguments[extractorIndex + 1]);
+        var sortIndex = Array.IndexOf(arguments.ToArray(), "-S");
+        Assert.Equal("res:2160", arguments[sortIndex + 1]);
+        var mergeIndex = Array.IndexOf(arguments.ToArray(), "--merge-output-format");
+        Assert.True(mergeIndex >= 0);
+        Assert.Equal("mkv", arguments[mergeIndex + 1]);
+        Assert.Contains("deno:/opt/lessoncue/deno", arguments);
+    }
+
+    [Fact]
+    public void LastResortDownloadProfileKeepsAnAndroidProgressiveFallback()
+    {
+        var arguments = YouTubeImportService.BuildProgressiveFallbackDownloadArguments(
+            "/var/lib/lessoncue/temporary/%(id)s.%(ext)s",
+            123456,
+            "https://www.youtube.com/watch?v=c4PmpM058is",
+            "/opt/lessoncue/deno");
+
+        Assert.Contains("best[ext=mp4]", arguments);
+        Assert.Contains("youtube:player_client=android", arguments);
+        Assert.DoesNotContain("--merge-output-format", arguments);
+    }
 }

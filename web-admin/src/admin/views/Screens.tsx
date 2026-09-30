@@ -1,7 +1,7 @@
 import { confirmAction } from "../../AccessibleDialogs";
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { CacheDiagnostic, CodecDiagnostic, DisplayCapabilityContract, DisplayCompatibilityIssue, DownloadDiagnostic, ErrorDiagnostic, LessonClass, Screen, Signage } from "../models";
+import { CacheDiagnostic, CodecDiagnostic, ConnectionDiagnostic, DisplayCapabilityContract, DisplayCompatibilityIssue, DownloadDiagnostic, ErrorDiagnostic, LessonClass, Screen, Signage } from "../models";
 import { Empty, Field, PageHead, Status } from "../ui";
 import { errorText, formatBytes, formatClockOffset, friendlyPlaybackState, isOnline, parseDiagnosticJson, timeAgo } from "../utils";
 
@@ -222,6 +222,7 @@ export function ScreensView({
               const errors = parseDiagnosticJson<ErrorDiagnostic>(
                 s.recentErrorsJson,
               );
+              const connection = parseConnectionDiagnostics(s.connectionDiagnosticsJson);
               const clockWarning = Math.abs(s.clockOffsetMs || 0) > 5_000;
               return (
                 <article
@@ -506,6 +507,17 @@ export function ScreensView({
                             : item.message || "Unknown error",
                         }))}
                       />
+                      <div className="codec-list">
+                        <strong>LessonCue connection</strong>
+                        <small>Requested: {connection.requestedServerUrl || "not reported"}</small>
+                        <small>Selected: {connection.selectedEndpoint || "not reported"}</small>
+                        {connection.candidates.length ? connection.candidates.map((item, index) => (
+                          <span className={item.outcome === "verified" ? "supported" : "unsupported"} key={`${item.endpoint}-${index}`}>
+                            {item.endpoint || "unknown endpoint"}
+                            <i>{item.outcome || "unknown"} · {item.source || "unknown source"}{item.reason ? ` · ${item.reason}` : ""}</i>
+                          </span>
+                        )) : <small>No endpoint attempts reported by this TV.</small>}
+                      </div>
                       <div className="screenshot-privacy">
                         <div>
                           <strong>Privacy-gated screenshot</strong>
@@ -625,4 +637,21 @@ export function DiagnosticList({
       )}
     </div>
   );
+}
+
+function parseConnectionDiagnostics(value?: string): {
+  requestedServerUrl?: string;
+  selectedEndpoint?: string;
+  candidates: ConnectionDiagnostic[];
+} {
+  try {
+    const parsed = JSON.parse(value || "{}");
+    return {
+      requestedServerUrl: parsed?.requestedServerUrl,
+      selectedEndpoint: parsed?.selectedEndpoint,
+      candidates: Array.isArray(parsed?.candidates) ? parsed.candidates : [],
+    };
+  } catch {
+    return { candidates: [] };
+  }
 }

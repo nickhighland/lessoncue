@@ -4,6 +4,427 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.28 — Review-ready TV pairing and Docker-host tunnels
+
+### User changes
+
+- Android TV pairing now explains that the display uses a server address and
+  six-digit pairing PIN rather than a personal username and password.
+- Docker hosts such as Unraid can run an optional, pinned Cloudflare Tunnel
+  connector alongside the LessonCue server.
+
+### Developer changes
+
+- Added copy-ready Amazon Appstore testing instructions for the server-pairing
+  flow and documented the public HTTPS review-server requirement.
+- Raised the Android TV store build to version 0.46.8 after the 0.46.7 review
+  rejection caused by undocumented test access.
+
+## v0.46.27 — Google Drive backups and organized activities
+
+### User changes
+
+- Off-site backups can now connect to Google Drive through OAuth using the
+  limited `drive.file` permission. LessonCue creates and manages its own named
+  folder, uploads encrypted archives with resumable transfers, and can mirror
+  media without accessing unrelated Drive files.
+- Settings show the exact Google OAuth callback URL, connection state, and
+  setup guidance while keeping client secrets and refresh tokens protected.
+- Activities Studio now groups games into quizzes, puzzles, game shows,
+  creative activities, audience activities, movement, media, and classroom
+  tools, with category filters and optional grouped library sections.
+- Activity creation now separates ready-made formats from blank builders and
+  includes search, participation filters, practical descriptions, and a detail
+  panel before creation.
+- The activity editor now guides teachers through content and rules, timing
+  and flow, and TV presentation in that order.
+
+### Developer changes
+
+- Added a scoped Google Drive client with OAuth state and replay protection,
+  refresh-token handling, resumable upload recovery, managed-file metadata,
+  retention, media manifests, and regression coverage.
+- Added one shared teacher-facing activity taxonomy used by the library and
+  chooser, plus unit and browser coverage for category mapping, descriptions,
+  creation, filtering, arranging, and editing.
+- This is a server/web release only; no Android/Google TV, Vega TV, or Apple
+  TV artifact is produced.
+
+## v0.46.26 — Resilient backups and high-quality media imports
+
+### User changes
+
+- Large ownCloud media files now use the server's advertised chunked-upload
+  support, with bounded retries for transient upload failures.
+- Backup status and safe destination details are included in troubleshooting
+  reports. A successful configuration-backup upload remains visible when a
+  later media-sync step fails.
+- YouTube imports now prefer the highest available source quality up to 4K,
+  while keeping the original encoded streams intact; only separate TV playback
+  copies may be transcoded for compatibility.
+- Android/Google TV playback now starts with the highest codec-compatible
+  available version and automatically falls back to lower versions after a
+  playback error or sustained buffering, resuming at the same position.
+
+### Developer changes
+
+- WebDAV media-upload errors now include the relative media path, byte counts,
+  chunk progress, elapsed time, response status, and proxy trace identifiers
+  when provided. Interrupted ownCloud chunk uploads are cleaned up.
+- Troubleshooting snapshots include schedule, last-run/verification state,
+  per-destination media-sync counts, and errors without including credentials
+  or full WebDAV URLs.
+- YouTube format selection now considers non-MP4 high-resolution codecs,
+  prefers formats up to 2160p, and uses a lossless MKV stream-copy merge when
+  separate video and audio streams must be combined. Android and progressive
+  fallback profiles remain available when the preferred download path fails.
+- TV manifests now include a versioned, codec-filtered playback ladder. The
+  Media3 player records quality fallback diagnostics and retries after 15
+  seconds of continuous buffering without changing the stored original.
+- This release includes Android/Google TV artifacts because playback behavior
+  changed; no Apple TV/tvOS artifact is produced.
+
+## v0.46.25 — Reliable protected updates and existing WebDAV folders
+
+### User changes
+
+- Server updates now verify that the installed LessonCue binary reports the
+  requested release version before marking the update successful.
+- Scheduled ownCloud/WebDAV backups now recognize an existing destination
+  folder even when the provider returns `400` to an idempotent folder-create
+  request. Invalid paths and credentials still report the create and verify
+  statuses together.
+
+### Developer changes
+
+- Added a staged-binary version check to the protected Linux updater so a
+  release built with stale assembly metadata cannot be reported as installed.
+- Added WebDAV collection verification and regression coverage for providers
+  that reject `MKCOL` on an existing collection with `400`.
+- This is a server/web release only; no Android/Google TV or Vega TV artifact
+  is produced.
+
+## v0.46.24 — Independent YouTube downloader updates
+
+### User changes
+
+- LessonCue now checks and maintains its YouTube downloader independently from
+  full LessonCue releases.
+- Settings and the Dashboard show when a verified yt-dlp update is available,
+  with manual check and update controls. Routine downloader maintenance does
+  not use the normal LessonCue update announcement.
+- A stronger warning appears when YouTube imports are failing and an update is
+  available.
+
+### Developer changes
+
+- Added a root-owned Linux updater with daily checks, official GitHub asset and
+  SHA-256 verification, atomic replacement, rollback, and preservation of a
+  newer independently managed binary during full LessonCue upgrades.
+- Added runtime state to support and troubleshooting diagnostics, plus
+  regression coverage for silent notices and transactional updater behavior.
+- This is a server/web release only; no Android/Google TV or Vega TV artifact
+  is produced.
+
+## v0.46.22 — Provider-safe troubleshooting reports
+
+### User changes
+
+- Daily troubleshooting reports still contain the complete JSON diagnostic
+  payload, but are delivered with a `.txt` filename accepted by providers that
+  reject `.gz` and `.json` attachments.
+
+### Developer changes
+
+- Added regression coverage for the report filename and kept the server-only
+  release scope; no Android/Google TV or Vega TV artifact is produced.
+
+## v0.46.23 — Resilient YouTube download fallback
+
+### User changes
+
+- YouTube imports still try the fast Android-compatible MP4 path first.
+- If YouTube rejects that path with a 403 or exposes only adaptive streams,
+  LessonCue makes one bounded fallback attempt and merges validated MP4/audio
+  streams locally.
+
+### Developer changes
+
+- Added regression coverage for the fallback format and MP4 merge arguments.
+- Fallback failures remain visible with the selected profile and original
+  downloader error; checksum and media validation are unchanged.
+- This is a server/web release only; no Android/Google TV or Vega TV artifact
+  is produced.
+
+## v0.46.21 — YouTube import and service reliability
+
+### User changes
+
+- Updated the bundled YouTube downloader to yt-dlp 2026.08.19 and retained the
+  bundled Deno runtime plus the Android-player compatibility path for current
+  YouTube downloads.
+- Fixed daily troubleshooting report delivery through providers that reject
+  compressed `.gz` attachments.
+- Fixed account setup, verification, and password-reset links on SQLite-backed
+  installations.
+
+### Developer changes
+
+- Verified the yt-dlp Linux and Windows artifacts against the official release
+  SHA-256 values.
+- Moved account-token expiry validation out of the SQLite query and added a
+  regression test for live and expired tokens.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
+## v0.46.20 — scheduled media synchronization
+
+### User changes
+
+- Scheduled backups can run at a selected local hour, including 2 AM for
+  off-hours operation.
+- Off-site WebDAV destinations can keep media synchronized separately from
+  encrypted database/configuration backups.
+- A named folder can be created below each WebDAV root for the archive and
+  media mirror.
+
+### Developer changes
+
+- Added hash-based WebDAV media synchronization with a managed manifest,
+  safe stale-file cleanup, and sync diagnostics.
+- Added regression coverage for scheduled timing, folder creation, media
+  add/update/delete behavior, and preservation of unrelated remote files.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
+## v0.46.19 — universal remote initialization
+
+### User changes
+
+- The universal remote now selects its initial classroom reliably while the
+  classroom and screen library is loading.
+
+### Developer changes
+
+- Added regression coverage for asynchronous public controller bootstrap data.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
+## v0.46.18 — universal remote and import reliability
+
+### User changes
+
+- The universal remote now begins with a classroom selector and adopts the
+  selected classroom's theme color.
+- LessonCue can retry a failed YouTube download without re-uploading or
+  changing the existing media identity.
+- YouTube downloads avoid a current default-player HTTP 403 path and retry
+  transient transfer failures.
+- Daily troubleshooting and AI review emails now attach provider-compatible
+  plain JSON reports instead of rejected gzip attachments.
+
+### Developer changes
+
+- Added Android-player yt-dlp selection and bounded download retries for local
+  YouTube imports, with regression coverage for the observed SABR/403 failure.
+- Added a safe requeue path for failed YouTube imports and a matching Media
+  Library action.
+- Kept compressed troubleshooting artifacts server-side while sending
+  uncompressed JSON through Resend or Brevo.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
+## v0.46.17 — live troubleshooting reports
+
+### User changes
+
+- Service Admins can schedule a redacted troubleshooting review daily, weekly,
+  monthly, or on a custom hour/day/week/month interval.
+- Codex creates a subscription-ready report and prompt package without putting
+  a ChatGPT credential on the server. DeepSeek can complete the review on the
+  server when `LESSONCUE_DEEPSEEK_API_KEY` is configured.
+- Review artifacts can be downloaded from Service Admin settings or delivered
+  through the existing troubleshooting-report recipient.
+- A protected live report endpoint at /report.log can be pulled by Codex at
+  any time, independently of the email schedule, with ETag change detection.
+- Added a repository pull helper that persists the ETag and only hands Codex a
+  changed report for evaluation.
+
+### Developer changes
+
+- Added a provider-neutral scheduled review worker, persisted schedule/status,
+  redacted artifact storage, DeepSeek adapter, Codex prompt package, and
+  migration-safe database fields.
+- Added time-zone-aware schedule coverage for daily, weekly, monthly, custom,
+  and invalid-setting cases.
+- Added stable issue codes/descriptions and detailed media/TV evidence to the
+  live and scheduled reports.
+- This is a server/web-only change; Android/Google TV and Vega TV artifacts do
+  not need to be rebuilt.
+
+## v0.46.16 — reliable YouTube local imports
+
+### User changes
+
+- Download YouTube locally now includes the JavaScript runtime required by
+  current YouTube extraction, so imports no longer depend on a separate Node or
+  Deno installation.
+- A missing or misconfigured runtime now produces a direct repair message in
+  the Media Library instead of an opaque 403 download failure.
+
+### Developer changes
+
+- Server packages and the container bundle Deno 2.9.7 for Linux x64/arm64 and
+  Windows x64, verify its SHA-256, and pass its explicit path to yt-dlp.
+- Troubleshooting diagnostics report the yt-dlp and Deno paths and whether each
+  executable is available.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
+## v0.46.15 — reliable daily troubleshooting delivery
+
+### User changes
+
+- Sending a daily troubleshooting report now queues the work immediately
+  instead of waiting for the full diagnostic bundle inside the browser request.
+- Delivery failures remain visible in service settings with the email
+  provider's response detail and attachment size when available.
+
+### Developer changes
+
+- Manual troubleshooting delivery runs in the background and records a
+  durable failure/audit entry if report generation or email delivery fails.
+- Shortener diagnostics are bounded and reserved-code checks use bounded
+  parallelism so an unavailable optional integration cannot block a report.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
+## v0.46.14 — Shortener diagnostics correction
+
+### User changes
+
+- Reserved game-code status now distinguishes missing codes, confirmed links
+  owned by another account, and shortener/API failures.
+- The administrator is no longer told to delete links when LessonCue only
+  received an HTTP 500, authentication failure, or other unverifiable result.
+- Shortener checks and support exports include the response detail and request
+  ID needed to diagnose public redirect failures.
+
+### Developer changes
+
+- Reconciliation audit entries now include all result counts and are marked
+  degraded when repair is incomplete.
+- Daily troubleshooting and support bundles include categorized shortener pool
+  state and public probe results.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
+## v0.46.13 — Phone controller layout hotfix
+
+### User changes
+
+- The master controller now fills the full phone viewport instead of exposing
+  a white area beneath a short control surface.
+- Selecting a lesson cue now opens that cue's game or media controls at the top
+  of the scrollable area. **All lesson cues** returns to the lesson and cue list.
+
+### Developer changes
+
+- Made the public controller own its dynamic viewport height instead of relying
+  on the authenticated app shell that does not wrap public controller routes.
+- Added phone-sized browser regression coverage for full-height rendering,
+  selected-cue expansion, and returning to the cue list.
+- Updated the full local workflow test to enforce the expanded selected-cue
+  interaction instead of the superseded always-visible cue list.
+- Made the layout regression independent of lesson ordering when the complete
+  browser suite has multiple paired screens.
+- Replaced a timestamp-sensitive drawing-privacy assertion with a structural
+  state check so release validation tests the intended privacy boundary.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
+## v0.46.9 — Lesson games carry identity and score forward
+
+### User changes
+
+- The lesson join code appears in the opening lobby only; later activities no
+  longer repeat the invite code or QR panel.
+- Player and team scores carry across games in the same lesson, with team
+  totals derived from the shared score ledger.
+- Quiz speed bonuses now award a fixed, configurable bonus to the first correct
+  answer by default, with an explicit opt-out.
+- Activity creation choices are grouped into categories such as Quizzes,
+  Puzzles & word games, and Game show games.
+- Phones and tablets retain their player identity through refreshes and name
+  changes. The existing player handoff action still creates a fresh identity.
+- Player and team names are checked against a broad normalized offensive-name
+  filter, including punctuation and common leetspeak variations.
+
+### Developer changes
+
+- Added lesson-opening join-state projections, persistent device-token reuse,
+  score-ledger team projections, and migration coverage for existing session
+  groups.
+- Added server and browser regression coverage for cumulative scoring, fastest
+  correct answers, opening-lobby invite visibility, player identity, reset
+  lobbies, grouped activity choices, and name filtering.
+- Removed redundant host-state polling during connection fallback so a stalled
+  refresh cannot accumulate duplicate requests.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
+## v0.46.7 — Reliable server processing and diagnostics
+
+### User changes
+
+- Linux media processing no longer depends on Bubblewrap, so uploads and Intel
+  Quick Sync are not blocked by host namespace restrictions. The service still
+  runs the bounded unprivileged worker with resource limits and local-input
+  validation.
+- System diagnostics now returns the usable parts of a support bundle when one
+  check fails, identifies the unavailable component, and remains downloadable
+  instead of becoming a generic 502 error.
+- Service Admins can opt in to a daily failures-only troubleshooting report at
+  a chosen address and local time, with a **Send now** check.
+- The phone remote now uses a recognizable open/closed lock icon, while its
+  existing lock behavior and pinned top controls remain unchanged.
+
+### Developer changes
+
+- Added direct-worker regression coverage, partial support-bundle diagnostics,
+  persisted daily email failure state, and a release-scope guard that prevents
+  server-only changes from publishing TV artifacts.
+- This is a server/web release only; Android/Google TV and Vega TV artifacts
+  remain at their previous release because their sources did not change.
+
+## v0.46.6 — Media recovery and dual-stack discovery
+
+### User changes
+
+- New JPG and MP4 uploads remain playable from the intact original while optional TV compatibility processing runs or needs a runtime retry.
+- Media Library troubleshooting now shows processing state, original/derived file checks, worker dependencies, and a safe **Retry processing** action.
+- Android TV verifies discovered LessonCue endpoints and automatically falls back from an unusable IPv6 address to a working IPv4 address, including `.local` link-local scope handling.
+
+### Developer changes
+
+- Added end-to-end media manifest, HTTP Range, ETag, checksum, and troubleshooting regression coverage.
+- Added dual-stack endpoint candidate diagnostics and persisted the endpoint that actually verified.
+- Default native and recovery-mode server bindings now match Avahi's dual-stack advertisement.
+- Reduced routine HttpClient troubleshooting noise and canonicalized Shlink lookups.
+
+## v0.46.5 — Immediate media playback
+
+### User changes
+
+- Uploaded lessons become playable as soon as the original file is inspected and its thumbnail is created; the broader TV compatibility copy is made immediately afterward without blocking playback.
+- The lesson builder shows each cue's preview while it is being dragged, and cues can be reordered by mouse, touch, or trackpad drag and drop.
+- The phone remote keeps stop, play/pause, previous, and next controls pinned above its scrollable workflow and no longer opens zoomed on iPhone.
+
+### Developer changes
+
+- Separated source readiness from optional compatibility conversion and kept original-file manifest delivery available while conversion is pending or fails.
+- Added manifest and display-capability regression coverage for immediate source playback.
+
 ## v0.46.4 — Classroom reliability
 
 ### User changes

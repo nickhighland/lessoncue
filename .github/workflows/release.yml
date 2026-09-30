@@ -3,17 +3,99 @@ name: Package release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to build and publish
+        required: true
+        default: v0.46.16
+        type: string
+      reuse_run_id:
+        description: Completed release-validation run whose artifacts should be published
+        required: false
+        default: ''
+        type: string
+      release_scope:
+        description: Automatically detect whether this release needs TV artifacts; server-only is allowed only when no TV paths changed
+        required: false
+        default: auto
+        type: choice
+        options: [auto, server-only, tv]
 
 permissions:
   contents: read
 
 env:
-  YT_DLP_VERSION: 2026.07.04
+  YT_DLP_VERSION: 2026.08.19
+  DENO_VERSION: 2.9.7
+  DENO_LINUX_X64_SHA256: c6527f24f4b16031d3ae4fa9f658d5f11534c8d84ce7dc8502420280919c3490
+  DENO_LINUX_ARM64_SHA256: c832298b1ad4422481334855f6003e0f54145762c5a134f20a489511d2f65bbf
+  DENO_WINDOWS_X64_SHA256: a0c3101b4158d1dfb7d6a78a7bf0f3de80c96bb423c152beec8beb22786f2238
   TRIVY_VERSION: 0.72.0
   TRIVY_LINUX_X64_SHA256: bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
 jobs:
+  release-scope:
+    runs-on: ubuntu-latest
+    outputs:
+      tv_app_required: ${{ steps.scope.outputs.tv_app_required }}
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify release scope
+        id: scope
+        env:
+          RELEASE_SCOPE_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.release_scope || 'auto' }}
+        run: |
+          current_tag="${RELEASE_TAG}"
+          base_tag="$(git tag --sort=-version:refname | awk -v current="${current_tag}" '$0 != current && $0 ~ /^v[0-9]/ { print; exit }')"
+          if [ -z "${base_tag}" ]; then
+            echo "::error::Could not find a previous version tag to classify the release against."
+            exit 1
+          fi
+          result="$(node scripts/release-scope.mjs "${base_tag}" "${GITHUB_SHA}")"
+          echo "${result}" | jq .
+          detected_tv="$(echo "${result}" | jq -r '.tvAppRequired')"
+          requested="${RELEASE_SCOPE_INPUT:-auto}"
+          case "${requested}" in
+            auto)
+              tv_required="${detected_tv}"
+              resolved_scope="$([ "${tv_required}" = true ] && echo tv || echo server-only)"
+              ;;
+            server-only)
+              if [ "${detected_tv}" = true ]; then
+                echo "::error::release_scope=server-only is unsafe because TV-app or protocol paths changed."
+                exit 1
+              fi
+              tv_required=false
+              resolved_scope=server-only
+              ;;
+            tv)
+              tv_required=true
+              resolved_scope=tv
+              ;;
+            *)
+              echo "::error::Unknown release scope: ${requested}"
+              exit 64
+              ;;
+          esac
+          echo "tv_app_required=${tv_required}" >> "${GITHUB_OUTPUT}"
+          echo "scope=${resolved_scope}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "### Release scope"
+            echo
+            echo "- Previous tag: \`${base_tag}\`"
+            echo "- Requested scope: \`${requested}\`"
+            echo "- Resolved scope: \`${resolved_scope}\`"
+            echo "- TV artifact required: \`${tv_required}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   release-validation:
+    needs: release-scope
+    if: ${{ needs['release-scope'].result == 'success' && inputs.reuse_run_id == '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +117,10 @@ jobs:
       - run: npm test
       - run: dotnet restore server/LessonCue.Server.Tests/LessonCue.Server.Tests.csproj
       - run: dotnet test server/LessonCue.Server.Tests/LessonCue.Server.Tests.csproj -c Release --no-restore
-      - run: bash -n installers/linux/install-latest.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue-update installers/linux/repair-updater.sh scripts/remove-shlink-web-client.sh tests/linux-updater-transaction.sh
+      - run: |
+          for script in installers/linux/install-latest.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/lessoncue-update installers/linux/repair-updater.sh scripts/remove-shlink-web-client.sh tests/linux-updater-transaction.sh; do
+            bash -n "$script"
+          done
       - name: Exercise transactional Linux updates before packaging
         run: >-
           docker run --rm
@@ -45,14 +130,11 @@ jobs:
       - name: Exercise media-worker isolation before packaging
         run: >-
           docker run --rm --privileged
-          -e LESSONCUE_MEDIA_WORKER_TEST_SKIP=1
           -v "${PWD}:/workspace:ro"
           debian:trixie-slim
           bash /workspace/tests/linux-media-worker.sh /workspace
       - run: npx playwright install --with-deps chromium
       - name: Run browser tests
-        env:
-          LESSONCUE_MEDIA_WORKER_SKIP_SANDBOX: "1"
         run: npm run test:e2e
       - run: docker build -f server/LessonCue.Server/Dockerfile -t lessoncue/server:release-validation .
       - name: Install checksum-pinned Trivy
@@ -74,7 +156,8 @@ jobs:
             lessoncue/server:release-validation
 
   server-linux:
-    needs: release-validation
+    needs: [release-scope, release-validation]
+    if: ${{ needs['release-scope'].result == 'success' && needs['release-validation'].result == 'success' && inputs.reuse_run_id == '' }}
     strategy:
       matrix:
         runtime: [linux-x64, linux-arm64]
@@ -95,10 +178,14 @@ jobs:
         run: |
           if [ "${{ matrix.runtime }}" = "linux-arm64" ]; then
             asset=yt-dlp_linux_aarch64
-            expected=b6ce97646773070d7a7ffd6bbbdcaecb47c48483909c54c915bf08a7a9b5e0b1
+            expected=b16e4dab368a816cd05d477d698a605a6ae87ccee1c8ffd38fa21d7254141fcc
+            deno_asset=deno-aarch64-unknown-linux-gnu.zip
+            deno_expected=${DENO_LINUX_ARM64_SHA256}
           else
             asset=yt-dlp_linux
-            expected=6bbb3d314cde4febe36e5fa1d55462e29c974f63444e707871834f6d8cc210ae
+            expected=58162f9bfdc27458ea47bfcb311cf47028f17d8154a8bf7d689861d46399230a
+            deno_asset=deno-x86_64-unknown-linux-gnu.zip
+            deno_expected=${DENO_LINUX_X64_SHA256}
           fi
           curl -fL "https://github.com/yt-dlp/yt-dlp/releases/download/${YT_DLP_VERSION}/${asset}" -o package/payload/yt-dlp
           printf '%s  %s\n' "${expected}" package/payload/yt-dlp | sha256sum -c -
@@ -108,8 +195,18 @@ jobs:
           else
             test "$(package/payload/yt-dlp --version)" = "${YT_DLP_VERSION}"
           fi
+          curl -fL "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/${deno_asset}" -o package/payload/deno.zip
+          printf '%s  %s\n' "${deno_expected}" package/payload/deno.zip | sha256sum -c -
+          unzip -p package/payload/deno.zip deno > package/payload/deno
+          rm package/payload/deno.zip
+          chmod 0755 package/payload/deno
+          if [ "${{ matrix.runtime }}" = "linux-arm64" ]; then
+            file package/payload/deno | grep -Eq 'ELF 64-bit.*ARM aarch64'
+          else
+            test "$(package/payload/deno --version | sed -n '1s/^deno \([^ ]*\).*/\1/p')" = "${DENO_VERSION}"
+          fi
       - run: |
-          cp installers/linux/install.sh installers/linux/uninstall.sh installers/linux/repair-updater.sh installers/linux/lessoncue.service installers/linux/lessoncue-cloudflared.service installers/linux/lessoncue-update installers/linux/lessoncue-update.service installers/linux/lessoncue-update.path installers/linux/lessoncue-update-recovery.service installers/linux/lessoncue-media-worker installers/linux/lessoncue-render.rules installers/release-signing-public.pem package/
+          cp installers/linux/install.sh installers/linux/uninstall.sh installers/linux/repair-updater.sh installers/linux/lessoncue.service installers/linux/lessoncue-cloudflared.service installers/linux/lessoncue-update installers/linux/lessoncue-update.service installers/linux/lessoncue-update.path installers/linux/lessoncue-update-recovery.service installers/linux/lessoncue-ytdlp-update.service installers/linux/lessoncue-ytdlp-update.path installers/linux/lessoncue-ytdlp-update.timer installers/linux/lessoncue-media-worker installers/linux/lessoncue-render.rules installers/release-signing-public.pem package/
           cp installers/linux/lessoncue-media-worker package/payload/lessoncue-media-worker
           chmod 0755 package/payload/lessoncue-media-worker
           test -x package/lessoncue-media-worker
@@ -135,7 +232,8 @@ jobs:
           path: LessonCue-Server-${{ matrix.runtime }}.tar.gz
 
   server-windows:
-    needs: release-validation
+    needs: [release-scope, release-validation]
+    if: ${{ needs['release-scope'].result == 'success' && needs['release-validation'].result == 'success' && inputs.reuse_run_id == '' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -167,11 +265,21 @@ jobs:
       - run: dotnet publish server/LessonCue.Server/LessonCue.Server.csproj -c Release -r win-x64 --self-contained -o package/payload
       - shell: pwsh
         run: |
-          $expected = "52fe3c26dcf71fbdc85b528589020bb0b8e383155cfa81b64dd447bbe35e24b8"
+          $expected = "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a"
           Invoke-WebRequest "https://github.com/yt-dlp/yt-dlp/releases/download/$env:YT_DLP_VERSION/yt-dlp.exe" -OutFile package/payload/yt-dlp.exe
           $actual = (Get-FileHash package/payload/yt-dlp.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actual -ne $expected) { throw "yt-dlp.exe checksum mismatch" }
           if ((& package/payload/yt-dlp.exe --version) -ne $env:YT_DLP_VERSION) { throw "yt-dlp.exe version mismatch" }
+          $denoExpected = $env:DENO_WINDOWS_X64_SHA256
+          Invoke-WebRequest "https://github.com/denoland/deno/releases/download/v$env:DENO_VERSION/deno-x86_64-pc-windows-msvc.zip" -OutFile package/deno.zip
+          $denoActual = (Get-FileHash package/deno.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($denoActual -ne $denoExpected) { throw "deno.zip checksum mismatch" }
+          Expand-Archive package/deno.zip -DestinationPath package/deno-extracted -Force
+          Move-Item package/deno-extracted/deno.exe package/payload/deno.exe
+          Remove-Item package/deno.zip -Force
+          Remove-Item package/deno-extracted -Recurse -Force
+          $denoVersion = ((& package/payload/deno.exe --version | Select-Object -First 1) -split '\s+')[1]
+          if ($denoVersion -ne $env:DENO_VERSION) { throw "Deno version mismatch" }
           Copy-Item installers/windows/Install-LessonCue.ps1 package/
           Copy-Item installers/windows/Uninstall-LessonCue.ps1 package/
           Compress-Archive -Path package/* -DestinationPath LessonCue-Server-Windows-x64.zip
@@ -181,7 +289,8 @@ jobs:
           path: LessonCue-Server-Windows-x64.zip
 
   android:
-    needs: release-validation
+    needs: [release-scope, release-validation]
+    if: ${{ needs['release-scope'].result == 'success' && needs['release-validation'].result == 'success' && needs['release-scope'].outputs.tv_app_required == 'true' && inputs.reuse_run_id == '' }}
     runs-on: ubuntu-latest
     env:
       LESSONCUE_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEYSTORE_PASSWORD }}
@@ -250,8 +359,8 @@ jobs:
           test -n "${version_name}" || { echo "::error::Unable to read the APK version name"; exit 1; }
           apk_sha256="$(sha256sum lessoncue-tv.apk | awk '{print $1}')"
           apk_size="$(stat -c '%s' lessoncue-tv.apk)"
-          apk_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/lessoncue-tv.apk"
-          release_notes="$(bash scripts/extract-release-notes.sh --user "${GITHUB_REF_NAME}")"
+          apk_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/lessoncue-tv.apk"
+          release_notes="$(bash scripts/extract-release-notes.sh --user "${RELEASE_TAG}")"
           jq -n \
             --arg channel "stable" \
             --arg versionName "${version_name}" \
@@ -285,7 +394,8 @@ jobs:
             LessonCue-TV-Google-Play.aab
 
   publish:
-    needs: [server-linux, server-windows, android]
+    needs: [release-scope, server-linux, server-windows, android]
+    if: ${{ always() && inputs.reuse_run_id == '' && needs['release-scope'].result == 'success' && needs['server-linux'].result == 'success' && needs['server-windows'].result == 'success' && (needs['release-scope'].outputs.tv_app_required == 'false' || needs.android.result == 'success') }}
     concurrency:
       group: amazon-appstore-publish
       cancel-in-progress: false
@@ -298,13 +408,37 @@ jobs:
       artifact-metadata: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - name: Download artifacts from this run
+        if: ${{ inputs.reuse_run_id == '' }}
+        uses: actions/download-artifact@v4
         with:
           path: release
           merge-multiple: true
+      - name: Download artifacts from completed run
+        if: ${{ inputs.reuse_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+          run-id: ${{ inputs.reuse_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Remove TV artifacts from server-only release
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'false' }}
+        run: |
+          rm -f \
+            release/LessonCue-AndroidTV-sideload-debug.apk \
+            release/LessonCue-TV-Google-Play.aab \
+            release/LessonCue-TV-store.apk \
+            release/lessoncue-tv.apk \
+            release/lessoncue-tv.apk.sha256 \
+            release/update.json
       - name: Prepare user-facing release notes
         run: |
-          bash scripts/extract-release-notes.sh "${GITHUB_REF_NAME}" > release/RELEASE-NOTES.md
+          case "${RELEASE_TAG}" in
+            v*) ;;
+            *) echo "::error::RELEASE_TAG must start with v."; exit 64 ;;
+          esac
+          bash scripts/extract-release-notes.sh "${RELEASE_TAG}" > release/RELEASE-NOTES.md
           cp CHANGELOG.md release/CHANGELOG.md
           cp installers/linux/install-latest.sh release/install-lessoncue.sh
           # The optional URL shortener is a container stack, while the server
@@ -398,6 +532,7 @@ jobs:
           subject-path: release/*
           sbom-path: release/LessonCue-SBOM.spdx.json
       - name: Publish Google Play internal test
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' && inputs.reuse_run_id == '' }}
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
         with:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
@@ -408,17 +543,191 @@ jobs:
           # Production publishes the TV-only app to all eligible Google TV /
           # Android TV users through Play's normal review and rollout checks.
           tracks: "tv:production"
-          releaseName: ${{ github.ref_name }}
+          releaseName: ${{ env.RELEASE_TAG }}
           status: completed
       - name: Publish Amazon Appstore
+        id: amazon
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' }}
         env:
           AMAZON_APP_ID: ${{ secrets.AMAZON_APP_ID }}
           AMAZON_CLIENT_ID: ${{ secrets.AMAZON_CLIENT_ID }}
           AMAZON_CLIENT_SECRET: ${{ secrets.AMAZON_CLIENT_SECRET }}
           AMAZON_RELEASE_NOTES_FILE: release/RELEASE-NOTES.md
         run: bash scripts/publish-amazon-appstore.sh release/LessonCue-TV-store.apk
+      - name: Document deferred Amazon Appstore submission
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' && steps.amazon.outputs.status == 'deferred' }}
+        run: |
+          cat >> release/RELEASE-NOTES.md <<'EOF'
+
+          ### Amazon Appstore
+
+          The APK is included in this release, but Amazon deferred the upload because the app is currently in review. Amazon does not allow an app to be modified during review. Re-run the **Submit Amazon Appstore APK** workflow for this tag after the review completes.
+          EOF
+          {
+            echo '# Amazon Appstore status'
+            echo
+            printf 'The %s APK was not changed in Amazon because the app is currently in review. Amazon’s App Submission API returned error_apk_cannot_be_modified. Retry the **Submit Amazon Appstore APK** workflow after Amazon completes that review.\n' "${RELEASE_TAG}"
+          } > release/AMAZON-APPSTORE-STATUS.md
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          body_path: release/RELEASE-NOTES.md
+          generate_release_notes: false
+          files: release/*
+
+  publish-reused:
+    needs: release-scope
+    if: ${{ needs['release-scope'].result == 'success' && github.event.inputs.reuse_run_id != '' }}
+    runs-on: ubuntu-latest
+    environment: production-release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+          run-id: ${{ inputs.reuse_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Remove TV artifacts from server-only release
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'false' }}
+        run: |
+          rm -f \
+            release/LessonCue-AndroidTV-sideload-debug.apk \
+            release/LessonCue-TV-Google-Play.aab \
+            release/LessonCue-TV-store.apk \
+            release/lessoncue-tv.apk \
+            release/lessoncue-tv.apk.sha256 \
+            release/update.json
+      - name: Prepare user-facing release notes
+        run: |
+          case "${RELEASE_TAG}" in
+            v*) ;;
+            *) echo "::error::RELEASE_TAG must start with v."; exit 64 ;;
+          esac
+          bash scripts/extract-release-notes.sh "${RELEASE_TAG}" > release/RELEASE-NOTES.md
+          cp CHANGELOG.md release/CHANGELOG.md
+          cp installers/linux/install-latest.sh release/install-lessoncue.sh
+          mkdir -p release/shortener
+          cp compose.yaml release/shortener/compose.yaml
+          cp scripts/shortener-install.sh release/shortener/install.sh
+          cp scripts/shortener-update.sh release/shortener/update.sh
+          cp scripts/remove-shlink-web-client.sh release/shortener/remove-shlink-web-client.sh
+          cp docs/url-shortener.md release/shortener/README.md
+          cp -R shortener-companion release/shortener/shortener-companion
+          tar -czf release/LessonCue-URL-Shortener.tar.gz -C release shortener
+          rm -rf release/shortener
+      - name: Install checksum-pinned Trivy
+        run: bash scripts/install-trivy.sh "${RUNNER_TEMP}/lessoncue-security"
+      - name: Generate release SBOM and third-party inventory
+        run: |
+          "${RUNNER_TEMP}/lessoncue-security/trivy" fs \
+            --scanners vuln,license \
+            --format spdx-json \
+            --output release/LessonCue-SBOM.spdx.json \
+            release
+          python3 scripts/generate-third-party-notices.py \
+            release/LessonCue-SBOM.spdx.json \
+            release/THIRD-PARTY-NOTICES.txt
+      - name: Require and validate the offline release-signing key
+        env:
+          RELEASE_SIGNING_KEY_BASE64: ${{ secrets.LESSONCUE_RELEASE_SIGNING_KEY_BASE64 }}
+        run: |
+          test -n "${RELEASE_SIGNING_KEY_BASE64}" || {
+            echo "::error::LESSONCUE_RELEASE_SIGNING_KEY_BASE64 is not configured"
+            exit 1
+          }
+          printf '%s' "${RELEASE_SIGNING_KEY_BASE64}" |
+            base64 --decode > "${RUNNER_TEMP}/lessoncue-release-signing-private.pem"
+          chmod 0600 "${RUNNER_TEMP}/lessoncue-release-signing-private.pem"
+          openssl pkey -in "${RUNNER_TEMP}/lessoncue-release-signing-private.pem" \
+            -pubout -out "${RUNNER_TEMP}/lessoncue-release-signing-public.pem"
+          expected_fingerprint="dda6fcd087b5b37576aa8d0d84594478103a62aa2e072297b43270fa1908b3e5"
+          actual_fingerprint="$(
+            openssl pkey -pubin \
+              -in "${RUNNER_TEMP}/lessoncue-release-signing-public.pem" \
+              -outform DER |
+              sha256sum |
+              awk '{print $1}'
+          )"
+          test "${actual_fingerprint}" = "${expected_fingerprint}" || {
+            echo "::error::The configured release-signing key does not match LessonCue's pinned public key"
+            exit 1
+          }
+          cmp \
+            "${RUNNER_TEMP}/lessoncue-release-signing-public.pem" \
+            installers/release-signing-public.pem
+      - name: Sign and immediately verify the complete release manifest
+        run: |
+          (
+            cd release
+            find . -maxdepth 1 -type f \
+              ! -name 'SHA256SUMS' \
+              ! -name 'SHA256SUMS.sig' \
+              -printf '%f\n' |
+              LC_ALL=C sort |
+              xargs sha256sum > SHA256SUMS
+          )
+          openssl pkeyutl -sign \
+            -inkey "${RUNNER_TEMP}/lessoncue-release-signing-private.pem" \
+            -rawin \
+            -in release/SHA256SUMS \
+            -out release/SHA256SUMS.sig
+          openssl pkeyutl -verify \
+            -pubin \
+            -inkey installers/release-signing-public.pem \
+            -rawin \
+            -in release/SHA256SUMS \
+            -sigfile release/SHA256SUMS.sig
+          (
+            cd release
+            sha256sum -c SHA256SUMS
+          )
+      - name: Attest release provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: release/*
+      - name: Attest release SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: release/*
+          sbom-path: release/LessonCue-SBOM.spdx.json
+      - name: Record previously completed Google Play publication
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' }}
+        run: echo "Google Play publication already completed by source run ${SOURCE_RUN_ID}."
+        env:
+          SOURCE_RUN_ID: ${{ inputs.reuse_run_id }}
+      - name: Publish Amazon Appstore
+        id: amazon
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' }}
+        env:
+          AMAZON_APP_ID: ${{ secrets.AMAZON_APP_ID }}
+          AMAZON_CLIENT_ID: ${{ secrets.AMAZON_CLIENT_ID }}
+          AMAZON_CLIENT_SECRET: ${{ secrets.AMAZON_CLIENT_SECRET }}
+          AMAZON_RELEASE_NOTES_FILE: release/RELEASE-NOTES.md
+        run: bash scripts/publish-amazon-appstore.sh release/LessonCue-TV-store.apk
+      - name: Document deferred Amazon Appstore submission
+        if: ${{ needs['release-scope'].outputs.tv_app_required == 'true' && steps.amazon.outputs.status == 'deferred' }}
+        run: |
+          cat >> release/RELEASE-NOTES.md <<'EOF'
+
+          ### Amazon Appstore
+
+          The APK is included in this release, but Amazon deferred the upload because the app is currently in review. Amazon does not allow an app to be modified during review. Re-run the **Submit Amazon Appstore APK** workflow for this tag after the review completes.
+          EOF
+          {
+            echo '# Amazon Appstore status'
+            echo
+            printf 'The %s APK was not changed in Amazon because the app is currently in review. Amazon’s App Submission API returned error_apk_cannot_be_modified. Retry the **Submit Amazon Appstore APK** workflow after Amazon completes that review.\n' "${RELEASE_TAG}"
+          } > release/AMAZON-APPSTORE-STATUS.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
           body_path: release/RELEASE-NOTES.md
           generate_release_notes: false
           files: release/*

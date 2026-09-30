@@ -166,7 +166,7 @@ public sealed class ActivitySessionServiceTests
         {
             var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput(
                 "Review Quiz", ActivityTypes.Trivia, Config: JsonDocument.Parse("""
-                    {"title":"Review Quiz","questions":[{"id":"q1","prompt":"Pick one","options":["A","B"],"correctIndex":1,"points":125,"explanation":"B is right."}]}
+                    {"title":"Review Quiz","questions":[{"id":"q1","prompt":"Pick one","options":["A","B"],"correctIndex":1,"points":125,"explanation":"B is right."}],"modifiers":{"speedBonus":{"enabled":false}}}
                     """).RootElement), "teacher", TestContext.Current.CancellationToken);
             var run = await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken);
             run = await sessions.EnsureInteractiveRunAsync(run, TestContext.Current.CancellationToken);
@@ -784,14 +784,19 @@ public sealed class ActivitySessionServiceTests
             Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(artist.Token, "submit", drawingPayload), TestContext.Current.CancellationToken)).Success);
 
             var beforeApproval = await sessions.GetDisplayEnvelopeAsync(run.Id, TestContext.Current.CancellationToken);
-            Assert.DoesNotContain("0.1", JsonSerializer.Serialize(beforeApproval!.State, ActivityJsonDefaults.Options), StringComparison.Ordinal);
+            var privateState = Assert.IsType<JsonElement>(beforeApproval!.State);
+            Assert.False(privateState.TryGetProperty("drawings", out _));
             var pending = Assert.Single((await sessions.GetHostViewAsync(run.Id, TestContext.Current.CancellationToken))!.Submissions);
             var submissionId = pending.GetType().GetProperty("id")!.GetValue(pending)!.ToString();
             Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "moderate", JsonDocument.Parse($"{{\"submissionId\":\"{submissionId}\",\"status\":\"approved\"}}").RootElement), TestContext.Current.CancellationToken)).Success);
             await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "openvoting"), TestContext.Current.CancellationToken);
             var votingState = await sessions.GetParticipantViewAsync(run.Id, voter.Token, TestContext.Current.CancellationToken);
-            Assert.Contains("0.1", JsonSerializer.Serialize(votingState!.State.State, ActivityJsonDefaults.Options), StringComparison.Ordinal);
-            Assert.Contains("votingTimerRemainingMs", JsonSerializer.Serialize(votingState.State.State, ActivityJsonDefaults.Options), StringComparison.OrdinalIgnoreCase);
+            var publicState = Assert.IsType<JsonElement>(votingState!.State.State);
+            var publicDrawing = Assert.Single(publicState.GetProperty("drawings").EnumerateArray());
+            var firstStroke = Assert.Single(publicDrawing.GetProperty("strokes").EnumerateArray());
+            var firstPoint = firstStroke.GetProperty("points").EnumerateArray().First();
+            Assert.Equal(0.1, firstPoint.EnumerateArray().First().GetDouble(), 3);
+            Assert.True(publicState.TryGetProperty("votingTimerRemainingMs", out _));
             var selfVote = await sessions.ExecuteParticipantActionAsync(run.Id, new ActivityParticipantActionInput(artist.Token, "vote", JsonDocument.Parse($"{{\"targetId\":\"{submissionId}\"}}").RootElement), TestContext.Current.CancellationToken);
             Assert.False(selfVote.Success);
             Assert.Contains("another", selfVote.Error ?? "", StringComparison.OrdinalIgnoreCase);
@@ -1506,6 +1511,34 @@ public sealed class ActivitySessionServiceTests
             var revealedState = JsonSerializer.SerializeToElement(revealed.State, ActivityJsonDefaults.Options);
             Assert.False(revealedState.GetProperty("isRunning").GetBoolean());
             Assert.Equal(JsonValueKind.Null, revealedState.GetProperty("targetAt").ValueKind);
+        }
+    }
+
+    [Fact]
+    public async Task QuizAwardsTheDefaultSpeedBonusToTheFirstCorrectPlayer()
+    {
+        var (db, activities, sessions, connection) = await CreateAsync();
+        await using (connection)
+        await using (db)
+        {
+            var definition = await activities.CreateDefinitionAsync(new ActivityDefinitionInput("Fastest Answer", ActivityTypes.Trivia, Config: JsonDocument.Parse("""
+                {"title":"Fastest Answer","questions":[{"id":"q1","prompt":"Pick B","options":["A","B"],"correctIndex":1,"points":100}]}
+                """).RootElement), "teacher", TestContext.Current.CancellationToken);
+            var run = await sessions.EnsureInteractiveRunAsync(await activities.GetOrCreateRunAsync(definition.Id, ct: TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            var first = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "First"), TestContext.Current.CancellationToken);
+            var second = await sessions.JoinAsync(run.JoinCode!, new ActivityParticipantJoinInput(null, "Second"), TestContext.Current.CancellationToken);
+
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "start"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "open"), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id,
+                new ActivityParticipantActionInput(first.Token, "answer", JsonDocument.Parse("""{"optionIndex":1}""").RootElement), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteParticipantActionAsync(run.Id,
+                new ActivityParticipantActionInput(second.Token, "answer", JsonDocument.Parse("""{"optionIndex":1}""").RootElement), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await sessions.ExecuteHostActionAsync(run.Id, new ActivityCommandEnvelope(null, null, "reveal"), TestContext.Current.CancellationToken)).Success);
+
+            var scores = await db.ActivityScoreEvents.Where(score => score.ActivityRunId == run.Id && score.ParticipantId.HasValue).ToListAsync(TestContext.Current.CancellationToken);
+            Assert.Equal(150, scores.Single(score => score.ParticipantId == first.Participant!.Id).Amount);
+            Assert.Equal(100, scores.Single(score => score.ParticipantId == second.Participant!.Id).Amount);
         }
     }
 
