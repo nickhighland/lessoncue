@@ -25,7 +25,8 @@ public sealed class TroubleshootingReportBuilder(
 
     public async Task<TroubleshootingReport> BuildAsync(
         LessonCueDb db, int requestedLimit = 2_000, bool failuresOnly = true,
-        CancellationToken ct = default)
+        CancellationToken ct = default, DateTimeOffset? errorsSince = null,
+        DateTimeOffset? errorsThrough = null)
     {
         var limit = Math.Clamp(requestedLimit, 1, failuresOnly ? 10_000 : 2_000);
         var diagnosticErrors = new List<string>();
@@ -34,23 +35,12 @@ public sealed class TroubleshootingReportBuilder(
         {
             var auditQuery = db.AuditEvents.AsNoTracking();
             if (failuresOnly)
-            {
-                auditQuery = auditQuery.Where(item =>
-                    EF.Functions.Like(item.Result, "%fail%") ||
-                    EF.Functions.Like(item.Result, "%error%") ||
-                    EF.Functions.Like(item.Result, "%defer%") ||
-                    EF.Functions.Like(item.Action, "%fail%") ||
-                    EF.Functions.Like(item.Action, "%error%") ||
-                    EF.Functions.Like(item.Action, "%defer%") ||
-                    item.Summary != null &&
-                    (EF.Functions.Like(item.Summary, "%fail%") ||
-                     EF.Functions.Like(item.Summary, "%error%") ||
-                     EF.Functions.Like(item.Summary, "%defer%")));
-            }
-
-            audit = (await auditQuery.OrderByDescending(x => x.Id).Take(limit).ToListAsync(ct))
-                .OrderByDescending(x => x.Timestamp)
-                .ToArray();
+                audit = await ReadFailureAuditAsync(
+                    auditQuery, limit, errorsSince, errorsThrough, ct);
+            else
+                audit = (await auditQuery.OrderByDescending(x => x.Id).Take(limit).ToListAsync(ct))
+                    .OrderByDescending(x => x.Timestamp)
+                    .ToArray();
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
@@ -183,7 +173,7 @@ public sealed class TroubleshootingReportBuilder(
             shortenerDiagnostics = new { state = "unavailable", error = error.GetType().Name };
         }
 
-        var runtime = log.GetRecent(limit, failuresOnly);
+        var runtime = log.GetRecent(limit, failuresOnly, errorsSince, errorsThrough);
         var issues = TroubleshootingIssueBuilder.Build(
             runtime, audit, media, screens, diagnosticErrors);
 
@@ -210,6 +200,66 @@ public sealed class TroubleshootingReportBuilder(
 
     public static byte[] ToJson(TroubleshootingReport report) =>
         JsonSerializer.SerializeToUtf8Bytes(report, JsonOptions);
+
+    internal static IQueryable<AuditEvent> FailureAuditQuery(IQueryable<AuditEvent> auditQuery)
+    {
+        return auditQuery.Where(item =>
+            item.Action != "troubleshooting.email.sent" &&
+            (EF.Functions.Like(item.Result, "%fail%") ||
+             EF.Functions.Like(item.Result, "%error%") ||
+             EF.Functions.Like(item.Result, "%defer%") ||
+             EF.Functions.Like(item.Action, "%fail%") ||
+             EF.Functions.Like(item.Action, "%error%") ||
+             EF.Functions.Like(item.Action, "%defer%") ||
+             item.Summary != null &&
+             (EF.Functions.Like(item.Summary, "%fail%") ||
+              EF.Functions.Like(item.Summary, "%error%") ||
+              EF.Functions.Like(item.Summary, "%defer%"))));
+    }
+
+    internal static IEnumerable<AuditEvent> FilterAuditWindow(
+        IEnumerable<AuditEvent> events, DateTimeOffset? errorsSince, DateTimeOffset? errorsThrough) =>
+        events.Where(item =>
+            (errorsSince is null || item.Timestamp > errorsSince.Value) &&
+            (errorsThrough is null || item.Timestamp <= errorsThrough.Value));
+
+    private static async Task<IReadOnlyList<AuditEvent>> ReadFailureAuditAsync(
+        IQueryable<AuditEvent> auditQuery, int limit, DateTimeOffset? errorsSince,
+        DateTimeOffset? errorsThrough, CancellationToken ct)
+    {
+        var failures = FailureAuditQuery(auditQuery);
+        if (errorsSince is null && errorsThrough is null)
+        {
+            return (await failures.OrderByDescending(item => item.Id).Take(limit).ToListAsync(ct))
+                .OrderByDescending(item => item.Timestamp)
+                .ToArray();
+        }
+
+        // SQLite cannot compare DateTimeOffset columns in SQL. Page newest-first
+        // and apply the exact time bounds in memory, so old failures never crowd
+        // new ones out of the report limit.
+        const int pageSize = 500;
+        var matching = new List<AuditEvent>(limit);
+        long? beforeId = null;
+        while (matching.Count < limit)
+        {
+            var pageQuery = failures;
+            if (beforeId is { } id)
+                pageQuery = pageQuery.Where(item => item.Id < id);
+            var page = await pageQuery.OrderByDescending(item => item.Id)
+                .Take(pageSize)
+                .ToListAsync(ct);
+            if (page.Count == 0) break;
+
+            matching.AddRange(FilterAuditWindow(page, errorsSince, errorsThrough));
+            beforeId = page[^1].Id;
+            if (page.Count < pageSize ||
+                errorsSince is { } since && page.All(item => item.Timestamp <= since))
+                break;
+        }
+
+        return matching.OrderByDescending(item => item.Timestamp).Take(limit).ToArray();
+    }
 
     public static byte[] ToGzip(TroubleshootingReport report)
     {

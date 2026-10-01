@@ -37,9 +37,9 @@ because it silently discards work.
 
 | Component | Version | Notes |
 | --- | --- | --- |
-| Server (`csproj`) | 0.46.28 | next release; source of truth for the tag |
-| `package.json` | 0.46.28 | corrected 2026-09-28 (was 0.46.23) |
-| `WebPlayer.tsx` `APP_VERSION` | 0.46.28 | corrected 2026-09-28 (was 0.46.16) |
+| Server (`csproj`) | 0.46.29 | current release; source of truth for the tag |
+| `package.json` | 0.46.29 | aligned for the current release |
+| `WebPlayer.tsx` `APP_VERSION` | 0.46.29 | aligned for the current release |
 | Android TV `versionName` | 0.46.8 | released on its own cadence; 0.46.7 was rejected because review access was undocumented |
 | Vega `manifest.toml` | 0.46.6 | parked, see §4 |
 

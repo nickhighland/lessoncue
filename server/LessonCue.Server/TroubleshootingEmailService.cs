@@ -142,13 +142,25 @@ public sealed class TroubleshootingEmailService(
                     now))
                 return Status(organization, providerConfigured, now);
 
-            var report = await reports.BuildAsync(db, failuresOnly: true, ct: ct);
+            var errorsSince = TroubleshootingEmailSchedule.ErrorWindowStart(
+                organization.DailyTroubleshootingEmailLastSentAt, now);
+            var report = await reports.BuildAsync(
+                db, failuresOnly: true, ct: ct, errorsSince: errorsSince, errorsThrough: now);
             var localDate = TroubleshootingEmailSchedule.LocalDate(now, organization.TimeZone);
             var attachment = new EmailAttachment(
                 ReportAttachmentFileName(localDate),
                 TroubleshootingReportBuilder.ToJson(report));
             var safeName = System.Net.WebUtility.HtmlEncode(organization.Name);
-            var html = $"<p>Daily LessonCue troubleshooting report for <strong>{safeName}</strong>.</p>" +
+            var hasErrorsThisPeriod = report.Runtime.Count > 0 || report.Audit.Count > 0 ||
+                                      report.DiagnosticErrors.Count > 0;
+            var subject = TroubleshootingEmailSchedule.ReportSubject(localDate, hasErrorsThisPeriod);
+            var windowStart = errorsSince.ToString("u", CultureInfo.InvariantCulture);
+            var windowEnd = now.ToString("u", CultureInfo.InvariantCulture);
+            var periodSummary = hasErrorsThisPeriod
+                ? "New runtime, audit, or diagnostic errors were reported this period."
+                : "No errors were reported this period.";
+            var html = $"<p>{periodSummary} The report covers errors from {windowStart} through {windowEnd}.</p>" +
+                       $"<p>Daily LessonCue troubleshooting report for <strong>{safeName}</strong>.</p>" +
                        "<ul>" +
                        $"<li>Runtime failure entries: {report.Runtime.Count}</li>" +
                        $"<li>Failed audit entries: {report.Audit.Count}</li>" +
@@ -163,7 +175,7 @@ public sealed class TroubleshootingEmailService(
             await email.SendAsync(
                 organization,
                 recipient,
-                $"LessonCue daily troubleshooting report — {localDate:yyyy-MM-dd}",
+                subject,
                 html,
                 ct,
                 [attachment]);
@@ -175,7 +187,7 @@ public sealed class TroubleshootingEmailService(
                 Actor = "system",
                 Action = "troubleshooting.email.sent",
                 Object = organization.Id.ToString(),
-                Summary = $"Failures-only report delivered through {organization.EmailProvider}."
+                Summary = $"Daily troubleshooting report delivered through {organization.EmailProvider}."
             });
             await db.SaveChangesAsync(ct);
             return Status(organization, providerConfigured, now);
@@ -247,6 +259,14 @@ public sealed class TroubleshootingEmailService(
 
 public static class TroubleshootingEmailSchedule
 {
+    public static DateTimeOffset ErrorWindowStart(DateTimeOffset? lastSentAt, DateTimeOffset now) =>
+        lastSentAt ?? now.AddDays(-1);
+
+    internal static string ReportSubject(DateOnly localDate, bool hasErrors) =>
+        hasErrors
+            ? $"LessonCue daily troubleshooting report — {localDate:yyyy-MM-dd}"
+            : "No errors were reported this period.";
+
     public static bool IsEmail(string? value)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > 200) return false;
