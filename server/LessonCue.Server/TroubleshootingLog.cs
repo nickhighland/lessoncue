@@ -39,16 +39,30 @@ public sealed class TroubleshootingLog : ILoggerProvider
 
     public ILogger CreateLogger(string categoryName) => new TroubleshootingLogger(this, categoryName);
 
-    public IReadOnlyList<TroubleshootingLogEntry> GetRecent(int limit, bool failuresOnly = false)
+    public IReadOnlyList<TroubleshootingLogEntry> GetRecent(
+        int limit, bool failuresOnly = false, DateTimeOffset? since = null, DateTimeOffset? through = null)
     {
         var safeLimit = Math.Clamp(limit, 1, failuresOnly ? MaximumFailureEntries : MaximumEntries);
         if (failuresOnly)
         {
             lock (fileLock) PruneFailuresNoLock(DateTimeOffset.UtcNow);
-            return failures.OrderByDescending(entry => entry.Timestamp).Take(safeLimit).ToArray();
+            return failures
+                .Where(entry => IsWithinWindow(entry.Timestamp, since, through))
+                .OrderByDescending(entry => entry.Timestamp)
+                .Take(safeLimit)
+                .ToArray();
         }
-        return entries.Reverse().Take(safeLimit).ToArray();
+        return entries
+            .Where(entry => IsWithinWindow(entry.Timestamp, since, through))
+            .Reverse()
+            .Take(safeLimit)
+            .ToArray();
     }
+
+    private static bool IsWithinWindow(
+        DateTimeOffset timestamp, DateTimeOffset? since, DateTimeOffset? through) =>
+        (since is null || timestamp > since.Value) &&
+        (through is null || timestamp <= through.Value);
 
     public void Dispose() { }
 

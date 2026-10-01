@@ -138,4 +138,26 @@ public sealed class TroubleshootingLogTests
             if (Directory.Exists(root)) Directory.Delete(root, true);
         }
     }
+
+    [Fact]
+    public void Failure_log_window_uses_an_exclusive_start_and_inclusive_end()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"lessoncue-troubleshooting-window-{Guid.NewGuid():N}");
+        try
+        {
+            using var log = new TroubleshootingLog(root);
+            log.CreateLogger("LessonCue.Server.Worker").LogError("Windowed failure");
+            var failure = Assert.Single(log.GetRecent(10, failuresOnly: true));
+
+            Assert.Empty(log.GetRecent(10, failuresOnly: true, since: failure.Timestamp));
+            Assert.Single(log.GetRecent(10, failuresOnly: true,
+                since: failure.Timestamp.AddTicks(-1), through: failure.Timestamp));
+            Assert.Empty(log.GetRecent(10, failuresOnly: true,
+                through: failure.Timestamp.AddTicks(-1)));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
 }

@@ -32,6 +32,25 @@ public sealed class TroubleshootingEmailScheduleTests
             TroubleshootingEmailService.ReportAttachmentFileName(new DateOnly(2026, 9, 22)));
     }
 
+    [Fact]
+    public void Error_window_starts_after_the_last_successful_email_or_uses_the_previous_day_initially()
+    {
+        var now = new DateTimeOffset(2026, 9, 30, 11, 0, 0, TimeSpan.Zero);
+        var previousEmail = now.AddHours(-25);
+
+        Assert.Equal(previousEmail, TroubleshootingEmailSchedule.ErrorWindowStart(previousEmail, now));
+        Assert.Equal(now.AddDays(-1), TroubleshootingEmailSchedule.ErrorWindowStart(null, now));
+    }
+
+    [Fact]
+    public void Empty_daily_error_period_uses_the_requested_exact_subject()
+    {
+        Assert.Equal("No errors were reported this period.",
+            TroubleshootingEmailSchedule.ReportSubject(new DateOnly(2026, 9, 30), hasErrors: false));
+        Assert.Equal("LessonCue daily troubleshooting report — 2026-09-30",
+            TroubleshootingEmailSchedule.ReportSubject(new DateOnly(2026, 9, 30), hasErrors: true));
+    }
+
     [Theory]
     [InlineData("7:05", "07:05")]
     [InlineData("23:59", "23:59")]

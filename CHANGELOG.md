@@ -4,6 +4,23 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.29 — Incremental daily error emails
+
+### User changes
+
+- Daily troubleshooting emails now include only new runtime and audit errors
+  since the previous successful email. A quiet period still sends an email
+  with the subject “No errors were reported this period.”
+
+### Developer changes
+
+- Bounded daily error evidence to the interval after the previous successful
+  send and through the report snapshot; failed sends do not advance the window.
+- Excluded the sender's own successful audit event to avoid repeating it as a
+  failure in the next email.
+- Added regression tests for time-window boundaries, audit filtering, and the
+  exact empty-period subject.
+
 ## v0.46.28 — Review-ready TV pairing and Docker-host tunnels
 
 ### User changes
