@@ -6,9 +6,9 @@ import java.net.InetAddress
 
 /**
  * Android must retain platform cleartext support for self-hosted RFC1918 and
- * .local servers. Enforce the narrower product policy here: public or ordinary
- * DNS hostnames require HTTPS, while HTTP is accepted only for an explicitly
- * local address.
+ * .local servers. Public HTTP is accepted as a convenient input alias, but is
+ * upgraded to HTTPS before any request is made. Only explicitly local hosts
+ * may remain on cleartext HTTP.
  */
 internal fun normalizeLessonCueServerUrl(value: String): String {
     val entered = value.trim().trimEnd('/')
@@ -28,12 +28,17 @@ internal fun normalizeLessonCueServerUrl(value: String): String {
     require(!isBareLinkLocalIpv6(host)) {
         "A link-local IPv6 address must include its interface scope, such as %25wlan0."
     }
-    require(scheme == "https" || isTrustedLocalHttpHost(host)) {
-        "Public or ordinary DNS addresses require HTTPS. Use HTTP only for a private IP address, localhost, or a .local name."
+    val literalHost = host.matches(Regex("[0-9.]+")) || ':' in host
+    require(scheme == "https" || isTrustedLocalHttpHost(host) || !literalHost) {
+        "Use HTTPS for a public IP address. HTTP is supported only for a private/local address or an ordinary hostname that can be upgraded to HTTPS."
     }
+    val normalizedScheme = if (scheme == "http" && !isTrustedLocalHttpHost(host)) "https" else scheme
     val authority = if (':' in host) "[$host]" else host
-    val port = uri.port.takeIf { it > 0 && !((scheme == "http" && it == 80) || (scheme == "https" && it == 443)) }
-    return "$scheme://$authority${port?.let { ":$it" }.orEmpty()}"
+    val port = uri.port.takeIf { it > 0 &&
+        !((normalizedScheme == "http" && it == 80) ||
+            (normalizedScheme == "https" && it == 443) ||
+            (scheme == "http" && normalizedScheme == "https" && it == 80)) }
+    return "$normalizedScheme://$authority${port?.let { ":$it" }.orEmpty()}"
 }
 
 private fun isBareLinkLocalIpv6(host: String): Boolean {

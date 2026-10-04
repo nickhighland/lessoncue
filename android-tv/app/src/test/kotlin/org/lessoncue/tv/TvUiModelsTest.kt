@@ -72,6 +72,22 @@ class TvUiModelsTest {
     }
 
     @Test
+    fun activePlaybackAndSignageKeepTheDisplayAwake() {
+        val signage = SignageCue(
+            id = "sign", name = "Sign", mode = "always", priority = 1, message = "Welcome",
+            backgroundColor = "#000000", textColor = "#ffffff", mediaUrl = null
+        )
+        val off = signage.copy(displayPower = "off")
+
+        assertTrue(shouldKeepScreenAwake(isPlayer = true, manifest = null))
+        assertTrue(shouldKeepScreenAwake(isPlayer = false,
+            manifest = ScreenManifest(1, "TV", listOf(signage), emptyList())))
+        assertFalse(shouldKeepScreenAwake(isPlayer = false,
+            manifest = ScreenManifest(1, "TV", listOf(off), emptyList())))
+        assertFalse(shouldKeepScreenAwake(isPlayer = false, manifest = null))
+    }
+
+    @Test
     fun playbackOverlayTimesOutOnlyWhilePlaying() {
         assertTrue(shouldShowPlaybackOverlay(1_000, 4_999, playing = true))
         assertFalse(shouldShowPlaybackOverlay(1_000, 5_000, playing = true))

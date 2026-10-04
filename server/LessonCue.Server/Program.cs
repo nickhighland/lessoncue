@@ -487,7 +487,7 @@ try
     var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
     await db.Database.EnsureCreatedAsync();
     await DatabaseUpgrade.ApplyAsync(db);
-    await SeedData.RunAsync(db);
+    await SeedData.RunAsync(db, dataPath);
 }
 catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
 {

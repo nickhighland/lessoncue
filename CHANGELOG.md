@@ -4,6 +4,24 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.30 — Keep TV presentations awake
+
+### User changes
+
+- Android TV, Google TV, and Fire TV now keep the display awake while lesson
+  media, selected slides, or active signage is on screen, including looping
+  playback.
+- Public HTTPS demo-server hostnames now retain their hostname for TLS and
+  virtual-host routing, even when entered with an `http://` prefix.
+- Fresh and upgraded demo servers include playable pre-roll, countdown, lesson,
+  and post-lesson sample clips.
+
+### Developer changes
+
+- Added a shared foreground-window keep-awake policy with unit coverage for
+  playback, signage, powered-off signage, and idle screens.
+- Added idempotent demo media repair and bundled H.264/AAC sample assets.
+
 ## v0.46.29 — Incremental daily error emails
 
 ### User changes

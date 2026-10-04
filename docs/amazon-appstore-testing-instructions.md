@@ -12,12 +12,13 @@ with placeholders.
 ## Copy-ready instructions
 
 ```text
-LessonCue TV is a paired display client, not a standalone account-login app.
-Account login: not applicable — no username or password is required in the TV
-application.
+LessonCue Player for Fire TV is a paired display client. It does not use an
+account username or password. Review access is provided through the public
+HTTPS LessonCue server and the screen-pairing PIN below.
 
-Test server: [PUBLIC_HTTPS_LESSONCUE_SERVER_ORIGIN]
+Review server: [PUBLIC_HTTPS_LESSONCUE_SERVER_ORIGIN]
 Pairing PIN: [SIX_DIGIT_PAIRING_PIN]
+Use the Fire TV remote for navigation.
 
 The server value must be the origin only (scheme, host, and optional port), with
 no username, password, path, query, or fragment.
@@ -26,21 +27,25 @@ The test server must remain online and reachable from the Fire TV throughout
 review. It must be a public HTTPS origin; do not use lessoncue.local, a private
 IP address, or a network protected by an interactive VPN/Cloudflare Access login.
 
-1. Install and launch LessonCue.
-2. On “Connect this TV”, replace the default address with:
-   [PUBLIC_HTTPS_LESSONCUE_SERVER_ORIGIN]
-   Leave the device name as the default or use “Amazon Review TV”. Select “Find
-   server”.
-3. On “Pair this TV”, enter [SIX_DIGIT_PAIRING_PIN] and select “Pair TV”.
-4. The LessonCue library appears. Open “Sample Lesson” (or the lesson named
-   [REVIEW_LESSON_NAME]) and select a playable item. Use the Fire TV remote’s
-   Left/Right buttons to move between cues and Back to return to the library.
+1. Install and launch LessonCue Player.
+2. On “Connect this TV”, enter [PUBLIC_HTTPS_LESSONCUE_SERVER_ORIGIN] in the
+   server address field. Leave the device name as the default or use “Amazon
+   Review TV”. Select “Find server”.
+3. On “Pair this TV”, enter [SIX_DIGIT_PAIRING_PIN] in the six-digit PIN field
+   and select “Pair TV”. This PIN is the screen-pairing credential, not an
+   account password.
+4. After pairing, the LessonCue library opens. Open “Sample Lesson” (or the
+   lesson named [REVIEW_LESSON_NAME]) and select the sample video to play it.
+   Use Select/Play to start playback; Left/Right moves between cues; Back
+   returns to the lesson library.
+5. If a prior installation has a saved server, clear app data or
+   uninstall/reinstall, then repeat using the server and PIN above.
 
-The PIN is a TV-pairing credential and is separate from any administrator
-account password. If the app was previously installed, clear its app data or
-uninstall/reinstall it before repeating the steps above. If the PIN expires,
-start a new pairing request and use the current six-digit PIN shown by the test
-server administrator.
+The review server must be publicly reachable over HTTPS and must not require an
+administrator login or interactive VPN. If the server address field is not
+visible immediately, choose “Enter the server address” on the initial loading
+screen. If the PIN expires, start a new pairing request and use the current
+six-digit PIN shown by the test server administrator.
 ```
 
 ## Server checklist before submission

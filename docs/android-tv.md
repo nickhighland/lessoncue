@@ -29,6 +29,11 @@ The launcher uses the approved LessonCue icon at every Android TV density, an ad
 
 During playback, tap Left or Right to move to the previous or next cue in the complete pre-roll/countdown/lesson sequence. Hold Left or Right to rewind or fast-forward the current playable item in five-second steps. The remote's Play, Pause, Play/Pause, center Select, media Previous, media Next, Rewind, and Fast-forward keys are handled directly by LessonCue. Back returns to the lesson plan.
 
+While full-screen lesson media, a selected slide, or active signage is visible,
+the Android TV and Fire TV client keeps the display awake so long presentations
+and looping videos are not interrupted by the television screensaver. The flag
+applies only while the LessonCue window is in the foreground.
+
 Version 0.32.0 and newer applies the lesson editor's fit/fill/letterbox, rotation, asymmetric crop, background color, whole-lesson and cue volume/mute, playback speed, finite repeat count, still duration, synchronized audiovisual fades, fade-through-black transition, and end behavior on the TV. Older manifests remain readable through safe client defaults.
 
 Version 0.34.0 adds optional flexible-time cue metadata while preserving responsive multi-zone signage. Every zone media item uses the existing checksummed offline cache, while clocks render locally and approved calendar, weather, menu, RSS, and data widgets use the last successful content embedded by the server in the cached manifest.

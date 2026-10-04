@@ -11,6 +11,7 @@ import android.graphics.Color as AndroidColor
 import android.util.Log
 import android.view.PixelCopy
 import android.view.View
+import android.view.WindowManager
 import android.webkit.ConsoleMessage
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -130,6 +131,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+    internal fun setKeepScreenAwake(enabled: Boolean) {
+        if (enabled) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { LessonCueApp() }
@@ -174,6 +183,20 @@ fun LessonCueApp() {
     var diagnosticCaptureVisible by remember { mutableStateOf(false) }
     var interruptedPlayer by remember { mutableStateOf<AppScreen.Player?>(null) }
     var connectionMode by remember { mutableStateOf(ConnectionMode.Offline) }
+
+    val activity = context as? MainActivity
+    // Keep Android TV/Fire TV from dimming or launching its screensaver while
+    // the window is presenting lesson media or an active signage manifest.
+    // FLAG_KEEP_SCREEN_ON applies only while this foreground window is visible.
+    val keepScreenAwake = when (val current = screen) {
+        is AppScreen.Player -> shouldKeepScreenAwake(isPlayer = true, manifest = null)
+        is AppScreen.Library -> shouldKeepScreenAwake(isPlayer = false, manifest = current.manifest)
+        else -> false
+    }
+    DisposableEffect(activity, keepScreenAwake) {
+        activity?.setKeepScreenAwake(keepScreenAwake)
+        onDispose { activity?.setKeepScreenAwake(false) }
+    }
 
     DisposableEffect(updateManager) {
         onDispose { updateManager.close() }
