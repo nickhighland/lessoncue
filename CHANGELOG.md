@@ -4,7 +4,7 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
-## v0.46.30 — Keep TV presentations awake
+## v0.46.31 — Keep TV presentations awake
 
 ### User changes
 
