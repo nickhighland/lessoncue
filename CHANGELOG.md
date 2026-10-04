@@ -1,3 +1,14 @@
+## v0.46.30 — Preserve public HTTPS hostnames for TV server verification
+
+### User changes
+
+- Fire TV and Android TV now keep public server hostnames intact while connecting, preserving HTTPS certificate/SNI and reverse-proxy routing. An http:// public hostname input is upgraded to HTTPS automatically.
+
+### Developer changes
+
+- Public DNS names are now probed before resolved numeric addresses so CDN/proxy hostname routing remains available.
+- Added regression tests for hostname normalization and candidate ordering.
+
 # LessonCue change log
 
 This is the release history for LessonCue. Each release publishes both user and
