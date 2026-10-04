@@ -8,7 +8,9 @@ public static class SeedData
 {
     private const string DemoOrganizationName = "LessonCue Demo";
     private const string DemoClassName = "Learning Lab";
-    private const string DemoMediaFolder = "LessonCue Demo";
+    // Keep bundled demo media inside the default taxonomy so administrators can
+    // replace approved folders/tags without first having to migrate seeded data.
+    private const string DemoMediaFolder = "General";
 
     private static readonly DemoMediaSpec[] DemoMedia =
     [
@@ -242,7 +244,7 @@ public static class SeedData
         media.DeleteAfter = null;
         media.RetentionDateIsManual = false;
         media.Folder = DemoMediaFolder;
-        media.TagsCsv = $"demo,{spec.Role}";
+        media.TagsCsv = "Reusable";
         media.Version = Math.Max(media.Version, 1);
 
         if (media.Id == Guid.Empty || db.Entry(media).State == EntityState.Detached)
