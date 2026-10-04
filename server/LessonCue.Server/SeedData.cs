@@ -97,12 +97,16 @@ public static class SeedData
 
     private static async Task EnsureDemoSequenceAsync(LessonCueDb db, string dataPath)
     {
-        // Only repair the data created by the built-in demo seed. A normal
+        // Only repair the data created by the built-in sample seed. A normal
         // installation must never have its administrator's playlists rewritten
-        // just because the server restarted.
-        var seededDemo = await db.AuditEvents.AnyAsync(x =>
-            x.Action == "system.seed" && x.Summary != null &&
-            x.Summary.Contains(DemoOrganizationName));
+        // just because the server restarted. Older installations can have
+        // lost or pruned the original audit row, so the exact organization name
+        // is the primary durable marker and the audit check remains a fallback
+        // for databases created before that name was persisted consistently.
+        var seededDemo = await db.Organizations.AnyAsync(x => x.Name == DemoOrganizationName) ||
+            await db.AuditEvents.AnyAsync(x =>
+                x.Action == "system.seed" && x.Summary != null &&
+                x.Summary.Contains(DemoOrganizationName));
         if (!seededDemo) return;
 
         var lessonClass = await db.Classes.FirstOrDefaultAsync(x => x.Name == DemoClassName);
@@ -126,6 +130,15 @@ public static class SeedData
                 .Where(x => string.Equals(x.Role, spec.Role, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(x => x.Position)
                 .FirstOrDefault();
+            // Some early sample databases kept the media but lost the role
+            // during an edit or an interrupted upgrade. Reuse the known sample
+            // item instead of creating a duplicate and leaving the controller
+            // with several indistinguishable lesson cues.
+            item ??= lesson.Items
+                .Where(x => string.Equals(x.Title, spec.Title, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(x.MediaAsset?.FileName, spec.FileName, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(x => x.Position)
+                .FirstOrDefault();
             if (item is null)
             {
                 item = new PlaylistItem
@@ -146,7 +159,9 @@ public static class SeedData
             }
             else
             {
+                if (item.Title != spec.Title) { item.Title = spec.Title; changed = true; }
                 if (item.Type != "video") { item.Type = "video"; changed = true; }
+                if (item.Role != spec.Role) { item.Role = spec.Role; changed = true; }
                 if (item.MediaAssetId != media.Id) { item.MediaAssetId = media.Id; changed = true; }
                 if (item.MediaAsset != media) { item.MediaAsset = media; changed = true; }
                 if (item.DurationMs != spec.DurationMs) { item.DurationMs = spec.DurationMs; changed = true; }

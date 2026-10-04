@@ -1688,6 +1688,14 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .remote-lesson-list i { color: var(--green); font-size: 22px; font-style: normal; }
 .remote-kicker{ color: #b07722; font-size: 9px; font-weight: 900; letter-spacing: .12em; }
 .remote-cue-list { display: grid; gap: 8px; }
+.remote-cue-sequence { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 2px; }
+.remote-cue-role { display: grid; gap: 3px; min-width: 0; border: 1px solid #dfe2d9; border-radius: 9px; padding: 8px 7px; color: var(--remote-ink); background: #f7fbf7; text-align: left; }
+.remote-cue-role:hover, .remote-cue-role:focus-visible { border-color: #91c2aa; background: #fff; }
+.remote-cue-role.present { border-color: #bad8c5; background: #eef8f1; }
+.remote-cue-role.missing { color: #7c8781; background: #f4f5f1; }
+.remote-cue-role:disabled { cursor: not-allowed; opacity: .72; }
+.remote-cue-role strong { overflow: hidden; font-size: 8px; letter-spacing: .06em; text-overflow: ellipsis; white-space: nowrap; }
+.remote-cue-role small { margin-top: 0; color: #68766f; font-size: 9px; }
 .remote-cue { overflow: hidden; border: 1px solid #dfe2d9; border-radius: 12px; color: var(--remote-ink); background: #fff; text-align: left; }
 .remote-cue.selected { border-color: var(--gold); background: #fff9ea; box-shadow: 0 0 0 2px #d88c1e19; }
 .remote-cue.playing { border-color: var(--green); background: #f2fbf5; }
@@ -1738,6 +1746,7 @@ a:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   .remote-cue-controls { margin-inline: 6px; padding: 9px; }
   .remote-cue-controls-head { gap: 7px; }
   .remote-cue-controls-head .button { padding-inline: 8px; }
+  .remote-cue-sequence { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .remote-focus-panel { grid-template-columns: 1fr 1fr; }
   .remote-focus-panel > div:first-child { grid-column: 1 / -1; }
   .remote-focus-panel > button { grid-column: 1 / -1; justify-self: start; }

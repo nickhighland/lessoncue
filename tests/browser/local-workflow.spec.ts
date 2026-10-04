@@ -879,6 +879,12 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   // The cues are on screen without going anywhere for them.
   await expect(page.locator(".remote-cue-list")).toContainText("Pause for questions before continuing.");
   await expect(page.locator(".remote-cue-list")).toContainText("Flexible");
+  await expect(page.getByRole("region", { name: "Cue sequence" })).toContainText("PRE-ROLL");
+  await expect(page.getByRole("region", { name: "Cue sequence" })).toContainText("COUNTDOWN");
+  await expect(page.getByRole("region", { name: "Cue sequence" })).toContainText("POST-LESSON");
+  await expect(page.locator('[data-role="preRoll"]').first()).toBeVisible();
+  await expect(page.locator('[data-role="countdown"]').first()).toBeVisible();
+  await expect(page.locator('[data-role="postLesson"]').first()).toBeVisible();
 
   // Changing lesson is one press, and puts the list back where it was.
   await page.getByRole("button", { name: "Change lesson" }).click();

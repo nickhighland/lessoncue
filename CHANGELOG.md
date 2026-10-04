@@ -22,6 +22,20 @@ administrator installs an update.
   playback, signage, powered-off signage, and idle screens.
 - Added idempotent demo media repair and bundled H.264/AAC sample assets.
 
+## v0.46.33 — Make controller sequence roles explicit
+
+### User changes
+
+- Room and universal remotes now show dedicated, selectable PRE-ROLL,
+  COUNTDOWN, LESSON, and POST-LESSON controls above the complete cue list.
+- Existing seeded sample lessons repair missing sequence roles without creating
+  duplicate cues when their audit history has been pruned.
+
+### Developer changes
+
+- Added controller role-strip browser coverage and a retained-database seed
+  repair regression test.
+
 ## v0.46.29 — Incremental daily error emails
 
 ### User changes

@@ -52,6 +52,13 @@ type CompactRemoteShellProps = {
   showMonitor: boolean;
 };
 
+const cueRoleOrder: Array<{ role: PlaylistItem["role"]; label: string }> = [
+  { role: "preRoll", label: "PRE-ROLL" },
+  { role: "countdown", label: "COUNTDOWN" },
+  { role: "lesson", label: "LESSON" },
+  { role: "postLesson", label: "POST-LESSON" },
+];
+
 /**
  * The remote, as one downward flow rather than three tabs.
  *
@@ -566,7 +573,35 @@ export function CompactRemoteShell({
           {lessonChosen && (
             <div className="remote-cue-list controller-list" aria-label="Lesson cues">
               {orderedItems.length ? (
-                orderedItems.map((item, index) => {
+                <>
+                  <div className="remote-cue-sequence" role="region" aria-label="Cue sequence">
+                    {cueRoleOrder.map(({ role, label }) => {
+                      const roleItems = orderedItems.filter((item) => item.role === role);
+                      const firstRoleItem = roleItems[0];
+                      return (
+                        <button
+                          type="button"
+                          key={role}
+                          className={`remote-cue-role ${firstRoleItem ? "present" : "missing"}`}
+                          disabled={!firstRoleItem || !selectedScreenOnline}
+                          aria-label={firstRoleItem
+                            ? `Select ${label.toLowerCase()} cue`
+                            : `${label} is not configured`}
+                          onClick={() => {
+                            if (!firstRoleItem) return;
+                            setSelectedItemId(firstRoleItem.id);
+                            setSeekSeconds(0);
+                            setControlsExpanded(true);
+                            play(firstRoleItem.id);
+                          }}
+                        >
+                          <strong>{label}</strong>
+                          <small>{firstRoleItem ? `${roleItems.length} cue${roleItems.length === 1 ? "" : "s"}` : "Not set"}</small>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {orderedItems.map((item, index) => {
                   const isPlaying = reportedItem?.id === item.id;
                   const isSelected = selectedItemId === item.id
                     || (!selectedItemId && isPlaying);
@@ -578,6 +613,7 @@ export function CompactRemoteShell({
                       ref={isExpanded ? expandedCueRef : undefined}
                       className={`remote-cue ${isSelected ? "selected" : ""} ${isPlaying ? "playing" : ""}`}
                       data-cue-id={item.id}
+                      data-role={item.role}
                     >
                       <div className="remote-cue-row">
                         <button
@@ -635,7 +671,8 @@ export function CompactRemoteShell({
                       )}
                     </article>
                   );
-                })
+                  })}
+                </>
               ) : (
                 <div className="remote-empty-state compact">
                   <strong>No cues in this lesson</strong>
