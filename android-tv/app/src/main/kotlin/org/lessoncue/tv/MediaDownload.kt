@@ -18,8 +18,11 @@ internal fun downloadMedia(
     val partial = destination.resolveSibling("${destination.name}.part")
     try {
         checkActive()
-        connection.connectTimeout = 8_000
-        connection.readTimeout = 15_000
+        // Large media responses can pause briefly while a server or proxy
+        // resumes a range request. Keep the timeout bounded, but do not make
+        // a normal buffering pause look like a failed download to the server.
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 60_000
         connection.setRequestProperty("Accept-Encoding", "identity")
         val existing = if (partial.exists()) partial.length() else 0L
         if (existing > 0) connection.setRequestProperty("Range", "bytes=$existing-")

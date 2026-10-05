@@ -43,8 +43,8 @@ class MediaDownloadTest {
         downloadMedia(connection, destination, null)
         assertEquals("abc", destination.readText())
         assertFalse(partial.exists())
-        assertEquals(8_000, connection.connectTimeout)
-        assertEquals(15_000, connection.readTimeout)
+        assertEquals(15_000, connection.connectTimeout)
+        assertEquals(60_000, connection.readTimeout)
         assertEquals(1, connection.disconnects)
     }
 

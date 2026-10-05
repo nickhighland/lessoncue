@@ -53,6 +53,11 @@ var useDefaultHttpBinding = string.IsNullOrEmpty(Environment.GetEnvironmentVaria
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.Limits.MaxRequestBodySize = 20L * 1024 * 1024 * 1024;
+    // A TV or reverse proxy can pause a large range response while it
+    // buffers or resumes a download. Do not turn that normal back-pressure
+    // into a Kestrel response-data-rate timeout; the clients already enforce
+    // their own bounded read timeout and resume interrupted ranges.
+    options.Limits.MinResponseDataRate = null;
     // Avahi publishes both address families when IPv6 is enabled. Binding the
     // native appliance to 0.0.0.0 only advertised an IPv6 endpoint that
     // Kestrel could never serve, which made some Android TV NSD clients stop
@@ -401,13 +406,7 @@ app.Use(async (context, next) =>
     context.Response.Headers.ContentSecurityPolicy = "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss:; frame-src 'self' https: http:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
     var mediaPathValue = context.Request.Path.Value ?? "";
     if (HttpMethods.IsGet(context.Request.Method) &&
-        mediaPathValue.StartsWith("/api/v1/media/", StringComparison.Ordinal) &&
-        (mediaPathValue.EndsWith("/file", StringComparison.Ordinal) ||
-         mediaPathValue.EndsWith("/playback", StringComparison.Ordinal) ||
-         mediaPathValue.Contains("/transcodes/", StringComparison.Ordinal) ||
-         mediaPathValue.EndsWith("/thumbnail", StringComparison.Ordinal) ||
-         mediaPathValue.EndsWith("/filmstrip", StringComparison.Ordinal) ||
-         mediaPathValue.EndsWith("/waveform", StringComparison.Ordinal)))
+        MediaStreamingDiagnostics.IsMediaResponsePath(mediaPathValue))
     {
         // Display media is intentionally reachable on the trusted TV network,
         // but shared proxies must not retain it as public content.
@@ -457,6 +456,17 @@ app.Use(async (context, next) =>
     try
     {
         await next();
+    }
+    catch (Exception ex) when (MediaStreamingDiagnostics.IsDownstreamDisconnect(context, ex))
+    {
+        // Do not pass the transport exception to the troubleshooting failure
+        // store. The useful evidence is the request shape and the fact that a
+        // client/proxy ended the stream, not an application failure.
+        app.Logger.LogInformation(
+            "Media response ended after the downstream connection closed. {Method} {Path}; Trace {TraceId}; Status {StatusCode}; Range {Range}; ContentRange {ContentRange}; UserAgent {UserAgent}",
+            context.Request.Method, context.Request.Path, context.TraceIdentifier,
+            context.Response.StatusCode, context.Request.Headers.Range.ToString(),
+            context.Response.Headers.ContentRange.ToString(), context.Request.Headers.UserAgent.ToString());
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {

@@ -98,6 +98,19 @@ public sealed class MediaCompatibilityTests
         Assert.Equal("original", sources[0].Profile);
     }
 
+    [Fact]
+    public void Playback_sources_never_offer_still_images_as_video()
+    {
+        var media = new MediaAsset
+        {
+            FileName = "slide.jpeg", RelativePath = "slide.jpeg", ContentType = "image/jpeg",
+            VideoCodec = "mjpeg", ProcessingStatus = "ready", CompatibilityStatus = "not-needed"
+        };
+        var screen = new Screen { Name = "TV", CodecCapabilitiesJson = "[]" };
+
+        Assert.Empty(MediaPlaybackSources.For(media, screen));
+    }
+
     [Theory]
     [InlineData("h264", "aac", "yuv420p", 41, 1920, 1080, true)]
     [InlineData("h264", null, "yuvj420p", 40, 1280, 720, true)]
