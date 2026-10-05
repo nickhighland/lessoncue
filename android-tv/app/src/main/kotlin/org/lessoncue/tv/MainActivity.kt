@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
+import android.net.Uri
 import android.util.Log
 import android.view.PixelCopy
 import android.view.View
@@ -148,6 +149,8 @@ class MainActivity : ComponentActivity() {
 private sealed interface AppScreen {
     data object Loading : AppScreen
     data class Connect(val message: String? = null) : AppScreen
+    data class DemoPassword(val message: String? = null) : AppScreen
+    data object DemoPlayer : AppScreen
     data class EnterPin(val api: LessonCueApi, val requestId: String, val serverName: String) : AppScreen
     data class Library(val identity: DeviceIdentity, val manifest: ScreenManifest) : AppScreen
     data class LessonDetail(val identity: DeviceIdentity, val manifest: ScreenManifest, val playlist: LessonPlaylist) : AppScreen
@@ -190,6 +193,7 @@ fun LessonCueApp() {
     // FLAG_KEEP_SCREEN_ON applies only while this foreground window is visible.
     val keepScreenAwake = when (val current = screen) {
         is AppScreen.Player -> shouldKeepScreenAwake(isPlayer = true, manifest = null)
+        AppScreen.DemoPlayer -> true
         is AppScreen.Library -> shouldKeepScreenAwake(isPlayer = false, manifest = current.manifest)
         else -> false
     }
@@ -396,16 +400,29 @@ fun LessonCueApp() {
             when (val current = screen) {
                 AppScreen.Loading -> LoadingScreen(onEnterAddress = { screen = AppScreen.Connect() })
                 is AppScreen.Connect -> ConnectScreen(current.message) { address, deviceName ->
-                    scope.launch {
-                        cancellableResult {
-                            val (api, name) = findLessonCueServer(
-                                context, address, context.filesDir.resolve("manifest.json")
-                            )
-                            val request = api.requestPairing(deviceName)
-                            screen = AppScreen.EnterPin(api, request, name)
-                        }.onFailure { screen = AppScreen.Connect(it.message) }
+                    if (isDemoServerUrl(address)) {
+                        screen = AppScreen.DemoPassword()
+                    } else {
+                        scope.launch {
+                            cancellableResult {
+                                val (api, name) = findLessonCueServer(
+                                    context, address, context.filesDir.resolve("manifest.json")
+                                )
+                                val request = api.requestPairing(deviceName)
+                                screen = AppScreen.EnterPin(api, request, name)
+                            }.onFailure { screen = AppScreen.Connect(it.message) }
+                        }
                     }
                 }
+                is AppScreen.DemoPassword -> DemoPasswordScreen(
+                    message = current.message,
+                    onBack = { screen = AppScreen.Connect() },
+                    onSubmit = { password ->
+                        screen = if (isDemoPassword(password)) AppScreen.DemoPlayer
+                        else AppScreen.DemoPassword("That demo password is not correct.")
+                    }
+                )
+                AppScreen.DemoPlayer -> DemoPlayerScreen(onBack = { screen = AppScreen.DemoPassword() })
                 is AppScreen.EnterPin -> PinScreen(
                     serverName = current.serverName,
                     onBack = { screen = AppScreen.Connect() }
@@ -725,6 +742,93 @@ internal fun PinScreen(serverName: String, onBack: () -> Unit, onConfirm: (Strin
             }
             LessonCueButton(onClick = onBack, modifier = Modifier.width(160.dp).height(62.dp)) { Text("Back") }
         }
+    }
+}
+
+@Composable
+internal fun DemoPasswordScreen(
+    message: String?,
+    onBack: () -> Unit,
+    onSubmit: (String) -> Unit
+) {
+    var password by remember { mutableStateOf("") }
+    BackHandler(onBack = onBack)
+    FormLayout(
+        "LessonCue demo",
+        "Enter the review password to play the bundled sample video. This path does not connect to a server."
+    ) {
+        TvTextField(
+            value = password,
+            onValueChange = { password = it.filter(Char::isDigit).take(6) },
+            modifier = Modifier.fillMaxWidth(.7f),
+            numeric = true,
+            placeholder = "•  •  •  •  •  •"
+        )
+        message?.let {
+            Spacer(Modifier.height(18.dp))
+            Box(
+                Modifier.fillMaxWidth().background(Coral.copy(alpha = .12f), RoundedCornerShape(14.dp))
+                    .border(1.dp, Coral.copy(alpha = .55f), RoundedCornerShape(14.dp)).padding(18.dp)
+            ) {
+                Text(it, color = Cream, fontSize = 17.sp)
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+        Text(
+            if (password.length == 6) "Password complete" else "${6 - password.length} digits remaining",
+            color = if (password.length == 6) Mint else Muted,
+            fontSize = 16.sp
+        )
+        Spacer(Modifier.height(28.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            LessonCueButton(
+                onClick = { if (password.length == 6) onSubmit(password) },
+                enabled = password.length == 6,
+                modifier = Modifier.width(220.dp).height(62.dp)
+            ) { Text("Play demo", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+            LessonCueButton(onClick = onBack, modifier = Modifier.width(160.dp).height(62.dp)) {
+                Text("Back")
+            }
+        }
+    }
+}
+
+@Composable
+@SuppressLint("UnsafeOptInUsageError")
+private fun DemoPlayerScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val player = remember {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(
+                MediaItem.fromUri(
+                    Uri.parse("android.resource://${context.packageName}/${R.raw.lessoncue_demo}")
+                )
+            )
+            repeatMode = Player.REPEAT_MODE_ONE
+            prepare()
+            playWhenReady = true
+        }
+    }
+    BackHandler(onBack = onBack)
+    DisposableEffect(player) {
+        onDispose { player.release() }
+    }
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        AndroidView(
+            factory = { viewContext ->
+                PlayerView(viewContext).apply {
+                    this.player = player
+                    useController = true
+                    isFocusable = true
+                    isFocusableInTouchMode = true
+                    requestFocus()
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                }
+            },
+            update = { view -> if (view.player !== player) view.player = player },
+            onRelease = { it.player = null },
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }
 

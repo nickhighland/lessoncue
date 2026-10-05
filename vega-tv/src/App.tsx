@@ -1,6 +1,6 @@
 import * as React from 'react';
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {View, StyleSheet} from 'react-native';
+import {Image, View, StyleSheet} from 'react-native';
 import {WebView} from '@amazon-devices/webview';
 import {
   useHideSplashScreenCallback,
@@ -15,6 +15,7 @@ import type {
 } from '@amazon-devices/webview/dist/types/WebViewTypes';
 
 import {ConnectScreen} from './ConnectScreen.tsx';
+import {DemoPasswordScreen} from './DemoPasswordScreen.tsx';
 import {LoadingScreen} from './LoadingScreen.tsx';
 import {
   DEFAULT_SERVER_URL,
@@ -24,6 +25,16 @@ import {
   saveServerUrl,
 } from './serverAddress.ts';
 import {normalizeLessonCueServerUrl} from './protocol/serverUrl.ts';
+import {
+  DEMO_PAGE_URL,
+  DEMO_SERVER_URL,
+  isDemoPassword,
+  isDemoServerUrl,
+} from './demoMode.ts';
+import demoPageAsset from '../assets/lessoncue-demo.html';
+// The HTML player refers to this file relatively. Keep an explicit import in
+// the bundle graph so Metro copies the video beside the HTML asset.
+import demoVideoAsset from '../assets/lessoncue-demo.mp4';
 
 /**
  * LessonCue on Vega.
@@ -42,7 +53,9 @@ import {normalizeLessonCueServerUrl} from './protocol/serverUrl.ts';
 type Screen =
   | {kind: 'looking'; serverUrl: string}
   | {kind: 'connect'; serverUrl: string; message?: string}
-  | {kind: 'player'; serverUrl: string};
+  | {kind: 'player'; serverUrl: string}
+  | {kind: 'demo-auth'; message?: string}
+  | {kind: 'demo-player'};
 
 export const App = () => {
   const webRef = useRef(null);
@@ -96,14 +109,33 @@ export const App = () => {
   // Back leaves, which is what a television remote is expected to do.
   useEffect(() => {
     const subscription = backHandler.addEventListener('hardwareBackPress', () => {
-      if (screen.kind !== 'player') return false;
-      setScreen({kind: 'connect', serverUrl: screen.serverUrl});
-      return true;
+      if (screen.kind === 'player') {
+        setScreen({kind: 'connect', serverUrl: screen.serverUrl});
+        return true;
+      }
+      if (screen.kind === 'demo-player') {
+        setScreen({kind: 'demo-auth'});
+        return true;
+      }
+      if (screen.kind === 'demo-auth') {
+        setScreen({kind: 'connect', serverUrl: DEMO_SERVER_URL});
+        return true;
+      }
+      return false;
     });
     return () => subscription?.remove?.();
   }, [backHandler, screen]);
 
   const useAddress = useCallback(async (entered: string) => {
+    // This is a review-only marker, not a server address. Handle it before
+    // the normal URL policy and before probeServer so the review path never
+    // performs DNS, HTTP, pairing, or telemetry traffic.
+    if (isDemoServerUrl(entered)) {
+      revealApp();
+      setScreen({kind: 'demo-auth'});
+      return;
+    }
+
     // An address that policy refuses is the operator's to correct, and they are
     // told. An address that is fine but cannot be written down is not: the
     // device still works this session, and refusing to use it would strand a
@@ -121,7 +153,7 @@ export const App = () => {
       // Remembered for this run only. It will be asked for again next launch.
     }
     await findServer(normalized);
-  }, [findServer]);
+  }, [findServer, revealApp]);
 
   if (screen.kind === 'connect') {
     return (
@@ -142,6 +174,62 @@ export const App = () => {
           setScreen({kind: 'connect', serverUrl: screen.serverUrl});
         }}
       />
+    );
+  }
+
+  if (screen.kind === 'demo-auth') {
+    return (
+      <DemoPasswordScreen
+        message={screen.message}
+        onBack={() => setScreen({kind: 'connect', serverUrl: DEMO_SERVER_URL})}
+        onSubmit={password => {
+          setScreen(isDemoPassword(password)
+            ? {kind: 'demo-player'}
+            : {kind: 'demo-auth', message: 'That demo password is not correct.'});
+        }}
+      />
+    );
+  }
+
+  if (screen.kind === 'demo-player') {
+    const demoPageUri = Image.resolveAssetSource(demoPageAsset)?.uri || DEMO_PAGE_URL;
+    const demoVideoUri = Image.resolveAssetSource(demoVideoAsset)?.uri;
+    const demoAssetRoot = demoPageUri.slice(0, demoPageUri.lastIndexOf('/') + 1);
+    const demoVideoRoot = demoVideoUri
+      ? demoVideoUri.slice(0, demoVideoUri.lastIndexOf('/') + 1)
+      : '';
+    return (
+      <View style={styles.container}>
+        <WebView
+          ref={webRef}
+          style={styles.webview}
+          allowFileAccess
+          allowsDefaultMediaControl
+          hasTVPreferredFocus
+          javaScriptEnabled
+          mediaPlaybackRequiresUserAction={false}
+          source={{uri: demoPageUri}}
+          // The review player is local-only. Keep an accidental link in the
+          // bundled page from turning the demo into a network request.
+          onShouldStartLoadWithRequest={({url}) =>
+            url.startsWith(demoAssetRoot) ||
+            (demoVideoRoot.length > 0 && url.startsWith(demoVideoRoot)) ||
+            url.startsWith('file:///pkg/assets/') ||
+            url === 'about:blank'}
+          onLoad={(_event: WebViewNavigationEvent) => revealApp()}
+          onError={({nativeEvent: {code, url, description}}: WebViewErrorEvent) => {
+            console.error(`[demo-webview] ${code} ${url}: ${description}`);
+            revealApp();
+            setScreen({kind: 'demo-auth', message: 'The bundled demo video could not be loaded.'});
+          }}
+          onHttpError={({nativeEvent: {url, statusCode, isMainFrame}}: WebViewHttpErrorEvent) => {
+            console.error(`[demo-webview] HTTP ${statusCode} for ${url}`);
+            if (!isMainFrame) return;
+            revealApp();
+            setScreen({kind: 'demo-auth', message: 'The bundled demo player could not be opened.'});
+          }}
+        />
+      </View>
     );
   }
 

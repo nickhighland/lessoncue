@@ -5,7 +5,8 @@
   "moduleNameMapper": {
     "^react-native$": "@amazon-devices/react-native-kepler",
     "^react-native/(.*)$": "@amazon-devices/react-native-kepler/$1",
-    "^~/(.*)$": "<rootDir>/src/$1"
+    "^~/(.*)$": "<rootDir>/src/$1",
+    "^.+\\.html$": "<rootDir>/test/assetMock.js"
   },
   "modulePaths": ["<rootDir>/src"],
   "roots": [

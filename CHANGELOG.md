@@ -4,6 +4,22 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.34 — Offline Fire TV review demo
+
+### User changes
+
+- Fire TV reviewers can enter `http://lsnq.demo`, enter password `123456`, and
+  play the bundled sample video without a live server, pairing PIN, or network.
+- The review video starts locally and loops with the normal television playback
+  controls.
+
+### Developer changes
+
+- Added the local demo marker and password path to the Android Fire TV client
+  and the Amazon Vega client before any server discovery or HTTP request.
+- Packaged the review video with both TV clients and added coverage for the
+  marker and password rules.
+
 ## v0.46.32 — Keep TV presentations awake
 
 ### User changes
