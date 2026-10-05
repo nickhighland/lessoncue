@@ -21,11 +21,10 @@ class ServerUrlPolicyTest {
     }
 
     @Test
-    fun requiresHttpsForPublicOrOrdinaryDnsNames() {
+    fun upgradesPublicHttpHostnamesToHttps() {
         assertEquals("https://lesson.example.org", normalizeLessonCueServerUrl("https://lesson.example.org:443"))
-        assertThrows(IllegalArgumentException::class.java) {
-            normalizeLessonCueServerUrl("http://lesson.example.org")
-        }
+        assertEquals("https://lesson.example.org", normalizeLessonCueServerUrl("http://lesson.example.org"))
+        assertEquals("https://lesson.example.org:8080", normalizeLessonCueServerUrl("http://lesson.example.org:8080"))
         assertThrows(IllegalArgumentException::class.java) {
             normalizeLessonCueServerUrl("http://8.8.8.8")
         }
@@ -35,9 +34,7 @@ class ServerUrlPolicyTest {
     fun rejectsDnsNamesContainingFourPrivateIpNumbers() {
         for (host in listOf("10.0.0.1.example.org", "192.168.example.1.2.org", "127.0.0.1.example.org")) {
             assertFalse(host, isTrustedLocalHttpHost(host))
-            assertThrows(IllegalArgumentException::class.java) {
-                normalizeLessonCueServerUrl("http://$host")
-            }
+            assertEquals("https://$host", normalizeLessonCueServerUrl("http://$host"))
             assertEquals("https://$host", normalizeLessonCueServerUrl("https://$host"))
         }
     }

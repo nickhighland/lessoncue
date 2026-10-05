@@ -76,10 +76,13 @@ The Android client accepts:
 
 - HTTPS origins on any valid hostname;
 - HTTP only for loopback, RFC 1918 private IPv4, IPv4 link-local, IPv6
-  loopback/private/link-local, and `.local` hostnames.
+  loopback/private/link-local, and `.local` hostnames; and
+- an `http://` input for an ordinary DNS hostname, which it upgrades to HTTPS
+  before making requests.
 
-An ordinary public hostname entered with `http://` is rejected before a
-connection is attempted.
+Public hostnames remain intact during connection selection so TLS SNI and HTTP
+virtual-host routing work through CDNs and reverse proxies. A public numeric IP
+still requires an explicit HTTPS URL.
 
 ## Media and display privacy
 

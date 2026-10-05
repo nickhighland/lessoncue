@@ -14,6 +14,13 @@ internal data class TimelineCue(val item: CueItem, val role: CueRole)
 
 internal enum class LibraryInteractionMode { SignageOnly, Emergency, Lessons }
 
+internal fun ScreenManifest.hasActiveSignage(): Boolean = signage.any {
+    !it.displayPower.equals("off", ignoreCase = true)
+}
+
+internal fun shouldKeepScreenAwake(isPlayer: Boolean, manifest: ScreenManifest?): Boolean =
+    isPlayer || manifest?.hasActiveSignage() == true
+
 internal fun ScreenManifest.libraryInteractionMode(): LibraryInteractionMode = when {
     signageOnly || playlists.isEmpty() -> LibraryInteractionMode.SignageOnly
     signage.any { it.mode == "emergency" } -> LibraryInteractionMode.Emergency
