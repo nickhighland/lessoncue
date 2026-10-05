@@ -20,8 +20,7 @@ public static class MediaPlaybackSources
 {
     public static IReadOnlyList<MediaPlaybackSource> For(MediaAsset? media, Screen screen)
     {
-        if (media is null || media.SourceKind == "link" || media.VideoCodec is null ||
-            string.IsNullOrWhiteSpace(media.RelativePath)) return [];
+        if (!AdaptiveTranscodeEligibility.IsVideoFile(media) || media!.VideoCodec is null) return [];
 
         var sources = new List<MediaPlaybackSource>();
         var h264Supported = Supports(screen, ["H.264", "AVC"]);

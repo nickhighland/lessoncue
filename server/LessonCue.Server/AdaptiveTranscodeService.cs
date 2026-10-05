@@ -51,6 +51,19 @@ public static class AdaptiveTranscodeProfiles
     }
 }
 
+internal static class AdaptiveTranscodeEligibility
+{
+    public static bool IsVideoFile(MediaAsset? media) =>
+        media is not null &&
+        !string.Equals(media.SourceKind, "link", StringComparison.Ordinal) &&
+        !string.IsNullOrWhiteSpace(media.RelativePath) &&
+        media.VideoCodec is not null &&
+        MediaFormatCatalog.IsVideo(Path.GetExtension(media.RelativePath), media.ContentType);
+
+    public static bool IsVideo(MediaAsset? media) =>
+        IsVideoFile(media) && string.Equals(media!.ProcessingStatus, "ready", StringComparison.Ordinal);
+}
+
 public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaStoragePaths paths,
     StorageService storage, HardwareAccelerationService hardware, IHubContext<SyncHub> hub,
     ILogger<AdaptiveTranscodeService> logger) : BackgroundService
@@ -91,6 +104,15 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
     {
         using var scope = scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
+        var legacyVariants = (await db.MediaTranscodeVariants.Include(x => x.MediaAsset)
+                .ToListAsync(ct))
+            .Where(x => !AdaptiveTranscodeEligibility.IsVideo(x.MediaAsset))
+            .ToList();
+        foreach (var variant in legacyVariants)
+            ContainedPath.DeleteIfContained(paths.Transcodes, variant.RelativePath);
+        if (legacyVariants.Count > 0)
+            db.MediaTranscodeVariants.RemoveRange(legacyVariants);
+
         var interrupted = await db.MediaTranscodeVariants
             .Where(x => x.Status == "converting")
             .ToListAsync(ct);
@@ -101,12 +123,19 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
             variant.Error = null;
             variant.QueuedAt = DateTimeOffset.UtcNow;
         }
-        if (interrupted.Count > 0) await db.SaveChangesAsync(ct);
+        if (legacyVariants.Count > 0 || interrupted.Count > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            if (legacyVariants.Count > 0)
+                logger.LogInformation("Removed {Count} stale adaptive variants for non-video media", legacyVariants.Count);
+        }
     }
 
     public static async Task<MediaTranscodeVariant> QueueAsync(LessonCueDb db, MediaAsset media, string profile,
         CancellationToken ct = default)
     {
+        if (!AdaptiveTranscodeEligibility.IsVideo(media))
+            throw new ArgumentException("Adaptive profiles require a processed local video.", nameof(media));
         if (!AdaptiveTranscodeProfiles.All.TryGetValue(profile, out var specification))
             throw new ArgumentException("Unknown adaptive transcode profile.", nameof(profile));
         var variant = await db.MediaTranscodeVariants.SingleOrDefaultAsync(x => x.MediaAssetId == media.Id && x.Profile == profile, ct);
@@ -175,9 +204,9 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
 
         var mediaAssets = await db.MediaAssets.Include(x => x.TranscodeVariants)
             .Where(x => x.ProcessingStatus == "ready" && x.SourceKind != "link" &&
-                x.VideoCodec != null &&
                 (x.CompatibilityStatus == "native" || x.CompatibilityStatus == "ready"))
             .ToListAsync(ct);
+        mediaAssets = mediaAssets.Where(AdaptiveTranscodeEligibility.IsVideo).ToList();
         foreach (var media in mediaAssets.OrderByDescending(x => x.CreatedAt))
         foreach (var profile in new[]
                  {
@@ -209,8 +238,8 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
         var changed = false;
         foreach (var screen in screens)
         foreach (var media in lessons.Where(x => x.ClassId == screen.AssignedClassId).SelectMany(x => x.Items)
-            .Select(x => x.MediaAsset).Where(x => x is { ProcessingStatus: "ready", SourceKind: not "link" } &&
-                x.VideoCodec != null).DistinctBy(x => x!.Id).Cast<MediaAsset>())
+            .Select(x => x.MediaAsset).Where(AdaptiveTranscodeEligibility.IsVideo)
+            .DistinctBy(x => x!.Id).Cast<MediaAsset>())
         {
             var profile = AdaptiveTranscodeProfiles.SelectForScreen(screen, media);
             if (!AdaptiveTranscodeProfiles.All.ContainsKey(profile)) continue;
@@ -228,6 +257,13 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
         var media = variant.MediaAsset;
         if (media is null || !AdaptiveTranscodeProfiles.All.TryGetValue(variant.Profile, out var profile))
         { variant.Status = "failed"; variant.Error = "Media or profile is unavailable."; await db.SaveChangesAsync(ct); return; }
+        if (!AdaptiveTranscodeEligibility.IsVideo(media))
+        {
+            ContainedPath.DeleteIfContained(paths.Transcodes, variant.RelativePath);
+            db.MediaTranscodeVariants.Remove(variant);
+            await db.SaveChangesAsync(ct);
+            return;
+        }
         if (variant.SourceVersion != media.Version)
         { variant.SourceVersion = media.Version; variant.Status = "pending"; variant.QueuedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct); return; }
         var useCompatibility = media.CompatibilityStatus == "ready" && !string.IsNullOrWhiteSpace(media.CompatibilityPath);

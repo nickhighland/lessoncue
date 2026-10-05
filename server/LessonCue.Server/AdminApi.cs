@@ -1936,7 +1936,7 @@ public static class AdminApi
         {
             var media = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id, ct);
             if (media is null) return Results.NotFound();
-            if (media.SourceKind == "link" || media.ProcessingStatus != "ready" || media.VideoCodec is null)
+            if (!AdaptiveTranscodeEligibility.IsVideo(media))
                 return Results.BadRequest(new { error = "Adaptive profiles require a processed local video." });
             var profiles = profile.Equals("all", StringComparison.OrdinalIgnoreCase)
                 ? AdaptiveTranscodeProfiles.All.Keys.ToArray() : [profile];
