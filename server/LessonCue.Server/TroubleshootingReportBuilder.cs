@@ -290,6 +290,7 @@ public sealed record TroubleshootingReport(
         !string.IsNullOrWhiteSpace(item.CompatibilityError) ||
         item.OriginalFile?.SizeAndSha256Match == false ||
         item.CompatibilityFile?.SizeAndSha256Match == false ||
+        MediaFormatCatalog.IsVideo(Path.GetExtension(item.RelativePath), item.ContentType) &&
         item.Transcodes.Any(variant => string.Equals(variant.Status, "failed", StringComparison.OrdinalIgnoreCase)));
 
     public int ScreenAttentionCount => Screens.Count(item =>
@@ -512,6 +513,8 @@ public static class TroubleshootingIssueBuilder
                 "Discard only the derived copy through the existing retry/rebuild path; preserve the original and compare the recorded hashes first.",
                 $"CompatibilityPath={asset.CompatibilityFile.RelativePath}; DiskSizeBytes={asset.CompatibilityFile.DiskSizeBytes}; ExpectedSizeBytes={asset.CompatibilitySizeBytes}; DiskSha256={asset.CompatibilityFile.DiskSha256}; ExpectedSha256={asset.CompatibilitySha256}", asset.CreatedAt);
         }
+
+        if (!MediaFormatCatalog.IsVideo(Path.GetExtension(asset.RelativePath), asset.ContentType)) return;
 
         foreach (var variant in asset.Transcodes.Where(item =>
                      string.Equals(item.Status, "failed", StringComparison.OrdinalIgnoreCase)))

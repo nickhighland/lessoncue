@@ -147,7 +147,8 @@ public sealed class ManifestService(LessonCueDb db)
         var media = item.MediaAsset;
         var render = DisplayCapabilities.LessonDecision(screen.Platform, item);
         var compatible = media?.CompatibilityStatus == "ready" && !string.IsNullOrWhiteSpace(media.CompatibilityPath);
-        var requestedProfile = media?.VideoCodec is not null ? AdaptiveTranscodeProfiles.SelectForScreen(screen, media) : null;
+        var requestedProfile = AdaptiveTranscodeEligibility.IsVideoFile(media)
+            ? AdaptiveTranscodeProfiles.SelectForScreen(screen, media!) : null;
         var variant = requestedProfile is null ? null : media?.TranscodeVariants.FirstOrDefault(x =>
             x.Profile == requestedProfile && x.Status == "ready" && x.SourceVersion == media.Version && !string.IsNullOrWhiteSpace(x.RelativePath));
         var useVariant = variant is not null;
@@ -238,7 +239,8 @@ public sealed class ManifestService(LessonCueDb db)
     {
         if (media is null) return (null, null);
         var compatible = media.CompatibilityStatus == "ready" && !string.IsNullOrWhiteSpace(media.CompatibilityPath);
-        var requestedProfile = media.VideoCodec is not null ? AdaptiveTranscodeProfiles.SelectForScreen(screen, media) : null;
+        var requestedProfile = AdaptiveTranscodeEligibility.IsVideoFile(media)
+            ? AdaptiveTranscodeProfiles.SelectForScreen(screen, media) : null;
         var variant = requestedProfile is null ? null : media.TranscodeVariants.FirstOrDefault(x =>
             x.Profile == requestedProfile && x.Status == "ready" && x.SourceVersion == media.Version && !string.IsNullOrWhiteSpace(x.RelativePath));
         var useVariant = variant is not null;

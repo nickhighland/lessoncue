@@ -20,6 +20,19 @@ administrator installs an update.
 - Packaged the review video with both TV clients and added coverage for the
   marker and password rules.
 
+## v0.46.35 — Reliable media streaming diagnostics
+
+### User changes
+
+- Large or paused media downloads can resume without being terminated by the server's response-rate guard.
+- Client-side stream disconnects are no longer reported as LessonCue server failures.
+- Adaptive playback profiles now apply only to processed local video assets, keeping images and other media out of the video ladder.
+
+### Developer changes
+
+- Added explicit media-response classification and downstream-disconnect diagnostics with regression coverage.
+- Removed stale adaptive variants for non-video assets and aligned manifest, playback-source, and admin validation with the same eligibility rule.
+
 ## v0.46.32 — Keep TV presentations awake
 
 ### User changes

@@ -62,6 +62,34 @@ public sealed class AdaptiveTranscodeTests
     }
 
     [Fact]
+    public async Task DoesNotQueueStillImagesEvenWhenLegacyProbeRecordedAnImageCodec()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(cancellationToken);
+        var options = new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options;
+        await using var db = new LessonCueDb(options);
+        await db.Database.EnsureCreatedAsync(cancellationToken);
+        db.Organizations.Add(new Organization { Name = "Test Organization" });
+        db.MediaAssets.Add(new MediaAsset
+        {
+            FileName = "slide.jpeg",
+            ContentType = "image/jpeg",
+            RelativePath = "slide.jpeg",
+            ProcessingStatus = "ready",
+            CompatibilityStatus = "not-needed",
+            VideoCodec = "mjpeg",
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync(cancellationToken);
+
+        var queued = await AdaptiveTranscodeService.QueueNextIdleUploadAsync(db, cancellationToken);
+
+        Assert.Null(queued);
+        Assert.Empty(await db.MediaTranscodeVariants.ToListAsync(cancellationToken));
+    }
+
+    [Fact]
     public async Task QueueingSurvivesAnotherWriterQueueingTheSameProfileFirst()
     {
         // The administrator's request is not the only writer: the screen prewarm
