@@ -4,6 +4,19 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.36 — Fire TV review release
+
+### User changes
+
+- Fire TV reviewers can enter `http://lsnq.demo`, enter password `123456`, and
+  play the bundled sample video locally without a live server, pairing PIN, or
+  network.
+
+### Developer changes
+
+- Updated the Vega client dependency tree to the fixed `compression` 1.8.2
+  release so the signed review build passes the release security scan.
+
 ## v0.46.34 — Offline Fire TV review demo
 
 ### User changes
