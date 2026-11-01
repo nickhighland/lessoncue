@@ -19,8 +19,8 @@ Use JDK 17, Android SDK 36, and the Gradle version pinned in CI. LessonCue has t
 
 For Amazon Appstore certification, the Fire TV store build includes a self-contained
 review path so certification does not depend on a reachable LessonCue deployment.
-The review path has a real TV-navigable content library, lesson detail screen, and
-bundled looping video. Keep the copy-ready [Amazon testing instructions](amazon-appstore-testing-instructions.md)
+The review path has the normal TV-navigable content library, lesson detail screen,
+cue timeline, and bundled sample media. Keep the copy-ready [Amazon testing instructions](amazon-appstore-testing-instructions.md)
 with the submission and update it whenever the review flow labels change.
 
 Debug builds are suitable only for device testing. Production builds use the permanent organization-owned keystore configured through protected release secrets; never commit the keystore or passwords. See [Android TV self-update system](android-tv-updater.md) for release configuration, verification rules, safe rollout, and the hardware acceptance matrix.
