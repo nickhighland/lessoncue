@@ -4,6 +4,10 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.39 — Release validation fix
+
+- Keep the seeded demo media taxonomy values approved during the browser release workflow so the full validation suite passes with the bundled review sequence.
+
 ## v0.46.38 — Fire TV review navigation and media recovery fixes
 
 ### User changes

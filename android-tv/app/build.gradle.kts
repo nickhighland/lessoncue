@@ -23,8 +23,8 @@ android {
         // These fixes are a new Fire TV submission and therefore need the
         // next monotonically increasing identity after the failed 0.46.37
         // release validation attempt.
-        versionCode = 152
-        versionName = "0.46.12"
+        versionCode = 153
+        versionName = "0.46.13"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "UPDATE_ENABLED", "false")
         buildConfigField(

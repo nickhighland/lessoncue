@@ -423,8 +423,11 @@ test("fresh local server supports setup, direct lesson upload, retention, and on
   await expect(page.getByText("Registration settings saved.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Media & Storage", exact: true }).click();
   await expect(mfaPanel).toBeHidden();
-  await page.getByLabel("Approved folder paths").fill("General\nLessons\nSignage\nAudio/Classroom");
-  await page.getByLabel("Approved tags").fill("Reusable\nIntro\nOutro\nReference\nWelcome");
+  // The fresh server seed includes the bundled lesson sequence. Keep those
+  // existing folder/tag values approved while exercising an administrator's
+  // taxonomy update; the API correctly refuses to remove values still in use.
+  await page.getByLabel("Approved folder paths").fill("General\nLessons\nSignage\nAudio/Classroom\nLessonCue Demo");
+  await page.getByLabel("Approved tags").fill("Reusable\nIntro\nOutro\nReference\nWelcome\ndemo\npreRoll\ncountdown\nlesson\npostLesson");
   await page.getByRole("button", { name: "Save approved folders & tags" }).click();
   await expect(page.getByText("Approved media folders and tags saved.", { exact: false })).toBeVisible();
   expect(await page.evaluate(async () => (await fetch("/api/v1/media/link", {
