@@ -22,8 +22,8 @@ android {
         // Amazon currently has version code 150 / 0.46.10 pending review.
         // Each Fire TV submission needs a monotonically increasing identity;
         // keep this code above every APK previously uploaded to Amazon.
-        versionCode = 154
-        versionName = "0.46.14"
+        versionCode = 155
+        versionName = "0.46.15"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "UPDATE_ENABLED", "false")
         buildConfigField(

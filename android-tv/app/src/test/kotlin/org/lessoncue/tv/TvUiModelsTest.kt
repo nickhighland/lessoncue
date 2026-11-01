@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
+import java.time.LocalDate
 
 class TvUiModelsTest {
     private fun item(id: String, durationMs: Long? = 30_000) =
@@ -51,6 +52,18 @@ class TvUiModelsTest {
 
         assertEquals(1, preferredLessonIndex(playlists, now))
         assertEquals(0, retainedLessonIndex(playlists, "later", now))
+    }
+
+    @Test
+    fun librarySortsNewestDatedLessonsFirstAndKeepsUndatedLessonsStable() {
+        val undated = lesson("undated")
+        val older = lesson("older").copy(lessonDate = LocalDate.of(2026, 7, 1))
+        val newest = lesson("newest").copy(lessonDate = LocalDate.of(2026, 8, 1))
+
+        assertEquals(
+            listOf("newest", "older", "undated"),
+            lessonsForLibrary(listOf(undated, older, newest)).map { it.id }
+        )
     }
 
     @Test

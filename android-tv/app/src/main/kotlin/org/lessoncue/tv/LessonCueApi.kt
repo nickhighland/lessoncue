@@ -7,6 +7,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Instant
+import java.time.LocalDate
 import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
@@ -417,15 +418,25 @@ class LessonCueApi(
             countdown = countdown,
             preRoll = preRoll,
             postLesson = postLesson,
-            items = json.getJSONArray("items").mapObjects(::parseItem)
+            items = json.getJSONArray("items").mapObjects(::parseItem),
+            lessonDate = json.optString("lessonDate")
+                .takeIf { it.isNotBlank() && it != "null" }
+                ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
         )
     }
 
-    private fun parseItem(json: JSONObject) = CueItem(
-        id = json.getString("itemId"),
-        title = json.getString("title"),
-        type = json.getString("type"),
+    private fun parseItem(json: JSONObject): CueItem {
+        val mediaId = json.optString("mediaId").takeIf { it.isNotBlank() && it != "null" }
+        val thumbnailUrl = json.optString("thumbnailUrl")
+            .takeIf { it.isNotBlank() && it != "null" }
+            ?.let { if (it.startsWith("http")) it else "$baseUrl$it" }
+            ?: mediaId?.let { "$baseUrl/api/v1/media/$it/thumbnail" }
+        return CueItem(
+            id = json.getString("itemId"),
+            title = json.getString("title"),
+            type = json.getString("type"),
         url = json.optString("downloadUrl").takeIf { it.isNotBlank() && it != "null" }?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
+        thumbnailUrl = thumbnailUrl,
         playbackUrl = json.optString("playbackUrl").takeIf { it.isNotBlank() && it != "null" }?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
         streamingFallbackUrl = json.optString("streamingFallbackUrl").takeIf { it.isNotBlank() && it != "null" }?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
         linkKind = json.optString("linkKind").takeIf { it.isNotBlank() && it != "null" },
@@ -472,7 +483,8 @@ class LessonCueApi(
             width = source.optInt("width").takeIf { source.has("width") && !source.isNull("width") },
             height = source.optInt("height").takeIf { source.has("height") && !source.isNull("height") }
         ) }.orEmpty().filter { it.url.isNotBlank() }
-    )
+        )
+    }
 
     private fun request(
         path: String,

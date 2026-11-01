@@ -1,6 +1,7 @@
 package org.lessoncue.tv
 
 import java.time.Instant
+import java.time.LocalDate
 
 data class EndpointAttempt(
     val endpoint: String,
@@ -64,7 +65,8 @@ data class CueItem(
     val renderSupport: String = "supported",
     val fallbackMessage: String? = null,
     val cuePoints: List<CuePoint> = emptyList(),
-    val streamingSources: List<PlaybackSource> = emptyList()
+    val streamingSources: List<PlaybackSource> = emptyList(),
+    val thumbnailUrl: String? = null
 )
 
 data class PlaybackSource(
@@ -147,7 +149,8 @@ data class LessonPlaylist(
     val countdown: CountdownCue?,
     val preRoll: PreRollCue?,
     val postLesson: PreRollCue? = null,
-    val items: List<CueItem>
+    val items: List<CueItem>,
+    val lessonDate: LocalDate? = null
 )
 
 data class DisplayCapability(val id: String, val label: String, val supported: Boolean,

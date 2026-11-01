@@ -67,6 +67,23 @@ internal fun retainedLessonIndex(
 ): Int = playlists.indexOfFirst { it.id == previouslyFocusedId }.takeIf { it >= 0 }
     ?: preferredLessonIndex(playlists, now)
 
+/**
+ * Keep the newest dated lessons at the top of the TV library. Older servers
+ * and cached manifests may not include a lesson date, so those entries retain
+ * their original order and remain available below dated lessons.
+ */
+internal fun lessonsForLibrary(playlists: List<LessonPlaylist>): List<LessonPlaylist> =
+    playlists.withIndex().sortedWith(Comparator { left, right ->
+        val leftDate = left.value.lessonDate
+        val rightDate = right.value.lessonDate
+        when {
+            leftDate != null && rightDate != null -> rightDate.compareTo(leftDate)
+            leftDate != null -> -1
+            rightDate != null -> 1
+            else -> left.index.compareTo(right.index)
+        }
+    }).map { it.value }
+
 internal fun CueItem.effectiveDurationMs(): Long? {
     val trimmed = durationMs?.let { duration ->
         ((endMs ?: duration) - startMs).coerceAtLeast(0)

@@ -862,21 +862,23 @@ internal fun LibraryScreen(
     val context = LocalContext.current
     val inputModeManager = LocalInputModeManager.current
     val firstFocus = remember { FocusRequester() }
-    val lessonIds = manifest.playlists.map { it.id }
-    val defaultPreferredIndex = preferredLessonIndex(manifest.playlists, Instant.now())
-    var focusedLessonId by remember {
-        mutableStateOf(manifest.playlists.getOrNull(defaultPreferredIndex)?.id)
+    val libraryPlaylists = remember(manifest.playlists) { lessonsForLibrary(manifest.playlists) }
+    val lessonIds = libraryPlaylists.map { it.id }
+    val defaultPreferredIndex = preferredLessonIndex(libraryPlaylists, Instant.now())
+    var focusedLessonId by remember(lessonIds) {
+        mutableStateOf(libraryPlaylists.getOrNull(defaultPreferredIndex)?.id)
     }
-    val preferredIndex = retainedLessonIndex(manifest.playlists, focusedLessonId, Instant.now())
-    val featured = manifest.playlists.getOrNull(preferredIndex)
-    val lessonListState = rememberLazyListState(initialFirstVisibleItemIndex = preferredIndex.coerceAtLeast(0))
-    LaunchedEffect(lessonIds, preferredIndex, interactionMode) {
-        if (preferredIndex >= 0 && interactionMode == LibraryInteractionMode.Lessons) {
+    val featured = libraryPlaylists.getOrNull(defaultPreferredIndex)
+    val additionalLessons = libraryPlaylists.filterNot { it.id == featured?.id }
+    var visibleAdditionalCount by remember(lessonIds) { mutableIntStateOf(2) }
+    val visibleAdditionalLessons = additionalLessons.take(visibleAdditionalCount)
+    val lessonListState = rememberLazyListState()
+    LaunchedEffect(lessonIds, featured?.id, interactionMode) {
+        if (featured != null && interactionMode == LibraryInteractionMode.Lessons) {
             if (focusedLessonId !in lessonIds) {
-                focusedLessonId = manifest.playlists[preferredIndex].id
+                focusedLessonId = featured.id
             }
             inputModeManager.requestInputMode(InputMode.Keyboard)
-            lessonListState.scrollToItem(preferredIndex)
             kotlinx.coroutines.delay(80)
             firstFocus.requestFocus()
         }
@@ -930,6 +932,9 @@ internal fun LibraryScreen(
                               playlist = playlist,
                               readiness = mediaReadiness(context, playlist),
                               modifier = Modifier.weight(1.1f).fillMaxSize(),
+                              initialFocusRequester = firstFocus,
+                              selected = playlist.id == focusedLessonId,
+                              onFocused = { focusedLessonId = playlist.id },
                               onOpen = { onStart(playlist) }
                           )
                       }
@@ -941,29 +946,26 @@ internal fun LibraryScreen(
                               Spacer(Modifier.height(18.dp))
                               LazyColumn(Modifier.weight(1f), state = lessonListState,
                                   verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                  itemsIndexed(manifest.playlists, key = { _, playlist -> playlist.id }) { index, playlist ->
-                                      val readiness = mediaReadiness(context, playlist)
-                                      FocusedTvCard(
-                                          onClick = { onStart(playlist) },
+                                  itemsIndexed(visibleAdditionalLessons, key = { _, playlist -> playlist.id }) { _, playlist ->
+                                      CompactLessonCard(
+                                          playlist = playlist,
+                                          onOpen = { onStart(playlist) },
                                           onFocused = { focusedLessonId = playlist.id },
-                                          initialFocusRequester = firstFocus.takeIf { index == preferredIndex },
                                           selected = playlist.id == focusedLessonId,
-                                          modifier = remoteListItemModifier().testTag("lesson-card-${playlist.id}")
-                                      ) {
-                                          Row(
-                                              Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 15.dp),
-                                              verticalAlignment = Alignment.CenterVertically
+                                          modifier = remoteListItemModifier()
+                                      )
+                                  }
+                                  if (visibleAdditionalLessons.size < additionalLessons.size) {
+                                      item {
+                                          LessonCueButton(
+                                              onClick = {
+                                                  visibleAdditionalCount =
+                                                      (visibleAdditionalCount + 4).coerceAtMost(additionalLessons.size)
+                                              },
+                                              modifier = Modifier.fillMaxWidth().height(54.dp)
+                                                  .testTag("see-more-lessons")
                                           ) {
-                                              Column(Modifier.weight(1f)) {
-                                                  playlist.designatedStartAt?.let {
-                                                      Text(formatLessonTime(it), color = Gold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                                  }
-                                                  Text(playlist.title, color = Cream, fontSize = 21.sp, fontWeight = FontWeight.Bold,
-                                                      maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                                                  Text("${playlist.timeline().size} cues", color = Muted, fontSize = 14.sp)
-                                              }
-                                              Text(readiness.shortLabel, color = readiness.color, fontSize = 12.sp,
-                                                  fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
+                                              Text("See more", fontSize = 17.sp, fontWeight = FontWeight.Bold)
                                           }
                                       }
                                   }
@@ -991,11 +993,20 @@ private fun FeaturedLessonPanel(
     playlist: LessonPlaylist,
     readiness: MediaReadiness,
     modifier: Modifier,
+    initialFocusRequester: FocusRequester,
+    selected: Boolean,
+    onFocused: () -> Unit,
     onOpen: () -> Unit
 ) {
     val previewCues = playlist.timeline().take(4)
-    TvPanel(modifier) {
-        Column(Modifier.fillMaxSize().padding(16.dp)) {
+    FocusedTvCard(
+        onClick = onOpen,
+        modifier = modifier.testTag("lesson-card-${playlist.id}"),
+        onFocused = onFocused,
+        initialFocusRequester = initialFocusRequester,
+        selected = selected
+    ) {
+        Column(Modifier.fillMaxSize().padding(20.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Up Next", color = Cream, fontSize = 27.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.width(12.dp))
@@ -1013,11 +1024,45 @@ private fun FeaturedLessonPanel(
             Spacer(Modifier.height(4.dp))
             Text(readiness.label, color = readiness.color, fontSize = 13.sp, maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            Spacer(Modifier.height(5.dp))
+            Spacer(Modifier.height(8.dp))
             CueTimelinePreview(previewCues, Modifier.weight(1f).fillMaxWidth())
-            Spacer(Modifier.height(6.dp))
-            LessonCueButton(onClick = onOpen, modifier = Modifier.align(Alignment.CenterHorizontally).width(270.dp).height(46.dp)) {
-                Text("▶   Open lesson", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            Text("Select to open", color = Muted, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.CenterHorizontally))
+        }
+    }
+}
+
+@Composable
+private fun CompactLessonCard(
+    playlist: LessonPlaylist,
+    modifier: Modifier,
+    selected: Boolean,
+    onFocused: () -> Unit,
+    onOpen: () -> Unit
+) {
+    val previewItem = playlist.items.firstOrNull() ?: playlist.timeline().firstOrNull()?.item
+    FocusedTvCard(
+        onClick = onOpen,
+        modifier = modifier.height(116.dp).testTag("lesson-card-${playlist.id}"),
+        onFocused = onFocused,
+        selected = selected
+    ) {
+        Row(
+            Modifier.fillMaxSize().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            previewItem?.let {
+                CueThumbnail(it, Modifier.width(142.dp).height(88.dp))
+                Spacer(Modifier.width(14.dp))
+            }
+            Column(Modifier.weight(1f)) {
+                playlist.designatedStartAt?.let {
+                    Text(formatLessonTime(it), color = Gold, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                Text(playlist.title, color = Cream, fontSize = 19.sp, fontWeight = FontWeight.Bold,
+                    maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Text("${playlist.timeline().size} cues", color = Muted, fontSize = 13.sp)
             }
         }
     }
@@ -1034,12 +1079,12 @@ private fun CueTimelinePreview(cues: List<TimelineCue>, modifier: Modifier = Mod
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         cues.forEachIndexed { index, cue ->
             Row(
-                Modifier.fillMaxWidth().height(44.dp).clip(RoundedCornerShape(10.dp))
+                Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(10.dp))
                     .background(LessonCueTvColors.ElevatedPanel.copy(alpha = .72f))
                     .testTag("up-next-cue-${cue.item.id}"),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                CueThumbnail(cue.item, Modifier.width(118.dp).fillMaxSize())
+                CueThumbnail(cue.item, Modifier.width(148.dp).fillMaxSize())
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 2.dp)) {
                     Text(
                         "${index + 1}. ${cue.item.title}",

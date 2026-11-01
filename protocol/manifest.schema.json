@@ -327,6 +327,7 @@
         "renderSupport": { "enum": ["supported", "fallback"] },
         "fallbackMessage": { "type": ["string", "null"] },
         "downloadUrl": { "type": ["string", "null"] },
+        "thumbnailUrl": { "type": ["string", "null"] },
         "playbackUrl": { "type": ["string", "null"] },
         "contentType": { "type": ["string", "null"] },
         "fileExtension": { "type": ["string", "null"], "pattern": "^[a-zA-Z0-9]{0,8}$" },

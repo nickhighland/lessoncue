@@ -177,6 +177,8 @@ public sealed class ManifestService(LessonCueDb db)
             downloadUrl = !render.CanRender ? null :
                 media is { SourceKind: "link", LinkKind: "direct" } linked ? linked.SourceUrl :
                 VersionLocalMedia(localDownloadUrl),
+            thumbnailUrl = media?.ThumbnailPath is null ? null :
+                VersionLocalMedia($"/api/v1/media/{media.Id}/thumbnail"),
             playbackUrl = render.CanRender && media is { SourceKind: "link" } online
                 ? YouTubeMedia.EmbedUrl(online.SourceUrl) ?? online.SourceUrl
                 : (render.CanRender && item.ActivityDefinitionId is { } definitionId

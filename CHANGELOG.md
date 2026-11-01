@@ -4,6 +4,20 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.41 — Faster Android TV lesson previews
+
+### User changes
+
+- Android TV now puts the newest lessons first, highlights the next lesson in a larger focused preview, and shows two additional lesson options before loading more on demand.
+- Lesson previews load faster by limiting initial media work to the visible cards.
+- Video cues now use their generated media thumbnails instead of the generic video placeholder.
+
+### Developer changes
+
+- Lesson manifests publish versioned thumbnail URLs, with an Android fallback for older manifests that only contain a media ID.
+- Added protocol and server regression coverage for thumbnail publication and deterministic lesson ordering.
+- Release server/web version 0.46.41 and Android TV/Fire TV version 0.46.15 (version code 155).
+
 ## v0.46.40 — Release security refresh
 
 - Refresh the Vega TV dependency lockfile to patched high-severity and critical versions so the release security gate passes.

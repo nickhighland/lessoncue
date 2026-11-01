@@ -232,13 +232,13 @@ internal fun CuePreview(
             .semantics { contentDescription = item?.let { "Preview for ${it.title}" } ?: "LessonCue media preview" },
         contentAlignment = Alignment.Center
     ) {
-        val source = item?.takeIf {
+        val source = item?.thumbnailUrl ?: item?.takeIf {
             it.type.equals("image", true) || it.contentType?.startsWith("image/") == true
         }?.url
         if (source != null) {
             AsyncImage(
                 model = source,
-                contentDescription = item.title,
+                contentDescription = item?.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
@@ -281,7 +281,7 @@ internal fun CueThumbnail(
             .semantics { contentDescription = "Thumbnail for ${item.title}" },
         contentAlignment = Alignment.Center
     ) {
-        val source = item.takeIf {
+        val source = item.thumbnailUrl ?: item.takeIf {
             it.type.equals("image", true) || it.contentType?.startsWith("image/") == true
         }?.url
         if (source != null) {

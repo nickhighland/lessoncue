@@ -86,7 +86,8 @@ public sealed class ManifestTests
             VideoCodec = "h264",
             ProcessingStatus = "ready",
             CompatibilityStatus = "converting",
-            OfflineEligible = false
+            OfflineEligible = false,
+            ThumbnailPath = "original.jpg"
         };
         lesson.Items.Add(new PlaylistItem
         {
@@ -104,6 +105,7 @@ public sealed class ManifestTests
         Assert.Equal("supported", cue.GetProperty("renderSupport").GetString());
         Assert.Equal("converting", cue.GetProperty("compatibilityStatus").GetString());
         Assert.Equal($"/api/v1/media/{media.Id}/playback?v=original-sha", cue.GetProperty("downloadUrl").GetString());
+        Assert.Equal($"/api/v1/media/{media.Id}/thumbnail?v=original-sha", cue.GetProperty("thumbnailUrl").GetString());
         Assert.Equal("original-sha", cue.GetProperty("sha256").GetString());
         Assert.Equal("video/mp4", cue.GetProperty("contentType").GetString());
         var streamingSources = cue.GetProperty("streamingSources");
