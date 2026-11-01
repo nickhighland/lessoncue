@@ -4,6 +4,11 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
+## v0.46.40 — Release security refresh
+
+- Refresh the Vega TV dependency lockfile to patched high-severity and critical versions so the release security gate passes.
+- Release server/web version 0.46.40 and Android TV/Fire TV version 0.46.14 (version code 154).
+
 ## v0.46.39 — Release validation fix
 
 - Keep the seeded demo media taxonomy values approved during the browser release workflow so the full validation suite passes with the bundled review sequence.

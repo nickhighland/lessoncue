@@ -20,11 +20,10 @@ android {
         minSdk = 26
         targetSdk = 36
         // Amazon currently has version code 150 / 0.46.10 pending review.
-        // These fixes are a new Fire TV submission and therefore need the
-        // next monotonically increasing identity after the failed 0.46.37
-        // release validation attempt.
-        versionCode = 153
-        versionName = "0.46.13"
+        // Each Fire TV submission needs a monotonically increasing identity;
+        // keep this code above every APK previously uploaded to Amazon.
+        versionCode = 154
+        versionName = "0.46.14"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "UPDATE_ENABLED", "false")
         buildConfigField(
