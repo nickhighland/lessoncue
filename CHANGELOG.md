@@ -4,7 +4,7 @@ This is the release history for LessonCue. Each release publishes both user and
 developer notes on GitHub; the app shows only the user changes before an
 administrator installs an update.
 
-## v0.46.37 — Fire TV review navigation and media recovery fixes
+## v0.46.38 — Fire TV review navigation and media recovery fixes
 
 ### User changes
 
