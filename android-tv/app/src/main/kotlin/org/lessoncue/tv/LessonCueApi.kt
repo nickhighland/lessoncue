@@ -87,14 +87,20 @@ class LessonCueApi(
         val inventory = JSONArray()
         val queue = JSONArray()
         allItems.filter { it.offlineEligible }.forEach { item ->
-            val file = mediaDirectory?.resolve(item.cacheFileName())
+            val currentFile = mediaDirectory?.resolve(item.cacheFileName())
+            val usable = mediaDirectory?.let { findUsableCacheFile(it, item) }
             val partial = mediaDirectory?.resolve("${item.cacheFileName()}.part")
             val errorFile = mediaDirectory?.resolve("${item.cacheFileName()}.error")
-            val state = when { file?.exists() == true -> "cached"; errorFile?.exists() == true -> "failed"; partial?.exists() == true -> "downloading"; else -> "queued" }
-            val size = when { file?.exists() == true -> file.length(); partial?.exists() == true -> partial.length(); else -> 0L }
+            if (usable != null) errorFile?.delete()
+            val state = when { usable != null -> "cached"; errorFile?.exists() == true -> "failed"; partial?.exists() == true -> "downloading"; else -> "queued" }
+            val size = when { usable?.isFile == true -> usable.length(); currentFile?.isFile == true -> currentFile.length(); partial?.isFile == true -> partial.length(); else -> 0L }
             val entry = JSONObject().put("itemId", item.id).put("title", item.title).put("state", state)
                 .put("sizeBytes", size).put("expectedBytes", item.sizeBytes)
-            errorFile?.takeIf(File::exists)?.readLines()?.drop(1)?.joinToString(" ")?.takeIf { it.isNotBlank() }?.let { entry.put("error", it) }
+            if (state != "cached") {
+                errorFile?.takeIf(File::exists)?.readLines()?.drop(1)?.joinToString(" ")?.takeIf { it.isNotBlank() }?.let { entry.put("error", it) }
+                if (!entry.has("error") && currentFile?.isFile == true)
+                    entry.put("error", "Cached media does not match the manifest.")
+            }
             inventory.put(entry)
             if (state != "cached") queue.put(JSONObject().put("itemId", item.id).put("title", item.title)
                 .put("state", state).put("bytesDownloaded", size).put("expectedBytes", item.sizeBytes)
@@ -104,11 +110,22 @@ class LessonCueApi(
         val errors = JSONArray().apply {
             playback.error?.let { put(JSONObject().put("timestamp", Instant.now().toString())
                 .put("area", "playback").put("message", it).put("itemId", playback.itemId)) }
-            allItems.forEach { item -> mediaDirectory?.resolve("${item.cacheFileName()}.error")?.takeIf(File::exists)?.let { file ->
-                val lines = file.readLines(); val timestamp = lines.firstOrNull()?.toLongOrNull()?.let(Instant::ofEpochMilli) ?: Instant.now()
-                put(JSONObject().put("timestamp", timestamp.toString()).put("area", "download")
-                    .put("message", lines.drop(1).joinToString(" ").ifBlank { "Media download failed." }).put("itemId", item.id))
-            } }
+            allItems.forEach { item ->
+                val directory = mediaDirectory
+                val usable = directory?.let { findUsableCacheFile(it, item) }
+                if (usable != null) return@forEach
+                val file = directory?.resolve(item.cacheFileName())
+                val errorFile = mediaDirectory?.resolve("${item.cacheFileName()}.error")
+                if (errorFile?.isFile == true) {
+                    val lines = errorFile.readLines()
+                    val timestamp = lines.firstOrNull()?.toLongOrNull()?.let(Instant::ofEpochMilli) ?: Instant.now()
+                    put(JSONObject().put("timestamp", timestamp.toString()).put("area", "download")
+                        .put("message", lines.drop(1).joinToString(" ").ifBlank { "Media download failed." }).put("itemId", item.id))
+                } else if (file?.isFile == true) {
+                    put(JSONObject().put("timestamp", Instant.now().toString()).put("area", "download")
+                        .put("message", "Cached media does not match the manifest.").put("itemId", item.id))
+                }
+            }
         }
         val body = JSONObject()
             .put("screenId", identity.screenId)
@@ -116,7 +133,7 @@ class LessonCueApi(
             .put("online", true)
             .put("freeBytes", freeBytes)
             .put("manifestVersion", manifestVersion)
-            .put("failedDownloads", maxOf(failedDownloads, errors.length() - if (playback.error != null) 1 else 0))
+            .put("failedDownloads", maxOf(0, errors.length() - if (playback.error != null) 1 else 0))
             .put("acknowledgedControlVersion", acknowledgedControlVersion)
             .put("playbackState", playback.state)
             .put("lessonId", playback.lessonId)
@@ -410,6 +427,7 @@ class LessonCueApi(
         type = json.getString("type"),
         url = json.optString("downloadUrl").takeIf { it.isNotBlank() && it != "null" }?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
         playbackUrl = json.optString("playbackUrl").takeIf { it.isNotBlank() && it != "null" }?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
+        streamingFallbackUrl = json.optString("streamingFallbackUrl").takeIf { it.isNotBlank() && it != "null" }?.let { if (it.startsWith("http")) it else "$baseUrl$it" },
         linkKind = json.optString("linkKind").takeIf { it.isNotBlank() && it != "null" },
         contentType = json.optString("contentType").takeIf { it.isNotBlank() && it != "null" },
         fileExtension = json.optString("fileExtension").takeIf { it.isNotBlank() && it != "null" },

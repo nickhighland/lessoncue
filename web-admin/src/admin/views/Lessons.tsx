@@ -4,7 +4,7 @@ import { api, uploadMediaFile } from "../api";
 import { TimelineEditor } from "../media-editor";
 import { Lesson, LessonClass, Media, MediaFormats, MediaTaxonomy, MediaUploadControl, PlaylistItem, Screen, StorageStatus, TemporaryControllerSession } from "../models";
 import { DateBadge, Empty, Field, Modal, PageHead, QrCode, RetentionChoices, RoleSummary, TaxonomyFields, formTags } from "../ui";
-import { classControllerUrl, controllerSlug, cueDurationLabel, cuePlannedDurationMs, defaultEndBehaviorForRole, errorText, formatBytes, formatDate, formatDuration, formatFriendlyDuration, intervalsOverlap, isConvertibleDocument, isPresentationFileName, lessonPlannedDurationMs, roleName, toLocalInput } from "../utils";
+import { classControllerUrl, controllerSlug, cueDurationLabel, cuePlannedDurationMs, defaultEndBehaviorForRole, errorText, formatBytes, formatDate, formatDuration, formatFriendlyDuration, intervalsOverlap, isConvertibleDocument, isPresentationFileName, isYouTubeUrl, lessonPlannedDurationMs, roleName, toLocalInput } from "../utils";
 import { ActivityApi } from "../../activities/api";
 import type { ActivityDefinition } from "../../activities/types";
 
@@ -907,6 +907,8 @@ export function LessonEditor({
   const [onlineMode, setOnlineMode] = useState<
     "online" | "download" | "slides"
   >("online");
+  const [onlineUrl, setOnlineUrl] = useState("");
+  const youtubeLink = isYouTubeUrl(onlineUrl);
   const [audiencePolls, setAudiencePolls] = useState<AudiencePollOption[]>([]);
   const [previewItem, setPreviewItem] = useState<PlaylistItem>();
   const [selectedCueIds, setSelectedCueIds] = useState<Set<string>>(new Set());
@@ -1694,8 +1696,9 @@ export function LessonEditor({
   async function addOnline(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const doNotDownload = form.get("doNotDownload") === "on";
-    const download = onlineMode === "download" && !doNotDownload;
+    const url = String(form.get("url") || "");
+    const youtube = isYouTubeUrl(url);
+    const download = youtube || onlineMode === "download";
     const importPresentation = onlineMode === "slides";
     const slideDurationValue = form.get("slideSeconds");
     const slideDuration =
@@ -1705,11 +1708,11 @@ export function LessonEditor({
     setUploading(true);
     try {
       const persistent =
-        onlineMode === "online" || form.get("storagePolicy") === "persistent";
+        (!youtube && onlineMode === "online") || form.get("storagePolicy") === "persistent";
       const asset = await api<Media>("/api/v1/media/link", {
         method: "POST",
         body: JSON.stringify({
-          url: form.get("url"),
+          url,
           title: form.get("title") || null,
           download,
           importPresentation,
@@ -1734,6 +1737,8 @@ export function LessonEditor({
           form.get("title"),
         );
       setShowAdd(false);
+      setOnlineUrl("");
+      setOnlineMode("online");
       refresh();
       notify(
         download
@@ -1992,7 +1997,7 @@ export function LessonEditor({
       {showAdd && canUpload && (
         <Modal
           title={addMode === "chooser" ? "Add media to the lesson" : addMode === "upload" ? "Upload new media" : addMode === "poll" ? "Add an audience poll" : addMode === "activity" ? "Add an interactive activity or game" : addMode === "online" ? "Add online media or slides" : "Choose existing media"}
-          onClose={() => { if (!uploading) { setShowAdd(false); setAddMode("chooser"); } }}
+          onClose={() => { if (!uploading) { setShowAdd(false); setAddMode("chooser"); setOnlineUrl(""); setOnlineMode("online"); } }}
         >
           {addMode === "chooser" ? (
             <div className="add-media-chooser">
@@ -2142,37 +2147,48 @@ export function LessonEditor({
                   <p>Show a webpage, play or download YouTube, or import a shared Google Slides deck as local slide images.</p>
                   <form className="stack" onSubmit={addOnline}>
                     <Field label={onlineMode === "slides" ? "Google Slides share URL" : "Webpage or YouTube URL"}
-                      hint={onlineMode === "slides" ? "Share the deck so anyone with the link can view it." : undefined}>
-                      <input name="url" type="url" required placeholder="https://…" disabled={uploading} />
+                      hint={onlineMode === "slides" ? "Share the deck so anyone with the link can view it." : youtubeLink ? "YouTube is downloaded automatically. The original link is retained for streaming recovery if the local copy is unavailable." : "Other URLs stay online and require internet."}>
+                      <input
+                        name="url"
+                        type="url"
+                        required
+                        placeholder="https://…"
+                        disabled={uploading}
+                        value={onlineUrl}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setOnlineUrl(value);
+                          if (isYouTubeUrl(value)) setOnlineMode("download");
+                          else if (onlineMode === "download") setOnlineMode("online");
+                        }}
+                      />
                     </Field>
                     <fieldset className="retention-options">
                       <legend>How should LessonCue use it?</legend>
-                      <label><input type="radio" checked={onlineMode === "online"} onChange={() => setOnlineMode("online")} />
-                        <span><strong>Play online</strong><small>YouTube uses an embedded player; other URLs display as webpages.</small></span></label>
-                      <label><input type="radio" checked={onlineMode === "download"} onChange={() => setOnlineMode("download")} />
-                        <span><strong>Download YouTube locally</strong><small>Use only for video you are authorized to copy. Processing continues in the background.</small></span></label>
+                      {!youtubeLink && (
+                        <label><input type="radio" checked={onlineMode === "online"} onChange={() => setOnlineMode("online")} />
+                          <span><strong>Use online</strong><small>Other URLs display as webpages.</small></span></label>
+                      )}
+                      <label><input type="radio" checked={onlineMode === "download"} onChange={() => setOnlineMode("download")} disabled={!youtubeLink} />
+                        <span><strong>Download YouTube automatically</strong><small>The source link is kept as a streaming fallback. Use only for video you are authorized to copy.</small></span></label>
                       <label><input type="radio" checked={onlineMode === "slides"} onChange={() => setOnlineMode("slides")} />
                         <span><strong>Import Google Slides</strong><small>Download a PDF copy and add converted slides automatically.</small></span></label>
                     </fieldset>
-                    {onlineMode !== "online" && <RetentionChoices lessonDate={lesson.date} />}
-                    {onlineMode !== "slides" && (
-                      <label><input type="checkbox" name="doNotDownload" />
-                        <span><strong>Do not download locally</strong><small>Keep this entry online-only (metadata only).</small></span></label>
-                    )}
+                    {(onlineMode !== "online" || youtubeLink) && <RetentionChoices lessonDate={lesson.date} />}
                     <TaxonomyFields taxonomy={taxonomy} />
                     <div className="two-fields">
-                      {onlineMode === "download" && (
+                      {(onlineMode === "download" || youtubeLink) && (
                         <Field label="Playlist role">
                           <select name="role"><option value="lesson">Main lesson</option><option value="preRoll">Pre-roll loop</option><option value="countdown">Countdown video</option><option value="postLesson">Post-lesson loop</option></select>
                         </Field>
                       )}
                       <Field label="Display title">
-                        <input name="title" maxLength={240} placeholder={onlineMode === "download" ? "YouTube video" : onlineMode === "slides" ? "Presentation title" : "Use website name"} />
+                        <input name="title" maxLength={240} placeholder={onlineMode === "download" || youtubeLink ? "YouTube video" : onlineMode === "slides" ? "Presentation title" : "Use website name"} />
                       </Field>
                       {onlineMode === "slides" && <Field label="Time each slide" hint="Optional; blank keeps imported slides untimed."><input name="slideSeconds" type="number" min="1" max="3600" placeholder="Untimed" /></Field>}
                     </div>
                     <button className="button primary" disabled={uploading}>
-                      {uploading ? "Adding…" : onlineMode === "download" ? "Queue download and add" : onlineMode === "slides" ? "Import slides and add" : "Add online media"}
+                      {uploading ? "Adding…" : onlineMode === "download" || youtubeLink ? "Queue YouTube download and add" : onlineMode === "slides" ? "Import slides and add" : "Add online media"}
                     </button>
                   </form>
                 </section>

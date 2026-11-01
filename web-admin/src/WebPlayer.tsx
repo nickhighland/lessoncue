@@ -4,7 +4,7 @@ import { WeatherConditionArtwork, WeatherDropArtwork, WeatherWindArtwork } from 
 import { ActivityDisplay } from "./activities/ActivityDisplay";
 import "./signage-studio.css";
 
-const APP_VERSION = "0.46.27";
+const APP_VERSION = "0.46.37";
 /** Shared with public/sw.js, which answers media requests from it. */
 const MEDIA_CACHE = "lessoncue-media-v1";
 
@@ -20,6 +20,7 @@ export type CueItem = {
   title: string;
   downloadUrl?: string;
   playbackUrl?: string;
+  streamingFallbackUrl?: string;
   contentType?: string;
   fileExtension?: string;
   durationMs?: number;
@@ -801,11 +802,14 @@ function PlayerLibrary({ manifest, connection, permanentSign, onPlay }: {
   const signageImage = signageMedia?.type === "image" || signageMedia?.contentType?.startsWith("image/");
   if (signage?.displayPower === "off") return <div className="signage-display-off" aria-label="Display power scheduled off" />;
   const signageContent = signage ? <SignageExperience signage={signage}>{signage.zones?.length ? <SignageLayout signage={signage} /> : <section className="web-player-signage">
-    {signageMedia?.downloadUrl && (signageImage
+    {signageMedia?.downloadUrl ? (signageImage
       ? <img src={signageMedia.downloadUrl} alt="" />
       : signageMedia.type === "video" || signageMedia.contentType?.startsWith("video/")
         ? <video src={signageMedia.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={signageMedia.title} />
-        : null)}
+        : null)
+      : signageMedia?.streamingFallbackUrl
+        ? <iframe src={signageMedia.streamingFallbackUrl} title={signageMedia.title || "YouTube video"} allow="autoplay; encrypted-media" />
+        : null}
     {!signageMedia && signage.mediaUrl && <img src={signage.mediaUrl} alt="" />}
     <div><small>{signage.name}</small><h1>{signage.message}</h1></div>
   </section>}</SignageExperience> : null;
@@ -921,9 +925,12 @@ function SignagePlaylistMedia({ item, zoneFit }: {
     transitionTimingFunction: "linear",
     transitionDuration: `${phase === "out" ? fadeOutMs : fadeInMs}ms`
   } as CSSProperties;
-  return item.media?.type === "video" || item.media?.contentType?.startsWith("video/")
+  if (!item.media) return null;
+  if (!item.media.downloadUrl && item.media.streamingFallbackUrl)
+    return <iframe src={item.media.streamingFallbackUrl} title={item.title || "YouTube video"} allow="autoplay; encrypted-media" style={style} />;
+  return item.media.type === "video" || item.media.contentType?.startsWith("video/")
     ? <video ref={videoRef} src={item.media.downloadUrl} autoPlay muted={!!item.muted} loop playsInline preload="auto" style={style} />
-    : <img src={item.media?.downloadUrl} alt={item.title || ""} style={style} />;
+    : <img src={item.media.downloadUrl} alt={item.title || ""} style={style} />;
 }
 
 export type SignageEditorOptions = {
@@ -963,9 +970,12 @@ export function SignageLayout({ signage, editor }: { signage: Signage; editor?: 
       onPointerUp={endMediaDrag}
       onPointerCancel={endMediaDrag}
       style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.width}%`, height: `${zone.height}%`, backgroundColor: zone.backgroundColor, color: zone.textColor, borderColor: zone.accentColor, borderRadius: `${zone.cornerRadius || 0}%`, zIndex: zone.zIndex ?? 0, opacity: (zone.opacity ?? 100) / 100, transform: `rotate(${zone.rotation ?? 0}deg) scaleX(${zone.flipX ? -1 : 1}) scaleY(${zone.flipY ? -1 : 1})`, fontFamily: zone.fontFamily, fontWeight: zone.fontWeight, fontStyle: zone.italic ? "italic" : undefined, textDecoration: zone.underline ? "underline" : undefined, textAlign: zone.textAlign, ["--signage-accent" as string]: zone.accentColor, ["--signage-line-height" as string]: `${Math.max(80, Math.min(300, zone.lineHeightPercent ?? 120)) / 100}`, ["--signage-zone-padding" as string]: `${Math.max(0, Math.min(30, zone.contentPadding ?? 6))}%`, ["--signage-content-scale" as string]: Math.max(.25, Math.min(1, (zone.contentScale ?? 100) / 100)), ["--signage-qr-size" as string]: `${Math.max(20, Math.min(90, zone.qrSizePercent ?? 42))}%` } as CSSProperties}>
-      {zone.media?.downloadUrl && (zone.media.type === "video" || zone.media.contentType?.startsWith("video/")
+      {zone.media?.downloadUrl ? (zone.media.type === "video" || zone.media.contentType?.startsWith("video/")
         ? <video src={zone.media.downloadUrl} autoPlay muted loop playsInline preload="auto" aria-label={zone.media.title} style={{ objectFit: zone.fit || "cover", transform: mediaTransform(zone) }} />
-        : <img src={zone.media.downloadUrl} alt={zone.title || ""} style={{ objectFit: zone.fit || "cover", transform: mediaTransform(zone) }} />)}
+        : <img src={zone.media.downloadUrl} alt={zone.title || ""} style={{ objectFit: zone.fit || "cover", transform: mediaTransform(zone) }} />)
+        : zone.media?.streamingFallbackUrl
+          ? <iframe src={zone.media.streamingFallbackUrl} title={zone.title || "YouTube video"} allow="autoplay; encrypted-media" style={{ transform: mediaTransform(zone) }} />
+          : null}
       {zone.type === "stream" && zone.streamUrl && <SignageStream source={zone.streamUrl} title={zone.title || "Live stream"} fit={zone.fit || "cover"} />}
       {zone.type === "presentation" && <SignagePresentation key={`${zone.contentPlaylist?.id || "none"}:${zone.contentPlaylist?.version || 0}`} zone={zone} signage={signage} />}
       {zone.type === "webpage" && zone.sourceUrl && <iframe src={zone.sourceUrl} title={zone.title || "Web page"} sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts" />}
@@ -1012,7 +1022,7 @@ function SignagePresentation({ zone, signage }: { zone: SignageZone; signage: Si
   const current = items.length ? items[index % items.length] : undefined;
   let content: ReactNode = <div className="signage-presentation-empty">Select a published playlist</div>;
   if (current?.layout) content = <SignageLayout signage={{ ...signage, name: current.layout.name, backgroundColor: current.layout.backgroundColor, zones: current.layout.zones, backgroundAudio: current.layout.backgroundAudio }} />;
-  else if (current?.media?.downloadUrl) content = <SignagePlaylistMedia item={current} zoneFit={zone.fit || "contain"} />;
+  else if (current?.media?.downloadUrl || current?.media?.streamingFallbackUrl) content = <SignagePlaylistMedia item={current} zoneFit={zone.fit || "contain"} />;
   else if (current?.sourceUrl) content = <iframe src={current.sourceUrl} title={current.title || current.kind} sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts" />;
   return <div className="signage-presentation">
     <div className="signage-presentation-default" aria-hidden={streamOverrideActive && streamLive}>{content}</div>
@@ -1359,11 +1369,19 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [opacity, setOpacity] = useState(item.fadeInMs > 0 ? 0 : 1);
   const [imagePosition, setImagePosition] = useState(seekMs);
+  const [useStreamingFallback, setUseStreamingFallback] = useState(false);
   const fallback = item.renderSupport === "fallback";
-  const online = !fallback && Boolean(item.playbackUrl);
+  const localYouTubeFallback = Boolean(item.streamingFallbackUrl && item.downloadUrl);
+  const noLocalYouTubeFallback = Boolean(item.streamingFallbackUrl && !item.downloadUrl);
+  const onlineUrl = useStreamingFallback || noLocalYouTubeFallback
+    ? item.streamingFallbackUrl
+    : item.playbackUrl;
+  const online = !fallback && Boolean(onlineUrl);
   const image = !fallback && (item.type === "image" || item.contentType?.startsWith("image/"));
   const audio = !fallback && (item.type === "audio" || item.contentType?.startsWith("audio/"));
   const duration = effectiveDuration(item);
+
+  useEffect(() => { setUseStreamingFallback(false); }, [item.itemId]);
 
   useEffect(() => {
     if (!fallback) return;
@@ -1464,6 +1482,11 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
 
   function failed() {
     const message = mediaRef.current?.error ? `Browser media error ${mediaRef.current.error.code}: ${mediaRef.current.error.message || "Unable to play this format."}` : "The browser could not play this media.";
+    if (localYouTubeFallback && !useStreamingFallback) {
+      setUseStreamingFallback(true);
+      onStatus({ state: "buffering", lessonId: playlist.playlistId, itemId: item.itemId, positionMs: 0, durationMs: duration, volumePercent: item.volumePercent, error: "Local YouTube media failed; using the original streaming source." });
+      return;
+    }
     onStatus({ state: "error", lessonId: playlist.playlistId, itemId: item.itemId, positionMs: 0, durationMs: duration, volumePercent: item.volumePercent, error: message });
   }
 
@@ -1494,7 +1517,7 @@ function PlaybackStage({ playlist, item, paused, seekMs, unlockNonce, onStatus, 
   }
 
   if (online) return <div className="web-player-stage online" style={stageStyle}>
-    <iframe ref={frameRef} title={item.title} src={youtubeApiUrl(item.playbackUrl!)} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" referrerPolicy="strict-origin-when-cross-origin" style={mediaStyle} onLoad={() => { frameRef.current?.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: item.itemId }), "*"); configureOnlineFrame(frameRef.current, item, paused); }} />
+    <iframe ref={frameRef} title={item.title} src={youtubeApiUrl(onlineUrl!)} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" referrerPolicy="strict-origin-when-cross-origin" style={mediaStyle} onLoad={() => { frameRef.current?.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: item.itemId }), "*"); configureOnlineFrame(frameRef.current, item, paused); }} />
     <div className="web-player-black" style={{ opacity: paused ? .2 : 0 }} />
   </div>;
 

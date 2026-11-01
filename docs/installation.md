@@ -67,6 +67,25 @@ The LessonCue web tunnel and SSH access are separate routes. The web tunnel does
 
 The connector needs outbound access to Cloudflare on port `7844` (UDP for QUIC or TCP for HTTP/2). If the service is active but no edge connection appears, verify the tunnel token in Cloudflare, allow outbound TCP or UDP `7844`, and select **Retry tunnel connection** in LessonCue. The published hostname route controls where requests go after the connector reaches Cloudflare; it does not establish the edge connection itself.
 
+#### Docker hosts such as Unraid
+
+The native Settings toggle above requires systemd and is not the Docker-host
+path. On Unraid, run the `lessoncue` and `cloudflared` services on the same
+Compose network instead. Create the remotely managed Cloudflare Tunnel route
+for `demo.lessoncue.net` with the local service `http://lessoncue:8080`, place
+the replica token in the Unraid secret store and point
+`CLOUDFLARE_TUNNEL_TOKEN_FILE` at it, then start only the optional profile:
+
+```bash
+docker compose --profile cloudflare-tunnel up -d --build
+```
+
+The token file is mounted read-only and is not placed in the process command
+line, written to the repository, or passed through the LessonCue web
+administration API. Keep this instance disposable for store review; do not put
+Cloudflare Access's interactive login in front of the TV pairing and manifest
+endpoints, because the native TV client cannot complete that browser flow.
+
 ### Set up reusable lessons and schedules
 
 No additional service or cloud account is required. Build one complete lesson under **Classes**, then open **Templates → New template** and select it as the source. LessonCue keeps media used by a reusable template permanently. Choose **Create lesson** for a one-time dated copy, or **New schedule** for weekly, multi-week, monthly, term-based, or explicit custom dates.
@@ -221,7 +240,7 @@ sudo ./install.sh
 
 The installer creates a restricted `lessoncue` account, installs the application at `/opt/lessoncue`, keeps data at `/var/lib/lessoncue`, registers the systemd service, opens port 80 when UFW is installed, and publishes the Avahi service when available. Running it again upgrades the application while preserving accounts, configuration, media, screen credentials, and backups. Upgrading an older installation preserves its current port; an administrator can switch it to port 80 afterward in Settings.
 
-The release includes architecture-matched `yt-dlp` and Deno helpers used only when an operator explicitly chooses **Download YouTube locally**. LessonCue passes the bundled Deno runtime to yt-dlp for current YouTube extraction, and FFmpeg inspects and thumbnails the resulting MP4. No separate Python, Node, Deno, or downloader installation is required.
+The release includes architecture-matched `yt-dlp` and Deno helpers. YouTube entries are downloaded into local storage by default; the original YouTube link is retained as a streaming fallback if the local copy or its derivatives cannot be used. LessonCue passes the bundled Deno runtime to yt-dlp for current YouTube extraction, and FFmpeg inspects and thumbnails the resulting MP4. No separate Python, Node, Deno, or downloader installation is required.
 
 Useful commands:
 

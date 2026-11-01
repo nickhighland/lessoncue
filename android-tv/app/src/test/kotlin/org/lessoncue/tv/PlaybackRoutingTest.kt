@@ -31,6 +31,19 @@ class PlaybackRoutingTest {
     }
 
     @Test
+    fun failedDownloadedYouTubeCueUsesRetainedStreamingFallback() {
+        val item = CueItem(
+            id = "youtube-1",
+            title = "Fallback clip",
+            type = "video",
+            url = null,
+            streamingFallbackUrl = "https://www.youtube.com/embed/abc123"
+        )
+
+        assertTrue(shouldUseOnlinePlayback(item))
+    }
+
+    @Test
     fun activityPlaybackUrlCarriesPairedDisplayIdentity() {
         val item = CueItem(
             id = "activity-1",

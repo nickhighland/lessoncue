@@ -70,31 +70,34 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        try
-        {
-            await RecoverInterruptedAsync(stoppingToken);
-        }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
-        catch (Exception ex) { logger.LogError(ex, "Could not recover interrupted adaptive transcoding"); }
-
+        var recoveryPending = true;
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
+                if (recoveryPending)
+                {
+                    await RecoverInterruptedAsync(stoppingToken);
+                    recoveryPending = false;
+                }
                 using var scope = scopes.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
-                await EnqueueScheduledAsync(db, stoppingToken);
+                // Ready media is queued by MediaProcessingService as soon as
+                // its source is usable. Re-scan here as a self-healing path
+                // for uploads that were completed while this worker was down.
+                await QueueReadyVideoProfilesAsync(db, stoppingToken);
                 var pending = await db.MediaTranscodeVariants.Include(x => x.MediaAsset)
                     .Where(x => x.Status == "pending").ToListAsync(stoppingToken);
                 var variant = pending.OrderBy(x => x.QueuedAt).FirstOrDefault();
-                variant ??= await QueueNextIdleUploadAsync(db, stoppingToken);
-                if (variant is null) { await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken); continue; }
+                if (variant is null) { await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken); continue; }
                 await ProcessAsync(db, variant, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Adaptive transcode loop failed");
+                logger.LogError(ex, recoveryPending
+                    ? "Could not recover interrupted adaptive transcoding; will retry"
+                    : "Adaptive transcode loop failed");
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
             }
         }
@@ -104,14 +107,8 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
     {
         using var scope = scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<LessonCueDb>();
-        var legacyVariants = (await db.MediaTranscodeVariants.Include(x => x.MediaAsset)
-                .ToListAsync(ct))
-            .Where(x => !AdaptiveTranscodeEligibility.IsVideo(x.MediaAsset))
-            .ToList();
-        foreach (var variant in legacyVariants)
-            ContainedPath.DeleteIfContained(paths.Transcodes, variant.RelativePath);
-        if (legacyVariants.Count > 0)
-            db.MediaTranscodeVariants.RemoveRange(legacyVariants);
+        var removed = await RemoveIneligibleVariantsAsync(db, paths, ct);
+        var requeued = await RecoverKnownEnvironmentFailuresAsync(db, ct);
 
         var interrupted = await db.MediaTranscodeVariants
             .Where(x => x.Status == "converting")
@@ -123,12 +120,12 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
             variant.Error = null;
             variant.QueuedAt = DateTimeOffset.UtcNow;
         }
-        if (legacyVariants.Count > 0 || interrupted.Count > 0)
-        {
+        if (interrupted.Count > 0)
             await db.SaveChangesAsync(ct);
-            if (legacyVariants.Count > 0)
-                logger.LogInformation("Removed {Count} stale adaptive variants for non-video media", legacyVariants.Count);
-        }
+        if (removed > 0)
+            logger.LogInformation("Removed {Count} stale adaptive variants for non-video media", removed);
+        if (requeued > 0)
+            logger.LogInformation("Requeued {Count} adaptive variants after a recoverable media-worker failure", requeued);
     }
 
     public static async Task<MediaTranscodeVariant> QueueAsync(LessonCueDb db, MediaAsset media, string profile,
@@ -153,6 +150,62 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
             variant.QueuedAt = DateTimeOffset.UtcNow; variant.StartedAt = null; variant.CompletedAt = null;
         }
         return variant;
+    }
+
+    /// <summary>
+    /// Removes adaptive variants left behind by older releases that treated
+    /// image probes as video. They cannot be used for playback and otherwise
+    /// keep surfacing as failed H.264 jobs in the admin UI and diagnostics.
+    /// </summary>
+    internal static async Task<int> RemoveIneligibleVariantsAsync(
+        LessonCueDb db, MediaStoragePaths paths, CancellationToken ct = default)
+    {
+        var stale = (await db.MediaTranscodeVariants.Include(x => x.MediaAsset)
+                .ToListAsync(ct))
+            .Where(x => !AdaptiveTranscodeEligibility.IsVideo(x.MediaAsset))
+            .ToList();
+        foreach (var variant in stale)
+            ContainedPath.DeleteIfContained(paths.Transcodes, variant.RelativePath);
+        if (stale.Count > 0)
+        {
+            db.MediaTranscodeVariants.RemoveRange(stale);
+            await db.SaveChangesAsync(ct);
+        }
+        return stale.Count;
+    }
+
+    /// <summary>
+    /// Older deployments recorded a missing worker executable as a permanent
+    /// failure. Once the worker is installed, those rows must be made pending
+    /// again or the normal queue will continue to treat them as complete work.
+    /// Only the known missing-worker signature is recovered automatically;
+    /// genuine codec or source failures remain visible for an administrator.
+    /// </summary>
+    internal static async Task<int> RecoverKnownEnvironmentFailuresAsync(
+        LessonCueDb db, CancellationToken ct = default)
+    {
+        var failed = await db.MediaTranscodeVariants.Include(x => x.MediaAsset)
+            .Where(x => x.Status == "failed")
+            .ToListAsync(ct);
+        var recoverable = failed.Where(variant =>
+            variant.MediaAsset is { } media &&
+            AdaptiveTranscodeEligibility.IsVideo(media) &&
+            variant.SourceVersion == media.Version &&
+            variant.Error is not null &&
+            variant.Error.Contains("lessoncue-media-worker", StringComparison.OrdinalIgnoreCase) &&
+            variant.Error.Contains("No such file or directory", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        foreach (var variant in recoverable)
+        {
+            variant.Status = "pending";
+            variant.Error = null;
+            variant.QueuedAt = DateTimeOffset.UtcNow;
+            variant.StartedAt = null;
+            variant.CompletedAt = null;
+            variant.TranscodeEngine = null;
+        }
+        if (recoverable.Count > 0) await db.SaveChangesAsync(ct);
+        return recoverable.Count;
     }
 
     /// <summary>Save queued variants, tolerating another writer having queued the
@@ -193,6 +246,44 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
         }
     }
 
+    /// <summary>
+    /// Queue every adaptive profile for every ready local video immediately.
+    /// The check is deliberately idempotent: a pending, converting, ready, or
+    /// already-recorded failure for the current source version is left alone.
+    /// A new source version is the explicit signal to create the work again.
+    /// </summary>
+    public static async Task<int> QueueReadyVideoProfilesAsync(LessonCueDb db,
+        CancellationToken ct = default)
+    {
+        var adaptiveEnabled = await db.Organizations.AsNoTracking()
+            .OrderBy(item => item.Id).Select(x => x.AdaptiveTranscodingEnabled).FirstOrDefaultAsync(ct);
+        if (!adaptiveEnabled) return 0;
+
+        var mediaAssets = await db.MediaAssets.Include(x => x.TranscodeVariants)
+            .Where(x => x.ProcessingStatus == "ready" && x.SourceKind != "link" &&
+                x.RelativePath != "" &&
+                (x.CompatibilityStatus == "native" || x.CompatibilityStatus == "ready" ||
+                 x.CompatibilityStatus == "pending" || x.CompatibilityStatus == "converting" ||
+                 x.CompatibilityStatus == "failed"))
+            .ToListAsync(ct);
+        var queued = 0;
+        foreach (var media in mediaAssets.Where(AdaptiveTranscodeEligibility.IsVideo)
+                     .OrderBy(x => x.CreatedAt))
+        foreach (var profile in AdaptiveTranscodeProfiles.All.Keys)
+        {
+            var existing = media.TranscodeVariants.FirstOrDefault(x => x.Profile == profile);
+            if (existing is not null && existing.SourceVersion == media.Version &&
+                existing.Status is "pending" or "converting" or "ready" or "failed")
+                continue;
+
+            await QueueAsync(db, media, profile, ct);
+            queued++;
+        }
+
+        if (queued > 0) await SaveQueuedAsync(db, ct);
+        return queued;
+    }
+
     public static async Task<MediaTranscodeVariant?> QueueNextIdleUploadAsync(LessonCueDb db,
         CancellationToken ct = default)
     {
@@ -225,33 +316,6 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
         return null;
     }
 
-    private async Task EnqueueScheduledAsync(LessonCueDb db, CancellationToken ct)
-    {
-        var organization = await db.Organizations.AsNoTracking().OrderBy(item => item.Id).FirstAsync(ct);
-        if (!organization.AdaptiveTranscodingEnabled) return;
-        var screens = await db.Screens.AsNoTracking().Where(x => !x.Revoked && x.AssignedClassId != null).ToListAsync(ct);
-        if (screens.Count == 0) return;
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var cutoff = today.AddDays(Math.Clamp(organization.TranscodeLeadDays, 1, 30));
-        var lessons = await db.Lessons.AsNoTracking().Include(x => x.Items).ThenInclude(x => x.MediaAsset)
-            .Where(x => !x.Archived && x.Date >= today && x.Date <= cutoff).ToListAsync(ct);
-        var changed = false;
-        foreach (var screen in screens)
-        foreach (var media in lessons.Where(x => x.ClassId == screen.AssignedClassId).SelectMany(x => x.Items)
-            .Select(x => x.MediaAsset).Where(AdaptiveTranscodeEligibility.IsVideo)
-            .DistinctBy(x => x!.Id).Cast<MediaAsset>())
-        {
-            var profile = AdaptiveTranscodeProfiles.SelectForScreen(screen, media);
-            if (!AdaptiveTranscodeProfiles.All.ContainsKey(profile)) continue;
-            var existing = await db.MediaTranscodeVariants.AsNoTracking()
-                .SingleOrDefaultAsync(x => x.MediaAssetId == media.Id && x.Profile == profile, ct);
-            if (existing is not null && existing.SourceVersion == media.Version &&
-                existing.Status is "ready" or "pending" or "converting" or "failed") continue;
-            await QueueAsync(db, media, profile, ct); changed = true;
-        }
-        if (changed) await SaveQueuedAsync(db, ct);
-    }
-
     private async Task ProcessAsync(LessonCueDb db, MediaTranscodeVariant variant, CancellationToken ct)
     {
         var media = variant.MediaAsset;
@@ -267,7 +331,10 @@ public sealed class AdaptiveTranscodeService(IServiceScopeFactory scopes, MediaS
         if (variant.SourceVersion != media.Version)
         { variant.SourceVersion = media.Version; variant.Status = "pending"; variant.QueuedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct); return; }
         var useCompatibility = media.CompatibilityStatus == "ready" && !string.IsNullOrWhiteSpace(media.CompatibilityPath);
-        if (!useCompatibility && media.CompatibilityStatus is not "native")
+        // The original was inspected successfully before the asset reached
+        // ready. It is therefore safe to transcode it while the optional
+        // universal compatibility copy is still pending or converting.
+        if (!useCompatibility && media.CompatibilityStatus is not ("native" or "pending" or "converting" or "failed"))
         { variant.Status = "failed"; variant.Error = "The universal playback source is not ready."; await db.SaveChangesAsync(ct); return; }
         var sourceRoot = useCompatibility ? paths.Compatibility : paths.Originals;
         var source = Path.GetFullPath(Path.Combine(sourceRoot, useCompatibility ? media.CompatibilityPath! : media.RelativePath));

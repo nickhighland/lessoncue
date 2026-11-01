@@ -23,6 +23,7 @@ export interface CueItem {
   type: string;
   url?: string;
   playbackUrl?: string;
+  streamingFallbackUrl?: string;
   linkKind?: string;
   contentType?: string;
   fileExtension?: string;

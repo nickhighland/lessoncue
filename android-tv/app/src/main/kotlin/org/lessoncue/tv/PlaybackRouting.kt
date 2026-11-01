@@ -7,10 +7,15 @@ import java.net.URLEncoder
  * have a media download URL, so they must be routed by their playback URL
  * before PlayerScreen applies the media-availability check.
  */
-internal fun shouldUseOnlinePlayback(item: CueItem?): Boolean =
-    item?.playbackUrl != null && (item.type == "activity" || item.linkKind in setOf(
-        "youtube", "embedded", "webpage", "external"
-    ))
+internal fun shouldUseOnlinePlayback(item: CueItem?): Boolean {
+    if (item?.playbackUrl != null && (item.type == "activity" || item.linkKind in setOf(
+            "youtube", "embedded", "webpage", "external"
+        ))) return true
+    // A downloaded YouTube item normally has a local URL. If that local
+    // product failed before it reached the manifest, stream the retained
+    // original link instead of stranding the cue on an unavailable screen.
+    return item?.url == null && item?.streamingFallbackUrl != null
+}
 
 /**
  * New Activity cues use a dedicated public display projection and do not need

@@ -120,12 +120,15 @@ public static class DisplayCapabilities
             return Unsupported($"“{item.Title}” has no media attached.");
         if (media.DeletedAt is not null)
             return Unsupported($"“{item.Title}” uses media that is in the recycling bin.");
-        if (media.ProcessingStatus == "failed")
+        var youtubeFallback = HasYouTubeStreamingFallback(media);
+        if (media.ProcessingStatus == "failed" && !youtubeFallback)
             return Unsupported($"“{item.Title}” could not be prepared for reliable playback.");
-        if (media.SourceKind != "link" && string.IsNullOrWhiteSpace(media.RelativePath))
+        if (media.SourceKind != "link" && string.IsNullOrWhiteSpace(media.RelativePath) && !youtubeFallback)
             return Unsupported($"The media file for “{item.Title}” is missing.");
 
-        var capability = media.SourceKind == "link"
+        var capability = youtubeFallback && string.IsNullOrWhiteSpace(media.RelativePath)
+            ? "lesson.youtube"
+            : media.SourceKind == "link"
             ? media.LinkKind switch
             {
                 "youtube" or "embedded" => "lesson.youtube",
@@ -162,11 +165,15 @@ public static class DisplayCapabilities
         if (zone.Type == "media" && media is null)
             return Unsupported($"The media for “{zone.Title ?? zone.Id}” is missing.");
         if (media is not null &&
-            (media.ProcessingStatus == "failed" ||
-             media.SourceKind != "link" && string.IsNullOrWhiteSpace(media.RelativePath)))
+            ((media.ProcessingStatus == "failed" ||
+              media.SourceKind != "link" && string.IsNullOrWhiteSpace(media.RelativePath)) &&
+             !HasYouTubeStreamingFallback(media)))
             return Unsupported($"The media for “{zone.Title ?? zone.Id}” could not be prepared for reliable playback.");
         return platformDecision;
     }
+
+    private static bool HasYouTubeStreamingFallback(MediaAsset media) =>
+        media.SourceKind == "youtube-download" && YouTubeMedia.EmbedUrl(media.SourceUrl) is not null;
 
     public static List<DisplayCompatibilityIssue> AssessLessons(string? platform, IEnumerable<Lesson> lessons)
     {

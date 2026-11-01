@@ -68,6 +68,7 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
         // phase so a slow or unavailable encoder never hides the original file.
         if (item.ProcessingStatus == "ready" && item.CompatibilityStatus == "pending")
         {
+            await AdaptiveTranscodeService.QueueReadyVideoProfilesAsync(db, ct);
             await ProcessCompatibilityAsync(item, db, fullPath, remuxOnly: false, ct);
             return;
         }
@@ -187,7 +188,9 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
 
             // Start the compatibility copy immediately after the thumbnail.
             // The playback endpoint serves the original while this optional
-            // copy is being made, so upload latency is not encoder latency.
+            // copy is being made, and adaptive profiles can transcode from the
+            // already-validated original in parallel.
+            await AdaptiveTranscodeService.QueueReadyVideoProfilesAsync(db, ct);
             if (needsCompatibility)
                 await ProcessCompatibilityAsync(item, db, fullPath, remuxOnly, ct);
 
@@ -223,7 +226,8 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            if (IsRecoverableInfrastructureFailure(ex) && SourceStillIntact(item, fullPath))
+            var source = await MediaRecovery.ValidateOriginalAsync(item, paths, ct);
+            if (IsRecoverableInfrastructureFailure(ex) && source.Valid)
             {
                 // Upload completion already validated the source signature and
                 // checksum. A missing worker/sandbox must not turn that intact
@@ -304,6 +308,11 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
                 "MediaAsset {MediaAssetId} compatibility processing failed. FileName {FileName}; CompatibilityStatus {CompatibilityStatus}; CompatibilityError {CompatibilityError}",
                 item.Id, item.FileName, item.CompatibilityStatus, item.CompatibilityError);
         }
+
+        // Queue adaptive copies after both successful and failed compatibility
+        // attempts. A failed optional conversion still leaves the original as
+        // a valid source for the adaptive worker to encode directly.
+        await AdaptiveTranscodeService.QueueReadyVideoProfilesAsync(db, ct);
     }
 
     private async Task<string> CreateCompatibilityCopyAsync(MediaAsset item, LessonCueDb db, string source,
@@ -377,16 +386,6 @@ public sealed class MediaProcessingService(IServiceScopeFactory scopes, MediaSto
             message.Contains("setpriv") || message.Contains("capability isolation") ||
             message.Contains("permission denied") || message.Contains("no such file or directory") ||
             message.Contains("exceeded its") || message.Contains("timed out");
-    }
-
-    private static bool SourceStillIntact(MediaAsset item, string path)
-    {
-        try
-        {
-            return File.Exists(path) && new FileInfo(path).Length == item.SizeBytes;
-        }
-        catch (IOException) { return false; }
-        catch (UnauthorizedAccessException) { return false; }
     }
 
     private Task<string> RunAsync(string fileName, string arguments, CancellationToken ct)

@@ -155,6 +155,7 @@ public sealed class ManifestService(LessonCueDb db)
         var useNative = requestedProfile == "native";
         var selectedProfile = useVariant ? variant!.Profile : useNative ? "native" : compatible ? AdaptiveTranscodeProfiles.Universal1080 : media?.CompatibilityStatus == "native" ? "native" : "original";
         var sha256 = useVariant ? variant!.Sha256 : compatible && !useNative ? media?.CompatibilitySha256 : media?.Sha256;
+        var streamingFallbackUrl = YouTubeStreamingFallbackUrl(media);
         var cacheVersion = string.IsNullOrWhiteSpace(sha256)
             ? media?.Version.ToString()
             : sha256[..Math.Min(12, sha256.Length)];
@@ -186,6 +187,7 @@ public sealed class ManifestService(LessonCueDb db)
             contentType = useVariant || compatible && !useNative ? "video/mp4" : media?.ContentType,
             fileExtension = useVariant || compatible && !useNative ? "mp4" : Path.GetExtension(media?.RelativePath ?? "").TrimStart('.').ToLowerInvariant(),
             streamingSources = MapStreamingSources(media, screen),
+            streamingFallbackUrl,
             compatibilityStatus = media?.CompatibilityStatus,
             requestedProfile,
             selectedProfile,
@@ -252,6 +254,7 @@ public sealed class ManifestService(LessonCueDb db)
         var contentType = useVariant || compatible && !useNative ? "video/mp4" : media.ContentType;
         var extension = useVariant || compatible && !useNative
             ? "mp4" : Path.GetExtension(media.RelativePath ?? media.FileName).TrimStart('.').ToLowerInvariant();
+        var streamingFallbackUrl = YouTubeStreamingFallbackUrl(media);
         var type = contentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase) ? "video"
             : contentType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) ? "audio" : "image";
         var sha256 = useVariant ? variant!.Sha256 : compatible && !useNative ? media.CompatibilitySha256 : media.Sha256;
@@ -270,6 +273,7 @@ public sealed class ManifestService(LessonCueDb db)
             sha256,
             sizeBytes,
             streamingSources = MapStreamingSources(media, screen),
+            streamingFallbackUrl,
             durationMs = media.DurationMs,
             startMs = 0,
             endMs = (long?)null,
@@ -293,6 +297,11 @@ public sealed class ManifestService(LessonCueDb db)
             width = source.Width,
             height = source.Height
         }).ToArray();
+
+    private static string? YouTubeStreamingFallbackUrl(MediaAsset? media) =>
+        media is { SourceKind: "youtube-download" }
+            ? YouTubeMedia.EmbedUrl(media.SourceUrl)
+            : null;
 
     private static object MapSignage(SignagePlaylist item, SignageScheduleState state, Screen screen,
         IReadOnlyDictionary<Guid, MediaAsset> zoneMedia, IReadOnlyDictionary<Guid, SignageLayoutResource> layouts,
@@ -564,9 +573,12 @@ public sealed class ManifestService(LessonCueDb db)
     private static string SignageReadiness(MediaAsset? media)
     {
         if (media is null) return "ready";
+        if (YouTubeStreamingFallbackUrl(media) is not null && string.IsNullOrWhiteSpace(media.RelativePath))
+            return "ready";
         if (media.ProcessingStatus is "pending" or "processing")
             return "preparing";
-        if (media.ProcessingStatus == "failed") return "failed";
+        if (media.ProcessingStatus == "failed")
+            return YouTubeStreamingFallbackUrl(media) is not null ? "ready" : "failed";
         if (media.SourceKind != "link" && string.IsNullOrWhiteSpace(media.RelativePath)) return "missing";
         return "ready";
     }

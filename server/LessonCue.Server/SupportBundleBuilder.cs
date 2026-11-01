@@ -81,7 +81,9 @@ public sealed class SupportBundleBuilder(
             [],
             issues);
 
-        var screenSnapshotTime = DateTimeOffset.UtcNow.AddMinutes(-2);
+        var now = DateTimeOffset.UtcNow;
+        var screenSnapshotTime = now.AddMinutes(-2);
+        var diagnosticsCutoff = now.AddHours(-48);
         var screens = await ReadAsync(
             "screens",
             () => db.Screens.AsNoTracking()
@@ -93,7 +95,9 @@ public sealed class SupportBundleBuilder(
                     PlaybackError = x.PlaybackError,
                     NetworkQuality = x.NetworkQuality,
                     AcknowledgedControlVersion = x.AcknowledgedControlVersion,
-                    ControlVersion = x.ControlVersion
+                    ControlVersion = x.ControlVersion,
+                    LastSeenAt = x.LastSeenAt,
+                    DiagnosticsUpdatedAt = x.DiagnosticsUpdatedAt
                 })
                 .ToListAsync(ct),
             [],
@@ -194,9 +198,13 @@ public sealed class SupportBundleBuilder(
             {
                 count = screens.Count,
                 online = screens.Count(x => x.Online),
-                failedDownloads = screens.Sum(x => x.FailedDownloads),
-                playbackErrors = screens.Count(x => !string.IsNullOrWhiteSpace(x.PlaybackError)),
-                commandsAwaitingReceipt = screens.Count(x => x.ControlVersion > x.AcknowledgedControlVersion),
+                diagnosticsFresh = screens.Count(x => HasFreshDiagnostics(x, diagnosticsCutoff)),
+                diagnosticsStale = screens.Count(x => !HasFreshDiagnostics(x, diagnosticsCutoff)),
+                failedDownloads = screens.Where(x => HasFreshDiagnostics(x, diagnosticsCutoff)).Sum(x => x.FailedDownloads),
+                playbackErrors = screens.Count(x => HasFreshDiagnostics(x, diagnosticsCutoff) &&
+                    !string.IsNullOrWhiteSpace(x.PlaybackError)),
+                commandsAwaitingReceipt = screens.Count(x => HasFreshDiagnostics(x, diagnosticsCutoff) &&
+                    x.ControlVersion > x.AcknowledgedControlVersion),
                 networkQuality = screens.GroupBy(x => x.NetworkQuality).ToDictionary(g => g.Key, g => g.Count())
             },
             backup,
@@ -236,6 +244,9 @@ public sealed class SupportBundleBuilder(
         issues.Add($"{component}: unavailable ({error.GetType().Name})");
     }
 
+    private static bool HasFreshDiagnostics(SupportScreenRow screen, DateTimeOffset cutoff) =>
+        (screen.DiagnosticsUpdatedAt ?? screen.LastSeenAt) is { } updatedAt && updatedAt >= cutoff;
+
     private sealed class SupportMediaRow
     {
         public string ProcessingStatus { get; init; } = "unknown";
@@ -260,6 +271,8 @@ public sealed class SupportBundleBuilder(
         public string NetworkQuality { get; init; } = "unknown";
         public int AcknowledgedControlVersion { get; init; }
         public int ControlVersion { get; init; }
+        public DateTimeOffset? LastSeenAt { get; init; }
+        public DateTimeOffset? DiagnosticsUpdatedAt { get; init; }
     }
 }
 

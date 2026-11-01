@@ -97,4 +97,21 @@ public sealed class YouTubeMediaTests
         Assert.Contains("youtube:player_client=android", arguments);
         Assert.DoesNotContain("--merge-output-format", arguments);
     }
+
+    [Theory]
+    [InlineData("fatal process out of memory: Oilpan: CagedHeap reservation failed")]
+    [InlineData("The media worker exceeded its memory limit")]
+    [InlineData("requested format is not available")]
+    public void RetriesWithSaferYouTubeProfileAfterRecoverableDownloaderFailure(string message)
+    {
+        Assert.True(YouTubeImportService.ShouldTryAlternateProfile(
+            new InvalidOperationException(message)));
+    }
+
+    [Fact]
+    public void DoesNotRetryClearlyInvalidMediaInput()
+    {
+        Assert.False(YouTubeImportService.ShouldTryAlternateProfile(
+            new InvalidOperationException("The URL is not a supported YouTube source.")));
+    }
 }

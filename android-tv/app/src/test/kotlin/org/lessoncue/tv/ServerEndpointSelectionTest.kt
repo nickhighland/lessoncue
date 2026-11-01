@@ -33,6 +33,14 @@ class ServerEndpointSelectionTest {
         assertEquals("http://192.168.1.20:8090", result.candidates.first().endpoint)
     }
 
+    @Test fun publicHostnameRemainsFirstCandidateForTlsAndVirtualHostRouting() {
+        val result = ServerEndpointSelection.resolve(
+            "http://review.example.invalid",
+            listOf("https://192.0.2.20")
+        )
+        assertEquals("https://review.example.invalid", result.candidates.first().endpoint)
+    }
+
     @Test fun brokenIpv6ProbeFallsBackToReachableIpv4() = runBlocking {
         val candidates = listOf(
             ServerEndpointCandidate("http://[2001:db8::20]:8088", "dns", "ipv6"),

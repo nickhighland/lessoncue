@@ -9,7 +9,7 @@ already knew.
 describes, the way `CHANGELOG.md` is updated. If a section here is wrong, that
 is a bug in the file — fix it rather than working around it.
 
-Last reviewed: 2026-09-28, against `v0.46.27`.
+Last reviewed: 2026-11-01, against the `v0.46.37` release candidate.
 
 ---
 
@@ -37,10 +37,10 @@ because it silently discards work.
 
 | Component | Version | Notes |
 | --- | --- | --- |
-| Server (`csproj`) | 0.46.27 | source of truth; matches the latest tag |
-| `package.json` | 0.46.27 | corrected 2026-09-28 (was 0.46.23) |
-| `WebPlayer.tsx` `APP_VERSION` | 0.46.27 | corrected 2026-09-28 (was 0.46.16) |
-| Android TV `versionName` | 0.46.7 | released on its own cadence |
+| Server (`csproj`) | 0.46.37 | release candidate; source of truth for the tag |
+| `package.json` | 0.46.37 | release candidate |
+| `WebPlayer.tsx` `APP_VERSION` | 0.46.37 | release candidate |
+| Android TV `versionName` | 0.46.11 | release candidate; version code 151 |
 | Vega `manifest.toml` | 0.46.6 | parked, see §4 |
 
 The version drift was a recurring defect: `APP_VERSION` was found twelve
@@ -145,6 +145,20 @@ Operational traps: the VM dies with its launching shell unless started with
 `start_new_session=True`; `virtualdevice` wants `-p <sdk>/vvd/instances` with
 **no** `-n` flag; a stale Android `adb` on port 5037 makes the device invisible
 to every Vega tool.
+
+## 4a. Amazon Appstore review access
+
+The Android TV store APK uses the local Fire TV review path for Amazon
+certification. On a clean install, enter `http://lsnq.demo`, select **Find
+server**, enter `123456`, and select **Open demo**. The app does not resolve the
+marker or contact a device; it opens the normal lesson library, lesson detail
+screen, cue timeline, and player with bundled sample media. Amazon's **Testing Instructions** field
+must contain these exact steps. The copy-ready template is
+`docs/amazon-appstore-testing-instructions.md`.
+
+The Amazon publisher script uploads the APK and listing release notes; it does
+not populate the Console's Testing Instructions field, so that field remains a
+manual submission step.
 
 ## 5. Conventions and commands
 

@@ -125,7 +125,7 @@ Use the SSH commands in [Reset a forgotten administrator password](installation.
 
 ## Media says internet required
 
-Webpages, embedded players, Vimeo, and external destinations require internet. On Android TV, Google TV, and Fire TV, YouTube links use an embedded web player. For offline playback, open **Add media**, choose **Download YouTube locally**, and wait for the Media Library status to change from Downloading/Processing to Offline ready. Only import media you are authorized to copy.
+Webpages, embedded players, Vimeo, and external destinations require internet. YouTube entries are downloaded automatically for local playback on Android TV, Google TV, and Fire TV; the original link remains available as a streaming fallback if the downloaded copy is unavailable. Wait for the Media Library status to change from Downloading/Processing to Offline ready. Only import media you are authorized to copy.
 
 If a local YouTube import fails, read its processing error in the Media Library, confirm the server can reach YouTube, check available LessonCue storage, and inspect `sudo journalctl -u lessoncue -n 100 --no-pager`. Current YouTube extraction also requires a supported JavaScript runtime; LessonCue server releases bundle Deno and pass it explicitly to yt-dlp. If the error mentions `No supported JavaScript runtime` or a resulting HTTP 403, install the latest server release and retry the import. The system diagnostics export reports the detected yt-dlp and Deno paths. A custom runtime can be supplied with `LESSONCUE_DENO_PATH` when running a development or managed installation.
 

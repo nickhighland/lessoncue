@@ -31,6 +31,7 @@ data class CueItem(
     val type: String,
     val url: String?,
     val playbackUrl: String? = null,
+    val streamingFallbackUrl: String? = null,
     val linkKind: String? = null,
     val contentType: String? = null,
     val fileExtension: String? = null,

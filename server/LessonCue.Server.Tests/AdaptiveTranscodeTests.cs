@@ -32,6 +32,57 @@ public sealed class AdaptiveTranscodeTests
     }
 
     [Fact]
+    public async Task QueuesEveryAdaptiveProfileImmediatelyForReadyVideo()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(cancellationToken);
+        var options = new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options;
+        await using var db = new LessonCueDb(options);
+        await db.Database.EnsureCreatedAsync(cancellationToken);
+        db.Organizations.Add(new Organization { Name = "Test Organization" });
+        var media = ReadyVideo("immediate.mp4", DateTimeOffset.UtcNow);
+        db.MediaAssets.Add(media);
+        await db.SaveChangesAsync(cancellationToken);
+
+        var queued = await AdaptiveTranscodeService.QueueReadyVideoProfilesAsync(db, cancellationToken);
+
+        Assert.Equal(AdaptiveTranscodeProfiles.All.Count, queued);
+        var variants = await db.MediaTranscodeVariants
+            .Where(x => x.MediaAssetId == media.Id)
+            .ToListAsync(cancellationToken);
+        Assert.Equal(AdaptiveTranscodeProfiles.All.Count, variants.Count);
+        Assert.All(variants, variant =>
+        {
+            Assert.Equal("pending", variant.Status);
+            Assert.Equal(media.Version, variant.SourceVersion);
+        });
+        Assert.Equal(0, await AdaptiveTranscodeService.QueueReadyVideoProfilesAsync(db, cancellationToken));
+    }
+
+    [Fact]
+    public async Task QueuesAdaptiveProfilesBeforeCompatibilityCopyCompletes()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(cancellationToken);
+        var options = new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options;
+        await using var db = new LessonCueDb(options);
+        await db.Database.EnsureCreatedAsync(cancellationToken);
+        db.Organizations.Add(new Organization { Name = "Test Organization" });
+        var media = ReadyVideo("compatibility-pending.mp4", DateTimeOffset.UtcNow);
+        media.CompatibilityStatus = "pending";
+        db.MediaAssets.Add(media);
+        await db.SaveChangesAsync(cancellationToken);
+
+        var queued = await AdaptiveTranscodeService.QueueReadyVideoProfilesAsync(db, cancellationToken);
+
+        Assert.Equal(AdaptiveTranscodeProfiles.All.Count, queued);
+        Assert.All(await db.MediaTranscodeVariants.ToListAsync(cancellationToken), variant =>
+            Assert.Equal("pending", variant.Status));
+    }
+
+    [Fact]
     public async Task DoesNotQueueOpportunisticUploadWhileWorkerHasScheduledWork()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -87,6 +138,109 @@ public sealed class AdaptiveTranscodeTests
 
         Assert.Null(queued);
         Assert.Empty(await db.MediaTranscodeVariants.ToListAsync(cancellationToken));
+    }
+
+    [Fact]
+    public async Task DirectQueuePathRejectsStillImages()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(cancellationToken);
+        var options = new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options;
+        await using var db = new LessonCueDb(options);
+        await db.Database.EnsureCreatedAsync(cancellationToken);
+        var image = new MediaAsset
+        {
+            FileName = "slide.png",
+            ContentType = "image/png",
+            RelativePath = "slide.png",
+            ProcessingStatus = "ready",
+            CompatibilityStatus = "not-needed",
+            VideoCodec = "mjpeg"
+        };
+        db.MediaAssets.Add(image);
+        await db.SaveChangesAsync(cancellationToken);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            AdaptiveTranscodeService.QueueAsync(db, image, AdaptiveTranscodeProfiles.Balanced720, cancellationToken));
+
+        Assert.Empty(await db.MediaTranscodeVariants.ToListAsync(cancellationToken));
+    }
+
+    [Fact]
+    public async Task RemovesLegacyStillImageVariantsAndTheirDerivedFiles()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var root = Path.Combine(Path.GetTempPath(), $"lessoncue-adaptive-cleanup-{Guid.NewGuid():N}");
+        var paths = new MediaStoragePaths(root);
+        Directory.CreateDirectory(paths.Transcodes);
+        var storedFile = Path.Combine(paths.Transcodes, "stale.mp4");
+        await File.WriteAllTextAsync(storedFile, "stale", cancellationToken);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(cancellationToken);
+        var options = new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options;
+        await using var db = new LessonCueDb(options);
+        await db.Database.EnsureCreatedAsync(cancellationToken);
+        var image = new MediaAsset
+        {
+            FileName = "slide.jpeg",
+            ContentType = "image/jpeg",
+            RelativePath = "slide.jpeg",
+            ProcessingStatus = "ready",
+            CompatibilityStatus = "not-needed",
+            VideoCodec = "mjpeg"
+        };
+        db.MediaAssets.Add(image);
+        db.MediaTranscodeVariants.Add(new MediaTranscodeVariant
+        {
+            MediaAsset = image,
+            Profile = AdaptiveTranscodeProfiles.DataSaver480,
+            Status = "failed",
+            RelativePath = "stale.mp4",
+            Error = "The universal playback source is not ready.",
+            SourceVersion = image.Version
+        });
+        await db.SaveChangesAsync(cancellationToken);
+
+        var removed = await AdaptiveTranscodeService.RemoveIneligibleVariantsAsync(db, paths, cancellationToken);
+
+        Assert.Equal(1, removed);
+        Assert.Empty(await db.MediaTranscodeVariants.ToListAsync(cancellationToken));
+        Assert.False(File.Exists(storedFile));
+        Directory.Delete(root, true);
+    }
+
+    [Fact]
+    public async Task RequeuesHistoricalMissingWorkerFailuresForCurrentVideos()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(cancellationToken);
+        var options = new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options;
+        await using var db = new LessonCueDb(options);
+        await db.Database.EnsureCreatedAsync(cancellationToken);
+        var media = ReadyVideo("recovery.mp4", DateTimeOffset.UtcNow);
+        db.MediaAssets.Add(media);
+        db.MediaTranscodeVariants.Add(new MediaTranscodeVariant
+        {
+            MediaAsset = media,
+            Profile = AdaptiveTranscodeProfiles.DataSaver480,
+            Status = "failed",
+            Error = "An error occurred trying to start process 'lessoncue-media-worker'. No such file or directory",
+            SourceVersion = media.Version,
+            QueuedAt = DateTimeOffset.UtcNow.AddDays(-30),
+            CompletedAt = DateTimeOffset.UtcNow.AddDays(-30)
+        });
+        await db.SaveChangesAsync(cancellationToken);
+
+        var requeued = await AdaptiveTranscodeService.RecoverKnownEnvironmentFailuresAsync(db, cancellationToken);
+
+        var variant = Assert.Single(await db.MediaTranscodeVariants.ToListAsync(cancellationToken));
+        Assert.Equal(1, requeued);
+        Assert.Equal("pending", variant.Status);
+        Assert.Null(variant.Error);
+        Assert.Null(variant.CompletedAt);
     }
 
     [Fact]

@@ -11,6 +11,7 @@ import android.graphics.Color as AndroidColor
 import android.util.Log
 import android.view.PixelCopy
 import android.view.View
+import android.view.WindowManager
 import android.webkit.ConsoleMessage
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -130,6 +131,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+    internal fun setKeepScreenAwake(enabled: Boolean) {
+        if (enabled) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { LessonCueApp() }
@@ -139,6 +148,7 @@ class MainActivity : ComponentActivity() {
 private sealed interface AppScreen {
     data object Loading : AppScreen
     data class Connect(val message: String? = null) : AppScreen
+    data class DemoPassword(val message: String? = null) : AppScreen
     data class EnterPin(val api: LessonCueApi, val requestId: String, val serverName: String) : AppScreen
     data class Library(val identity: DeviceIdentity, val manifest: ScreenManifest) : AppScreen
     data class LessonDetail(val identity: DeviceIdentity, val manifest: ScreenManifest, val playlist: LessonPlaylist) : AppScreen
@@ -174,6 +184,20 @@ fun LessonCueApp() {
     var diagnosticCaptureVisible by remember { mutableStateOf(false) }
     var interruptedPlayer by remember { mutableStateOf<AppScreen.Player?>(null) }
     var connectionMode by remember { mutableStateOf(ConnectionMode.Offline) }
+
+    val activity = context as? MainActivity
+    // Keep Android TV/Fire TV from dimming or launching its screensaver while
+    // the window is presenting lesson media or an active signage manifest.
+    // FLAG_KEEP_SCREEN_ON applies only while this foreground window is visible.
+    val keepScreenAwake = when (val current = screen) {
+        is AppScreen.Player -> shouldKeepScreenAwake(isPlayer = true, manifest = null)
+        is AppScreen.Library -> shouldKeepScreenAwake(isPlayer = false, manifest = current.manifest)
+        else -> false
+    }
+    DisposableEffect(activity, keepScreenAwake) {
+        activity?.setKeepScreenAwake(keepScreenAwake)
+        onDispose { activity?.setKeepScreenAwake(false) }
+    }
 
     DisposableEffect(updateManager) {
         onDispose { updateManager.close() }
@@ -244,10 +268,7 @@ fun LessonCueApp() {
             val (cachedItems, freeBytes) = withContext(Dispatchers.IO) {
                 val expected = api.cachedManifest()?.allItems().orEmpty().filter { it.offlineEligible }
                 val mediaDirectory = context.filesDir.resolve("media")
-                val cached = expected.count { item ->
-                    mediaDirectory.resolve(item.cacheFileName()).exists() ||
-                        mediaDirectory.resolve("${item.id}.bin").exists()
-                }
+                val cached = expected.count { item -> findUsableCacheFile(mediaDirectory, item) != null }
                 cached to context.filesDir.usableSpace
             }
             cancellableResult { api.reportStatus(identity, activeManifestVersion, freeBytes,
@@ -373,16 +394,38 @@ fun LessonCueApp() {
             when (val current = screen) {
                 AppScreen.Loading -> LoadingScreen(onEnterAddress = { screen = AppScreen.Connect() })
                 is AppScreen.Connect -> ConnectScreen(current.message) { address, deviceName ->
-                    scope.launch {
-                        cancellableResult {
-                            val (api, name) = findLessonCueServer(
-                                context, address, context.filesDir.resolve("manifest.json")
-                            )
-                            val request = api.requestPairing(deviceName)
-                            screen = AppScreen.EnterPin(api, request, name)
-                        }.onFailure { screen = AppScreen.Connect(it.message) }
+                    if (isDemoServerUrl(address)) {
+                        screen = AppScreen.DemoPassword()
+                    } else {
+                        scope.launch {
+                            cancellableResult {
+                                val (api, name) = findLessonCueServer(
+                                    context, address, context.filesDir.resolve("manifest.json")
+                                )
+                                val request = api.requestPairing(deviceName)
+                                screen = AppScreen.EnterPin(api, request, name)
+                            }.onFailure { screen = AppScreen.Connect(it.message) }
+                        }
                     }
                 }
+                is AppScreen.DemoPassword -> DemoPasswordScreen(
+                    message = current.message,
+                    onBack = { screen = AppScreen.Connect() },
+                    onSubmit = { password ->
+                        if (isDemoPassword(password)) {
+                            // Render the demo through the same shared manifest,
+                            // library, lesson-detail, and player path used by
+                            // a paired TV. Keep the identity local to the UI;
+                            // activeIdentity stays null so this marker can
+                            // never start server polling or telemetry.
+                            activeIdentity = null
+                            connectionMode = ConnectionMode.Cached
+                            screen = AppScreen.Library(DEMO_IDENTITY, demoManifest(context.packageName))
+                        } else {
+                            screen = AppScreen.DemoPassword("That demo password is not correct.")
+                        }
+                    }
+                )
                 is AppScreen.EnterPin -> PinScreen(
                     serverName = current.serverName,
                     onBack = { screen = AppScreen.Connect() }
@@ -476,15 +519,23 @@ fun LessonCueApp() {
                     }
                     PlayerScreen(current.playlist, current.items, current.itemIndex, current.seekMs, playbackControl, activeIdentity,
                     onTelemetry = { playbackTelemetry = it },
-                    onExit = { scope.launch { store.load()?.let { identity ->
-                        val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"),
-                            connectionDiagnostics = identity.connectionDiagnostics)
-                        val manifest = cancellableResult { api.manifest(identity) }.getOrElse {
-                            api.cachedManifest() ?: ScreenManifest(1, "LessonCue", emptyList(), listOf(current.playlist))
+                    onExit = {
+                        if (current.playlist.id == DEMO_PLAYLIST_ID) {
+                            val manifest = demoManifest(context.packageName)
+                            screen = AppScreen.LessonDetail(DEMO_IDENTITY, manifest,
+                                manifest.playlists.firstOrNull { it.id == current.playlist.id } ?: current.playlist)
+                        } else {
+                            scope.launch { store.load()?.let { identity ->
+                                val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"),
+                                    connectionDiagnostics = identity.connectionDiagnostics)
+                                val manifest = cancellableResult { api.manifest(identity) }.getOrElse {
+                                    api.cachedManifest() ?: ScreenManifest(1, "LessonCue", emptyList(), listOf(current.playlist))
+                                }
+                                screen = AppScreen.LessonDetail(identity, manifest,
+                                    manifest.playlists.firstOrNull { it.id == current.playlist.id } ?: current.playlist)
+                            } }
                         }
-                        screen = AppScreen.LessonDetail(identity, manifest,
-                            manifest.playlists.firstOrNull { it.id == current.playlist.id } ?: current.playlist)
-                    } } },
+                    },
                     onFinished = { scope.launch {
                         val identity = activeIdentity ?: return@launch
                         val api = LessonCueApi(identity.serverUrl, context.filesDir.resolve("manifest.json"),
@@ -563,7 +614,16 @@ private suspend fun captureDiagnosticScreenshot(activity: ComponentActivity): By
 private fun ConnectScreen(message: String?, onConnect: (String, String) -> Unit) {
     var address by remember { mutableStateOf("http://lessoncue.local") }
     var deviceName by remember { mutableStateOf(defaultDeviceName()) }
-    FormLayout("Connect this TV", "Link this display to the LessonCue server on your local network.") {
+    val addressFocus = remember { FocusRequester() }
+    val findServerFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(100)
+        runCatching { addressFocus.requestFocus() }
+    }
+    FormLayout(
+        "Connect this TV",
+        "LessonCue TV uses server pairing, not a username and password. Enter a reachable LessonCue server address, then use its six-digit pairing PIN."
+    ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
             Column(Modifier.weight(1f)) {
                 Text("DEVICE NAME", color = Muted, fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
@@ -581,7 +641,7 @@ private fun ConnectScreen(message: String?, onConnect: (String, String) -> Unit)
                 TvTextField(
                     address,
                     { address = it },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().focusRequester(addressFocus),
                     placeholder = "http://192.168.1.25"
                 )
             }
@@ -598,7 +658,7 @@ private fun ConnectScreen(message: String?, onConnect: (String, String) -> Unit)
         Spacer(Modifier.height(26.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "LessonCue will also search the local network automatically.",
+                "This display is paired to a LessonCue server; it does not use a personal account login. LessonCue will also search the local network automatically.",
                 color = Muted,
                 fontSize = 16.sp,
                 modifier = Modifier.weight(1f)
@@ -606,7 +666,7 @@ private fun ConnectScreen(message: String?, onConnect: (String, String) -> Unit)
             LessonCueButton(
                 onClick = { onConnect(address, deviceName.trim().ifBlank { defaultDeviceName() }) },
                 enabled = deviceName.isNotBlank(),
-                modifier = Modifier.width(220.dp).height(62.dp)
+                modifier = Modifier.width(220.dp).height(62.dp).focusRequester(findServerFocus)
             ) { Text("Find server", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
         }
     }
@@ -673,12 +733,20 @@ private fun attemptSummary(attempts: List<EndpointAttempt>): String = attempts.t
 @Composable
 internal fun PinScreen(serverName: String, onBack: () -> Unit, onConfirm: (String) -> Unit) {
     var pin by remember { mutableStateOf("") }
+    val pinFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(100)
+        runCatching { pinFocus.requestFocus() }
+    }
     BackHandler(onBack = onBack)
-    FormLayout("Pair this TV", "Connected to $serverName. Enter the six-digit PIN shown in LessonCue.") {
+    FormLayout(
+        "Pair this TV",
+        "Connected to $serverName. Enter the six-digit pairing PIN shown in the LessonCue administrator screen. This pairs the TV; it is not a user account password."
+    ) {
         TvTextField(
             value = pin,
             onValueChange = { pin = it.filter(Char::isDigit).take(6) },
-            modifier = Modifier.fillMaxWidth(.7f),
+            modifier = Modifier.fillMaxWidth(.7f).focusRequester(pinFocus),
             numeric = true,
             placeholder = "•  •  •  •  •  •"
         )
@@ -695,6 +763,67 @@ internal fun PinScreen(serverName: String, onBack: () -> Unit, onConfirm: (Strin
                 Text("Pair TV", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
             LessonCueButton(onClick = onBack, modifier = Modifier.width(160.dp).height(62.dp)) { Text("Back") }
+        }
+    }
+}
+
+@Composable
+internal fun DemoPasswordScreen(
+    message: String?,
+    onBack: () -> Unit,
+    onSubmit: (String) -> Unit
+) {
+    var password by remember { mutableStateOf("") }
+    val passwordFocus = remember { FocusRequester() }
+    val submitFocus = remember { FocusRequester() }
+    BackHandler(onBack = onBack)
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(100)
+        runCatching { passwordFocus.requestFocus() }
+    }
+    LaunchedEffect(password.length) {
+        if (password.length == DEMO_PASSWORD.length) {
+            kotlinx.coroutines.delay(80)
+            runCatching { submitFocus.requestFocus() }
+        }
+    }
+    FormLayout(
+        "LessonCue demo",
+        "Enter the review password to open the bundled sample content. This path does not connect to a server."
+    ) {
+        TvTextField(
+            value = password,
+            onValueChange = { password = it.filter(Char::isDigit).take(DEMO_PASSWORD.length) },
+            modifier = Modifier.fillMaxWidth(.7f).focusRequester(passwordFocus),
+            numeric = true,
+            placeholder = "•  •  •  •  •  •"
+        )
+        message?.let {
+            Spacer(Modifier.height(18.dp))
+            Box(
+                Modifier.fillMaxWidth().background(Coral.copy(alpha = .12f), RoundedCornerShape(14.dp))
+                    .border(1.dp, Coral.copy(alpha = .55f), RoundedCornerShape(14.dp)).padding(18.dp)
+            ) {
+                Text(it, color = Cream, fontSize = 17.sp)
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+        Text(
+            if (password.length == DEMO_PASSWORD.length) "Password complete — press Select to open the demo"
+            else "${DEMO_PASSWORD.length - password.length} digits remaining",
+            color = if (password.length == DEMO_PASSWORD.length) Mint else Muted,
+            fontSize = 16.sp
+        )
+        Spacer(Modifier.height(28.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            LessonCueButton(
+                onClick = { if (password.length == DEMO_PASSWORD.length) onSubmit(password) },
+                enabled = password.length == DEMO_PASSWORD.length,
+                modifier = Modifier.width(250.dp).height(62.dp).focusRequester(submitFocus)
+            ) { Text("Open demo", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+            LessonCueButton(onClick = onBack, modifier = Modifier.width(160.dp).height(62.dp)) {
+                Text("Back")
+            }
         }
     }
 }
@@ -938,8 +1067,43 @@ private fun formatLessonTime(value: Instant): String = DateTimeFormatter.ofPatte
     .withZone(java.time.ZoneId.systemDefault()).format(value)
 
 private fun cachedMediaFile(context: android.content.Context, item: CueItem): java.io.File? =
-    context.filesDir.resolve("media").resolve(item.cacheFileName()).takeIf { it.exists() }
-        ?: context.filesDir.resolve("media").resolve("${item.id}.bin").takeIf { it.exists() }
+    findUsableCacheFile(context.filesDir.resolve("media"), item)
+
+private data class ResilientCacheSource(
+    val cached: java.io.File?,
+    val source: String?,
+    val usingCache: Boolean,
+    val onCacheFailure: () -> Unit,
+)
+
+/**
+ * Prefer the local copy, but make a failed cache disposable. The server URL
+ * remains available for the same item so a bad local file cannot strand a
+ * display that is online.
+ */
+@Composable
+private fun rememberResilientCacheSource(item: CueItem): ResilientCacheSource {
+    val context = LocalContext.current
+    val cached = rememberCachedMediaFile(item)
+    var serverFallback by remember(item.id, item.cacheFileName()) { mutableStateOf(cached == null) }
+    val usingCache = cached != null && !serverFallback
+    val source = if (usingCache) cached.toURI().toString() else item.url
+    val onCacheFailure = {
+        if (usingCache && !item.url.isNullOrBlank()) {
+            invalidateCachedMedia(context.filesDir.resolve("media"), item)
+            serverFallback = true
+        }
+    }
+    return ResilientCacheSource(cached, source, usingCache, onCacheFailure)
+}
+
+@Composable
+private fun ResilientCachedImage(item: CueItem, contentDescription: String?, contentScale: ContentScale,
+    modifier: Modifier = Modifier) {
+    val source = rememberResilientCacheSource(item)
+    AsyncImage(model = source.source, contentDescription = contentDescription, contentScale = contentScale,
+        onError = { source.onCacheFailure() }, modifier = modifier)
+}
 
 /**
  * The cached file for an item, looked up once per item rather than on every
@@ -958,12 +1122,14 @@ private fun rememberCachedMediaFile(item: CueItem): java.io.File? {
 private fun mediaReadiness(context: android.content.Context, playlist: LessonPlaylist): MediaReadiness {
     val items = playlist.timeline().map(TimelineCue::item)
     if (items.isEmpty()) return MediaReadiness("This lesson does not contain media yet.", "NO MEDIA", Muted)
-    val offlineItems = items.filter { it.offlineEligible }
+    val bundledItems = items.filter { isBundledDemoMedia(it.url) }
+    val offlineItems = items.filter { it.offlineEligible && !isBundledDemoMedia(it.url) }
     val cached = offlineItems.count { cachedMediaFile(context, it) != null }
-    val onlineOnly = items.count { !it.offlineEligible && (it.playbackUrl != null || it.url != null) }
+    val onlineOnly = items.count { !isBundledDemoMedia(it.url) && !it.offlineEligible &&
+        (it.playbackUrl != null || it.streamingFallbackUrl != null || it.url != null) }
     return when {
-        offlineItems.isNotEmpty() && cached == offlineItems.size && onlineOnly == 0 ->
-            MediaReadiness("All media is downloaded and ready for offline playback.", "READY OFFLINE", Mint)
+        bundledItems.size + cached == items.size ->
+            MediaReadiness("All media is ready on this device.", "READY", Mint)
         offlineItems.isNotEmpty() && cached < offlineItems.size ->
             MediaReadiness("$cached/${offlineItems.size} media items cached. Downloading the remaining media.",
                 "$cached/${offlineItems.size} CACHED", Gold)
@@ -1418,7 +1584,8 @@ private fun SignagePresentationZone(zone: SignageZone) {
             ?: entry?.sourceUrl?.let { SignageWebZone(it) }
         if (zone.streamOverrideWhenLive && zone.streamUrl != null) {
             Box(Modifier.fillMaxSize().graphicsLayer(alpha = if (streamLive) 1f else 0f)) {
-                SignageVideo("presentation-stream-${zone.id}", zone.streamUrl, zone.fit) { streamLive = it }
+                SignageVideo("presentation-stream-${zone.id}", zone.streamUrl, zone.fit,
+                    onAvailabilityChange = { streamLive = it })
             }
         }
     }
@@ -1426,15 +1593,21 @@ private fun SignagePresentationZone(zone: SignageZone) {
 
 @Composable
 private fun SignageZoneMedia(item: CueItem, fit: String = "cover") {
-    val cached = rememberCachedMediaFile(item)
-    val source = cached?.toURI()?.toString() ?: item.url ?: return
+    val cacheSource = rememberResilientCacheSource(item)
+    val source = cacheSource.source
+    if (source == null) {
+        item.streamingFallbackUrl?.let { SignageWebZone(it) }
+        return
+    }
     if (item.type == "image" || item.contentType?.startsWith("image/") == true) {
         val scale = when (fit) { "contain" -> ContentScale.Fit; "fill" -> ContentScale.FillBounds; else -> ContentScale.Crop }
-        AsyncImage(model = source, contentDescription = null, contentScale = scale, modifier = Modifier.fillMaxSize())
+        ResilientCachedImage(item, null, scale, Modifier.fillMaxSize())
         return
     }
     if (item.type != "video" && item.contentType?.startsWith("video/") != true) return
-    SignageVideo(item.id, source, fit)
+    SignageVideo(item.id, source, fit,
+        fallbackSource = item.url?.takeIf { cacheSource.usingCache },
+        onCacheFailure = cacheSource.onCacheFailure)
 }
 
 @Composable
@@ -1445,18 +1618,29 @@ private fun SignageStreamMedia(id: String, source: String, fit: String) {
 @Composable
 private fun SignageBackgroundAudio(item: CueItem, volumePercent: Int) {
     val context = LocalContext.current
-    val cached = rememberCachedMediaFile(item)
-    val source = cached?.toURI()?.toString() ?: item.url ?: return
+    val cacheSource = rememberResilientCacheSource(item)
+    val source = cacheSource.source ?: return
     val player = remember(item.id, source) { ExoPlayer.Builder(context).build().apply {
         setMediaItem(MediaItem.fromUri(source)); repeatMode = Player.REPEAT_MODE_ONE
         volume = (volumePercent.coerceIn(0, 100) / 100f); prepare(); playWhenReady = true
     } }
-    DisposableEffect(player) { onDispose { player.release() } }
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                if (cacheSource.usingCache) cacheSource.onCacheFailure()
+            }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener); player.release() }
+    }
 }
 
 @Composable
 @SuppressLint("UnsafeOptInUsageError")
-private fun SignageVideo(id: String, source: String, fit: String, onAvailabilityChange: ((Boolean) -> Unit)? = null) {
+private fun SignageVideo(id: String, source: String, fit: String,
+    onAvailabilityChange: ((Boolean) -> Unit)? = null,
+    fallbackSource: String? = null,
+    onCacheFailure: (() -> Unit)? = null) {
     val context = LocalContext.current
     val currentAvailabilityChange by rememberUpdatedState(onAvailabilityChange)
     val player = remember(id, source) { ExoPlayer.Builder(context).build().apply {
@@ -1468,7 +1652,11 @@ private fun SignageVideo(id: String, source: String, fit: String, onAvailability
                 if (playbackState == Player.STATE_READY) currentAvailabilityChange?.invoke(true)
                 else if (playbackState == Player.STATE_IDLE) currentAvailabilityChange?.invoke(false)
             }
-            override fun onPlayerError(error: PlaybackException) { currentAvailabilityChange?.invoke(false) }
+            override fun onPlayerError(error: PlaybackException) {
+                if (fallbackSource != null && source != fallbackSource && onCacheFailure != null)
+                    onCacheFailure()
+                else currentAvailabilityChange?.invoke(false)
+            }
         }
         player.addListener(listener)
         onDispose {
@@ -1487,28 +1675,21 @@ private fun SignageVideo(id: String, source: String, fit: String, onAvailability
 
 @Composable
 private fun SignageBackdrop(item: CueItem) {
-    val context = LocalContext.current
-    val cached = rememberCachedMediaFile(item)
-    val source = cached?.toURI()?.toString() ?: item.url ?: return
+    val cacheSource = rememberResilientCacheSource(item)
+    val source = cacheSource.source
+    if (source == null) {
+        item.streamingFallbackUrl?.let { SignageWebZone(it) }
+        return
+    }
     if (item.type == "image" || item.contentType?.startsWith("image/") == true) {
-        AsyncImage(model = source, contentDescription = null, contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize().graphicsLayer(alpha = .38f))
+        ResilientCachedImage(item, null, ContentScale.Crop,
+            Modifier.fillMaxSize().graphicsLayer(alpha = .38f))
         return
     }
     if (item.type != "video" && item.contentType?.startsWith("video/") != true) return
-    val player = remember(item.id, source) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(source))
-            repeatMode = Player.REPEAT_MODE_ONE
-            volume = 0f
-            prepare()
-            playWhenReady = true
-        }
-    }
-    DisposableEffect(player) { onDispose { player.release() } }
-    AndroidView(factory = { PlayerView(it).apply { useController = false } },
-        update = { view -> if (view.player !== player) view.player = player },
-        onRelease = { it.player = null }, modifier = Modifier.fillMaxSize().graphicsLayer(alpha = .38f))
+    SignageVideo(item.id, source, "cover",
+        fallbackSource = item.url?.takeIf { cacheSource.usingCache },
+        onCacheFailure = cacheSource.onCacheFailure)
 }
 
 private fun parseDisplayColor(value: String): Color = runCatching {
@@ -1675,17 +1856,19 @@ private fun cueRoleColor(role: CueRole): Color = when (role) {
 }
 
 private fun cueAvailabilityLabel(context: android.content.Context, item: CueItem): String = when {
+    isBundledDemoMedia(item.url) -> "Bundled with this app"
     cachedMediaFile(context, item) != null -> "Downloaded and ready"
     item.offlineEligible -> "Downloading for offline playback"
-    item.playbackUrl != null -> "Internet connection required"
+    item.playbackUrl != null || item.streamingFallbackUrl != null -> "Internet connection required"
     item.url != null -> "Available from LessonCue server"
     else -> "Media unavailable"
 }
 
 private fun cueAvailabilityColor(context: android.content.Context, item: CueItem): Color = when {
+    isBundledDemoMedia(item.url) -> Mint
     cachedMediaFile(context, item) != null -> Mint
     item.offlineEligible -> Gold
-    item.url == null && item.playbackUrl == null -> Coral
+    item.url == null && item.playbackUrl == null && item.streamingFallbackUrl == null -> Coral
     else -> Muted
 }
 
@@ -1746,6 +1929,11 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         OnlineMediaScreen(playlist, items, index, item, control, identity, onTelemetry, onExit, onNext)
         return
     }
+    var useYouTubeStreamingFallback by remember(item?.id, item?.streamingFallbackUrl) { mutableStateOf(false) }
+    if (useYouTubeStreamingFallback && item?.streamingFallbackUrl != null) {
+        OnlineMediaScreen(playlist, items, index, item, control, identity, onTelemetry, onExit, onNext)
+        return
+    }
     if (item?.url == null) {
         LaunchedEffect(item?.id) { onTelemetry(PlaybackTelemetry("error", playlist.id, item?.id,
             error = "This item is not available on the server.")) }
@@ -1761,7 +1949,8 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
         return
     }
     val context = LocalContext.current
-    val cached = rememberCachedMediaFile(item)
+    val cacheSource = rememberResilientCacheSource(item)
+    val cached = cacheSource.cached
     var visualOpacity by remember(item.id) { mutableStateOf(if (item.fadeInMs > 0) 0f else 1f) }
     var visualSize by remember(item.id) { mutableStateOf(IntSize.Zero) }
     var repeatCompleted by remember(item.id) { mutableIntStateOf(0) }
@@ -1828,8 +2017,9 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
                 (index == items.lastIndex && items == playlist.items && playlist.postLesson?.items?.isNotEmpty() == true)) onFinished()
         }
         Box(Modifier.fillMaxSize().background(cueBackground(item)).then(remoteModifier)) {
-            AsyncImage(model = cached ?: item.url, contentDescription = item.title,
+            AsyncImage(model = cacheSource.source, contentDescription = item.title,
                 contentScale = if (item.fitMode == "fill") ContentScale.Crop else ContentScale.Fit,
+                onError = { cacheSource.onCacheFailure() },
                 modifier = Modifier.fillMaxSize().onSizeChanged { visualSize = it }.cueVisual(item, visualOpacity, visualSize))
             PlaybackOverlay(
                 visible = shouldShowPlaybackOverlay(lastOverlayInteraction, overlayClock, playing),
@@ -1840,7 +2030,11 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
                 positionMs = position,
                 durationMs = duration.takeUnless { it == Long.MAX_VALUE },
                 playing = playing,
-                availabilityLabel = if (cached != null) "OFFLINE COPY" else "SERVER MEDIA",
+            availabilityLabel = when {
+                isBundledDemoMedia(item.url) -> "BUNDLED SAMPLE"
+                cached != null -> "OFFLINE COPY"
+                else -> "SERVER MEDIA"
+            },
                 actions = PlaybackOverlayActions(
                     previous = { revealOverlay(); if (index > 0) onNext(index - 1) },
                     rewind = { revealOverlay(); position = (position - REMOTE_SEEK_STEP_MS).coerceAtLeast(0) },
@@ -1861,7 +2055,7 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
     }
     val initialStreamingSource = streamingSources.firstOrNull()
     var activeSourceIndex by remember(item.id, seekMs, cached?.absolutePath) {
-        mutableIntStateOf(if (cached == null) 0 else -1)
+        mutableIntStateOf(if (!cacheSource.usingCache) 0 else -1)
     }
     var fallbackDiagnostic by remember(item.id) { mutableStateOf<String?>(null) }
     fun clippedMediaItem(uri: String, contentType: String?): MediaItem {
@@ -1873,7 +2067,7 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
     }
     val player = remember(item.id, seekMs) {
         ExoPlayer.Builder(context).build().apply {
-            val cachedUri = cached?.toURI()?.toString()
+            val cachedUri = cacheSource.source?.takeIf { cacheSource.usingCache }
             val source = initialStreamingSource
             setMediaItem(clippedMediaItem(cachedUri ?: source?.url ?: item.url,
                 if (cachedUri != null) item.contentType else source?.contentType ?: item.contentType))
@@ -1888,8 +2082,21 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
     var playerPosition by remember(item.id) { mutableLongStateOf(seekMs.coerceAtLeast(0)) }
     var playerDuration by remember(item.id) { mutableStateOf<Long?>(item.effectiveDurationMs()) }
     fun tryNextPlaybackSource(reason: String): Boolean {
+        if (activeSourceIndex < 0) cacheSource.onCacheFailure()
         val nextIndex = PlaybackFallbackPolicy.nextSourceIndex(activeSourceIndex, streamingSources.size)
-            ?: return false
+        if (nextIndex == null) {
+            val fallback = item.streamingFallbackUrl
+            if (!fallback.isNullOrBlank() && !useYouTubeStreamingFallback) {
+                useYouTubeStreamingFallback = true
+                playerState = "buffering"
+                fallbackDiagnostic = "Local YouTube copy failed; using the original streaming source."
+                onTelemetry(PlaybackTelemetry("buffering", playlist.id, item.id,
+                    player.currentPosition.coerceAtLeast(0), player.duration.takeUnless { it == C.TIME_UNSET },
+                    item.volumePercent, fallbackDiagnostic))
+                return true
+            }
+            return false
+        }
         val nextSource = streamingSources[nextIndex]
         val previous = if (activeSourceIndex < 0) "offline cache"
             else streamingSources.getOrNull(activeSourceIndex)?.displayQuality() ?: "current source"
@@ -2039,7 +2246,7 @@ private fun PlayerScreen(playlist: LessonPlaylist, items: List<CueItem>, index: 
             positionMs = playerPosition,
             durationMs = playerDuration,
             playing = playerState == "playing",
-            availabilityLabel = if (cached != null && activeSourceIndex < 0) "OFFLINE COPY"
+            availabilityLabel = if (cacheSource.usingCache && activeSourceIndex < 0) "OFFLINE COPY"
                 else streamingSources.getOrNull(activeSourceIndex)?.let { "STREAMING ${it.displayQuality()}" }
                     ?: "SERVER MEDIA",
             actions = PlaybackOverlayActions(
@@ -2155,7 +2362,9 @@ private fun OnlineMediaScreen(playlist: LessonPlaylist, items: List<CueItem>, in
                 }
             }
             setBackgroundColor(AndroidColor.TRANSPARENT)
-            loadUrl(activityPlaybackUrl(item, identity, BuildConfig.VERSION_NAME) ?: item.playbackUrl!!)
+            loadUrl(activityPlaybackUrl(item, identity, BuildConfig.VERSION_NAME)
+                ?: item.playbackUrl
+                ?: item.streamingFallbackUrl!!)
         }
     }
     val remoteModifier = playbackRemoteModifier(item.id) { action ->
@@ -2302,9 +2511,7 @@ private fun loopingPreRoll(items: List<CueItem>) = items.mapIndexed { index, ite
 
 private const val REMOTE_SEEK_STEP_MS = 5_000L
 
-private fun ScreenManifest.itemCount() = (playlists.flatMap { playlist ->
-    playlist.items + playlist.preRoll?.items.orEmpty() + listOfNotNull(playlist.countdown?.item) + playlist.postLesson?.items.orEmpty()
-} + signageSchedule.flatMap { sign -> listOfNotNull(sign.media) + sign.zones.mapNotNull { it.media } }).distinctBy { it.id }.size
+private fun ScreenManifest.itemCount() = allItems().size
 
 @Composable
 private fun FormLayout(title: String, subtitle: String, content: @Composable ColumnScope.() -> Unit) {
@@ -2412,9 +2619,11 @@ private fun scheduleMediaCaches(context: android.content.Context, identity: Devi
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()
     items.forEach { item ->
+        prepareCacheForDownload(context.filesDir.resolve("media"), item)
         val request = OneTimeWorkRequestBuilder<MediaCacheWorker>().setInputData(workDataOf(
             "url" to item.url, "fileName" to item.cacheFileName(), "token" to identity.token,
-            "serverHost" to java.net.URL(identity.serverUrl).host, "sha256" to item.sha256
+            "serverHost" to java.net.URL(identity.serverUrl).host, "sha256" to item.sha256,
+            "sizeBytes" to (item.sizeBytes ?: 0L)
         )).setConstraints(constraints).build()
         manager.enqueueUniqueWork("lessoncue-media-${item.id}-${item.sha256?.take(12) ?: "current"}",
             ExistingWorkPolicy.KEEP, request)

@@ -18,6 +18,7 @@ class MediaDownloadTest {
         private val status: Int = 200,
         private val length: Long = body.length.toLong(),
         private val range: String? = null,
+        private val etag: String? = null,
         private val failRead: Boolean = false,
     ) : HttpURLConnection(URL("http://lessoncue.local/media/test")) {
         var disconnects = 0
@@ -26,7 +27,11 @@ class MediaDownloadTest {
         override fun usingProxy() = false
         override fun getResponseCode() = status
         override fun getContentLengthLong() = length
-        override fun getHeaderField(name: String?): String? = if (name == "Content-Range") range else null
+        override fun getHeaderField(name: String?): String? = when (name) {
+            "Content-Range" -> range
+            "ETag" -> etag
+            else -> null
+        }
         override fun getInputStream(): InputStream = if (failRead) object : InputStream() {
             override fun read(): Int = throw IOException("connection lost")
         } else ByteArrayInputStream(body.toByteArray())
@@ -50,13 +55,38 @@ class MediaDownloadTest {
 
     @Test fun resumesAtValidatedOffsetAndRestartsIfRangeIsIgnored() = withDestination { destination, partial ->
         partial.writeText("abc")
-        val resumed = Connection("def", 206, range = "bytes 3-5/6")
+        val resumed = Connection("def", 206, range = "bytes 3-5/6", etag = "\"v1\"")
         downloadMedia(resumed, destination, null)
         assertEquals("bytes=3-", resumed.getRequestProperty("Range"))
         assertEquals("abcdef", destination.readText())
         partial.writeText("old")
         downloadMedia(Connection("replacement"), destination, null)
         assertEquals("replacement", destination.readText())
+    }
+
+    @Test fun resumesOnlyWhenTheServerObjectStillMatches() = withDestination { destination, partial ->
+        partial.writeText("abc")
+        partial.resolveSibling("${partial.name}.etag").writeText("\"v1\"")
+        val resumed = Connection("def", 206, range = "bytes 3-5/6", etag = "\"v1\"")
+
+        downloadMedia(resumed, destination, null)
+
+        assertEquals("\"v1\"", resumed.getRequestProperty("If-Range"))
+        assertEquals("abcdef", destination.readText())
+        assertFalse(partial.resolveSibling("${partial.name}.etag").exists())
+    }
+
+    @Test fun discardsPartialWhenResumeValidatorChanges() = withDestination { destination, partial ->
+        partial.writeText("abc")
+        partial.resolveSibling("${partial.name}.etag").writeText("\"v1\"")
+
+        assertThrows(IOException::class.java) {
+            downloadMedia(Connection("def", 206, range = "bytes 3-5/6", etag = "\"v2\""), destination, null)
+        }
+
+        assertFalse(partial.exists())
+        assertFalse(partial.resolveSibling("${partial.name}.etag").exists())
+        assertFalse(destination.exists())
     }
 
     @Test fun refusesTruncatedBodyWithoutReplacingKnownGoodCache() = withDestination { destination, partial ->

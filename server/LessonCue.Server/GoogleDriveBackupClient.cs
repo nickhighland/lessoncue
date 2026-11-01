@@ -5,6 +5,8 @@ using System.Text.Json;
 
 namespace LessonCue.Server;
 
+public sealed class GoogleDriveAuthorizationException(string message) : IOException(message);
+
 /// <summary>
 /// Small Drive v3 client used only by scheduled backup destinations. OAuth
 /// credentials stay server-side; uploaded files use Drive's resumable protocol.
@@ -86,6 +88,12 @@ public sealed class GoogleDriveBackupClient(IHttpClientFactory clients)
         if (!response.IsSuccessStatusCode)
         {
             var detail = await ReadErrorDetailAsync(response.Content, ct);
+            if (operation.Equals("refresh Google Drive authorization", StringComparison.Ordinal) &&
+                detail.Contains("invalid_grant", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new GoogleDriveAuthorizationException(
+                    "Google Drive authorization expired or was revoked. Reconnect Google Drive in Backup & Recovery.");
+            }
             throw new IOException(
                 $"{operation} failed with HTTP {(int)response.StatusCode}" +
                 (detail.Length == 0 ? "." : $": {detail}"));

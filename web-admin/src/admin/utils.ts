@@ -604,7 +604,9 @@ export function youtubeEmbedUrl(value?: string) {
     if (
       host === "youtube.com" ||
       host === "m.youtube.com" ||
-      host === "music.youtube.com"
+      host === "music.youtube.com" ||
+      host === "youtube-nocookie.com" ||
+      host.endsWith(".youtube-nocookie.com")
     ) {
       if (url.pathname === "/watch") id = url.searchParams.get("v") || "";
       else if (/^\/(embed|shorts|live)\//.test(url.pathname))
@@ -615,6 +617,17 @@ export function youtubeEmbedUrl(value?: string) {
       : undefined;
   } catch {
     return undefined;
+  }
+}
+export function isYouTubeUrl(value?: string) {
+  if (!value) return false;
+  try {
+    const host = new URL(value).hostname.toLowerCase().replace(/^www\./, "");
+    return host === "youtube.com" || host.endsWith(".youtube.com") ||
+      host === "youtu.be" || host.endsWith(".youtu.be") ||
+      host === "youtube-nocookie.com" || host.endsWith(".youtube-nocookie.com");
+  } catch {
+    return false;
   }
 }
 export function isOnline(screen: Screen) {

@@ -2326,26 +2326,13 @@ export function Settings({
                     checked={adaptiveTranscoding}
                     onChange={(e) => setAdaptiveTranscoding(e.target.checked)}
                   />{" "}
-                  Prepare adaptive copies automatically
+                  Prepare adaptive copies immediately when media is ready
                 </label>
-                <Field
-                  label="Guaranteed lead time"
-                  hint="Idle capacity starts preparing new uploads immediately. This setting ensures assigned lesson media is prioritized no later than the selected number of days before class."
-                >
-                  <div className="number-suffix">
-                    <input
-                      type="number"
-                      min="1"
-                      max="30"
-                      step="1"
-                      value={transcodeLeadDays}
-                      onChange={(e) => setTranscodeLeadDays(e.target.value)}
-                      disabled={!adaptiveTranscoding}
-                      required
-                    />
-                    <span>days</span>
-                  </div>
-                </Field>
+                <p className="field-help">
+                  Every ready local video is queued for all adaptive playback
+                  profiles immediately after processing. The older lead-time
+                  setting is retained for compatibility with existing servers.
+                </p>
                 <div className="head-actions">
                   <button className="button primary">
                     Save playback profiles
@@ -3652,6 +3639,11 @@ export function Settings({
                               {status?.googleDriveConnected && (
                                 <div className="alert success" role="status">
                                   Google Drive is connected and ready for scheduled backups.
+                                </div>
+                              )}
+                              {status?.googleDriveReauthorizationRequired && (
+                                <div className="alert error" role="alert">
+                                  Google Drive authorization expired or was revoked. Reconnect Google Drive to resume off-site backups.
                                 </div>
                               )}
                               {status?.lastError && (

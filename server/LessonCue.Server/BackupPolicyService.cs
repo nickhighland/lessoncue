@@ -44,7 +44,8 @@ public sealed record BackupDestinationStatus(
     int? LastMediaSyncDeleted = null,
     string? GoogleDriveClientId = null,
     bool GoogleDriveConnected = false,
-    bool GoogleDriveClientSecretConfigured = false);
+    bool GoogleDriveClientSecretConfigured = false,
+    bool GoogleDriveReauthorizationRequired = false);
 
 public sealed record BackupPolicyInput(
     bool Enabled,
@@ -222,6 +223,10 @@ public sealed class BackupPolicyService : BackgroundService
                     LastUploadedFileName = sameDriveRemote ? previousDrive!.LastUploadedFileName : null,
                     RemoteBackupCount = sameDriveRemote ? previousDrive!.RemoteBackupCount : null,
                     LastError = sameDriveRemote ? previousDrive!.LastError : null,
+                    GoogleDriveReauthorizationRequired = sameDriveRemote &&
+                        string.IsNullOrEmpty(requested.GoogleDriveClientSecret)
+                        ? previousDrive!.GoogleDriveReauthorizationRequired
+                        : false,
                     LastMediaSyncAt = sameDriveRemote ? previousDrive!.LastMediaSyncAt : null,
                     LastMediaSyncAdded = sameDriveRemote ? previousDrive!.LastMediaSyncAdded : null,
                     LastMediaSyncUpdated = sameDriveRemote ? previousDrive!.LastMediaSyncUpdated : null,
@@ -361,7 +366,8 @@ public sealed class BackupPolicyService : BackgroundService
                 GoogleDriveOAuthStateProtected = protector.Protect(state),
                 GoogleDriveOAuthStateExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10),
                 GoogleDriveOAuthRedirectUri = callback.AbsoluteUri,
-                LastError = null
+                LastError = null,
+                GoogleDriveReauthorizationRequired = false
             };
             destinations[index] = destination;
             await WriteAsync(policy with { Destinations = destinations }, ct);
@@ -446,7 +452,8 @@ public sealed class BackupPolicyService : BackgroundService
                 ProtectedGoogleDriveRefreshToken = refreshToken is null
                     ? existingProtectedRefreshToken
                     : protector.Protect(refreshToken),
-                LastError = null
+                LastError = null,
+                GoogleDriveReauthorizationRequired = false
             };
             await WriteAsync(policy with { Destinations = destinations }, ct);
         }
@@ -473,7 +480,9 @@ public sealed class BackupPolicyService : BackgroundService
                     var boundary = LatestBoundary(policy, timeZone, DateTimeOffset.UtcNow);
                     var recentlyAttempted = policy.LastAttemptAt is not null &&
                                             policy.LastAttemptAt > DateTimeOffset.UtcNow.AddHours(-1);
-                    if (!recentlyAttempted &&
+                    var authorizationBlockedForBoundary = policy.LastAttemptAt is { } attempt &&
+                        attempt >= boundary && HasGoogleDriveReauthorizationRequired(policy);
+                    if (!recentlyAttempted && !authorizationBlockedForBoundary &&
                         (policy.LastSucceededAt is null || policy.LastSucceededAt < boundary))
                         await RunPolicyAsync(timeZone, stoppingToken);
                 }
@@ -534,6 +543,13 @@ public sealed class BackupPolicyService : BackgroundService
                     var destination = destinations[index];
                     try
                     {
+                        if (destination.Provider == "googledrive" &&
+                            destination.GoogleDriveReauthorizationRequired)
+                        {
+                            remoteErrors.Add($"{destination.Provider}: {destination.LastError ??
+                                "Reconnect Google Drive in Backup & Recovery."}");
+                            continue;
+                        }
                         GoogleDriveBackupClient.GoogleDriveSession? driveSession = null;
                         if (destination.Provider == "googledrive")
                         {
@@ -586,7 +602,12 @@ public sealed class BackupPolicyService : BackgroundService
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
                         var safeError = SafeError(ex);
-                        destinations[index] = destination with { LastError = safeError };
+                        destinations[index] = destination with
+                        {
+                            LastError = safeError,
+                            GoogleDriveReauthorizationRequired = destination.Provider == "googledrive" &&
+                                ex is GoogleDriveAuthorizationException
+                        };
                         remoteErrors.Add($"{destination.Provider}: {safeError}");
                     }
                 }
@@ -1891,7 +1912,8 @@ public sealed class BackupPolicyService : BackgroundService
                 destination.LastMediaSyncDeleted,
                 destination.GoogleDriveOAuthClientId,
                 !string.IsNullOrEmpty(destination.ProtectedGoogleDriveRefreshToken),
-                !string.IsNullOrEmpty(destination.ProtectedGoogleDriveOAuthClientSecret))).ToArray();
+                !string.IsNullOrEmpty(destination.ProtectedGoogleDriveOAuthClientSecret),
+                destination.GoogleDriveReauthorizationRequired)).ToArray();
         var legacy = (policy.Destinations ?? []).FirstOrDefault(destination =>
             string.Equals(destination.Provider, "webdav", StringComparison.OrdinalIgnoreCase));
         return new BackupPolicyStatus(
@@ -2078,6 +2100,10 @@ public sealed class BackupPolicyService : BackgroundService
     private static string ResolveMediaMode(StoredBackupPolicy policy) =>
         NormalizeMediaMode(policy.MediaMode, policy.IncludeMedia);
 
+    private static bool HasGoogleDriveReauthorizationRequired(StoredBackupPolicy policy) =>
+        (policy.Destinations ?? []).Any(destination =>
+            destination.Provider == "googledrive" && destination.GoogleDriveReauthorizationRequired);
+
     private static string NormalizeProvider(string value)
     {
         var provider = value.Trim().ToLowerInvariant();
@@ -2154,6 +2180,7 @@ public sealed class BackupPolicyService : BackgroundService
         public DateTimeOffset? GoogleDriveOAuthStateExpiresAt { get; init; }
         public string? GoogleDriveOAuthRedirectUri { get; init; }
         public string? GoogleDriveFolderId { get; init; }
+        public bool GoogleDriveReauthorizationRequired { get; init; }
         public int RetentionCount { get; init; } = 7;
         public int RetentionDays { get; init; } = 30;
         public DateTimeOffset? LastUploadedAt { get; init; }

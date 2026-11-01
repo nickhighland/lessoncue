@@ -36,6 +36,16 @@ public static class MediaDiagnostics
             var original = await InspectFileAsync(paths.Originals, asset.RelativePath, asset.Sha256, asset.SizeBytes, ct);
             var compatibility = await InspectFileAsync(paths.Compatibility, asset.CompatibilityPath,
                 asset.CompatibilitySha256, asset.CompatibilitySizeBytes, ct);
+            // Adaptive variants only have meaning for a ready local video.
+            // Older releases could leave failed H.264 rows attached to still
+            // images; exposing those rows makes a harmless legacy record look
+            // like a current media failure.
+            var transcodes = AdaptiveTranscodeEligibility.IsVideo(asset)
+                ? asset.TranscodeVariants.OrderBy(item => item.Profile).Select(item => new MediaVariantDiagnostic(
+                    item.Id, item.Profile, item.Status, item.RelativePath, item.Sha256, item.SizeBytes,
+                    item.Width, item.Height, item.VideoBitrateKbps, item.SourceVersion, item.Error,
+                    item.TranscodeEngine, item.QueuedAt, item.StartedAt, item.CompletedAt)).ToArray()
+                : [];
             result.Add(new MediaDiagnosticSnapshot(
                 asset.Id, asset.FileName, asset.RelativePath, asset.ContentType, asset.SizeBytes, asset.Sha256,
                 asset.CreatedAt, asset.ProcessingStatus, asset.ProcessingError, asset.CompatibilityStatus,
@@ -43,10 +53,7 @@ public static class MediaDiagnostics
                 asset.CompatibilitySizeBytes, asset.VideoCodec, asset.AudioCodec, asset.Width, asset.Height,
                 asset.OfflineEligible, asset.Version, asset.StoragePolicy, asset.SourceKind,
                 original, compatibility,
-                asset.TranscodeVariants.OrderBy(item => item.Profile).Select(item => new MediaVariantDiagnostic(
-                    item.Id, item.Profile, item.Status, item.RelativePath, item.Sha256, item.SizeBytes,
-                    item.Width, item.Height, item.VideoBitrateKbps, item.SourceVersion, item.Error,
-                    item.TranscodeEngine, item.QueuedAt, item.StartedAt, item.CompletedAt)).ToArray()));
+                transcodes));
         }
 
         return result;

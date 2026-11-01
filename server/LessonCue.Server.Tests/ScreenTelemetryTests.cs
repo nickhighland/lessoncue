@@ -98,6 +98,23 @@ public sealed class ScreenTelemetryTests
     }
 
     [Fact]
+    public void ValidCachedMediaClearsStaleDownloadErrors()
+    {
+        var screen = new Screen { Name = "Room 104" };
+        var now = new DateTimeOffset(2026, 7, 16, 12, 0, 0, TimeSpan.Zero);
+        var input = new TvStatusInput(
+            screen.Id, "0.46.10", true, 1_000, 4, 8,
+            CacheInventory: [new("item-1", "Lesson video", "cached", 1_024, 1_024, "old retry error")],
+            RecentErrors: [new(now.AddMinutes(-5), "download", "old retry error", "item-1")]);
+
+        ScreenTelemetry.Apply(screen, input, now);
+
+        Assert.Equal(0, screen.FailedDownloads);
+        Assert.Equal("[]", screen.RecentErrorsJson);
+        Assert.Null(JsonDocument.Parse(screen.CacheInventoryJson).RootElement[0].GetProperty("error").GetString());
+    }
+
+    [Fact]
     public async Task UpgradeAddsPlaybackTelemetryToExistingDatabases()
     {
         var cancellationToken = TestContext.Current.CancellationToken;

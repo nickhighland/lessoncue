@@ -244,8 +244,9 @@ public sealed record TroubleshootingReport(
         item.Transcodes.Any(variant => string.Equals(variant.Status, "failed", StringComparison.OrdinalIgnoreCase)));
 
     public int ScreenAttentionCount => Screens.Count(item =>
-        item.FailedDownloads > 0 || !string.IsNullOrWhiteSpace(item.PlaybackError) ||
-        !string.Equals(item.RecentErrorsJson, "[]", StringComparison.Ordinal));
+        TroubleshootingIssueBuilder.HasFreshScreenDiagnostics(item, DateTimeOffset.UtcNow) &&
+        (item.FailedDownloads > 0 || !string.IsNullOrWhiteSpace(item.PlaybackError) ||
+         !string.Equals(item.RecentErrorsJson, "[]", StringComparison.Ordinal)));
 }
 
 public sealed record TroubleshootingBackupDiagnostic(
@@ -374,7 +375,8 @@ public static class TroubleshootingIssueBuilder
         }
 
         foreach (var asset in media) AddMediaIssues(drafts, asset);
-        foreach (var screen in screens) AddScreenIssues(drafts, screen);
+        var generatedAt = DateTimeOffset.UtcNow;
+        foreach (var screen in screens) AddScreenIssues(drafts, screen, generatedAt);
 
         return drafts
             .GroupBy(item => $"{item.Code}|{item.Summary}", StringComparer.Ordinal)
@@ -477,8 +479,15 @@ public static class TroubleshootingIssueBuilder
         }
     }
 
-    private static void AddScreenIssues(List<Draft> drafts, TroubleshootingScreenDiagnostic screen)
+    internal static bool HasFreshScreenDiagnostics(
+        TroubleshootingScreenDiagnostic screen, DateTimeOffset now) =>
+        (screen.DiagnosticsUpdatedAt ?? screen.LastSeenAt) is { } updatedAt &&
+        updatedAt >= now - TimeSpan.FromHours(48);
+
+    private static void AddScreenIssues(
+        List<Draft> drafts, TroubleshootingScreenDiagnostic screen, DateTimeOffset now)
     {
+        if (!HasFreshScreenDiagnostics(screen, now)) return;
         var label = $"{screen.Name} ({screen.Id})";
         if (screen.FailedDownloads > 0)
             Add(drafts, "LC.TV.DOWNLOADS.FAILED", "error", "TV", label,

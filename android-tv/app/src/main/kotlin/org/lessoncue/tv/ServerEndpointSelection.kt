@@ -49,6 +49,14 @@ internal object ServerEndpointSelection {
 
         val host = uri.host?.trim('[', ']') ?: error("The LessonCue address needs a hostname or IP address.")
         val isLiteral = host.matches(Regex("[0-9.]+")) || ':' in host
+        val isPublicHostname = !isLiteral && !isTrustedLocalHttpHost(host)
+        if (isPublicHostname) {
+            // Keep the original hostname for HTTPS SNI and the HTTP Host
+            // header. Replacing a public hostname with its CDN/proxy IP makes
+            // certificates and virtual-host routing fail even though the
+            // hostname itself is reachable.
+            add(normalized, "saved-or-entered")
+        }
         if (isLiteral) {
             add(normalized, "saved-or-entered")
         } else {
@@ -62,7 +70,7 @@ internal object ServerEndpointSelection {
             }
             // If DNS/.local lookup is temporarily unavailable, retain the
             // hostname as a final candidate. NSD candidates are added below.
-            if (resolved.isEmpty()) add(normalized, "saved-or-entered")
+            if (resolved.isEmpty() && !isPublicHostname) add(normalized, "saved-or-entered")
         }
 
         discovered.forEach { add(it, "dns-sd") }

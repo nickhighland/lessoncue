@@ -40,6 +40,26 @@ public sealed class DisplayCapabilitiesTests
         Assert.Contains("no media", decision.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void FailedYouTubeImportRetainsStreamingFallback()
+    {
+        var media = new MediaAsset
+        {
+            FileName = "YouTube video",
+            ContentType = "video/mp4",
+            SourceKind = "youtube-download",
+            SourceUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            LinkKind = "youtube-local",
+            ProcessingStatus = "failed",
+            RelativePath = ""
+        };
+        var item = new PlaylistItem { Title = "Fallback clip", Type = "video", MediaAsset = media };
+
+        var decision = DisplayCapabilities.LessonDecision("android-tv", item);
+
+        Assert.Equal("supported", decision.Support);
+    }
+
     [Theory]
     [InlineData("pending")]
     [InlineData("converting")]

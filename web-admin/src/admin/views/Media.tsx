@@ -4,7 +4,7 @@ import { api, preflightMediaFile, uploadMediaFile } from "../api";
 import { MediaPreview } from "../media-editor";
 import { Lesson, Media, MediaConverterStatus, MediaFormats, MediaImpact, MediaPreflight, MediaTaxonomy, MediaUploadControl, MediaVersion, StorageStatus } from "../models";
 import { Empty, Field, Modal, PageHead, StorageMeter, TaxonomyFields, formTags } from "../ui";
-import { convertedSlideCount, dateInputValue, errorText, formatBytes, formatDate, formatDuration, formatShortDate, friendlyType, isConvertibleDocument, mediaCategory, mediaFileExtension, mediaNameStem, timeAgo } from "../utils";
+import { convertedSlideCount, dateInputValue, errorText, formatBytes, formatDate, formatDuration, formatShortDate, friendlyType, isConvertibleDocument, isYouTubeUrl, mediaCategory, mediaFileExtension, mediaNameStem, timeAgo } from "../utils";
 
 type UploadFileState = {
   key: string;
@@ -54,6 +54,7 @@ export function MediaView({
   const [uploadFiles, setUploadFiles] = useState<UploadFileState[]>([]);
   const [uploadBatchMessage, setUploadBatchMessage] = useState("");
   const [showLink, setShowLink] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
   const [previewMedia, setPreviewMedia] = useState<Media>();
   const availableLessons = [...lessons]
     .filter((l) => !l.archived)
@@ -69,6 +70,7 @@ export function MediaView({
   const [linkMode, setLinkMode] = useState<"online" | "download" | "slides">(
     "online",
   );
+  const youtubeLink = isYouTubeUrl(linkUrl);
   const [linkStoragePolicy, setLinkStoragePolicy] = useState<
     "lesson" | "persistent"
   >(availableLessons.length ? "lesson" : "persistent");
@@ -572,16 +574,17 @@ export function MediaView({
   async function addLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const doNotDownload = form.get("doNotDownload") === "on";
-    const download = linkMode === "download" && !doNotDownload;
+    const url = String(form.get("url") || "");
+    const youtube = isYouTubeUrl(url);
+    const download = youtube || linkMode === "download";
     const importPresentation = linkMode === "slides";
     const persistent =
-      linkMode === "online" || linkStoragePolicy === "persistent";
+      (!youtube && linkMode === "online") || linkStoragePolicy === "persistent";
     try {
       await api("/api/v1/media/link", {
         method: "POST",
         body: JSON.stringify({
-          url: form.get("url"),
+          url,
           title: form.get("title") || null,
           download,
           importPresentation,
@@ -592,6 +595,8 @@ export function MediaView({
         }),
       });
       setShowLink(false);
+      setLinkUrl("");
+      setLinkMode("online");
       refresh();
       notify(
         download
@@ -1001,7 +1006,7 @@ export function MediaView({
       {showLink && (
         <Modal
           title="Add online media or slides"
-          onClose={() => setShowLink(false)}
+          onClose={() => { setShowLink(false); setLinkUrl(""); setLinkMode("online"); }}
         >
           <form className="stack" onSubmit={addLink}>
             <Field
@@ -1013,7 +1018,9 @@ export function MediaView({
               hint={
                 linkMode === "slides"
                   ? "The deck must be shared so anyone with the link can view it. LessonCue downloads a PDF copy and converts it locally."
-                  : "Online entries require internet. YouTube videos can instead be copied into local storage."
+                  : youtubeLink
+                    ? "YouTube is downloaded into local storage automatically. The original link is retained for streaming recovery if the local copy is unavailable."
+                    : "Online entries require internet."
               }
             >
               <input
@@ -1022,30 +1029,40 @@ export function MediaView({
                 required
                 autoFocus
                 placeholder="https://…"
+                value={linkUrl}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setLinkUrl(value);
+                  if (isYouTubeUrl(value)) setLinkMode("download");
+                  else if (linkMode === "download") setLinkMode("online");
+                }}
               />
             </Field>
             <fieldset className="retention-options">
               <legend>How should LessonCue use it?</legend>
-              <label>
-                <input
-                  type="radio"
-                  checked={linkMode === "online"}
-                  onChange={() => setLinkMode("online")}
-                />
-                <span>
-                  <strong>Use online</strong>
-                  <small>Display a webpage or embedded YouTube player.</small>
-                </span>
-              </label>
+              {!youtubeLink && (
+                <label>
+                  <input
+                    type="radio"
+                    checked={linkMode === "online"}
+                    onChange={() => setLinkMode("online")}
+                  />
+                  <span>
+                    <strong>Use online</strong>
+                    <small>Display a webpage or embedded YouTube player.</small>
+                  </span>
+                </label>
+              )}
               <label>
                 <input
                   type="radio"
                   checked={linkMode === "download"}
                   onChange={() => setLinkMode("download")}
+                  disabled={!youtubeLink}
                 />
                 <span>
-                  <strong>Download YouTube locally</strong>
-                  <small>Use only for video you are authorized to copy.</small>
+                  <strong>Download YouTube automatically</strong>
+                  <small>{youtubeLink ? "The source link is kept as a streaming fallback. Use only for video you are authorized to copy." : "Enter a YouTube URL to enable local download."}</small>
                 </span>
               </label>
               <label>
@@ -1053,6 +1070,7 @@ export function MediaView({
                   type="radio"
                   checked={linkMode === "slides"}
                   onChange={() => setLinkMode("slides")}
+                  disabled={youtubeLink}
                 />
                 <span>
                   <strong>Import Google Slides</strong>
@@ -1063,16 +1081,7 @@ export function MediaView({
                 </span>
               </label>
             </fieldset>
-            {linkMode !== "slides" && (
-              <label>
-                <input type="checkbox" name="doNotDownload" />
-                <span>
-                  <strong>Do not download locally</strong>
-                  <small>Keep this entry online-only (metadata only).</small>
-                </span>
-              </label>
-            )}
-            {linkMode !== "online" && (
+            {(linkMode !== "online" || youtubeLink) && (
               <fieldset className="retention-options">
                 <legend>How long should LessonCue keep the local copy?</legend>
                 {availableLessons.length > 0 && (
@@ -1103,7 +1112,7 @@ export function MediaView({
                 </label>
               </fieldset>
             )}
-            {linkMode !== "online" && linkStoragePolicy === "lesson" && (
+            {(linkMode !== "online" || youtubeLink) && linkStoragePolicy === "lesson" && (
               <Field label="Lesson">
                 <select
                   name="lessonId"
@@ -1124,7 +1133,7 @@ export function MediaView({
             <TaxonomyFields taxonomy={taxonomy} />
             <button className="button primary">
               {linkMode === "download"
-                ? "Queue local download"
+                ? youtubeLink ? "Queue YouTube download" : "Queue local download"
                 : linkMode === "slides"
                   ? "Import and convert slides"
                   : "Add online media"}
@@ -1481,7 +1490,7 @@ export function MediaManagerModal({
             <strong>{impact?.signage.length ?? "…"}</strong>
           </div>
         </div>
-        {media.videoCodec && (
+        {mediaCategory(media) === "video" && media.sourceKind !== "link" && (
           <>
             <section
               className={`compatibility-card ${media.compatibilityStatus}`}

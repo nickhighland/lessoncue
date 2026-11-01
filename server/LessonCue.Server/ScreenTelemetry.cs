@@ -16,7 +16,13 @@ public static class ScreenTelemetry
         screen.ManifestVersion = Math.Max(0, input.ManifestVersion);
         screen.LastIpAddress = Limit(remoteAddress, 64);
         screen.FreeBytes = Math.Max(0, input.FreeBytes);
-        screen.FailedDownloads = Math.Max(0, input.FailedDownloads);
+        var validCachedItemIds = input.CacheInventory?
+            .Where(IsValidCachedItem)
+            .Select(item => item.ItemId)
+            .ToHashSet(StringComparer.Ordinal);
+        screen.FailedDownloads = input.CacheInventory is not null
+            ? input.CacheInventory.Count(IsFailedCacheItem)
+            : Math.Max(0, input.FailedDownloads);
         screen.CachedItems = Math.Max(0, input.CachedItems ?? screen.CachedItems);
         screen.TotalItems = Math.Max(screen.CachedItems, input.TotalItems ?? screen.TotalItems);
         screen.DeviceModel = Limit(input.DeviceModel, 160);
@@ -36,7 +42,7 @@ public static class ScreenTelemetry
             {
                 itemId = Limit(item.ItemId, 80), title = Limit(item.Title, 160), state = Limit(item.State, 24) ?? "unknown",
                 sizeBytes = Math.Max(0, item.SizeBytes), expectedBytes = item.ExpectedBytes is null ? (long?)null : Math.Max(0, item.ExpectedBytes.Value),
-                error = Limit(item.Error, 500)
+                error = IsValidCachedItem(item) ? null : Limit(item.Error, 500)
             }));
         if (input.DownloadQueue is not null)
             screen.DownloadQueueJson = JsonSerializer.Serialize(input.DownloadQueue.Take(500).Select(item => new
@@ -51,7 +57,11 @@ public static class ScreenTelemetry
                 kind = Limit(item.Kind, 24), codec = Limit(item.Codec, 80), supported = item.Supported, detail = Limit(item.Detail, 160)
             }));
         if (input.RecentErrors is not null)
-            screen.RecentErrorsJson = JsonSerializer.Serialize(input.RecentErrors.OrderByDescending(x => x.Timestamp).Take(50).Select(item => new
+            screen.RecentErrorsJson = JsonSerializer.Serialize(input.RecentErrors
+                .Where(item => validCachedItemIds is null ||
+                    !string.Equals(item.Area, "download", StringComparison.OrdinalIgnoreCase) ||
+                    item.ItemId is null || !validCachedItemIds.Contains(item.ItemId))
+                .OrderByDescending(x => x.Timestamp).Take(50).Select(item => new
             {
                 timestamp = item.Timestamp, area = Limit(item.Area, 40), message = Limit(item.Message, 500), itemId = Limit(item.ItemId, 80)
             }));
@@ -110,4 +120,13 @@ public static class ScreenTelemetry
         if (normalized is "excellent" or "good" or "fair" or "poor" or "offline") return normalized;
         return latency switch { <= 50 => "excellent", <= 150 => "good", <= 400 => "fair", > 400 => "poor", _ => "unknown" };
     }
+
+    private static bool IsValidCachedItem(TvCacheItemInput item) =>
+        string.Equals(item.State, "cached", StringComparison.OrdinalIgnoreCase) &&
+        (item.ExpectedBytes is null || item.ExpectedBytes <= 0 || item.SizeBytes == item.ExpectedBytes);
+
+    private static bool IsFailedCacheItem(TvCacheItemInput item) =>
+        string.Equals(item.State, "failed", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(item.State, "cached", StringComparison.OrdinalIgnoreCase) &&
+        item.ExpectedBytes is > 0 && item.SizeBytes != item.ExpectedBytes;
 }

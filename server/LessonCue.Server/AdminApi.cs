@@ -2492,9 +2492,13 @@ public static class AdminApi
                 }
                 finally { TryDeleteFile(temporary); }
             }
-            if (input.Download)
+            var youtube = YouTubeMedia.IsYouTubeUrl(uri);
+            // YouTube is always imported locally now. The original URL remains
+            // on the MediaAsset so every client can fall back to embedded
+            // streaming when the download or its derivatives are unusable.
+            if (input.Download || youtube)
             {
-                if (!YouTubeMedia.IsYouTubeUrl(uri))
+                if (!youtube)
                     return Results.BadRequest(new { error = "Local download is available only for YouTube URLs." });
                 if (!input.Persistent)
                 {
@@ -2515,7 +2519,6 @@ public static class AdminApi
             }
             var extension = Path.GetExtension(uri.AbsolutePath).ToLowerInvariant();
             var direct = MediaFormatCatalog.IsDirectLinkable(extension);
-            var youtube = YouTubeMedia.IsYouTubeUrl(uri);
             var embedded = youtube || uri.Host.Equals("vimeo.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".vimeo.com", StringComparison.OrdinalIgnoreCase);
             var kind = direct ? "direct" : youtube ? "youtube" : embedded ? "embedded" : "webpage";
             var contentType = direct ? MediaFormatCatalog.ContentType(extension) : "text/uri-list";
@@ -5024,9 +5027,14 @@ public static class AdminApi
     private static string SignageReadiness(MediaAsset? media)
     {
         if (media is null) return "ready";
+        if (media.SourceKind == "youtube-download" &&
+            YouTubeMedia.EmbedUrl(media.SourceUrl) is not null && string.IsNullOrWhiteSpace(media.RelativePath))
+            return "ready";
         if (media.ProcessingStatus is "pending" or "processing" || media.CompatibilityStatus is "pending" or "processing")
             return "preparing";
-        if (media.ProcessingStatus == "failed" || media.CompatibilityStatus == "failed") return "failed";
+        if (media.ProcessingStatus == "failed")
+            return YouTubeMedia.EmbedUrl(media.SourceUrl) is not null ? "ready" : "failed";
+        if (media.CompatibilityStatus == "failed") return "failed";
         if (media.SourceKind != "link" && string.IsNullOrWhiteSpace(media.RelativePath)) return "missing";
         return "ready";
     }

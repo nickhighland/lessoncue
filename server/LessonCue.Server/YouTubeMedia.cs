@@ -213,13 +213,15 @@ public sealed class YouTubeImportService(
         return arguments;
     }
 
-    private static bool ShouldTryAlternateProfile(Exception error)
+    internal static bool ShouldTryAlternateProfile(Exception error)
     {
         var message = error.ToString().ToLowerInvariant();
         return message.Contains("403") || message.Contains("forbidden") ||
             message.Contains("unable to download video data") ||
             message.Contains("requested format") || message.Contains("no video formats") ||
             message.Contains("page needs to be reloaded") || message.Contains("sabr") ||
+            message.Contains("out of memory") || message.Contains("cagedheap") ||
+            message.Contains("memory limit") || message.Contains("reservation") ||
             message.Contains("did not produce a valid local file");
     }
 

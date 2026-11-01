@@ -48,6 +48,44 @@ public sealed class MediaDiagnosticsTests
     }
 
     [Fact]
+    public async Task DiagnosticsDoNotExposeLegacyAdaptiveVariantsForStillImages()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var root = Path.Combine(Path.GetTempPath(), $"lessoncue-media-diagnostics-image-{Guid.NewGuid():N}");
+        var paths = new MediaStoragePaths(root);
+        Directory.CreateDirectory(paths.Originals);
+        var bytes = new byte[] { 1, 2, 3 };
+        await File.WriteAllBytesAsync(Path.Combine(paths.Originals, "slide.jpeg"), bytes, ct);
+        var image = new MediaAsset
+        {
+            FileName = "slide.jpeg", RelativePath = "slide.jpeg", ContentType = "image/jpeg",
+            Sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), SizeBytes = bytes.Length,
+            ProcessingStatus = "ready", CompatibilityStatus = "not-needed", VideoCodec = "mjpeg"
+        };
+        image.TranscodeVariants.Add(new MediaTranscodeVariant
+        {
+            Profile = AdaptiveTranscodeProfiles.DataSaver480,
+            Status = "failed",
+            Error = "The universal playback source is not ready.",
+            SourceVersion = image.Version
+        });
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(ct);
+        var options = new DbContextOptionsBuilder<LessonCueDb>().UseSqlite(connection).Options;
+        await using var db = new LessonCueDb(options);
+        await db.Database.EnsureCreatedAsync(ct);
+        db.MediaAssets.Add(image);
+        await db.SaveChangesAsync(ct);
+
+        var result = Assert.Single(await MediaDiagnostics.BuildAsync(db, paths, ct: ct));
+
+        Assert.Empty(result.Transcodes);
+        Assert.Empty(TroubleshootingIssueBuilder.Build([], [], [result], [], []));
+        Directory.Delete(root, true);
+    }
+
+    [Fact]
     public async Task RetryValidationRejectsChangedOriginalWithoutMutatingIt()
     {
         var ct = TestContext.Current.CancellationToken;

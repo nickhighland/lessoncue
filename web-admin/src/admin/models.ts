@@ -952,6 +952,7 @@ export type BackupDestinationStatus = {
   googleDriveClientId?: string;
   googleDriveConnected?: boolean;
   googleDriveClientSecretConfigured?: boolean;
+  googleDriveReauthorizationRequired?: boolean;
 };
 export type MigrationTransferGrant = {
   token: string;
