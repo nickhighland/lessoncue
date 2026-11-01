@@ -104,7 +104,7 @@ export function Settings({
   const [adaptiveTranscoding, setAdaptiveTranscoding] = useState(
     bootstrap.settings.adaptiveTranscodingEnabled,
   );
-  const [transcodeLeadDays, setTranscodeLeadDays] = useState(
+  const [transcodeLeadDays] = useState(
     String(bootstrap.settings.transcodeLeadDays),
   );
   const [hardwareAcceleration, setHardwareAcceleration] = useState(
